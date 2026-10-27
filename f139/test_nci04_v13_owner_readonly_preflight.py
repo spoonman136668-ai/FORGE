@@ -122,7 +122,13 @@ class OriginalOwnerV13ReadOnlyTests(unittest.TestCase):
         self.assertNotIn("db.conn.execute(\"UPDATE", code)
         self.assertNotIn("requests.post(", inspect.getsource(module))
         from f139.local_controller import cli
-        self.assertNotIn("transition-qualified-native-v13", inspect.getsource(cli))
+        src=inspect.getsource(cli)
+        # The successor may now exist, but the read-only proof itself must
+        # never authorize a cutover or a model request.
+        self.assertIn("transition-qualified-native-v13",src)
+        self.assertIn("verify_v13_readonly_preflight(validator_db,approval)",src)
+        self.assertIn("with SingleOwner(args.db.with_suffix(\".lock\")):",src)
+        self.assertIn("V13_PROTECTED_MAIN_SHA_DRIFT",src)
 
 
 if __name__ == "__main__":

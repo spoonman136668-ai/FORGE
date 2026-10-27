@@ -592,14 +592,21 @@ class Database:
                               "provider_failures_sha256", "v11_terminal_event_sha256",
                               "g54_ambiguous_start_event_sha256", "g3_draft_history_sha256",
                               "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12,
+                is_v13 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v13"
+                          and set(doc) == base_fields | {
+                              "custodied_negative_tasks", "custodied_negative_tickets",
+                              "provider_failures_sha256", "v12_terminal_event_sha256",
+                              "terminal_tasks_sha256", "model_history_sha256",
+                              "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -913,6 +920,75 @@ class Database:
                                             "event_sha":providers[t][1]}
                                            for t in sorted(providers)])),
                             "SOURCE_TRANSITION_V12_ORIGINAL_CUSTODY_DRIFT")
+                if is_v13:
+                    from f139.nci04_negative_owner_store import (
+                        verify_original_negative_custody, TICKET as FIRST)
+                    from f139.nci04_split_negative_owner_store import (
+                        verify_second_negative_custody, TICKET as SECOND)
+                    from f139.nci04_g49_prepost_negative import (
+                        verify_g49_custody, TICKET as PREPOST)
+                    v12_rows = [
+                        r for r in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' AND seq<? "
+                            "ORDER BY seq", (row["seq"],))
+                        if json.loads(r["payload"]).get("schema") ==
+                           "forge.f139.source-transition.v12"]
+                    providers = self.verified_native_provider_failures(
+                        through_seq=row["seq"])
+                    g54 = g54_original_canonical(self, through_seq=row["seq"])
+                    expected = sorted({FIRST, SECOND, PREPOST, g54["ticket"]} |
+                                      set(providers))
+                    prior_sources = {value for tr in source_transitions
+                                     for value in (tr["from_source_sha"],
+                                                   tr["to_source_sha"])}
+                    frozen_tasks = [dict(task) for task in self.conn.execute(
+                        "SELECT ticket,stage,run_id,evidence_sha,source_sha "
+                        "FROM tasks ORDER BY ticket")
+                        if task["source_sha"] in prior_sources]
+                    frozen_model = [dict(evt) for evt in self.conn.execute(
+                        "SELECT kind,sha FROM events WHERE kind IN "
+                        "('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED',"
+                        "'MODEL_DRAFT_ATTEMPTED','MODEL_DRAFT_AUTHENTICATED',"
+                        "'FREE_REASONER_ATTEMPTED') AND seq<? ORDER BY seq",
+                        (row["seq"],))]
+                    kinds = {name: sum(evt["kind"] == name for evt in frozen_model)
+                             for name in ("G3_DRAFT_ATTEMPTED",
+                                          "G3_DRAFT_AUTHENTICATED",
+                                          "MODEL_DRAFT_ATTEMPTED",
+                                          "MODEL_DRAFT_AUTHENTICATED",
+                                          "FREE_REASONER_ATTEMPTED")}
+                    require(len(v12_rows) == 1 and source_transitions
+                            and source_transitions[-1]["schema"] ==
+                                "forge.f139.source-transition.v12"
+                            and doc["from_source_sha"] ==
+                                source_transitions[-1]["to_source_sha"]
+                            and doc["v12_terminal_event_sha256"] == v12_rows[0]["sha"]
+                            and doc["terminal_tasks_sha256"] ==
+                                hash_bytes(canonical(frozen_tasks))
+                            and doc["model_history_sha256"] ==
+                                hash_bytes(canonical(frozen_model))
+                            and len([t for t in frozen_tasks
+                                     if t["stage"] == "VERIFIED"]) >= 22
+                            and all(t["stage"] in ("VERIFIED", "QUARANTINED")
+                                    for t in frozen_tasks)
+                            and all(kinds[name] == 1 for name in (
+                                "G3_DRAFT_ATTEMPTED", "G3_DRAFT_AUTHENTICATED",
+                                "MODEL_DRAFT_ATTEMPTED", "MODEL_DRAFT_AUTHENTICATED"))
+                            and kinds["FREE_REASONER_ATTEMPTED"] == 0
+                            and doc["verified_historical_tasks"] >= 22
+                            and doc["custodied_negative_tickets"] == expected
+                            and doc["custodied_negative_tasks"] == len(expected)
+                            and doc["provider_failures_sha256"] == hash_bytes(
+                                canonical([{"ticket": t,
+                                            "source_sha": providers[t][0],
+                                            "event_sha": providers[t][1]}
+                                           for t in sorted(providers)]))
+                            and doc["v2_receipt_authorized"] is False
+                            and verify_original_negative_custody(self)
+                            and verify_second_negative_custody(self)
+                            and verify_g49_custody(self),
+                            "SOURCE_TRANSITION_V13_ORIGINAL_CUSTODY_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -1095,7 +1171,8 @@ class Database:
                           allow_v9: bool = False,
                           allow_v10: bool = False,
                           allow_v11: bool = False,
-                          allow_v12: bool = False):
+                          allow_v12: bool = False,
+                          allow_v13: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -1113,7 +1190,7 @@ class Database:
         prepost = verify_g49_custody(self)
         if prepost:
             recognized[PREPOST] = SOURCE_V7
-        if allow_v11 or allow_v12:
+        if allow_v11 or allow_v12 or allow_v13:
             from f139.nci04_g54_ambiguous_start_custody import (
                 verified_g54_ambiguous_start)
             frozen_ambiguous=g54_original_canonical(self)
@@ -1201,6 +1278,7 @@ class Database:
                         and verify_original_negative_custody(self)
                         and verify_second_negative_custody(self)
                         and events and events[-1]["schema"] in (
+                            "forge.f139.source-transition.v12",
                             "forge.f139.source-transition.v11",
                             "forge.f139.source-transition.v10",
                             "forge.f139.source-transition.v9",
@@ -1244,7 +1322,19 @@ class Database:
                           "forge.f139.source-transition.v10"]
                 prev_v11=[e for e in events if e["schema"]==
                           "forge.f139.source-transition.v11"]
-                if prev_v11:
+                prev_v12=[e for e in events if e["schema"]==
+                          "forge.f139.source-transition.v12"]
+                if prev_v12:
+                    from f139.nci04_owner_ledger import verify_native_activation
+                    require(allow_v13 is True and len(prev_v12)==1
+                            and events[-1]["schema"]==
+                                "forge.f139.source-transition.v12"
+                            and meta["source_sha"] == prev_v12[0]["to_source_sha"]
+                            and verify_native_activation(self)
+                            and self.active() is None and self.ready() is None,
+                            "SOURCE_TRANSITION_V13_ORIGINAL_CUSTODY_REQUIRED")
+                    schema="forge.f139.source-transition.v13"
+                elif prev_v11:
                     from f139.nci04_owner_ledger import verify_native_activation
                     require(allow_v12 is True and len(prev_v11)==1
                             and events[-1]["schema"]==
@@ -1344,7 +1434,8 @@ class Database:
                             "forge.f139.source-transition.v9",
                             "forge.f139.source-transition.v10",
                             "forge.f139.source-transition.v11",
-                            "forge.f139.source-transition.v12"):
+                            "forge.f139.source-transition.v12",
+                            "forge.f139.source-transition.v13"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -1457,6 +1548,37 @@ class Database:
                 event["g3_draft_history_sha256"]=hash_bytes(canonical(
                     [{"kind":r["kind"],"sha":r["sha"]} for r in g3]))
                 event["v2_receipt_authorized"]=False
+            if schema == "forge.f139.source-transition.v13":
+                prior_rows = [r for r in self.conn.execute(
+                    "SELECT sha,payload FROM events "
+                    "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                    if json.loads(r["payload"]).get("schema") ==
+                       "forge.f139.source-transition.v12"]
+                require(len(prior_rows) == 1,
+                        "SOURCE_TRANSITION_V13_V12_SEAL_MISSING")
+                model = [dict(r) for r in self.conn.execute(
+                    "SELECT kind,sha FROM events WHERE kind IN "
+                    "('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED',"
+                    "'MODEL_DRAFT_ATTEMPTED','MODEL_DRAFT_AUTHENTICATED',"
+                    "'FREE_REASONER_ATTEMPTED') ORDER BY seq")]
+                kinds = {name: sum(r["kind"] == name for r in model)
+                         for name in ("G3_DRAFT_ATTEMPTED",
+                                      "G3_DRAFT_AUTHENTICATED",
+                                      "MODEL_DRAFT_ATTEMPTED",
+                                      "MODEL_DRAFT_AUTHENTICATED",
+                                      "FREE_REASONER_ATTEMPTED")}
+                require(all(kinds[k] == 1 for k in (
+                    "G3_DRAFT_ATTEMPTED", "G3_DRAFT_AUTHENTICATED",
+                    "MODEL_DRAFT_ATTEMPTED", "MODEL_DRAFT_AUTHENTICATED"))
+                    and kinds["FREE_REASONER_ATTEMPTED"] == 0,
+                    "SOURCE_TRANSITION_V13_MODEL_HISTORY_DRIFT")
+                frozen = [dict(r) for r in self.conn.execute(
+                    "SELECT ticket,stage,run_id,evidence_sha,source_sha "
+                    "FROM tasks ORDER BY ticket")]
+                event["v12_terminal_event_sha256"] = prior_rows[0]["sha"]
+                event["terminal_tasks_sha256"] = hash_bytes(canonical(frozen))
+                event["model_history_sha256"] = hash_bytes(canonical(model))
+                event["v2_receipt_authorized"] = False
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
 
@@ -2889,7 +3011,20 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                  and event.get("g3_draft_history_sha256") == hash_bytes(canonical(
                      [{"kind":r["kind"],"sha":r["sha"]} for r in g3]))
                  and verify_g49_custody(db))
-        if not ((v7 or v8 or v9 or v10 or v11 or v12) and event.get("to_source_sha")==source_sha
+        v13 = False
+        if event.get("schema")=="forge.f139.source-transition.v13":
+            db.verify()
+            v12_rows=[r for r in db.conn.execute(
+                "SELECT sha,payload FROM events "
+                "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                if json.loads(r["payload"]).get("schema")==
+                   "forge.f139.source-transition.v12"]
+            v13=(len(v12_rows)==1
+                 and event.get("from_source_sha")==
+                     json.loads(v12_rows[0]["payload"]).get("to_source_sha")
+                 and event.get("v12_terminal_event_sha256")==v12_rows[0]["sha"]
+                 and verify_g49_custody(db))
+        if not ((v7 or v8 or v9 or v10 or v11 or v12 or v13) and event.get("to_source_sha")==source_sha
                 and event.get("v2_receipt_authorized") is False):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
@@ -3351,6 +3486,8 @@ def cli(argv=None):
     transition_v11.add_argument("--approval",type=Path,required=True)
     transition_v12=sub.add_parser("transition-qualified-native-v12")
     transition_v12.add_argument("--approval",type=Path,required=True)
+    transition_v13=sub.add_parser("transition-qualified-native-v13")
+    transition_v13.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
@@ -3724,6 +3861,61 @@ def cli(argv=None):
                     "event_head":meta["head_hash"],"event_seq":meta["head_seq"],
                     "v2_production_dispatch_authorized":False,
                     "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="transition-qualified-native-v13":
+            # This is callable only by the already-qualified original owner.
+            # Read-only preflight is necessary, not sufficient: caller must
+            # independently authenticate protected main and the owner event.
+            from f139.nci04_v13_owner_readonly_preflight import (
+                verify_v13_readonly_preflight)
+            native_original_owner_profile(args.db)
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"V13_APPROVAL_FILE_INVALID")
+            approval=json.loads(raw)
+            require(type(approval) is dict,"V13_APPROVAL_NOT_OBJECT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read_v13(*parts):
+                result=subprocess.run(
+                    ["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(result.returncode==0,"V13_GIT_COMMAND_FAILED")
+                return result.stdout.decode("utf-8").strip()
+            require(_git_read_v13("rev-parse","HEAD")==approval.get("to_source_sha")
+                    and _git_read_v13("status","--porcelain",
+                                      "--untracked-files=all")=="",
+                    "V13_INSTALLED_CLEAN_EXACT_SOURCE_REQUIRED")
+            api=GitHub()
+            require(api.protected_main()==approval.get("to_source_sha"),
+                    "V13_PROTECTED_MAIN_SHA_DRIFT")
+            api.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                from f139.local_controller import Database as CanonicalOwnerDB
+                validator_db=CanonicalOwnerDB(args.db)
+                try:
+                    verify_v13_readonly_preflight(validator_db,approval)
+                finally:
+                    validator_db.close()
+                before=db.meta()["head_seq"]
+                db.transition_source(approval["to_source_sha"],
+                                     allow_certified_negative=True,
+                                     allow_v13=True)
+                db.verify()
+                meta=db.meta()
+                require(meta["source_sha"]==approval["to_source_sha"]
+                        and meta["head_seq"]==before+1,
+                        "V13_ONE_EVENT_TRANSITION_NOT_ATOMIC")
+                print(json.dumps({
+                    "native_v13_transition":"PASS",
+                    "source_sha":meta["source_sha"],
+                    "event_head":meta["head_hash"],
+                    "event_seq":meta["head_seq"],
+                    "scientific_first_use":False,
+                    "v2_production_dispatch_authorized":False,
+                    "new_controller":False,
+                    "new_scheduler":False,
+                    "new_queue":False,
+                    "paid_api_calls":0},sort_keys=True))
         elif args.verb=="transition-qualified-native-v12":
             # One source successor after consumed V11 activation; preserve G54 #989 and G3 history.
             from f139.nci04_v12_owner_release import validate_v12_original_owner
