@@ -118,7 +118,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="off (default), shadow (serve original), eligible (opt-in)")
     args = parser.parse_args(argv)
     try:
-        # Stdin pipes commonly append CRLF; remove only line terminators.\n        query = sys.stdin.read(MAX_QUERY_BYTES + 1).rstrip("\\r\\n")
+        # Stdin pipes commonly append CRLF; remove only line terminators.
+        query = sys.stdin.read(MAX_QUERY_BYTES + 1).rstrip("\r\n")
         root = Path(args.source_root).resolve(strict=True)
         sys.path.insert(0, str(root / "tools"))
         from mindpalace_readonly import MemorySnapshot
