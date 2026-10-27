@@ -78,6 +78,14 @@ class OriginalV13TransitionTests(unittest.TestCase):
             self.assertIn(expected,src)
         self.assertNotIn('FREE_REASONER_ATTEMPTED"',src)
 
+    def test_native_activation_preserves_original_v13_negative_set(self):
+        from f139.nci04_owner_ledger import activate_native
+        src=inspect.getsource(activate_native)
+        self.assertIn('"forge.f139.source-transition.v13"',src)
+        self.assertIn("v11_ambiguous.add(g54_original_canonical(db)",src)
+        self.assertIn('negative_successors[-1]["custodied_negative_tickets"]',src)
+        self.assertIn('"UNVERIFIED_HISTORICAL_TASK"',src)
+
     def test_no_old_cutover_replay_as_v13(self):
         workflow=(Path(__file__).resolve().parent.parent/
                   ".github/workflows/f139-g54-v9-owner-cutover.yml").read_text()
