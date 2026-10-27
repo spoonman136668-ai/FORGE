@@ -164,17 +164,7 @@ jobs:
               & go test -p 1 -count=1 -run '^TestR425' ./internal/plane
               if($LASTEXITCODE -ne 0){throw 'R425_FOCUSED_SCHEDULER_NEGATIVE_FAILED'}
               Write-Output 'R425_FOCUSED_TERMINAL_BLOCKER_NEGATIVES=PASS'
-            $excluded='^(TestRoadmapSuccessorPostBTVExactParentExport|TestRoadmapCurrentFrontierPostBTVMaterializesBTV03)
-            } finally {Pop-Location}
-            if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){throw 'R425_RELEASE_MUTATED'}
-            if((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'){throw 'R425_ORIGINAL_NATIVE_SOURCE_MUTATED'}
-            Write-Output 'R425_LIVE_SOURCE_AND_EXE_UNCHANGED=PASS'
-          } finally {
-            if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction Stop}
-          }
-          Write-Output 'R425_ISOLATED_TEST_TREE_REMOVED=PASS'
-          if($excludedExit -ne 0){throw 'R427_EXCLUDED_TESTS_NOT_QUALIFIED'}
-
+            $excluded='^(TestRoadmapSuccessorPostBTVExactParentExport|TestRoadmapCurrentFrontierPostBTVMaterializesBTV03)$'
             & go test -p 1 -count=1 -run $excluded ./...
             $excludedExit=$LASTEXITCODE
             Write-Output ('R427_EXCLUDED_ROADMAP_REGRESSION_EXIT='+$excludedExit)
@@ -188,3 +178,4 @@ jobs:
             if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction Stop}
           }
           Write-Output 'R425_ISOLATED_TEST_TREE_REMOVED=PASS'
+          if($excludedExit -ne 0){throw 'R427_EXCLUDED_TESTS_NOT_QUALIFIED'}
