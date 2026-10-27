@@ -3684,6 +3684,7 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 ready=db.ready()
             break
     publication_slot_empty = False
+    steering_selection = None  # Advisory observation; never an authority.
     if ready is None and native_enabled:
         # Same single-owner lock, SQLite ledger and once-only budget as D2K.
         # A source-pinned owner policy may replenish this EXISTING issue intake
@@ -3724,6 +3725,9 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # candidate is independently rebound to an immutable commit/tree.
             feed = feeder(
                 meta["source_sha"], existing_candidates)
+            # Feeder authenticated all source-bound candidates before
+            # producing this read-only selection telemetry.
+            steering_selection = feed.get("steering")
             created_numbers = []
             for candidate in feed["candidates"]:
                 created = api.create_native_feed_issue(
@@ -3812,11 +3816,16 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # Optional G3 publication must not terminate the original F139
             # reconciliation/dispatch loop on a failed owner or API preflight.
             publication = {"disposition": "G3_PUBLISH_BLOCKED_FAIL_CLOSED"}
-        # Preserve the truthful publication disposition (including an
-        # ambiguous no-retry outcome) in original scheduled-owner telemetry.
+        # Preserve truthful publication disposition (including no-retry).
+        if steering_selection is not None and isinstance(publication, dict):
+            publication = dict(publication, steering_selection=steering_selection)
         return publication
     if ready is None:
-        return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
+        report = {"disposition":"QUEUE_EMPTY_NO_SCIENCE",
+                  "completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
+        if steering_selection is not None:
+            report["steering_selection"] = steering_selection
+        return report
     task=dict(ready)
     # Never attempt V2 under legacy default routing: G35/G32 provider
     # terminal custody must be separately deployed before dispatch.
@@ -3862,7 +3871,11 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         else:
             api.dispatch(task["ticket"],task["lane"],task["source_sha"],meta["epoch"],signature)
     db.dispatch_observed(task["ticket"])
-    return {"disposition":"DEVELOPMENT_DISPATCHED_ONCE","ticket":task["ticket"],"science_authorized":False}
+    report = {"disposition":"DEVELOPMENT_DISPATCHED_ONCE",
+              "ticket":task["ticket"],"science_authorized":False}
+    if steering_selection is not None:
+        report["steering_selection"] = steering_selection
+    return report
 
 
 def cli(argv=None):
