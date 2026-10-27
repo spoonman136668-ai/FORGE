@@ -50,10 +50,8 @@ jobs:
                   $params.NoTelemetryLedger=$true
                   $p = ((& $newTool @params | Out-String).Trim() | ConvertFrom-Json)
                   $ids=@($p.default_ids | ForEach-Object { [string]$_ })
-                  $statements=@($p.default_records | ForEach-Object { [string]$_.statement })
-                  if ($statements.Count -eq 0) {
-                    $statements=@($p.governance_records | ForEach-Object { [string]$_.statement }) + @($p.primary_records | ForEach-Object { [string]$_.statement })
-                  }
+                  $statements=@([string]$p.model_context)
+                  if ([string]::IsNullOrWhiteSpace([string]$p.model_context)) { throw 'TIERED_MODEL_CONTEXT_EMPTY' }
                 }
                 $casesCount++
                 foreach($x in @($c.must_include)) { $req++; if ($ids -contains [string]$x) { $reqHit++ } }
