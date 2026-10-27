@@ -71,8 +71,9 @@ jobs:
               & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\archive.ps1 validate *> (Join-Path $scratch 'private-archive.log')
               if ($LASTEXITCODE -ne 0) { throw 'MPAI05_ARCHIVE_VALIDATION_FAILED' }
               Write-Host 'MPAI05_DURABLE_STORE_VALIDATE=PASS'
+              Write-Host 'MPAI05_FULL_REGRESSION_PS_HOST=POWERSHELL_7'
               $phase = 'full'
-              & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Test-All.ps1 *> (Join-Path $scratch 'private-full.log')
+              & pwsh.exe -NoProfile -NonInteractive -File tests\Test-All.ps1 *> (Join-Path $scratch 'private-full.log')
               if ($LASTEXITCODE -ne 0) {
                 $failureLog = @(Get-Content -LiteralPath (Join-Path $scratch 'private-full.log') -ErrorAction SilentlyContinue)
                 $runTests = @($failureLog | Where-Object { $_ -match '^RUN Test-[A-Za-z0-9_-]+\.ps1\s*$' })
