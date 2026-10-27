@@ -94,8 +94,13 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'OBSIDIAN_EXPORT_FAILED'}
             }finally{Pop-Location}
             $notes=@(Get-ChildItem -LiteralPath $newVault -File -Recurse -Filter '*.md')
-            if($notes.Count -lt 1 -or $notes.Count -gt 25000){throw 'OBSIDIAN_NOTE_COUNT_LIMIT'}
             $noteBytes=($notes|Measure-Object -Property Length -Sum).Sum
+            $graphBytes=(Get-Item -LiteralPath $original).Length
+            Write-Host ('KTRADE_GENERATED_NOTE_COUNT='+$notes.Count)
+            Write-Host ('KTRADE_GENERATED_NOTE_BYTES='+$noteBytes)
+            Write-Host ('KTRADE_GENERATED_GRAPH_BYTES='+$graphBytes)
+            if($notes.Count -lt 1){throw 'OBSIDIAN_EXPORT_EMPTY'}
+            if($notes.Count -gt 25000){throw 'OBSIDIAN_NOTE_COUNT_LIMIT'}
             if($noteBytes -gt 125000000){throw 'OBSIDIAN_BYTES_LIMIT'}
             $newGraph=Join-Path $knowledge 'Graphify/Source/graph.json'
             $targetVault=Join-Path $knowledge 'Graphify/Obsidian'
