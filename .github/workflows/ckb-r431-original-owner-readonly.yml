@@ -86,3 +86,72 @@ jobs:
           Write-Output 'R431_NO_CONTROLLER_RESTART=TRUE'
           Write-Output 'R431_NO_RELEASE_ADMISSION=TRUE'
           Write-Output 'R431_NO_SQLITE_WRITE=TRUE'
+      - name: R432 inspect original release-admission registry, paths and inactive candidate without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R432_WRONG_OWNER_RUNNER'}
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $expected='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          if(!(Test-Path -LiteralPath $exe -PathType Leaf) -or (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected){throw 'R432_LIVE_EXECUTABLE_DRIFT'}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction SilentlyContinue)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R432_ORIGINAL_TASK_NOT_RUNNING'}
+          $process=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $matches=@($process | Where-Object {$_.ExecutablePath -ceq $exe})
+          if($process.Count -ne 1 -or $matches.Count -ne 1){throw 'R432_ORIGINAL_NATIVE_PROCESS_TOPOLOGY_DRIFT'}
+          Write-Output ('R432_ORIGINAL_CONTROLLER_PROCESS_ID='+$matches[0].ProcessId)
+          Write-Output 'R432_ORIGINAL_CONTROLLER_RUNNING=PASS'
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $release=Split-Path (Split-Path $exe -Parent) -Parent
+          foreach($root in @($store,$release,(Join-Path $store 'state'))) {
+            if(!(Test-Path -LiteralPath $root -PathType Container)){throw ('R432_REQUIRED_DIRECTORY_MISSING='+$root)}
+            Write-Output ('R432_DIRECTORY='+$root)
+            $children=@(Get-ChildItem -LiteralPath $root -Force -ErrorAction Stop | Sort-Object -Property Name)
+            Write-Output ('R432_DIRECTORY_CHILD_COUNT='+$children.Count)
+            if($children.Count -gt 120){throw 'R432_DIRECTORY_UNBOUNDED'}
+            foreach($child in $children){
+              if($child.Name -match '[\r\n]'){throw 'R432_UNSAFE_CHILD_NAME'}
+              Write-Output ('R432_CHILD='+$(if($child.PSIsContainer){'D:'}else{'F:'})+$child.Name)
+            }
+          }
+          $configs=@(
+            (Join-Path $release 'config\autonomy.yaml'),
+            (Join-Path $release 'config\webui-bridge.json'),
+            (Join-Path $release 'config\local-operations.json'),
+            'C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml',
+            'C:\Users\camar\GolandProjects\ckb-plane\config\local-operations.json'
+          )
+          foreach($config in $configs) {
+            $present=Test-Path -LiteralPath $config -PathType Leaf
+            Write-Output ('R432_CONFIG_PATH='+$config)
+            Write-Output ('R432_CONFIG_PRESENT='+$present)
+            if($present){
+              Write-Output ('R432_CONFIG_SHA256='+(Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant())
+              if($config -like '*local-operations.json'){
+                $registry=Get-Content -LiteralPath $config -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                Write-Output ('R432_LOCAL_OPERATION_SCHEMA='+[string]$registry.schema)
+                $ops=@($registry.operations)
+                Write-Output ('R432_REGISTERED_OPERATION_COUNT='+$ops.Count)
+                if($ops.Count -gt 64){throw 'R432_LOCAL_OPERATION_COUNT_INVALID'}
+                foreach($op in $ops) {
+                  if([string]$op.id -notmatch '^[a-z0-9_-]{1,80}$'){throw 'R432_OPERATION_ID_INVALID'}
+                  Write-Output ('R432_OPERATION_ID='+[string]$op.id)
+                  Write-Output ('R432_OPERATION_CLASS='+[string]$op.class)
+                }
+              }
+            }
+          }
+          $older=Join-Path $env:LOCALAPPDATA 'CKB-R429-Qualified-Candidates\R429-40479635463'
+          $manifest=Join-Path $older 'manifest.json'
+          if(Test-Path -LiteralPath $manifest -PathType Leaf){
+            $record=Get-Content -LiteralPath $manifest -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            Write-Output ('R432_INACTIVE_MANIFEST_SHA256='+(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant())
+            Write-Output ('R432_INACTIVE_MANIFEST_SCHEMA='+[string]$record.schema)
+            Write-Output ('R432_INACTIVE_MANIFEST_CANDIDATE_HASH='+[string]$record.candidate_sha256)
+            Write-Output ('R432_INACTIVE_MANIFEST_REGRESSION='+[string]$record.complete_baseline_filtered_windows_regression)
+            Write-Output ('R432_INACTIVE_MANIFEST_PROMOTED='+[string]$record.promoted)
+          }
+          Write-Output 'R432_NO_NATIVE_COMMAND_OR_MAILBOX_SUBMISSION=TRUE'
+          Write-Output 'R432_NO_SQLITE_OR_RELEASE_WRITE=TRUE'
+          Write-Output 'R432_NO_TASK_RESTART=TRUE'
