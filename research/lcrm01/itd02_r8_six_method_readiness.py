@@ -7,8 +7,8 @@ from itd02_r8_comparator_gate import REQUIRED
 from itd02_r8_original_world_preflight import preflight
 
 STATUS = {
-    "wingless_r8_online_beliefs": ("BLOCKED_NATIVE_FIT_SNAPSHOT", "Native R8 FIT update and restored snapshot not qualified"),
-    "wingless_r5_cost_frontier": ("BLOCKED_NATIVE_R5_PIN", "R5 source-identity and matched native baseline run not qualified"),
+    "wingless_r8_online_beliefs": ("READY_SOURCE_ONLY", "12k native FIT updates, pinned cold restore, and paired fixture qualified; heldout scientific performance untested"),
+    "wingless_r5_cost_frontier": ("READY_SOURCE_ONLY", "Matched 12k native FIT updates, pinned cold restore, and paired fixture qualified; heldout scientific performance untested"),
     "independent_conditional_beta": ("BLOCKED_BASE_POLICY", "Independent conventional base policy and equal-information matching not qualified"),
     "sixfield_fit_model_route": ("READY_SOURCE_ONLY", "FIT-trained model hash and preserved-artifact reconstruction verified"),
     "fit_dynamics_bfs_equal_information": ("BLOCKED_EQUAL_INFORMATION_BFS", "Fitted dynamics BFS controller not wired to identical public information"),
