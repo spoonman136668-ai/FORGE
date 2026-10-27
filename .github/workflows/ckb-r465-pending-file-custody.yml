@@ -58,16 +58,22 @@ jobs:
             if($auth -ceq 'operator'){$counts['OPERATOR_AUTHORIZED']++}
             if($state -ceq 'QUEUED' -and $kind -ceq 'source' -and $mode -ceq 'source' -and $auth -ceq 'operator'){$counts['SOURCE_OPERATOR_QUEUED']++}
             $rawHash=(Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            $dbHash=([string]$q.hash).ToLowerInvariant()
-            if([string]::IsNullOrWhiteSpace($dbHash)){
+            $hashProp=$q.PSObject.Properties['hash']
+            if($null -eq $hashProp){
               $counts['EMPTY_HASH']++
-            }elseif($rawHash -cne $dbHash){
-              $counts['HASH_MISMATCH']++
-            }else{
-              $counts['HASH_MATCH']++
+            } else {
+              $dbHash=([string]$hashProp.Value).ToLowerInvariant()
+              if([string]::IsNullOrWhiteSpace($dbHash)){
+                $counts['EMPTY_HASH']++
+              }elseif($rawHash -cne $dbHash){
+                $counts['HASH_MISMATCH']++
+              }else{
+                $counts['HASH_MATCH']++
+              }
             }
           }
           foreach($k in @($counts.Keys|Sort-Object)){Write-Output ('R465_'+$k+'='+$counts[$k])}
+          Write-Output ('R465_NATIVE_PROJECTION_HASH_UNAVAILABLE='+[string]($counts['EMPTY_HASH'] -eq $files.Count))
           if($counts['MISSING_LEDGER'] -gt 0){throw 'R465_PENDING_FILE_WITHOUT_QUEUE_LEDGER'}
           if($counts['SOURCE_OPERATOR_QUEUED'] -gt 0){Write-Output 'R465_AUTHORIZED_SOURCE_EXISTS_BUT_NOT_DISPATCHED=TRUE'}
           else{Write-Output 'R465_NO_NEW_ELIGIBLE_AUTHORIZED_SOURCE_FILE=TRUE'}
