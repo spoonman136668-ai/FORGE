@@ -1,0 +1,43 @@
+name: CKB R427 historical composite source access proof
+on:
+  push:
+    branches: [audit/ckb-r427-exact-composition-20261027]
+    paths:
+      - .github/workflows/ckb-r427-private-composition-preflight.yml
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Verify original elevated owner and access to exact archived source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R427_WRONG_OWNER_RUNNER'}
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R427_OWNER_ADMIN_REQUIRED'}
+          foreach($tool in @('git.exe','go.exe','gh.exe')){if(-not(Get-Command $tool -ErrorAction SilentlyContinue)){throw ('R427_TOOL_MISSING='+$tool)}}
+          $owner=(& gh api user --jq '.login' 2>$null | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $owner -cne 'spoonman136668-ai'){throw 'R427_OWNER_GITHUB_AUTH_ABSENT'}
+          Write-Output 'R427_OWNER_IDENTITY=PASS'
+          $repo='spoonman136668-ai/ckb-plane'
+          $refs=@(
+            @{ref='cf4e2a0c8df0f2534e0d0ea94a0b0122e414b3d5';file='snapshot/source/internal/plane/status_projection.go'},
+            @{ref='3dc167724b7154a6e4e481632fbd7ac4f4abeb5e';file='snapshot/source/internal/plane/model.go'},
+            @{ref='b6781601256fe79ff0219a588b35ec430d81ce58';file='snapshot/source/internal/plane/git.go'},
+            @{ref='2426d98e66b543943dce35c248c9b545631cebb1';file='snapshot/source/internal/plane/status_projection.go'},
+            @{ref='88f4a4df30ad63efa468f1bbdc780dde6ce4b191';file='snapshot/source/internal/plane/r18_legacy_roadmap_hold.go'}
+          )
+          foreach($pin in $refs){
+            $api='repos/'+$repo+'/contents/'+$pin.file+'?ref='+$pin.ref
+            $sha=(& gh api $api --jq '.sha' 2>$null | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $sha -cnotmatch '^[a-f0-9]{40}$'){throw ('R427_HISTORICAL_SOURCE_PIN_UNAVAILABLE='+$pin.ref)}
+            Write-Output ('R427_HISTORICAL_BLOB_ACCESS=PASS REF='+$pin.ref.Substring(0,12))
+          }
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){throw 'R427_EXACT_INSTALLED_RELEASE_CHANGED'}
+          Write-Output 'R427_READY_FOR_EXACT_COMPOSITION=PASS'
+          Write-Output 'R427_LIVE_MUTATIONS=NONE'
