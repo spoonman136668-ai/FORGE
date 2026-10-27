@@ -164,7 +164,14 @@ def reasoner_proposal_once(
     need(type(today) is str and DAY.fullmatch(today) is not None,
          "UTC_DAY_INVALID")
     prior = _attempts(db)
-    if scope in {x["scope_sha256"] for x in prior}:
+    # Changing FORGE's source release is not new scientific feedback. Never
+    # repurchase the same public target/learner-outcome request on a new SHA.
+    # Both lanes still get independent *first* scopes under one total budget.
+    if (scope in {x["scope_sha256"] for x in prior}
+        or any(x["lane"] == lane and x["target_commit"] == target_commit
+               and x["path"] == path
+               and x["original_feedback_sha256"] == feedback
+               for x in prior)):
         return {"disposition": "FREE_REASONER_SCOPE_ALREADY_ATTEMPTED_NO_REPLAY",
                 "scientific_first_use": False,
                 "worker_dispatched": False, "paid_model_calls": 0}
