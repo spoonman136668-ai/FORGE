@@ -1,4 +1,4 @@
-name: CKB R423 original pending-file and blocker classification
+name: CKB R424 verify exact source gate ordering
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -133,6 +133,19 @@ jobs:
               Write-Output ('R423_FAILED_QUEUE_ID='+$safeId+' REASON_CLASS='+$reasonClass+' JOB_STATE='+$jobState)
             }
             Write-Output 'R423_BLOCKER_CLASSIFICATION_READ_ONLY=PASS'
+            $schedulerSource=Join-Path $root 'internal\plane\autonomy.go'
+            $sourcePin='c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'
+            if((Get-FileHash -LiteralPath $schedulerSource -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sourcePin){throw 'R424_INSTALLED_SOURCE_PIN_DRIFT'}
+            $scheduler=[IO.File]::ReadAllText($schedulerSource)
+            $start=$scheduler.IndexOf('func (p *Engine) AutonomyTick(')
+            $end=$scheduler.IndexOf('func (p *Engine) startQueued(',$start)
+            if($start -lt 0 -or $end -le $start){throw 'R424_SCHEDULER_BOUNDARY_UNKNOWN'}
+            $tick=$scheduler.Substring($start,$end-$start)
+            $blockMarker=$tick.IndexOf('if len(blockers) > 0 {')
+            $queueMarker=$tick.IndexOf('if item.State != "QUEUED"')
+            if($blockMarker -lt 0 -or $queueMarker -lt 0){throw 'R424_SCHEDULER_GATE_UNKNOWN'}
+            Write-Output ('R424_TERMINAL_BLOCKER_BEFORE_NEW_QUEUE='+[string]($blockMarker -lt $queueMarker))
+            Write-Output 'R424_PINNED_NATIVE_SCHEDULER=PASS'
             Write-Output 'R422_SNAPSHOT_OBSERVATION_ONLY=TRUE'
             Write-Output 'R417_ORIGINAL_EXE_ON_CONSISTENT_OWNER_SNAPSHOT=PASS'
             Write-Output 'R417_LIVE_CONTROLLER_OR_DATABASE_MUTATION=FALSE'
