@@ -2804,7 +2804,30 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                    and event.get("g54_ambiguous_start_event_sha256")==
                        frozen["quarantine_event_sha256"]
                    and verify_g49_custody(db))
-        if not ((v7 or v8 or v9 or v10 or v11) and event.get("to_source_sha")==source_sha
+        v12 = False
+        if event.get("schema")=="forge.f139.source-transition.v12":
+            db.verify()
+            g54 = g54_original_canonical(db)
+            v11_rows = [
+                r for r in db.conn.execute(
+                    "SELECT sha,payload FROM events "
+                    "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                if json.loads(r["payload"]).get("schema") ==
+                   "forge.f139.source-transition.v11"]
+            g3 = [r for r in db.conn.execute(
+                "SELECT kind,sha FROM events WHERE kind IN "
+                "('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED') "
+                "ORDER BY seq")]
+            v12=(len(v11_rows)==1
+                 and event.get("from_source_sha") ==
+                     json.loads(v11_rows[0]["payload"])["to_source_sha"]
+                 and event.get("v11_terminal_event_sha256")==v11_rows[0]["sha"]
+                 and event.get("g54_ambiguous_start_event_sha256") ==
+                     g54["quarantine_event_sha256"]
+                 and event.get("g3_draft_history_sha256") == hash_bytes(canonical(
+                     [{"kind":r["kind"],"sha":r["sha"]} for r in g3]))
+                 and verify_g49_custody(db))
+        if not ((v7 or v8 or v9 or v10 or v11 or v12) and event.get("to_source_sha")==source_sha
                 and event.get("v2_receipt_authorized") is False):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
@@ -3234,6 +3257,8 @@ def cli(argv=None):
     transition_v10.add_argument("--approval",type=Path,required=True)
     transition_v11=sub.add_parser("transition-qualified-native-v11")
     transition_v11.add_argument("--approval",type=Path,required=True)
+    transition_v12=sub.add_parser("transition-qualified-native-v12")
+    transition_v12.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
@@ -3607,6 +3632,58 @@ def cli(argv=None):
                     "event_head":meta["head_hash"],"event_seq":meta["head_seq"],
                     "v2_production_dispatch_authorized":False,
                     "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="transition-qualified-native-v12":
+            # One source successor after consumed V11 activation; preserve G54 #989 and G3 history.
+            from f139.nci04_v12_owner_release import validate_v12_original_owner
+            native_original_owner_profile(args.db)
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"V12_APPROVAL_FILE_INVALID")
+            approval=json.loads(raw)
+            require(type(approval) is dict,"V12_APPROVAL_NOT_OBJECT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read_v12(*parts):
+                result=subprocess.run(
+                    ["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(result.returncode==0,"V12_GIT_COMMAND_FAILED")
+                return result.stdout.decode("utf-8").strip()
+            require(_git_read_v12("rev-parse","HEAD")==approval.get("to_source_sha")
+                    and _git_read_v12("status","--porcelain",
+                                      "--untracked-files=all")=="",
+                    "V12_INSTALLED_CLEAN_EXACT_SOURCE_REQUIRED")
+            api=GitHub()
+            require(api.protected_main()==approval.get("to_source_sha"),
+                    "V12_PROTECTED_MAIN_SHA_DRIFT")
+            api.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                from f139.local_controller import Database as CanonicalOwnerDB
+                validator_db=CanonicalOwnerDB(args.db)
+                try:
+                    validate_v12_original_owner(validator_db,approval)
+                finally:
+                    validator_db.close()
+                before=db.meta()["head_seq"]
+                db.transition_source(approval["to_source_sha"],
+                                     allow_certified_negative=True,
+                                     allow_v12=True)
+                db.verify()
+                meta=db.meta()
+                require(meta["source_sha"]==approval["to_source_sha"]
+                        and meta["head_seq"]==before+1,
+                        "V12_ONE_EVENT_TRANSITION_NOT_ATOMIC")
+                print(json.dumps({
+                    "native_v12_transition":"PASS",
+                    "source_sha":meta["source_sha"],
+                    "event_head":meta["head_hash"],
+                    "event_seq":meta["head_seq"],
+                    "scientific_first_use":False,
+                    "v2_production_dispatch_authorized":False,
+                    "new_controller":False,
+                    "new_scheduler":False,
+                    "new_queue":False,
+                    "paid_api_calls":0},sort_keys=True))
         elif args.verb=="transition-qualified-native-v11":
             # One source successor after consumed V10 activation and G54 #989 original negative.
             from f139.nci04_v11_owner_release import validate_v11_original_owner
