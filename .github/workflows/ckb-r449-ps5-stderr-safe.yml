@@ -1,0 +1,96 @@
+name: CKB R449 inactive PS5 stderr-safe native diagnostic qualification
+on:
+  push:
+    branches: [audit/ckb-r449-native-error-capture-20261027]
+permissions:
+  contents: read
+jobs:
+  original-owner-inactive-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Rebuild inactive R445 diagnostic to record Go stderr and exit code without PS5 terminating stream conversion
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R449_WRONG_OWNER'}
+          $source='C:\Users\camar\AppData\Local\CKB-R445-Inactive-Diagnostic-Packages\R445-40542294815\Start-R445-Instrumented.proposed.ps1'
+          $oldSHA='217ab726ffda24c96ab5f81b455b7dc600b14dbc09182de50291d1d0b3c67109'
+          if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldSHA){throw 'R449_PS5_QUALIFIED_SOURCE_CHANGED'}
+          $oldName='R445-40542294815'
+          $newName='R449-'+$env:GITHUB_RUN_ID
+          $src=[IO.File]::ReadAllText($source)
+          if(([regex]::Matches($src,[regex]::Escape($oldName))).Count -ne 1){throw 'R449_DIAGNOSTIC_LABEL_NOT_UNIQUE'}
+          $tokens=$null;$errs=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseInput($src,[ref]$tokens,[ref]$errs)
+          if(@($errs).Count -ne 0){throw 'R449_OLD_SOURCE_PARSE_FAILED'}
+          $calls=@($ast.FindAll({param($node) $node -is [System.Management.Automation.Language.CommandAst]},$true)|Where-Object {$_.InvocationOperator -eq [System.Management.Automation.Language.TokenKind]::Ampersand})
+          if($calls.Count -ne 1){throw 'R449_NATIVE_CALL_NOT_UNIQUE'}
+          $callText=[string]$calls[0].Extent.Text
+          if($callText -notmatch '1>\s*\$R445_Out\s+2>\s*\$R445_Err' -or $callText -notmatch '@runArgs'){throw 'R449_NOT_EXPECTED_NATIVE_REDIRECTION'}
+          if($calls[0].Extent.StartOffset -lt 100){throw 'R449_CALL_OFFSET_UNSAFE'}
+          $prefix='$ErrorActionPreference=''Continue''; '
+          $instrumented=$src.Insert($calls[0].Extent.StartOffset,$prefix).Replace($oldName,$newName)
+          $tok2=$null;$err2=$null
+          $ast2=[System.Management.Automation.Language.Parser]::ParseInput($instrumented,[ref]$tok2,[ref]$err2)
+          if(@($err2).Count -ne 0){throw 'R449_NEW_SCRIPT_PARSE_FAILED'}
+          $afterCalls=@($ast2.FindAll({param($node) $node -is [System.Management.Automation.Language.CommandAst]},$true)|Where-Object {$_.InvocationOperator -eq [System.Management.Automation.Language.TokenKind]::Ampersand})
+          if($afterCalls.Count -ne 1){throw 'R449_NEW_INVOKE_COUNT_DRIFT'}
+          if(([regex]::Matches($instrumented,[regex]::Escape($prefix))).Count -ne 1){throw 'R449_ACTION_PREFERENCE_SWITCH_NOT_UNIQUE'}
+          if(([regex]::Matches($instrumented,'native-exit-code.txt')).Count -ne 1 -or ([regex]::Matches($instrumented,'native-stderr.txt')).Count -ne 1){throw 'R449_CAPTURE_PATHS_DRIFT'}
+          $dest=Join-Path $env:LOCALAPPDATA ('CKB-R449-Inactive-Diagnostics\'+$newName)
+          if(Test-Path -LiteralPath $dest){throw 'R449_INACTIVE_DEST_COLLISION'}
+          New-Item -Path $dest -ItemType Directory -ErrorAction Stop|Out-Null
+          $target=Join-Path $dest 'Start-R449-PS5-StderrSafe.proposed.ps1'
+          [IO.File]::WriteAllText($target,$instrumented,[Text.UTF8Encoding]::new($false))
+          $newSHA=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest=[ordered]@{schema='ckb-plane.r449.ps5-native-stderr-safe-inactive.v1';original_ps5_qualified_launcher_sha256=$oldSHA;candidate_binary_sha256='44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019';instrumented_ps5_launcher_sha256=$newSHA;diagnostic_label=$newName;native_capture_powershell_error_action='Continue';original_owner_task_unchanged=$true;candidate_invoked=$false;production_db_touched=$false}
+          [IO.File]::WriteAllText((Join-Path $dest 'manifest.json'),($manifest|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
+          Write-Output ('R449_INACTIVE_DIAGNOSTIC_PS5_SCRIPT_SHA256='+$newSHA)
+          Write-Output ('R449_INACTIVE_DIAGNOSTIC_LABEL='+$newName)
+          $sandbox=Join-Path $env:RUNNER_TEMP ('R449-PS5-Synthetic-'+$env:GITHUB_RUN_ID)
+          New-Item -Path $sandbox -ItemType Directory -ErrorAction Stop|Out-Null
+          try{
+            $ps5='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+            $parseScript=@'
+          param([string]$Source)
+          $tok=$null;$e=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tok,[ref]$e)
+          if(@($e).Count -ne 0){exit 22}
+          exit 0
+          '@
+            $parsePath=Join-Path $sandbox 'parse.ps1'
+            [IO.File]::WriteAllText($parsePath,$parseScript,[Text.UTF8Encoding]::new($false))
+            & $ps5 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $parsePath -Source $target
+            if($LASTEXITCODE -ne 0){throw 'R449_WINPS5_GENERATED_SCRIPT_SYNTAX_INVALID'}
+            Write-Output 'R449_WINPS5_NEW_SCRIPT_SYNTAX=PASS'
+            $probe=@'
+          param([string]$Root)
+          $ErrorActionPreference='Stop'
+          $o=Join-Path $Root 'synthetic-stdout.txt'
+          $e=Join-Path $Root 'synthetic-stderr.txt'
+          $f=Join-Path $Root 'synthetic-exit.txt'
+          $ErrorActionPreference='Continue'
+          & $env:ComSpec /d /c 'echo R449_SYNTHETIC_SENTINEL 1>&2 & exit /b 9' 1> $o 2> $e
+          $code=$LASTEXITCODE
+          [IO.File]::WriteAllText($f,[string]$code)
+          exit 0
+          '@
+            $probePath=Join-Path $sandbox 'native-stderr-probe.ps1'
+            [IO.File]::WriteAllText($probePath,$probe,[Text.UTF8Encoding]::new($false))
+            & $ps5 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probePath -Root $sandbox
+            if($LASTEXITCODE -ne 0){throw 'R449_SYNTHETIC_PS5_LAUNCH_FAILED'}
+            $exitValue=[IO.File]::ReadAllText((Join-Path $sandbox 'synthetic-exit.txt')).Trim()
+            if($exitValue -cne '9'){throw 'R449_PS5_NONZERO_NATIVE_EXIT_NOT_CAPTURED'}
+            if((Get-Item -LiteralPath (Join-Path $sandbox 'synthetic-stderr.txt')).Length -lt 1){throw 'R449_PS5_SYNTHETIC_STDERR_MISSING'}
+            Write-Output 'R449_PS5_NATIVE_STDERR_AND_NONZERO_EXIT_CAPTURE=PASS'
+          }finally{if(Test-Path -LiteralPath $sandbox){Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop}}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          $live=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $oldExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running' -or $live.Count -ne 1 -or [string]$live[0].ExecutablePath -cne $oldExe -or [int]$live[0].ProcessId -ne 102324){throw 'R449_ORIGINAL_CONTROLLER_OR_TASK_DRIFT'}
+          Write-Output 'R449_PRODUCTION_CONTROLLER_STILL_ORIGINAL=PASS'
+          Write-Output 'R449_NO_LIVE_RELEASE_OR_SQLITE_MUTATION=TRUE'
+          $global:LASTEXITCODE=0
+          exit 0
