@@ -213,3 +213,53 @@ def reasoner_proposal_once(
     return {**final, "generator": "PUBLIC_FREE_NEMOTRON_HISTORY_GROUNDED",
             "remote_request_scope_sha256": scope,
             "paid_model_calls": 0, "scientific_first_use": False}
+
+
+def run_original_free_reasoner_once(
+    db, api, db_path, *, source_sha: str,
+    owner_witness: Callable[[], bool],
+    token: str | None = None,
+) -> dict:
+    """Native original Windows controller entry only; not a generic runner.
+
+    Reuses exactly the already-held original SingleOwner mutex and same
+    original SQLite file when invoked via python -m. This bridge is inert
+    unless a future original-controller source release explicitly calls it.
+    """
+    import sys
+    from pathlib import Path
+    from f139.local_controller import GitHub, SingleOwner
+    from f139.nci04_owner_model_free_bootstrap import original_canonical_db
+    from f139 import nci04_candidate_producer_g29 as g29
+
+    main = sys.modules.get("__main__")
+    canonical_api = type(api) is GitHub
+    original_cli_api = (
+        type(api).__module__ == "__main__"
+        and type(api).__name__ == "GitHub"
+        and main is not None
+        and isinstance(getattr(main, "__file__", None), str)
+        and Path(main.__file__).resolve(strict=True) ==
+            (Path(__file__).resolve().parent / "local_controller.py").resolve(strict=True)
+    )
+    lock_type = getattr(main, "SingleOwner", None) if original_cli_api else SingleOwner
+    need((canonical_api or original_cli_api)
+         and isinstance(db_path, Path)
+         and isinstance(lock_type, type)
+         and lock_type.__name__ == "SingleOwner"
+         and lock_type.held(db_path.with_suffix(".lock")) is True
+         and callable(owner_witness)
+         and owner_witness() is True,
+         "ORIGINAL_WINDOWS_MUTEX_OR_PROCESS_REQUIRED")
+    owner, close = original_canonical_db(db, db_path)
+    try:
+        return reasoner_proposal_once(
+            owner, api.native_repo_get, api.native_repo_get,
+            api.owner_model_write, source_sha=source_sha,
+            lane="Yggdrasil", target_commit=g29.PARENT,
+            path="yggdrasil/public_causal_cells.py",
+            owner_witness=owner_witness, token=token,
+        )
+    finally:
+        if close:
+            owner.close()
