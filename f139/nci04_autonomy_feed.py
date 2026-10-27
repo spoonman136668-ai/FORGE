@@ -357,8 +357,33 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
     if steering is not None:
         selected = rank_eligible(
             candidates, maximum=policy["max_issue_creations_per_cycle"])
+        # Read-only evidence of actual advisory intake ranking. This can
+        # attest which already-authenticated development candidates were
+        # considered and selected, NOT whether any experiment improved.
+        eligible_ids = [c["candidate_identity"] for c in candidates]
+        selected_ids = [c["candidate_identity"] for c in selected]
+        selection = {
+            "schema": "forge.f139.itd02-selection-witness.v1",
+            "eligible_authenticated_count": len(eligible_ids),
+            "selected_authenticated_count": len(selected_ids),
+            "selection_differs_from_catalog_prefix":
+                selected_ids != eligible_ids[:len(selected_ids)],
+            "selected_advisory_forecast_count": sum(
+                isinstance(c.get("advisory_handoff"), dict)
+                for c in selected),
+            "source_selection_sha256": digest(canonical({
+                "eligible_candidate_identities": eligible_ids,
+                "selected_candidate_identities": selected_ids,
+                "controller_source_sha": source_sha,
+                "steering_manifest_sha256": steering["manifest_sha256"],
+            })),
+            "development_only": True,
+            "scientific_first_use": False,
+            "dispatch_authorized": False,
+        }
         return {"enabled": True, "candidates": selected,
-                "rejected": rejected, "steering": steering}
+                "rejected": rejected,
+                "steering": {**steering, "selection_witness": selection}}
     report = {"enabled": True, "candidates": candidates, "rejected": rejected}
     if steering_unavailable:
         report["steering"] = {
