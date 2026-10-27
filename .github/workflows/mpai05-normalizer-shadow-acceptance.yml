@@ -1,0 +1,69 @@
+name: MP-AI05 real-source normalizer shadow acceptance
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-normalizer-shadow-acceptance.yml']
+permissions:
+  contents: read
+jobs:
+  evaluate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Paired control and source-backed shadow evaluation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:MPAI05_ROOT = Join-Path $env:RUNNER_TEMP ('mpai05-normalizer-' + $env:GITHUB_RUN_ID)
+          git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $env:MPAI05_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_SOURCE_UNAVAILABLE' }
+          @'
+          import json,sys,re,os,subprocess
+          from pathlib import Path
+          root=Path(os.environ['MPAI05_ROOT'])
+          sha=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+          assert sha=='7ad7230a82e3c748aa5336b7288ad2b45d42630c','PIN_DRIFT'
+          sys.path.insert(0,str(root/'tools'))
+          sys.path.insert(0,'tools')
+          from mindpalace_readonly import MemorySnapshot
+          from mpai05_query_normalizer import normalize_query
+          snap=MemorySnapshot(root,sha,['Mind-Palace'])
+          eligible=sorted((r for r in snap.index if r.get('project')=='Mind-Palace'
+            and r.get('source_refs') and len(str(r.get('statement','')).split())>=12
+            and r['id'] not in ('boundary/authority-order','boundary/no-secrets')),key=lambda r:r['id'])
+          assert len(eligible)>=24
+          stop={'the','and','for','with','from','this','that','which','when','into','only','must','shall','have','were','been','each','such','their','are','not'}
+          templates=[
+            ('Can you find the saved memory related to ', ' and explain the original evidence?'),
+            ('I am trying to remember something from an earlier conversation about ', '. Would you check the context and tell me whether any relevant notes were recorded?')]
+          scores={k:{'top1':0,'top4':0} for k in ('raw','candidate')}
+          unchanged=0
+          for i,record in enumerate(eligible[:24]):
+              words=[w.lower() for w in re.findall(r'[a-zA-Z0-9]+',record['statement']) if len(w)>4 and w.lower() not in stop]
+              unique=list(dict.fromkeys(words))
+              clue=' '.join(unique[n] for n in (0,len(unique)//2,len(unique)-1) if n<len(unique))
+              assert clue
+              prefix,suffix=templates[0 if i<12 else 1]
+              raw=prefix+clue+suffix
+              candidate=normalize_query(raw)
+              assert candidate.transformed and candidate.query==clue
+              for kind,query in (('raw',raw),('candidate',candidate.query)):
+                  got=snap.recall(sha,query,['Mind-Palace'],'continuation')
+                  ids=[m['id'] for m in got['matches'][:4]]
+                  rank=(ids.index(record['id'])+1) if record['id'] in ids else None
+                  scores[kind]['top1']+=rank==1
+                  scores[kind]['top4']+=rank is not None
+              ordinary='What is the evidence for '+clue+'?'
+              assert normalize_query(ordinary).query==ordinary
+              unchanged+=1
+          print('MPAI05_SHADOW_COUNTS='+json.dumps({'cases':24,'ordinary_queries_unchanged':unchanged,'scores':scores},sort_keys=True))
+          assert scores['candidate']['top1']>=scores['raw']['top1'],'TOP1_REGRESSION'
+          assert scores['candidate']['top4']>=scores['raw']['top4'],'TOP4_REGRESSION'
+          assert scores['candidate']['top1']>=20,'EXPECTED_BENEFIT_NOT_REPRODUCED'
+          assert scores['candidate']['top4']>=22,'EXPECTED_BENEFIT_NOT_REPRODUCED'
+          print('MPAI05_SHADOW_READ_ONLY=True')
+          print('MPAI05_SHADOW_HOLDOUT_ACCESS=0')
+          print('MPAI05_SHADOW_ACCEPTANCE=PASS')
+          '@ | python
+          if ($LASTEXITCODE -ne 0) { throw 'SHADOW_ACCEPTANCE_FAILED' }
