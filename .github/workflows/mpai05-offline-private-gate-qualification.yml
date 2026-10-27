@@ -1,0 +1,86 @@
+name: MP-AI05 exact pinned offline private gate qualification
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths:
+      - '.github/workflows/mpai05-offline-private-gate-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-offline-private-gate
+  cancel-in-progress: false
+jobs:
+  isolated-qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    steps:
+      - name: Frozen private-source focused tests and one final Windows regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GIT_CREDENTIAL_INTERACTIVE: 'never'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI05_RUNNER_IDENTITY_UNAUTHORIZED'
+          }
+          $expected = 'b32c6bc91c27a77fe12ade75b984c94815402cf7'
+          $tree = '5fcb6a63ba0cd87d96a7f5ca9ed109c53e9b2204'
+          $branch = 'proposal/mpai05-paired-answer-offline-gate-20261027'
+          $scratch = Join-Path $env:RUNNER_TEMP ('mpai05-paired-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT)
+          $source = Join-Path $scratch 'source'
+          $phase = 'clone'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --depth 1 --branch $branch 'https://github.com/spoonman136668-ai/Mind-Palace.git' $source *> (Join-Path $scratch 'private-clone.log')
+            if ($LASTEXITCODE -ne 0) { throw 'MPAI05_PRIVATE_SOURCE_UNAVAILABLE' }
+            $actual = (& git -C $source rev-parse HEAD).Trim()
+            $actualTree = (& git -C $source rev-parse 'HEAD^{tree}').Trim()
+            if ($actual -cne $expected -or $actualTree -cne $tree) { throw 'MPAI05_SOURCE_IDENTITY_DRIFT' }
+            $blobA = (& git -C $source rev-parse 'HEAD:tools/mpai05_paired_gate.py').Trim()
+            $blobB = (& git -C $source rev-parse 'HEAD:tests/test_mpai05_paired_gate.py').Trim()
+            if ($blobA -cne '3fe4c004c78b7fb8342966380c258e5c644358e2' -or
+                $blobB -cne 'db7cefe489a94634e1ef9bf139131fb733fef51a') {
+              throw 'MPAI05_FOCUSED_SOURCE_BLOB_DRIFT'
+            }
+            $clean = @(& git -C $source status --porcelain --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $clean.Count -gt 0) { throw 'MPAI05_WORKSPACE_DIRTY_PRE' }
+            Write-Host ('MPAI05_SOURCE_COMMIT=' + $actual)
+            Write-Host ('MPAI05_SOURCE_TREE=' + $actualTree)
+            Push-Location $source
+            try {
+              $phase = 'focused'
+              & python -B -m unittest discover -s tests -p test_mpai05_paired_gate.py -v *> (Join-Path $scratch 'private-focused.log')
+              if ($LASTEXITCODE -ne 0) { throw 'MPAI05_FOCUSED_TESTS_FAILED' }
+              Write-Host 'MPAI05_FOCUSED_TESTS=PASS'
+              $phase = 'store'
+              & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\mind.ps1 validate *> (Join-Path $scratch 'private-store.log')
+              if ($LASTEXITCODE -ne 0) { throw 'MPAI05_STORE_VALIDATION_FAILED' }
+              & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\archive.ps1 validate *> (Join-Path $scratch 'private-archive.log')
+              if ($LASTEXITCODE -ne 0) { throw 'MPAI05_ARCHIVE_VALIDATION_FAILED' }
+              Write-Host 'MPAI05_DURABLE_STORE_VALIDATE=PASS'
+              $phase = 'full'
+              & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Test-All.ps1 *> (Join-Path $scratch 'private-full.log')
+              if ($LASTEXITCODE -ne 0) { throw 'MPAI05_ONE_FULL_REGRESSION_FAILED' }
+              Write-Host 'MPAI05_FINAL_WINDOWS_REGRESSION=PASS'
+            } finally {
+              Pop-Location
+            }
+            $clean = @(& git -C $source status --porcelain --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $clean.Count -gt 0) { throw 'MPAI05_WORKSPACE_DIRTY_POST' }
+            Write-Host 'MPAI05_SOURCE_CUSTODY=PASS'
+            Write-Host 'MPAI05_MODEL_ANSWER_IMPACT=NOT_TESTED'
+            Write-Host 'MPAI05_PRIVATE_DATA_IN_PUBLIC_LOGS=FALSE'
+            Write-Host 'MPAI05_PROMOTION=NOT_AUTHORIZED'
+          } catch {
+            Write-Host ('MPAI05_QUALIFICATION_PHASE=' + $phase)
+            throw 'MPAI05_QUALIFICATION_NOT_PASSED'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if (Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
