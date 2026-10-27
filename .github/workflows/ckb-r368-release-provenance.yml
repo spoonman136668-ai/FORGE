@@ -1,4 +1,4 @@
-name: CKB R409 inventory controller-related archives independent of filename
+name: CKB R410 bounded archive classification
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -21,11 +21,11 @@ jobs:
           foreach($p in @($base,$releases,$release)) {
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
           }
-          $root='C:\Users\camar\GolandProjects'
-          $dirs=@(Get-ChildItem -LiteralPath $root -Directory -ErrorAction Stop | Where-Object {$_.Name -match '(?i)^ckb-plane'})
-          foreach($dir in $dirs){
-            $files=@(Get-ChildItem -LiteralPath $dir.FullName -Recurse -File -ErrorAction SilentlyContinue | Where-Object {$_.Extension -match '(?i)^\.(zip|tar|gz|tgz|7z|bundle)$'} | Select-Object -First 30)
-            Write-Output ('R409_DIR='+$dir.Name+' ARCHIVES='+$files.Count)
-            foreach($item in $files){Write-Output ('R409_ARCHIVE='+$item.FullName+' BYTES='+$item.Length)}
-          }
-          Write-Output 'R409_READ_ONLY=TRUE'
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $files=@(Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue | Where-Object {$_.Extension -in @('.zip','.tar','.gz','.7z','.bundle')})
+          Write-Output ('R410_ARCHIVE_TOTAL='+$files.Count)
+          foreach($g in ($files | Group-Object Extension)){Write-Output ('R410_EXTENSION='+$g.Name+' COUNT='+$g.Count)}
+          $other=@($files | Where-Object {$_.DirectoryName -notlike '*\exports\*'})
+          Write-Output ('R410_NOT_EXPORTS='+$other.Count)
+          foreach($item in ($other | Select-Object -First 20)){Write-Output ('R410_OTHER='+$item.FullName)}
+          Write-Output 'R410_READ_ONLY=TRUE'
