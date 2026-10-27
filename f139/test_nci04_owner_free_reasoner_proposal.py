@@ -237,7 +237,7 @@ class NativeFreeReasonerCustodyTests(unittest.TestCase):
             original_feedback_sha256=orig)
         self.assertEqual(len(scope), 64)
         self.assertNotIn(self.fixture.native.ticket, scope)
-        self.assertEqual(MAX_DAILY_REQUESTS, 1)
+        self.assertEqual(MAX_DAILY_REQUESTS, 2)
         self.assertEqual(MAX_LIFETIME_REQUESTS, 8)
         self.assertEqual(SCHEMA, "forge.f139.owner-free-reasoner-attempt.v1")
         self.assertFalse(self.rows(ATTEMPT))
