@@ -370,6 +370,7 @@ class Database:
         source_transitions = []
         free_reasoner_scopes = set()
         free_reasoner_days = {}
+        free_reasoner_day_lanes = set()
         last_free_reasoner_day = ""
         for row in self.conn.execute("SELECT * FROM events ORDER BY seq"):
             count += 1
@@ -428,10 +429,13 @@ class Database:
                 require(doc["scope_sha256"] not in free_reasoner_scopes
                         and len(free_reasoner_scopes) < 8
                         and doc["utc_day"] >= last_free_reasoner_day
-                        and free_reasoner_days.get(doc["utc_day"], 0) == 0,
+                        and free_reasoner_days.get(doc["utc_day"], 0) < 2
+                        and (doc["utc_day"], doc["lane"]) not in free_reasoner_day_lanes,
                         "FREE_REASONER_ORIGINAL_SCOPE_REPLAY_OR_BUDGET")
                 free_reasoner_scopes.add(doc["scope_sha256"])
-                free_reasoner_days[doc["utc_day"]] = 1
+                free_reasoner_days[doc["utc_day"]] = (
+                    free_reasoner_days.get(doc["utc_day"], 0) + 1)
+                free_reasoner_day_lanes.add((doc["utc_day"], doc["lane"]))
                 last_free_reasoner_day = doc["utc_day"]
             if row["kind"] == "NATIVE_TWO_SLOT_SCHEMA_ADMITTED":
                 require(isinstance(doc,dict) and set(doc)=={
