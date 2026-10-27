@@ -29,7 +29,7 @@ jobs:
             New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
             & git clone --quiet --single-branch --branch proposal/mpai05-paired-retrieval-construction-20261027 'https://github.com/spoonman136668-ai/Mind-Palace.git' $root *> (Join-Path $scratch 'private-clone.log')
             if($LASTEXITCODE -ne 0){throw 'MPAI05_TEST_SOURCE_UNAVAILABLE'}
-            if((& git -C $root rev-parse HEAD).Trim() -cne '6d3f41bf2d150fcbde6789bd1ba8d6a91f7f145a'){
+            if((& git -C $root rev-parse HEAD).Trim() -cne '1517cdc39cc6696f2e51d8a1f31084cd457ab191'){
               throw 'MPAI05_TEST_SOURCE_SHA_DRIFT'
             }
             $log=Join-Path $scratch 'private-synthetic-unit.log'
@@ -41,11 +41,11 @@ jobs:
             $raw=[IO.File]::ReadAllText($log)
             if($exit -ne 0){throw 'MPAI05_PAIR_SOURCE_TEST_FAILED'}
             $m=[regex]::Match($raw,'Ran ([0-9]{1,2}) tests? in')
-            if(-not $m.Success -or [int]$m.Groups[1].Value -ne 10){throw 'MPAI05_UNIT_COUNT_MISMATCH'}
+            if(-not $m.Success -or [int]$m.Groups[1].Value -ne 11){throw 'MPAI05_UNIT_COUNT_MISMATCH'}
             if($raw -notmatch '(?m)^OK\s*$'){throw 'MPAI05_UNIT_TERMINAL_NOT_OK'}
             $dirty=@(& git -C $root status --porcelain --untracked-files=all)
             if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_UNIT_SOURCE_MUTATED'}
-            Write-Host 'MPAI05_PRIVATE_PAIR_UNIT_TESTS=10_PASS'
+            Write-Host 'MPAI05_PRIVATE_PAIR_UNIT_TESTS=11_PASS'
             Write-Host 'MPAI05_PRIVATE_PAIR_SOURCE_PIN=PASS'
             Write-Host 'MPAI05_PRIVATE_PAIR_SOURCE_CLEAN=TRUE'
             Write-Host 'MPAI05_PRIVATE_HOLDOUT_READ=FALSE'
