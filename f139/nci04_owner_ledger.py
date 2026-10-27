@@ -417,7 +417,8 @@ def activate_native(db, approval: dict) -> bool:
                     "forge.f139.source-transition.v10",
                     "forge.f139.source-transition.v11",
                     "forge.f139.source-transition.v12",
-                    "forge.f139.source-transition.v13")]
+                    "forge.f139.source-transition.v13",
+                    "forge.f139.source-transition.v14")]
             provider_failures=db.verified_native_provider_failures()
             from f139.nci04_g49_prepost_negative import (
                 verify_g49_custody, TICKET as PREPOST)
@@ -426,7 +427,8 @@ def activate_native(db, approval: dict) -> bool:
             if (negative_successors and negative_successors[-1]["schema"] in
                     ("forge.f139.source-transition.v11",
                      "forge.f139.source-transition.v12",
-                     "forge.f139.source-transition.v13")):
+                     "forge.f139.source-transition.v13",
+                     "forge.f139.source-transition.v14")):
                 from f139.local_controller import g54_original_canonical
                 v11_ambiguous.add(g54_original_canonical(db)["ticket"])
             all_certified=({NEGATIVE_TICKET,SECOND_TICKET}
