@@ -1,0 +1,52 @@
+name: MP-AI05 focused independent receipt and manifest tests
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-independent-roots-focused-tests.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+    steps:
+      - name: Read-only exact PR133 synthetic receipt checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPAI05_WRONG_RUNNER'}
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-trust-fast-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $root 'private-source'
+          try {
+            New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch proposal/mpai05-independent-trust-and-manifest-20261026 https://github.com/spoonman136668-ai/Mind-Palace.git $source *> (Join-Path $root 'clone-private.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_PRIVATE_REPOSITORY_UNAVAILABLE'}
+            if((& git -C $source rev-parse HEAD).Trim() -cne '2f8d62da0ce700a98ea013fb240e77409039e132'){throw 'MPAI05_SOURCE_DRIFT'}
+            if((& git -C $source rev-parse 'HEAD^{tree}').Trim() -cne '9b27947cf5e5d7761eb60f366eafe9ab0dd9e4a8'){throw 'MPAI05_TREE_DRIFT'}
+            $log=Join-Path $root 'unit-private.log'
+            Push-Location $source
+            try{
+              & python -B -m unittest discover -s tests -p test_mpai05_runtime_receipt.py -v *> $log
+              if($LASTEXITCODE -ne 0){throw 'MPAI05_SYNTHETIC_RECEIPT_TESTS_FAILED'}
+            }finally{Pop-Location}
+            $result=[IO.File]::ReadAllText($log)
+            $count=[regex]::Match($result,'Ran ([0-9]{1,2}) tests? in')
+            if(-not $count.Success -or [int]$count.Groups[1].Value -ne 25 -or $result -notmatch '(?m)^OK\s*$'){throw 'MPAI05_EXPECTED_25_TESTS_NOT_PASS'}
+            if(@(& git -C $source status --porcelain --untracked-files=all).Count -ne 0){throw 'MPAI05_SOURCE_CHECKOUT_MUTATED'}
+            Write-Host 'MPAI05_INDEPENDENT_TRUST_RECEIPT_UNIT=25_PASS'
+            Write-Host 'MPAI05_SOURCE_SHA_TREE_AND_CLEAN=PASS'
+            Write-Host 'MPAI05_REAL_TRUST_ROOTS=NOT_PROVISIONED'
+            Write-Host 'MPAI05_FIRST_USE_CUSTODY=NOT_AUTHENTICATED'
+            Write-Host 'MPAI05_PRIVATE_HOLDOUT_READ=FALSE'
+            Write-Host 'MPAI05_MODEL_CALLS=0'
+            Write-Host 'MPAI05_SCIENTIFIC_ADMISSION=FALSE'
+          }finally{
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+          }
