@@ -1,0 +1,69 @@
+name: CKB R448 encoding-aware read-only startup evidence classifier
+on:
+  push:
+    branches: [audit/ckb-r448-encoding-aware-startup-custody-20261027]
+permissions:
+  contents: read
+jobs:
+  classify-captured-output:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Read exact R446 stdout with Windows PowerShell 5 encoding, emit only diagnostic classes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R448_WRONG_ORIGINAL_WINDOWS_RUNNER'}
+          $p=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if($p.Count -ne 1 -or [int]$p[0].ProcessId -ne 102324 -or [string]$p[0].ExecutablePath -cne $old){throw 'R448_ORIGINAL_R220_PROCESS_DRIFT'}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R448_ORIGINAL_OWNER_TASK_DRIFT'}
+          $file='C:\Users\camar\AppData\Local\CKB-R445-Startup-Diagnostics\R445-40542294815\native-stdout.txt'
+          $raw=[IO.File]::ReadAllBytes($file)
+          if($raw.Length -ne 250){throw 'R448_R446_CAPTURE_BYTES_DRIFT'}
+          $sha=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -cne '67d48917d18315f915655b3d025f816332a59f1e9befd3785d5a0bceca5457e5'){throw 'R448_R446_CAPTURE_SHA_DRIFT'}
+          $utf16LEBOM=$raw[0] -eq 0xFF -and $raw[1] -eq 0xFE
+          $utf16BEBOM=$raw[0] -eq 0xFE -and $raw[1] -eq 0xFF
+          $zeroInOdd=0
+          for($i=1;$i -lt $raw.Length;$i+=2){if($raw[$i] -eq 0){$zeroInOdd++}}
+          $zeroFraction=[Math]::Round($zeroInOdd/($raw.Length/2),2)
+          Write-Output ('R448_UTF16_LE_BOM='+[string]$utf16LEBOM)
+          Write-Output ('R448_UTF16_BE_BOM='+[string]$utf16BEBOM)
+          Write-Output ('R448_UTF16LE_ODD_ZERO_FRACTION='+$zeroFraction.ToString('0.00',[Globalization.CultureInfo]::InvariantCulture))
+          if($utf16LEBOM -or $zeroFraction -ge 0.6){
+            $decoded=[Text.Encoding]::Unicode.GetString($raw)
+            $encoding='UTF16LE'
+          }elseif($utf16BEBOM){
+            $decoded=[Text.Encoding]::BigEndianUnicode.GetString($raw)
+            $encoding='UTF16BE'
+          }else{
+            $decoded=[Text.Encoding]::UTF8.GetString($raw)
+            $encoding='UTF8'
+          }
+          $decoded=$decoded.TrimStart([char]0xFEFF)
+          Write-Output ('R448_ENCODING_DETECTED='+$encoding)
+          Write-Output ('R448_DECODED_CHARACTER_COUNT='+$decoded.Length)
+          $terms=[ordered]@{
+            GO_CONTROLLER_START_BANNER=($decoded -match '(?i)CKB-plane native controller: local status')
+            GO_USAGE_HEADER=($decoded -match '(?i)ckb-plane: controller configure/run/status')
+            FILE_PATH_OR_PERMISSIONS=($decoded -match '(?i)path|file|directory|denied|access')
+            SQLITE_OR_DATABASE=($decoded -match '(?i)sqlite|database')
+            CONFIGURATION=($decoded -match '(?i)config|yaml')
+            NATIVE_AUTHORITY=($decoded -match '(?i)authority|authorization')
+            GO_PANIC=($decoded -match '(?i)panic:|fatal error:')
+            BRIDGE=($decoded -match '(?i)bridge|webui')
+            LOCK=($decoded -match '(?i)lock|busy')
+            TOKEN=($decoded -match '(?i)token')
+            REMOTE_EXCEPTION=($decoded -match 'RemoteException')
+            CATEGORY_INFO=($decoded -match 'CategoryInfo')
+            ERROR_TEXT=($decoded -match '(?i)error|failed|cannot|unable')
+            SHELL_COMMAND_NOT_FOUND=($decoded -match '(?i)is not recognized as a name of a cmdlet|commandnotfoundexception')
+          }
+          foreach($k in $terms.Keys){Write-Output ('R448_CLASS_'+$k+'='+[string]$terms[$k])}
+          $lines=($decoded -split '\r?\n').Count
+          Write-Output ('R448_DECODED_LINE_COUNT='+$lines)
+          Write-Output 'R448_RAW_CAPTURE_CONTENT_NOT_PRINTED=TRUE'
+          Write-Output 'R448_NO_CONTROLLER_RESTART_CONFIG_EDIT_OR_SQLITE_WRITE=TRUE'
