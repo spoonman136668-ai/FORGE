@@ -1,4 +1,4 @@
-name: CKB R422 historical-state heartbeat and queue diagnosis
+name: CKB R423 original pending-file and blocker classification
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -58,6 +58,23 @@ jobs:
             $copied=@(Get-ChildItem -LiteralPath (Join-Path $stage 'operations') -Recurse -File -ErrorAction Stop)
             if($copied.Count -ne @($opFiles | Where-Object {!$_.PSIsContainer}).Count){throw 'R421_OPERATION_COPY_COUNT_DRIFT'}
             Write-Output ('R421_ISOLATED_OPERATION_FILE_COUNT='+$copied.Count)
+            $livePending=Join-Path $root 'workorders\pending'
+            $tempPending=Join-Path $stage 'workorders\pending'
+            $pendingCount=0
+            if(Test-Path -LiteralPath $livePending -PathType Container){
+              $pendingDir=Get-Item -LiteralPath $livePending -Force
+              if(($pendingDir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'R423_PENDING_DIR_REPARSE_REFUSED'}
+              $pending=@(Get-ChildItem -LiteralPath $livePending -File -Filter '*.json' -Force -ErrorAction Stop)
+              if($pending.Count -gt 3000){throw 'R423_PENDING_COUNT_UNBOUNDED'}
+              foreach($file in $pending){
+                if(($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $file.Length -gt 2097152){throw 'R423_PENDING_FILE_UNSAFE'}
+                $dst=Join-Path $tempPending $file.Name
+                Copy-Item -LiteralPath $file.FullName -Destination $dst -ErrorAction Stop
+                if((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash){throw 'R423_PENDING_COPY_RACE'}
+                $pendingCount++
+              }
+            }
+            Write-Output ('R423_PENDING_ENVELOPES_ISOLATED='+$pendingCount)
             $isolatedDb=Join-Path $stage 'state\autonomy.db'
             $py=@'
           import pathlib, sqlite3, sys
@@ -105,6 +122,25 @@ jobs:
             $controllerClass=([string]$status.controller_status).Split(':')[0]
             if($controllerClass.Length -gt 60){$controllerClass='REDACTED'}
             Write-Output ('R422_CONTROLLER_STATUS_CLASS='+$controllerClass)
+            $failedItems=@($status.queue | Where-Object {$_.state -eq 'FAILED'})
+            foreach($item in $failedItems){
+              $safeId=[string]$item.id
+              if($safeId -cnotmatch '^[A-Za-z0-9_-]{1,120}
+            Write-Output 'R422_SNAPSHOT_OBSERVATION_ONLY=TRUE'
+            Write-Output 'R417_ORIGINAL_EXE_ON_CONSISTENT_OWNER_SNAPSHOT=PASS'
+            Write-Output 'R417_LIVE_CONTROLLER_OR_DATABASE_MUTATION=FALSE'
+          } finally {
+            if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction Stop}
+          }
+          Write-Output 'R417_PRIVATE_SNAPSHOT_REMOVED=PASS'
+){$safeId='REDACTED'}
+              $reasonClass=([string]$item.reason).Split(':')[0]
+              if($reasonClass.Length -gt 100 -or $reasonClass -match '[\\/]'){$reasonClass='REDACTED'}
+              $job=@($status.jobs | Where-Object {$_.id -ceq [string]$item.id})
+              $jobState=if($job.Count -eq 1){[string]$job[0].state}else{'NO_UNIQUE_JOB'}
+              Write-Output ('R423_FAILED_QUEUE_ID='+$safeId+' REASON_CLASS='+$reasonClass+' JOB_STATE='+$jobState)
+            }
+            Write-Output 'R423_BLOCKER_CLASSIFICATION_READ_ONLY=PASS'
             Write-Output 'R422_SNAPSHOT_OBSERVATION_ONLY=TRUE'
             Write-Output 'R417_ORIGINAL_EXE_ON_CONSISTENT_OWNER_SNAPSHOT=PASS'
             Write-Output 'R417_LIVE_CONTROLLER_OR_DATABASE_MUTATION=FALSE'
