@@ -768,7 +768,7 @@ class Database:
                             "ORDER BY seq", (row["seq"],))
                         if json.loads(r["payload"]).get("schema") ==
                             "forge.f139.source-transition.v10"]
-                    g54 = verified_g54_ambiguous_start(
+                    g54 = g54_original_canonical(
                         self, through_seq=row["seq"])
                     previous_provider = self.verified_native_provider_failures(
                         through_seq=row["seq"])
@@ -983,7 +983,7 @@ class Database:
         if allow_v11:
             from f139.nci04_g54_ambiguous_start_custody import (
                 verified_g54_ambiguous_start)
-            frozen_ambiguous=verified_g54_ambiguous_start(self)
+            frozen_ambiguous=g54_original_canonical(self)
             recognized[frozen_ambiguous["ticket"]]=frozen_ambiguous["source_sha"]
         with self.transaction():
             self.verify()
@@ -1287,7 +1287,7 @@ class Database:
                         "SOURCE_TRANSITION_V11_V10_SEAL_MISSING")
                 from f139.nci04_g54_ambiguous_start_custody import (
                     verified_g54_ambiguous_start)
-                g54=verified_g54_ambiguous_start(self)
+                g54=g54_original_canonical(self)
                 event["v10_terminal_event_sha256"]=v10_rows[0]["sha"]
                 event["g54_ambiguous_start_event_sha256"]=g54["quarantine_event_sha256"]
                 event["v2_receipt_authorized"]=False
@@ -2579,6 +2579,40 @@ def store_evidence(root:Path,ticket:str,run_id:int,archives:dict)->tuple[str,str
     # it cannot be replayed or mistaken for fully accepted evidence on recovery.
     return (str(folder),hash_bytes(payload))
 
+def g54_original_canonical(db, *, through_seq=None):
+    """Read G54 negative from the SAME original SQLite with canonical class identity.
+
+    Python -m starts __main__.Database while the imported original verifier
+    demands f139.local_controller.Database. Never relax that demand or copy
+    SQLite: re-open the exact original path as the canonical read-only witness.
+    In an active single-owner transaction, the committed original negative
+    predates the V11 event and remains readable by the second connection.
+    """
+    from f139.local_controller import Database as CanonicalDatabase
+    from f139.nci04_g54_ambiguous_start_custody import (
+        verified_g54_ambiguous_start)
+    if type(db) is CanonicalDatabase:
+        return verified_g54_ambiguous_start(db, through_seq=through_seq)
+    main=sys.modules.get("__main__")
+    require(type(db).__module__=="__main__"
+            and type(db).__name__=="Database"
+            and main is not None
+            and isinstance(getattr(main,"__file__",None),str)
+            and Path(main.__file__).resolve(strict=True)==
+                Path(__file__).resolve(strict=True)
+            and isinstance(getattr(db,"filename",None),Path),
+            "G54_CANONICAL_OWNER_SOURCE_REQUIRED")
+    original=Path(db.filename).resolve(strict=True)
+    canonical_db=CanonicalDatabase(original)
+    try:
+        require(Path(canonical_db.filename).resolve(strict=True)==original,
+                "G54_CANONICAL_ORIGINAL_DB_PATH_DRIFT")
+        return verified_g54_ambiguous_start(
+            canonical_db, through_seq=through_seq)
+    finally:
+        canonical_db.close()
+
+
 def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
     """Allow native V2 development after a sealed original V7/V8/V9/V10 transition
     and separate native development activation.
@@ -2652,7 +2686,7 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
             db.verify()
             from f139.nci04_g54_ambiguous_start_custody import (
                 verified_g54_ambiguous_start)
-            frozen = verified_g54_ambiguous_start(db)
+            frozen = g54_original_canonical(db)
             v10_rows = [
                 r for r in db.conn.execute(
                     "SELECT sha,payload FROM events "
