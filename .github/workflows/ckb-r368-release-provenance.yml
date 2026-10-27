@@ -1,4 +1,4 @@
-name: CKB R428 unfiltered native regression with bounded short-temp containment
+name: CKB R429 verify immutable native source-tree identity after isolated regression
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -7,7 +7,7 @@ permissions:
 jobs:
   provenance:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 90
+    timeout-minutes: 25
     steps:
       - name: Inspect bounded release metadata without mutation
         shell: pwsh
@@ -21,183 +21,26 @@ jobs:
           foreach($p in @($base,$releases,$release)) {
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
           }
-          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
-          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R425_ESCALATED_OWNER_REQUIRED'}
           $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $paths=@('go.mod','go.sum') + @(Get-ChildItem -LiteralPath (Join-Path $root 'cmd'),(Join-Path $root 'internal') -Recurse -File -ErrorAction Stop | ForEach-Object {$_.FullName.Substring($root.Length+1).Replace('\','/')})
+          $paths=@($paths | Sort-Object -Unique)
+          $sha=[System.Security.Cryptography.SHA256]::Create()
+          $records=[System.Collections.Generic.List[string]]::new()
+          foreach($p in $paths){
+            $f=Join-Path $root $p
+            $h=(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
+            $records.Add($p.Replace('\','/')+' '+$h)
+          }
+          $bytes=[Text.Encoding]::UTF8.GetBytes(($records -join "`n")+"`n")
+          $tree=[Convert]::ToHexString($sha.ComputeHash($bytes)).ToLowerInvariant()
+          Write-Output ('R404_SOURCE_FILE_COUNT='+$paths.Count)
+          Write-Output ('R404_SOURCE_TREE_SHA256='+$tree)
+          if($paths.Count -ne 210){throw 'R429_SOURCE_FILE_SET_DRIFT'}
+          if($tree -cne 'ab3e4a6667109a9d678008018ec2ea5a077621b28b20b1ddb375b4f9fc111e90'){throw 'R429_SOURCE_TREE_IDENTITY_DRIFT'}
+          $exe=Join-Path $release 'bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $target){throw 'R429_INSTALLED_EXE_DRIFT'}
           $native=Join-Path $root 'internal\plane\autonomy.go'
-          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){throw 'R425_INSTALLED_EXE_DRIFT'}
-          if((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'){throw 'R425_NATIVE_SOURCE_DRIFT'}
-          $stage=Join-Path $env:RUNNER_TEMP ('ckb-r425-source-'+$env:GITHUB_RUN_ID)
-          if(Test-Path -LiteralPath $stage){throw 'R425_STAGE_COLLISION'}
-          New-Item -Path $stage -ItemType Directory -ErrorAction Stop | Out-Null
-          try {
-            foreach($file in @('go.mod','go.sum')){Copy-Item -LiteralPath (Join-Path $root $file) -Destination (Join-Path $stage $file) -ErrorAction Stop}
-            foreach($dir in @('cmd','internal')){Copy-Item -LiteralPath (Join-Path $root $dir) -Destination $stage -Recurse -ErrorAction Stop}
-            $targetFile=Join-Path $stage 'internal\plane\autonomy.go'
-            $raw=[IO.File]::ReadAllText($targetFile)
-            if($raw.Contains([string][char]13+[string][char]10)){throw 'R425_UNEXPECTED_LINE_ENDINGS'}
-            $start=$raw.IndexOf('func (p *Engine) AutonomyTick(')
-            $end=$raw.IndexOf('func (p *Engine) startQueued(',$start)
-            if($start -lt 0 -or $end -le $start){throw 'R425_SOURCE_FUNCTION_BOUNDARY_DRIFT'}
-            $section=$raw.Substring($start,$end-$start)
-            $tab=[string][char]9; $nl=[string][char]10
-            $oldBlock=$tab+'if len(blockers) > 0 {'+$nl+$tab+$tab+'return p.setSetting("autonomy_status", strings.Join(blockers, "; "))'+$nl+$tab+'}'+$nl
-            $anchor=$tab+'if waiting {'
-            if(($section.Split(@($oldBlock),[StringSplitOptions]::None).Length-1) -ne 1 -or ($section.Split(@($anchor),[StringSplitOptions]::None).Length-1) -ne 1){throw 'R425_SOURCE_GUARD_ANCHOR_DRIFT'}
-            $section=$section.Replace($oldBlock,'')
-            $section=$section.Replace($anchor,$oldBlock+$anchor)
-            if($section.IndexOf($oldBlock) -lt $section.IndexOf('if item.State != "QUEUED"')){throw 'R425_GUARD_STILL_PRECEDES_NEW_QUEUE'}
-            [IO.File]::WriteAllText($targetFile,$raw.Substring(0,$start)+$section+$raw.Substring($end),[Text.UTF8Encoding]::new($false))
-            Write-Output 'R425_TERMINAL_BLOCKER_SCHEDULER_PATCH=STAGED_IN_ISOLATION'
-            $test=@'
-          package plane
-          
-          import (
-          	"context"
-          	"strings"
-          	"testing"
-          
-          	"gopkg.in/yaml.v3"
-          )
-          
-          // r425RetainedFailure models a terminal, receipted historical queue item. It
-          // must remain in custody even if unrelated authorized work can progress.
-          func r425RetainedFailure(t *testing.T, p *Engine, w WorkOrder, id string) {
-          	t.Helper()
-          	w.ID = id
-          	w.Worker.Branch = "codex/r425-terminal"
-          	rawYAML, err := yaml.Marshal(w)
-          	if err != nil {
-          		t.Fatal(err)
-          	}
-          	if err = p.Store.Load(rawYAML); err != nil {
-          		t.Fatal(err)
-          	}
-          	if _, err = p.Store.DB.Exec(
-          		"UPDATE work_orders SET state='BLOCKED',reason='BRANCH_ANCESTRY_INVALID' WHERE id=?", id,
-          	); err != nil {
-          		t.Fatal(err)
-          	}
-          	input := []byte("historical terminal input; never replay")
-          	if _, err = p.Store.DB.Exec(
-          		"INSERT INTO queue_items(id,hash,raw,kind,state,mode,authorization,reason,updated,receipt) VALUES(?,?,?,?,?,?,?,?,?,?)",
-          		id, digest(input), input, "source", "FAILED", "source", "operator",
-          		"BRANCH_ANCESTRY_INVALID", now(), "historical-receipt",
-          	); err != nil {
-          		t.Fatal(err)
-          	}
-          }
-          
-          func TestR425IndependentWorkAdvancesPastRetainedTerminalFailure(t *testing.T) {
-          	p, w := setup(t)
-          	testAuthority(p)
-          	r425RetainedFailure(t, p, w, "R425_TERMINAL")
-          	sourceQueue(t, p, w, "R425_FRESH")
-          	if err := p.AutonomyTick(context.Background()); err != nil {
-          		t.Fatal(err)
-          	}
-          	var freshState string
-          	if err := p.Store.DB.QueryRow("SELECT state FROM queue_items WHERE id='R425_FRESH'").Scan(&freshState); err != nil {
-          		t.Fatal(err)
-          	}
-          	if freshState == "QUEUED" {
-          		t.Fatal("terminal failure starved an independent authorized queue item")
-          	}
-          	j := wait(t, p, "R425_FRESH")
-          	if j.State != "ACCEPTED" {
-          		t.Fatalf("independent work did not finish: %s", j.State)
-          	}
-          	var state, reason, receipt string
-          	if err := p.Store.DB.QueryRow(
-          		"SELECT state,reason,receipt FROM queue_items WHERE id='R425_TERMINAL'",
-          	).Scan(&state, &reason, &receipt); err != nil {
-          		t.Fatal(err)
-          	}
-          	if state != "FAILED" || reason != "BRANCH_ANCESTRY_INVALID" || receipt != "historical-receipt" {
-          		t.Fatalf("historical record mutated: state=%s reason=%s receipt=%s", state, reason, receipt)
-          	}
-          }
-          
-          func TestR425TerminalFailureStillReportedWhenNoEligibleWork(t *testing.T) {
-          	p, w := setup(t)
-          	testAuthority(p)
-          	r425RetainedFailure(t, p, w, "R425_TERMINAL")
-          	if err := p.AutonomyTick(context.Background()); err != nil {
-          		t.Fatal(err)
-          	}
-          	if status := p.setting("autonomy_status"); !strings.HasPrefix(status, "OPERATOR_BLOCKED:") {
-          		t.Fatalf("historical failure no longer visible: %s", status)
-          	}
-          	var count int
-          	if err := p.Store.DB.QueryRow("SELECT count(*) FROM queue_items WHERE state='FAILED'").Scan(&count); err != nil || count != 1 {
-          		t.Fatalf("terminal record lost: %d %v", count, err)
-          	}
-          }
-          
-          func TestR425DependencyOnFailedWorkIsNotBypassed(t *testing.T) {
-          	p, w := setup(t)
-          	testAuthority(p)
-          	r425RetainedFailure(t, p, w, "R425_TERMINAL")
-          	sourceQueue(t, p, w, "R425_DEPENDENT", "R425_TERMINAL")
-          	if err := p.AutonomyTick(context.Background()); err != nil {
-          		t.Fatal(err)
-          	}
-          	var state string
-          	if err := p.Store.DB.QueryRow("SELECT state FROM queue_items WHERE id='R425_DEPENDENT'").Scan(&state); err != nil {
-          		t.Fatal(err)
-          	}
-          	if state != "QUEUED" {
-          		t.Fatalf("unsatisfied dependency was bypassed: %s", state)
-          	}
-          	if status := p.setting("autonomy_status"); !strings.HasPrefix(status, "OPERATOR_BLOCKED:") {
-          		t.Fatalf("failed dependency must remain visible: %s", status)
-          	}
-          }
-          '@
-            $testFile=Join-Path $stage 'internal\plane\r425_terminal_blocker_test.go'
-            [IO.File]::WriteAllText($testFile,$test,[Text.UTF8Encoding]::new($false))
-            Push-Location $stage
-            try {
-              & gofmt -w $targetFile $testFile
-              if($LASTEXITCODE -ne 0){throw 'R425_GO_FMT_FAILED'}
-              & go test -p 1 -count=1 -run '^TestR425' ./internal/plane
-              if($LASTEXITCODE -ne 0){throw 'R425_FOCUSED_SCHEDULER_NEGATIVE_FAILED'}
-              Write-Output 'R425_FOCUSED_TERMINAL_BLOCKER_NEGATIVES=PASS'
-            $shortRoot='C:\r428'
-            if(Test-Path -LiteralPath $shortRoot){throw 'R428_SHORT_TEMP_ROOT_ALREADY_EXISTS'}
-            New-Item -Path $shortRoot -ItemType Directory -ErrorAction Stop | Out-Null
-            $priorTEMP=$env:TEMP
-            $priorTMP=$env:TMP
-            $priorGOTMPDIR=$env:GOTMPDIR
-            try {
-              $env:TEMP=$shortRoot
-              $env:TMP=$shortRoot
-              $env:GOTMPDIR=$shortRoot
-              Write-Output ('R428_OWNED_SHORT_TEMP='+$shortRoot)
-              & go test -p 1 -count=1 ./...
-              if($LASTEXITCODE -ne 0){throw 'R428_UNFILTERED_FULL_WINDOWS_REGRESSION_FAILED'}
-              Write-Output 'R428_UNFILTERED_FULL_WINDOWS_REGRESSION=PASS'
-              & go vet -copylocks=false ./...
-              if($LASTEXITCODE -ne 0){throw 'R428_GO_VET_FAILED'}
-              Write-Output 'R428_GO_VET=PASS'
-              $binary=Join-Path $stage 'ckb-r428-isolated.exe'
-              & go build -trimpath -o $binary ./cmd/ckb-plane
-              if($LASTEXITCODE -ne 0){throw 'R428_NATIVE_BUILD_FAILED'}
-              Write-Output ('R428_ISOLATED_BUILD_SHA256='+(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant())
-              Write-Output 'R428_NATIVE_BUILD_NOT_RELEASE_ADMITTED=TRUE'
-            } finally {
-              $env:TEMP=$priorTEMP
-              $env:TMP=$priorTMP
-              $env:GOTMPDIR=$priorGOTMPDIR
-              if(Test-Path -LiteralPath $shortRoot){Remove-Item -LiteralPath $shortRoot -Recurse -Force -ErrorAction Stop}
-              Write-Output 'R428_SHORT_TEMP_CLEANED=PASS'
-            }
-            } finally {Pop-Location}
-            if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){throw 'R425_RELEASE_MUTATED'}
-            if((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'){throw 'R425_ORIGINAL_NATIVE_SOURCE_MUTATED'}
-            Write-Output 'R425_LIVE_SOURCE_AND_EXE_UNCHANGED=PASS'
-          } finally {
-            if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction Stop}
-          }
-          Write-Output 'R425_ISOLATED_TEST_TREE_REMOVED=PASS'
+          if((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'){throw 'R429_NATIVE_SCHEDULER_SOURCE_DRIFT'}
+          Write-Output 'R429_R404_WHOLE_NATIVE_TREE_REUSE=PASS'
+          Write-Output 'R429_RELEASE_EXE_AND_SCHEDULER_PIN=PASS'
+          Write-Output 'R429_READ_ONLY=TRUE'
