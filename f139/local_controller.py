@@ -911,7 +911,8 @@ class Database:
                           allow_v7: bool = False,
                           allow_v8: bool = False,
                           allow_v9: bool = False,
-                          allow_v10: bool = False):
+                          allow_v10: bool = False,
+                          allow_v11: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -929,6 +930,11 @@ class Database:
         prepost = verify_g49_custody(self)
         if prepost:
             recognized[PREPOST] = SOURCE_V7
+        if allow_v11:
+            from f139.nci04_g54_ambiguous_start_custody import (
+                verified_g54_ambiguous_start)
+            frozen_ambiguous=verified_g54_ambiguous_start(self)
+            recognized[frozen_ambiguous["ticket"]]=frozen_ambiguous["source_sha"]
         with self.transaction():
             self.verify()
             meta = self.meta()
@@ -1012,6 +1018,7 @@ class Database:
                         and verify_original_negative_custody(self)
                         and verify_second_negative_custody(self)
                         and events and events[-1]["schema"] in (
+                            "forge.f139.source-transition.v10",
                             "forge.f139.source-transition.v9",
                             "forge.f139.source-transition.v8",
                             "forge.f139.source-transition.v3",
@@ -1049,7 +1056,20 @@ class Database:
                          "forge.f139.source-transition.v8"]
                 prev_v9=[e for e in events if e["schema"]==
                          "forge.f139.source-transition.v9"]
-                if prev_v9:
+                prev_v10=[e for e in events if e["schema"]==
+                          "forge.f139.source-transition.v10"]
+                if prev_v10:
+                    from f139.nci04_owner_ledger import verify_native_activation
+                    require(allow_v11 is True and len(prev_v10)==1
+                            and events[-1]["schema"]==
+                                "forge.f139.source-transition.v10"
+                            and meta["source_sha"]==
+                                prev_v10[0]["to_source_sha"]
+                            and verify_native_activation(self)
+                            and self.active() is None and self.ready() is None,
+                            "SOURCE_TRANSITION_V11_ORIGINAL_CUSTODY_REQUIRED")
+                    schema="forge.f139.source-transition.v11"
+                elif prev_v9:
                     from f139.nci04_owner_ledger import verify_native_activation
                     require(allow_v10 is True and len(prev_v9)==1
                             and events[-1]["schema"] ==
@@ -1126,7 +1146,8 @@ class Database:
                             "forge.f139.source-transition.v7",
                             "forge.f139.source-transition.v8",
                             "forge.f139.source-transition.v9",
-                            "forge.f139.source-transition.v10"):
+                            "forge.f139.source-transition.v10",
+                            "forge.f139.source-transition.v11"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -1204,6 +1225,21 @@ class Database:
                 require(len(v9_rows)==1,
                         "SOURCE_TRANSITION_V10_V9_SEAL_MISSING")
                 event["v9_terminal_event_sha256"]=v9_rows[0]["sha"]
+                event["v2_receipt_authorized"]=False
+            if schema == "forge.f139.source-transition.v11":
+                v10_rows=[
+                    r for r in self.conn.execute(
+                        "SELECT sha,payload FROM events "
+                        "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                    if json.loads(r["payload"])["schema"] ==
+                       "forge.f139.source-transition.v10"]
+                require(len(v10_rows)==1,
+                        "SOURCE_TRANSITION_V11_V10_SEAL_MISSING")
+                from f139.nci04_g54_ambiguous_start_custody import (
+                    verified_g54_ambiguous_start)
+                g54=verified_g54_ambiguous_start(self)
+                event["v10_terminal_event_sha256"]=v10_rows[0]["sha"]
+                event["g54_ambiguous_start_event_sha256"]=g54["quarantine_event_sha256"]
                 event["v2_receipt_authorized"]=False
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
