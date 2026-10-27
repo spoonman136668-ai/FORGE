@@ -70,3 +70,88 @@ jobs:
           $recheck=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
           if($recheck.Count -ne 1 -or $recheck[0].ProcessId -ne $process[0].ProcessId){throw 'R445_LIVE_ORIGINAL_CHANGED'}
           Write-Output 'R445_NO_CONTROLLER_TASK_CONFIG_OR_DB_MUTATION=TRUE'
+      - name: R445C create and parse a separate inactive diagnostic launcher with bounded synthetic exit test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R445C_WRONG_ORIGINAL_OWNER_RUNNER'}
+          $bundle='C:\Users\camar\AppData\Local\CKB-R440-Inactive-Cutover-Packages\R440-40507053688'
+          $source=Join-Path $bundle 'Start-R440-Controller.proposed.ps1'
+          $candidate=Join-Path $bundle 'bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -cne '140e497a798e5c1ceb77b118e9bffc5a37d810c16bf8f37275333ba26c38cf77'){throw 'R445C_LAUNCHER_PREIMAGE_DRIFT'}
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -cne '44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'){throw 'R445C_EXECUTABLE_PREIMAGE_DRIFT'}
+          $contents=[IO.File]::ReadAllText($source)
+          $tokens=$null;$errs=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseInput($contents,[ref]$tokens,[ref]$errs)
+          if(@($errs).Count -ne 0){throw 'R445C_SCRIPT_PARSE_FAILED'}
+          $commands=@($ast.FindAll({param($node) $node -is [System.Management.Automation.Language.CommandAst]},$true))
+          $calls=@($commands | Where-Object {$_.InvocationOperator -eq [System.Management.Automation.Language.TokenKind]::Ampersand})
+          if($calls.Count -ne 1){throw 'R445C_NATIVE_CALL_NOT_UNIQUE'}
+          $start=$calls[0].Extent.StartOffset
+          $end=$calls[0].Extent.EndOffset
+          if($end -le $start -or $contents.Substring($start,1) -cne '&' -or $calls[0].Extent.Text -notmatch '@runArgs'){throw 'R445C_NATIVE_CALL_SHAPE_DRIFT'}
+          $exitNeedle='exit $LASTEXITCODE'
+          $bootstrapNeedle='$ErrorActionPreference=''Stop'''
+          if($contents.Split(@($exitNeedle),[StringSplitOptions]::None).Length -ne 2){throw 'R445C_NATIVE_EXIT_NOT_UNIQUE'}
+          if($contents.Split(@($bootstrapNeedle),[StringSplitOptions]::None).Length -ne 2){throw 'R445C_SCRIPT_BOOTSTRAP_NOT_UNIQUE'}
+          $diagLabel='R445-'+$env:GITHUB_RUN_ID
+          $header=@'
+          $R445_Dir=[IO.Path]::Combine($env:LOCALAPPDATA,'CKB-R445-Startup-Diagnostics','__LABEL__')
+          [IO.Directory]::CreateDirectory($R445_Dir) | Out-Null
+          $R445_Out=[IO.Path]::Combine($R445_Dir,'native-stdout.txt')
+          $R445_Err=[IO.Path]::Combine($R445_Dir,'native-stderr.txt')
+          $R445_Exit=[IO.Path]::Combine($R445_Dir,'native-exit-code.txt')
+          $R445_Boot=[IO.Path]::Combine($R445_Dir,'bootstrap-failure-type.txt')
+          trap {
+            try {
+              $R445_Type=$_.Exception.GetType().Name
+              if($R445_Type -notmatch '^[A-Za-z0-9_]{1,100}$'){$R445_Type='UNCLASSIFIED'}
+              [IO.File]::WriteAllText($R445_Boot,$R445_Type)
+            } catch {}
+            throw
+          }
+          '@.Replace('__LABEL__',$diagLabel)
+          $withRedirection=$contents.Insert($end,' 1> $R445_Out 2> $R445_Err')
+          $exitCode='$R445_Code=$LASTEXITCODE; [IO.File]::WriteAllText($R445_Exit,[string]$R445_Code); exit $R445_Code'
+          $instrumented=$withRedirection.Replace($exitNeedle,$exitCode)
+          $instrumented=$instrumented.Replace($bootstrapNeedle,($bootstrapNeedle+[Environment]::NewLine+$header))
+          $tk=$null;$er=$null
+          $astCheck=[System.Management.Automation.Language.Parser]::ParseInput($instrumented,[ref]$tk,[ref]$er)
+          if(@($er).Count -ne 0){throw 'R445C_INSTRUMENTED_POWERSHELL_SYNTAX_FAILED'}
+          if($instrumented -notmatch 'native-stderr.txt' -or $instrumented -notmatch 'native-exit-code.txt' -or $instrumented -notmatch 'bootstrap-failure-type.txt'){throw 'R445C_MISSING_DIAGNOSTIC_COMPONENT'}
+          if($instrumented -notmatch 'PLANE-R440-TERMINAL-SCHEDULER-20261027'){throw 'R445C_RELEASE_ID_NOT_PINNED'}
+          if($instrumented -match 'PLANE-R220-LIVECOMPAT-20261023'){throw 'R445C_INSTRUMENTED_LAUNCHER_POINTS_TO_OLD_BINARY'}
+          Write-Output 'R445C_INSTRUMENTED_LAUNCHER_AST_SYNTAX=PASS'
+          $dest=Join-Path $env:LOCALAPPDATA ('CKB-R445-Inactive-Diagnostic-Packages\'+$diagLabel)
+          if(Test-Path -LiteralPath $dest){throw 'R445C_DEST_COLLISION'}
+          New-Item -Path $dest -ItemType Directory -Force -ErrorAction Stop | Out-Null
+          $script=Join-Path $dest 'Start-R445-Instrumented.proposed.ps1'
+          [IO.File]::WriteAllText($script,$instrumented,[Text.UTF8Encoding]::new($false))
+          $actual=(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest=[ordered]@{schema='ckb-plane.r445.inactive-diagnostic-launcher.v1';candidate_source_run=40541622468;qualified_binary_sha256='44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019';original_proposed_launcher_sha256='140e497a798e5c1ceb77b118e9bffc5a37d810c16bf8f37275333ba26c38cf77';instrumented_launcher_sha256=$actual;diagnostic_label=$diagLabel;candidate_active=$false;task_edited=$false;live_sqlite_edited=$false;startup_invoked=$false;captures=@('bootstrap-exception-type','native-stdout','native-stderr','native-exit-code')}
+          [IO.File]::WriteAllText((Join-Path $dest 'manifest.json'),($manifest|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+          Write-Output ('R445C_INACTIVE_DIAGNOSTIC_LAUNCHER_SHA256='+$actual)
+          Write-Output 'R445C_INACTIVE_INSTRUMENTATION_PACKAGE=PASS'
+          $temp=Join-Path $env:RUNNER_TEMP ('R445-SyntheticExit-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $temp){throw 'R445C_SYNTHETIC_TEST_COLLISION'}
+          New-Item -Path $temp -ItemType Directory -ErrorAction Stop|Out-Null
+          try {
+            $stdout=Join-Path $temp 'stdout.txt'
+            $stderr=Join-Path $temp 'stderr.txt'
+            & $env:ComSpec /d /c 'exit /b 23' 1> $stdout 2> $stderr
+            $code=$LASTEXITCODE
+            [IO.File]::WriteAllText((Join-Path $temp 'exit.txt'),[string]$code)
+            if($code -ne 23 -or [IO.File]::ReadAllText((Join-Path $temp 'exit.txt')) -cne '23'){throw 'R445C_SYNTHETIC_EXIT_CODE_FAILED'}
+            if((Get-Item -LiteralPath $stderr).Length -ne 0){throw 'R445C_SYNTHETIC_STDERR_UNEXPECTED'}
+            Write-Output 'R445C_CAPTURE_REDIRECTION_AND_EXIT_CODE_SYNTHETIC=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
+          }
+          $process=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if($process.Count -ne 1 -or [string]$process[0].ExecutablePath -cne $old){throw 'R445C_LIVE_PROCESS_DRIFT'}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R445C_LIVE_TASK_DRIFT'}
+          Write-Output 'R445C_ORIGINAL_CONTROLLER_AND_TASK_UNCHANGED=PASS'
+          Write-Output 'R445C_NO_ACTIVATION_OR_PRODUCTION_DB_TOUCH=TRUE'
