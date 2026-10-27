@@ -1,0 +1,111 @@
+name: CKB R431 exact-release candidate historical-state compatibility
+on:
+  push:
+    branches: [audit/ckb-r427-exact-composition-20261027]
+    paths:
+      - .github/workflows/ckb-r431-candidate-owner-state.yml
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - name: Compare original and patched executable against isolated owner snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R431_ORIGINAL_OWNER_RUNNER_REQUIRED'}
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R431_ELEVATED_OWNER_REQUIRED'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $live='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $baseline='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          if((Get-FileHash -LiteralPath $live -Algorithm SHA256).Hash.ToLowerInvariant() -cne $baseline){throw 'R431_ORIGINAL_RELEASE_DRIFT'}
+          $dir=Join-Path $env:LOCALAPPDATA 'CKB-R429-Qualified-Candidates\R429-40479635463'
+          $manifestFile=Join-Path $dir 'manifest.json'
+          $candidate=Join-Path $dir 'ckb-plane.exe'
+          if(!(Test-Path -LiteralPath $manifestFile -PathType Leaf) -or !(Test-Path -LiteralPath $candidate -PathType Leaf)){throw 'R431_QUALIFIED_CANDIDATE_MISSING'}
+          $manifest=Get-Content -LiteralPath $manifestFile -Raw | ConvertFrom-Json
+          if($manifest.schema -cne 'ckb-plane.r429.exact-r220-composite-plus-terminal-scheduler-fix.v1' -or
+             $manifest.original_release_sha256 -cne $baseline -or
+             $manifest.source_fix_commit -cne '36d00f8ad1cc789702a2769dfbb1065b9f66c4e8' -or
+             $manifest.focused_regression -cne 'PASS' -or
+             $manifest.complete_baseline_filtered_windows_regression -cne 'PASS' -or
+             $manifest.go_vet -cne 'PASS' -or $manifest.promoted -ne $false -or $manifest.cutover_authorized -ne $false){
+            throw 'R431_CANDIDATE_MANIFEST_INVALID'
+          }
+          $expected=[string]$manifest.candidate_sha256
+          if($expected -cnotmatch '^[a-f0-9]{64}$' -or
+             (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected -or $expected -ceq $baseline){
+            throw 'R431_CANDIDATE_EXECUTABLE_CUSTODY_DRIFT'
+          }
+          Write-Output 'R431_PRIVATE_INACTIVE_CANDIDATE=PASS'
+          $stage=Join-Path $env:RUNNER_TEMP ('ckb-r431-private-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $stage){throw 'R431_STAGE_COLLISION'}
+          New-Item -Path (Join-Path $stage 'config'),(Join-Path $stage 'state'),(Join-Path $stage 'workorders\pending') -ItemType Directory -Force | Out-Null
+          try {
+            foreach($name in @('autonomy.yaml','local-operations.json')){
+              Copy-Item -LiteralPath (Join-Path $root ('config\'+$name)) -Destination (Join-Path $stage ('config\'+$name)) -ErrorAction Stop
+            }
+            $operations=Join-Path $root 'operations'
+            $opItems=@(Get-ChildItem -LiteralPath $operations -Recurse -Force -ErrorAction Stop)
+            if(@($opItems | Where-Object {($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0}).Count -ne 0){throw 'R431_OPERATIONS_SYMLINK_FORBIDDEN'}
+            Copy-Item -LiteralPath $operations -Destination $stage -Recurse -ErrorAction Stop
+            $pendingDir=Join-Path $root 'workorders\pending'
+            if(Test-Path -LiteralPath $pendingDir -PathType Container){
+              $pending=@(Get-ChildItem -LiteralPath $pendingDir -File -Filter '*.json' -ErrorAction Stop)
+              if($pending.Count -gt 3000){throw 'R431_PENDING_INPUT_UNBOUNDED'}
+              foreach($file in $pending){
+                if($file.Length -gt 2097152 -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'R431_PENDING_INPUT_UNSAFE'}
+                Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $stage 'workorders\pending') -ErrorAction Stop
+              }
+            }
+            $sourceDb=Join-Path $root 'state\autonomy.db'
+            $isolatedDb=Join-Path $stage 'state\autonomy.db'
+            $py=@'
+          import pathlib, sqlite3, sys
+          source=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dest=pathlib.Path(sys.argv[2]).resolve()
+          if source==dest or dest.exists() or 'ckb-r431-private-' not in str(dest): raise RuntimeError('R431_COPY_TARGET_INVALID')
+          s=sqlite3.connect(source.as_uri()+'?mode=ro',uri=True,timeout=30)
+          t=sqlite3.connect(str(dest),timeout=30)
+          try:
+              s.backup(t,pages=512,sleep=0.05)
+              if t.execute('PRAGMA quick_check').fetchone()[0]!='ok': raise RuntimeError('R431_COPY_CORRUPT')
+              print('R431_CONSISTENT_OWNER_SNAPSHOT=PASS')
+          finally:
+              t.close();s.close()
+          '@
+            & python -B -c $py $sourceDb $isolatedDb
+            if($LASTEXITCODE -ne 0){throw 'R431_OWNER_BACKUP_FAILED'}
+            Remove-Item Env:CKB_PLANE_GITHUB_TOKEN,Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+            $cfg=Join-Path $stage 'config\autonomy.yaml'
+            $left=(& $live controller status --config $cfg 2>&1 | Out-String)
+            if($LASTEXITCODE -ne 0){throw 'R431_ORIGINAL_SNAPSHOT_STATUS_FAILED'}
+            $right=(& $candidate controller status --config $cfg 2>&1 | Out-String)
+            if($LASTEXITCODE -ne 0){throw 'R431_NEW_CANDIDATE_SNAPSHOT_STATUS_FAILED'}
+            $baseJson=$left | ConvertFrom-Json
+            $candidateJson=$right | ConvertFrom-Json
+            if($null -eq $baseJson.queue -or $null -eq $candidateJson.queue -or $null -eq $baseJson.jobs -or $null -eq $candidateJson.jobs){throw 'R431_STATUS_SCHEMA_INVALID'}
+            function Stable([object]$v){
+              return ([ordered]@{
+                authority=$v.authority
+                paused=$v.paused
+                queue=$v.queue
+                jobs=$v.jobs
+                blockers=$v.blockers
+                controller_status=$v.controller_status
+              } | ConvertTo-Json -Depth 35 -Compress)
+            }
+            if((Stable $baseJson) -cne (Stable $candidateJson)){throw 'R431_HISTORICAL_STATUS_NOT_PRESERVED'}
+            Write-Output ('R431_MATCHED_QUEUE_COUNT='+@($candidateJson.queue).Count)
+            Write-Output ('R431_MATCHED_JOB_COUNT='+@($candidateJson.jobs).Count)
+            Write-Output ('R431_PRIVATE_CANDIDATE_SHA256='+$expected)
+            Write-Output 'R431_ORIGINAL_AND_PATCHED_NATIVE_STATUS_EQUIVALENT=PASS'
+            Write-Output 'R431_LIVE_OWNER_STATE_MUTATED=FALSE'
+          } finally {
+            if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction Stop}
+          }
+          Write-Output 'R431_PRIVATE_STATE_SNAPSHOT_REMOVED=PASS'
