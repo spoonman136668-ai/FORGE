@@ -43,7 +43,7 @@ jobs:
             }else{$wrapper='FILE_ABSENT'}
           }
           Write-Output ('R430_WRAPPER_TARGET_CLASS='+$wrapper)
-          $processes=@(Get-CimInstance Win32_Process -Filter "name='ckb-plane.exe" -ErrorAction Stop)
+          $processes=@(Get-CimInstance Win32_Process -Filter "name='ckb-plane.exe'" -ErrorAction Stop)
           Write-Output ('R430_CKB_PLANE_PROCESS_COUNT='+$processes.Count)
           $known='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
           foreach($process in $processes){
@@ -59,33 +59,33 @@ jobs:
           $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
           if(!(Test-Path -LiteralPath $db -PathType Leaf)){throw 'R430_OWNER_DB_ABSENT'}
           $py=@'
-import datetime, pathlib, sqlite3, sys
-db=pathlib.Path(sys.argv[1]).resolve(strict=True)
-conn=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True,timeout=20)
-try:
-    def count(q):return int(conn.execute(q).fetchone()[0])
-    leases=count("SELECT count(*) FROM worker_leases")
-    active=count("SELECT count(*) FROM queue_items WHERE state IN ('RUNNING','RETRY_WAIT','FINALIZING')")
-    eligible=count("SELECT count(*) FROM queue_items WHERE state='QUEUED' AND mode='source' AND authorization='operator'")
-    failed=count("SELECT count(*) FROM queue_items WHERE state='FAILED'")
-    settings=dict(conn.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_heartbeat')"))
-    stamp=settings.get('autonomy_heartbeat','')
-    try:
-        heartbeat=datetime.datetime.fromisoformat(stamp.replace('Z','+00:00'))
-        fresh=(datetime.datetime.now(datetime.timezone.utc)-heartbeat).total_seconds()<90
-    except Exception:
-        fresh=False
-    print("R430_WORKER_LEASES="+str(leases))
-    print("R430_ACTIVE_QUEUE_RECORDS="+str(active))
-    print("R430_ELIGIBLE_QUEUE_RECORDS="+str(eligible))
-    print("R430_TERMINAL_FAILED_RECORDS="+str(failed))
-    print("R430_AUTHORITY_CLASS="+settings.get('autonomy_authority','UNKNOWN'))
-    print("R430_PAUSED="+settings.get('paused','UNKNOWN'))
-    print("R430_HEARTBEAT_FRESH="+str(fresh))
-    print("R430_READ_ONLY_SQLITE=PASS")
-finally:
-    conn.close()
-'@
+          import datetime, pathlib, sqlite3, sys
+          db=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          conn=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True,timeout=20)
+          try:
+              def count(q):return int(conn.execute(q).fetchone()[0])
+              leases=count("SELECT count(*) FROM worker_leases")
+              active=count("SELECT count(*) FROM queue_items WHERE state IN ('RUNNING','RETRY_WAIT','FINALIZING')")
+              eligible=count("SELECT count(*) FROM queue_items WHERE state='QUEUED' AND mode='source' AND authorization='operator'")
+              failed=count("SELECT count(*) FROM queue_items WHERE state='FAILED'")
+              settings=dict(conn.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_heartbeat')"))
+              stamp=settings.get('autonomy_heartbeat','')
+              try:
+                  heartbeat=datetime.datetime.fromisoformat(stamp.replace('Z','+00:00'))
+                  fresh=(datetime.datetime.now(datetime.timezone.utc)-heartbeat).total_seconds()<90
+              except Exception:
+                  fresh=False
+              print("R430_WORKER_LEASES="+str(leases))
+              print("R430_ACTIVE_QUEUE_RECORDS="+str(active))
+              print("R430_ELIGIBLE_QUEUE_RECORDS="+str(eligible))
+              print("R430_TERMINAL_FAILED_RECORDS="+str(failed))
+              print("R430_AUTHORITY_CLASS="+settings.get('autonomy_authority','UNKNOWN'))
+              print("R430_PAUSED="+settings.get('paused','UNKNOWN'))
+              print("R430_HEARTBEAT_FRESH="+str(fresh))
+              print("R430_READ_ONLY_SQLITE=PASS")
+          finally:
+              conn.close()
+          '@
           & python -B -c $py $db
           if($LASTEXITCODE -ne 0){throw 'R430_OWNER_READONLY_DB_QUERY_FAILED'}
           Write-Output 'R430_NO_TASK_PROCESS_OR_DATABASE_MUTATIONS=PASS'
