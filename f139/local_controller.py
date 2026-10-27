@@ -2035,7 +2035,7 @@ class GitHub:
         The original SHA-chained model attempt must be durable before any
         invocation. A failed or ambiguous API call is never retried.
         """
-        from f139.nci04_native_contract import REPOS
+        from f139.nci04_native_contract import REPOS, model_source_path_allowed
         from f139.nci04_model_owner_publication import BRANCH
         require(type(payload) is dict, "MODEL_WRITE_PAYLOAD_INVALID")
         lane = None
@@ -2065,7 +2065,7 @@ class GitHub:
             prefixes, suffix = REPOS[lane][1:]
             require(set(payload) == {"message", "content", "sha", "branch"}
                     and isinstance(path, str)
-                    and path.startswith(prefixes) and path.endswith(suffix)
+                    and model_source_path_allowed(lane, path)
                     and re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}", path)
                         is not None
                     and all(x not in ("", ".", "..") and not x.startswith(".")

@@ -19,7 +19,7 @@ import json
 import re
 from typing import Callable
 
-from f139.nci04_native_contract import REPOS, canonical, digest
+from f139.nci04_native_contract import REPOS, canonical, digest, model_source_path_allowed
 from f139.nci04_proposal_compiler import prepare_proposal
 from f139.nci04_advisory_handoff import (AdvisoryHandoffDenied, inspect_pr_advisory)
 
@@ -219,7 +219,7 @@ def _candidate_from_pr(get: Callable[[str], object], *, lane: str,
             and 0 < changed["changes"] <= 2000
             and _sha40(changed.get("sha"))
             and isinstance(path, str) and len(path) <= 200
-            and path.startswith(prefixes) and path.endswith(suffix)
+            and model_source_path_allowed(lane, path)
             and "\\" not in path
             and re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./-]*", path) is not None
             and all(part not in ("", ".", "..") and not part.startswith(".")

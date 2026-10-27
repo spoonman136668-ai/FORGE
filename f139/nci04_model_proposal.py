@@ -14,7 +14,7 @@ import re
 from typing import Any
 
 from f139.nci04_autonomy_feed import candidate_identity
-from f139.nci04_native_contract import REPOS, canonical, digest
+from f139.nci04_native_contract import REPOS, canonical, digest, model_source_path_allowed
 from f139 import nci04_research_steering as steering
 
 SCHEMA = "forge.f139.model-proposal.v1"
@@ -60,7 +60,7 @@ def build_request(get, *, controller_source_sha: str, lane: str,
          and isinstance(path, str) and PATH.fullmatch(path) is not None
          and all(part not in ("", ".", "..") and not part.startswith(".")
                  for part in path.split("/"))
-         and path.startswith(REPOS[lane][1]) and path.endswith(REPOS[lane][2])
+         and model_source_path_allowed(lane, path)
          and type(before) is bytes and 0 < len(before) <= 32768 and b"\x00" not in before
          and isinstance(before_sha256, str) and SHA64.fullmatch(before_sha256)
          and digest(before) == before_sha256
@@ -117,7 +117,7 @@ def validate(raw: bytes, *, lane: str, target_commit: str, path: str,
          and isinstance(path, str) and PATH.fullmatch(path) is not None
          and all(part not in ("", ".", "..") and not part.startswith(".")
                  for part in path.split("/"))
-         and path.startswith(REPOS[lane][1]) and path.endswith(REPOS[lane][2]),
+         and model_source_path_allowed(lane, path),
          "TARGET_INVALID")
     need(type(before) is bytes and 0 < len(before) <= 32768
          and isinstance(before_sha256, str) and SHA64.fullmatch(before_sha256)

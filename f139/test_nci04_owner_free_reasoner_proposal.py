@@ -153,6 +153,20 @@ class NativeFreeReasonerCustodyTests(unittest.TestCase):
         self.assertEqual(self.db.meta()["head_hash"], old_head)
         self.assertEqual(len(self.sent), 1)
 
+    def test_source_release_upgrade_without_new_terminal_feedback_cannot_replay(self):
+        self.assertEqual(self.attempt()["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        frozen = self.db.meta()["head_hash"]
+        calls, writes = len(self.calls), len(self.provider.write_calls)
+        # A new FORGE release SHA is not new experimental data. Reject prior
+        # Yggdrasil target/outcomes before any owner Git or remote model request.
+        result = self.attempt(source_sha="a" * 40)
+        self.assertEqual(result["disposition"],
+                         "FREE_REASONER_SCOPE_ALREADY_ATTEMPTED_NO_REPLAY")
+        self.assertEqual(self.db.meta()["head_hash"], frozen)
+        self.assertEqual(len(self.calls), calls)
+        self.assertEqual(len(self.provider.write_calls), writes)
+        self.assertEqual(len(self.sent), 1)
+
     def test_provider_timeout_preserves_one_original_no_replay_attempt(self):
         calls = []
         def timeout(body, token):

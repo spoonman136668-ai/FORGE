@@ -17,7 +17,7 @@ from f139.nci04_autonomy_feed import (
     candidate_identity_from_intent_base64, inspect_policy,
 )
 from f139.nci04_model_proposal import build_request, validate
-from f139.nci04_native_contract import REPOS, PATH, digest, canonical
+from f139.nci04_native_contract import REPOS, PATH, digest, canonical, model_source_path_allowed
 from f139.nci04_owner_ledger import native_events, verify_native_activation
 from f139.nci04_proposal_compiler import prepare_proposal
 
@@ -129,7 +129,7 @@ def owner_request(db: Database, get: Callable, steering_get: Callable, *,
          and not path.startswith("/") and "\\" not in path
          and all(part not in ("", ".", "..") and not part.startswith(".")
                  for part in path.split("/"))
-         and path.startswith(REPOS[lane][1]) and path.endswith(REPOS[lane][2]),
+         and model_source_path_allowed(lane, path),
          "TARGET_SCOPE_INVALID")
     repository = REPOS[lane][0]
     commit = get("repos/" + repository + "/git/commits/" + target_commit)

@@ -25,6 +25,19 @@ REPOS = {
 }
 # Exactly two already-preregistered R7 test paths may use the native V1
 # development contract. This is not a broad research/ path grant.
+# Only this exact, publicly visible native R8 training-session source may
+# enter model-generated Wingless drafts; no other research tree is authorized.
+WINGLESS_R8_TRAINING = "research/native/itd02/outcome/training_session.go"
+
+
+def model_source_path_allowed(lane: str, path: str) -> bool:
+    if not isinstance(lane, str) or lane not in REPOS or not isinstance(path, str):
+        return False
+    _, prefixes, suffix = REPOS[lane]
+    return (path.startswith(prefixes) and path.endswith(suffix)
+            or (lane == "Wingless" and path == WINGLESS_R8_TRAINING))
+
+
 R7_TEST_PATHS = {
     "Wingless": frozenset({"research/native/itd01/r7/native_test.go"}),
     "Yggdrasil": frozenset({"research/native/itd01/r7/test_native_cells.py"}),
@@ -118,7 +131,7 @@ def parse_intent(raw: bytes, *, protected_main: str, target_commit: str,
                     {"con", "prn", "aux", "nul", *("com" + str(i) for i in range(1, 10)),
                      *("lpt" + str(i) for i in range(1, 10))}
                     for part in path.split("/"))
-            and ((path.startswith(prefixes) and path.endswith(suffix))
+            and (model_source_path_allowed(value["lane"], path)
                  or path in R7_TEST_PATHS[value["lane"]]),
             "SOURCE_PATH_FORBIDDEN")
     require(value["toolchain_identity"] in ("go1.25.0", "python3.11.11")
