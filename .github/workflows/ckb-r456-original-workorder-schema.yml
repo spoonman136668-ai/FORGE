@@ -1,0 +1,56 @@
+name: CKB R456 original owner read-only historical WorkOrder schema audit
+on:
+  push:
+    branches: [audit/ckb-r456-historical-workorder-schema-20261027]
+permissions:
+  contents: read
+jobs:
+  original-owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect exact local WorkOrder compatibility schema without changing any controller state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R456_WRONG_ORIGINAL_OWNER'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $model=Join-Path $root 'internal\plane\model.go'
+          $status=Join-Path $root 'internal\plane\status_projection.go'
+          $recover=Join-Path $root 'internal\plane\recovery_candidates.go'
+          $store=Join-Path $root 'internal\plane\store.go'
+          foreach($f in @($model,$store)){
+            if(!(Test-Path -LiteralPath $f -PathType Leaf)){throw 'R456_AUTHORITATIVE_MODEL_OR_STORE_MISSING'}
+          }
+          $body=[IO.File]::ReadAllText($model)
+          $m=[regex]::Match($body,'(?ms)^type\s+WorkOrder\s+struct\s*\{(.*?)^\}')
+          if(-not $m.Success){throw 'R456_WORKORDER_STRUCT_UNRECOGNIZED'}
+          $w=$m.Groups[1].Value
+          Write-Output ('R456_LIVE_MODEL_SHA256='+(Get-FileHash -LiteralPath $model -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Output ('R456_WORKORDER_HAS_PRESERVATION_YAML_FIELD='+[string]($w -match 'yaml:"preservation(?:,omitempty)?"'))
+          Write-Output ('R456_WORKORDER_HAS_PRESERVATION_SCHEMA_FIELD='+[string]($w -match 'yaml:"preservation_schema(?:,omitempty)?"'))
+          Write-Output ('R456_WORKORDER_HAS_PRESERVATION_POINTER='+[string]($w -match 'Preservation\s+\*PreservationContract'))
+          Write-Output ('R456_WORKORDER_STRUCT_FIELD_COUNT='+([regex]::Matches($w,'yaml:"')).Count)
+          $storeBody=[IO.File]::ReadAllText($store)
+          Write-Output ('R456_STORE_STRICT_KNOWNFIELDS='+[string]($storeBody -match 'KnownFields\(true\)'))
+          Write-Output ('R456_STORE_HAS_PARSEORDER='+[string]($storeBody -match 'func ParseOrder'))
+          Write-Output ('R456_STORE_HAS_LIST_OBSERVABLE='+[string]($storeBody -match 'func \(s \*Store\) ListObservable'))
+          foreach($item in @(@{name='STATUS_PROJECTION';path=$status},@{name='RECOVERY_CANDIDATES';path=$recover})){
+            $present=Test-Path -LiteralPath $item.path -PathType Leaf
+            Write-Output ('R456_LIVE_'+$item.name+'_PRESENT='+[string]$present)
+            if($present){
+              $raw=[IO.File]::ReadAllText($item.path)
+              Write-Output ('R456_LIVE_'+$item.name+'_SHA256='+(Get-FileHash -LiteralPath $item.path -Algorithm SHA256).Hash.ToLowerInvariant())
+              Write-Output ('R456_LIVE_'+$item.name+'_HAS_OBSERVABLEORDER='+[string]($raw -match 'func observableOrder'))
+              Write-Output ('R456_LIVE_'+$item.name+'_HAS_HISTORICAL_PRESERVATION='+[string]($raw -match 'validHistoricalPreservation'))
+              Write-Output ('R456_LIVE_'+$item.name+'_ACCEPTED_ONLY='+[string]($raw -match 'state != "ACCEPTED"'))
+              Write-Output ('R456_LIVE_'+$item.name+'_GUARDS_EXPLICIT_SCHEMA='+[string]($raw -match 'preservation: explicit preservation_schema'))
+            }
+          }
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          $r220='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if($ps.Count -ne 1 -or $ps[0].ProcessId -ne 80088 -or [string]$ps[0].ExecutablePath -cne $r220 -or $task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R456_ORIGINAL_CONTROLLER_CHANGED'}
+          Write-Output 'R456_SOURCE_ONLY_ORIGINAL_R220_RUNNING=PASS'
+          Write-Output 'R456_NO_PRIVATE_MODEL_SOURCE_EXPORTED=TRUE'
