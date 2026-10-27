@@ -1,0 +1,64 @@
+name: CKB R442 owner process custody recovery diagnostic
+on:
+  push:
+    branches: [audit/ckb-r442-original-owner-recovery-20261027]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Read original native owner process after stopped task without touching it
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R442_RECOVERY_WRONG_RUNNER'}
+          $t=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($t.Count -ne 1){throw 'R442_RECOVERY_TASK_MISSING'}
+          Write-Output ('R442_RECOVERY_TASK_STATE='+[string]$t[0].State)
+          $info=Get-ScheduledTaskInfo -InputObject $t[0] -ErrorAction Stop
+          Write-Output ('R442_RECOVERY_TASK_RESULT='+$info.LastTaskResult)
+          Write-Output ('R442_RECOVERY_TASK_PRINCIPAL='+[string]$t[0].Principal.UserId)
+          $s=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          Write-Output ('R442_RECOVERY_PROCESS_COUNT='+$s.Count)
+          foreach($p in $s){
+            Write-Output ('R442_RECOVERY_PROCESS_ID='+$p.ProcessId)
+            Write-Output ('R442_RECOVERY_PROCESS_PARENT='+$p.ParentProcessId)
+            Write-Output ('R442_RECOVERY_PROCESS_EXE='+[string]$p.ExecutablePath)
+            Write-Output ('R442_RECOVERY_PROCESS_START='+[string]$p.CreationDate)
+            if($p.ExecutablePath -and (Test-Path -LiteralPath $p.ExecutablePath -PathType Leaf)) {
+              Write-Output ('R442_RECOVERY_PROCESS_DISK_SHA256='+(Get-FileHash -LiteralPath $p.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant())
+            }
+            $parent=@(Get-CimInstance Win32_Process -Filter ("ProcessId = "+$p.ParentProcessId) -ErrorAction Stop)
+            Write-Output ('R442_RECOVERY_PARENT_ALIVE='+($parent.Count -eq 1))
+            foreach($x in $parent){Write-Output ('R442_RECOVERY_PARENT_IMAGE='+[string]$x.Name)}
+          }
+          $base='C:\Users\camar\GolandProjects\ckb-plane'
+          $tokenFile=Join-Path $base 'state\operator.token'
+          $token=([IO.File]::ReadAllText($tokenFile)).Trim()
+          if($token -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R442_RECOVERY_TOKEN_FORMAT'}
+          try {
+            $native=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 6 -ErrorAction Stop
+            Write-Output ('R442_RECOVERY_NATIVE_AUTHORITY='+[string]$native.authority)
+            Write-Output ('R442_RECOVERY_NATIVE_GENERATION='+[string]$native.generation)
+            Write-Output ('R442_RECOVERY_NATIVE_HEARTBEAT_STALE='+[string]$native.heartbeat_stale)
+            Write-Output ('R442_RECOVERY_NATIVE_PAUSED='+[string]$native.paused)
+            Write-Output ('R442_RECOVERY_NATIVE_QUEUE_COUNT='+@($native.queue).Count)
+            Write-Output ('R442_RECOVERY_NATIVE_JOB_COUNT='+@($native.jobs).Count)
+            Write-Output ('R442_RECOVERY_NATIVE_FAILED_COUNT='+@($native.queue|Where-Object {$_.state -eq 'FAILED'}).Count)
+          }catch {Write-Output ('R442_RECOVERY_NATIVE_GET_RESULT='+$_.Exception.GetType().Name)} finally {$token=$null}
+          $startup='C:\Users\camar\GolandProjects\ckb-plane\scripts\Start-R18-Controller.ps1'
+          if(!(Test-Path -LiteralPath $startup -PathType Leaf)){
+            $w=[string]$t[0].Actions[0].Arguments
+            $paths=@([regex]::Matches($w,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase')|ForEach-Object {$_.Value})
+            if($paths.Count -eq 1){$startup=$paths[0]}
+          }
+          Write-Output ('R442_RECOVERY_ORIGINAL_SCRIPT_PRESENT='+(Test-Path -LiteralPath $startup -PathType Leaf))
+          if(Test-Path -LiteralPath $startup -PathType Leaf){Write-Output ('R442_RECOVERY_STARTUP_SHA256='+(Get-FileHash -LiteralPath $startup -Algorithm SHA256).Hash.ToLowerInvariant())}
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R440-TERMINAL-SCHEDULER-20261027\bin\ckb-plane.exe'
+          Write-Output ('R442_RECOVERY_ORIGINAL_BINARY_SHA256='+(Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Output ('R442_RECOVERY_STAGED_CANDIDATE_SHA256='+(Get-FileHash -LiteralPath $new -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Output 'R442_RECOVERY_READ_ONLY=TRUE'
