@@ -58,6 +58,50 @@ jobs:
               if ($raw -match 'merge-base|shallow') {
                 if ($safe -eq 'NO_ALLOWLISTED_CODE') { $safe = 'GIT_HISTORY_CONTRACT' }
               }
+              $milestones = @(
+                'UQ51_DEFAULT_DENY_APPLY=PASS',
+                'UQ51_DISABLED_POLICY_READ_ONLY_PLAN=PASS',
+                'UQ51_SYNTHETIC_ADMISSION_EXACT_MAIN_ONLY=PASS',
+                'UQ51_INJECTED_MID_COPY_ROLLBACK=PASS',
+                'UQ51_THREE_OBSERVED_AND_ORIGINAL_260_PRESERVED=PASS',
+                'UQ51_CHECKPOINT_READ_ONLY_VALIDATE=PASS',
+                'UQ51_EXACT_COHORT_DUPLICATE_NOOP=PASS'
+              )
+              $lastMilestone = 'NONE'
+              foreach ($marker in $milestones) {
+                if ($raw.Contains($marker)) { $lastMilestone = $marker }
+              }
+              # Match only fixed program diagnostics; no private content or error text.
+              $errorSignals = [ordered]@{
+                'EXPECTED_SUCCESS_FAILED'='UQ51_ADAPTER_EXPECTED_SUCCESS_FAILED'
+                'EXPECTED_FAILURE_MISSING'='UQ51_ADAPTER_UNEXPECTEDLY_SUCCEEDED'
+                'SOURCE_AUTHORITY_DRIFT'='UQ51_BRANCH_OR_HEAD_DRIFT'
+                'REMOTE_MAIN_DRIFT'='UQ51_ORIGIN_MAIN_DRIFT'
+                'POLICY_DRIFT'='UQ51_POLICY_DRIFT'
+                'BASELINE_DRIFT'='UQ51_COHORT_BASELINE_DRIFT'
+                'BLOB_DRIFT'='UQ51_COLLECTOR_BLOB_DRIFT'
+                'EXPECTED_ADMISSION_DENIED'='UQ51_EXPLICIT_REPOSITORY_SOURCE_ADMISSION_REQUIRED'
+                'PREEXISTING_CHANGES'='UQ51_PREEXISTING_WORKTREE_CHANGES'
+                'ADMISSION_NOT_READY'='UQ51_ADMITTED_PLAN_NOT_READY'
+                'MISSING_CANONICAL_PS7'='UQ51_CANONICAL_PS7_REQUIRED'
+                'STAGED_TRANSACTION'='UQ51_STRANDED_TRANSACTION_REQUIRES_RECOVERY_REVIEW'
+                'EXPECTED_FAILURE_TEST'='UQ51_EXPECTED_FAILURE_NOT_OBSERVED'
+                'GIT_FIXTURE_ERROR'='UQ51_TEST_GIT_FAILED'
+                'INTERNAL_SCRIPT_ERROR'='CommandNotFoundException'
+                'ACCESS_EXCEPTION'='UnauthorizedAccessException'
+                'POWERSHELL_METHOD_ERROR'='MethodInvocationException'
+                'PARAMETER_EXCEPTION'='ParameterBindingException'
+                'PRODUCED_NATIVE_ERROR'='NativeCommandError'
+              }
+              $positive = @()
+              foreach ($entry in $errorSignals.GetEnumerator()) {
+                if ($raw.Contains([string]$entry.Value)) {
+                  $positive += [string]$entry.Key
+                }
+              }
+              Write-Host ($c.label + '_UQ51_LAST_MILESTONE=' + $lastMilestone)
+              Write-Host ($c.label + '_UQ51_ERROR_SIGNAL_CODES=' + $(if($positive.Count){$positive -join ','}else{'NO_MATCH'}))
+              Write-Host ($c.label + '_UQ51_TRACE_SHA256=' + [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($raw))).ToLowerInvariant())
               $result[$c.label] = @{ exit=$code; reason=$safe }
               Write-Host ($c.label + '_UQ51_STATUS=' + $(if($code -eq 0){'PASS'}else{'FAIL'}))
               Write-Host ($c.label + '_UQ51_REASON=' + $safe)
