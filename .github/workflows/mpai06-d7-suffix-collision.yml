@@ -1,0 +1,47 @@
+name: MP-AI06 D7 suffix-collision risk audit
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai06-d7-suffix-collision.yml']
+permissions:
+  contents: read
+jobs:
+  collision-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Inspect D7 normalization collisions on pinned original corpus
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-d7-collisions-'+$env:GITHUB_RUN_ID)
+          try {
+            git clone --quiet --depth 1 --branch proposal/mp-ai06-d7-normalized-recall-20261025 https://github.com/spoonman136668-ai/Mind-Palace.git $scratch
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_UNAVAILABLE' }
+            $sha=(& git -C $scratch rev-parse HEAD).Trim()
+            if ($sha -cne '536d451c0e585d22e09a2aadecf2a6cefba76402') { throw 'SOURCE_PIN_MISMATCH' }
+            $env:MP_SOURCE=$scratch
+            @'
+          import collections,json,os,pathlib,re,sys
+          root=pathlib.Path(os.environ['MP_SOURCE'])
+          sys.path.insert(0,str(root/'agentic'))
+          from mpai06_d7_normalized_recall import normalize_word
+          records=json.loads((root/'.ice/records.json').read_text(encoding='utf-8'))
+          terms=collections.defaultdict(set)
+          for r in records:
+            if r.get('project')!='Mind-Palace' or r.get('status') in {'historical','candidate','superseded'}: continue
+            words=set(re.findall(r'[a-z0-9]+',str(r.get('statement','')).lower()+' '+str(r.get('id','')).lower()))
+            for word in words: terms[normalize_word(word)].add(word)
+          collisions={k:v for k,v in terms.items() if len(v)>1}
+          print('MPAI06_D7_NORMALIZED_UNIQUE_TERMS='+str(len(terms)))
+          print('MPAI06_D7_COLLISION_BUCKETS='+str(len(collisions)))
+          print('MPAI06_D7_COLLISION_SOURCE_PIN=536d451c0e585d22e09a2aadecf2a6cefba76402')
+          print('MPAI06_D7_COLLISIONS_REQUIRE_SEMANTIC_ADJUDICATION=TRUE')
+          print('MPAI06_D7_PRIVATE_RECORD_CONTENT_EMITTED=FALSE')
+          print('MPAI06_D7_SCIENTIFIC_PROMOTION=FALSE')
+          '@ | python -
+            if ($LASTEXITCODE -ne 0) { throw 'COLLISION_AUDIT_FAILED' }
+          } finally {
+            if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
+          }
