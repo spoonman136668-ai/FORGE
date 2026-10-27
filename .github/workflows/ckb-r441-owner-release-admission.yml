@@ -81,7 +81,13 @@ jobs:
           foreach($cmd in $cmds) {
             $verb=$cmd.GetCommandName()
             if([string]::IsNullOrEmpty($verb)){$verb='DYNAMIC_VARIABLE_INVOCATION'}
-            if($verb -notmatch '^[A-Za-z0-9._-]{1,80}$'){throw 'R441_STARTUP_COMMAND_NAME_UNEXPECTED'}
+            if($verb -notmatch '^[A-Za-z0-9._-]{1,80}$'){
+              $elementType=$cmd.CommandElements[0].GetType().Name
+              Write-Output ('R441_STARTUP_COMMAND_NONLITERAL_TYPE='+$elementType)
+              Write-Output ('R441_STARTUP_COMMAND_NONLITERAL_INVOCATION='+[string]$cmd.InvocationOperator)
+              if($elementType -notin @('VariableExpressionAst','CommandExpressionAst','StringConstantExpressionAst')){throw 'R441_STARTUP_AST_DYNAMIC_TYPE_UNEXPECTED'}
+              $verb='REDACTED_DYNAMIC_INVOCATION'
+            }
             Write-Output ('R441_STARTUP_AST_COMMAND='+$verb)
           }
           Write-Output 'R441_STARTUP_SCRIPT_CONTENT_NOT_LOGGED=TRUE'
