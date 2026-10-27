@@ -6,8 +6,8 @@ class SixMethodReadinessTests(unittest.TestCase):
     def test_exact_blockers(self):
         result = assess_readiness()
         self.assertEqual(result["methods_count"], 6)
-        self.assertEqual(result["source_only_ready_count"], 1)
-        self.assertEqual(result["blocked_count"], 5)
+        self.assertEqual(result["source_only_ready_count"], 3)
+        self.assertEqual(result["blocked_count"], 3)
         self.assertFalse(result["full_comparison_ready"])
         self.assertFalse(result["first_use_authorized"])
         self.assertFalse(result["scientific_accepted"])
