@@ -1,0 +1,91 @@
+name: CKB R430 original owner running-controller preflight
+on:
+  push:
+    branches: [audit/ckb-r427-exact-composition-20261027]
+    paths:
+      - .github/workflows/ckb-r430-owner-task-preflight.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Read original task, process identity and native queue custody without mutations
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R430_OWNER_RUNNER_MISMATCH'}
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R430_OWNER_ADMIN_REQUIRED'}
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $actions=@($task.Actions)
+          if($actions.Count -ne 1){throw 'R430_ORIGINAL_TASK_TOPOLOGY_AMBIGUOUS'}
+          $owner=[string]$task.Principal.UserId
+          $sid=''
+          try {$sid=(New-Object Security.Principal.NTAccount($owner)).Translate([Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($owner -ine $identity.Name -and $sid -cne $identity.User.Value){throw 'R430_ORIGINAL_OWNER_SID_MISMATCH'}
+          Write-Output ('R430_ORIGINAL_TASK_STATE='+[string]$task.State)
+          Write-Output ('R430_LAST_TASK_RESULT='+[string]$info.LastTaskResult)
+          Write-Output 'R430_ORIGINAL_TASK_PRINCIPAL=PASS'
+          $argsText=[string]$actions[0].Arguments
+          $wrapperMatch=[regex]::Match($argsText,'(?i)-File\s+"([^"]+)"')
+          $wrapper='NOT_EXTRACTED'
+          if($wrapperMatch.Success){
+            $file=$wrapperMatch.Groups[1].Value
+            if(Test-Path -LiteralPath $file -PathType Leaf){
+              $raw=[IO.File]::ReadAllText($file)
+              if($raw.Contains('PLANE-R220-LIVECOMPAT-20261023')){$wrapper='R220_LIVECOMPAT'}
+              elseif($raw.Contains('PLANE-R18-RB1-ADMISSION-20261023')){$wrapper='R18_RB1'}
+              else{$wrapper='OTHER'}
+            }else{$wrapper='FILE_ABSENT'}
+          }
+          Write-Output ('R430_WRAPPER_TARGET_CLASS='+$wrapper)
+          $processes=@(Get-CimInstance Win32_Process -Filter "name='ckb-plane.exe" -ErrorAction Stop)
+          Write-Output ('R430_CKB_PLANE_PROCESS_COUNT='+$processes.Count)
+          $known='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          foreach($process in $processes){
+            $classification='UNKNOWN'
+            if($process.ExecutablePath -and (Test-Path -LiteralPath $process.ExecutablePath -PathType Leaf)){
+              $sha=(Get-FileHash -LiteralPath $process.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+              if($sha -ceq $known){$classification='R220_LIVECOMPAT'}
+              elseif($sha -ceq '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc'){$classification='R18_RB1'}
+              else{$classification='OTHER'}
+            }
+            Write-Output ('R430_RUNNING_EXE_CLASS='+$classification)
+          }
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          if(!(Test-Path -LiteralPath $db -PathType Leaf)){throw 'R430_OWNER_DB_ABSENT'}
+          $py=@'
+import datetime, pathlib, sqlite3, sys
+db=pathlib.Path(sys.argv[1]).resolve(strict=True)
+conn=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True,timeout=20)
+try:
+    def count(q):return int(conn.execute(q).fetchone()[0])
+    leases=count("SELECT count(*) FROM worker_leases")
+    active=count("SELECT count(*) FROM queue_items WHERE state IN ('RUNNING','RETRY_WAIT','FINALIZING')")
+    eligible=count("SELECT count(*) FROM queue_items WHERE state='QUEUED' AND mode='source' AND authorization='operator'")
+    failed=count("SELECT count(*) FROM queue_items WHERE state='FAILED'")
+    settings=dict(conn.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_heartbeat')"))
+    stamp=settings.get('autonomy_heartbeat','')
+    try:
+        heartbeat=datetime.datetime.fromisoformat(stamp.replace('Z','+00:00'))
+        fresh=(datetime.datetime.now(datetime.timezone.utc)-heartbeat).total_seconds()<90
+    except Exception:
+        fresh=False
+    print("R430_WORKER_LEASES="+str(leases))
+    print("R430_ACTIVE_QUEUE_RECORDS="+str(active))
+    print("R430_ELIGIBLE_QUEUE_RECORDS="+str(eligible))
+    print("R430_TERMINAL_FAILED_RECORDS="+str(failed))
+    print("R430_AUTHORITY_CLASS="+settings.get('autonomy_authority','UNKNOWN'))
+    print("R430_PAUSED="+settings.get('paused','UNKNOWN'))
+    print("R430_HEARTBEAT_FRESH="+str(fresh))
+    print("R430_READ_ONLY_SQLITE=PASS")
+finally:
+    conn.close()
+'@
+          & python -B -c $py $db
+          if($LASTEXITCODE -ne 0){throw 'R430_OWNER_READONLY_DB_QUERY_FAILED'}
+          Write-Output 'R430_NO_TASK_PROCESS_OR_DATABASE_MUTATIONS=PASS'
