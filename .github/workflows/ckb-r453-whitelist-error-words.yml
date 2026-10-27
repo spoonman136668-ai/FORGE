@@ -1,0 +1,57 @@
+name: CKB R453 allowlisted-redaction of exact native startup failure
+on:
+  push:
+    branches: [audit/ckb-r453-redacted-native-error-20261027]
+permissions:
+  contents: read
+jobs:
+  redact:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Report only safe technical dictionary words from Go stderr error line
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R453_WRONG_ORIGINAL_OWNER'}
+          $path='C:\Users\camar\AppData\Local\CKB-R445-Startup-Diagnostics\R449-40545412788\native-stderr.txt'
+          $expected='5e741b04738e482cd4c286436606484f68fa2d5486b86e14fbbe66c0c9c391a2'
+          if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected){throw 'R453_EVIDENCE_BYTES_CHANGED'}
+          $data=[IO.File]::ReadAllBytes($path)
+          if($data.Length -ne 1040 -or $data[0] -ne 255 -or $data[1] -ne 254){throw 'R453_EVIDENCE_ENCODING_CHANGED'}
+          $decoded=[Text.Encoding]::Unicode.GetString($data).TrimStart([char]0xFEFF)
+          $first=($decoded -split '\r?\n')[0]
+          if($first.Length -gt 400){throw 'R453_FIRST_LINE_TOO_LARGE'}
+          $m=[regex]::Match($first,'(?i)\.exe\s*:\s*(.*)$')
+          if(-not $m.Success){Write-Output 'R453_NATIVE_ERROR_FIRST_LINE_NOT_LOCATED=TRUE';exit 0}
+          $message=$m.Groups[1].Value
+          $allowed=@(
+            'the','a','an','to','of','for','is','are','was','were','be','not','no','with','while','by','from','and','or','in','on','at',
+            'cannot','could','can','did','does','have','has','failed','failure','error','invalid','unexpected','missing','required','available','unavailable','denied','unsupported','unknown','bad',
+            'operation','command','argument','flag','name','value','path','file','directory','folder','input','output','stdout','stderr','read','write','open','create','execute','run','start','stop',
+            'controller','service','server','process','task','scheduler','startup','shutdown','lock','locked','busy','owned','ownership','existing','already','present','state','root','data',
+            'source','original','candidate','release','store','manifest','pointer','binary','exe','script','configuration','config','yaml','profile','policy','authority','autonomy',
+            'token','secret','credential','auth','permission','access','security','signature','certificate','database','sqlite','sql','table','row','schema','constraint',
+            'network','socket','port','bind','listen','connection','refused','timeout','timed','out','closed','reset','interrupted','canceled',
+            'bridge','mailbox','github','api','remote','worker','job','work','order','queue','retry','replay','recovery','supervisor','pid','live','stale',
+            'windows','powershell','go','version','format','unsupported','system','environment','variable','set','found','exists','matching','mismatch','expected','actual','changed',
+            'permission','directory','access','block','ref','mutation','diagnostic','dependency','local','already','locked','the','request','returned','exit','code','result'
+          )
+          $lookup=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+          foreach($word in $allowed){[void]$lookup.Add($word)}
+          $tokens=@([regex]::Matches($message,'[A-Za-z][A-Za-z0-9_-]{0,79}')|ForEach-Object {$_.Value})
+          $safe=@()
+          foreach($w in $tokens){
+            if($lookup.Contains($w)){$safe+=$w.ToLowerInvariant()}
+            else {$safe+='[redacted]'}
+          }
+          if($safe.Count -gt 38){throw 'R453_ERROR_TOKENS_TOO_MANY'}
+          Write-Output ('R453_FIRST_LINE_NATIVE_ERROR_CHARACTER_COUNT='+$message.Length)
+          Write-Output ('R453_NATIVE_ERROR_WORD_COUNT='+$tokens.Count)
+          Write-Output ('R453_ALLOWLISTED_TECHNICAL_ERROR_WORDS='+($safe -join ' '))
+          Write-Output 'R453_NO_UNTRUSTED_LITERAL_OR_LOCAL_PATH_PUBLISHED=TRUE'
+          $live=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if($live.Count -ne 1 -or $live[0].ProcessId -ne 80088 -or [string]$live[0].ExecutablePath -cne $old){throw 'R453_ORIGINAL_R220_CHANGED'}
+          Write-Output 'R453_READ_ONLY_R220_PRESERVED=PASS'
