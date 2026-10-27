@@ -51,7 +51,8 @@ jobs:
           git add -f .ice/derived/graphify .ice/derived/obsidian
           $changed=@(git diff --cached --name-only)
           if($changed.Count -eq 0){throw 'GRAPHIFY_NO_NEW_ARTIFACTS'}
-          if(@($changed|Where-Object {$_ -notlike '.ice/derived/*'}).Count -gt 0){throw 'OUT_OF_SCOPE'}
+          $outside=@(git diff --cached --name-only -- . ':(exclude).ice/derived/**')
+          if($outside.Count -gt 0){throw 'OUT_OF_SCOPE'}
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Refresh advisory source-pinned Graphify and Obsidian'
           if($LASTEXITCODE -ne 0){throw 'CANDIDATE_COMMIT_FAILED'}
           git push origin HEAD:knowledge/graphify-obsidian-refresh-20261027
