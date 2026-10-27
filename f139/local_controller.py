@@ -2645,7 +2645,28 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                      json.loads(v9_rows[0]["payload"]).get("to_source_sha")
                  and event.get("v9_terminal_event_sha256")==v9_rows[0]["sha"]
                  and verify_g49_custody(db))
-        if not ((v7 or v8 or v9 or v10) and event.get("to_source_sha")==source_sha
+        v11 = False
+        if event.get("schema")=="forge.f139.source-transition.v11":
+            # A model-publisher release must not weaken the existing V2
+            # provider signer or reclassify G54's ambiguous no-run as success.
+            db.verify()
+            from f139.nci04_g54_ambiguous_start_custody import (
+                verified_g54_ambiguous_start)
+            frozen = verified_g54_ambiguous_start(db)
+            v10_rows = [
+                r for r in db.conn.execute(
+                    "SELECT sha,payload FROM events "
+                    "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                if json.loads(r["payload"]).get("schema")==
+                    "forge.f139.source-transition.v10"]
+            v11 = (len(v10_rows)==1
+                   and event.get("from_source_sha")==
+                       json.loads(v10_rows[0]["payload"]).get("to_source_sha")
+                   and event.get("v10_terminal_event_sha256")==v10_rows[0]["sha"]
+                   and event.get("g54_ambiguous_start_event_sha256")==
+                       frozen["quarantine_event_sha256"]
+                   and verify_g49_custody(db))
+        if not ((v7 or v8 or v9 or v10 or v11) and event.get("to_source_sha")==source_sha
                 and event.get("v2_receipt_authorized") is False):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
