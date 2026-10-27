@@ -1,0 +1,203 @@
+name: CKB R462 native graceful original-owner cutover and rollback
+on:
+  push:
+    branches: [audit/ckb-r462-guarded-recovery-live-switch-20261027]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r462-native-single-owner
+  cancel-in-progress: false
+jobs:
+  original-native-cutover:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    steps:
+      - name: Safely stop exact orphan through original native API and restore scheduled owner with qualified binary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R462_WRONG_ORIGINAL_OWNER_RUNNER'}
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($owner.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R462_WRONG_OWNER_SID'}
+          if(-not [Security.Principal.WindowsPrincipal]::new($owner).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R462_ESCALATED_OWNER_REQUIRED'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $oldExe=Join-Path $store 'releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $newExe=Join-Path $store 'releases\PLANE-R461-ACTIVE-ONLY-SCHEDULER-20261027\bin\ckb-plane.exe'
+          $oldHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $newHash='b39ad0e68f841a4596d2a103064d64f7725b7a4f7f37965f20fa794f14798fcf'
+          $oldScriptHash='64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'
+          $newScriptHash='278ded64e85983a08d2d2cbde4fcbb1b87fc5ad5f42bac72a52441d59a9329a8'
+          $pkg='C:\Users\camar\AppData\Local\CKB-R461-Qualified-Cutover-Bundles\R461-40576380708'
+          $pkgOld=Join-Path $pkg 'Start-R18-Controller.rollback.ps1'
+          $pkgNew=Join-Path $pkg 'Start-R461-Controller.proposed.ps1'
+          $active=Join-Path $store 'state\active-release'
+          $activeHash='06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'
+          $taskName='CKB-plane Controller'
+          $scriptPath=$null
+          $jobDir=Join-Path 'C:\ProgramData\CKBR\cutover' ('R462-'+$env:GITHUB_RUN_ID)
+          $switched=$false
+          $originalPID=80088
+          function Sha([string]$f){
+            if(!(Test-Path -LiteralPath $f -PathType Leaf)){throw ('R462_FILE_MISSING='+[IO.Path]::GetFileName($f))}
+            (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          function Pin([string]$p,[string]$expected,[string]$code){if((Sha $p) -cne $expected){throw $code}}
+          function Procs {@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)}
+          function Task {
+            $ts=@(Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
+            if($ts.Count -ne 1){throw 'R462_TASK_NOT_UNIQUE'}
+            $ts[0]
+          }
+          function GetNative {
+            $tf=Join-Path $root 'state\operator.token'
+            $secret=([IO.File]::ReadAllText($tf)).Trim()
+            if($secret -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R462_OPERATOR_TOKEN_FORMAT_INVALID'}
+            try {Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$secret)} -TimeoutSec 7 -ErrorAction Stop} finally {$secret=$null}
+          }
+          function StopNativeOnce {
+            $tf=Join-Path $root 'state\operator.token'
+            $secret=([IO.File]::ReadAllText($tf)).Trim()
+            if($secret -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R462_OPERATOR_TOKEN_FORMAT_INVALID'}
+            try {
+              $result=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$secret)} -ContentType 'application/json' -Body '{"action":"stop"}' -TimeoutSec 7 -ErrorAction Stop
+              if(-not [bool]$result.stopping){throw 'R462_NATIVE_STOP_NOT_ACCEPTED'}
+              Write-Output 'R462_ORIGINAL_NATIVE_STOP_ACCEPTED=TRUE'
+            } catch {
+              Write-Output ('R462_STOP_RESULT_AMBIGUOUS='+$_.Exception.GetType().Name)
+            } finally {$secret=$null}
+          }
+          function ValidateNative([object]$n){
+            if([string]$n.authority -cne 'plane' -or [string]$n.generation -cne '6' -or [bool]$n.paused -or [bool]$n.heartbeat_stale){throw 'R462_NATIVE_AUTHORITY_NOT_HEALTHY'}
+            if([bool]$n.accepted_ref_mutation_allowed){throw 'R462_UNEXPECTED_REF_MUTATION_PERMISSION'}
+            $q=@($n.queue);$jobs=@($n.jobs)
+            if($q.Count -ne 202 -or $jobs.Count -ne 199){throw 'R462_LEDGER_COUNTS_CHANGED'}
+            if(@($q|Where-Object {[string]$_.state -in @('QUEUED','RUNNING','RETRY_WAIT','FINALIZING')}).Count -ne 0){throw 'R462_ACTIVE_WORK_PRESENT'}
+            $failed=@($q|Where-Object {[string]$_.state -eq 'FAILED'})
+            if($failed.Count -ne 1 -or [string]$failed[0].id -cne 'KTRADE_RB1_SINGLE_TRACK_20261022' -or [string]$failed[0].reason -cne 'BRANCH_ANCESTRY_INVALID' -or [string]::IsNullOrWhiteSpace([string]$failed[0].receipt)){throw 'R462_TERMINAL_RECEIPT_CUSTODY_CHANGED'}
+          }
+          function WaitZero([int]$sec){
+            $until=(Get-Date).AddSeconds($sec)
+            do {
+              if(@(Procs).Count -eq 0){return}
+              Start-Sleep -Milliseconds 550
+            }while((Get-Date)-lt $until)
+            throw 'R462_PREVIOUS_CONTROLLER_STILL_ALIVE'
+          }
+          function WaitTaskReady([int]$seconds){
+            $until=(Get-Date).AddSeconds($seconds)
+            do {
+              if([string](Task).State -ceq 'Ready'){return}
+              Start-Sleep -Milliseconds 450
+            }while((Get-Date)-lt $until)
+            throw 'R462_TASK_NOT_READY_AFTER_NATIVE_STOP'
+          }
+          function WaitHealthy([string]$expected,[int]$seconds){
+            $until=(Get-Date).AddSeconds($seconds)
+            $last=''
+            do {
+              $ps=@(Procs)
+              if($ps.Count -gt 1){throw 'R462_DUPLICATE_CONTROLLERS'}
+              if($ps.Count -eq 1 -and [string]$ps[0].ExecutablePath -cne $expected){throw 'R462_UNEXPECTED_CONTROLLER_BINARY'}
+              if($ps.Count -eq 1 -and [string](Task).State -ceq 'Running'){
+                try {
+                  $n=GetNative
+                  ValidateNative $n
+                  return [int]$ps[0].ProcessId
+                }catch{$last=$_.Exception.Message}
+              }
+              Start-Sleep -Milliseconds 600
+            }while((Get-Date)-lt $until)
+            throw ('R462_NEW_CONTROLLER_NOT_HEALTHY:'+ $last)
+          }
+          function SwapScript([string]$source,[string]$sha,[string]$backup){
+            $tmp=Join-Path (Split-Path -Parent $scriptPath) ('.r462-'+$env:GITHUB_RUN_ID+'-temporary.ps1')
+            if(Test-Path -LiteralPath $tmp){throw 'R462_TEMP_ALREADY_EXISTS'}
+            [IO.File]::WriteAllBytes($tmp,[IO.File]::ReadAllBytes($source))
+            try{
+              Pin $tmp $sha 'R462_TEMP_STARTUP_CORRUPTED'
+              [IO.File]::Replace($tmp,$scriptPath,(Join-Path $jobDir $backup),$true)
+              Pin $scriptPath $sha 'R462_SWITCHED_STARTUP_CORRUPTED'
+            }finally{if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force -ErrorAction Stop}}
+          }
+          $bundleManifest=Join-Path $pkg 'manifest.json'
+          $m=Get-Content -LiteralPath $bundleManifest -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+          if([string]$m.schema -cne 'ckb-plane.r461.inactive-active-only-scheduler.v1' -or [string]$m.candidate_sha256 -cne $newHash -or [string]$m.original_sha256 -cne $oldHash -or [string]$m.proposed_script_sha256 -cne $newScriptHash -or [bool]$m.promoted -or [bool]$m.controller_restarted -or -not [bool]$m.active_only_recovery_symbol_verified){throw 'R462_SEALED_RELEASE_MANIFEST_INVALID'}
+          Write-Output 'R462_ACTIVE_ONLY_RECOVERY_RELEASE_PREIMAGE=PASS'
+          Pin $oldExe $oldHash 'R462_OLD_BINARY_DRIFT'
+          Pin $newExe $newHash 'R462_NEW_RELEASE_BIN_DRIFT'
+          Pin $pkgOld $oldScriptHash 'R462_ROLLBACK_BUNDLE_DRIFT'
+          Pin $pkgNew $newScriptHash 'R462_CANDIDATE_STARTUP_DRIFT'
+          Pin $active $activeHash 'R462_R1P_POINTER_DRIFT'
+          $task=Task
+          if([string]$task.State -cne 'Running' -or [string]$task.Principal.UserId -cne 'camar' -or [string]$task.Principal.RunLevel -cne 'Limited'){throw 'R462_EXPECTED_STRANDED_TASK_NOT_FOUND'}
+          $actions=@($task.Actions)
+          if($actions.Count -ne 1 -or [string]$actions[0].Execute -cne 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'){throw 'R462_TASK_ACTION_DRIFT'}
+          $commandHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$actions[0].Arguments))).ToLowerInvariant()
+          if($commandHash -cne 'cb83905cfa4aa7e99683038160448802bdaf8c602c387f575fa8b1bf0ffad29c'){throw 'R462_ORIGINAL_TASK_ARGS_CHANGED'}
+          $paths=@([regex]::Matches([string]$actions[0].Arguments,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase')|ForEach-Object {$_.Value}|Sort-Object -Unique)
+          if($paths.Count -ne 1 -or [IO.Path]::GetFileName($paths[0]) -cne 'Start-R18-Controller.ps1'){throw 'R462_STARTUP_SCRIPT_PATH_DRIFT'}
+          $scriptPath=$paths[0]
+          Pin $scriptPath $oldScriptHash 'R462_ORIGINAL_SCRIPT_CHANGED'
+          $current=@(Procs)
+          if($current.Count -ne 1 -or $current[0].ProcessId -ne $originalPID -or [string]$current[0].ExecutablePath -cne $oldExe){throw 'R462_ORIGINAL_ORPHAN_ID_DRIFT'}
+          $parent=@(Get-CimInstance Win32_Process -Filter ("ProcessId = "+$current[0].ParentProcessId) -ErrorAction Stop)
+          Write-Output ('R462_ORIGINAL_TASK_PARENT_ALIVE='+[string]($parent.Count -eq 1))
+          ValidateNative (GetNative)
+          Write-Output 'R462_EXACT_ORPHAN_OWNER_AND_NATIVE_STATE=PASS'
+          if(Test-Path -LiteralPath $jobDir){throw 'R462_CUSTODY_DIR_COLLISION'}
+          New-Item -Path $jobDir -ItemType Directory -Force -ErrorAction Stop|Out-Null
+          try{
+            StopNativeOnce
+            WaitZero 50
+            WaitTaskReady 20
+            Write-Output 'R462_ORPHAN_EXITED_VIA_ORIGINAL_NATIVE_STOP=PASS'
+            Pin $scriptPath $oldScriptHash 'R462_STARTUP_CHANGED_AFTER_NATIVE_STOP'
+            SwapScript $pkgNew $newScriptHash 'rollback-preimage-script.ps1'
+            $switched=$true
+            Write-Output 'R462_ORIGINAL_TASK_LAUNCHER_RELEASE_SWITCH=PASS'
+            if([string](Task).State -cne 'Ready'){throw 'R462_TASK_UNEXPECTED_STATE_BEFORE_START'}
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $newPID=WaitHealthy $newExe 75
+            Pin $oldExe $oldHash 'R462_ORIGINAL_ROLLBACK_BINARY_CHANGED'
+            Pin $newExe $newHash 'R462_PROMOTED_EXECUTABLE_DRIFT'
+            Pin $scriptPath $newScriptHash 'R462_NEW_LAUNCHER_CHANGED'
+            Pin $active $activeHash 'R462_ACTIVE_POINTER_CHANGED'
+            Write-Output ('R462_LIVE_NEW_PID='+$newPID)
+            Write-Output 'R462_RELEASE_ACTIVATED_AND_NATIVE_GEN6_VERIFIED=PASS'
+            $receipt=[ordered]@{schema='ckb-plane.r462.original-owner-cutover-receipt.v1';state='PROMOTED';old_pid=80088;new_pid=$newPID;candidate_executable_sha256=$newHash;original_r220_sha256=$oldHash;original_startup_sha256=$oldScriptHash;promoted_startup_sha256=$newScriptHash;authority='plane';generation='6';historical_terminal_failure_preserved=$true;accepted_ref_mutated=$false;active_release_pointer_mutated=$false;original_sqlite_manual_mutation=$false;timestamp_utc=[DateTimeOffset]::UtcNow.ToString('o')}
+            [IO.File]::WriteAllText((Join-Path $jobDir 'result.json'),($receipt|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+          } catch {
+            $reason=$_.Exception.Message
+            Write-Output ('R462_RELEASE_ERROR='+$reason)
+            $recovery=$null
+            try {
+              $ps=@(Procs)
+              if($ps.Count -gt 1){throw 'R462_MULTIPLE_CONTROLLERS_CANNOT_RESTART'}
+              if($ps.Count -eq 1 -and [string]$ps[0].ExecutablePath -cne $oldExe){
+                StopNativeOnce
+                WaitZero 50
+                Write-Output 'R462_FAILED_NEW_PROCESS_EXITED=PASS'
+              }
+              if($switched){
+                SwapScript $pkgOld $oldScriptHash 'failed-candidate-script-backup.ps1'
+              }
+              Pin $scriptPath $oldScriptHash 'R462_ROLLBACK_SCRIPT_NOT_ORIGINAL'
+              Pin $oldExe $oldHash 'R462_ORIGINAL_BINARY_MISSING'
+              if(@(Procs).Count -ne 0){
+                $existing=@(Procs)
+                if($existing.Count -ne 1 -or [string]$existing[0].ExecutablePath -cne $oldExe){throw 'R462_ROLLBACK_PROCESS_UNEXPECTED'}
+              } else {
+                if([string](Task).State -ceq 'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop}
+                if([string](Task).State -cne 'Ready'){throw 'R462_TASK_NOT_READY_FOR_ROLLBACK'}
+                Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              }
+              $restoredPID=WaitHealthy $oldExe 75
+              Pin $active $activeHash 'R462_ROLLBACK_ACTIVE_RELEASE_DRIFT'
+              Write-Output ('R462_ROLLBACK_R220_PID='+$restoredPID)
+              Write-Output 'R462_AUTOMATIC_NATIVE_ROLLBACK=PASS'
+            } catch {$recovery=$_.Exception.Message;Write-Output ('R462_OPERATOR_RECOVERY_REQUIRED='+$recovery)}
+            if($null -ne $recovery){throw ('R462_ACTIVATION_AND_RECOVERY_INCOMPLETE:'+ $reason+'; '+$recovery)}
+            throw ('R462_ACTIVATION_REFUSED_OR_ROLLED_BACK:'+ $reason)
+          }
