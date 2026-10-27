@@ -1,4 +1,4 @@
-name: CKB R421 isolated native operation-script references
+name: CKB R422 historical-state heartbeat and queue diagnosis
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -97,6 +97,15 @@ jobs:
             Write-Output ('R417_ISOLATED_QUEUE_COUNT='+@($status.queue).Count)
             Write-Output ('R417_ISOLATED_JOB_COUNT='+@($status.jobs).Count)
             Write-Output ('R417_ISOLATED_AUTHORITY='+[string]$status.authority)
+            Write-Output ('R422_HEARTBEAT_STALE='+[string]$status.heartbeat_stale)
+            Write-Output ('R422_PAUSED='+[string]$status.paused)
+            Write-Output ('R422_BLOCKER_COUNT='+@($status.blockers).Count)
+            foreach($g in ($status.queue | Group-Object state | Sort-Object Name)){Write-Output ('R422_QUEUE_STATE='+$g.Name+' COUNT='+$g.Count)}
+            foreach($g in ($status.jobs | Group-Object state | Sort-Object Name)){Write-Output ('R422_JOB_STATE='+$g.Name+' COUNT='+$g.Count)}
+            $controllerClass=([string]$status.controller_status).Split(':')[0]
+            if($controllerClass.Length -gt 60){$controllerClass='REDACTED'}
+            Write-Output ('R422_CONTROLLER_STATUS_CLASS='+$controllerClass)
+            Write-Output 'R422_SNAPSHOT_OBSERVATION_ONLY=TRUE'
             Write-Output 'R417_ORIGINAL_EXE_ON_CONSISTENT_OWNER_SNAPSHOT=PASS'
             Write-Output 'R417_LIVE_CONTROLLER_OR_DATABASE_MUTATION=FALSE'
           } finally {
