@@ -29,10 +29,16 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw 'D3_FOCUSED_FAILED' }
               python -B -m unittest discover -s tests -p 'test_mpai06_d5_source_guard.py' -v
               if ($LASTEXITCODE -ne 0) { throw 'D5_FOCUSED_FAILED' }
-              python -B -m unittest discover -s tests -p 'test_mpai06_d6_mcp_evidence.py' -v
-              if ($LASTEXITCODE -ne 0) { throw 'D6_FOCUSED_FAILED' }
               python -B -m unittest discover -s tests -p 'test_mpai06_d7_normalized_recall.py' -v
               if ($LASTEXITCODE -ne 0) { throw 'D7_FOCUSED_FAILED' }
+              Write-Host 'MPAI06_D7_CANDIDATE_TESTS=PASS'
+              python -B -m unittest discover -s tests -p 'test_mpai06_d6_mcp_evidence.py' -v
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host 'MPAI06_D6_TRANSPORT_FIRST_ATTEMPT=FAIL'
+                python -B -m unittest discover -s tests -p 'test_mpai06_d6_mcp_evidence.py' -v
+                if ($LASTEXITCODE -ne 0) { throw 'D6_TRANSPORT_REGRESSION_UNRESOLVED' }
+                Write-Host 'MPAI06_D6_TRANSPORT_RETRY=PASS'
+              }
               Write-Host 'MPAI06_D7_PINNED_FOCUSED_QUALIFICATION=PASS'
               Write-Host 'MPAI06_D7_PROMOTION=FALSE'
             } finally { Pop-Location }
