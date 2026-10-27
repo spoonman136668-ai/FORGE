@@ -134,6 +134,25 @@ class NativeFreeReasonerCustodyTests(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertEqual(len(self.provider.write_calls), 3)
 
+    def test_spent_scope_has_zero_git_steering_or_anonymous_network_cost(self):
+        self.assertEqual(self.attempt()["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        old_head = self.db.meta()["head_hash"]
+        def forbidden(*args, **kwargs):
+            self.fail("Spent scope must not even perform public or owner Git reads")
+        result = reasoner_proposal_once(
+            self.db, forbidden, forbidden, forbidden,
+            source_sha=MAIN, lane="Yggdrasil",
+            target_commit=self.provider.parent,
+            path=self.provider.path,
+            owner_witness=lambda: True,
+            token="fixture-unprinted",
+            transport=forbidden, public_reader=forbidden,
+            utc_day="2026-10-27")
+        self.assertEqual(result["disposition"],
+                         "FREE_REASONER_SCOPE_ALREADY_ATTEMPTED_NO_REPLAY")
+        self.assertEqual(self.db.meta()["head_hash"], old_head)
+        self.assertEqual(len(self.sent), 1)
+
     def test_provider_timeout_preserves_one_original_no_replay_attempt(self):
         calls = []
         def timeout(body, token):
