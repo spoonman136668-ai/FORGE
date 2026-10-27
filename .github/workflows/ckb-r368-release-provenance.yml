@@ -1,4 +1,4 @@
-name: CKB R416 exact R220 owner-history access preflight
+name: CKB R417 isolated owner-history native status proof
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -22,29 +22,65 @@ jobs:
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
           }
           $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
-          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R416_ADMIN_OWNER_REQUIRED'}
-          Write-Output 'R416_ELEVATED_OWNER_RUNNER=PASS'
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R417_ADMIN_OWNER_REQUIRED'}
           $root='C:\Users\camar\GolandProjects\ckb-plane'
           $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
           $config=Join-Path $root 'config\autonomy.yaml'
           $bridge=Join-Path $root 'config\webui-bridge.json'
-          $db=Join-Path $root 'state\autonomy.db'
+          $sourceDb=Join-Path $root 'state\autonomy.db'
           $pins=@{
             $exe='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
             $config='a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'
             $bridge='afcbac12e6fe6b3545d3ca89b556418f4bb444fb54ca2911ebcbef28308d63f2'
           }
           foreach($p in @($exe,$config,$bridge)){
-            if(!(Test-Path -LiteralPath $p -PathType Leaf)){throw ('R416_EXPECTED_FILE_ABSENT='+[IO.Path]::GetFileName($p))}
-            $sha=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
-            if($sha -cne $pins[$p]){throw ('R416_PIN_MISMATCH='+[IO.Path]::GetFileName($p))}
+            if(!(Test-Path -LiteralPath $p -PathType Leaf)){throw 'R417_PINNED_INPUT_MISSING'}
+            if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pins[$p]){throw 'R417_PINNED_INPUT_DRIFT'}
           }
-          Write-Output 'R416_ORIGINAL_EXE_AND_CONFIG_PINS=PASS'
-          if(!(Test-Path -LiteralPath $db -PathType Leaf)){throw 'R416_HISTORICAL_DB_ABSENT'}
-          $fi=Get-Item -LiteralPath $db -ErrorAction Stop
-          if($fi.Length -le 0){throw 'R416_HISTORICAL_DB_EMPTY'}
-          Write-Output ('R416_HISTORICAL_DB_PRESENT=TRUE BYTES='+$fi.Length)
-          $scheduled=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction SilentlyContinue
-          if($null -ne $scheduled){Write-Output ('R416_ORIGINAL_TASK_STATE='+$scheduled.State)}else{Write-Output 'R416_ORIGINAL_TASK_STATE=NOT_FOUND'}
-          Write-Output 'R416_MUTATED_LIVE_FILES=FALSE'
-          Write-Output 'R416_OWNER_HISTORY_PREFLIGHT=PASS'
+          if(!(Test-Path -LiteralPath $sourceDb -PathType Leaf)){throw 'R417_OWNER_DATABASE_MISSING'}
+          $stage=Join-Path $env:RUNNER_TEMP ('ckb-r417-history-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $stage){throw 'R417_ISOLATION_COLLISION'}
+          New-Item -Path (Join-Path $stage 'config'),(Join-Path $stage 'state'),(Join-Path $stage 'workorders\pending') -ItemType Directory -Force | Out-Null
+          try {
+            $isolatedConfig=Join-Path $stage 'config\autonomy.yaml'
+            Copy-Item -LiteralPath $config -Destination $isolatedConfig -ErrorAction Stop
+            $isolatedDb=Join-Path $stage 'state\autonomy.db'
+            $py=@'
+import pathlib, sqlite3, sys
+source=pathlib.Path(sys.argv[1]).resolve(strict=True)
+target=pathlib.Path(sys.argv[2]).resolve()
+if source == target or target.exists(): raise RuntimeError('R417_SNAPSHOT_PATH_UNSAFE')
+if 'ckb-r417-history-' not in str(target): raise RuntimeError('R417_ISOLATION_ROOT_INVALID')
+src=sqlite3.connect(source.as_uri()+'?mode=ro', uri=True, timeout=30)
+dest=sqlite3.connect(str(target), timeout=30)
+try:
+    src.backup(dest, pages=512, sleep=0.05)
+    result=dest.execute('PRAGMA quick_check').fetchone()[0]
+    if result != 'ok': raise RuntimeError('R417_SNAPSHOT_INTEGRITY_FAILED')
+    names={row[0] for row in dest.execute('SELECT name FROM sqlite_master WHERE type=\'table\'')}
+    print('R417_SNAPSHOT_INTEGRITY=PASS')
+    print('R417_SNAPSHOT_TABLE_COUNT='+str(len(names)))
+finally:
+    dest.close();src.close()
+'@
+            & python -B -c $py $sourceDb $isolatedDb
+            if($LASTEXITCODE -ne 0){throw 'R417_SQLITE_READONLY_BACKUP_FAILED'}
+            if((Get-FileHash -LiteralPath $isolatedConfig -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pins[$config]){throw 'R417_SCRATCH_CONFIG_DRIFT'}
+            Remove-Item Env:CKB_PLANE_GITHUB_TOKEN,Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+            $output=@(& $exe controller status --config $isolatedConfig 2>&1)
+            $exit=$LASTEXITCODE
+            if($exit -ne 0){
+              Write-Output ('R417_NATIVE_STATUS_EXIT='+$exit)
+              throw 'R417_ISOLATED_NATIVE_STATUS_FAILED'
+            }
+            $status=($output | Out-String | ConvertFrom-Json -ErrorAction Stop)
+            if($null -eq $status.queue -or $null -eq $status.jobs){throw 'R417_NATIVE_STATUS_SHAPE_INVALID'}
+            Write-Output ('R417_ISOLATED_QUEUE_COUNT='+@($status.queue).Count)
+            Write-Output ('R417_ISOLATED_JOB_COUNT='+@($status.jobs).Count)
+            Write-Output ('R417_ISOLATED_AUTHORITY='+[string]$status.authority)
+            Write-Output 'R417_ORIGINAL_EXE_ON_CONSISTENT_OWNER_SNAPSHOT=PASS'
+            Write-Output 'R417_LIVE_CONTROLLER_OR_DATABASE_MUTATION=FALSE'
+          } finally {
+            if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction Stop}
+          }
+          Write-Output 'R417_PRIVATE_SNAPSHOT_REMOVED=PASS'
