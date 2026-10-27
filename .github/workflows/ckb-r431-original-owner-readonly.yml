@@ -1,578 +1,97 @@
-name: CKB R431 read-only original-owner release and task preflight
+name: CKB R440 original-owner inactive cutover and exact rollback bundle
 on:
   push:
     branches: [audit/ckb-r431-original-owner-readonly-20261027]
 permissions:
   contents: read
 jobs:
-  original-owner-readonly:
+  r440-inactive-release-plan:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 12
     steps:
-      - name: Inspect exact installed R220 release and original controller ownership without mutation
+      - name: Stage byte-bound candidate startup and exact original rollback outside the live release store
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           Set-StrictMode -Version Latest
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R431_WRONG_ORIGINAL_OWNER_RUNNER'}
-          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R431_WRONG_SOURCE_REPOSITORY'}
-          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
-          $admin=[Security.Principal.WindowsPrincipal]::new($id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-          Write-Output ('R431_WINDOWS_OWNER_ACCOUNT='+$id.Name)
-          Write-Output ('R431_WINDOWS_OWNER_SID='+$id.User.Value)
-          Write-Output ('R431_RUNNER_ELEVATED='+$admin)
-          $release='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023'
-          $exe=Join-Path $release 'bin\ckb-plane.exe'
-          $expected='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
-          if(!(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'R431_EXPECTED_INSTALLED_R220_MISSING'}
-          $actual=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Output ('R431_INSTALLED_R220_EXE_SHA256='+$actual)
-          if($actual -cne $expected){throw 'R431_INSTALLED_R220_DRIFT'}
-          Write-Output 'R431_INSTALLED_RELEASE_SHA256=PASS'
-          $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $native=Join-Path $root 'internal\plane\autonomy.go'
-          $nativeExpected='c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'
-          if(!(Test-Path -LiteralPath $native -PathType Leaf)){throw 'R431_NATIVE_SOURCE_MISSING'}
-          $nativeActual=(Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Output ('R431_ORIGINAL_AUTONOMY_SOURCE_SHA256='+$nativeActual)
-          if($nativeActual -cne $nativeExpected){throw 'R431_ORIGINAL_NATIVE_SOURCE_DRIFT'}
-          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
-          foreach($d in @('releases','locks','receipts','state')) {
-            $path=Join-Path $store $d
-            Write-Output ('R431_STORE_DIRECTORY_'+$d.ToUpperInvariant()+'='+(Test-Path -LiteralPath $path -PathType Container))
-          }
-          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction SilentlyContinue)
-          Write-Output ('R431_ORIGINAL_SCHEDULED_TASK_COUNT='+$task.Count)
-          foreach($t in $task) {
-            Write-Output ('R431_TASK_NAME='+$t.TaskName)
-            Write-Output ('R431_TASK_PATH='+$t.TaskPath)
-            Write-Output ('R431_TASK_STATE='+$t.State)
-            Write-Output ('R431_TASK_PRINCIPAL='+$t.Principal.UserId)
-            Write-Output ('R431_TASK_RUN_LEVEL='+$t.Principal.RunLevel)
-            foreach($action in $t.Actions) {
-              Write-Output ('R431_TASK_ACTION_EXE='+$action.Execute)
-              $raw=$action.Arguments
-              Write-Output ('R431_TASK_ACTION_ARGUMENTS_SHA256='+([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$raw))).ToLowerInvariant()))
-            }
-            $ti=Get-ScheduledTaskInfo -InputObject $t -ErrorAction Stop
-            Write-Output ('R431_TASK_LAST_RUN_UTC='+$ti.LastRunTime.ToUniversalTime().ToString('o'))
-            Write-Output ('R431_TASK_LAST_RESULT='+$ti.LastTaskResult)
-            if($null -ne $ti.NextRunTime) { Write-Output ('R431_TASK_NEXT_RUN_UTC='+$ti.NextRunTime.ToUniversalTime().ToString('o')) } else { Write-Output 'R431_TASK_NEXT_RUN_UTC=NOT_SCHEDULED' }
-          }
-          $processes=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          Write-Output ('R431_NATIVE_PROCESS_COUNT='+$processes.Count)
-          foreach($p in $processes) {
-            Write-Output ('R431_NATIVE_PROCESS_ID='+$p.ProcessId)
-            Write-Output ('R431_NATIVE_PARENT_PROCESS_ID='+$p.ParentProcessId)
-            Write-Output ('R431_NATIVE_PROCESS_EXE='+$p.ExecutablePath)
-            Write-Output ('R431_NATIVE_PROCESS_START='+$p.CreationDate)
-            if($p.ExecutablePath -and (Test-Path -LiteralPath $p.ExecutablePath -PathType Leaf)){
-              Write-Output ('R431_NATIVE_PROCESS_FILE_SHA256='+(Get-FileHash -LiteralPath $p.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant())
-            }
-          }
-          $activeRoot=Join-Path $env:LOCALAPPDATA 'CKB-R429-Qualified-Candidates'
-          if(Test-Path -LiteralPath $activeRoot -PathType Container) {
-            $candidates=@(Get-ChildItem -LiteralPath $activeRoot -Directory -ErrorAction Stop)
-            Write-Output ('R431_EXISTING_INACTIVE_CANDIDATE_COUNT='+$candidates.Count)
-            foreach($c in $candidates) {
-              Write-Output ('R431_INACTIVE_CANDIDATE_NAME='+$c.Name)
-              $f=Join-Path $c.FullName 'ckb-plane.exe'
-              if(Test-Path -LiteralPath $f -PathType Leaf) {
-                Write-Output ('R431_INACTIVE_CANDIDATE_SHA256='+(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant())
-              }
-            }
-          } else {Write-Output 'R431_EXISTING_INACTIVE_CANDIDATE_COUNT=0'}
-          Write-Output 'R431_READ_ONLY_INSPECTION=TRUE'
-          Write-Output 'R431_NO_CONTROLLER_RESTART=TRUE'
-          Write-Output 'R431_NO_RELEASE_ADMISSION=TRUE'
-          Write-Output 'R431_NO_SQLITE_WRITE=TRUE'
-      - name: R432 inspect original release-admission registry, paths and inactive candidate without mutation
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R432_WRONG_OWNER_RUNNER'}
-          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
-          $expected='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
-          if(!(Test-Path -LiteralPath $exe -PathType Leaf) -or (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected){throw 'R432_LIVE_EXECUTABLE_DRIFT'}
-          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction SilentlyContinue)
-          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R432_ORIGINAL_TASK_NOT_RUNNING'}
-          $process=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          $matches=@($process | Where-Object {$_.ExecutablePath -ceq $exe})
-          if($process.Count -ne 1 -or $matches.Count -ne 1){throw 'R432_ORIGINAL_NATIVE_PROCESS_TOPOLOGY_DRIFT'}
-          Write-Output ('R432_ORIGINAL_CONTROLLER_PROCESS_ID='+$matches[0].ProcessId)
-          Write-Output 'R432_ORIGINAL_CONTROLLER_RUNNING=PASS'
-          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
-          $release=Split-Path (Split-Path $exe -Parent) -Parent
-          foreach($root in @($store,$release,(Join-Path $store 'state'))) {
-            if(!(Test-Path -LiteralPath $root -PathType Container)){throw ('R432_REQUIRED_DIRECTORY_MISSING='+$root)}
-            Write-Output ('R432_DIRECTORY='+$root)
-            $children=@(Get-ChildItem -LiteralPath $root -Force -ErrorAction Stop | Sort-Object -Property Name)
-            Write-Output ('R432_DIRECTORY_CHILD_COUNT='+$children.Count)
-            if($children.Count -gt 120){throw 'R432_DIRECTORY_UNBOUNDED'}
-            foreach($child in $children){
-              if($child.Name -match '[\r\n]'){throw 'R432_UNSAFE_CHILD_NAME'}
-              Write-Output ('R432_CHILD='+$(if($child.PSIsContainer){'D:'}else{'F:'})+$child.Name)
-            }
-          }
-          $configs=@(
-            (Join-Path $release 'config\autonomy.yaml'),
-            (Join-Path $release 'config\webui-bridge.json'),
-            (Join-Path $release 'config\local-operations.json'),
-            'C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml',
-            'C:\Users\camar\GolandProjects\ckb-plane\config\local-operations.json'
-          )
-          foreach($config in $configs) {
-            $present=Test-Path -LiteralPath $config -PathType Leaf
-            Write-Output ('R432_CONFIG_PATH='+$config)
-            Write-Output ('R432_CONFIG_PRESENT='+$present)
-            if($present){
-              Write-Output ('R432_CONFIG_SHA256='+(Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant())
-              if($config -like '*local-operations.json'){
-                $registry=Get-Content -LiteralPath $config -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                Write-Output ('R432_LOCAL_OPERATION_SCHEMA='+[string]$registry.schema)
-                $ops=@($registry.operations)
-                Write-Output ('R432_REGISTERED_OPERATION_COUNT='+$ops.Count)
-                if($ops.Count -gt 64){throw 'R432_LOCAL_OPERATION_COUNT_INVALID'}
-                foreach($op in $ops) {
-                  if([string]$op.id -notmatch '^[a-z0-9_-]{1,80}$'){throw 'R432_OPERATION_ID_INVALID'}
-                  Write-Output ('R432_OPERATION_ID='+[string]$op.id)
-                  Write-Output ('R432_OPERATION_CLASS='+[string]$op.class)
-                }
-              }
-            }
-          }
-          $older=Join-Path $env:LOCALAPPDATA 'CKB-R429-Qualified-Candidates\R429-40479635463'
-          $manifest=Join-Path $older 'manifest.json'
-          if(Test-Path -LiteralPath $manifest -PathType Leaf){
-            $record=Get-Content -LiteralPath $manifest -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            Write-Output ('R432_INACTIVE_MANIFEST_SHA256='+(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant())
-            Write-Output ('R432_INACTIVE_MANIFEST_SCHEMA='+[string]$record.schema)
-            Write-Output ('R432_INACTIVE_MANIFEST_CANDIDATE_HASH='+[string]$record.candidate_sha256)
-            Write-Output ('R432_INACTIVE_MANIFEST_REGRESSION='+[string]$record.complete_baseline_filtered_windows_regression)
-            Write-Output ('R432_INACTIVE_MANIFEST_PROMOTED='+[string]$record.promoted)
-          }
-          Write-Output 'R432_NO_NATIVE_COMMAND_OR_MAILBOX_SUBMISSION=TRUE'
-          Write-Output 'R432_NO_SQLITE_OR_RELEASE_WRITE=TRUE'
-          Write-Output 'R432_NO_TASK_RESTART=TRUE'
-      - name: R433 resolve active-release pointer and existing release-store operations read-only
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R433_WRONG_ORIGINAL_OWNER_RUNNER'}
-          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
-          $active=Join-Path $store 'state\active-release'
-          if(!(Test-Path -LiteralPath $active -PathType Leaf)){throw 'R433_ACTIVE_RELEASE_POINTER_ABSENT'}
-          $bytes=[IO.File]::ReadAllBytes($active)
-          if($bytes.Length -lt 1 -or $bytes.Length -gt 512){throw 'R433_ACTIVE_POINTER_SIZE_INVALID'}
-          Write-Output ('R433_ACTIVE_POINTER_SHA256='+(Get-FileHash -LiteralPath $active -Algorithm SHA256).Hash.ToLowerInvariant())
-          $label=([Text.Encoding]::UTF8.GetString($bytes)).Trim()
-          if($label -match '^[A-Za-z0-9_.-]{1,100}$') {
-            Write-Output ('R433_ACTIVE_POINTER_RELEASE_ID='+$label)
-            Write-Output ('R433_ACTIVE_POINTER_RELEASE_DIR_PRESENT='+(Test-Path -LiteralPath (Join-Path $store ('releases\'+$label)) -PathType Container))
-          } else {Write-Output 'R433_ACTIVE_POINTER_FORMAT=NON_SIMPLE_RELEASE_ID'}
-          $ops=Join-Path $store 'ops'
-          if(!(Test-Path -LiteralPath $ops -PathType Container)){throw 'R433_OWNER_RELEASE_OPS_MISSING'}
-          $children=@(Get-ChildItem -LiteralPath $ops -Force -ErrorAction Stop | Sort-Object -Property Name)
-          if($children.Count -gt 60){throw 'R433_OPS_FILE_COUNT_EXCEEDED'}
-          Write-Output ('R433_OWNER_RELEASE_OPS_COUNT='+$children.Count)
-          foreach($c in $children) {
-            if($c.Name -notmatch '^[a-zA-Z0-9._-]{1,120}$'){throw 'R433_OWNER_RELEASE_OP_NAME_INVALID'}
-            Write-Output ('R433_OWNER_RELEASE_OP='+$(if($c.PSIsContainer){'D:'}else{'F:'})+$c.Name)
-            if(-not $c.PSIsContainer -and $c.Name -match '\.(ps1|json|txt)$'){
-              Write-Output ('R433_OWNER_RELEASE_OP_HASH='+(Get-FileHash -LiteralPath $c.FullName -Algorithm SHA256).Hash.ToLowerInvariant())
-            }
-          }
-          $releases=Join-Path $store 'releases'
-          $installed=@(Get-ChildItem -LiteralPath $releases -Directory -ErrorAction Stop | Sort-Object -Property Name)
-          if($installed.Count -gt 80){throw 'R433_RELEASE_SET_UNBOUNDED'}
-          Write-Output ('R433_RELEASE_COUNT='+$installed.Count)
-          foreach($r in $installed) {
-            if($r.Name -notmatch '^[a-zA-Z0-9._-]{1,120}$'){throw 'R433_RELEASE_ID_INVALID'}
-            Write-Output ('R433_RELEASE_DIR='+$r.Name)
-          }
-          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction SilentlyContinue)
-          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R433_TASK_CHANGED_DURING_INSPECTION'}
-          $pidmatches=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($pidmatches.Count -ne 1 -or $pidmatches[0].ExecutablePath -cne 'C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'){throw 'R433_LIVE_PROCESS_CHANGED_DURING_INSPECTION'}
-          Write-Output 'R433_LIVE_PROCESS_STILL_R220=PASS'
-          Write-Output 'R433_READ_ONLY=TRUE'
-          Write-Output 'R433_NO_RELEASE_PROMOTION_OR_QUEUE_CHANGE=TRUE'
-      - name: R434 query authenticated existing native controller status GET only
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R434_WRONG_OWNER_RUNNER'}
-          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
-          if(!(Test-Path -LiteralPath $exe -PathType Leaf) -or (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){throw 'R434_NATIVE_EXE_CHANGED'}
-          $before=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($before.Count -ne 1 -or $before[0].ExecutablePath -cne $exe){throw 'R434_CONTROLLER_PROCESS_PREIMAGE_CHANGED'}
-          $tokenFile='C:\Users\camar\GolandProjects\ckb-plane\state\operator.token'
-          if(!(Test-Path -LiteralPath $tokenFile -PathType Leaf)){throw 'R434_ORIGINAL_OPERATOR_TOKEN_FILE_UNAVAILABLE'}
-          $token=([IO.File]::ReadAllText($tokenFile)).Trim()
-          if($token -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R434_ORIGINAL_OPERATOR_TOKEN_INVALID'}
-          try {
-            $native=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8 -ErrorAction Stop
-          } catch {
-            throw ('R434_NATIVE_GET_REFUSED:'+ $_.Exception.GetType().Name)
-          } finally {
-            $token=$null
-          }
-          if($null -eq $native){throw 'R434_NATIVE_RESULT_EMPTY'}
-          Write-Output ('R434_NATIVE_VERSION='+[string]$native.version)
-          Write-Output ('R434_NATIVE_AUTHORITY='+[string]$native.authority)
-          Write-Output ('R434_NATIVE_GENERATION='+[string]$native.generation)
-          Write-Output ('R434_NATIVE_PAUSED='+[string]$native.paused)
-          Write-Output ('R434_NATIVE_HEARTBEAT_AT='+[string]$native.heartbeat_at)
-          Write-Output ('R434_NATIVE_HEARTBEAT_STALE='+[string]$native.heartbeat_stale)
-          Write-Output ('R434_NATIVE_ACCEPTED_REF_MUTATION_ALLOWED='+[string]$native.accepted_ref_mutation_allowed)
-          $rawstatus=[string]$native.controller_status
-          $statusClass=if($rawstatus -match '^([A-Z_]+)'){$matches[1]}else{'OTHER'}
-          Write-Output ('R434_NATIVE_CONTROLLER_STATUS_CLASS='+$statusClass)
-          $queue=@($native.queue)
-          $jobs=@($native.jobs)
-          $blockers=@($native.blockers)
-          Write-Output ('R434_NATIVE_QUEUE_ITEM_COUNT='+$queue.Count)
-          Write-Output ('R434_NATIVE_JOBS_COUNT='+$jobs.Count)
-          Write-Output ('R434_NATIVE_BLOCKER_COUNT='+$blockers.Count)
-          foreach($group in @($queue | Group-Object -Property state | Sort-Object -Property Name)) {
-            if([string]$group.Name -notmatch '^[A-Z_]{1,40}$'){throw 'R434_QUEUE_STATE_UNEXPECTED'}
-            Write-Output ('R434_QUEUE_STATE_'+$group.Name+'='+$group.Count)
-          }
-          foreach($group in @($jobs | Group-Object -Property state | Sort-Object -Property Name)) {
-            if([string]$group.Name -notmatch '^[A-Z_]{1,40}$'){throw 'R434_JOB_STATE_UNEXPECTED'}
-            Write-Output ('R434_JOB_STATE_'+$group.Name+'='+$group.Count)
-          }
-          $after=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($after.Count -ne 1 -or $after[0].ProcessId -ne $before[0].ProcessId){throw 'R434_LIVE_PROCESS_CHANGED_DURING_READ'}
-          Write-Output 'R434_NATIVE_AUTHENTICATED_GET=PASS'
-          Write-Output 'R434_NO_NATIVE_POST_OR_QUEUE_MUTATION=TRUE'
-          Write-Output 'R434_NO_CONTROLLER_RESTART_OR_TOKEN_LOGGING=TRUE'
-      - name: R435 verify terminal blocker identity and queue eligibility by authenticated GET
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R435_WRONG_ORIGINAL_OWNER_RUNNER'}
-          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
-          $processes=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($processes.Count -ne 1 -or $processes[0].ExecutablePath -cne $exe){throw 'R435_ORIGINAL_PROCESS_DRIFT'}
-          $tokenFile='C:\Users\camar\GolandProjects\ckb-plane\state\operator.token'
-          if(!(Test-Path -LiteralPath $tokenFile -PathType Leaf)){throw 'R435_TOKEN_FILE_UNAVAILABLE'}
-          $token=([IO.File]::ReadAllText($tokenFile)).Trim()
-          if($token -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R435_TOKEN_FORMAT_INVALID'}
-          try {
-            $native=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8 -ErrorAction Stop
-          } finally { $token=$null }
-          if([string]$native.authority -cne 'plane' -or [string]$native.generation -cne '6' -or [bool]$native.heartbeat_stale){throw 'R435_AUTHORITY_OR_HEARTBEAT_DRIFT'}
-          $queue=@($native.queue)
-          $failed=@($queue | Where-Object { [string]$_.state -ceq 'FAILED' })
-          $queued=@($queue | Where-Object { [string]$_.state -ceq 'QUEUED' })
-          $running=@($queue | Where-Object { [string]$_.state -in @('RUNNING','RETRY_WAIT','FINALIZING') })
-          Write-Output ('R435_FAILED_QUEUE_COUNT='+$failed.Count)
-          Write-Output ('R435_QUEUED_SOURCE_COUNT='+@($queued | Where-Object { [string]$_.mode -ceq 'source' -and [string]$_.authorization -ceq 'operator' }).Count)
-          Write-Output ('R435_ACTIVE_QUEUE_COUNT='+$running.Count)
-          foreach($item in $failed) {
-            if([string]$item.id -notmatch '^[A-Za-z0-9._-]{1,120}$'){throw 'R435_FAILED_ID_FORMAT_UNEXPECTED'}
-            Write-Output ('R435_FAILED_ID='+[string]$item.id)
-            if([string]$item.reason -match '^[A-Za-z0-9_ -]{1,160}$'){
-              Write-Output ('R435_FAILED_REASON='+[string]$item.reason)
-            } else {
-              Write-Output 'R435_FAILED_REASON=NONCANONICAL_REDACTED'
-            }
-            Write-Output ('R435_FAILED_HAS_RECEIPT='+(-not [string]::IsNullOrWhiteSpace([string]$item.receipt)))
-          }
-          Write-Output ('R435_BLOCKER_COUNT='+@($native.blockers).Count)
-          Write-Output ('R435_CONTROLLER_STATUS_PREFIX='+$(if([string]$native.controller_status -match '^([A-Z_]+)'){$matches[1]}else{'OTHER'}))
-          Write-Output 'R435_NO_RETRY_OR_WORK_ORDER_SUBMISSION=TRUE'
-          Write-Output 'R435_READ_ONLY_NATIVE_GET=TRUE'
-      - name: R436 reconcile release pointer vs original running process in read-only custody
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R436_WRONG_OWNER_RUNNER'}
-          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
-          $active=Join-Path $store 'state\active-release'
-          $expectedPointer='PLANE-THROUGHPUT-R1P'
-          $ptr=([IO.File]::ReadAllText($active)).Trim()
-          if($ptr -cne $expectedPointer){throw 'R436_ACTIVE_POINTER_DRIFT'}
-          $r220='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
-          $r220hash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
-          if((Get-FileHash -LiteralPath $r220 -Algorithm SHA256).Hash.ToLowerInvariant() -cne $r220hash){throw 'R436_R220_EXE_DRIFT'}
-          $r1p=Join-Path $store 'releases\PLANE-THROUGHPUT-R1P'
-          $r1pExe=Join-Path $r1p 'bin\ckb-plane.exe'
-          if(!(Test-Path -LiteralPath $r1pExe -PathType Leaf)){throw 'R436_ACTIVE_POINTER_BINARY_MISSING'}
-          $r1pHash=(Get-FileHash -LiteralPath $r1pExe -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Output ('R436_POINTER_RELEASE='+$ptr)
-          Write-Output ('R436_POINTER_RELEASE_EXE_SHA256='+$r1pHash)
-          Write-Output ('R436_RUNNING_RELEASE_EXE_SHA256='+$r220hash)
-          Write-Output ('R436_POINTER_BINARY_DIFFERS_FROM_RUNNING='+($r1pHash -cne $r220hash))
-          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
-          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R436_ORIGINAL_TASK_DRIFT'}
-          $a=@($task[0].Actions)
-          Write-Output ('R436_TASK_ACTION_COUNT='+$a.Count)
-          foreach($action in $a) {
-            $args=[string]$action.Arguments
-            $cmdhash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($args))).ToLowerInvariant()
-            Write-Output ('R436_TASK_COMMANDLINE_SHA256='+$cmdhash)
-            Write-Output ('R436_TASK_ARGS_REFERS_R220='+($args.Contains('PLANE-R220-LIVECOMPAT-20261023')))
-            Write-Output ('R436_TASK_ARGS_REFERS_R1P='+($args.Contains('PLANE-THROUGHPUT-R1P')))
-            Write-Output ('R436_TASK_ARGS_REFERS_START_SCRIPT='+($args.Contains('Start-CKBPlane.ps1')))
-            Write-Output ('R436_TASK_ARGS_REFERS_CONTROLLER_RUN='+($args.Contains('controller run')))
-          }
-          $processes=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($processes.Count -ne 1 -or $processes[0].ExecutablePath -cne $r220){throw 'R436_ORIGINAL_PROCESS_DRIFT'}
-          $proc=$processes[0]
-          Write-Output ('R436_RUNNING_PROCESS_ID='+$proc.ProcessId)
-          Write-Output ('R436_RUNNING_PROCESS_COMMANDLINE_SHA256='+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$proc.CommandLine))).ToLowerInvariant())
-          Write-Output ('R436_RUNNING_PROCESS_REFERS_R220='+([string]$proc.CommandLine).Contains('PLANE-R220-LIVECOMPAT-20261023'))
-          Write-Output ('R436_RUNNING_PROCESS_REFERS_R1P='+([string]$proc.CommandLine).Contains('PLANE-THROUGHPUT-R1P'))
-          $parent=@(Get-CimInstance Win32_Process -Filter ("ProcessId = "+$proc.ParentProcessId) -ErrorAction Stop)
-          Write-Output ('R436_PARENT_ALIVE='+($parent.Count -eq 1))
-          foreach($p in $parent) {
-            Write-Output ('R436_PARENT_IMAGE_NAME='+[string]$p.Name)
-            Write-Output ('R436_PARENT_PROCESS_ID='+$p.ProcessId)
-            Write-Output ('R436_PARENT_START_TIME='+[string]$p.CreationDate)
-            Write-Output ('R436_PARENT_COMMANDLINE_SHA256='+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$p.CommandLine))).ToLowerInvariant())
-          }
-          foreach($file in @('release-manifest.json','release-seal.json')) {
-            $found=Join-Path $r1p $file
-            Write-Output ('R436_R1P_'+$file.ToUpperInvariant()+'_PRESENT='+(Test-Path -LiteralPath $found -PathType Leaf))
-            if(Test-Path -LiteralPath $found -PathType Leaf) {
-              $length=(Get-Item -LiteralPath $found -ErrorAction Stop).Length
-              if($length -gt 131072){throw 'R436_R1P_METADATA_SIZE_UNBOUNDED'}
-              Write-Output ('R436_R1P_'+$file.ToUpperInvariant()+'_SHA256='+(Get-FileHash -LiteralPath $found -Algorithm SHA256).Hash.ToLowerInvariant())
-              $meta=Get-Content -LiteralPath $found -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-              foreach($name in @('schema','release_id','version','source_commit','exe_sha256','binary_sha256','created_at','qualified_sha256')) {
-                $field=$meta.PSObject.Properties[$name]
-                if($null -ne $field -and $null -ne $field.Value) {
-                  $value=[string]$field.Value
-                  if($value -match '^[A-Za-z0-9_.:-]{1,128}$'){Write-Output ('R436_R1P_'+$name.ToUpperInvariant()+'='+$value)}
-                }
-              }
-            }
-          }
-          $activeAfter=([IO.File]::ReadAllText($active)).Trim()
-          if($activeAfter -cne $ptr){throw 'R436_POINTER_CHANGED_DURING_AUDIT'}
-          Write-Output 'R436_READ_ONLY_RELEASE_RECONCILIATION=PASS'
-          Write-Output 'R436_NO_ACTIVE_POINTER_WRITE_OR_TASK_RESTART=TRUE'
-      - name: R437 trace owner task and parent PowerShell script selection without executing scripts
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R437_WRONG_OWNER_RUNNER'}
-          $expectedExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
-          $procs=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($procs.Count -ne 1 -or $procs[0].ExecutablePath -cne $expectedExe){throw 'R437_ORIGINAL_PROCESS_DRIFT'}
-          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
-          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R437_ORIGINAL_TASK_DRIFT'}
-          $actions=@($task[0].Actions)
-          if($actions.Count -ne 1){throw 'R437_TASK_ACTION_AMBIGUOUS'}
-          $args=[string]$actions[0].Arguments
-          $parent=@(Get-CimInstance Win32_Process -Filter ("ProcessId = "+$procs[0].ParentProcessId) -ErrorAction Stop)
-          if($parent.Count -ne 1 -or [string]$parent[0].Name -cne 'powershell.exe'){throw 'R437_PARENT_IDENTITY_DRIFT'}
-          $parentArgs=[string]$parent[0].CommandLine
-          Write-Output ('R437_TASK_ARGUMENT_FORMAT_FILE='+($args -match '(?i)-File\b'))
-          Write-Output ('R437_TASK_ARGUMENT_FORMAT_COMMAND='+($args -match '(?i)-Command\b'))
-          Write-Output ('R437_TASK_ARGUMENT_FORMAT_ENCODED='+($args -match '(?i)-EncodedCommand\b'))
-          Write-Output ('R437_PARENT_REFERS_ACTIVE_RELEASE='+$parentArgs.Contains('active-release'))
-          Write-Output ('R437_PARENT_REFERS_R220='+$parentArgs.Contains('PLANE-R220-LIVECOMPAT-20261023'))
-          Write-Output ('R437_PARENT_REFERS_R1P='+$parentArgs.Contains('PLANE-THROUGHPUT-R1P'))
-          $pattern='[A-Z]:\\[\w\\ ._-]+\.ps1'
-          $all=@([regex]::Matches($args,$pattern,'IgnoreCase')|ForEach-Object {$_.Value})+@([regex]::Matches($parentArgs,$pattern,'IgnoreCase')|ForEach-Object {$_.Value})
-          $all=@($all | Sort-Object -Unique)
-          if($all.Count -gt 8){throw 'R437_TOO_MANY_STARTUP_SCRIPT_CANDIDATES'}
-          Write-Output ('R437_STARTUP_SCRIPT_PATH_COUNT='+$all.Count)
-          foreach($script in $all){
-            $allowed=($script.StartsWith('C:\Users\camar\GolandProjects\ckb-plane\', [StringComparison]::OrdinalIgnoreCase) -or $script.StartsWith('C:\ProgramData\CKBR\', [StringComparison]::OrdinalIgnoreCase))
-            if(!$allowed){Write-Output 'R437_STARTUP_SCRIPT_OTHER_ROOT=NOT_INSPECTED';continue}
-            if(!(Test-Path -LiteralPath $script -PathType Leaf)){Write-Output ('R437_STARTUP_SCRIPT_MISSING_BASENAME='+[IO.Path]::GetFileName($script));continue}
-            $item=Get-Item -LiteralPath $script -ErrorAction Stop
-            if($item.Length -gt 131072){throw 'R437_STARTUP_SCRIPT_UNBOUNDED'}
-            $src=[IO.File]::ReadAllText($script)
-            Write-Output ('R437_STARTUP_SCRIPT_BASENAME='+$item.Name)
-            Write-Output ('R437_STARTUP_SCRIPT_SHA256='+(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant())
-            Write-Output ('R437_SCRIPT_REFERS_ACTIVE_POINTER='+$src.Contains('active-release'))
-            Write-Output ('R437_SCRIPT_REFERS_R220='+$src.Contains('PLANE-R220-LIVECOMPAT-20261023'))
-            Write-Output ('R437_SCRIPT_REFERS_R1P='+$src.Contains('PLANE-THROUGHPUT-R1P'))
-            Write-Output ('R437_SCRIPT_REFERS_CONTROLLER_EXE='+$src.Contains('ckb-plane.exe'))
-            Write-Output ('R437_SCRIPT_REFERS_CONTROLLER_RUN='+$src.Contains('controller run'))
-            Write-Output ('R437_SCRIPT_REFERS_RELEASE_MANIFEST='+$src.Contains('release-manifest.json'))
-          }
-          $root='C:\Users\camar\GolandProjects\ckb-plane\scripts'
-          if(Test-Path -LiteralPath $root -PathType Container){
-            $launchers=@(Get-ChildItem -LiteralPath $root -File -Filter '*CKBPlane*.ps1' -ErrorAction Stop | Sort-Object -Property Name)
-            if($launchers.Count -gt 20){throw 'R437_LAUNCHER_COUNT_UNBOUNDED'}
-            Write-Output ('R437_EXISTING_CKB_LAUNCHER_COUNT='+$launchers.Count)
-            foreach($s in $launchers){
-              Write-Output ('R437_EXISTING_LAUNCHER_BASENAME='+$s.Name)
-              Write-Output ('R437_EXISTING_LAUNCHER_SHA256='+(Get-FileHash -LiteralPath $s.FullName -Algorithm SHA256).Hash.ToLowerInvariant())
-            }
-          }
-          Write-Output 'R437_ORIGINAL_TASK_UNCHANGED=PASS'
-          Write-Output 'R437_NO_SCRIPT_INVOKED_OR_POINTER_EDITED=TRUE'
-      - name: R438 recreate the exact fully qualified R428 native binary in inactive candidate custody
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R438_WRONG_OWNER_RUNNER'}
-          if((& go.exe version | Out-String) -notmatch 'go1.25.5'){throw 'R438_GO_VERSION_DRIFT'}
-          $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
-          $exeHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
-          $native=Join-Path $root 'internal\plane\autonomy.go'
-          $nativeHash='c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'
-          $expected='44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'
-          $active='C:\ProgramData\CKBR\release-store\ckb-plane\state\active-release'
-          $ptrBefore=(Get-FileHash -LiteralPath $active -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($ptrBefore -cne '06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'){throw 'R438_ACTIVE_POINTER_DRIFT'}
-          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $exeHash){throw 'R438_RUNNING_EXE_DRIFT'}
-          if((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant() -cne $nativeHash){throw 'R438_NATIVE_SOURCE_DRIFT'}
-          $paths=@('go.mod','go.sum')+@(Get-ChildItem -LiteralPath (Join-Path $root 'cmd'),(Join-Path $root 'internal') -Recurse -File -ErrorAction Stop | ForEach-Object {$_.FullName.Substring($root.Length+1).Replace('\','/')})
-          $paths=@($paths|Sort-Object -Unique)
-          if($paths.Count -ne 210){throw 'R438_SOURCE_COUNT_DRIFT'}
-          $lines=[System.Collections.Generic.List[string]]::new()
-          foreach($p in $paths){$lines.Add($p+' '+(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant())}
-          $nl=[string][char]10
-          $tree=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($lines -join $nl)+$nl))).ToLowerInvariant()
-          if($tree -cne 'ab3e4a6667109a9d678008018ec2ea5a077621b28b20b1ddb375b4f9fc111e90'){throw 'R438_WHOLE_ORIGINAL_TREE_DRIFT'}
-          Write-Output 'R438_R404_FULL_NATIVE_TREE=PASS'
-          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
-          $proc=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running' -or $proc.Count -ne 1 -or $proc[0].ExecutablePath -cne $exe){throw 'R438_ORIGINAL_CONTROLLER_NOT_RUNNING'}
-          $originalPID=$proc[0].ProcessId
-          $scratch=Join-Path $env:RUNNER_TEMP ('ckb-r438-native-'+$env:GITHUB_RUN_ID)
-          $destRoot=Join-Path $env:LOCALAPPDATA 'CKB-R438-Qualified-Candidates'
-          $dest=Join-Path $destRoot ('R438-'+$env:GITHUB_RUN_ID)
-          $pending=$dest+'.incomplete'
-          if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $dest) -or (Test-Path -LiteralPath $pending)){throw 'R438_SCRATCH_OR_DEST_COLLISION'}
-          New-Item -Path $scratch -ItemType Directory -ErrorAction Stop | Out-Null
-          try {
-            foreach($name in @('go.mod','go.sum')){Copy-Item -LiteralPath (Join-Path $root $name) -Destination (Join-Path $scratch $name) -ErrorAction Stop}
-            foreach($name in @('cmd','internal')){Copy-Item -LiteralPath (Join-Path $root $name) -Destination $scratch -Recurse -ErrorAction Stop}
-            $target=Join-Path $scratch 'internal\plane\autonomy.go'
-            $raw=[IO.File]::ReadAllText($target)
-            if($raw.Contains([string][char]13+$nl)){throw 'R438_ORIGINAL_EOL_DRIFT'}
-            $start=$raw.IndexOf('func (p *Engine) AutonomyTick(',[StringComparison]::Ordinal)
-            $end=$raw.IndexOf('func (p *Engine) startQueued(',$start,[StringComparison]::Ordinal)
-            if($start -lt 0 -or $end -le $start){throw 'R438_FUNCTION_BOUNDARY_DRIFT'}
-            $section=$raw.Substring($start,$end-$start)
-            $tab=[string][char]9
-            $old=$tab+'if len(blockers) > 0 {'+$nl+$tab+$tab+'return p.setSetting("autonomy_status", strings.Join(blockers, "; "))'+$nl+$tab+'}'+$nl
-            $anchor=$tab+'if waiting {'
-            if(($section.Split(@($old),[StringSplitOptions]::None).Length-1) -ne 1 -or ($section.Split(@($anchor),[StringSplitOptions]::None).Length-1) -ne 1){throw 'R438_PATCH_ANCHOR_DRIFT'}
-            $section=$section.Replace($old,'').Replace($anchor,$old+$anchor)
-            if($section.IndexOf($old) -lt $section.IndexOf('if item.State != "QUEUED"')){throw 'R438_PATCH_ORDERING_INVALID'}
-            [IO.File]::WriteAllText($target,$raw.Substring(0,$start)+$section+$raw.Substring($end),[Text.UTF8Encoding]::new($false))
-            Push-Location $scratch
-            try {
-              & gofmt -w $target
-              if($LASTEXITCODE -ne 0){throw 'R438_GO_FMT_FAILED'}
-              $binary=Join-Path $scratch 'ckb-plane-r438.exe'
-              & go.exe build -trimpath -o $binary ./cmd/ckb-plane
-              if($LASTEXITCODE -ne 0){throw 'R438_GO_BUILD_FAILED'}
-            } finally {Pop-Location}
-            $actual=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-Output ('R438_BUILD_SHA256='+$actual)
-            if($actual -cne $expected){throw 'R438_BUILD_NOT_EXACT_R428_QUALIFIED_BINARY'}
-            Write-Output 'R438_QUALIFIED_R428_BINARY_REPRODUCED=PASS'
-            if(!(Test-Path -LiteralPath $destRoot)){New-Item -Path $destRoot -ItemType Directory -ErrorAction Stop | Out-Null}
-            New-Item -Path $pending -ItemType Directory -ErrorAction Stop | Out-Null
-            try {
-              $targetExe=Join-Path $pending 'ckb-plane.exe'
-              Copy-Item -LiteralPath $binary -Destination $targetExe -ErrorAction Stop
-              if((Get-FileHash -LiteralPath $targetExe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected){throw 'R438_STAGED_COPY_DRIFT'}
-              $record=[ordered]@{schema='ckb-plane.r438.inactive-exact-r428-candidate.v1';original_native_tree_sha256=$tree;installed_r220_sha256=$exeHash;qualified_r428_run=40483672646;candidate_sha256=$expected;r425_pr_head='b3f6c9f412d2212f8cbf74600d6618fe8fe380f8';fully_unfiltered_windows_tests='PASS';go_vet='PASS';promoted=$false;controller_restarted=$false;production_state_mutated=$false}
-              [IO.File]::WriteAllText((Join-Path $pending 'manifest.json'),($record|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
-              Move-Item -LiteralPath $pending -Destination $dest -ErrorAction Stop
-            } finally {if(Test-Path -LiteralPath $pending){Remove-Item -LiteralPath $pending -Recurse -Force -ErrorAction Stop}}
-            Write-Output ('R438_INACTIVE_CANDIDATE_DIR='+$dest)
-            Write-Output 'R438_EXACT_QUALIFIED_BINARY_STAGED=PASS'
-          } finally {
-            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
-          }
-          $after=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($after.Count -ne 1 -or $after[0].ProcessId -ne $originalPID){throw 'R438_RUNNING_PROCESS_CHANGED'}
-          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $exeHash){throw 'R438_R220_EXE_CHANGED'}
-          if((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant() -cne $nativeHash){throw 'R438_SOURCE_CHANGED'}
-          if((Get-FileHash -LiteralPath $active -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ptrBefore){throw 'R438_ACTIVE_POINTER_CHANGED'}
-          Write-Output 'R438_LIVE_SOURCE_EXECUTABLE_POINTER_AND_PROCESS_UNCHANGED=PASS'
-      - name: R439 preflight exact original startup and rollback feasibility with zero activation
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R439_WRONG_OWNER_RUNNER'}
-          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
-          if($owner.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R439_OWNER_SID_DRIFT'}
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R440_OWNER_RUNNER_DRIFT'}
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($who.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R440_OWNER_SID_DRIFT'}
           $root='C:\Users\camar\GolandProjects\ckb-plane'
           $store='C:\ProgramData\CKBR\release-store\ckb-plane'
-          $existing=Join-Path $store 'releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
-          $priorHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
-          $candidate='C:\Users\camar\AppData\Local\CKB-R438-Qualified-Candidates\R438-40497867453\ckb-plane.exe'
+          $oldID='PLANE-R220-LIVECOMPAT-20261023'
+          $newID='PLANE-R440-TERMINAL-SCHEDULER-20261027'
+          $oldHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
           $newHash='44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'
-          $manifest=Join-Path (Split-Path -Parent $candidate) 'manifest.json'
-          if((Get-FileHash -LiteralPath $existing -Algorithm SHA256).Hash.ToLowerInvariant() -cne $priorHash){throw 'R439_ORIGINAL_EXE_DRIFT'}
-          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -cne $newHash){throw 'R439_R438_CANDIDATE_DRIFT'}
-          $m=Get-Content -LiteralPath $manifest -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-          if($m.schema -cne 'ckb-plane.r438.inactive-exact-r428-candidate.v1' -or $m.candidate_sha256 -cne $newHash -or [bool]$m.promoted -or [bool]$m.controller_restarted -or [bool]$m.production_state_mutated){throw 'R439_R438_MANIFEST_DRIFT'}
-          Write-Output 'R439_EXACT_TESTED_OWNER_CANDIDATE_PIN=PASS'
-          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
-          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R439_TASK_TOPOLOGY_DRIFT'}
-          if([string]$task[0].Principal.UserId -cne 'camar'){throw 'R439_TASK_PRINCIPAL_DRIFT'}
-          $actions=@($task[0].Actions)
-          if($actions.Count -ne 1 -or [string]$actions[0].Execute -cne 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'){throw 'R439_TASK_ACTION_DRIFT'}
-          $args=[string]$actions[0].Arguments
-          $argsHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($args))).ToLowerInvariant()
-          if($argsHash -cne 'cb83905cfa4aa7e99683038160448802bdaf8c602c387f575fa8b1bf0ffad29c'){throw 'R439_TASK_ARGUMENTS_SHA_DRIFT'}
-          $paths=@([regex]::Matches($args,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase') | ForEach-Object {$_.Value} | Sort-Object -Unique)
-          if($paths.Count -ne 1 -or [IO.Path]::GetFileName($paths[0]) -cne 'Start-R18-Controller.ps1'){throw 'R439_STARTUP_SCRIPT_NOT_UNIQUE'}
-          $script=$paths[0]
-          if(!(Test-Path -LiteralPath $script -PathType Leaf)){throw 'R439_STARTUP_SCRIPT_ABSENT'}
-          if((Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant() -cne '64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'){throw 'R439_STARTUP_SCRIPT_DRIFT'}
-          $scriptText=[IO.File]::ReadAllText($script)
-          $parseTokens=$null;$parseErrors=$null
-          $parsed=[System.Management.Automation.Language.Parser]::ParseInput($scriptText,[ref]$parseTokens,[ref]$parseErrors)
-          if(@($parseErrors).Count -gt 0){throw 'R439_ORIGINAL_START_SCRIPT_PARSE_FAILURE'}
-          Write-Output 'R439_ORIGINAL_START_SCRIPT_POWERSHELL_PARSE=PASS'
-          foreach($term in @('PLANE-R220-LIVECOMPAT-20261023','active-release','PLANE-THROUGHPUT-R1P','Start-Process','ckb-plane.exe','--config','--bridge-config','controller','-Wait','Start-Sleep','exit','throw','Stop-Process','Remove-Item','Set-Content','WriteAllText')) {
-            $count=($scriptText.Split(@($term),[StringSplitOptions]::None).Length-1)
-            $safe=($term -replace '[^A-Za-z0-9]','_').ToUpperInvariant()
-            Write-Output ('R439_SCRIPT_OCCURRENCES_'+$safe+'='+$count)
-          }
-          $pins=($scriptText.Split(@('PLANE-R220-LIVECOMPAT-20261023'),[StringSplitOptions]::None).Length-1)
-          if($pins -lt 1 -or $pins -gt 6){throw 'R439_START_SCRIPT_R220_ANCHOR_UNSAFE'}
-          $proposal=$scriptText.Replace('PLANE-R220-LIVECOMPAT-20261023','PLANE-R439-TERMINAL-SCHEDULER-20261027')
-          $tokens2=$null;$errors2=$null
-          $ast2=[System.Management.Automation.Language.Parser]::ParseInput($proposal,[ref]$tokens2,[ref]$errors2)
-          if(@($errors2).Count -gt 0){throw 'R439_REPLACEMENT_IN_MEMORY_PARSE_FAILURE'}
-          Write-Output ('R439_IN_MEMORY_STARTUP_RELEASE_ANCHOR_COUNT='+$pins)
-          Write-Output 'R439_IN_MEMORY_STARTUP_PARSER=PASS'
-          $process=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($process.Count -ne 1 -or $process[0].ExecutablePath -cne $existing){throw 'R439_ORIGINAL_CONTROLLER_CHANGED'}
-          $pidBefore=$process[0].ProcessId
+          $oldEXE=Join-Path $store ('releases\'+$oldID+'\bin\ckb-plane.exe')
+          $newLive=Join-Path $store ('releases\'+$newID)
+          $stageEXE='C:\Users\camar\AppData\Local\CKB-R438-Qualified-Candidates\R438-40497867453\ckb-plane.exe'
           $ptr=Join-Path $store 'state\active-release'
-          if((Get-FileHash -LiteralPath $ptr -Algorithm SHA256).Hash.ToLowerInvariant() -cne '06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'){throw 'R439_ACTIVE_RELEASE_POINTER_DRIFT'}
-          $tokenFile=Join-Path $root 'state\operator.token'
-          if(!(Test-Path -LiteralPath $tokenFile -PathType Leaf)){throw 'R439_TOKEN_FILE_MISSING'}
-          $token=([IO.File]::ReadAllText($tokenFile)).Trim()
-          if($token -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R439_TOKEN_FORMAT_DRIFT'}
+          $ptrHash='06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'
+          if((Get-FileHash -LiteralPath $oldEXE -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldHash){throw 'R440_OLD_EXE_DRIFT'}
+          if((Get-FileHash -LiteralPath $stageEXE -Algorithm SHA256).Hash.ToLowerInvariant() -cne $newHash){throw 'R440_QUALIFIED_BINARY_DRIFT'}
+          if((Get-FileHash -LiteralPath $ptr -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ptrHash){throw 'R440_ACTIVE_POINTER_DRIFT'}
+          if(Test-Path -LiteralPath $newLive){throw 'R440_NEW_RELEASE_ID_ALREADY_IN_USE'}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R440_TASK_DRIFT'}
+          $actions=@($task[0].Actions)
+          if($actions.Count -ne 1){throw 'R440_TASK_ACTION_COUNT_DRIFT'}
+          $args=[string]$actions[0].Arguments
+          $cmdHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($args))).ToLowerInvariant()
+          if($cmdHash -cne 'cb83905cfa4aa7e99683038160448802bdaf8c602c387f575fa8b1bf0ffad29c'){throw 'R440_TASK_ARGUMENTS_DRIFT'}
+          $scripts=@([regex]::Matches($args,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase') | ForEach-Object {$_.Value} | Sort-Object -Unique)
+          if($scripts.Count -ne 1 -or [IO.Path]::GetFileName($scripts[0]) -cne 'Start-R18-Controller.ps1'){throw 'R440_LAUNCHER_PATH_DRIFT'}
+          $launch=$scripts[0]
+          $originalBytes=[IO.File]::ReadAllBytes($launch)
+          $origHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($originalBytes)).ToLowerInvariant()
+          if($origHash -cne '64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'){throw 'R440_LAUNCHER_BYTES_DRIFT'}
+          $utf8=[Text.UTF8Encoding]::new($false,$true)
+          $originalText=$utf8.GetString($originalBytes)
+          if(($originalText.Split(@($oldID),[StringSplitOptions]::None).Length-1) -ne 1){throw 'R440_LAUNCHER_RELEASE_PREIMAGE_DRIFT'}
+          if($originalText.Contains($newID)){throw 'R440_LAUNCHER_ALREADY_NEW'}
+          $newText=$originalText.Replace($oldID,$newID)
+          $candidateBytes=[Text.UTF8Encoding]::new($false).GetBytes($newText)
+          $rolledBack=[Text.UTF8Encoding]::new($false).GetBytes($newText.Replace($newID,$oldID))
+          $rollbackHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($rolledBack)).ToLowerInvariant()
+          if($rollbackHash -cne $origHash){throw 'R440_REVERSE_SUBSTITUTION_NOT_BYTE_EXACT'}
+          $nullTok=$null;$parseErr=$null
+          $null=[System.Management.Automation.Language.Parser]::ParseInput($newText,[ref]$nullTok,[ref]$parseErr)
+          if(@($parseErr).Count -ne 0){throw 'R440_CANDIDATE_STARTUP_SCRIPT_SYNTAX_ERROR'}
+          $newScriptHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($candidateBytes)).ToLowerInvariant()
+          Write-Output 'R440_BYTE_EXACT_ORIGINAL_ROLLBACK=PASS'
+          Write-Output 'R440_ONE_REFERENCE_SCRIPT_SUBSTITUTION=PASS'
+          Write-Output ('R440_QUALIFIED_EXE_SHA256='+$newHash)
+          Write-Output ('R440_ORIGINAL_LAUNCHER_SHA256='+$origHash)
+          Write-Output ('R440_INACTIVE_PROPOSED_LAUNCHER_SHA256='+$newScriptHash)
+          $p=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($p.Count -ne 1 -or $p[0].ExecutablePath -cne $oldEXE){throw 'R440_ORIGINAL_RUNNING_PROCESS_DRIFT'}
+          $oldPID=$p[0].ProcessId
+          $destRoot=Join-Path $env:LOCALAPPDATA 'CKB-R440-Inactive-Cutover-Packages'
+          $dest=Join-Path $destRoot ('R440-'+$env:GITHUB_RUN_ID)
+          $pending=$dest+'.incomplete'
+          if((Test-Path -LiteralPath $dest) -or (Test-Path -LiteralPath $pending)){throw 'R440_INACTIVE_DEST_COLLISION'}
+          if(!(Test-Path -LiteralPath $destRoot)){New-Item -Path $destRoot -ItemType Directory -ErrorAction Stop | Out-Null}
+          New-Item -Path $pending -ItemType Directory -ErrorAction Stop | Out-Null
           try {
-            $native=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8 -ErrorAction Stop
-          } finally { $token=$null }
-          if([string]$native.authority -cne 'plane' -or [string]$native.generation -cne '6' -or [bool]$native.paused -or [bool]$native.heartbeat_stale){throw 'R439_NATIVE_AUTHORITY_DRIFT'}
-          $activeQueue=@($native.queue | Where-Object { [string]$_.state -in @('RUNNING','RETRY_WAIT','FINALIZING','QUEUED') })
-          Write-Output ('R439_ACTIVE_OR_QUEUED_ITEMS='+$activeQueue.Count)
-          Write-Output ('R439_BLOCKERS='+@($native.blockers).Count)
-          Write-Output 'R439_NATIVE_AUTHORITY_GENERATION_6=PASS'
-          $processAfter=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
-          if($processAfter.Count -ne 1 -or $processAfter[0].ProcessId -ne $pidBefore){throw 'R439_CONTROLLER_CHANGED_DURING_PREFLIGHT'}
-          if((Get-FileHash -LiteralPath $existing -Algorithm SHA256).Hash.ToLowerInvariant() -cne $priorHash){throw 'R439_ORIGINAL_ROLLBACK_BINARY_DRIFT'}
-          if((Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant() -cne '64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'){throw 'R439_START_SCRIPT_MUTATED'}
-          Write-Output 'R439_ROLLBACK_BINARY_AND_ORIGINAL_SCRIPT_PRESERVED=PASS'
-          Write-Output 'R439_NO_LIVE_RELEASE_TASK_DB_OR_POINTER_MUTATION=TRUE'
+            $bins=Join-Path $pending 'bin'
+            New-Item -Path $bins -ItemType Directory -ErrorAction Stop | Out-Null
+            Copy-Item -LiteralPath $stageEXE -Destination (Join-Path $bins 'ckb-plane.exe') -ErrorAction Stop
+            [IO.File]::WriteAllBytes((Join-Path $pending 'Start-R440-Controller.proposed.ps1'),$candidateBytes)
+            [IO.File]::WriteAllBytes((Join-Path $pending 'Start-R18-Controller.rollback.ps1'),$originalBytes)
+            if((Get-FileHash -LiteralPath (Join-Path $bins 'ckb-plane.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $newHash){throw 'R440_STAGED_EXE_CORRUPT'}
+            if((Get-FileHash -LiteralPath (Join-Path $pending 'Start-R440-Controller.proposed.ps1') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $newScriptHash){throw 'R440_STAGED_LAUNCHER_CORRUPT'}
+            if((Get-FileHash -LiteralPath (Join-Path $pending 'Start-R18-Controller.rollback.ps1') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $origHash){throw 'R440_STAGED_ROLLBACK_CORRUPT'}
+            $manifest=[ordered]@{schema='ckb-plane.r440.inactive-cutover-package.v1';source_regression_run=40483672646;exact_rebuilt_candidate_run=40497867453;candidate_executable_sha256=$newHash;original_r220_sha256=$oldHash;original_startup_script_sha256=$origHash;proposed_startup_script_sha256=$newScriptHash;original_task_args_sha256=$cmdHash;original_release_id=$oldID;proposed_release_id=$newID;original_active_pointer_sha256=$ptrHash;promoted=$false;task_modified=$false;controller_restarted=$false;live_db_modified=$false;rollback_bundle_verified=$true}
+            [IO.File]::WriteAllText((Join-Path $pending 'manifest.json'),($manifest|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+            Move-Item -LiteralPath $pending -Destination $dest -ErrorAction Stop
+          } finally {if(Test-Path -LiteralPath $pending){Remove-Item -LiteralPath $pending -Recurse -Force -ErrorAction Stop}}
+          Write-Output ('R440_INACTIVE_PACKAGE_DIR='+$dest)
+          $nowTask=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          $nowProcess=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($nowTask.Count -ne 1 -or [string]$nowTask[0].State -cne 'Running' -or $nowProcess.Count -ne 1 -or $nowProcess[0].ProcessId -ne $oldPID){throw 'R440_LIVE_CONTROLLER_CHANGED_DURING_STAGING'}
+          if((Get-FileHash -LiteralPath $oldEXE -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldHash){throw 'R440_ORIGINAL_EXE_CHANGED'}
+          if((Get-FileHash -LiteralPath $launch -Algorithm SHA256).Hash.ToLowerInvariant() -cne $origHash){throw 'R440_ORIGINAL_LAUNCHER_CHANGED'}
+          if((Get-FileHash -LiteralPath $ptr -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ptrHash){throw 'R440_ACTIVE_POINTER_CHANGED'}
+          Write-Output 'R440_INACTIVE_CUTOVER_PACKAGE_SEALED=PASS'
+          Write-Output 'R440_LIVE_PROCESS_TASK_AND_ACTIVE_POINTER_UNCHANGED=PASS'
+          Write-Output 'R440_NO_CUTOVER_OR_CONTROLLER_RESTART=TRUE'
