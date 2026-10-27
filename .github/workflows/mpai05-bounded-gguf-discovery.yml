@@ -1,0 +1,96 @@
+name: MP-AI05 bounded local GGUF discovery (read only)
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-bounded-gguf-discovery.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-gguf-discovery
+  cancel-in-progress: false
+jobs:
+  discover:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 4
+    steps:
+      - name: Inspect only conventional local model cache roots, without names or paths in logs
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') {
+            throw 'MPAI05_UNAUTHORIZED_DISCOVERY_RUNNER'
+          }
+          $roots = @(
+            (Join-Path $env:USERPROFILE '.cache\huggingface\hub'),
+            (Join-Path $env:USERPROFILE '.lmstudio\models'),
+            (Join-Path $env:LOCALAPPDATA 'LM Studio\models'),
+            (Join-Path $env:USERPROFILE '.cache\llama.cpp'),
+            (Join-Path $env:USERPROFILE '.cache\llama_cpp'),
+            (Join-Path $env:USERPROFILE 'models'),
+            'C:\models', 'C:\AI\models', 'D:\models'
+          )
+          $found = 0
+          $headers = 0
+          $envelopes = @{ SMALL=0; MEDIUM=0; LARGE=0; OVERSIZE=0 }
+          $visited = 0
+          $directories = 0
+          foreach($root in $roots) {
+            if($visited -ge 512 -or $directories -ge 180){break}
+            if(-not (Test-Path -LiteralPath $root -PathType Container)){continue}
+            $start = Get-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue
+            if($null -eq $start -or ($start.Attributes -band [IO.FileAttributes]::ReparsePoint)){continue}
+            $pending = [Collections.Generic.Queue[object]]::new()
+            $pending.Enqueue(@{path=$root;depth=0})
+            while($pending.Count -gt 0 -and $visited -lt 512 -and $directories -lt 180) {
+              $cur=$pending.Dequeue()
+              $directories++
+              $items=@(Get-ChildItem -LiteralPath $cur.path -Force -ErrorAction SilentlyContinue | Select-Object -First 64)
+              foreach($item in $items){
+                $visited++
+                if($visited -gt 512){break}
+                if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){continue}
+                if($item.PSIsContainer){
+                  if($cur.depth -lt 5){$pending.Enqueue(@{path=$item.FullName;depth=($cur.depth+1)})}
+                  continue
+                }
+                if($item.Extension -cnotieq '.gguf'){continue}
+                $found++
+                # Inspect exactly four magic bytes; do not read or disclose model contents.
+                $stream=$null
+                try {
+                  $stream=[IO.FileStream]::new($item.FullName,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+                  $magic=[byte[]]::new(4)
+                  if($stream.Read($magic,0,4) -eq 4 -and
+                     [Text.Encoding]::ASCII.GetString($magic) -ceq 'GGUF') {
+                    $headers++
+                    $gib = $item.Length / 1GB
+                    if($gib -lt 1){$envelopes.SMALL++}
+                    elseif($gib -lt 4){$envelopes.MEDIUM++}
+                    elseif($gib -lt 12){$envelopes.LARGE++}
+                    else{$envelopes.OVERSIZE++}
+                  }
+                } catch {
+                  # Cache access may be intentionally denied. No path disclosure.
+                } finally {
+                  if($null -ne $stream){$stream.Dispose()}
+                }
+              }
+            }
+          }
+          Write-Host ('MPAI05_MODEL_CACHE_ROOTS_INSPECTED='+$roots.Count)
+          Write-Host ('MPAI05_SEARCH_VISITS='+$visited)
+          Write-Host ('MPAI05_SEARCH_LIMIT_REACHED='+$(($visited -ge 512 -or $directories -ge 180).ToString().ToUpperInvariant()))
+          Write-Host ('MPAI05_GGUF_FILES_OBSERVED='+$found)
+          Write-Host ('MPAI05_GGUF_VALID_HEADERS='+$headers)
+          Write-Host ('MPAI05_GGUF_LT1GIB='+$envelopes.SMALL)
+          Write-Host ('MPAI05_GGUF_1_TO_4GIB='+$envelopes.MEDIUM)
+          Write-Host ('MPAI05_GGUF_4_TO_12GIB='+$envelopes.LARGE)
+          Write-Host ('MPAI05_GGUF_GE12GIB='+$envelopes.OVERSIZE)
+          Write-Host 'MPAI05_NO_FILE_NAMES_PATHS_OR_CONTENT_EXPORTED=TRUE'
+          Write-Host 'MPAI05_MODEL_LOAD_OR_DOWNLOAD=FALSE'
+          Write-Host 'MPAI05_PRIVATE_INFERENCE_AUTHORIZATION=NOT_ESTABLISHED'
+          Write-Host 'MPAI05_SOURCE_CHECKER_QUALIFICATION=UNCHANGED'
