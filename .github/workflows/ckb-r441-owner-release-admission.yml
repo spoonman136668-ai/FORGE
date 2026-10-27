@@ -1,0 +1,101 @@
+name: CKB R441 original-owner guarded cutover admission preflight
+on:
+  push:
+    branches: [audit/ckb-r441-owner-release-admission-20261027]
+permissions:
+  contents: read
+jobs:
+  owner-admission-preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Verify R440 sealed bundle and exact live original owner startup and rollback preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R441_WRONG_OWNER_RUNNER'}
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($owner.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R441_OWNER_SID_CHANGED'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $oldExe=Join-Path $store 'releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $oldHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $newHash='44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'
+          $oldScriptHash='64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'
+          $newScriptHash='140e497a798e5c1ceb77b118e9bffc5a37d810c16bf8f37275333ba26c38cf77'
+          $pointer=Join-Path $store 'state\active-release'
+          $ptrHash='06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'
+          $pkg='C:\Users\camar\AppData\Local\CKB-R440-Inactive-Cutover-Packages\R440-40507053688'
+          $pkgExe=Join-Path $pkg 'bin\ckb-plane.exe'
+          $pkgProposed=Join-Path $pkg 'Start-R440-Controller.proposed.ps1'
+          $pkgRollback=Join-Path $pkg 'Start-R18-Controller.rollback.ps1'
+          $pkgManifest=Join-Path $pkg 'manifest.json'
+          $newID='PLANE-R440-TERMINAL-SCHEDULER-20261027'
+          $futurePath=Join-Path $store ('releases\'+$newID)
+          function AssertFileHash([string]$f,[string]$expected,[string]$code){
+            if(!(Test-Path -LiteralPath $f -PathType Leaf)){throw ($code+'_MISSING')}
+            $actual=(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($actual -cne $expected){throw ($code+'_HASH_DRIFT')}
+          }
+          AssertFileHash $oldExe $oldHash 'R441_LIVE_ORIGINAL_EXE'
+          AssertFileHash $pkgExe $newHash 'R441_QUALIFIED_PACKAGE_EXE'
+          AssertFileHash $pkgProposed $newScriptHash 'R441_PROPOSED_STARTUP'
+          AssertFileHash $pkgRollback $oldScriptHash 'R441_ORIGINAL_ROLLBACK_COPY'
+          AssertFileHash $pointer $ptrHash 'R441_ACTIVE_POINTER'
+          if(Test-Path -LiteralPath $futurePath){throw 'R441_FUTURE_RELEASE_ALREADY_EXISTS'}
+          $manifest=Get-Content -LiteralPath $pkgManifest -Raw -ErrorAction Stop|ConvertFrom-Json -ErrorAction Stop
+          if([string]$manifest.schema -cne 'ckb-plane.r440.inactive-cutover-package.v1'){throw 'R441_MANIFEST_SCHEMA'}
+          if([string]$manifest.candidate_executable_sha256 -cne $newHash -or [string]$manifest.original_r220_sha256 -cne $oldHash){throw 'R441_MANIFEST_EXECUTABLE_PINS'}
+          if([string]$manifest.proposed_startup_script_sha256 -cne $newScriptHash -or [string]$manifest.original_startup_script_sha256 -cne $oldScriptHash){throw 'R441_MANIFEST_SCRIPT_PINS'}
+          if([bool]$manifest.promoted -or [bool]$manifest.task_modified -or [bool]$manifest.controller_restarted -or [bool]$manifest.live_db_modified -or -not [bool]$manifest.rollback_bundle_verified){throw 'R441_NOT_AN_INACTIVE_BUNDLE'}
+          Write-Output 'R441_SEALED_INACTIVE_CANDIDATE_AND_ROLLBACK=PASS'
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running' -or [string]$task[0].Principal.UserId -cne 'camar'){throw 'R441_RUNNING_TASK_DRIFT'}
+          $a=@($task[0].Actions)
+          if($a.Count -ne 1 -or [string]$a[0].Execute -cne 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'){throw 'R441_TASK_ACTION_DRIFT'}
+          $args=[string]$a[0].Arguments
+          $cmdHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($args))).ToLowerInvariant()
+          if($cmdHash -cne 'cb83905cfa4aa7e99683038160448802bdaf8c602c387f575fa8b1bf0ffad29c'){throw 'R441_TASK_ARGS_DRIFT'}
+          $scripts=@([regex]::Matches($args,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase')|ForEach-Object {$_.Value}|Sort-Object -Unique)
+          if($scripts.Count -ne 1 -or [IO.Path]::GetFileName($scripts[0]) -cne 'Start-R18-Controller.ps1'){throw 'R441_LIVE_LAUNCHER_UNKNOWN'}
+          $script=$scripts[0]
+          AssertFileHash $script $oldScriptHash 'R441_LIVE_STARTUP'
+          $body=[IO.File]::ReadAllText($script)
+          if($body.Length -gt 8192 -or $body -match '(?i)(token|secret|password|api.?key|credential|authorization|encodedcommand|invoke-expression|iex\s|set-content|remove-item|stop-process)'){throw 'R441_STARTUP_SCRIPT_NOT_SAFE_TO_AUDIT'}
+          $lines=@($body -split '\r?\n')
+          if($lines.Count -gt 35){throw 'R441_STARTUP_SCRIPT_TOO_MANY_LINES'}
+          foreach($line in $lines){if($line.Length -gt 1000){throw 'R441_SCRIPT_LINE_TOO_LONG'}}
+          Write-Output 'R441_ORIGINAL_STARTUP_SCRIPT_BEGIN'
+          foreach($line in $lines){Write-Output ('R441_SCRIPT_LINE='+$line)}
+          Write-Output 'R441_ORIGINAL_STARTUP_SCRIPT_END'
+          $originalBytes=[IO.File]::ReadAllBytes($script)
+          $rollbackBytes=[IO.File]::ReadAllBytes($pkgRollback)
+          if(-not [System.Linq.Enumerable]::SequenceEqual([byte[]]$originalBytes,[byte[]]$rollbackBytes)){throw 'R441_ROLLBACK_NOT_BYTE_IDENTICAL'}
+          $proposed=[IO.File]::ReadAllText($pkgProposed)
+          $candidateRestore=$proposed.Replace($newID,'PLANE-R220-LIVECOMPAT-20261023')
+          if([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($candidateRestore))).ToLowerInvariant() -cne $oldScriptHash){throw 'R441_ROLLBACK_REVERSAL_FAILED'}
+          Write-Output 'R441_BYTE_IDENTICAL_ROLLBACK_INTEGRITY=PASS'
+          $live=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($live.Count -ne 1 -or $live[0].ExecutablePath -cne $oldExe){throw 'R441_LIVE_CONTROLLER_PROCESS_DRIFT'}
+          $livePID=$live[0].ProcessId
+          $tokenFile=Join-Path $root 'state\operator.token'
+          if(!(Test-Path -LiteralPath $tokenFile -PathType Leaf)){throw 'R441_NATIVE_TOKEN_MISSING'}
+          $token=([IO.File]::ReadAllText($tokenFile)).Trim()
+          if($token -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R441_NATIVE_TOKEN_INVALID'}
+          try {$native=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8 -ErrorAction Stop}finally{$token=$null}
+          if([string]$native.authority -cne 'plane' -or [string]$native.generation -cne '6' -or [bool]$native.paused -or [bool]$native.heartbeat_stale){throw 'R441_ORIGINAL_NATIVE_AUTHORITY_NOT_HEALTHY'}
+          $active=@($native.queue|Where-Object {[string]$_.state -in @('QUEUED','RUNNING','RETRY_WAIT','FINALIZING')})
+          if($active.Count -gt 0){throw 'R441_NOT_DRAINED'}
+          Write-Output 'R441_ORIGINAL_AUTHORITY_GEN6_FRESH_AND_DRAINED=PASS'
+          $disk=Get-PSDrive -Name C -ErrorAction Stop
+          Write-Output ('R441_SYSTEM_DRIVE_FREE_GB='+[Math]::Round($disk.Free/1GB,1))
+          if($disk.Free -lt 256MB){throw 'R441_DISK_SPACE_TOO_LOW_FOR_RELEASE'}
+          $after=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($after.Count -ne 1 -or $after[0].ProcessId -ne $livePID){throw 'R441_CONTROLLER_CHANGED'}
+          AssertFileHash $script $oldScriptHash 'R441_LIVE_SCRIPT_POSTCHECK'
+          AssertFileHash $oldExe $oldHash 'R441_LIVE_R220_POSTCHECK'
+          AssertFileHash $pointer $ptrHash 'R441_ACTIVE_POINTER_POSTCHECK'
+          Write-Output 'R441_ORIGINAL_CONTROLLER_PRESERVED=PASS'
+          Write-Output 'R441_RELEASE_ADMISSION_DECISION=PREPARED_NOT_COMMITTED'
+          Write-Output 'R441_NO_INSTALLATION_OR_TASK_OR_STATE_WRITE=TRUE'
