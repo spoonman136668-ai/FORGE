@@ -1,6 +1,8 @@
 """Source-only zero-credit Nemotron transport tests; no real HTTP or secrets."""
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import unittest
 from unittest.mock import patch
@@ -8,7 +10,7 @@ from unittest.mock import patch
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_free_reasoner_provider import (
     ENDPOINT, MODEL, SCHEMA, FreeReasonerDenied, FreeReasonerUnavailable,
-    infer_free_once, make_body, public_packet,
+    infer_free_once, make_body, public_packet, verify_anonymous_public_source,
 )
 
 
@@ -43,6 +45,54 @@ class FreeReasonerSourceOnlyTests(unittest.TestCase):
             "model_execution_authorized": False,
             "publication_authorized": False,
         }
+
+    def public_reader(self, route):
+        if route.endswith("/git/commits/" + self.request["target_commit"]):
+            return {"sha": self.request["target_commit"],
+                    "tree": {"sha": self.request["target_tree_sha"]}}
+        if (route.endswith("/contents/" + self.request["path"] +
+                            "?ref=" + self.request["target_commit"])):
+            raw = self.source.encode("utf-8")
+            blob = hashlib.sha1(
+                b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
+            ).hexdigest()
+            return {"encoding": "base64",
+                    "content": base64.b64encode(raw).decode("ascii"),
+                    "sha": blob}
+        raise AssertionError("Unrecognized public Git route: " + route)
+
+    def test_anonymous_public_git_proof_precedes_remote_post(self):
+        p = public_packet(self.request, public_source_verified=True)
+        called = []
+        def reader(route):
+            called.append(route)
+            return self.public_reader(route)
+        self.assertTrue(verify_anonymous_public_source(p, reader))
+        self.assertEqual(len(called), 2)
+        self.assertTrue(all(route.startswith(
+            "repos/spoonman136668-ai/Yggdrasil/") for route in called))
+        self.assertNotIn("OPENROUTER_API_KEY", json.dumps(called))
+
+    def test_public_git_private_or_modified_content_rejected_without_model_call(self):
+        p = public_packet(self.request, public_source_verified=True)
+        calls = []
+        def transport(body, token):
+            calls.append(1)
+            return b"{}"
+        def unavailable(route):
+            raise FileNotFoundError("private repository")
+        with self.assertRaisesRegex(FreeReasonerUnavailable, "PUBLIC_GIT_UNAVAILABLE"):
+            infer_free_once(p, token="dummy", transport=transport,
+                            public_reader=unavailable)
+        def changed_tree(route):
+            doc = self.public_reader(route)
+            if "/git/commits/" in route:
+                return {**doc, "tree": {"sha": "9"*40}}
+            return doc
+        with self.assertRaisesRegex(FreeReasonerDenied, "ANONYMOUS_SOURCE_GIT_AUTHENTICITY"):
+            infer_free_once(p, token="dummy", transport=transport,
+                            public_reader=changed_tree)
+        self.assertEqual(calls, [])
 
     def test_no_raw_original_owner_ticket_or_private_steering_escapes(self):
         p = public_packet(self.request, public_source_verified=True)
@@ -108,7 +158,7 @@ class FreeReasonerSourceOnlyTests(unittest.TestCase):
             called.append((json.loads(body)["model"], token))
             return canonical(response)
         got = infer_free_once(p, token="test-secret-never-printed",
-                              transport=send)
+                              transport=send, public_reader=self.public_reader)
         self.assertEqual(len(called), 1)
         self.assertEqual(called[0][0], MODEL)
         self.assertEqual(got["paid_model_calls"], 0)
@@ -125,7 +175,8 @@ class FreeReasonerSourceOnlyTests(unittest.TestCase):
             return b"{}"
         with patch.dict("os.environ", {"OPENROUTER_API_KEY": ""}):
             with self.assertRaisesRegex(FreeReasonerUnavailable, "NO_KEY_NO_REQUEST"):
-                infer_free_once(p, transport=send)
+                infer_free_once(p, transport=send,
+                                public_reader=self.public_reader)
         self.assertEqual(calls, [])
 
     def test_unavailable_and_transient_errors_do_not_retry(self):
@@ -135,7 +186,8 @@ class FreeReasonerSourceOnlyTests(unittest.TestCase):
             calls.append(1)
             raise ConnectionError("remote provider unavailable")
         with self.assertRaisesRegex(FreeReasonerUnavailable, "NO_RETRY"):
-            infer_free_once(p, token="dummy", transport=bad)
+            infer_free_once(p, token="dummy", transport=bad,
+                            public_reader=self.public_reader)
         self.assertEqual(len(calls), 1)
 
     def test_nonzero_cost_malformed_tool_or_truncated_reply_denied(self):
@@ -159,7 +211,8 @@ class FreeReasonerSourceOnlyTests(unittest.TestCase):
                 with self.assertRaisesRegex(FreeReasonerDenied, error):
                     infer_free_once(
                         p, token="dummy",
-                        transport=lambda body, token: canonical(val))
+                        transport=lambda body, token: canonical(val),
+                        public_reader=self.public_reader)
 
     def test_no_file_upload_owner_sqlite_or_background_work(self):
         from f139 import nci04_free_reasoner_provider as module
