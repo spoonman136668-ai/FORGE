@@ -1,0 +1,75 @@
+name: CKB R465 original-owner pending-file custody classification
+on:
+  push:
+    branches: [audit/ckb-r465-pending-custody-readonly-20261027]
+permissions:
+  contents: read
+jobs:
+  pending-files-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Classify each pending JSON against existing queue ledger without replay, reading, or printing payloads
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R465_ORIGINAL_OWNER_REQUIRED'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R461-ACTIVE-ONLY-SCHEDULER-20261027\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'b39ad0e68f841a4596d2a103064d64f7725b7a4f7f37965f20fa794f14798fcf'){throw 'R465_LIVE_REPAIRED_EXECUTABLE_CHANGED'}
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $t=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($ps.Count -ne 1 -or $ps[0].ProcessId -ne 76312 -or [string]$ps[0].ExecutablePath -cne $exe -or $t.Count -ne 1 -or [string]$t[0].State -cne 'Running'){throw 'R465_ORIGINAL_NATIVE_SUPERVISION_DRIFT'}
+          $tok=([IO.File]::ReadAllText((Join-Path $root 'state\operator.token'))).Trim()
+          if($tok -cnotmatch '^[A-Fa-f0-9]{64}$'){throw 'R465_TOKEN_FORMAT_INVALID'}
+          try {$n=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$tok)} -TimeoutSec 9 -ErrorAction Stop}finally{$tok=$null}
+          if([string]$n.authority -cne 'plane' -or [string]$n.generation -cne '6' -or [bool]$n.paused -or [bool]$n.heartbeat_stale){throw 'R465_NATIVE_AUTHORITY_CHANGED'}
+          $queue=@($n.queue)
+          if($queue.Count -ne 202){throw 'R465_QUEUE_COUNT_CHANGED'}
+          $lookup=@{}
+          foreach($q in $queue){
+            if($lookup.ContainsKey([string]$q.id)){throw 'R465_DUPLICATE_QUEUE_ID'}
+            $lookup[[string]$q.id]=$q
+          }
+          $pendingDir=Join-Path $root 'workorders\pending'
+          $files=@(Get-ChildItem -LiteralPath $pendingDir -File -Filter '*.json' -ErrorAction Stop)
+          Write-Output ('R465_PENDING_FILE_COUNT='+$files.Count)
+          if($files.Count -ne 17){throw 'R465_PENDING_FILES_CHANGED'}
+          $counts=@{}
+          foreach($field in @('MISSING_LEDGER','HASH_MATCH','HASH_MISMATCH','EMPTY_HASH','NON_SOURCE','OPERATOR_AUTHORIZED','SOURCE_OPERATOR_QUEUED')){
+            $counts[$field]=0
+          }
+          foreach($f in $files){
+            if(-not $lookup.ContainsKey($f.BaseName)){
+              $counts['MISSING_LEDGER']++
+              continue
+            }
+            $q=$lookup[$f.BaseName]
+            $state=[string]$q.state
+            $safeState=([regex]::Replace($state.ToUpperInvariant(),'[^A-Z0-9_]','_'))
+            if($safeState.Length -gt 55){$safeState='OTHER'}
+            if(-not $counts.ContainsKey('STATE_'+$safeState)){$counts['STATE_'+$safeState]=0}
+            $counts['STATE_'+$safeState]++
+            $kind=[string]$q.kind
+            $mode=[string]$q.mode
+            $auth=[string]$q.authorization
+            if($kind -cne 'source'){$counts['NON_SOURCE']++}
+            if($auth -ceq 'operator'){$counts['OPERATOR_AUTHORIZED']++}
+            if($state -ceq 'QUEUED' -and $kind -ceq 'source' -and $mode -ceq 'source' -and $auth -ceq 'operator'){$counts['SOURCE_OPERATOR_QUEUED']++}
+            $rawHash=(Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $dbHash=([string]$q.hash).ToLowerInvariant()
+            if([string]::IsNullOrWhiteSpace($dbHash)){
+              $counts['EMPTY_HASH']++
+            }elseif($rawHash -cne $dbHash){
+              $counts['HASH_MISMATCH']++
+            }else{
+              $counts['HASH_MATCH']++
+            }
+          }
+          foreach($k in @($counts.Keys|Sort-Object)){Write-Output ('R465_'+$k+'='+$counts[$k])}
+          if($counts['MISSING_LEDGER'] -gt 0){throw 'R465_PENDING_FILE_WITHOUT_QUEUE_LEDGER'}
+          if($counts['SOURCE_OPERATOR_QUEUED'] -gt 0){Write-Output 'R465_AUTHORIZED_SOURCE_EXISTS_BUT_NOT_DISPATCHED=TRUE'}
+          else{Write-Output 'R465_NO_NEW_ELIGIBLE_AUTHORIZED_SOURCE_FILE=TRUE'}
+          Write-Output 'R465_NO_PAYLOAD_OR_WORK_ORDER_IDS_EXPORTED=TRUE'
+          Write-Output 'R465_NO_QUEUE_CLAIM_RUN_RETRY_SQLITE_EDIT_OR_NEW_CONTROLLER=TRUE'
