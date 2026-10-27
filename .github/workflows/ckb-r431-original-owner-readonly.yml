@@ -502,3 +502,77 @@ jobs:
           if((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant() -cne $nativeHash){throw 'R438_SOURCE_CHANGED'}
           if((Get-FileHash -LiteralPath $active -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ptrBefore){throw 'R438_ACTIVE_POINTER_CHANGED'}
           Write-Output 'R438_LIVE_SOURCE_EXECUTABLE_POINTER_AND_PROCESS_UNCHANGED=PASS'
+      - name: R439 preflight exact original startup and rollback feasibility with zero activation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R439_WRONG_OWNER_RUNNER'}
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($owner.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R439_OWNER_SID_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $existing=Join-Path $store 'releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $priorHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $candidate='C:\Users\camar\AppData\Local\CKB-R438-Qualified-Candidates\R438-40497867453\ckb-plane.exe'
+          $newHash='44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'
+          $manifest=Join-Path (Split-Path -Parent $candidate) 'manifest.json'
+          if((Get-FileHash -LiteralPath $existing -Algorithm SHA256).Hash.ToLowerInvariant() -cne $priorHash){throw 'R439_ORIGINAL_EXE_DRIFT'}
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -cne $newHash){throw 'R439_R438_CANDIDATE_DRIFT'}
+          $m=Get-Content -LiteralPath $manifest -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+          if($m.schema -cne 'ckb-plane.r438.inactive-exact-r428-candidate.v1' -or $m.candidate_sha256 -cne $newHash -or [bool]$m.promoted -or [bool]$m.controller_restarted -or [bool]$m.production_state_mutated){throw 'R439_R438_MANIFEST_DRIFT'}
+          Write-Output 'R439_EXACT_TESTED_OWNER_CANDIDATE_PIN=PASS'
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R439_TASK_TOPOLOGY_DRIFT'}
+          if([string]$task[0].Principal.UserId -cne 'camar'){throw 'R439_TASK_PRINCIPAL_DRIFT'}
+          $actions=@($task[0].Actions)
+          if($actions.Count -ne 1 -or [string]$actions[0].Execute -cne 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'){throw 'R439_TASK_ACTION_DRIFT'}
+          $args=[string]$actions[0].Arguments
+          $argsHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($args))).ToLowerInvariant()
+          if($argsHash -cne 'cb83905cfa4aa7e99683038160448802bdaf8c602c387f575fa8b1bf0ffad29c'){throw 'R439_TASK_ARGUMENTS_SHA_DRIFT'}
+          $paths=@([regex]::Matches($args,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase') | ForEach-Object {$_.Value} | Sort-Object -Unique)
+          if($paths.Count -ne 1 -or [IO.Path]::GetFileName($paths[0]) -cne 'Start-R18-Controller.ps1'){throw 'R439_STARTUP_SCRIPT_NOT_UNIQUE'}
+          $script=$paths[0]
+          if(!(Test-Path -LiteralPath $script -PathType Leaf)){throw 'R439_STARTUP_SCRIPT_ABSENT'}
+          if((Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant() -cne '64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'){throw 'R439_STARTUP_SCRIPT_DRIFT'}
+          $scriptText=[IO.File]::ReadAllText($script)
+          $parseTokens=$null;$parseErrors=$null
+          $parsed=[System.Management.Automation.Language.Parser]::ParseInput($scriptText,[ref]$parseTokens,[ref]$parseErrors)
+          if(@($parseErrors).Count -gt 0){throw 'R439_ORIGINAL_START_SCRIPT_PARSE_FAILURE'}
+          Write-Output 'R439_ORIGINAL_START_SCRIPT_POWERSHELL_PARSE=PASS'
+          foreach($term in @('PLANE-R220-LIVECOMPAT-20261023','active-release','PLANE-THROUGHPUT-R1P','Start-Process','ckb-plane.exe','--config','--bridge-config','controller','-Wait','Start-Sleep','exit','throw','Stop-Process','Remove-Item','Set-Content','WriteAllText')) {
+            $count=($scriptText.Split(@($term),[StringSplitOptions]::None).Length-1)
+            $safe=($term -replace '[^A-Za-z0-9]','_').ToUpperInvariant()
+            Write-Output ('R439_SCRIPT_OCCURRENCES_'+$safe+'='+$count)
+          }
+          $pins=($scriptText.Split(@('PLANE-R220-LIVECOMPAT-20261023'),[StringSplitOptions]::None).Length-1)
+          if($pins -lt 1 -or $pins -gt 6){throw 'R439_START_SCRIPT_R220_ANCHOR_UNSAFE'}
+          $proposal=$scriptText.Replace('PLANE-R220-LIVECOMPAT-20261023','PLANE-R439-TERMINAL-SCHEDULER-20261027')
+          $tokens2=$null;$errors2=$null
+          $ast2=[System.Management.Automation.Language.Parser]::ParseInput($proposal,[ref]$tokens2,[ref]$errors2)
+          if(@($errors2).Count -gt 0){throw 'R439_REPLACEMENT_IN_MEMORY_PARSE_FAILURE'}
+          Write-Output ('R439_IN_MEMORY_STARTUP_RELEASE_ANCHOR_COUNT='+$pins)
+          Write-Output 'R439_IN_MEMORY_STARTUP_PARSER=PASS'
+          $process=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($process.Count -ne 1 -or $process[0].ExecutablePath -cne $existing){throw 'R439_ORIGINAL_CONTROLLER_CHANGED'}
+          $pidBefore=$process[0].ProcessId
+          $ptr=Join-Path $store 'state\active-release'
+          if((Get-FileHash -LiteralPath $ptr -Algorithm SHA256).Hash.ToLowerInvariant() -cne '06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'){throw 'R439_ACTIVE_RELEASE_POINTER_DRIFT'}
+          $tokenFile=Join-Path $root 'state\operator.token'
+          if(!(Test-Path -LiteralPath $tokenFile -PathType Leaf)){throw 'R439_TOKEN_FILE_MISSING'}
+          $token=([IO.File]::ReadAllText($tokenFile)).Trim()
+          if($token -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R439_TOKEN_FORMAT_DRIFT'}
+          try {
+            $native=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8 -ErrorAction Stop
+          } finally { $token=$null }
+          if([string]$native.authority -cne 'plane' -or [string]$native.generation -cne '6' -or [bool]$native.paused -or [bool]$native.heartbeat_stale){throw 'R439_NATIVE_AUTHORITY_DRIFT'}
+          $activeQueue=@($native.queue | Where-Object { [string]$_.state -in @('RUNNING','RETRY_WAIT','FINALIZING','QUEUED') })
+          Write-Output ('R439_ACTIVE_OR_QUEUED_ITEMS='+$activeQueue.Count)
+          Write-Output ('R439_BLOCKERS='+@($native.blockers).Count)
+          Write-Output 'R439_NATIVE_AUTHORITY_GENERATION_6=PASS'
+          $processAfter=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($processAfter.Count -ne 1 -or $processAfter[0].ProcessId -ne $pidBefore){throw 'R439_CONTROLLER_CHANGED_DURING_PREFLIGHT'}
+          if((Get-FileHash -LiteralPath $existing -Algorithm SHA256).Hash.ToLowerInvariant() -cne $priorHash){throw 'R439_ORIGINAL_ROLLBACK_BINARY_DRIFT'}
+          if((Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant() -cne '64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'){throw 'R439_START_SCRIPT_MUTATED'}
+          Write-Output 'R439_ROLLBACK_BINARY_AND_ORIGINAL_SCRIPT_PRESERVED=PASS'
+          Write-Output 'R439_NO_LIVE_RELEASE_TASK_DB_OR_POINTER_MUTATION=TRUE'
