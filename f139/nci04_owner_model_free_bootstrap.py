@@ -136,9 +136,20 @@ def run_original_g29_once(db, api, db_path: Path, source_sha: str,
                           owner_witness: Callable[[], bool]) -> dict:
     """Called only from existing run_once, while SingleOwner remains held."""
     from f139.local_controller import GitHub, SingleOwner
-    need(type(api) is GitHub and
-         SingleOwner.held(db_path.with_suffix(".lock")) and
-         callable(owner_witness) and owner_witness() is True,
+    canonical_api = type(api) is GitHub
+    main = sys.modules.get("__main__")
+    original_cli_api = (
+        type(api).__module__ == "__main__"
+        and type(api).__name__ == "GitHub"
+        and main is not None
+        and isinstance(getattr(main, "__file__", None), str)
+        and Path(main.__file__).resolve(strict=True) ==
+            (Path(__file__).resolve().parent / "local_controller.py").resolve(strict=True)
+    )
+    need((canonical_api or original_cli_api)
+         and isinstance(db_path, Path)
+         and SingleOwner.held(db_path.with_suffix(".lock"))
+         and callable(owner_witness) and owner_witness() is True,
          "ORIGINAL_RUNNING_SINGLE_OWNER_REQUIRED")
     canonical_db, close = original_canonical_db(db, db_path)
     try:
