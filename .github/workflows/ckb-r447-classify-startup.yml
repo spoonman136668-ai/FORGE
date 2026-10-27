@@ -1,0 +1,98 @@
+name: CKB R447 original-owner protected diagnostic evidence classification
+on:
+  push:
+    branches: [audit/ckb-r447-diagnostic-analysis-20261027]
+permissions:
+  contents: read
+jobs:
+  classify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Read only local R446 diagnostics and verify native command-error behavior with synthetic Windows PowerShell 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R447_WRONG_OWNER_RUNNER'}
+          $log='C:\Users\camar\AppData\Local\CKB-R445-Startup-Diagnostics\R445-40542294815'
+          $result='C:\ProgramData\CKBR\cutover\R446-40544221518\result.json'
+          $oldExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $newExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R440-TERMINAL-SCHEDULER-20261027\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $oldExe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){throw 'R447_ORIGINAL_BINARY_SHA_DRIFT'}
+          if((Get-FileHash -LiteralPath $newExe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'){throw 'R447_QUALIFIED_BINARY_SHA_DRIFT'}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R447_ORIGINAL_TASK_NOT_RUNNING'}
+          $p=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($p.Count -ne 1 -or [string]$p[0].ExecutablePath -cne $oldExe -or [int]$p[0].ProcessId -ne 102324){throw 'R447_ORIGINAL_R220_PROCESS_DRIFT'}
+          $data=Get-Content -LiteralPath $result -Raw -ErrorAction Stop|ConvertFrom-Json -ErrorAction Stop
+          if([string]$data.schema -cne 'ckb-plane.r446.bounded-startup-observation.v1' -or [string]$data.result -cne 'DIAGNOSTIC_ONLY_RESTORED' -or [string]$data.outcome -cne 'TASK_EXITED_NO_PROCESS' -or [int]$data.task_last_result_before_restore -ne 1 -or -not [bool]$data.original_launcher_restored){throw 'R447_R446_CUSTODY_RECEIPT_INVALID'}
+          Write-Output 'R447_R446_RECEIPT_VERIFIED=PASS'
+          $out=Join-Path $log 'native-stdout.txt'
+          $err=Join-Path $log 'native-stderr.txt'
+          $typ=Join-Path $log 'bootstrap-failure-type.txt'
+          if(!(Test-Path -LiteralPath $out -PathType Leaf) -or !(Test-Path -LiteralPath $err -PathType Leaf) -or !(Test-Path -LiteralPath $typ -PathType Leaf)){throw 'R447_STARTUP_EVIDENCE_MISSING'}
+          $stdoutBytes=[IO.File]::ReadAllBytes($out)
+          $stderrBytes=[IO.File]::ReadAllBytes($err)
+          if($stdoutBytes.Length -ne 250 -or $stderrBytes.Length -ne 0){throw 'R447_STARTUP_EVIDENCE_BYTES_CHANGED'}
+          if([IO.File]::ReadAllText($typ).Trim() -cne 'RemoteException'){throw 'R447_BOOTSTRAP_EXCEPTION_CHANGED'}
+          $s=[Text.Encoding]::UTF8.GetString($stdoutBytes)
+          $expressions=[ordered]@{
+            EXPECTED_CONTROLLER_BANNER=($s -match 'CKB-plane native controller:')
+            EXPECTED_USAGE_HEADER=($s -match 'ckb-plane: controller configure/run/status')
+            SQLITE_KEYWORD=($s -match '(?i)sqlite|database')
+            CONFIG_KEYWORD=($s -match '(?i)config')
+            AUTHORITY_KEYWORD=($s -match '(?i)authority|authorization')
+            FILE_KEYWORD=($s -match '(?i)file|directory|path')
+            ERROR_KEYWORD=($s -match '(?i)error|failed|panic|fatal')
+            PORT_KEYWORD=($s -match '(?i)port|bind|listen|8791')
+            SOURCE_KEYWORD=($s -match '(?i)source')
+          }
+          foreach($k in $expressions.Keys){Write-Output ('R447_STDOUT_'+$k+'='+[string]$expressions[$k])}
+          Write-Output ('R447_STDOUT_LINE_COUNT='+([regex]::Matches($s,'\n').Count+1))
+          Write-Output ('R447_STDOUT_SHA256='+(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Output ('R447_STDERR_BYTES='+$stderrBytes.Length)
+          Write-Output 'R447_NO_RAW_NATIVE_OUTPUT_EXPORTED=TRUE'
+          $sandbox=Join-Path $env:RUNNER_TEMP ('R447-PS5-Synthetic-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $sandbox){throw 'R447_SYNTHETIC_TEST_COLLISION'}
+          New-Item -Path $sandbox -ItemType Directory -ErrorAction Stop|Out-Null
+          try {
+            $test=@'
+          param([string]$Root)
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $Root 'teststdout.txt'
+          $err=Join-Path $Root 'teststderr.txt'
+          $exit=Join-Path $Root 'testexit.txt'
+          $exception=Join-Path $Root 'testexception.txt'
+          trap {
+            [IO.File]::WriteAllText($exception,$_.Exception.GetType().Name)
+            exit 17
+          }
+          & $env:ComSpec /d /c 'echo R447_SENTINEL_TEST 1>&2 & exit /b 9' 1> $out 2> $err
+          [IO.File]::WriteAllText($exit,[string]$LASTEXITCODE)
+          exit 0
+          '@
+            $script=Join-Path $sandbox 'synthetic-ps5.ps1'
+            [IO.File]::WriteAllText($script,$test,[Text.UTF8Encoding]::new($false))
+            $ps5='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+            & $ps5 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Root $sandbox
+            $code=$LASTEXITCODE
+            Write-Output ('R447_PS5_SYNTHETIC_PARENT_EXIT='+$code)
+            if(Test-Path -LiteralPath (Join-Path $sandbox 'testexception.txt')){
+              $cls=[IO.File]::ReadAllText((Join-Path $sandbox 'testexception.txt')).Trim()
+              if($cls -notmatch '^[A-Za-z_]{3,60}$'){throw 'R447_SYNTHETIC_EXCEPTION_NAME_UNSAFE'}
+              Write-Output ('R447_PS5_SYNTHETIC_EXCEPTION_TYPE='+$cls)
+            }else{Write-Output 'R447_PS5_SYNTHETIC_EXCEPTION_TYPE=ABSENT'}
+            if(Test-Path -LiteralPath (Join-Path $sandbox 'testexit.txt')){
+              $nativeExit=[IO.File]::ReadAllText((Join-Path $sandbox 'testexit.txt')).Trim()
+              if($nativeExit -notmatch '^[0-9]{1,3}$'){throw 'R447_SYNTHETIC_NATIVE_EXIT_UNEXPECTED'}
+              Write-Output ('R447_PS5_SYNTHETIC_NATIVE_EXIT='+$nativeExit)
+            }else{Write-Output 'R447_PS5_SYNTHETIC_NATIVE_EXIT=ABSENT'}
+            if($code -notin @(0,17)){throw 'R447_SYNTHETIC_EXECUTION_UNKNOWN'}
+            Write-Output 'R447_NO_PRODUCTION_EXECUTABLE_USED_IN_SYNTHETIC=TRUE'
+          }finally{if(Test-Path -LiteralPath $sandbox){Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop}}
+          $post=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($post.Count -ne 1 -or [int]$post[0].ProcessId -ne 102324){throw 'R447_ORIGINAL_PROCESS_CHANGED_DURING_ANALYSIS'}
+          Write-Output 'R447_READ_ONLY_ORIGINAL_R220_UNCHANGED=PASS'
+          $global:LASTEXITCODE=0
+          exit 0
