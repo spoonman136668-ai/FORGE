@@ -29,7 +29,8 @@ from f139.nci04_native_contract import canonical, digest, WINGLESS_R8_TRAINING
 
 ATTEMPT = "FREE_REASONER_ATTEMPTED"
 SCHEMA = "forge.f139.owner-free-reasoner-attempt.v1"
-MAX_DAILY_REQUESTS = 1
+MAX_DAILY_REQUESTS = 2  # one bounded first request per native lane, not two for either
+MAX_DAILY_PER_LANE = 1
 MAX_LIFETIME_REQUESTS = 8
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
@@ -111,7 +112,7 @@ def _attempts(db: Database) -> list[dict]:
 
 
 def select_bounded_free_lane(attempts: list[dict]) -> str:
-    """Balance BOTH existing science lanes under ONE global request budget.
+    """Balance BOTH native learning lanes under one original lifetime budget.
 
     A second call without new native outcomes remains scope-consumed and
     cannot replay. An ambiguous first provider call is never retried.
@@ -121,8 +122,8 @@ def select_bounded_free_lane(attempts: list[dict]) -> str:
          "LANE_CUSTODY_INVALID")
     counts = {lane: sum(a["lane"] == lane for a in attempts)
               for lane in ("Yggdrasil", "Wingless")}
-    # Preserve already working Yggdrasil's first slot; give Wingless the
-    # next *eligible* slot only once the previous request is consumed.
+    # Yggdrasil retains its authenticated first request. The remaining
+    # first Wingless request is distinct, never a replay of prior model bytes.
     return "Wingless" if counts["Wingless"] < counts["Yggdrasil"] else "Yggdrasil"
 
 
@@ -176,7 +177,9 @@ def reasoner_proposal_once(
                 "scientific_first_use": False,
                 "worker_dispatched": False, "paid_model_calls": 0}
     if (len(prior) >= MAX_LIFETIME_REQUESTS
-        or sum(row["utc_day"] == today for row in prior) >= MAX_DAILY_REQUESTS):
+        or sum(row["utc_day"] == today for row in prior) >= MAX_DAILY_REQUESTS
+        or sum(row["utc_day"] == today and row["lane"] == lane
+               for row in prior) >= MAX_DAILY_PER_LANE):
         return {"disposition": "FREE_REASONER_BOUNDED_BUDGET_EXHAUSTED",
                 "scientific_first_use": False,
                 "worker_dispatched": False, "paid_model_calls": 0}
@@ -284,8 +287,9 @@ def run_original_free_reasoner_once(
     owner, close = original_canonical_db(db, db_path)
     try:
         # Read ONLY the original ledger under the already-held mutex. Never
-        # publish to both lanes in one tick; the one-per-day lifetime budget
-        # is shared, not duplicated across models.
+        # publish to both lanes in one tick; the bounded lifetime budget
+        # remains shared for lifetime; the one-per-lane UTC allowance lets
+        # distinct Wingless and Yggdrasil native research begin the same day.
         lane = select_bounded_free_lane(_attempts(owner))
         target_commit, path = (
             (WINGLESS_R8_PARENT, WINGLESS_R8_TRAINING)

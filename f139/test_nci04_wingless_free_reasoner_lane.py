@@ -10,7 +10,7 @@ from f139.nci04_native_contract import (
     REPOS, WINGLESS_R8_TRAINING, model_source_path_allowed,
 )
 from f139.nci04_owner_free_reasoner_proposal import (
-    WINGLESS_R8_PARENT, MAX_DAILY_REQUESTS, MAX_LIFETIME_REQUESTS,
+    WINGLESS_R8_PARENT, MAX_DAILY_REQUESTS, MAX_DAILY_PER_LANE, MAX_LIFETIME_REQUESTS,
     select_bounded_free_lane, run_original_free_reasoner_once,
 )
 from f139.nci04_model_proposal import build_request, validate
@@ -23,7 +23,8 @@ from f139.local_controller import GitHub
 
 class BothNativeModelsFreeReasonerTests(unittest.TestCase):
     def test_both_lanes_share_one_owner_budget_and_preserve_yggdrasil_first(self):
-        self.assertEqual(MAX_DAILY_REQUESTS, 1)
+        self.assertEqual(MAX_DAILY_REQUESTS, 2)
+        self.assertEqual(MAX_DAILY_PER_LANE, 1)
         self.assertEqual(MAX_LIFETIME_REQUESTS, 8)
         self.assertEqual(select_bounded_free_lane([]), "Yggdrasil")
         self.assertEqual(select_bounded_free_lane(
