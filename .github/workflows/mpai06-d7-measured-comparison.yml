@@ -1,0 +1,62 @@
+name: MP-AI06 D7 measured source comparison
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai06-d7-measured-comparison.yml']
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Compare committed D7 against original reader on development tasks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'RUNNER_MISMATCH' }
+          $source = Join-Path $env:RUNNER_TEMP ('mpai06-d7-compare-' + $env:GITHUB_RUN_ID)
+          try {
+            git clone --quiet https://github.com/spoonman136668-ai/Mind-Palace.git $source
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_UNAVAILABLE' }
+            git -C $source checkout --quiet 536d451c0e585d22e09a2aadecf2a6cefba76402
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_PIN_MISSING' }
+            $actual = (& git -C $source rev-parse HEAD).Trim()
+            if ($actual -cne '536d451c0e585d22e09a2aadecf2a6cefba76402') { throw 'SOURCE_PIN_DRIFT' }
+            $env:MPAI06_REPO_ROOT = $source
+            @'
+          import json, os, pathlib, sys
+          root=pathlib.Path(os.environ['MPAI06_REPO_ROOT'])
+          sys.path[:0]=[str(root/'tools'),str(root/'agentic')]
+          from mindpalace_readonly import MemorySnapshot
+          from mpai06_answerability import CASES, _audit_one, _check_snapshot
+          from mpai06_d7_normalized_recall import normalized_recall
+          sha='536d451c0e585d22e09a2aadecf2a6cefba76402'
+          snap=MemorySnapshot(root,sha,['Mind-Palace'])
+          _check_snapshot(snap)
+          agg={a:{'hits':0,'tokens_proxy':0,'outdated':0,'unsubstantiated':0,'abstentions':0} for a in ['baseline','d7']}
+          losses=[]
+          gains=[]
+          for case in CASES:
+              base=_audit_one(snap,case,snap.recall(sha,case.query,['Mind-Palace'],case.profile))
+              candidate=_audit_one(snap,case,normalized_recall(snap,case.query,case.profile))
+              for arm,result in [('baseline',base),('d7',candidate)]:
+                  agg[arm]['hits']+=int(result['target_supplied'])
+                  agg[arm]['tokens_proxy']+=result['approx_tokens']
+                  agg[arm]['outdated']+=int(result['outdated_conflict_exposed'])
+                  agg[arm]['unsubstantiated']+=int(result['unsubstantiated_nonempty_matches'])
+                  agg[arm]['abstentions']+=int(result['must_abstain'])
+              if base['target_supplied'] and not candidate['target_supplied']: losses.append(case.case_id)
+              if candidate['target_supplied'] and not base['target_supplied']: gains.append(case.case_id)
+          print('MPAI06_D7_MEASURED_CASES='+str(len(CASES)))
+          print('MPAI06_D7_MEASURED_BASELINE='+json.dumps(agg['baseline'],sort_keys=True))
+          print('MPAI06_D7_MEASURED_CANDIDATE='+json.dumps(agg['d7'],sort_keys=True))
+          print('MPAI06_D7_MEASURED_GAINS='+json.dumps(gains))
+          print('MPAI06_D7_MEASURED_LOSSES='+json.dumps(losses))
+          print('MPAI06_D7_REAL_MODEL_CALLS=0')
+          print('MPAI06_D7_SCIENTIFIC_ACCEPTANCE=NOT_TESTED')
+          '@ | python -
+            if ($LASTEXITCODE -ne 0) { throw 'MEASUREMENT_FAILED' }
+          } finally {
+            if (Test-Path -LiteralPath $source) { Remove-Item -LiteralPath $source -Recurse -Force -ErrorAction SilentlyContinue }
+          }
