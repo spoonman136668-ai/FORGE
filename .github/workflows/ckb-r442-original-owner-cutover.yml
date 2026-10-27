@@ -1,0 +1,224 @@
+name: CKB R442 guarded original-owner release activation and exact rollback
+on:
+  push:
+    branches: [audit/ckb-r442-original-owner-cutover-20261027]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r442-single-owner-release
+  cancel-in-progress: false
+jobs:
+  guarded-owner-cutover:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    steps:
+      - name: Release exact R428-qualified scheduler under original CKB task with bounded rollback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R442_WRONG_ORIGINAL_OWNER_RUNNER'}
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($who.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R442_OWNER_SID_CHANGED'}
+          if(-not [Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R442_ELEVATION_REQUIRED'}
+          $liveRoot='C:\Users\camar\GolandProjects\ckb-plane'
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $oldID='PLANE-R220-LIVECOMPAT-20261023'
+          $newID='PLANE-R440-TERMINAL-SCHEDULER-20261027'
+          $oldSHA='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $newSHA='44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'
+          $oldScriptSHA='64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'
+          $newScriptSHA='140e497a798e5c1ceb77b118e9bffc5a37d810c16bf8f37275333ba26c38cf77'
+          $oldExe=Join-Path $store ('releases\'+$oldID+'\bin\ckb-plane.exe')
+          $newDir=Join-Path $store ('releases\'+$newID)
+          $newExe=Join-Path $newDir 'bin\ckb-plane.exe'
+          $pkg='C:\Users\camar\AppData\Local\CKB-R440-Inactive-Cutover-Packages\R440-40507053688'
+          $pkgExe=Join-Path $pkg 'bin\ckb-plane.exe'
+          $pkgNew=Join-Path $pkg 'Start-R440-Controller.proposed.ps1'
+          $pkgOld=Join-Path $pkg 'Start-R18-Controller.rollback.ps1'
+          $pkgManifest=Join-Path $pkg 'manifest.json'
+          $active=Join-Path $store 'state\active-release'
+          $activeSHA='06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'
+          $taskName='CKB-plane Controller'
+          $originalTaskArgsSHA='cb83905cfa4aa7e99683038160448802bdaf8c602c387f575fa8b1bf0ffad29c'
+          $eventDir=Join-Path 'C:\ProgramData\CKBR\cutover' ('R442-'+$env:GITHUB_RUN_ID)
+          $staging=Join-Path $store ('.staging\R442-'+$env:GITHUB_RUN_ID)
+          $scriptTmp=$null
+          $scriptPath=$null
+          $oldPID=0
+          $taskStopped=$false
+          $scriptChanged=$false
+          $newStarted=$false
+          function Hash([string]$path) {
+            if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw ('R442_MISSING_FILE='+[IO.Path]::GetFileName($path))}
+            (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          function AssertSHA([string]$path,[string]$expected,[string]$code) {
+            if((Hash $path) -cne $expected){throw $code}
+          }
+          function Processes {
+            @(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          }
+          function TaskState {
+            $t=@(Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
+            if($t.Count -ne 1){throw 'R442_ORIGINAL_TASK_COUNT_DRIFT'}
+            [string]$t[0].State
+          }
+          function NativeStatus {
+            $tokenFile=Join-Path $liveRoot 'state\operator.token'
+            if(!(Test-Path -LiteralPath $tokenFile -PathType Leaf)){throw 'R442_NATIVE_OPERATOR_TOKEN_MISSING'}
+            $token=([IO.File]::ReadAllText($tokenFile)).Trim()
+            if($token -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R442_OPERATOR_TOKEN_FORMAT_DRIFT'}
+            try {
+              Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 5 -ErrorAction Stop
+            } finally {$token=$null}
+          }
+          function AssertNative([object]$native,[int]$qExpected,[int]$jExpected) {
+            if([string]$native.authority -cne 'plane' -or [string]$native.generation -cne '6' -or [bool]$native.paused -or [bool]$native.heartbeat_stale){throw 'R442_NATIVE_AUTHORITY_OR_HEARTBEAT_DRIFT'}
+            if([bool]$native.accepted_ref_mutation_allowed){throw 'R442_UNEXPECTED_ACCEPTED_REF_MUTATION_PERMISSION'}
+            $queue=@($native.queue);$jobs=@($native.jobs)
+            if($queue.Count -ne $qExpected -or $jobs.Count -ne $jExpected){throw 'R442_QUEUE_OR_JOB_COUNT_CHANGED'}
+            if(@($queue|Where-Object {[string]$_.state -in @('QUEUED','RUNNING','RETRY_WAIT','FINALIZING')}).Count -ne 0){throw 'R442_WORK_APPEARED_DURING_CUTOVER'}
+            $bad=@($queue|Where-Object {[string]$_.state -ceq 'FAILED'})
+            if($bad.Count -ne 1 -or [string]$bad[0].id -cne 'KTRADE_RB1_SINGLE_TRACK_20261022' -or [string]$bad[0].reason -cne 'BRANCH_ANCESTRY_INVALID' -or [string]::IsNullOrWhiteSpace([string]$bad[0].receipt)){throw 'R442_HISTORIC_FAILURE_CUSTODY_DRIFT'}
+            if(@($native.blockers).Count -ne 1){throw 'R442_HISTORIC_BLOCKER_MISSING'}
+          }
+          function AwaitController([string]$expectedExe,[int]$qCount,[int]$jCount,[int]$seconds) {
+            $deadline=(Get-Date).AddSeconds($seconds)
+            $lastError=''
+            do {
+              $ps=@(Processes)
+              if($ps.Count -gt 1){throw 'R442_DUPLICATE_CONTROLLER_DETECTED'}
+              if($ps.Count -eq 1 -and [string]$ps[0].ExecutablePath -cne $expectedExe){throw 'R442_UNEXPECTED_CONTROLLER_BINARY_RUNNING'}
+              if($ps.Count -eq 1 -and (TaskState) -ceq 'Running') {
+                try{
+                  $native=NativeStatus
+                  AssertNative $native $qCount $jCount
+                  return [int]$ps[0].ProcessId
+                } catch {$lastError=$_.Exception.Message}
+              }
+              Start-Sleep -Milliseconds 650
+            }while((Get-Date) -lt $deadline)
+            throw ('R442_CONTROLLER_HEALTH_TIMEOUT:'+ $lastError)
+          }
+          function WaitNoController([int]$seconds) {
+            $deadline=(Get-Date).AddSeconds($seconds)
+            do {
+              if(@(Processes).Count -eq 0){return}
+              Start-Sleep -Milliseconds 500
+            }while((Get-Date) -lt $deadline)
+            throw 'R442_OLD_CONTROLLER_DID_NOT_QUIESCE'
+          }
+          function ReplaceStartup([string]$from,[string]$expected,[string]$backupName) {
+            $temp=Join-Path (Split-Path $scriptPath -Parent) ('.r442-'+$env:GITHUB_RUN_ID+'-startup.tmp')
+            if(Test-Path -LiteralPath $temp){throw 'R442_STARTUP_TEMP_COLLISION'}
+            [IO.File]::WriteAllBytes($temp,[IO.File]::ReadAllBytes($from))
+            try {
+              AssertSHA $temp $expected 'R442_PREPARED_STARTUP_TEMP_SHA_MISMATCH'
+              $backup=Join-Path $eventDir $backupName
+              [IO.File]::Replace($temp,$scriptPath,$backup,$true)
+              AssertSHA $scriptPath $expected 'R442_ACTIVE_STARTUP_COPY_MISMATCH'
+            }finally{
+              if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Force -ErrorAction Stop}
+            }
+          }
+          if(Test-Path -LiteralPath $eventDir){throw 'R442_TRANSACTION_DIR_ALREADY_EXISTS'}
+          if(Test-Path -LiteralPath $staging){throw 'R442_STAGE_COLLISION'}
+          if(Test-Path -LiteralPath $newDir){throw 'R442_RELEASE_ALREADY_EXISTS_FAIL_CLOSED'}
+          AssertSHA $oldExe $oldSHA 'R442_ORIGINAL_R220_BINARY_DRIFT'
+          AssertSHA $pkgExe $newSHA 'R442_QUALIFIED_R428_BINARY_DRIFT'
+          AssertSHA $pkgNew $newScriptSHA 'R442_CANDIDATE_LAUNCHER_DRIFT'
+          AssertSHA $pkgOld $oldScriptSHA 'R442_ROLLBACK_LAUNCHER_DRIFT'
+          AssertSHA $active $activeSHA 'R442_R1P_ACTIVE_POINTER_DRIFT'
+          $pm=Get-Content -LiteralPath $pkgManifest -Raw | ConvertFrom-Json -ErrorAction Stop
+          if([string]$pm.schema -cne 'ckb-plane.r440.inactive-cutover-package.v1' -or [string]$pm.candidate_executable_sha256 -cne $newSHA -or [bool]$pm.promoted -or [bool]$pm.task_modified){throw 'R442_R440_BUNDLE_CUSTODY_DRIFT'}
+          $task=@(Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running' -or [string]$task[0].Principal.UserId -cne 'camar' -or [string]$task[0].Principal.RunLevel -cne 'Limited'){throw 'R442_ORIGINAL_TASK_IDENTITY_DRIFT'}
+          $actions=@($task[0].Actions)
+          if($actions.Count -ne 1 -or [string]$actions[0].Execute -cne 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'){throw 'R442_TASK_ACTION_DRIFT'}
+          $arguments=[string]$actions[0].Arguments
+          $argumentsHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($arguments))).ToLowerInvariant()
+          if($argumentsHash -cne $originalTaskArgsSHA){throw 'R442_TASK_ARGUMENTS_DRIFT'}
+          $paths=@([regex]::Matches($arguments,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase')|ForEach-Object {$_.Value}|Sort-Object -Unique)
+          if($paths.Count -ne 1 -or [IO.Path]::GetFileName($paths[0]) -cne 'Start-R18-Controller.ps1'){throw 'R442_TASK_LAUNCHER_NOT_UNIQUE'}
+          $scriptPath=$paths[0]
+          AssertSHA $scriptPath $oldScriptSHA 'R442_LIVE_STARTUP_DRIFT'
+          $startupRollback=[IO.File]::ReadAllBytes($pkgOld)
+          $startupLive=[IO.File]::ReadAllBytes($scriptPath)
+          if(-not [System.Linq.Enumerable]::SequenceEqual([byte[]]$startupRollback,[byte[]]$startupLive)){throw 'R442_ORIGINAL_LAUNCHER_NOT_BYTE_IDENTICAL_TO_ROLLBACK'}
+          $live=@(Processes)
+          if($live.Count -ne 1 -or [string]$live[0].ExecutablePath -cne $oldExe){throw 'R442_LIVE_R220_PROCESS_DRIFT'}
+          $oldPID=[int]$live[0].ProcessId
+          $nativeBefore=NativeStatus
+          $originalQueues=@($nativeBefore.queue).Count
+          $originalJobs=@($nativeBefore.jobs).Count
+          AssertNative $nativeBefore $originalQueues $originalJobs
+          if($originalQueues -ne 202 -or $originalJobs -ne 199){throw 'R442_BASELINE_LEDGER_SIZE_DRIFT'}
+          Write-Output 'R442_ORIGINAL_OWNER_PREFLIGHT=PASS'
+          Write-Output ('R442_OLD_PID='+$oldPID)
+          Write-Output 'R442_UNFILTERED_QUALIFIED_CANDIDATE_SHA256=44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'
+          New-Item -Path $eventDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+          try {
+            New-Item -Path (Join-Path $staging 'bin') -ItemType Directory -Force -ErrorAction Stop | Out-Null
+            Copy-Item -LiteralPath $pkgExe -Destination (Join-Path $staging 'bin\ckb-plane.exe') -ErrorAction Stop
+            AssertSHA (Join-Path $staging 'bin\ckb-plane.exe') $newSHA 'R442_CANDIDATE_STAGING_CORRUPT'
+            $manifest=[ordered]@{schema='ckb-plane.r442.owner-native-scheduler-release.v1';release_id=$newID;candidate_sha256=$newSHA;qualified_r428_run=40483672646;exact_r438_rebuild_run=40497867453;inactive_r440_rollback_run=40507053688;preflight_r441_run=40510167644;original_r220_sha256=$oldSHA;original_launcher_sha256=$oldScriptSHA;proposed_launcher_sha256=$newScriptSHA;preimage_active_release_pointer_sha256=$activeSHA;original_startup_task_args_sha256=$originalTaskArgsSHA;original_native_generation='6';release_method='existing-original-scheduled-task';original_owner=true}
+            [IO.File]::WriteAllText((Join-Path $staging 'release-manifest.json'),($manifest|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
+            Move-Item -LiteralPath $staging -Destination $newDir -ErrorAction Stop
+            AssertSHA $newExe $newSHA 'R442_FINAL_STAGED_RELEASE_CORRUPT'
+            Write-Output 'R442_NEW_RELEASE_STORED_INACTIVE=PASS'
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $taskStopped=$true
+            WaitNoController 25
+            Write-Output 'R442_ORIGINAL_TASK_QUIESCED=PASS'
+            AssertSHA $scriptPath $oldScriptSHA 'R442_PRE_SWITCH_SCRIPT_DRIFT'
+            ReplaceStartup $pkgNew $newScriptSHA 'original-pre-switch-backup.ps1'
+            $scriptChanged=$true
+            Write-Output 'R442_EXISTING_TASK_STARTUP_REPLACED=PASS'
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $newStarted=$true
+            $newPID=AwaitController $newExe $originalQueues $originalJobs 55
+            Write-Output ('R442_NEW_CONTROLLER_PID='+$newPID)
+            AssertSHA $active $activeSHA 'R442_ACTIVE_POINTER_UNEXPECTEDLY_MUTATED'
+            AssertSHA $oldExe $oldSHA 'R442_ORIGINAL_ROLLBACK_BINARY_CHANGED'
+            AssertSHA $scriptPath $newScriptSHA 'R442_PROMOTED_SCRIPT_DRIFT'
+            AssertSHA $newExe $newSHA 'R442_RUNNING_NEW_BINARY_DRIFT'
+            $out=[ordered]@{schema='ckb-plane.r442.original-owner-cutover-receipt.v1';result='PROMOTED';original_pid=$oldPID;new_pid=$newPID;owner='camar';new_release_id=$newID;new_binary_sha256=$newSHA;original_release_id=$oldID;original_binary_sha256=$oldSHA;native_authority='plane';native_generation='6';heartbeat_stale=$false;historical_failure_preserved=$true;original_rollback_preserved=$true;active_release_pointer_unchanged=$true;modified_accepted_ref=$false;manual_sqlite_write=$false;time_utc=[DateTimeOffset]::UtcNow.ToString('o')}
+            [IO.File]::WriteAllText((Join-Path $eventDir 'result.json'),($out|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+            Write-Output 'R442_LIVE_OWNER_CONTROLLER_CUTOVER=PASS'
+            Write-Output 'R442_NATIVE_GEN6_HEALTH_AND_LEDGER_CUSTODY=PASS'
+          }catch{
+            $originalError=$_.Exception.Message
+            Write-Output ('R442_RELEASE_STEP_FAILED='+$originalError)
+            $rollbackError=$null
+            try {
+              $procs=@(Processes)
+              if($procs.Count -gt 1){throw 'R442_UNSAFE_DUPLICATE_CONTROLLER_CANNOT_RESTART'}
+              if($procs.Count -eq 1 -and [string]$procs[0].ExecutablePath -cne $oldExe){
+                Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                WaitNoController 25
+                Write-Output 'R442_FAILED_NEW_CONTROLLER_QUIESCED=PASS'
+              }
+              if($scriptChanged){
+                ReplaceStartup $pkgOld $oldScriptSHA 'failed-promotion-startup-backup.ps1'
+                Write-Output 'R442_ORIGINAL_STARTUP_RESTORED=PASS'
+              }
+              AssertSHA $scriptPath $oldScriptSHA 'R442_ROLLBACK_STARTUP_NOT_ORIGINAL'
+              AssertSHA $oldExe $oldSHA 'R442_ORIGINAL_EXE_NOT_AVAILABLE_FOR_ROLLBACK'
+              $still=@(Processes)
+              if($still.Count -gt 1){throw 'R442_ROLLBACK_DUPLICATE_PROCESS'}
+              if($still.Count -eq 1 -and [string]$still[0].ExecutablePath -cne $oldExe){throw 'R442_FAILED_CANDIDATE_STILL_RUNNING'}
+              if($still.Count -eq 0){
+                Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                Write-Output 'R442_ORIGINAL_TASK_RESTART_REQUESTED=TRUE'
+              }
+              $restorePID=AwaitController $oldExe $originalQueues $originalJobs 55
+              AssertSHA $active $activeSHA 'R442_ACTIVE_POINTER_CHANGED_DURING_ROLLBACK'
+              Write-Output ('R442_RESTORED_R220_PID='+$restorePID)
+              Write-Output 'R442_ORIGINAL_R220_AUTOMATIC_ROLLBACK=PASS'
+            }catch{$rollbackError=$_.Exception.Message;Write-Output ('R442_ROLLBACK_NEEDS_OPERATOR_ATTENTION='+$rollbackError)}
+            if($null -ne $rollbackError){throw ('R442_ACTIVATION_AND_ROLLBACK_FAILED:'+ $originalError+'; rollback:'+ $rollbackError)}
+            throw ('R442_ACTIVATION_REFUSED_OR_ROLLED_BACK:'+ $originalError)
+          }finally{
+            if(Test-Path -LiteralPath $staging){Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue}
+          }
