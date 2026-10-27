@@ -1,0 +1,74 @@
+name: MP-AI06 D7 lexical collision and unrelated-query audit
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai06-d7-unrelated-probes.yml']
+permissions:
+  contents: read
+jobs:
+  bounded:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Compare on pinned private source with offline unrelated queries
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'RUNNER_UNAUTHORIZED' }
+          $tmp = Join-Path $env:RUNNER_TEMP ('mpai06-d7-neg-' + $env:GITHUB_RUN_ID)
+          try {
+            git clone --quiet --branch proposal/mp-ai06-d7-normalized-recall-20261025 --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $tmp
+            if($LASTEXITCODE -ne 0) { throw 'SOURCE_NOT_ACCESSIBLE' }
+            $sha = (& git -C $tmp rev-parse HEAD).Trim()
+            if($sha -cne '536d451c0e585d22e09a2aadecf2a6cefba76402') { throw 'D7_PIN_DRIFT' }
+            $env:MP_D7_SOURCE=$tmp
+            @'
+          import json,os,pathlib,subprocess,sys
+          root=pathlib.Path(os.environ['MP_D7_SOURCE'])
+          sys.path[:0]=[str(root/'agentic'),str(root/'tools')]
+          from mindpalace_readonly import MemorySnapshot
+          from mpai06_answerability import PROJECT
+          from mpai06_d7_normalized_recall import normalized_recall,normalize_word
+          sha=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+          snap=MemorySnapshot(root,sha,[PROJECT])
+          queries=[
+            'quantum penguins dance beneath ultraviolet quasars',
+            'orchard apples ripening after snowfall',
+            'zebra nebulas forecasting asteroid rain',
+            'whistling glaciers painted with emerald pigments',
+            'cardinals nesting within volcanic glass',
+            'bronze submarines orbiting Neptune',
+            'cartographers mapping fictional Martian tides',
+            'satellite sandwiches floating in plasma',
+            'otters dreaming beneath crystalline deserts',
+            'how do hummingbirds repair spaceship engines',
+            'blue marbles bouncing across Saturn rings',
+            'astronauts weaving quilts of moonlight'
+          ]
+          baseline_only=0;candidate_only=0;both=0;neither=0;added_matches=0
+          for i,q in enumerate(queries):
+            old=snap.recall(sha,q,[PROJECT],'continuation')
+            new=normalized_recall(snap,q,'continuation')
+            a=bool(old['matches']);b=bool(new['matches'])
+            if a and b: both+=1
+            elif a: baseline_only+=1
+            elif b: candidate_only+=1
+            else: neither+=1
+            added_matches += len(set(x['id'] for x in new['matches'])-set(x['id'] for x in old['matches']))
+            for result in (old,new):
+              assert result['source_sha']==sha and result['scope']==[PROJECT]
+              assert all(r.get('source_refs') for r in result['matches'])
+            print('MPAI06_D7_UNRELATED_RECEIPT='+json.dumps(dict(case=i+1,base_count=len(old['matches']),candidate_count=len(new['matches']),base_nonempty=a,candidate_nonempty=b),sort_keys=True))
+          print('MPAI06_D7_UNRELATED_SUMMARY='+json.dumps(dict(cases=len(queries),both_nonempty=both,baseline_only=baseline_only,candidate_only=candidate_only,both_empty=neither,candidate_new_match_ids=added_matches),sort_keys=True))
+          print('MPAI06_D7_SOURCE_SHA='+sha)
+          print('MPAI06_D7_FALSE_POSITIVE_RATE=NOT_MEASURABLE_WITHOUT_ADJUDICATION')
+          print('MPAI06_D7_REAL_MODEL_CALLS=0')
+          print('MPAI06_D7_PRIVATE_DATA_EXPORTED=FALSE')
+          print('MPAI06_D7_SCIENTIFIC_ACCEPTANCE=NOT_TESTED')
+          '@ | python -
+            if($LASTEXITCODE -ne 0) { throw 'D7_NEGATIVE_AUDIT_FAILED' }
+          } finally {
+            if(Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+          }
