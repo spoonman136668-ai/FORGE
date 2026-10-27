@@ -1,0 +1,197 @@
+name: MP-AI05 exploratory local paired answers, no science admission
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-local-paired-answer-pilot.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-local-paired-answer-pilot
+  cancel-in-progress: false
+jobs:
+  isolated-pilot:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Generate 16 local-only responses using exact private holdout and scratch-only GGUF
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI05_PILOT_WRONG_OWNER_RUNNER'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-answer-pilot-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $scratch 'source'
+          $sealed=Join-Path $scratch 'sealed'
+          $constructor=Join-Path $scratch 'constructor'
+          $packs=Join-Path $scratch 'private-pairs'
+          $weight=Join-Path $scratch 'public-weights.gguf'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+            $pins=@(
+              @{branch='main';path=$source;sha='7ad7230a82e3c748aa5336b7288ad2b45d42630c'},
+              @{branch='proposal/mpai05-sealed-independent-holdout-20261027';path=$sealed;sha='d32d73e51a9efd1730d27c812020b87da869881f'},
+              @{branch='proposal/mpai05-paired-retrieval-construction-20261027';path=$constructor;sha='1517cdc39cc6696f2e51d8a1f31084cd457ab191'}
+            )
+            foreach($pin in $pins){
+              & git clone --quiet --single-branch --branch $pin.branch $remote $pin.path *> (Join-Path $scratch ('private-clone-'+$pin.branch.Replace('/','-')+'.log'))
+              if($LASTEXITCODE -ne 0){throw 'MPAI05_PILOT_PRIVATE_SOURCE_UNAVAILABLE'}
+              if((& git -C $pin.path rev-parse HEAD).Trim() -cne $pin.sha){throw 'MPAI05_PILOT_SOURCE_DRIFT'}
+              if(@(& git -C $pin.path status --porcelain --untracked-files=all).Count -ne 0){throw 'MPAI05_PILOT_UNCLEAN_SOURCE'}
+            }
+            $manifest=Join-Path $sealed 'evaluation/mpai05-sealed-policy-holdout-v1.json'
+            $script=Join-Path $constructor 'tools/mpai05_construct_pairs.py'
+            & python -B $script --source-root $source --manifest $manifest --output-dir $packs *> (Join-Path $scratch 'private-construction.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_PILOT_RETRIEVAL_CONSTRUCTION_FAILED'}
+            $env:MPAI05_PILOT_MANIFEST=$manifest
+            $env:MPAI05_PILOT_PACKS=$packs
+            $env:MPAI05_PILOT_WEIGHT=$weight
+            $program=@'
+          import gc,hashlib,json,os,pathlib,shutil,socket,sys,time,urllib.request
+          root=pathlib.Path(os.environ["MPAI05_PILOT_PACKS"])
+          manifest_path=pathlib.Path(os.environ["MPAI05_PILOT_MANIFEST"])
+          model_path=pathlib.Path(os.environ["MPAI05_PILOT_WEIGHT"])
+          model_url=("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/"
+            "9217f5db79a29953eb74d5343926648285ec7e67/"
+            "qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true")
+          expected_sha="74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+          expected_bytes=491400032
+          frozen_sha="5abd725a181f4f71dfee30fbe9eddc1c344d3a32e99e76e904a986291e91f7ae"
+          # Download only the public pinned model BEFORE opening any private evidence.
+          if shutil.disk_usage(str(root)).free < 1700000000:
+            raise RuntimeError("MPAI05_PILOT_SCRATCH_SPACE_LOW")
+          req=urllib.request.Request(model_url,headers={"User-Agent":"MPAI05-local-eval-public-weights/1"})
+          total=0;digest=hashlib.sha256();start=time.monotonic()
+          with urllib.request.urlopen(req,timeout=40) as response,model_path.open("xb") as output:
+            while True:
+              block=response.read(4*1024*1024)
+              if not block:break
+              total+=len(block)
+              if total>510000000 or time.monotonic()-start>240:
+                raise RuntimeError("MPAI05_PILOT_PUBLIC_DOWNLOAD_BOUNDS")
+              output.write(block);digest.update(block)
+          if total!=expected_bytes or digest.hexdigest()!=expected_sha:
+            raise RuntimeError("MPAI05_PILOT_PUBLIC_WEIGHT_IDENTITY_DRIFT")
+          if model_path.open("rb").read(4)!=b"GGUF":
+            raise RuntimeError("MPAI05_PILOT_INVALID_MODEL_HEADER")
+          # After this point prohibit additional Python socket use. The private
+          # question/context bytes are processed only by the local llama_cpp engine.
+          os.environ["HF_HUB_OFFLINE"]="1"
+          os.environ["TRANSFORMERS_OFFLINE"]="1"
+          def network_denied(*args,**kwargs):
+            raise RuntimeError("MPAI05_PILOT_PYTHON_NETWORK_DENIED")
+          socket.socket=network_denied
+          raw=manifest_path.read_bytes()
+          if hashlib.sha256(raw).hexdigest()!=frozen_sha:
+            raise RuntimeError("MPAI05_PILOT_HOLDOUT_DRIFT")
+          holdout=json.loads(raw)
+          if len(holdout["cases"])!=8:raise RuntimeError("MPAI05_PILOT_HOLDOUT_COUNT")
+          receipt=json.loads((root/"construction-receipt.json").read_text(encoding="utf-8"))
+          if (receipt["manifest_sha256"]!=frozen_sha or
+            receipt["complete_cases"]!=8 or len(receipt["receipts"])!=16 or
+            receipt["model_calls"]!=0):raise RuntimeError("MPAI05_PILOT_PAIR_RECEIPT_INVALID")
+          for entry in receipt["receipts"]:
+            path=root/entry["file"]
+            payload=path.read_bytes()
+            if (hashlib.sha256(payload).hexdigest()!=entry["context_sha256"] or
+                len(payload)!=entry["context_bytes"] or
+                len(payload)>2048 or len(payload)<1):
+              raise RuntimeError("MPAI05_PILOT_CONTEXT_BYTES_MISMATCH")
+          from llama_cpp import Llama
+          model=Llama(model_path=str(model_path),n_ctx=2048,n_threads=4,
+                      n_gpu_layers=0,n_batch=128,seed=137,verbose=False)
+          all_answers={};results=[]
+          deadline=time.monotonic()+780
+          for i,case in enumerate(holdout["cases"]):
+            # Pre-registered counterbalanced order: A-first even, B-first odd.
+            arms=("A","B") if i%2==0 else ("B","A")
+            for position,arm in enumerate(arms,1):
+              if time.monotonic()>deadline:
+                raise RuntimeError("MPAI05_PILOT_PRIVATE_INFERENCE_TIME_BUDGET")
+              context=(root/f"{i:02d}-{arm}.txt").read_text(encoding="utf-8")
+              prompt=("Use only the evidence below to answer the question. "
+                      "If evidence is insufficient, say so. Do not invent citations.\n"
+                      "Evidence:\n"+context+"\n\nQuestion: "+case["question"]+"\nAnswer:")
+              begin=time.monotonic()
+              answer=model.create_completion(prompt=prompt,max_tokens=96,
+                  temperature=0.0,top_p=1.0,stop=["\nQuestion:","\nEvidence:"])
+              elapsed=int((time.monotonic()-begin)*1000)
+              response=answer.get("choices",[{}])[0].get("text","")
+              if not isinstance(response,str):raise RuntimeError("MPAI05_PILOT_BAD_COMPLETION")
+              all_answers[(i,arm)]=response
+              results.append({
+                "case_index":i,"arm":arm,"position":position,
+                "response_sha256":hashlib.sha256(response.encode("utf-8")).hexdigest(),
+                "tokens_out":int(answer.get("usage",{}).get("completion_tokens",0)),
+                "latency_ms":elapsed,"nonempty":bool(response.strip())
+              })
+          # Locally retained only until work-unit completion; no private answer
+          # text, statement, keys or per-case hashes are sent to public Actions.
+          if len(results)!=16:raise RuntimeError("MPAI05_PILOT_PAIR_INCOMPLETE")
+          pairs_different=sum(all_answers[(i,"A")]!=all_answers[(i,"B")] for i in range(8))
+          totals={arm:{
+            "tokens":sum(x["tokens_out"] for x in results if x["arm"]==arm),
+            "latency_ms":sum(x["latency_ms"] for x in results if x["arm"]==arm),
+            "nonempty":sum(x["nonempty"] for x in results if x["arm"]==arm)}
+            for arm in ("A","B")}
+          print("MPAI05_PILOT_PUBLIC_MODEL_PIN=PASS")
+          print("MPAI05_PILOT_LOCAL_MODEL_CALLS=16")
+          print("MPAI05_PILOT_COMPLETE_PAIRS=8")
+          print("MPAI05_PILOT_DIFFERENT_ANSWERS="+str(pairs_different))
+          print("MPAI05_PILOT_LEGACY_NONEMPTY="+str(totals["A"]["nonempty"]))
+          print("MPAI05_PILOT_TIERED_NONEMPTY="+str(totals["B"]["nonempty"]))
+          print("MPAI05_PILOT_LEGACY_TOKENS_OUT="+str(totals["A"]["tokens"]))
+          print("MPAI05_PILOT_TIERED_TOKENS_OUT="+str(totals["B"]["tokens"]))
+          print("MPAI05_PILOT_LEGACY_LATENCY_MS_TOTAL="+str(totals["A"]["latency_ms"]))
+          print("MPAI05_PILOT_TIERED_LATENCY_MS_TOTAL="+str(totals["B"]["latency_ms"]))
+          print("MPAI05_PILOT_INDEPENDENT_BLIND_GRADING=NOT_DONE")
+          print("MPAI05_PILOT_INDEPENDENT_CUSTODY=NOT_AUTHENTICATED")
+          print("MPAI05_PILOT_SCIENTIFIC_ADMISSION=FALSE")
+          print("MPAI05_PILOT_PRIVATE_CONTENT_NETWORK_EXPORT=FALSE")
+          del model
+          gc.collect()
+          '@
+            $log=Join-Path $scratch 'private-local-inference.log'
+            $program | & python -B -c "import sys; exec(sys.stdin.read())" *> $log
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_PILOT_PRIVATE_INFERENCE_FAILED'}
+            $raw=[IO.File]::ReadAllText($log)
+            $allowed=@('MPAI05_PILOT_PUBLIC_MODEL_PIN','MPAI05_PILOT_LOCAL_MODEL_CALLS',
+              'MPAI05_PILOT_COMPLETE_PAIRS','MPAI05_PILOT_DIFFERENT_ANSWERS',
+              'MPAI05_PILOT_LEGACY_NONEMPTY','MPAI05_PILOT_TIERED_NONEMPTY',
+              'MPAI05_PILOT_LEGACY_TOKENS_OUT','MPAI05_PILOT_TIERED_TOKENS_OUT',
+              'MPAI05_PILOT_LEGACY_LATENCY_MS_TOTAL','MPAI05_PILOT_TIERED_LATENCY_MS_TOTAL',
+              'MPAI05_PILOT_INDEPENDENT_BLIND_GRADING','MPAI05_PILOT_INDEPENDENT_CUSTODY',
+              'MPAI05_PILOT_SCIENTIFIC_ADMISSION','MPAI05_PILOT_PRIVATE_CONTENT_NETWORK_EXPORT')
+            foreach($key in $allowed){
+              $m=[regex]::Match($raw,"(?m)^"+[regex]::Escape($key)+"=([A-Za-z0-9_]+)$")
+              if(-not $m.Success){throw 'MPAI05_PILOT_AGGREGATE_RECEIPT_MISSING'}
+              Write-Host ($key+'='+$m.Groups[1].Value)
+            }
+            foreach($pin in $pins){
+              if((& git -C $pin.path rev-parse HEAD).Trim() -cne $pin.sha){
+                throw 'MPAI05_PILOT_POST_INFERENCE_PIN_DRIFT'
+              }
+              $dirty=@(& git -C $pin.path status --porcelain --untracked-files=all)
+              if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_PILOT_PRODUCTION_SOURCE_MUTATED'}
+            }
+            Write-Host 'MPAI05_PILOT_PRIVATE_SOURCE_CUSTODY=PASS'
+            Write-Host 'MPAI05_PILOT_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Force -Recurse -ErrorAction Stop
+            }
+            Write-Host ('MPAI05_PILOT_SCRATCH_REMOVED='+$(if(-not (Test-Path -LiteralPath $scratch)){'TRUE'}else{'FALSE'}))
+          }
