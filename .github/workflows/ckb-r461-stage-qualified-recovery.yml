@@ -1,0 +1,82 @@
+name: CKB R461 original-owner inactive active-only recovery release stage
+on:
+  push:
+    branches: [audit/ckb-r461-qualified-active-only-release-stage-20261027]
+permissions:
+  contents: read
+jobs:
+  stage-no-cutover:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Stage exact R460 recovered scheduler binary and byte-exact R220 rollback copy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R461_WRONG_OWNER_RUNNER'}
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($owner.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R461_OWNER_SID_CHANGED'}
+          if(-not [Security.Principal.WindowsPrincipal]::new($owner).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R461_ESCALATED_OWNER_REQUIRED'}
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $oldID='PLANE-R220-LIVECOMPAT-20261023'
+          $newID='PLANE-R461-ACTIVE-ONLY-SCHEDULER-20261027'
+          $oldExe=Join-Path $store ('releases\'+$oldID+'\bin\ckb-plane.exe')
+          $newDir=Join-Path $store ('releases\'+$newID)
+          $newExe=Join-Path $newDir 'bin\ckb-plane.exe'
+          $from='C:\Users\camar\AppData\Local\CKB-R429-Qualified-Candidates\R429-40574717646\ckb-plane.exe'
+          $oldHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $newHash='b39ad0e68f841a4596d2a103064d64f7725b7a4f7f37965f20fa794f14798fcf'
+          $scriptHash='64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'
+          $pointer=Join-Path $store 'state\active-release'
+          $ptrHash='06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running' -or [string]$task[0].Principal.UserId -cne 'camar'){throw 'R461_ORIGINAL_TASK_DRIFT'}
+          $a=@($task[0].Actions)
+          if($a.Count -ne 1){throw 'R461_TASK_ACTION_COUNT_DRIFT'}
+          $argHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$a[0].Arguments))).ToLowerInvariant()
+          if($argHash -cne 'cb83905cfa4aa7e99683038160448802bdaf8c602c387f575fa8b1bf0ffad29c'){throw 'R461_TASK_ARGS_CHANGED'}
+          $scripts=@([regex]::Matches([string]$a[0].Arguments,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase')|ForEach-Object {$_.Value}|Sort-Object -Unique)
+          if($scripts.Count -ne 1 -or [IO.Path]::GetFileName($scripts[0]) -cne 'Start-R18-Controller.ps1'){throw 'R461_ORIGINAL_LAUNCHER_UNKNOWN'}
+          $script=$scripts[0]
+          function Sha([string]$f){if(!(Test-Path -LiteralPath $f -PathType Leaf)){throw 'R461_REQUIRED_FILE_MISSING'};(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()}
+          if((Sha $script) -cne $scriptHash -or (Sha $oldExe) -cne $oldHash -or (Sha $from) -cne $newHash -or (Sha $pointer) -cne $ptrHash){throw 'R461_REQUIRED_SOURCE_HASH_CHANGED'}
+          $live=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($live.Count -ne 1 -or [int]$live[0].ProcessId -ne 80088 -or [string]$live[0].ExecutablePath -cne $oldExe){throw 'R461_RUNNING_R220_DRIFT'}
+          if(Test-Path -LiteralPath $newDir){throw 'R461_NEW_RELEASE_ID_COLLISION'}
+          $bundleRoot=Join-Path $env:LOCALAPPDATA 'CKB-R461-Qualified-Cutover-Bundles'
+          $bundle=Join-Path $bundleRoot ('R461-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $bundle){throw 'R461_INACTIVE_BUNDLE_COLLISION'}
+          $orig=[IO.File]::ReadAllBytes($script)
+          $utf8=[Text.UTF8Encoding]::new($false,$true)
+          $originalText=$utf8.GetString($orig)
+          if(($originalText.Split(@($oldID),[StringSplitOptions]::None).Length-1) -ne 1){throw 'R461_ORIGINAL_RELEASE_REFERENCE_NOT_UNIQUE'}
+          $proposal=$originalText.Replace($oldID,$newID)
+          $proposalBytes=[Text.UTF8Encoding]::new($false).GetBytes($proposal)
+          $roundtrip=[Text.UTF8Encoding]::new($false).GetBytes($proposal.Replace($newID,$oldID))
+          $rollHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($roundtrip)).ToLowerInvariant()
+          if($rollHash -cne $scriptHash){throw 'R461_BYTE_EXACT_ROLLBACK_NOT_POSSIBLE'}
+          $tok=$null;$parseErrors=$null
+          $parsed=[System.Management.Automation.Language.Parser]::ParseInput($proposal,[ref]$tok,[ref]$parseErrors)
+          if(@($parseErrors).Count -ne 0){throw 'R461_POWERSHELL_PROPOSAL_INVALID'}
+          $newScriptHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($proposalBytes)).ToLowerInvariant()
+          New-Item -Path (Join-Path $newDir 'bin') -ItemType Directory -ErrorAction Stop|Out-Null
+          New-Item -Path $bundle -ItemType Directory -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath $from -Destination $newExe -ErrorAction Stop
+          if((Sha $newExe) -cne $newHash){throw 'R461_COPIED_NEW_BINARY_HASH_MISMATCH'}
+          [IO.File]::WriteAllBytes((Join-Path $bundle 'Start-R461-Controller.proposed.ps1'),$proposalBytes)
+          [IO.File]::WriteAllBytes((Join-Path $bundle 'Start-R18-Controller.rollback.ps1'),$orig)
+          if((Sha (Join-Path $bundle 'Start-R461-Controller.proposed.ps1')) -cne $newScriptHash){throw 'R461_PROPOSED_SCRIPT_CORRUPT'}
+          if((Sha (Join-Path $bundle 'Start-R18-Controller.rollback.ps1')) -cne $scriptHash){throw 'R461_ROLLBACK_SCRIPT_CORRUPT'}
+          $manifest=[ordered]@{schema='ckb-plane.r461.inactive-active-only-scheduler.v1';qualifying_run_id=40574717646;candidate_source_qualifier='R428 pinned composite plus reviewed R425 scheduler';candidate_sha256=$newHash;original_sha256=$oldHash;original_script_sha256=$scriptHash;proposed_script_sha256=$newScriptHash;release_id=$newID;active_only_recovery_symbol_verified=$true;unfiltered_full_suite_passed=$false;historical_test_exclusions=@('TestRoadmapSuccessorPostBTVExactParentExport','TestRoadmapCurrentFrontierPostBTVMaterializesBTV03');promoted=$false;controller_restarted=$false;original_task_modified=$false;production_sqlite_modified=$false}
+          [IO.File]::WriteAllText((Join-Path $bundle 'manifest.json'),($manifest|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
+          Write-Output ('R461_INACTIVE_RELEASE_EXE_SHA256='+$newHash)
+          Write-Output ('R461_INACTIVE_PROPOSED_LAUNCHER_SHA256='+$newScriptHash)
+          Write-Output ('R461_INACTIVE_BUNDLE_PATH='+$bundle)
+          Write-Output ('R461_NEW_RELEASE_ID='+$newID)
+          Write-Output 'R461_BYTE_EXACT_R220_ROLLBACK_PACKAGE=PASS'
+          $after=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $newTask=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($after.Count -ne 1 -or $after[0].ProcessId -ne 80088 -or $newTask.Count -ne 1 -or [string]$newTask[0].State -cne 'Running'){throw 'R461_ORIGINAL_PROCESS_CHANGED'}
+          if((Sha $script) -cne $scriptHash -or (Sha $pointer) -cne $ptrHash){throw 'R461_ORIGINAL_SCRIPT_OR_POINTER_CHANGED'}
+          Write-Output 'R461_STAGED_RECOVERY_BINARY_NO_LIVE_CONTROLLER_MUTATION=PASS'
