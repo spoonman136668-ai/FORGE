@@ -1,0 +1,38 @@
+name: ITD02 R8 original MiniGrid FIT-only manual qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: itd02-r8-frozen-fit-only
+  cancel-in-progress: false
+jobs:
+  frozen-fit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out exact qualified research commit
+        uses: actions/checkout@v4
+        with:
+          ref: 65df60ce53db70c20a616b2ceb10ade8c6fe8d23
+          persist-credentials: false
+      - name: Verify exact research identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 65df60ce53db70c20a616b2ceb10ade8c6fe8d23
+          test -f research/lcrm01/itd02_r8_frozen_original_minigrid_01.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute only frozen FIT source training
+        shell: bash
+        run: bash research/lcrm01/itd02_r8_fit_only_ci.sh
+      - name: Preserve FIT receipt if produced
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd02-r8-original-minigrid-fit-only
+          path: ${{ runner.temp }}/itd02-r8-fit/fit-receipt.json
+          if-no-files-found: warn
+          retention-days: 45
