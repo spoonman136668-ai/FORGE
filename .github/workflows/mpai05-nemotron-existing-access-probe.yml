@@ -1,0 +1,60 @@
+name: MP-AI05 Nemotron existing-access free probe
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai05-nemotron-existing-access-probe.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Verify pre-existing local DPAPI access and free-only public prompt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'UNAUTHORIZED_RUNNER'}
+          $candidates = @(
+            'C:\ProgramData\CKBR\research-sidecar-yggdrasil\secrets\openrouter.dpapi',
+            'C:\ProgramData\CKBR\research-sidecar\secrets\openrouter.dpapi'
+          )
+          $secret = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if(-not $secret){ Write-Host 'MPAI05_NEMOTRON_EXISTING_CREDENTIAL=NOT_FOUND'; exit 0 }
+          Write-Host 'MPAI05_NEMOTRON_EXISTING_CREDENTIAL=PRESENT'
+          $token = $null; $ptr = [IntPtr]::Zero
+          try {
+            $secure = (Get-Content -LiteralPath $secret -Raw).Trim() | ConvertTo-SecureString -ErrorAction Stop
+            $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+            $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+            if([string]::IsNullOrWhiteSpace($token)){throw 'EMPTY_CREDENTIAL'}
+          } catch {
+            Write-Host 'MPAI05_NEMOTRON_RUNNER_DPAPI=NOT_ACCESSIBLE'
+            exit 0
+          } finally {
+            if($ptr -ne [IntPtr]::Zero){ [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+          }
+          Write-Host 'MPAI05_NEMOTRON_RUNNER_DPAPI=ACCESSIBLE'
+          $model = 'nvidia/nemotron-3-ultra-550b-a55b:free'
+          if(-not $model.EndsWith(':free')){throw 'NONFREE_MODEL_FORBIDDEN'}
+          $headers = @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' }
+          $body = @{
+            model=$model
+            messages=@(@{role='user';content='Reply only NEMOTRON_PROBE_OK. This is a public synthetic connectivity test.'})
+            temperature=0; max_tokens=24
+          } | ConvertTo-Json -Depth 6 -Compress
+          try {
+            $response = Invoke-RestMethod -Method Post -Uri 'https://openrouter.ai/api/v1/chat/completions' -Headers $headers -Body $body -TimeoutSec 45 -ErrorAction Stop
+            $reply = [string]$response.choices[0].message.content
+            $result = if($reply.Trim() -ceq 'NEMOTRON_PROBE_OK'){'PASS'}else{'UNEXPECTED_RESPONSE'}
+            Write-Host "MPAI05_NEMOTRON_PUBLIC_PROBE=$result"
+            Write-Host 'MPAI05_NEMOTRON_PRIVATE_MEMORY_SENT=FALSE'
+            Write-Host 'MPAI05_NEMOTRON_PAID_MODEL_REQUESTED=FALSE'
+          } catch {
+            $status='UNKNOWN'
+            try { $status=[string][int]$_.Exception.Response.StatusCode } catch {}
+            Write-Host "MPAI05_NEMOTRON_PUBLIC_PROBE=PROVIDER_UNAVAILABLE_HTTP_$status"
+          } finally {
+            $token = $null
+            $headers = $null
+          }
