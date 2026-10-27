@@ -193,6 +193,7 @@ def verify_anonymous_public_source(packet: dict,
          and type(original_commit.get("tree")) is dict
          and type(original_commit["tree"].get("sha")) is str
          and SHA40.fullmatch(original_commit["tree"]["sha"]) is not None
+         and original_commit["tree"]["sha"] == packet.get("target_tree_sha")
          and type(original_file) is dict
          and original_file.get("encoding") == "base64"
          and type(original_file.get("content")) is str
