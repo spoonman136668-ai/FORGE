@@ -40,7 +40,7 @@ OBJECTIVE = ("ITD-02: native causal representation, retention, interaction, "
 CONTROLS = ("matched conventional controls; equal information and compute; "
             "no score oracle, no tokens or transformers in candidate model")
 PUBLIC_FIELDS = frozenset({
-    "schema", "lane", "target_commit", "path", "history_sha256",
+    "schema", "lane", "target_commit", "target_tree_sha", "path", "history_sha256",
     "before_sha256", "public_source", "retained_outcome_counts",
     "recent_candidate_outcomes", "objective", "controls",
     "development_only", "scientific_first_use", "proposal_authorized",
@@ -119,6 +119,7 @@ def public_packet(request: dict, *, public_source_verified: bool) -> dict:
         "schema": SCHEMA,
         "lane": lane,
         "target_commit": request["target_commit"],
+        "target_tree_sha": request["target_tree_sha"],
         "path": path,
         "history_sha256": request["history_sha256"],
         "before_sha256": request["before_sha256"],
@@ -239,6 +240,8 @@ def _check_public_packet(packet: dict) -> None:
          and packet["lane"] in REPOS
          and type(packet.get("target_commit")) is str
          and SHA40.fullmatch(packet["target_commit"]) is not None
+         and type(packet.get("target_tree_sha")) is str
+         and SHA40.fullmatch(packet["target_tree_sha"]) is not None
          and type(packet.get("before_sha256")) is str
          and SHA64.fullmatch(packet["before_sha256"]) is not None
          and type(packet.get("history_sha256")) is str
