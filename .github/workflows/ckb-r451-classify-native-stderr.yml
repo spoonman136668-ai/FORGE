@@ -1,0 +1,67 @@
+name: CKB R451 original-owner UTF16 stderr startup error classification
+on:
+  push:
+    branches: [audit/ckb-r451-native-stderr-diagnosis-20261027]
+permissions:
+  contents: read
+jobs:
+  classify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Decode exact protected R450 stderr and classify errors without publishing paths or messages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R451_WRONG_ORIGINAL_OWNER'}
+          $live='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $process=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $t=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($process.Count -ne 1 -or $process[0].ProcessId -ne 80088 -or [string]$process[0].ExecutablePath -cne $live -or $t.Count -ne 1 -or [string]$t[0].State -cne 'Running'){throw 'R451_LIVE_ORIGINAL_CONTROLLER_DRIFT'}
+          $dir='C:\Users\camar\AppData\Local\CKB-R445-Startup-Diagnostics\R449-40545412788'
+          $stderr=Join-Path $dir 'native-stderr.txt'
+          $stdout=Join-Path $dir 'native-stdout.txt'
+          $exitPath=Join-Path $dir 'native-exit-code.txt'
+          $receipt='C:\ProgramData\CKBR\cutover\R450-40545692975\result.json'
+          $m=Get-Content -LiteralPath $receipt -Raw -ErrorAction Stop|ConvertFrom-Json -ErrorAction Stop
+          if([string]$m.schema -cne 'ckb-plane.r450.bounded-startup-observation.v1' -or [string]$m.result -cne 'DIAGNOSTIC_ONLY_RESTORED' -or [int]$m.task_last_result_before_restore -ne 1 -or -not [bool]$m.original_launcher_restored){throw 'R451_R450_CUSTODY_INTEGRITY_DRIFT'}
+          if([IO.File]::ReadAllText($exitPath).Trim() -cne '1'){throw 'R451_NATIVE_EXIT_CODE_DRIFT'}
+          $raw=[IO.File]::ReadAllBytes($stderr)
+          if($raw.Length -ne 1040){throw 'R451_STDERR_SIZE_DRIFT'}
+          $isUTF16LE=$raw[0] -eq 255 -and $raw[1] -eq 254
+          Write-Output ('R451_STDERR_UTF16LE_BOM='+[string]$isUTF16LE)
+          if($isUTF16LE){
+            $errorText=[Text.Encoding]::Unicode.GetString($raw).TrimStart([char]0xFEFF)
+          }else{
+            $errorText=[Text.Encoding]::UTF8.GetString($raw)
+          }
+          Write-Output ('R451_STDERR_DECODED_CHARS='+$errorText.Length)
+          Write-Output ('R451_STDERR_DECODED_LINES='+($errorText -split '\r?\n').Count)
+          $checks=[ordered]@{
+            NATIVE_COMMAND_ERROR=($errorText -match '(?i)NativeCommandError|RemoteException')
+            GO_CONTROLLER_LOCK=($errorText -match '(?i)controller[_ -]?lock|lock[_ -]?held|CONTROLLER_LOCKED|lock file')
+            GO_PORT_ALREADY_IN_USE=($errorText -match '(?i)address already in use|listen tcp|bind error')
+            GO_DATABASE_ERROR=($errorText -match '(?i)sqlite|database|SQLITE_BUSY|database is locked')
+            GO_CONFIG_ERROR=($errorText -match '(?i)CONFIG_INVALID|AUTONOMY_CONFIG_REQUIRED|YAML')
+            GO_AUTHORITY_ERROR=($errorText -match '(?i)AUTHORITY_|PERMISSION_DENIED|NOT_AUTHORIZED')
+            GO_SOURCE_ERROR=($errorText -match '(?i)source[_ -]?authority|SOURCE_')
+            GO_MISSING_FILE=($errorText -match '(?i)no such file or directory|file not found|cannot find path')
+            GO_ACCESS_DENIED=($errorText -match '(?i)access is denied|permission denied')
+            GO_REPLAY_RECOVERY=($errorText -match '(?i)RECOVERY_WAITING|SUPERVISOR|worker lease|unfinished attempt')
+            GO_INVARIANT=($errorText -match '(?i)INVARIANT|STATE_DRIFT|CUSTODY')
+            GO_BRIDGE_ERROR=($errorText -match '(?i)BRIDGE_|webui|mailbox')
+            GO_PANIC=($errorText -match '(?i)panic:|fatal error:')
+            GO_API_TOKEN_ERROR=($errorText -match '(?i)token|GITHUB_TOKEN')
+            GO_NETWORK_ERROR=($errorText -match '(?i)timed out|timeout|network is unreachable')
+            GO_UNRECOGNIZED_FLAG=($errorText -match '(?i)flag provided but not defined|unknown flag')
+            POWERSHELL_LINE_INFO=($errorText -match '(?i)At [A-Z]:\\|CategoryInfo|FullyQualifiedErrorId')
+          }
+          foreach($key in $checks.Keys){Write-Output ('R451_ERROR_CLASS_'+$key+'='+[string]$checks[$key])}
+          Write-Output ('R451_STDERR_SHA256='+(Get-FileHash -LiteralPath $stderr -Algorithm SHA256).Hash.ToLowerInvariant())
+          $stdoutBytes=[IO.File]::ReadAllBytes($stdout)
+          if($stdoutBytes.Length -ne 250 -or $stdoutBytes[0] -ne 255 -or $stdoutBytes[1] -ne 254){throw 'R451_STDOUT_BANNER_CAPTURE_DRIFT'}
+          $startMsg=[Text.Encoding]::Unicode.GetString($stdoutBytes)
+          if($startMsg -notmatch 'CKB-plane native controller: local status'){throw 'R451_CONTROLLER_STARTUP_BANNER_MISSING'}
+          Write-Output 'R451_GO_CONTROLLER_BANNER_AND_EXIT1_CONFIRMED=PASS'
+          Write-Output 'R451_NO_RAW_STDERR_LOGGED_OR_LIVE_CONTROLLER_TOUCHED=TRUE'
