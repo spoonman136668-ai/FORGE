@@ -6,6 +6,8 @@ GitHub protected-ref mutation. The workflow it can call is fixed in source.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import contextlib
 import datetime as dt
 import hashlib
