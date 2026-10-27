@@ -157,3 +157,56 @@ jobs:
           Write-Output 'R445C_NO_ACTIVATION_OR_PRODUCTION_DB_TOUCH=TRUE'
           $global:LASTEXITCODE=0
           exit 0
+      - name: R445E qualify inactive diagnostic script syntax and native redirection using scheduled-task Windows PowerShell 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R445E_WRONG_OWNER_RUNNER'}
+          $ps5='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+          $testRoot=Join-Path $env:RUNNER_TEMP ('R445-PS5-Probe-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $testRoot){throw 'R445E_TEMP_COLLISION'}
+          New-Item -Path $testRoot -ItemType Directory -ErrorAction Stop|Out-Null
+          $active='C:\Users\camar\AppData\Local\CKB-R445-Inactive-Diagnostic-Packages\R445-40542294815\Start-R445-Instrumented.proposed.ps1'
+          if((Get-FileHash -LiteralPath $active -Algorithm SHA256).Hash.ToLowerInvariant() -cne '217ab726ffda24c96ab5f81b455b7dc600b14dbc09182de50291d1d0b3c67109'){throw 'R445E_CANDIDATE_INSTRUMENT_DRIFT'}
+          try {
+            $checker=@'
+          param([string]$Target)
+          $ErrorActionPreference='Stop'
+          $t=$null;$e=$null
+          $a=[System.Management.Automation.Language.Parser]::ParseFile($Target,[ref]$t,[ref]$e)
+          if(@($e).Count -ne 0){exit 14}
+          exit 0
+          '@
+            $checkerPath=Join-Path $testRoot 'ps5-parse-check.ps1'
+            [IO.File]::WriteAllText($checkerPath,$checker,[Text.UTF8Encoding]::new($false))
+            & $ps5 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $checkerPath -Target $active
+            $rc=$LASTEXITCODE
+            if($rc -ne 0){throw ('R445E_POWERSHELL_5_CANDIDATE_SCRIPT_PARSE_FAILED='+$rc)}
+            Write-Output 'R445E_INSTRUMENTED_SCRIPT_POWERSHELL5_PARSE=PASS'
+            $probe=@'
+          param([string]$Root)
+          $ErrorActionPreference='Stop'
+          $stdout=Join-Path $Root 'synthetic-native-stdout.txt'
+          $stderr=Join-Path $Root 'synthetic-native-stderr.txt'
+          & $env:ComSpec /d /c 'exit /b 23' 1> $stdout 2> $stderr
+          $rc=$LASTEXITCODE
+          [IO.File]::WriteAllText((Join-Path $Root 'native-exit-code.txt'),[string]$rc)
+          exit $rc
+          '@
+            $probePath=Join-Path $testRoot 'ps5-synthetic-exit.ps1'
+            [IO.File]::WriteAllText($probePath,$probe,[Text.UTF8Encoding]::new($false))
+            & $ps5 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probePath -Root $testRoot
+            $code=$LASTEXITCODE
+            if($code -ne 23){throw ('R445E_PS5_NATIVE_EXIT_INCORRECT='+$code)}
+            if([IO.File]::ReadAllText((Join-Path $testRoot 'native-exit-code.txt')) -cne '23'){throw 'R445E_PS5_EXIT_FILE_INCORRECT'}
+            if((Get-Item -LiteralPath (Join-Path $testRoot 'synthetic-native-stderr.txt')).Length -ne 0){throw 'R445E_PS5_SYNTHETIC_STDERR_UNEXPECTED'}
+            Write-Output 'R445E_WINPS5_NATIVE_REDIRECTION_AND_EXIT_CODE=PASS'
+          }finally{
+            if(Test-Path -LiteralPath $testRoot){Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction Stop}
+          }
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R445E_ORIGINAL_TASK_CHANGED'}
+          Write-Output 'R445E_ONLY_SYNTHETIC_WINPS5_EXECUTION_NO_CONTROLLER_CUTOVER=TRUE'
+          $global:LASTEXITCODE=0
+          exit 0
