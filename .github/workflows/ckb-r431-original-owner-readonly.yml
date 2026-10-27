@@ -359,3 +359,59 @@ jobs:
           if($activeAfter -cne $ptr){throw 'R436_POINTER_CHANGED_DURING_AUDIT'}
           Write-Output 'R436_READ_ONLY_RELEASE_RECONCILIATION=PASS'
           Write-Output 'R436_NO_ACTIVE_POINTER_WRITE_OR_TASK_RESTART=TRUE'
+      - name: R437 trace owner task and parent PowerShell script selection without executing scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R437_WRONG_OWNER_RUNNER'}
+          $expectedExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($procs.Count -ne 1 -or $procs[0].ExecutablePath -cne $expectedExe){throw 'R437_ORIGINAL_PROCESS_DRIFT'}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R437_ORIGINAL_TASK_DRIFT'}
+          $actions=@($task[0].Actions)
+          if($actions.Count -ne 1){throw 'R437_TASK_ACTION_AMBIGUOUS'}
+          $args=[string]$actions[0].Arguments
+          $parent=@(Get-CimInstance Win32_Process -Filter ("ProcessId = "+$procs[0].ParentProcessId) -ErrorAction Stop)
+          if($parent.Count -ne 1 -or [string]$parent[0].Name -cne 'powershell.exe'){throw 'R437_PARENT_IDENTITY_DRIFT'}
+          $parentArgs=[string]$parent[0].CommandLine
+          Write-Output ('R437_TASK_ARGUMENT_FORMAT_FILE='+($args -match '(?i)-File\b'))
+          Write-Output ('R437_TASK_ARGUMENT_FORMAT_COMMAND='+($args -match '(?i)-Command\b'))
+          Write-Output ('R437_TASK_ARGUMENT_FORMAT_ENCODED='+($args -match '(?i)-EncodedCommand\b'))
+          Write-Output ('R437_PARENT_REFERS_ACTIVE_RELEASE='+$parentArgs.Contains('active-release'))
+          Write-Output ('R437_PARENT_REFERS_R220='+$parentArgs.Contains('PLANE-R220-LIVECOMPAT-20261023'))
+          Write-Output ('R437_PARENT_REFERS_R1P='+$parentArgs.Contains('PLANE-THROUGHPUT-R1P'))
+          $pattern='[A-Z]:\\[\w\\ ._-]+\.ps1'
+          $all=@([regex]::Matches($args,$pattern,'IgnoreCase')|ForEach-Object {$_.Value})+@([regex]::Matches($parentArgs,$pattern,'IgnoreCase')|ForEach-Object {$_.Value})
+          $all=@($all | Sort-Object -Unique)
+          if($all.Count -gt 8){throw 'R437_TOO_MANY_STARTUP_SCRIPT_CANDIDATES'}
+          Write-Output ('R437_STARTUP_SCRIPT_PATH_COUNT='+$all.Count)
+          foreach($script in $all){
+            $allowed=($script.StartsWith('C:\Users\camar\GolandProjects\ckb-plane\', [StringComparison]::OrdinalIgnoreCase) -or $script.StartsWith('C:\ProgramData\CKBR\', [StringComparison]::OrdinalIgnoreCase))
+            if(!$allowed){Write-Output 'R437_STARTUP_SCRIPT_OTHER_ROOT=NOT_INSPECTED';continue}
+            if(!(Test-Path -LiteralPath $script -PathType Leaf)){Write-Output ('R437_STARTUP_SCRIPT_MISSING_BASENAME='+[IO.Path]::GetFileName($script));continue}
+            $item=Get-Item -LiteralPath $script -ErrorAction Stop
+            if($item.Length -gt 131072){throw 'R437_STARTUP_SCRIPT_UNBOUNDED'}
+            $src=[IO.File]::ReadAllText($script)
+            Write-Output ('R437_STARTUP_SCRIPT_BASENAME='+$item.Name)
+            Write-Output ('R437_STARTUP_SCRIPT_SHA256='+(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant())
+            Write-Output ('R437_SCRIPT_REFERS_ACTIVE_POINTER='+$src.Contains('active-release'))
+            Write-Output ('R437_SCRIPT_REFERS_R220='+$src.Contains('PLANE-R220-LIVECOMPAT-20261023'))
+            Write-Output ('R437_SCRIPT_REFERS_R1P='+$src.Contains('PLANE-THROUGHPUT-R1P'))
+            Write-Output ('R437_SCRIPT_REFERS_CONTROLLER_EXE='+$src.Contains('ckb-plane.exe'))
+            Write-Output ('R437_SCRIPT_REFERS_CONTROLLER_RUN='+$src.Contains('controller run'))
+            Write-Output ('R437_SCRIPT_REFERS_RELEASE_MANIFEST='+$src.Contains('release-manifest.json'))
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane\scripts'
+          if(Test-Path -LiteralPath $root -PathType Container){
+            $launchers=@(Get-ChildItem -LiteralPath $root -File -Filter '*CKBPlane*.ps1' -ErrorAction Stop | Sort-Object -Property Name)
+            if($launchers.Count -gt 20){throw 'R437_LAUNCHER_COUNT_UNBOUNDED'}
+            Write-Output ('R437_EXISTING_CKB_LAUNCHER_COUNT='+$launchers.Count)
+            foreach($s in $launchers){
+              Write-Output ('R437_EXISTING_LAUNCHER_BASENAME='+$s.Name)
+              Write-Output ('R437_EXISTING_LAUNCHER_SHA256='+(Get-FileHash -LiteralPath $s.FullName -Algorithm SHA256).Hash.ToLowerInvariant())
+            }
+          }
+          Write-Output 'R437_ORIGINAL_TASK_UNCHANGED=PASS'
+          Write-Output 'R437_NO_SCRIPT_INVOKED_OR_POINTER_EDITED=TRUE'
