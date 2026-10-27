@@ -407,11 +407,20 @@ class Database:
                         and isinstance(doc["original_feedback_sha256"], str)
                         and re.fullmatch(r"[a-f0-9]{64}",
                                          doc["original_feedback_sha256"])
-                        and doc["lane"] in LANES
+                        and doc["lane"] in ("Wingless", "Yggdrasil")
                         and isinstance(doc["path"], str)
-                        and PATH.fullmatch(doc["path"]) is not None
-                        and not doc["path"].startswith("/")
-                        and ".." not in doc["path"]
+                        and re.fullmatch(
+                            r"[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}",
+                            doc["path"]) is not None
+                        and all(part not in ("", ".", "..")
+                                for part in doc["path"].split("/"))
+                        and (doc["path"].startswith(
+                                 ("cognition/", "cmd/wingless/"))
+                             and doc["path"].endswith(".go")
+                             if doc["lane"] == "Wingless" else
+                             doc["path"].startswith(
+                                 ("yggdrasil/", "scripts/"))
+                             and doc["path"].endswith(".py"))
                         and isinstance(doc["utc_day"], str)
                         and re.fullmatch(r"\d{4}-\d{2}-\d{2}",
                                          doc["utc_day"]) is not None
