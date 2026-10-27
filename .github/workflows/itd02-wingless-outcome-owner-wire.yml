@@ -1,0 +1,31 @@
+name: ITD-02 Wingless FORGE owner outcome wire (source-free)
+on:
+  push:
+    branches:
+      - research/itd02-wingless-outcome-owner-wire-20261027
+  pull_request:
+    paths:
+      - 'research/itd02/wingless_outcome_owner_wire.py'
+      - 'research/itd02/test_wingless_outcome_owner_wire.py'
+      - '.github/workflows/itd02-wingless-outcome-owner-wire.yml'
+permissions:
+  contents: read
+jobs:
+  owner-wire-source-free:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source-free owner-wire regression and strict public-custody tests
+        run: python -B -m unittest discover -s research/itd02 -p test_wingless_outcome_owner_wire.py -v
+      - name: Syntax verification with no original-world execution
+        run: python -B -c "import ast,pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in ('research/itd02/wingless_outcome_owner_wire.py','research/itd02/test_wingless_outcome_owner_wire.py')]"
