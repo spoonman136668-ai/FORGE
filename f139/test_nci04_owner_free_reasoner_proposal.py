@@ -181,6 +181,21 @@ class NativeFreeReasonerCustodyTests(unittest.TestCase):
         self.assertFalse(self.rows(ATTEMPT))
         self.assertFalse(self.sent)
 
+    def test_native_entry_requires_original_mutex_and_fixed_qualified_target(self):
+        import inspect
+        from f139.nci04_owner_free_reasoner_proposal import (
+            run_original_free_reasoner_once)
+        source=inspect.getsource(run_original_free_reasoner_once)
+        self.assertIn('lock_type.held(db_path.with_suffix(".lock")) is True',
+                      source)
+        self.assertIn("original_canonical_db(db, db_path)", source)
+        self.assertIn('api.native_repo_get, api.native_repo_get', source)
+        self.assertIn("api.owner_model_write", source)
+        self.assertIn("g29.PARENT", source)
+        self.assertIn('"yggdrasil/public_causal_cells.py"', source)
+        self.assertNotIn("subprocess.run", source)
+        self.assertNotIn("codex", source.lower())
+
     def test_owner_history_is_scope_not_a_model_secret(self):
         orig = original_outcome_fingerprint(self.db)
         scope = reasoner_scope(
