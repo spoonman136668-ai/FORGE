@@ -19,8 +19,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'VERSION_READ_FAILED' }
           $help = (& $cmd exec --help | Out-String)
           if ($LASTEXITCODE -ne 0) { throw 'EXEC_HELP_FAILED' }
+          $features = (& $cmd -c 'features.shell_tool=false' features list 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'FEATURE_READ_FAILED' }
+          $shellLine = @($features -split "\r?\n" | Where-Object { $_ -match '^shell_tool\s' })
+          $mcpHelp = (& $cmd mcp list --help 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'MCP_HELP_FAILED' }
           Write-Host ("FORGE_CODEX_VERSION=" + $v)
           foreach ($flag in @('--output-schema', '--ignore-user-config', '--sandbox', '--ephemeral', '--skip-git-repo-check', '--json')) {
             Write-Host ("FORGE_CODEX_FLAG=" + $flag + ":" + $help.Contains($flag))
           }
+          Write-Host ("FORGE_SHELL_FEATURE_LINE=" + ($shellLine -join ';'))
+          Write-Host ("FORGE_MCP_LIST_JSON_FLAG=" + $mcpHelp.Contains('--json'))
           Write-Host 'MODEL_INVOCATION=FALSE; CONTROLLER_MUTATION=FALSE; SECRETS_READ=FALSE'
