@@ -1,4 +1,4 @@
-name: CKB R419 isolate historical state path diagnostic
+name: CKB R420 complete isolated owner-state config dependency
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -44,6 +44,12 @@ jobs:
           try {
             $isolatedConfig=Join-Path $stage 'config\autonomy.yaml'
             Copy-Item -LiteralPath $config -Destination $isolatedConfig -ErrorAction Stop
+            $operations=Join-Path $root 'config\local-operations.json'
+            if(!(Test-Path -LiteralPath $operations -PathType Leaf)){throw 'R420_LOCAL_OPERATIONS_CONFIG_MISSING'}
+            $isolatedOperations=Join-Path $stage 'config\local-operations.json'
+            Copy-Item -LiteralPath $operations -Destination $isolatedOperations -ErrorAction Stop
+            if((Get-FileHash -LiteralPath $operations -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $isolatedOperations -Algorithm SHA256).Hash){throw 'R420_OPERATIONS_COPY_DRIFT'}
+            Write-Output 'R420_ISOLATED_LOCAL_OPERATIONS_CONFIG=PASS'
             $isolatedDb=Join-Path $stage 'state\autonomy.db'
             $py=@'
           import pathlib, sqlite3, sys
