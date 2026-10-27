@@ -1,0 +1,43 @@
+name: ITD02 R8 preserved FIT model intake qualification
+on:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+    paths:
+      - '.github/workflows/itd02-r8-fit-intake-once.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  custody-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve retained source FIT artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 --max-time 90 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12716938607/zip \
+            --output "$RUNNER_TEMP/r8-fit-model.zip"
+      - name: Verify model and instantiate conventional control (zero world resets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=research/lcrm01 python3 -B research/lcrm01/itd02_r8_fit_model_verify.py "$RUNNER_TEMP/r8-fit-model.zip" | tee "$RUNNER_TEMP/r8-fit-model-intake.json"
+      - name: Preserve source-only intake receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd02-r8-fit-intake-verified
+          path: ${{ runner.temp }}/r8-fit-model-intake.json
+          if-no-files-found: error
+          retention-days: 45
