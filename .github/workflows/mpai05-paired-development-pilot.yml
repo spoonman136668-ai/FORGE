@@ -62,7 +62,15 @@ jobs:
                 'QUESTION: '+query+'\nRETRIEVED_RECORDS: '+compact)
               command=['codex','exec','--json','--sandbox','read-only','--skip-git-repo-check','-']
               p=subprocess.run(command,input=prompt,text=True,capture_output=True,cwd=os.environ['MP_SCRATCH'],timeout=180)
-              if p.returncode!=0:\n                diagnostics=[]\n                for line in p.stdout.splitlines():\n                  try:\n                    ev=json.loads(line)\n                    if ev.get('type') in ('error','turn.failed'): diagnostics.append({'type':ev.get('type'),'error':str(ev.get('message') or ev.get('error'))[:400]})\n                  except ValueError: pass\n                raise RuntimeError('CODEX_CALL_FAILED task='+str(ti)+' arm='+arm+' exit='+str(p.returncode)+' errors='+json.dumps(diagnostics)[:800])
+              if p.returncode!=0:
+                diagnostics=[]
+                for line in p.stdout.splitlines():
+                  try:
+                    ev=json.loads(line)
+                    if ev.get('type') in ('error','turn.failed'):
+                      diagnostics.append({'type':ev.get('type'),'error':str(ev.get('message') or ev.get('error'))[:300]})
+                  except ValueError: pass
+                raise RuntimeError('CODEX_CALL_FAILED task='+str(ti)+' arm='+arm+' exit='+str(p.returncode)+' errors='+json.dumps(diagnostics)[:650])
               events=[json.loads(s) for s in p.stdout.splitlines() if s.strip().startswith('{')]
               msgs=[e.get('item',{}).get('text','') for e in events if e.get('type')=='item.completed' and e.get('item',{}).get('type')=='agent_message']
               text='\n'.join(msgs).strip()
