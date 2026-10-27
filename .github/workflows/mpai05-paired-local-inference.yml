@@ -7,19 +7,24 @@ permissions:
   contents: read
 jobs:
   paired:
-    runs-on: ubuntu-latest
-    timeout-minutes: 14
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
     steps:
       - name: Pinned memory retrieval and paired model inference
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          python3 -m pip install --quiet --disable-pip-version-check --user 'llama-cpp-python==0.3.16'
-          git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git /tmp/mpai05-mp
-          python3 - <<'PY'
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --quiet --disable-pip-version-check --only-binary=:all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu llama-cpp-python==0.3.18
+          if ($LASTEXITCODE -ne 0) { throw 'MODEL_RUNTIME_FAILED' }
+          $env:MPAI05_ROOT = Join-Path $env:RUNNER_TEMP ('mpai05-eval-' + $env:GITHUB_RUN_ID)
+          git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $env:MPAI05_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_CLONE_FAILED' }
+          @'
+
           import sys,json,subprocess,urllib.request,time,hashlib
           from pathlib import Path
-          root=Path('/tmp/mpai05-mp')
+          import os
+          root=Path(os.environ['MPAI05_ROOT'])
           sha=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
           sys.path.insert(0,str(root/'tools'))
           from mindpalace_readonly import MemorySnapshot
@@ -33,7 +38,7 @@ jobs:
           if not matches or not all(m.get('source_refs') for m in matches): raise RuntimeError('PROVENANCE_MISSING')
           context=json.dumps(matches[:2],sort_keys=True)[:1600]
           from llama_cpp import Llama
-          path='/tmp/mpai05-tiny.gguf'
+          path=str(root.parent/'mpai05-tiny.gguf')
           urllib.request.urlretrieve('https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf',path)
           model=Llama(model_path=path,n_ctx=1024,n_threads=2,verbose=False)
           question='What kind of source evidence should accompany a Mind-Palace memory retrieval?'
@@ -54,4 +59,5 @@ jobs:
           print('MPAI05_PAIRED_EXECUTION=PASS')
           print('MPAI05_IMPROVEMENT=NOT_ESTABLISHED')
           print('MPAI05_HOLDOUT_ACCESS=0')
-          PY
+          '@ | python
+          if ($LASTEXITCODE -ne 0) { throw 'PAIRED_INFERENCE_FAILED' }
