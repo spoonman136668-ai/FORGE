@@ -1,0 +1,46 @@
+name: MP-AI05 actual pinned corpus tiered retrieval benchmark on FORGE Windows
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai05-actual-corpus-retrieval.yml']
+permissions:
+  contents: read
+jobs:
+  read-only-benchmark:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Qualify actual private pinned Mind-Palace source without exporting its records
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'UNAUTHORIZED_RUNNER' }
+          $scratch = Join-Path $env:RUNNER_TEMP ('mpai05-corpus-' + $env:GITHUB_RUN_ID)
+          $source = Join-Path $scratch 'mp'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $source
+            if ($LASTEXITCODE -ne 0) { throw 'MPAI05_PINNED_PRIVATE_SOURCE_UNAVAILABLE' }
+            $sha = (& git -C $source rev-parse HEAD).Trim()
+            if ($sha -cne '7ad7230a82e3c748aa5336b7288ad2b45d42630c') { throw 'MPAI05_SOURCE_PIN_DRIFT' }
+            $fixtures = Join-Path $source 'tests/tiered-context-pack.fixture.json'
+            $cases = @(Get-Content -Raw -LiteralPath $fixtures | ConvertFrom-Json)
+            if ($cases.Count -lt 18) { throw 'MPAI05_FROZEN_CASE_COUNT_SHORT' }
+            Push-Location $source
+            try {
+              $receipt = (& ./tools/retrieval-benchmark.ps1 | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0) { throw 'MPAI05_BENCHMARK_EXIT_FAIL' }
+              $data = $receipt | ConvertFrom-Json
+              if (-not $data.passed -or $data.receipt_count -ne $cases.Count) { throw 'MPAI05_BENCHMARK_RECEIPT_INVALID' }
+              Write-Host ('MPAI05_REAL_CORPUS_SOURCE_SHA=' + $sha)
+              Write-Host ('MPAI05_REAL_CORPUS_RECEIPT=' + $receipt)
+              Write-Host 'MPAI05_REAL_CORPUS_BENCHMARK=PASS'
+              Write-Host 'MPAI05_MODEL_CALLS=0'
+              Write-Host 'MPAI05_PRIVATE_RECORDS_EXPORTED=FALSE'
+              Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'
+            } finally { Pop-Location }
+          } finally {
+            if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
+          }
