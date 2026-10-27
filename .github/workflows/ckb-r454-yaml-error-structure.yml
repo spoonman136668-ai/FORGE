@@ -1,0 +1,54 @@
+name: CKB R454 YAML startup mismatch evidence classifier
+on:
+  push:
+    branches: [audit/ckb-r454-yaml-type-mismatch-20261027]
+permissions:
+  contents: read
+jobs:
+  classify-yaml-error:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Classify YAML unmarshal line and type mismatch without leaking any field values
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R454_NOT_ORIGINAL_OWNER'}
+          $path='C:\Users\camar\AppData\Local\CKB-R445-Startup-Diagnostics\R449-40545412788\native-stderr.txt'
+          if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne '5e741b04738e482cd4c286436606484f68fa2d5486b86e14fbbe66c0c9c391a2'){throw 'R454_EVIDENCE_SHA_CHANGED'}
+          $s=[Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($path)).TrimStart([char]0xFEFF)
+          $lines=@($s -split '\r?\n')
+          $matches=@()
+          foreach($line in $lines){
+            if($line -match '^\s*line\s+([0-9]{1,5}):\s*(.*)$'){
+              $matches+=@{number=[int]$Matches[1];text=[string]$Matches[2]}
+            }
+          }
+          Write-Output ('R454_YAML_PARSER_ERROR_DETAIL_LINES='+$matches.Count)
+          foreach($e in $matches){
+            if($e.number -lt 1 -or $e.number -gt 10000){throw 'R454_UNREASONABLE_YAML_LINE'}
+            Write-Output ('R454_YAML_OFFENDING_LINE_NUMBER='+$e.number)
+            $msg=$e.text
+            $classes=[ordered]@{
+              UNKNOWN_FIELD=($msg -match '(?i)field .* not found in type')
+              CANNOT_UNMARSHAL=($msg -match '(?i)cannot unmarshal')
+              DUPLICATE_KEY=($msg -match '(?i)already set in map|duplicate key')
+              UNKNOWN_TAG=($msg -match '(?i)unknown tag|unknown field')
+              MAPPING_INTO_SCALAR=($msg -match '(?i)!!map.*into.*(?:string|bool|int)')
+              SEQUENCE_INTO_SCALAR=($msg -match '(?i)!!seq.*into.*(?:string|bool|int)')
+              SCALAR_INTO_MAPPING=($msg -match '(?i)!!str.*into.*(?:struct|map)')
+              BOOLEAN_TYPE=($msg -match '(?i)bool|!!bool')
+              STRING_TYPE=($msg -match '(?i)string|!!str')
+              LIST_TYPE=($msg -match '(?i)\[\]|sequence|!!seq')
+              MAP_TYPE=($msg -match '(?i)\bmap\b|!!map')
+            }
+            foreach($c in $classes.Keys){if($classes[$c]){Write-Output ('R454_YAML_DETAIL_CLASS='+$c)}}
+          }
+          Write-Output ('R454_YAML_NATIVE_ERROR_PREFIX_MATCH='+[string]($s -match '(?i)\.exe\s*:\s*yaml: unmarshal errors:'))
+          Write-Output 'R454_RAW_YAML_VALUES_FIELD_NAMES_AND_PATHS_NOT_EXPORTED=TRUE'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($procs.Count -ne 1 -or $procs[0].ProcessId -ne 80088 -or [string]$procs[0].ExecutablePath -cne $old -or $task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R454_R220_OWNER_NOT_RUNNING'}
+          Write-Output 'R454_ORIGINAL_R220_PRESERVED=PASS'
