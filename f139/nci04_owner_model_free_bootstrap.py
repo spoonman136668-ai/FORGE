@@ -146,9 +146,15 @@ def run_original_g29_once(db, api, db_path: Path, source_sha: str,
         and Path(main.__file__).resolve(strict=True) ==
             (Path(__file__).resolve().parent / "local_controller.py").resolve(strict=True)
     )
+    # Python -m has its own __main__.SingleOwner class-level held set.
+    # Query that SAME class instead of accidentally treating the imported
+    # module's separate held set as the lock witness.
+    owner_class = getattr(main, "SingleOwner", None) if original_cli_api else SingleOwner
     need((canonical_api or original_cli_api)
          and isinstance(db_path, Path)
-         and SingleOwner.held(db_path.with_suffix(".lock"))
+         and isinstance(owner_class, type)
+         and owner_class.__name__ == "SingleOwner"
+         and owner_class.held(db_path.with_suffix(".lock")) is True
          and callable(owner_witness) and owner_witness() is True,
          "ORIGINAL_RUNNING_SINGLE_OWNER_REQUIRED")
     canonical_db, close = original_canonical_db(db, db_path)
