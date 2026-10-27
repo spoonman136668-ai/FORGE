@@ -414,14 +414,22 @@ def activate_native(db, approval: dict) -> bool:
                     "forge.f139.source-transition.v7",
                     "forge.f139.source-transition.v8",
                     "forge.f139.source-transition.v9",
-                    "forge.f139.source-transition.v10")]
+                    "forge.f139.source-transition.v10",
+                    "forge.f139.source-transition.v11")]
             provider_failures=db.verified_native_provider_failures()
             from f139.nci04_g49_prepost_negative import (
                 verify_g49_custody, TICKET as PREPOST)
             prepost=verify_g49_custody(db)
+            v11_ambiguous=set()
+            if (negative_successors and negative_successors[-1]["schema"] ==
+                    "forge.f139.source-transition.v11"):
+                from f139.nci04_g54_ambiguous_start_custody import (
+                    verified_g54_ambiguous_start)
+                v11_ambiguous.add(verified_g54_ambiguous_start(db)["ticket"])
             all_certified=({NEGATIVE_TICKET,SECOND_TICKET}
                            | set(provider_failures)
-                           | ({PREPOST} if prepost else set()))
+                           | ({PREPOST} if prepost else set())
+                           | v11_ambiguous)
             four_certified=(
                 len(failures)>=3
                 and bool(provider_failures)
