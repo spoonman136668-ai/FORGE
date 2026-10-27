@@ -1,0 +1,33 @@
+name: MP-AI06 offline answerability on original FORGE runner
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai06-offline-answerability.yml']
+permissions:
+  contents: read
+jobs:
+  offline-answerability:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Execute existing development-only source-bound evaluator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'RUNNER_IDENTITY_MISMATCH' }
+          $folder = Join-Path $env:RUNNER_TEMP ('mpai06-eval-' + $env:GITHUB_RUN_ID)
+          try {
+            git clone --quiet --depth 1 --branch proposal/mp-ai06-d3-answerability-20261024 https://github.com/spoonman136668-ai/Mind-Palace.git $folder
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_CLONE_FAILURE' }
+            $sha = (& git -C $folder rev-parse HEAD).Trim()
+            if ($sha -cne 'c66ba3d7a8221b71a333ec0e9412d1daa0c80604') { throw 'SOURCE_IDENTITY_DRIFT' }
+            Push-Location $folder
+            try {
+              python -B -m unittest discover -s tests -p 'test_mpai06_answerability.py' -q
+              if ($LASTEXITCODE -ne 0) { throw 'FOCUSED_TEST_FAILURE' }
+              python -B agentic/mpai06_answerability.py --root . --source $sha | python -c "import json,sys; d=json.load(sys.stdin); print('MPAI06_DEVELOPMENT_TOTAL='+str(d['case_count'])); print('MPAI06_BASELINE='+json.dumps(d['baseline'],sort_keys=True)); print('MPAI06_RARITY='+json.dumps(d['rarity_exploratory'],sort_keys=True)); print('MPAI06_REGRESSIONS='+json.dumps(d['baseline_regressions'])); print('MPAI06_ACCEPTANCE=NOT_TESTED')"
+              if ($LASTEXITCODE -ne 0) { throw 'EVALUATION_FAILURE' }
+            } finally { Pop-Location }
+          } finally {
+            if (Test-Path -LiteralPath $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
+          }
