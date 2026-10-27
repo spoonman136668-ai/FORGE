@@ -1,0 +1,29 @@
+name: MP-AI05 Windows CRLF parser fixture
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-crlf-fixture.yml']
+permissions:
+  contents: read
+jobs:
+  fixture:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - name: Synthetic status records only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'WRONG_RUNNER'}
+          $items=@('ONE=1','TWO=2','THREE=SUCCESS')
+          foreach($sep in @([string][char]10,([string][char]13+[string][char]10))){
+            $raw=$items -join $sep
+            $count=0
+            foreach($line in @($raw -split '\r?\n')){
+              if($line -cmatch '^[A-Z]+=[A-Za-z0-9_]+$'){$count++}
+            }
+            if($count -ne 3){throw 'SYNTHETIC_LINE_PARSER_FAILED'}
+          }
+          Write-Host 'MPAI05_SYNTHETIC_CRLF_LF=PASS'
+          Write-Host 'MPAI05_SYNTHETIC_CASES=3'
+          Write-Host 'MPAI05_MODEL_CALLS=0'
