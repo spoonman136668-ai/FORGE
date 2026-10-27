@@ -415,3 +415,90 @@ jobs:
           }
           Write-Output 'R437_ORIGINAL_TASK_UNCHANGED=PASS'
           Write-Output 'R437_NO_SCRIPT_INVOKED_OR_POINTER_EDITED=TRUE'
+      - name: R438 recreate the exact fully qualified R428 native binary in inactive candidate custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R438_WRONG_OWNER_RUNNER'}
+          if((& go.exe version | Out-String) -notmatch 'go1.25.5'){throw 'R438_GO_VERSION_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $exeHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $native=Join-Path $root 'internal\plane\autonomy.go'
+          $nativeHash='c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'
+          $expected='44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'
+          $active='C:\ProgramData\CKBR\release-store\ckb-plane\state\active-release'
+          $ptrBefore=(Get-FileHash -LiteralPath $active -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($ptrBefore -cne '06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'){throw 'R438_ACTIVE_POINTER_DRIFT'}
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $exeHash){throw 'R438_RUNNING_EXE_DRIFT'}
+          if((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant() -cne $nativeHash){throw 'R438_NATIVE_SOURCE_DRIFT'}
+          $paths=@('go.mod','go.sum')+@(Get-ChildItem -LiteralPath (Join-Path $root 'cmd'),(Join-Path $root 'internal') -Recurse -File -ErrorAction Stop | ForEach-Object {$_.FullName.Substring($root.Length+1).Replace('\','/')})
+          $paths=@($paths|Sort-Object -Unique)
+          if($paths.Count -ne 210){throw 'R438_SOURCE_COUNT_DRIFT'}
+          $lines=[System.Collections.Generic.List[string]]::new()
+          foreach($p in $paths){$lines.Add($p+' '+(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant())}
+          $nl=[string][char]10
+          $tree=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($lines -join $nl)+$nl))).ToLowerInvariant()
+          if($tree -cne 'ab3e4a6667109a9d678008018ec2ea5a077621b28b20b1ddb375b4f9fc111e90'){throw 'R438_WHOLE_ORIGINAL_TREE_DRIFT'}
+          Write-Output 'R438_R404_FULL_NATIVE_TREE=PASS'
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running' -or $proc.Count -ne 1 -or $proc[0].ExecutablePath -cne $exe){throw 'R438_ORIGINAL_CONTROLLER_NOT_RUNNING'}
+          $originalPID=$proc[0].ProcessId
+          $scratch=Join-Path $env:RUNNER_TEMP ('ckb-r438-native-'+$env:GITHUB_RUN_ID)
+          $destRoot=Join-Path $env:LOCALAPPDATA 'CKB-R438-Qualified-Candidates'
+          $dest=Join-Path $destRoot ('R438-'+$env:GITHUB_RUN_ID)
+          $pending=$dest+'.incomplete'
+          if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $dest) -or (Test-Path -LiteralPath $pending)){throw 'R438_SCRATCH_OR_DEST_COLLISION'}
+          New-Item -Path $scratch -ItemType Directory -ErrorAction Stop | Out-Null
+          try {
+            foreach($name in @('go.mod','go.sum')){Copy-Item -LiteralPath (Join-Path $root $name) -Destination (Join-Path $scratch $name) -ErrorAction Stop}
+            foreach($name in @('cmd','internal')){Copy-Item -LiteralPath (Join-Path $root $name) -Destination $scratch -Recurse -ErrorAction Stop}
+            $target=Join-Path $scratch 'internal\plane\autonomy.go'
+            $raw=[IO.File]::ReadAllText($target)
+            if($raw.Contains([string][char]13+$nl)){throw 'R438_ORIGINAL_EOL_DRIFT'}
+            $start=$raw.IndexOf('func (p *Engine) AutonomyTick(',[StringComparison]::Ordinal)
+            $end=$raw.IndexOf('func (p *Engine) startQueued(',$start,[StringComparison]::Ordinal)
+            if($start -lt 0 -or $end -le $start){throw 'R438_FUNCTION_BOUNDARY_DRIFT'}
+            $section=$raw.Substring($start,$end-$start)
+            $tab=[string][char]9
+            $old=$tab+'if len(blockers) > 0 {'+$nl+$tab+$tab+'return p.setSetting("autonomy_status", strings.Join(blockers, "; "))'+$nl+$tab+'}'+$nl
+            $anchor=$tab+'if waiting {'
+            if(($section.Split(@($old),[StringSplitOptions]::None).Length-1) -ne 1 -or ($section.Split(@($anchor),[StringSplitOptions]::None).Length-1) -ne 1){throw 'R438_PATCH_ANCHOR_DRIFT'}
+            $section=$section.Replace($old,'').Replace($anchor,$old+$anchor)
+            if($section.IndexOf($old) -lt $section.IndexOf('if item.State != "QUEUED"')){throw 'R438_PATCH_ORDERING_INVALID'}
+            [IO.File]::WriteAllText($target,$raw.Substring(0,$start)+$section+$raw.Substring($end),[Text.UTF8Encoding]::new($false))
+            Push-Location $scratch
+            try {
+              & gofmt -w $target
+              if($LASTEXITCODE -ne 0){throw 'R438_GO_FMT_FAILED'}
+              $binary=Join-Path $scratch 'ckb-plane-r438.exe'
+              & go.exe build -trimpath -o $binary ./cmd/ckb-plane
+              if($LASTEXITCODE -ne 0){throw 'R438_GO_BUILD_FAILED'}
+            } finally {Pop-Location}
+            $actual=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Output ('R438_BUILD_SHA256='+$actual)
+            if($actual -cne $expected){throw 'R438_BUILD_NOT_EXACT_R428_QUALIFIED_BINARY'}
+            Write-Output 'R438_QUALIFIED_R428_BINARY_REPRODUCED=PASS'
+            if(!(Test-Path -LiteralPath $destRoot)){New-Item -Path $destRoot -ItemType Directory -ErrorAction Stop | Out-Null}
+            New-Item -Path $pending -ItemType Directory -ErrorAction Stop | Out-Null
+            try {
+              $targetExe=Join-Path $pending 'ckb-plane.exe'
+              Copy-Item -LiteralPath $binary -Destination $targetExe -ErrorAction Stop
+              if((Get-FileHash -LiteralPath $targetExe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected){throw 'R438_STAGED_COPY_DRIFT'}
+              $record=[ordered]@{schema='ckb-plane.r438.inactive-exact-r428-candidate.v1';original_native_tree_sha256=$tree;installed_r220_sha256=$exeHash;qualified_r428_run=40483672646;candidate_sha256=$expected;r425_pr_head='b3f6c9f412d2212f8cbf74600d6618fe8fe380f8';fully_unfiltered_windows_tests='PASS';go_vet='PASS';promoted=$false;controller_restarted=$false;production_state_mutated=$false}
+              [IO.File]::WriteAllText((Join-Path $pending 'manifest.json'),($record|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
+              Move-Item -LiteralPath $pending -Destination $dest -ErrorAction Stop
+            } finally {if(Test-Path -LiteralPath $pending){Remove-Item -LiteralPath $pending -Recurse -Force -ErrorAction Stop}}
+            Write-Output ('R438_INACTIVE_CANDIDATE_DIR='+$dest)
+            Write-Output 'R438_EXACT_QUALIFIED_BINARY_STAGED=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
+          $after=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($after.Count -ne 1 -or $after[0].ProcessId -ne $originalPID){throw 'R438_RUNNING_PROCESS_CHANGED'}
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $exeHash){throw 'R438_R220_EXE_CHANGED'}
+          if((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant() -cne $nativeHash){throw 'R438_SOURCE_CHANGED'}
+          if((Get-FileHash -LiteralPath $active -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ptrBefore){throw 'R438_ACTIVE_POINTER_CHANGED'}
+          Write-Output 'R438_LIVE_SOURCE_EXECUTABLE_POINTER_AND_PROCESS_UNCHANGED=PASS'
