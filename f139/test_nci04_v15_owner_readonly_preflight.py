@@ -67,7 +67,7 @@ class OriginalOwnerV15ReadOnlyTests(unittest.TestCase):
         with patch("f139.nci04_v15_owner_readonly_preflight._original_state",
                    return_value=self.state):
             for key, new in (
-                ("event_seq", 275,
+                ("event_seq", 275),
                 ("event_head_sha256", "e" * 64),
                 ("v14_terminal_event_sha256", "e" * 64),
                 ("terminal_tasks_sha256", "e" * 64),
