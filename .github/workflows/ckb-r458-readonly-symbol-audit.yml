@@ -1,0 +1,42 @@
+name: CKB R458 read-only original-owner scheduler candidate startup symbols
+on:
+  push:
+    branches: [audit/ckb-r458-binary-startup-symbols-20261027]
+permissions:
+  contents: read
+jobs:
+  offline-symbol-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Determine whether exact R428 candidate includes strict or active-only startup recovery
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R458_OWNER_RUNNER_DRIFT'}
+          $candidate='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R440-TERMINAL-SCHEDULER-20261027\bin\ckb-plane.exe'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -cne '44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'){throw 'R458_QUALIFIED_CANDIDATE_DRIFT'}
+          if((Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash.ToLowerInvariant() -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){throw 'R458_RUNNING_ROLLBACK_BINARY_DRIFT'}
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $t=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($ps.Count -ne 1 -or $ps[0].ProcessId -ne 80088 -or [string]$ps[0].ExecutablePath -cne $old -or $t.Count -ne 1 -or [string]$t[0].State -cne 'Running'){throw 'R458_RUNNING_ORIGINAL_OWNER_DRIFT'}
+          $names=@('ListRecoveryCandidates','ListStatusMetadata','ListObservable','recoverInterrupted','ParseOrder','queueBlockers','AutonomyTick')
+          $counts=@{}
+          foreach($name in $names){$counts[$name]=0}
+          $nmOutput=& go.exe tool nm $candidate 2>&1
+          $nmCode=$LASTEXITCODE
+          if($nmCode -ne 0){Write-Output 'R458_GO_SYMBOL_TABLE_UNAVAILABLE=TRUE'}else{
+            foreach($line in $nmOutput){
+              $string=[string]$line
+              if($string -match '(?i)\bckb-plane/internal/plane\.'){
+                foreach($name in $names){
+                  if($string.Contains($name)){$counts[$name]++}
+                }
+              }
+            }
+            foreach($name in $names){Write-Output ('R458_CANDIDATE_SYMBOL_'+$name.ToUpperInvariant()+'_COUNT='+$counts[$name])}
+            Write-Output 'R458_SYMBOLS_READ_ONLY_EXACT_CANDIDATE=PASS'
+          }
+          Write-Output 'R458_PRODUCTION_SQLITE_TASK_AND_CONTROLLER_UNCHANGED=TRUE'
