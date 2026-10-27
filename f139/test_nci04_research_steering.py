@@ -95,6 +95,31 @@ class SteeringIntakeTests(unittest.TestCase):
                          legacy["candidates"][0]["issue_body"])
         self.assertEqual(guided["rejected"], [])
 
+    def test_source_bound_steering_selection_is_observable_and_non_authoritative(self):
+        p = self.fixture()
+        snapshots = [
+            prepare_feed(p.get, source_sha=p.original.source,
+                         existing_candidate_identities=set(), steering_get=p.get)
+            for _ in range(2)
+        ]
+        evidence = snapshots[0]["steering"]["selection_witness"]
+        self.assertEqual(evidence["schema"], "forge.f139.itd02-selection-witness.v1")
+        self.assertEqual(evidence["eligible_authenticated_count"], 1)
+        self.assertEqual(evidence["selected_authenticated_count"], 1)
+        self.assertEqual(evidence["selected_advisory_forecast_count"], 0)
+        self.assertFalse(evidence["selection_differs_from_catalog_prefix"])
+        self.assertRegex(evidence["source_selection_sha256"], r"^[a-f0-9]{64}$")
+        self.assertTrue(evidence["development_only"])
+        self.assertFalse(evidence["scientific_first_use"])
+        self.assertFalse(evidence["dispatch_authorized"])
+        self.assertEqual(evidence, snapshots[1]["steering"]["selection_witness"])
+        self.assertEqual(
+            [c["candidate_identity"] for c in snapshots[0]["candidates"]],
+            [c["candidate_identity"] for c in snapshots[1]["candidates"]])
+        self.assertEqual(
+            [c["issue_body"] for c in snapshots[0]["candidates"]],
+            [c["issue_body"] for c in snapshots[1]["candidates"]])
+
     def test_disabled_feed_does_not_read_guidance(self):
         p = self.fixture()
         p.original.policy["enabled"] = False
