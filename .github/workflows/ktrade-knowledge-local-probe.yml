@@ -1,0 +1,32 @@
+name: KTRADE knowledge local owner runner bounded probe
+on:
+  push:
+    branches:
+      - qualification/ktrade-knowledge-local-runner-probe-20261027
+    paths:
+      - .github/workflows/ktrade-knowledge-local-probe.yml
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Verify local runner and read-only private repository access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'self-hosted'){throw 'WRONG_RUNNER'}
+          Write-Host 'KTRADE_LOCAL_FORGE_RUNNER=PASS'
+          $gh=Get-Command gh -ErrorAction SilentlyContinue
+          if(-not $gh){throw 'GH_CLI_UNAVAILABLE'}
+          foreach($repo in @('spoonman136668-ai/ktrade','spoonman136668-ai/ktrade-knowledge')){
+            $output = & gh api ('repos/'+$repo) --jq '.full_name' 2>$null
+            if($LASTEXITCODE -ne 0 -or ($output -join '') -cne $repo){
+              Write-Host ('KTRADE_LOCAL_ACCESS_UNAVAILABLE='+($repo.Split('/')[-1]))
+              exit 1
+            }
+            Write-Host ('KTRADE_LOCAL_READ_ACCESS=PASS repo='+($repo.Split('/')[-1]))
+          }
+          Write-Host 'KTRADE_LOCAL_PROBE_NO_SOURCE_EXPORTED=PASS'
