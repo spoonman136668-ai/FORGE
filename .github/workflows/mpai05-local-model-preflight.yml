@@ -1,0 +1,46 @@
+name: MP-AI05 local private-model availability preflight
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths:
+      - '.github/workflows/mpai05-local-model-preflight.yml'
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 4
+    steps:
+      - name: Read-only bounded on-device inference capability survey
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI05_LOCAL_PREFLIGHT_WRONG_RUNNER'
+          }
+          # Existence checks only. Never enumerate files, tokens, credentials,
+          # model caches, processes, user paths, or private context.
+          $binaries = [ordered]@{
+            OLLAMA = 'ollama.exe'
+            LLAMA_SERVER = 'llama-server.exe'
+            LLAMA_CLI = 'llama-cli.exe'
+            LMSTUDIO = 'LM Studio.exe'
+            KOBOLDCPP = 'koboldcpp.exe'
+            NVIDIA_SMI = 'nvidia-smi.exe'
+          }
+          $found = 0
+          foreach($item in $binaries.GetEnumerator()){
+            $installed = @(Get-Command -Name $item.Value -CommandType Application -ErrorAction SilentlyContinue).Count -gt 0
+            if ($installed) { $found++ }
+            Write-Host ('MPAI05_LOCAL_'+$item.Key+'=' + $(if($installed){'PRESENT'}else{'NOT_IN_PATH'}))
+          }
+          # A binary's presence is not proof of a loaded model, approved
+          # provider privacy, available VRAM, speed, or inference access.
+          Write-Host 'MPAI05_PRIVATE_INFERENCE_AUTHORIZED=NOT_PROVEN'
+          Write-Host 'MPAI05_MODEL_LOADED=NOT_TESTED'
+          Write-Host 'MPAI05_PRIVATE_DATA_EXPORTED=FALSE'
+          Write-Host 'MPAI05_PAID_API_CALLS=0'
+          Write-Host 'MPAI05_NO_SCHEDULER_OR_CONTROLLER_ADDED=TRUE'
+          Write-Host 'MPAI05_PREFLIGHT_ONLY=COMPLETE'
