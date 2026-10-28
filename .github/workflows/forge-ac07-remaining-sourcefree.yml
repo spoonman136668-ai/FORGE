@@ -5,12 +5,14 @@ on:
       - research/ac07-remaining-originals-sourcefree-20261028
     paths:
       - 'research/ac07_sourcefree/**'
+      - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
   pull_request:
     branches:
       - research/ac06-restricted-originals-sourcefree-20261028
     paths:
       - 'research/ac07_sourcefree/**'
+      - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
 permissions:
   contents: read
@@ -77,11 +79,37 @@ jobs:
           print("AC07_ORIGINAL_COMPLEMENT_DEVELOPMENT=PASS")
           print("AC07_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
           PY
+      - name: Reconcile all 36 source-free candidates without scientific admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac08_portfolio.py > "$RUNNER_TEMP/ac07/portfolio.json"
+          python - "$RUNNER_TEMP/ac07/portfolio.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac08.portfolio-reconciliation.sourcefree.v1"
+          assert r["scope"]=="READ_ONLY_RECONCILIATION_OF_SYNTHETIC_DEVELOPMENT"
+          assert r["unique_claim_count"]==36
+          assert r["original_count"]==30 and r["native_hypothesis_count"]==6
+          assert len(r["portfolio_rows"])==36
+          assert len({x["claim_id"] for x in r["portfolio_rows"]})==36
+          assert r["physical_substitute_only_ids"]==["U03","U06"]
+          assert r["scientific_first_use_authorized"] is False
+          assert r["scientific_admission_authorized"] is False
+          assert r["model_promotion_authorized"] is False
+          assert r["controller_or_queue_changed"] is False
+          assert r["native_model_learning_superiority_proven"] is False
+          assert r["independent_itd02_consequence_source_verified"] is False
+          print("AC08_PORTFOLIO_36_OF_36_SOURCE_ONLY=PASS")
+          print("AC08_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
       - name: Retain source-free evidence per operating system
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: forge-ac07-${{ matrix.os }}-sourcefree-restricted
-          path: ${{ runner.temp }}/ac07/report.json
+          path: |
+            ${{ runner.temp }}/ac07/report.json
+            ${{ runner.temp }}/ac07/portfolio.json
           retention-days: 30
           if-no-files-found: error
