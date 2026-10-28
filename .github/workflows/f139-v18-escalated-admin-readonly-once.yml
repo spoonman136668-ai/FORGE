@@ -1,4 +1,4 @@
-name: FORGE F139 V18 escalated owner GitHub admin credential read-only probe
+name: FORGE F139 V18 single original owner GitHub release-ref admin lock attempt
 on:
   push:
     branches: [engineering/f139-v18-escalated-admin-readonly-20261028]
@@ -7,21 +7,23 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: forge-f139-v18-escalated-admin-readonly-20261028
+  group: forge-f139-v18-admin-lock-one-attempt-20261028
   cancel-in-progress: false
 jobs:
-  original-owner-readonly-admin-probe:
+  original-owner-admin-lock-once:
     if: >-
       github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/engineering/f139-v18-escalated-admin-readonly-20261028'
+      github.ref == 'refs/heads/engineering/f139-v18-escalated-admin-readonly-20261028' &&
+      github.event.head_commit.message == 'FORGE F139 V18 owner admin release-ref lock single attempt 20261028'
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Verify original escalated runner and existing GitHub administrator identity (read only)
+      - name: Validate original escalated owner identity, source, and local account
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -29,46 +31,60 @@ jobs:
           if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1') {
-            throw 'F139_V18_ADMIN_PROBE_RUNNER_OR_ATTEMPT_DRIFT'
+            throw 'F139_V18_ADMIN_LOCK_WRONG_RUNNER_OR_RETRY'
           }
-          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
-          if(-not [Security.Principal.WindowsPrincipal]::new($owner).IsInRole(
-               [Security.Principal.WindowsBuiltInRole]::Administrator)) {
-            throw 'F139_V18_ADMIN_PROBE_ESCALATED_WINDOWS_REQUIRED'
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+             [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'F139_V18_ADMIN_LOCK_ESCALATED_WINDOWS_REQUIRED'
           }
-          $head=(& git rev-parse HEAD | Out-String).Trim()
-          if($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA -or
-             @(& git status --porcelain --untracked-files=all).Count -ne 0) {
-            throw 'F139_V18_ADMIN_PROBE_SOURCE_NOT_CLEAN_AND_EXACT'
+          $sha=(& git rev-parse HEAD | Out-String).Trim()
+          $dirty=(& git status --porcelain --untracked-files=all | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne $env:GITHUB_SHA -or
+             $dirty.Length -ne 0) {
+            throw 'F139_V18_ADMIN_LOCK_SOURCE_NOT_EXACT'
           }
-          if(-not(Get-Command gh -ErrorAction SilentlyContinue)) {
-            Write-Host 'F139_V18_OWNER_GH_CLI=UNAVAILABLE'
-            return
-          }
-          # The app-provided GitHub workflow token does not include administration.
-          # Do not replace a preexisting local owner GitHub CLI session with it.
           foreach($name in @('GH_TOKEN','GITHUB_TOKEN','GH_ENTERPRISE_TOKEN','GITHUB_ENTERPRISE_TOKEN')) {
             Remove-Item -Path ("Env:"+$name) -ErrorAction SilentlyContinue
           }
           $env:GH_PROMPT_DISABLED='1'
-          $loginText= & gh api user --jq .login 2>$null
+          if(-not(Get-Command gh -ErrorAction SilentlyContinue)) {
+            throw 'F139_V18_ADMIN_LOCK_OWNER_GH_CLI_UNAVAILABLE'
+          }
+          $login=& gh api user --jq .login 2>$null
           if($LASTEXITCODE -ne 0 -or
-             [string]$loginText -cne 'spoonman136668-ai') {
-            Write-Host 'F139_V18_ESCALATED_OWNER_GH_LOGIN=NOT_CONFIRMED'
-            Write-Host 'F139_V18_ADMIN_PROTECTION_ACCESS=NOT_TESTED'
-            return
+             [string]$login -cne 'spoonman136668-ai') {
+            throw 'F139_V18_ADMIN_LOCK_STORED_OWNER_GH_LOGIN_MISSING'
           }
-          Write-Host 'F139_V18_ESCALATED_OWNER_GH_LOGIN=VERIFIED'
-          $mainProtection=& gh api repos/spoonman136668-ai/FORGE/branches/main/protection 2>$null
-          if($LASTEXITCODE -ne 0 -or -not $mainProtection) {
-            Write-Host 'F139_V18_ADMIN_PROTECTION_ACCESS=DENIED_OR_UNAVAILABLE'
-            return
+          Write-Host 'F139_V18_ADMIN_LOCK_ORIGINAL_ESCALATED_OWNER=PASS'
+          Write-Host 'F139_V18_ADMIN_LOCK_STORED_OWNER_GITHUB_LOGIN=PASS'
+      - name: Execute reviewed bounded administrator release-ref lock with original local GitHub CLI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          foreach($name in @('GH_TOKEN','GITHUB_TOKEN','GH_ENTERPRISE_TOKEN','GITHUB_ENTERPRISE_TOKEN')) {
+            Remove-Item -Path ("Env:"+$name) -ErrorAction SilentlyContinue
           }
-          $branch=& gh api repos/spoonman136668-ai/FORGE/branches/main --jq .commit.sha 2>$null
-          if($LASTEXITCODE -ne 0 -or
-             [string]$branch -cne '3775bed30891ff748197a539afe5b92813680e26') {
-            throw 'F139_V18_ADMIN_PROBE_PROTECTED_MAIN_MOVED'
+          $env:GH_PROMPT_DISABLED='1'
+          $head=(& git rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA) {
+            throw 'F139_V18_ADMIN_LOCK_EXACT_SOURCE_DRIFT'
           }
-          Write-Host 'F139_V18_ADMIN_PROTECTION_ACCESS=CONFIRMED_READ_ONLY'
-          Write-Host 'F139_V18_ADMIN_RULESET_MUTATION=FALSE'
-          Write-Host 'F139_V18_OWNER_TASK_OR_LEDGER_ACCESSED=FALSE'
+          # CI checks out detached; name a LOCAL branch so the reviewed
+          # administrator script can enforce its clean governance source guard.
+          & git switch -c governance/f139-release-ref-protection-20261028
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_V18_ADMIN_LOCK_LOCAL_GOVERNANCE_CHECKOUT_DENIED'
+          }
+          & pwsh -NoLogo -NoProfile -File scripts/Install-F139V18ReleaseRuleset.ps1
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_V18_ADMIN_LOCK_READONLY_PREFLIGHT_DENIED'
+          }
+          & pwsh -NoLogo -NoProfile -File scripts/Install-F139V18ReleaseRuleset.ps1 -Apply
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_V18_ADMIN_LOCK_GITHUB_ADMIN_WRITE_OR_VERIFICATION_DENIED'
+          }
+          Write-Host 'F139_V18_ADMIN_LOCK_RULESET_INSTALLED_AND_READBACK=PASS'
+          Write-Host 'F139_V18_ADMIN_LOCK_ORIGINAL_TASK_NOT_ACCESSED=TRUE'
+          Write-Host 'F139_V18_ADMIN_LOCK_SCIENTIFIC_FIRST_USE=FALSE'
