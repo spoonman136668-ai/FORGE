@@ -85,7 +85,25 @@ jobs:
               Invoke-PrivateQualification 'CURATED_VALIDATE' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tools/mind.ps1','validate')
               Invoke-PrivateQualification 'ARCHIVE_VALIDATE' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tools/archive.ps1','validate')
               Invoke-PrivateQualification 'FILE_LIBRARY_PILOT' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tools/collect.ps1','validate','-InputPath','pilots/file-library/2026-09-11.batch.json')
-              Invoke-PrivateQualification 'FULL_WINDOWS_REGRESSION' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tests/Test-All.ps1')
+              # Windows UQ51 synthetic nested Git fixture requires a short isolated TEMP root.
+              # Never alter system TEMP or another runner's paths outside this child process.
+              $shortTemp = Join-Path $env:SystemDrive ('m155-' + $env:GITHUB_RUN_ID)
+              $previousTemp = $env:TEMP
+              $previousTmp = $env:TMP
+              try {
+                if (Test-Path -LiteralPath $shortTemp) { throw 'MPGRAPH155_TEMP_COLLISION' }
+                New-Item -ItemType Directory -Path $shortTemp -ErrorAction Stop | Out-Null
+                $env:TEMP = $shortTemp
+                $env:TMP = $shortTemp
+                Write-Host 'MPGRAPH155_ISOLATED_SHORT_TEMP=PASS'
+                Invoke-PrivateQualification 'FULL_WINDOWS_REGRESSION' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tests/Test-All.ps1')
+              } finally {
+                $env:TEMP = $previousTemp
+                $env:TMP = $previousTmp
+                if (Test-Path -LiteralPath $shortTemp) {
+                  Remove-Item -LiteralPath $shortTemp -Force -Recurse -ErrorAction Stop
+                }
+              }
             } finally {
               Pop-Location
             }
