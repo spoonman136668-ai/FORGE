@@ -1,0 +1,183 @@
+name: MP-AI persisted production lesson cold local-model readback
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai-observed-lesson-local-model-readback.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai-observed-lesson-local-model-readback
+  cancel-in-progress: false
+jobs:
+  read-and-consume:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Real CPU inference on source-verified existing MCP output, no cloud/API costs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPAI_CONSUMER_NOT_ORIGINAL_RUNNER'}
+          $tmp=Join-Path $env:RUNNER_TEMP ('mpai-local-consumer-'+$env:GITHUB_RUN_ID)
+          $repo=Join-Path $tmp 'private-source'
+          try {
+            New-Item -ItemType Directory -Path $tmp -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $repo *> (Join-Path $tmp 'private-source-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI_CONSUMER_CLONE_FAILED'}
+            if((& git -C $repo rev-parse HEAD).Trim() -cne '7d980fc555a3ceeb5571e9481a768c61f5b1ac80'){throw 'MPAI_CONSUMER_MAIN_SOURCE_DRIFT'}
+            $env:MPAI_CONSUMER_ROOT=$repo
+            $env:MPAI_CONSUMER_TEMP=$tmp
+            $program=@'
+          import gc,hashlib,json,os,pathlib,shutil,socket,subprocess,sys,time,urllib.request
+          root=pathlib.Path(os.environ["MPAI_CONSUMER_ROOT"])
+          scratch=pathlib.Path(os.environ["MPAI_CONSUMER_TEMP"])
+          commit="7d980fc555a3ceeb5571e9481a768c61f5b1ac80"
+          records="fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742"
+          modelsha="74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+          modelurl=("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/"
+                    "qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true")
+          if hashlib.sha256((root/".ice/records.json").read_bytes()).hexdigest()!=records:
+              raise RuntimeError("MPAI_CONSUMER_ICE_SOURCE_DRIFT")
+          print('MPAI_LOCAL_STAGE=SOURCE_VERIFIED',flush=True)
+          model_file=scratch/"public-verified-qwen.gguf"
+          if shutil.disk_usage(str(scratch)).free<1700000000:
+              raise RuntimeError("MPAI_CONSUMER_DISK_BUDGET")
+          req=urllib.request.Request(modelurl,headers={"User-Agent":"MPAI-integrated-source-read-only/1"})
+          start=time.monotonic();n=0;h=hashlib.sha256()
+          with urllib.request.urlopen(req,timeout=40) as stream,model_file.open("xb") as out:
+              while True:
+                  block=stream.read(4*1024*1024)
+                  if not block:break
+                  n+=len(block)
+                  if n>510000000 or time.monotonic()-start>240:
+                      raise RuntimeError("MPAI_CONSUMER_WEIGHT_DOWNLOAD_BOUNDS")
+                  h.update(block);out.write(block)
+          print('MPAI_LOCAL_STAGE=MODEL_DOWNLOADED',flush=True)
+          if n!=491400032 or h.hexdigest()!=modelsha:
+              raise RuntimeError("MPAI_CONSUMER_MODEL_SHA_MISMATCH")
+          if model_file.read_bytes()[:4]!=b"GGUF":
+              raise RuntimeError("MPAI_CONSUMER_MODEL_MAGIC")
+          os.environ["HF_HUB_OFFLINE"]="1"
+          def no_net(*args,**kwargs):raise RuntimeError("MPAI_CONSUMER_NO_NETWORK_AFTER_PUBLIC_WEIGHTS")
+          print('MPAI_LOCAL_STAGE=MODEL_HASH_VERIFIED',flush=True)
+          socket.socket=no_net
+          task="What were the legacy and tiered retrieval input token counts in the Mind-Palace eight-question development study, and was factual accuracy independently graded?"
+          def packet(i,method,params):
+              return {"jsonrpc":"2.0","id":i,"method":method,"params":params}
+          args={"source_sha":commit,"query":task,"projects":["Mind-Palace"],"profile":"architecture"}
+          exp={"schema":"mind-palace.mpai01-observations.v1","source_sha":commit,"observations":[
+               {"event_id":"synthetic-transport-a","agent_class":"independent-agent","task_id":"dev-transport-a","failure_code":"source_clarity","source_ref":"synthetic:mcp-test-a","source_sha":commit,"result":"failure"},
+               {"event_id":"synthetic-transport-b","agent_class":"independent-agent","task_id":"dev-transport-b","failure_code":"source_clarity","source_ref":"synthetic:mcp-test-b","source_sha":commit,"result":"failure"}]}
+          calls=[
+              packet(1,"initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"actual-local-qwen-development-consumer","version":"1"}}),
+              packet(2,"tools/call",{"name":"mindpalace_bootstrap","arguments":{"source_sha":commit}}),
+              packet(3,"tools/call",{"name":"mindpalace_recall","arguments":args}),
+              packet(4,"tools/call",{"name":"mindpalace_improvement_cycle","arguments":{"source_sha":commit,"project":"Mind-Palace","task":task,"experience":exp}})
+          ]
+          argv=[sys.executable,"-B","-u",str(root/"tools/mindpalace_mcp.py"),"--root",str(root),"--source",commit,
+                "--project","Mind-Palace","--transport","stdio"]
+          print('MPAI_LOCAL_STAGE=MCP_INVOCATION',flush=True)
+          result=subprocess.run(argv,cwd=str(root),input="\n".join(json.dumps(x) for x in calls)+"\n",
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,encoding="utf-8",errors="replace",timeout=50,check=False)
+          if result.returncode!=0 or len(result.stdout.splitlines())!=4:
+              raise RuntimeError("MPAI_CONSUMER_MCP_SESSION_FAILED")
+          replies={r["id"]:r for r in (json.loads(line) for line in result.stdout.splitlines())}
+          if replies[1].get("result",{}).get("protocolVersion")!="2025-06-18":
+              raise RuntimeError("MPAI_CONSUMER_MCP_PROTOCOL")
+          def value(i):
+              row=replies[i]
+              if "error" in row:raise RuntimeError("MPAI_CONSUMER_SOURCE_TOOL_REJECTED")
+              return json.loads(row["result"]["content"][0]["text"])
+          bootstrap=value(2);recall=value(3);cycle=value(4)
+          if (recall.get("source_sha")!=commit or recall.get("records_sha256")!=records
+              or cycle.get("source_sha")!=commit or cycle.get("records_sha256")!=records):
+              raise RuntimeError("MPAI_CONSUMER_CONTEXT_IDENTITY")
+          if cycle.get("phase")!="PROPOSE_ONLY" or cycle.get("deployment_authorized") is not False or cycle.get("feedback",{}).get("durable_memory_write") is not False:
+              raise RuntimeError("MPAI_CONSUMER_UNTRUSTED_PROMOTION")
+          eligible=recall.get("governance",[])+recall.get("matches",[])
+          lesson=[x for x in eligible if x.get("id")=="lesson/mpai-hindsight-h2-development-context-efficiency-20261028"]
+          if len(lesson)!=1 or lesson[0].get("status")!="observed":
+              raise RuntimeError("MPAI_CONSUMER_MISSING_OBSERVED_FEEDBACK")
+          statement=lesson[0].get("statement","")
+          if not all(x in statement for x in ("3,513", "1,665", "no independent factual accuracy grades")):
+              raise RuntimeError("MPAI_CONSUMER_FEEDBACK_EVIDENCE_UNSAFE")
+          text=statement[:2100]
+          if len(text)<100:raise RuntimeError("MPAI_CONSUMER_EMPTY_REAL_CONTEXT")
+          print('MPAI_LOCAL_STAGE=MCP_RESULTS_VERIFIED',flush=True)
+          from llama_cpp import Llama
+          model=Llama(model_path=str(model_file),n_ctx=2048,n_gpu_layers=0,n_threads=4,n_batch=128,seed=137,verbose=False)
+          prompt=("Answer from the following verified source-backed context only. If uncertain, say so.\nEvidence:\n"+
+                  text+"\nQuestion: "+task+"\nAnswer:")
+          start=time.monotonic()
+          output=model.create_completion(prompt=prompt,max_tokens=128,temperature=0.0,top_p=1.0)
+          ms=int((time.monotonic()-start)*1000)
+          print('MPAI_LOCAL_STAGE=MODEL_CALLED',flush=True)
+          answer=output["choices"][0].get("text","")
+          if not isinstance(answer,str) or not answer.strip():raise RuntimeError("MPAI_CONSUMER_MODEL_ANSWER_EMPTY")
+          usage=output.get("usage",{})
+          if int(usage.get("prompt_tokens",0))<10 or int(usage.get("completion_tokens",0))<1:
+              raise RuntimeError("MPAI_CONSUMER_TOKENS_MISSING")
+          normalized=answer.replace(",", "").lower()
+          accuracy_fact_credit=int("3513" in normalized and "1665" in normalized)
+          caveat_fact_credit=int(any(word in normalized for word in ("not grad", "no grad", "not assess", "not evaluat", "not proven", "not verif")))
+          print("MPAI_LOCAL_DEV_ONLY_FACT_CREDITS="+str(accuracy_fact_credit+caveat_fact_credit))
+          print("MPAI_LOCAL_DEV_ONLY_BLIND_GRADING=FALSE")
+          print("MPAI_MERGED_SOURCE_MCP_PROTOCOL=PASS")
+          print("MPAI_REAL_MODEL_READ_SAME_SOURCE_RECORD_DIGEST=PASS")
+          print("MPAI_REAL_MODEL_READ_OBSERVED_FEEDBACK=PASS")
+          print("MPAI_REAL_LOCAL_GGUF_MODEL_INFERENCE=PASS")
+          print("MPAI_REAL_MODEL_PROMPT_TOKENS="+str(usage["prompt_tokens"]))
+          print("MPAI_REAL_MODEL_OUTPUT_TOKENS="+str(usage["completion_tokens"]))
+          print("MPAI_REAL_MODEL_GENERATION_MS="+str(ms))
+          print("MPAI_MCP_INTEGRATED_REFLECT_PROPOSE=PASS_SYNTHETIC_OBSERVATIONS")
+          print("MPAI_REAL_CHATGPT_MCP_CONNECTION=NOT_PROVEN")
+          print("MPAI_INDEPENDENT_PROVIDER_RUNTIME_ATTESTATION=NOT_PROVISIONED")
+          print("MPAI_AGENTS_LEARNED_IMPROVEMENT=NOT_PROVEN")
+          print("MPAI_PRIVATE_TEXT_IN_PUBLIC_LOGS=FALSE")
+          print("MPAI_PRODUCTION_AND_ICE_WRITES=0")
+          '@
+            $privateLog=Join-Path $tmp 'real-private-model.log'
+            $program | & python -B -c "import sys;exec(sys.stdin.read())" *> $privateLog
+            if($LASTEXITCODE -ne 0){
+              $safeText=[IO.File]::ReadAllText($privateLog)
+              $stages=[regex]::Matches($safeText,'MPAI_LOCAL_STAGE=[A-Z_]+')
+              foreach($stage in $stages){Write-Host $stage.Value}
+              $codes=[regex]::Matches($safeText,'MPAI_CONSUMER_[A-Z0-9_]+')
+              $unique=@($codes | ForEach-Object {$_.Value} | Sort-Object -Unique)
+              $types=[regex]::Matches($safeText,'(?m)^([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception)):')
+              foreach($t in $types){Write-Host ('MPAI_LOCAL_CONSUMER_EXCEPTION_TYPE='+$t.Groups[1].Value)}
+              if($unique.Count -lt 1 -and $types.Count -eq 0){Write-Host 'MPAI_LOCAL_CONSUMER_SAFE_FAILURE=UNKNOWN_RUNTIME'}
+              foreach($code in $unique){Write-Host ('MPAI_LOCAL_CONSUMER_SAFE_FAILURE='+$code)}
+              throw 'MPAI_CONSUMER_MODEL_OR_MCP_FAILED'
+            }
+            $log=[IO.File]::ReadAllText($privateLog)
+            foreach($marker in @('MPAI_MERGED_SOURCE_MCP_PROTOCOL=PASS','MPAI_REAL_MODEL_READ_SAME_SOURCE_RECORD_DIGEST=PASS','MPAI_REAL_MODEL_READ_OBSERVED_FEEDBACK=PASS','MPAI_REAL_LOCAL_GGUF_MODEL_INFERENCE=PASS','MPAI_MCP_INTEGRATED_REFLECT_PROPOSE=PASS_SYNTHETIC_OBSERVATIONS')){
+              if(-not $log.Contains($marker)){throw 'MPAI_CONSUMER_ACCEPTANCE_MARKER_MISSING'}
+              Write-Host $marker
+            }
+            foreach($label in @('MPAI_REAL_MODEL_PROMPT_TOKENS','MPAI_REAL_MODEL_OUTPUT_TOKENS','MPAI_REAL_MODEL_GENERATION_MS','MPAI_LOCAL_DEV_ONLY_FACT_CREDITS')){
+              $match=[regex]::Match($log,'(?m)^'+$label+'=([0-9]{1,8})\r?$')
+              if(-not $match.Success){throw 'MPAI_CONSUMER_METRIC_MISSING'}
+              Write-Host ($label+'='+$match.Groups[1].Value)
+            }
+            Write-Host 'MPAI_REAL_CHATGPT_MCP_CONNECTION=NOT_PROVEN'
+            Write-Host 'MPAI_INDEPENDENT_PROVIDER_RUNTIME_ATTESTATION=NOT_PROVISIONED'
+            Write-Host 'MPAI_AGENTS_LEARNED_IMPROVEMENT=NOT_PROVEN'
+            Write-Host 'MPAI_PRIVATE_TEXT_IN_PUBLIC_LOGS=FALSE'
+            Write-Host 'MPAI_PRODUCTION_AND_ICE_WRITES=0'
+            if(@(& git -C $repo status --porcelain --untracked-files=all).Count -ne 0){throw 'MPAI_CONSUMER_SOURCE_MUTATED'}
+            Write-Host 'MPAI_REAL_CONSUMER_SOURCE_CLEAN=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction Stop}
+          }
