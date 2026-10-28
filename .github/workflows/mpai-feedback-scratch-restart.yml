@@ -1,0 +1,126 @@
+name: MP-AI governed feedback scratch checkpoint and cold restart
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai-feedback-scratch-restart.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai-feedback-scratch-restart
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Original collector-to-checkpoint-to-recall through isolated, disposable clone only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPAI_FEEDBACK_CUSTODY_WRONG_RUNNER'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai-feedback-restart-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $scratch 'disposable-clone'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $scratch 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_CLONE_FAILED'}
+            $original='18eacf4e7da3eeb3bd18914c3d29c9d40398fb66'
+            if((& git -C $src rev-parse HEAD).Trim() -cne $original){throw 'MPAI_FEEDBACK_ORIGINAL_MAIN_MOVED'}
+            if((& git -C $src rev-parse 'HEAD^{tree}').Trim() -cne 'e13509ce33608bbdce96e1e9e41e5a3be5d410f0'){throw 'MPAI_FEEDBACK_TREE_DRIFT'}
+            $records=Join-Path $src '.ice/records.json'
+            $ledger=Join-Path $src '.ice/source-ledger.json'
+            $originalHash='e5066b28ae03b2a6b7c82953a173013e690cf8fe66d5f5bfec6a81dd790409fa'
+            if((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash.ToLowerInvariant() -cne $originalHash){throw 'MPAI_FEEDBACK_ICE_ORIGINAL_MISMATCH'}
+            $before=@((Get-Content -LiteralPath $records -Raw | ConvertFrom-Json))
+            $batch=Join-Path $src 'pilots/mixed-source/2026-10-28-mpai-real-development-feedback.batch.json'
+            $candidate='lesson/mpai-hindsight-h2-development-context-efficiency-20261028'
+            if(@($before | Where-Object { [string]$_.id -ceq $candidate }).Count -ne 0){throw 'MPAI_FEEDBACK_ALREADY_IN_ACCEPTED_MEMORY'}
+            $collect=Join-Path $src 'tools/collect.ps1'
+            $ledgerTool=Join-Path $src 'tools/source-ledger.ps1'
+            $mind=Join-Path $src 'tools/mind.ps1'
+            $sourceCheckLog=Join-Path $scratch 'source-check-private.log'
+            & pwsh.exe -NoProfile -NonInteractive -File $ledgerTool check -BatchPath $batch *> $sourceCheckLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_SOURCE_LEDGER_PRECHECK_FAILED'}
+            $pre=(Get-Content -LiteralPath $sourceCheckLog -Raw | ConvertFrom-Json)
+            if([int]$pre.primary_sources -ne 1 -or [int]$pre.unprocessed -ne 1){throw 'MPAI_FEEDBACK_SOURCE_ALREADY_PROCESSED'}
+            Write-Host 'MPAI_FEEDBACK_SCRATCH_UNPROCESSED_PRIMARY=PASS'
+            $classLog=Join-Path $scratch 'classify-private.json'
+            & pwsh.exe -NoProfile -NonInteractive -File $collect classify -InputPath $batch *> $classLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_CLASSIFY_FAILED'}
+            $classification=(Get-Content -LiteralPath $classLog -Raw | ConvertFrom-Json)
+            $rows=@($classification.result.results | Where-Object { [string]$_.candidate_id -ceq $candidate })
+            if($rows.Count -ne 1 -or [string]$rows[0].action -cne 'new' -or [int]$classification.result.counts.review -ne 0){throw 'MPAI_FEEDBACK_NEW_CLASSIFICATION_REQUIRED'}
+            $stageLog=Join-Path $scratch 'stage-private.log'
+            & pwsh.exe -NoProfile -NonInteractive -File $collect stage -InputPath $batch *> $stageLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_STAGE_FAILED'}
+            $staged=(Get-Content -LiteralPath $stageLog -Raw | ConvertFrom-Json)
+            if([int]$staged.result.counts.new -ne 1 -or [int]$staged.result.counts.review -ne 0){throw 'MPAI_FEEDBACK_STAGE_ACTION_MISMATCH'}
+            $pending=Join-Path $src '.mind-runtime/pending.jsonl'
+            if(-not(Test-Path -LiteralPath $pending)){throw 'MPAI_FEEDBACK_PENDING_NOT_FOUND'}
+            $pendingRecords=@(Get-Content -LiteralPath $pending | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })
+            if($pendingRecords.Count -ne 1 -or [string]$pendingRecords[0].id -cne $candidate -or [string]$pendingRecords[0].status -cne 'candidate'){throw 'MPAI_FEEDBACK_PENDING_CUSTODY_INVALID'}
+            Write-Host 'MPAI_FEEDBACK_ORIGINAL_COLLECTOR_STAGED=PASS'
+            $recordLog=Join-Path $scratch 'ledger-private.log'
+            & pwsh.exe -NoProfile -NonInteractive -File $ledgerTool record -BatchPath $batch -ClassificationPath $classLog *> $recordLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_LEDGER_RECORD_FAILED'}
+            $recorded=(Get-Content -LiteralPath $recordLog -Raw | ConvertFrom-Json)
+            if([int]$recorded.entries_added -ne 1){throw 'MPAI_FEEDBACK_LEDGER_ENTRY_MISSING'}
+            $checkLog=Join-Path $scratch 'ledger-check-private.log'
+            & pwsh.exe -NoProfile -NonInteractive -File $ledgerTool check -BatchPath $batch *> $checkLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_LEDGER_RECHECK_FAILED'}
+            $checked=(Get-Content -LiteralPath $checkLog -Raw | ConvertFrom-Json)
+            if([int]$checked.known -ne 1 -or [int]$checked.unprocessed -ne 0){throw 'MPAI_FEEDBACK_REPLAY_LEDGER_DRIFT'}
+            Write-Host 'MPAI_FEEDBACK_SCRATCH_SOURCE_LEDGER_REPLAY_GUARD=PASS'
+            $checkpointLog=Join-Path $scratch 'checkpoint-private.log'
+            & pwsh.exe -NoProfile -NonInteractive -File $mind checkpoint *> $checkpointLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_DISPOSABLE_CHECKPOINT_FAILED'}
+            $checkpoint=Get-Content -LiteralPath $checkpointLog -Raw
+            if(-not $checkpoint.Contains('promoted=1') -or -not $checkpoint.Contains('retired=0')){throw 'MPAI_FEEDBACK_PROMOTION_RECEIPT_BAD'}
+            $updated=@((Get-Content -LiteralPath $records -Raw | ConvertFrom-Json))
+            $lesson=@($updated | Where-Object { [string]$_.id -ceq $candidate })
+            if($updated.Count -ne ($before.Count + 1) -or $lesson.Count -ne 1 -or
+              [string]$lesson[0].status -cne 'observed' -or
+              -not [string]$lesson[0].statement.Contains('no independent factual accuracy grades')){
+              throw 'MPAI_FEEDBACK_NEGATIVE_EVIDENCE_NOT_RETAINED'
+            }
+            $queryLog=Join-Path $scratch 'independent-pwsh-process-read-private.log'
+            & pwsh.exe -NoProfile -NonInteractive -File $mind query -Project 'Mind-Palace' -Text 'development context efficiency local model prompt tokens tiered retrieval 3513 1665' -Limit 50 *> $queryLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_NEW_PROCESS_RECALL_FAILED'}
+            $query=(Get-Content -LiteralPath $queryLog -Raw | ConvertFrom-Json)
+            $hits=@($query.results | Where-Object { [string]$_.id -ceq $candidate })
+            if($hits.Count -ne 1 -or [string]$hits[0].status -cne 'observed'){throw 'MPAI_FEEDBACK_COLD_PROCESS_QUERY_MISSING'}
+            $validateLog=Join-Path $scratch 'post-checkpoint-validation-private.log'
+            & pwsh.exe -NoProfile -NonInteractive -File $mind validate *> $validateLog
+            if($LASTEXITCODE -ne 0 -or -not (Get-Content -LiteralPath $validateLog -Raw).Contains('Mind-Palace validation passed')){throw 'MPAI_FEEDBACK_COLD_RESTART_VALIDATION_FAILED'}
+            Write-Host 'MPAI_FEEDBACK_DISPOSABLE_CHECKPOINT=ONE_OBSERVED_LESSON'
+            Write-Host 'MPAI_FEEDBACK_NEGATIVE_FINDING_PRESERVED=PASS'
+            Write-Host 'MPAI_FEEDBACK_NEW_PROCESS_RECALL=PASS'
+            $recheckLog=Join-Path $scratch 'replay-private.log'
+            & pwsh.exe -NoProfile -NonInteractive -File $collect classify -InputPath $batch *> $recheckLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_REPLAY_CLASSIFY_FAILED'}
+            $recheck=(Get-Content -LiteralPath $recheckLog -Raw | ConvertFrom-Json)
+            $again=@($recheck.result.results | Where-Object { [string]$_.candidate_id -ceq $candidate })
+            if($again.Count -ne 1 -or [string]$again[0].action -cne 'merge'){throw 'MPAI_FEEDBACK_REPLAY_NOT_DEDUPLICATED'}
+            Write-Host 'MPAI_FEEDBACK_REPLAY_CLASSIFICATION=MERGE_NOT_DUPLICATE'
+            $dirty=@(& git -C $src status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or (@($dirty | Sort-Object) -join '|') -cne (@(' M .ice/records.json',' M .ice/source-ledger.json') | Sort-Object) -join '|'){throw 'MPAI_FEEDBACK_SCRATCH_UNEXPECTED_TRACKED_CHANGE'}
+            Write-Host 'MPAI_FEEDBACK_SCRATCH_ONLY_TWO_DURABLE_FILES=PASS'
+            Write-Host 'MPAI_FEEDBACK_REAL_SOURCE_CHECKPOINTED_IN_PRODUCTION=FALSE'
+            Write-Host 'MPAI_FEEDBACK_APPROVED_REPO_SOURCE_WRITER_AUTHORITY=NOT_PRESENT'
+            Write-Host 'MPAI_FEEDBACK_PUBLIC_PRIVATE_TEXT=NONE'
+            Write-Host 'MPAI_FEEDBACK_MODEL_CALLS=0'
+            Write-Host 'MPAI_FEEDBACK_PRODUCTION_REPO_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse -ErrorAction Stop}
+            Write-Host ('MPAI_FEEDBACK_DISPOSABLE_SCRATCH_REMOVED='+$(if(Test-Path -LiteralPath $scratch){'FALSE'}else{'TRUE'}))
+          }
