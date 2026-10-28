@@ -1474,6 +1474,12 @@ class Database:
         from f139.nci04_v19_original_one_post_handoff import (
             audit_v19_post_handoff_events)
         audit_v19_post_handoff_events(self)
+        # V19 proposed one-shot transport is never in the original tick. A
+        # separately held original owner may only send after a committed
+        # terminal+intent+handoff+send-attempt chain, cold verified here.
+        from f139.nci04_v19_original_one_shot_free_send import (
+            audit_v19_send_events)
+        audit_v19_send_events(self)
 
     @contextlib.contextmanager
     def transaction(self):
