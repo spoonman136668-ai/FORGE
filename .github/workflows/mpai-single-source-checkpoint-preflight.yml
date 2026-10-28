@@ -1,0 +1,96 @@
+name: MP-AI exact source feedback canonical checkpoint preflight
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai-single-source-checkpoint-preflight.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai-single-source-checkpoint-preflight
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Original writer scratch apply canonical snapshots and update-checkpoint validate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'MPAI_AUTH_WRONG_RUNNER'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai-source-preflight-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $scratch 'repo'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $scratch 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI_AUTH_CLONE_FAILED'}
+            if((& git -C $src rev-parse HEAD).Trim() -cne '18eacf4e7da3eeb3bd18914c3d29c9d40398fb66'){throw 'MPAI_AUTH_SOURCE_MOVED'}
+            $batch=Join-Path $src 'pilots/mixed-source/2026-10-28-mpai-real-development-feedback.batch.json'
+            if((& git -C $src rev-parse 'HEAD:pilots/mixed-source/2026-10-28-mpai-real-development-feedback.batch.json').Trim() -cne '2dd23b52a4e0af9d193e6e1ca536581cdaa3d8e9'){throw 'MPAI_AUTH_BATCH_BLOB_DRIFT'}
+            $proposal=Get-Content -LiteralPath $batch -Raw | ConvertFrom-Json
+            if(@($proposal.candidates).Count -ne 1 -or $proposal.candidates[0].key -cne 'mpai-hindsight-h2-development-context-efficiency-20261028' -or
+               $proposal.sources[0].ref -cne 'https://github.com/spoonman136668-ai/FORGE/actions/runs/40606525917' -or
+               $proposal.candidates[0].details.improvement_quality_proven -ne $false -or
+               $proposal.candidates[0].details.independent_provider_authenticated -ne $false -or
+               $proposal.candidates[0].details.holdout_first_use_authenticated -ne $false) {throw 'MPAI_AUTH_UNQUALIFIED_SOURCE'}
+            $orig='e5066b28ae03b2a6b7c82953a173013e690cf8fe66d5f5bfec6a81dd790409fa'
+            if((Get-FileHash -LiteralPath (Join-Path $src '.ice/records.json') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $orig){throw 'MPAI_AUTH_ORIGINAL_MEMORY_CHANGED'}
+            $cLog=Join-Path $scratch 'private-class.json'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $src 'tools/collect.ps1') classify -InputPath $batch *> $cLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_AUTH_CLASSIFY_FAILED'}
+            $c=Get-Content -LiteralPath $cLog -Raw | ConvertFrom-Json
+            if([int]$c.result.counts.new -ne 1 -or [int]$c.result.counts.review -ne 0 -or [int]$c.candidate_count -ne 1){throw 'MPAI_AUTH_CLASSIFY_NOT_ONE_NEW'}
+            Write-Host 'MPAI_AUTH_EXACT_SOURCE_CLASSIFY=ONE_NEW'
+            $stage=Join-Path $scratch 'private-stage.json'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $src 'tools/collect.ps1') stage -InputPath $batch *> $stage
+            if($LASTEXITCODE -ne 0){throw 'MPAI_AUTH_STAGE_FAILED'}
+            $ledgerLog=Join-Path $scratch 'private-ledger.json'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $src 'tools/source-ledger.ps1') record -BatchPath $batch -ClassificationPath $cLog *> $ledgerLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_AUTH_LEDGER_RECORD_FAILED'}
+            $l=Get-Content -LiteralPath $ledgerLog -Raw | ConvertFrom-Json
+            if([int]$l.entries_added -ne 1){throw 'MPAI_AUTH_SOURCE_LEDGER_COUNT'}
+            $checkpointLog=Join-Path $scratch 'private-mind-checkpoint.log'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $src 'tools/mind.ps1') checkpoint *> $checkpointLog
+            if($LASTEXITCODE -ne 0 -or -not ([IO.File]::ReadAllText($checkpointLog)).Contains('promoted=1')){throw 'MPAI_AUTH_CHECKPOINT_NOT_SINGLE'}
+            $newMemory=@(Get-Content -LiteralPath (Join-Path $src '.ice/records.json') -Raw | ConvertFrom-Json)
+            $lesson=@($newMemory | Where-Object {$_.id -ceq 'lesson/mpai-hindsight-h2-development-context-efficiency-20261028'})
+            if($lesson.Count -ne 1 -or $lesson[0].status -cne 'observed' -or
+              -not $lesson[0].statement.Contains('no independent factual accuracy grades')){throw 'MPAI_AUTH_QUALITY_NEGATIVE_LOST'}
+            Write-Host 'MPAI_AUTH_ONE_OBSERVED_REVIEWED_SCOPE=PASS'
+            $snapLog=Join-Path $scratch 'private-canonical-render.log'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $src 'tools/remote-snapshot.ps1') -RepoRoot $src *> $snapLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_AUTH_CANONICAL_SNAPSHOT_RENDER_FAILED'}
+            Write-Host 'MPAI_AUTH_CANONICAL_REMOTE_SNAPSHOTS=REGENERATED'
+            $validateLog=Join-Path $scratch 'private-checkpoint-validation.log'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $src 'tools/update-checkpoint.ps1') validate *> $validateLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_AUTH_ORIGINAL_UPDATE_CHECKPOINT_VALIDATE_FAILED'}
+            $validated=Get-Content -LiteralPath $validateLog -Raw | ConvertFrom-Json
+            if($validated.schema -cne 'mind-palace.update-checkpoint-result.v1' -or $validated.status -cne 'ready' -or $validated.ready -ne $true){throw 'MPAI_AUTH_WRITER_NOT_READY'}
+            Write-Host 'MPAI_AUTH_ORIGINAL_UPDATE_CHECKPOINT_VALIDATE=PASS'
+            $paths=@(& git -C $src diff --name-only)
+            if($LASTEXITCODE -ne 0){throw 'MPAI_AUTH_GIT_STATUS_FAILED'}
+            $allowed=@('.ice/records.json','.ice/source-ledger.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            if(@($paths | Where-Object {$allowed -cnotcontains $_}).Count -ne 0 -or $paths -cnotcontains '.ice/source-ledger.json' -or $paths -cnotcontains '.ice/records.json'){throw 'MPAI_AUTH_UNEXPECTED_MEMORY_DELTA'}
+            $again=Join-Path $scratch 'private-replay.json'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $src 'tools/collect.ps1') classify -InputPath $batch *> $again
+            if($LASTEXITCODE -ne 0){throw 'MPAI_AUTH_REPLAY_FAILED'}
+            $reclassified=Get-Content -LiteralPath $again -Raw | ConvertFrom-Json
+            if([int]$reclassified.result.counts.merge -ne 1 -or [int]$reclassified.result.counts.new -ne 0){throw 'MPAI_AUTH_REPLAY_DUPLICATE'}
+            Write-Host 'MPAI_AUTH_REPEAT_SOURCE=MERGE_NOT_DUPLICATE'
+            Write-Host 'MPAI_AUTH_PRODUCTION_MAIN_UNCHANGED=TRUE'
+            Write-Host 'MPAI_AUTH_PRIVATE_MEMORY_BYTES_NOT_EXPORTED=TRUE'
+            Write-Host 'MPAI_AUTH_MODEL_CALLS=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Write-Host ('MPAI_AUTH_PRIVATE_SCRATCH_REMOVED='+$(if(Test-Path -LiteralPath $scratch){'FALSE'}else{'TRUE'}))
+          }
