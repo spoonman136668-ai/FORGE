@@ -97,6 +97,8 @@ def run(output):
         summaries[case]={
             "claim_ids":prior.IDS[case],
             "cpu_ratio_candidate_over_baseline":median(c,"cpu_ns")/denom if denom>0 else None,
+            "cpu_ratio_status":"VALID" if denom>0 else "ZERO_BASELINE_TIMER_RESOLUTION",
+            "wall_ratio_candidate_over_baseline":median(c,"wall_ns")/median(b,"wall_ns") if median(b,"wall_ns")>0 else None,
             "baseline_cpu_median_ns":median(b,"cpu_ns"),
             "candidate_cpu_median_ns":median(c,"cpu_ns"),
             "baseline_wall_median_ns":median(b,"wall_ns"),

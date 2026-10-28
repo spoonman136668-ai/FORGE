@@ -48,3 +48,7 @@ After the exact GitHub candidate jobs succeed, record the per-platform result id
 ## Windows checkout newline correction
 
 The second run demonstrated Linux success and Windows test rejection solely at the raw checkout SHA-256 invariant: Windows checkout represented an unchanged Git blob with CRLF. The bounded repair pins both the original Git blob SHA and SHA-256 of `git show HEAD:research/ac03_sourcefree/ac03_benchmark.py` canonical committed bytes. It does not weaken source identity, modify AC-03 methods, rerun used science, or reinterpret missing Windows measurements as a scientific negative. Requalification against the corrected exact head is mandatory.
+
+## Windows CPU timer limitation
+
+The third run [#40780191248](https://github.com/spoonman136668-ai/FORGE/actions/runs/40780191248) passed both OS test sets and executed 66 isolated benchmark samples per OS. Linux source-only qualification/artifact succeeded. Windows output passed execution but failed a report-only assertion requiring every CPU ratio to be non-null. Its CPU timer can report a zero baseline for very short Python workloads. This is an **instrumentation limitation**, not a scientific negative or proof of CPU speedup. The bounded repair now reports `cpu_ratio_candidate_over_baseline=null` with `cpu_ratio_status=ZERO_BASELINE_TIMER_RESOLUTION` and preserves measured wall-clock ratios separately. No fabricated CPU ratios or missing memory measurements are permitted. Corrected cross-OS rerun still required.

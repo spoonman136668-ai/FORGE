@@ -76,7 +76,14 @@ jobs:
           assert len(j["source_results"])==66
           assert len(j["summaries"])==11
           assert all(len([x for x in j["source_results"] if x["case"]==case])==6 for case in j["summaries"])
-          assert all(s["cpu_ratio_candidate_over_baseline"] is not None for s in j["summaries"].values())
+          assert all(
+              (s["cpu_ratio_candidate_over_baseline"] is not None and s["cpu_ratio_status"]=="VALID")
+              or (s["cpu_ratio_candidate_over_baseline"] is None and
+                  s["cpu_ratio_status"]=="ZERO_BASELINE_TIMER_RESOLUTION")
+              for s in j["summaries"].values())
+          assert all(s["wall_ratio_candidate_over_baseline"] is not None for s in j["summaries"].values())
+          missing=[k for k,s in j["summaries"].items() if s["cpu_ratio_candidate_over_baseline"] is None]
+          print("AC04_CPU_RATIO_TIMER_LIMITED_CASES="+",".join(missing))
           assert j["ac03_source_sha256"]=="b4295236b37b6b017841a863ab8fd551fee26cdafa8f5b02a4d80afdc78f2c5d"
           print("AC04_SOURCEFREE_MEASUREMENT=PASS")
           print("AC04_JSON_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
