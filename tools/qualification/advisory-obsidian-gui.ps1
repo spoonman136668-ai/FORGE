@@ -68,7 +68,7 @@ try{
    $local=Join-Path $proj 'profile/Local'
    $userData=Join-Path $roaming 'obsidian'
    $null=New-Item -ItemType Directory -Force -Path $userData,$local
-   $vaultId=('0a4b9d2f0a4b'+$s.short+'2f0a4b9d2f')
+   $vaultId='0a4b9d2f0a4b9d2f'
    $cfg=[ordered]@{vaults=@{$vaultId=@{path=$vault;ts=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();open=$true}}}
    ($cfg|ConvertTo-Json -Depth 8)|Set-Content -LiteralPath (Join-Path $userData 'obsidian.json') -Encoding utf8
    $psi=[System.Diagnostics.ProcessStartInfo]::new($exe)
