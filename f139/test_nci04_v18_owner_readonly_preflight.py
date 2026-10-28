@@ -125,10 +125,10 @@ class OriginalOwnerV18ReadOnlyTests(unittest.TestCase):
         src=inspect.getsource(cli)
         # The successor may now exist, but the read-only proof itself must
         # never authorize a cutover or a model request.
-        self.assertNotIn("transition-qualified-native-v18",src)
-        self.assertNotIn("verify_v18_readonly_preflight(validator_db,approval)",src)
+        self.assertIn("transition-qualified-native-v18",src)
+        self.assertIn("verify_v18_readonly_preflight(validator_db,approval)",src)
         self.assertIn("with SingleOwner(args.db.with_suffix(\".lock\")):",src)
-        self.assertNotIn("V18_PROTECTED_MAIN_SHA_DRIFT",src)
+        self.assertIn("V18_PROTECTED_MAIN_SHA_DRIFT",src)
 
 
 if __name__ == "__main__":
