@@ -77,6 +77,22 @@ jobs:
               $matched = @($classes.Keys | Where-Object { $privateText -match $classes[$_] })
               if ($matched.Count -eq 0) { Write-Host 'MPGRAPH155_BOOTSTRAP_ERROR_CLASS=UNCLASSIFIED' }
               foreach ($category in $matched) { Write-Host ('MPGRAPH155_BOOTSTRAP_ERROR_CLASS=' + $category) }
+              $scriptLine = [regex]::Match($privateText, '(?i)Test-RemoteBootstrap\.ps1:(\d+)')
+              if ($scriptLine.Success) { Write-Host ('MPGRAPH155_REMOTE_FAILURE_SOURCE_LINE=' + $scriptLine.Groups[1].Value) }
+              $safeTypes = [ordered]@{
+                SCHEMA = '(?i)unexpected (remote|project|retrieval|catalog).+schema'
+                CONTROL_BOUNDARY = '(?i)control.plane|background scanning|auto.update|direct.repository.read'
+                BULK_GATE = '(?i)bulk.ingestion|bounded.ingestion|active durable'
+                PROTOCOL = '(?i)remote agent protocol|orientation order|remote orientation'
+                INDEX = '(?i)remote index|catalog (start_line|end_line|count)|contiguous'
+                PARSER = '(?i)ConvertFrom.Json|cannot convert|Invalid JSON|Cannot index'
+                GIT = '(?i)git.exe|fatal:|warning:|git:'
+                MISSING_INPUT = '(?i)Cannot find path|does not exist|FileNotFound'
+                PS_LANGUAGE = '(?i)property .* cannot be found|Cannot bind argument|Method invocation failed'
+              }
+              $safeMatches = @($safeTypes.Keys | Where-Object { $privateText -match $safeTypes[$_] })
+              foreach ($type in $safeMatches) { Write-Host ('MPGRAPH155_REMOTE_FAILURE_SAFE_TYPE=' + $type) }
+              if ($safeMatches.Count -eq 0) { Write-Host 'MPGRAPH155_REMOTE_FAILURE_SAFE_TYPE=NONE_MATCHED' }
               throw 'MPGRAPH155_FOCUSED_REMOTE_BOOTSTRAP_FAILED_PRIVATE_OUTPUT_WITHHELD'
             }
             Write-Host 'MPGRAPH155_FOCUSED_REMOTE_BOOTSTRAP=PASS'
