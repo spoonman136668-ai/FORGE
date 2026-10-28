@@ -1,0 +1,90 @@
+name: MP-AI161 sealed first-use evidence falsification on unchanged candidate
+on:
+  push:
+    branches: [qualification/mpai161-sealed-firstuse-20261028]
+    paths: ['.github/workflows/mpai161-sealed-firstuse-development.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai161-firstuse-falsification-20261028
+  cancel-in-progress: false
+jobs:
+  real-relational-safety:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Freeze provenance, run focused gates and offline paired safety trial
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI161_UNEXPECTED_RUNNER'
+          }
+          $scratch=Join-Path $env:SystemDrive ('m161-'+$env:GITHUB_RUN_ID)
+          $experiment=Join-Path $scratch 'experiment'
+          $source=Join-Path $scratch 'original'
+          $manifest='evaluation/mpai161-sealed-probe-spec-v1.json'
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI161_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $env:TEMP=Join-Path $scratch 'tmp'
+            $env:TMP=$env:TEMP
+            New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop | Out-Null
+            $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+            & git clone --quiet --single-branch --branch proposal/mpai161-sealed-transfer-probe-20261028 $remote $experiment *> (Join-Path $scratch 'experiment-private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI161_EXPERIMENT_PRIVATE_CLONE_FAILED'}
+            & git clone --quiet --single-branch --branch proposal/mpai-evidence-sufficiency-20261028 $remote $source *> (Join-Path $scratch 'original-private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI161_ORIGINAL_PRIVATE_CLONE_FAILED'}
+            if((& git -C $experiment rev-parse HEAD).Trim() -cne '393b7f6e52b720c992bbd93480bc52c7897badb3'){
+              throw 'MPAI161_EXPERIMENT_SOURCE_DRIFT'
+            }
+            if((& git -C $source rev-parse HEAD).Trim() -cne '7dd66f4b9e80b488ccb880fb62ddae8e7cb01987'){
+              throw 'MPAI161_ORIGINAL_SOURCE_DRIFT'
+            }
+            $manifestAtHead=(& git -C $experiment rev-parse "HEAD:$manifest").Trim()
+            $manifestAtFreeze=(& git -C $experiment rev-parse "3dd25edb03022d750745d1479a73c66b19d8bb76:$manifest").Trim()
+            if($manifestAtHead -cne $manifestAtFreeze){throw 'MPAI161_PREDECLARED_MANIFEST_CHANGED'}
+            if((Get-FileHash -Algorithm SHA256 (Join-Path $source '.ice/records.json')).Hash.ToLowerInvariant() -cne 'fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742'){
+              throw 'MPAI161_ACCEPTED_MEMORY_DRIFT'
+            }
+            Push-Location $experiment
+            try {
+              & python -B -m unittest discover -s tests -p test_mpai160_typed_field.py -v
+              if($LASTEXITCODE -ne 0){throw 'MPAI161_RELATIONAL_UNIT_TESTS_FAILED'}
+              Write-Output 'MPAI161_TYPED_FIELD_TESTS=PASS'
+              & python -B -c 'import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(encoding="utf8")) for p in ("agentic/mpai160_typed_slots.py","agentic/mpai160_typed_verify.py","tools/mpai161_sealed_firstuse_trial.py","tests/test_mpai160_typed_field.py")]'
+              if($LASTEXITCODE -ne 0){throw 'MPAI161_SOURCE_SYNTAX_FAILED'}
+              Write-Output 'MPAI161_SOURCE_SYNTAX=PASS'
+            } finally {Pop-Location}
+            $privateLog=Join-Path $scratch 'private-offline-model-and-source.log'
+            & python -B (Join-Path $experiment 'tools/mpai161_sealed_firstuse_trial.py') --experiment $experiment --original $source --scratch $scratch --workflow-run-id $env:GITHUB_RUN_ID *> $privateLog
+            $code=$LASTEXITCODE
+            # Public logs allow only numerical totals and approved state markers.
+            $safe=Get-Content -LiteralPath $privateLog | Where-Object {$_ -match '^MPAI161_[A-Z0-9_]+=[A-Za-z0-9_.]+$'}
+            foreach($line in $safe){Write-Output $line}
+            if($code -ne 0){throw 'MPAI161_PRIVATE_REAL_MODEL_TRIAL_FAILED'}
+            foreach($required in @('MPAI161_EVALUATION_COMPLETED=PASS',
+              'MPAI161_INDEPENDENT_SCIENTIFIC_WITNESS=FALSE',
+              'MPAI161_SCIENTIFIC_COMPOSE=NO_GO')){
+              if($safe -cnotcontains $required){throw 'MPAI161_RECEIPT_INCOMPLETE'}
+            }
+            foreach($location in @($experiment,$source)){
+              $dirty=@(& git -C $location status --porcelain --untracked-files=all)
+              if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI161_SOURCE_WORKTREE_DIRTY'}
+            }
+            Write-Output 'MPAI161_PRIVATE_SOURCE_AND_MEMORY_UNMODIFIED=PASS'
+            Write-Output 'MPAI161_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:SystemDrive\
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
