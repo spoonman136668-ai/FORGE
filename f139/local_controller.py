@@ -1468,6 +1468,12 @@ class Database:
         from f139.nci04_v19_original_attempt_schema import (
             audit_v19_original_request_events)
         audit_v19_original_request_events(self)
+        # A future original-owner handoff is independently cold-verified as
+        # exactly one source-bound, no-retry pre-transport spend; V17/V18
+        # histories with no such event retain their original semantics.
+        from f139.nci04_v19_original_one_post_handoff import (
+            audit_v19_post_handoff_events)
+        audit_v19_post_handoff_events(self)
 
     @contextlib.contextmanager
     def transaction(self):
