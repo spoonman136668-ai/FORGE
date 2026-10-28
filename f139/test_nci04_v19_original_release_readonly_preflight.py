@@ -164,16 +164,19 @@ class V19OriginalReadinessTests(unittest.TestCase):
 
     def test_real_disposable_sqlite_without_v18_custody_fails_before_github(self):
         import f139.nci04_v19_original_release_readonly_preflight as module
-        db = Database.initialize(self.path, SOURCE)
-        self.addCleanup(db.close)
-        db.verify()
+        writable = Database.initialize(self.path, SOURCE)
+        writable.close()
         with SingleOwner(self.path.with_suffix(".lock")):
-            with self.assertRaisesRegex(
-                    V19ReleasePreflightDenied, "ORIGINAL_V18_SOURCE_OR_LEDGER_HEAD"):
-                v19_original_release_readonly_preflight(
-                    db, original_get=self.remote, owner_witness=lambda: True)
+            db = Database.open_readonly(self.path)
+            try:
+                with self.assertRaisesRegex(
+                        V19ReleasePreflightDenied, "ORIGINAL_V18_SOURCE_OR_LEDGER_HEAD"):
+                    v19_original_release_readonly_preflight(
+                        db, original_get=self.remote, owner_witness=lambda: True)
+                db.verify()
+            finally:
+                db.close()
         self.assertEqual(self.calls, [])
-        db.verify()
 
 
 if __name__ == "__main__":
