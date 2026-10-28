@@ -151,6 +151,9 @@ def custody_original_post_handoff_without_post(
     # Revalidate this observation *again* under BEGIN IMMEDIATE below.
     db.verify()
     observed = db.meta()
+    if observed["head_seq"] == reservation_seq and (
+            observed["head_hash"] != reservation_sha256):
+        return outcome("BLOCKED_UNKNOWN_OR_FORGED_RESERVATION")
     if (observed["head_seq"] != reservation_seq
             or observed["head_hash"] != reservation_sha256):
         return outcome("BLOCKED_RESERVATION_ALREADY_SPENT_OR_HISTORY_MOVED")
