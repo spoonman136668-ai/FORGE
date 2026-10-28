@@ -157,6 +157,62 @@ class OriginalRequestColdVerifierTests(unittest.TestCase):
                 self.db.verify()
             self.assertEqual(self.db.meta(), old)
 
+    def original_spent_free_request(self, day="2026-10-28"):
+        # Genuine existing V17 request grammar and original SHA event, but a
+        # fixture-only request intent: NO provider is ever contacted.
+        from f139.nci04_owner_free_reasoner_proposal import (
+            reasoner_scope, SCHEMA as FREE_SCHEMA)
+        from f139.nci04_free_reasoner_provider import MODEL
+        issue = self.fixture.fixture.native
+        source = self.db.meta()["source_sha"]
+        feedback = "d" * 64
+        with self.db.transaction():
+            prior = self.db.meta()["head_hash"]
+            self.db.event("FREE_REASONER_ATTEMPTED", {
+                "schema": FREE_SCHEMA, "source_sha": source,
+                "model": MODEL,
+                "scope_sha256": reasoner_scope(
+                    source_sha=source, lane=issue.lane,
+                    target_commit=issue.candidate.target_commit,
+                    path=issue.candidate.path,
+                    original_feedback_sha256=feedback),
+                "original_feedback_sha256": feedback,
+                "lane": issue.lane,
+                "target_commit": issue.candidate.target_commit,
+                "path": issue.candidate.path,
+                "utc_day": day,
+                "prior_event_head_sha256": prior,
+                "remote_request_retry_authorized": False,
+                "paid_model_calls": 0, "scientific_first_use": False,
+            })
+            self.db.verify()
+
+    def test_existing_original_free_request_consumes_same_day_v19_budget(self):
+        self.original_spent_free_request()
+        self.real_native()  # new verified terminal occurs AFTER old request
+        with SingleOwner(self.mutex):
+            valid = self.payload()
+            old = self.db.meta().copy()
+            with self.assertRaisesRegex(Exception, "COMBINED_LEGACY_AND_V19_BUDGET"):
+                self.append(valid)
+            self.assertEqual(self.db.meta(), old)
+            self.db.verify()
+
+    def test_old_terminal_cannot_be_renewed_by_later_original_free_request(self):
+        self.real_native()
+        with SingleOwner(self.mutex):
+            old = self.payload()
+        self.original_spent_free_request()
+        with SingleOwner(self.mutex):
+            old["prior_event_head_sha256"] = self.db.meta()["head_hash"]
+            events = [dict(r) for r in self.db.conn.execute(
+                "SELECT seq,kind,payload,sha FROM events ORDER BY seq")]
+            old["original_legacy_history_sha256"] = legacy_digest(events)
+            before = self.db.meta().copy()
+            with self.assertRaisesRegex(Exception, "TERMINAL_NOT_NEW_OR_SOURCE_DRIFT"):
+                self.append(old)
+            self.assertEqual(self.db.meta(), before)
+
     def test_empty_database_has_no_unearned_request(self):
         with SingleOwner(self.mutex):
             with self.assertRaises(Exception):
