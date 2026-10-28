@@ -69,6 +69,28 @@ jobs:
                 if ($matchedSafe.Count -eq 0) { Write-Host 'MPGRAPH155_GIT_ERROR_CLASS=UNKNOWN' }
                 foreach ($category in $matchedSafe) { Write-Host ('MPGRAPH155_GIT_ERROR_CLASS=' + $category) }
               }
+              if (($Label -ceq 'FOCUSED_REMOTE_BOOTSTRAP' -or $Label -ceq 'FULL_WINDOWS_REGRESSION') -and (Test-Path -LiteralPath $privateLog)) {
+                # Print only enumerated, source-defined failure categories; never private test text.
+                $privateText = Get-Content -LiteralPath $privateLog -Raw
+                $remoteFailureCodes = [ordered]@{
+                  CLONE_FAILED = 'remote bootstrap test local clone failed'
+                  SOURCE_SHA_DRIFT = 'remote bootstrap test source SHA drift'
+                  MISSING_INPUT = 'missing remote bridge regression input'
+                  GENERATOR_MISSING_OUTPUT = 'remote bridge generator did not create'
+                  SCHEMA = 'unexpected remote (bootstrap|catalog) schema'
+                  RECORD_HASH = '(records hash mismatch|source_records_sha256)'
+                  INDEX_COUNT = '(remote index active-record count mismatch|remote catalog active_record_count mismatch)'
+                  INDEX_ID = '(duplicate remote-index id|remote index emitted|active durable id missing from remote index)'
+                  PROJECT_RANGE = '(catalog .* mismatch|remote catalog missing project range|catalog range .* not contiguous)'
+                  ORIENTATION = '(remote orientation count mismatch|remote orientation order mismatch)'
+                  RETRIEVAL_CONTRACT = '(candidate limit drift|relative floor drift|primary max drift|primary budget drift|model-visible representation drift)'
+                  GENERATOR_NONDETERMINISTIC = '(remote bootstrap generation is not deterministic|remote catalog generation is not deterministic|remote index generation is not deterministic|project-state capsule generation is not deterministic|project dependency graph generation is not deterministic)'
+                  SCRATCH_CLEANUP = 'remote bootstrap test scratch cleanup failed'
+                }
+                $matchedRemote = @($remoteFailureCodes.Keys | Where-Object { $privateText -match $remoteFailureCodes[$_] })
+                if ($matchedRemote.Count -eq 0) { Write-Host 'MPGRAPH155_REMOTE_FAILURE_CLASS=UNCLASSIFIED' }
+                foreach ($code in $matchedRemote) { Write-Host ('MPGRAPH155_REMOTE_FAILURE_CLASS=' + $code) }
+              }
               throw ('MPGRAPH155_' + $Label + '_FAILED_PRIVATE_OUTPUT_WITHHELD')
             }
             Write-Host ('MPGRAPH155_' + $Label + '=PASS')
@@ -124,6 +146,7 @@ jobs:
                 $env:GIT_CONFIG_VALUE_0 = 'true'
                 Write-Host 'MPGRAPH155_ISOLATED_SHORT_TEMP=PASS'
                 Write-Host 'MPGRAPH155_CHILD_GIT_LONGPATHS=TRUE'
+                Invoke-PrivateQualification 'FOCUSED_REMOTE_BOOTSTRAP' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tests/Test-RemoteBootstrap.ps1')
                 Invoke-PrivateQualification 'FULL_WINDOWS_REGRESSION' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tests/Test-All.ps1')
               } finally {
                 $env:TEMP = $previousTemp
