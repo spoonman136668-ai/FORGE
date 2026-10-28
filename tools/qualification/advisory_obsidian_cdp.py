@@ -209,15 +209,28 @@ def note_ui(ws):
       const header=Array.from(document.querySelectorAll('.view-header-title'))
         .some(x=>x.textContent?.includes(w?.basename || '___missing___'));
       let sourceParity=false;
+      let exactParity=false;
+      let canonicalParity=false;
+      let editorChars=-1;
+      let sourceChars=-1;
+      let sourceWitnessInEditor=false;
       let editorAvailable=typeof view?.editor?.getValue==='function';
       if(editorAvailable && w){
         const indexed=a.vault.getAbstractFileByPath(w.path);
         const committed=await a.vault.read(indexed);
-        sourceParity=view.editor.getValue()===committed;
+        const editorText=view.editor.getValue();
+        const canonical=s=>s.replace(/\uFEFF/g,'').replace(/\r\n?/g,'\n').trimEnd();
+        exactParity=editorText===committed;
+        canonicalParity=canonical(editorText)===canonical(committed);
+        sourceParity=exactParity || canonicalParity;
+        editorChars=editorText.length;
+        sourceChars=committed.length;
+        sourceWitnessInEditor=editorText.replace(/[^A-Za-z0-9]+/g,' ').toLowerCase().includes(w.snippet);
       }
       return {
         activeFile:!!w && file?.path===w.path,
         header,markdownView:!!editorLeaf,editorAvailable,sourceParity,
+        exactParity,canonicalParity,editorChars,sourceChars,sourceWitnessInEditor,
         noteRegionVisible:!!rect && rect.width>0 && rect.height>0,
         noteRegionChars:(region?.innerText||'').length
       };
