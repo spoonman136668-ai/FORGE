@@ -134,7 +134,14 @@ jobs:
           '@
             $privateLog=Join-Path $tmp 'real-private-model.log'
             $program | & python -B -c "import sys;exec(sys.stdin.read())" *> $privateLog
-            if($LASTEXITCODE -ne 0){throw 'MPAI_CONSUMER_MODEL_OR_MCP_FAILED'}
+            if($LASTEXITCODE -ne 0){
+              $safeText=[IO.File]::ReadAllText($privateLog)
+              $codes=[regex]::Matches($safeText,'MPAI_CONSUMER_[A-Z0-9_]+')
+              $unique=@($codes | ForEach-Object {$_.Value} | Sort-Object -Unique)
+              if($unique.Count -lt 1){Write-Host 'MPAI_LOCAL_CONSUMER_SAFE_FAILURE=UNKNOWN_RUNTIME'}
+              foreach($code in $unique){Write-Host ('MPAI_LOCAL_CONSUMER_SAFE_FAILURE='+$code)}
+              throw 'MPAI_CONSUMER_MODEL_OR_MCP_FAILED'
+            }
             $log=[IO.File]::ReadAllText($privateLog)
             foreach($marker in @('MPAI_MERGED_SOURCE_MCP_PROTOCOL=PASS','MPAI_REAL_MODEL_READ_SAME_SOURCE_RECORD_DIGEST=PASS','MPAI_REAL_MODEL_READ_ADMITTED_NORTHSTAR=PASS','MPAI_REAL_LOCAL_GGUF_MODEL_INFERENCE=PASS','MPAI_MCP_INTEGRATED_REFLECT_PROPOSE=PASS_SYNTHETIC_OBSERVATIONS')){
               if(-not $log.Contains($marker)){throw 'MPAI_CONSUMER_ACCEPTANCE_MARKER_MISSING'}
