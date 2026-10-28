@@ -50,6 +50,24 @@ jobs:
                 } else {
                   Write-Host 'MPGRAPH155_UQ51_DIAGNOSTIC_CODE=NO_WHITELISTED_CODE'
                 }
+                $safeCategories = [ordered]@{
+                  LONG_PATH = '(?i)filename too long|path too long|path exceeds'
+                  INVALID_PATH = '(?i)invalid path|invalid argument'
+                  DIR_EXISTS = '(?i)already exists and is not an empty directory'
+                  GIT_LOCK = '(?i)index.lock|unable to create lock'
+                  PERMISSION = '(?i)permission denied|access is denied'
+                  REPO_REF = '(?i)remote branch main not found|could not find remote ref'
+                  CHECKOUT = '(?i)unable to checkout|unable to create file'
+                  DISK = '(?i)no space left on device|disk full'
+                  OWNERSHIP = '(?i)dubious ownership|safe.directory'
+                  AUTH = '(?i)authentication failed|could not read username'
+                  NETWORK = '(?i)could not resolve host|connection timed out'
+                  GIT_OBJECT = '(?i)bad object|unable to read tree|not a valid object'
+                }
+                $privateLines = Get-Content -LiteralPath $privateLog -Raw
+                $matchedSafe = @($safeCategories.Keys | Where-Object { $privateLines -match $safeCategories[$_] })
+                if ($matchedSafe.Count -eq 0) { Write-Host 'MPGRAPH155_GIT_ERROR_CLASS=UNKNOWN' }
+                foreach ($category in $matchedSafe) { Write-Host ('MPGRAPH155_GIT_ERROR_CLASS=' + $category) }
               }
               throw ('MPGRAPH155_' + $Label + '_FAILED_PRIVATE_OUTPUT_WITHHELD')
             }
