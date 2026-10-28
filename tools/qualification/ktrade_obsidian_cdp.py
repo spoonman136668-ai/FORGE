@@ -216,10 +216,15 @@ def search_state(ws):
       const a = typeof app !== 'undefined' ? app : window.app;
       const leaf = a?.workspace?.getLeavesOfType?.('search')?.[0];
       const view = leaf?.view;
-      const input = document.querySelector('.search-input-container input');
-      const titles = document.querySelectorAll(
+      const input = view?.containerEl?.querySelector('.search-input-container input')
+                 || document.querySelector('.search-input-container input');
+      const titles = view?.containerEl?.querySelectorAll(
+        '.search-result-file-title, .search-result-file .tree-item-inner'
+      ) || document.querySelectorAll(
         '.search-result-file-title, .search-result-file .tree-item-inner'
       );
+      const hits = view?.dom?.resultDomLookup;
+      const target = a?.vault?.getAbstractFileByPath?.('002865cd06_test.go.md');
       let match = false;
       for (const node of titles) {
         if (node.textContent?.includes('002865cd06_test.go')) { match=true; break; }
@@ -231,6 +236,11 @@ def search_state(ws):
         nativeQueryMatches: view?.query?.query === 'file:002865cd06' ||
                             view?.query?.queryString === 'file:002865cd06' ||
                             view?.query === 'file:002865cd06',
+        nativeQueryKind: typeof view?.query,
+        nativeHitMapPresent: !!hits,
+        nativeHitCount: hits?.size ?? null,
+        nativeTargetHit: !!target && !!hits?.has?.(target),
+        pluginOpenSearchAvailable: typeof a?.internalPlugins?.plugins?.['global-search']?.instance?.openGlobalSearch === 'function',
         inputMatches: input?.value === 'file:002865cd06',
         resultTitles: titles.length,
         resultMatch: match,
@@ -328,8 +338,33 @@ def main():
     if not trigger_native_search(ws):
         raise GateFailure("GUI_NATIVE_SEARCH_SETQUERY_REJECTED")
     print("KTRADE_GUI_NATIVE_SEARCH_QUERY_SUBMITTED=PASS", flush=True)
-    until(lambda: bool((search_state(ws) or {}).get("inputMatches")),
-          10, "GUI_NATIVE_QUERY_NOT_REFLECTED_IN_SEARCH_UI")
+    state = search_state(ws) or {}
+    if not state.get("inputMatches"):
+        print("KTRADE_GUI_NATIVE_SETQUERY_INPUT_NOT_SYNCED=TRUE", flush=True)
+        if not state.get("pluginOpenSearchAvailable"):
+            raise GateFailure("GUI_NATIVE_OPEN_GLOBAL_SEARCH_UNAVAILABLE")
+        # Reopen through the core plugin's actual query-bearing public method.
+        activated = ws.js("""(() => {
+          const a = typeof app !== 'undefined' ? app : window.app;
+          const p = a?.internalPlugins?.plugins?.['global-search']?.instance;
+          if (typeof p?.openGlobalSearch !== 'function') return false;
+          p.openGlobalSearch('file:002865cd06');
+          return true;
+        })()""")
+        if not activated:
+            raise GateFailure("GUI_NATIVE_GLOBAL_SEARCH_QUERY_NOT_DISPATCHED")
+        print("KTRADE_GUI_NATIVE_PLUGIN_OPENGLOBALSEARCH_SUBMITTED=PASS", flush=True)
+    try:
+        until(lambda: bool((search_state(ws) or {}).get("inputMatches")),
+              15, "GUI_NATIVE_QUERY_NOT_REFLECTED_IN_SEARCH_UI")
+    except GateFailure:
+        s = search_state(ws) or {}
+        for key in ("nativeQueryMatches", "nativeQueryKind",
+                    "nativeHitMapPresent", "nativeHitCount", "nativeTargetHit",
+                    "inputMatches", "pluginOpenSearchAvailable"):
+            print("KTRADE_GUI_NATIVE_DISPATCH_DIAGNOSTIC_" + key.upper() +
+                  "=" + str(s.get(key)), flush=True)
+        raise
     try:
         until(lambda: bool((search_state(ws) or {}).get("resultMatch")),
               90, "GUI_NATIVE_SEARCH_MATCH_NOT_RENDERED")
@@ -337,8 +372,9 @@ def main():
         try:
             s = search_state(ws) or {}
             for key in ("pluginPresent", "searchLeafPresent", "setQueryAvailable",
-                        "nativeQueryMatches", "inputMatches", "resultContainerPresent",
-                        "resultTitles", "resultMatch"):
+                        "nativeQueryMatches", "nativeHitMapPresent",
+                        "nativeHitCount", "nativeTargetHit", "inputMatches",
+                        "resultContainerPresent", "resultTitles", "resultMatch"):
                 print("KTRADE_GUI_NATIVE_SEARCH_DIAGNOSTIC_" + key.upper() +
                       "=" + str(s.get(key)), flush=True)
         except (OSError, TimeoutError):
