@@ -32,12 +32,14 @@ def compression(seed):
     noise=rng.randbytes(len(structured))
     cases={}
     for kind,source in (("repetitive",structured),("random",noise)):
+        t_encode=time.perf_counter_ns()
         compressed=zlib.compress(source,level=6)
+        encode_ns=time.perf_counter_ns()-t_encode
         t0=time.perf_counter_ns()
         decoded=zlib.decompress(compressed)
         decode_ns=time.perf_counter_ns()-t0
         t1=time.perf_counter_ns()
-        direct=bytes(source)
+        direct=source  # zero-copy reference: NOT a measured memory-copy baseline
         direct_ns=time.perf_counter_ns()-t1
         cases[kind]={
             "source_bytes":len(source),
@@ -45,8 +47,8 @@ def compression(seed):
             "codebook_metadata_counted":True,
             "lossless":checksum(decoded)==checksum(source)==checksum(direct),
             "decode_wall_ns":decode_ns,
-            "direct_copy_wall_ns":direct_ns,
-            "one_time_encode_wall_ns":None,
+            "direct_reference_wall_ns":direct_ns,
+            "one_time_encode_wall_ns":encode_ns,
             "comparable_model_tensor":False
         }
     # Procedural generation does not encode arbitrary learned parameters.
@@ -58,11 +60,11 @@ def compression(seed):
         "cases":cases,
         "procedural_structured_reproduced":generated==structured_values,
         "procedural_arbitrary_reproduced":generated==arbitrary,
-        "procedural_seed_bytes_minimum":8,
+        "procedural_seed_bytes_assumed":8,
         "arbitrary_source_bytes":n,
         "seed_generates_all_arbitrary_weight_arrays":False,
         "model_accuracy_tested":False,
-        "negative":"Unstructured data compressed poorly; generation/decoding is not free."}
+        "negative":"Unstructured data compressed poorly; one-time compression and decode cost are recorded. No fair decode-vs-copy benchmark is claimed."}
 
 def compiled_constants(seed):
     rng=random.Random(seed)
