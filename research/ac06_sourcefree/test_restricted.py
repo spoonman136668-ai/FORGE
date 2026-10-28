@@ -16,6 +16,10 @@ class AC06RestrictedTests(unittest.TestCase):
         self.assertEqual(len(self.report["observations"]),21)
         self.assertEqual(set(k[1] for k in self.by),set(m.SEEDS))
         self.assertEqual(self.report["proposals_original_total"],30)
+        self.assertEqual(len(self.report["experiment_claim_ids"]),15)
+        self.assertEqual(len(self.report["unmeasured_original_ids"]),15)
+        self.assertIn("U06",self.report["unmeasured_original_ids"])
+        self.assertIn("U17",self.report["unmeasured_original_ids"])
         self.assertEqual(
             set(self.report["experiment_claim_ids"])|
             set(self.report["unmeasured_original_ids"]),
@@ -82,6 +86,7 @@ class AC06RestrictedTests(unittest.TestCase):
             self.assertTrue(r["spectral_magnitude_loses_order"])
             self.assertEqual(r["distinct_inputs_probed"],257)
             self.assertEqual(r["eight_bit_value_count"],256)
+            self.assertTrue(r["same_topology_can_have_distinct_role_labels"])
             self.assertTrue(r["finite_state_chaos_cycle_detected"])
             self.assertTrue(r["t_gate_non_stabilizer_relative_phase"])
 

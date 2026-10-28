@@ -45,7 +45,7 @@ def vsa(seed):
             "candidate_inventory_required":True
         })
     assert rows[0]["correct"]==1
-    return {"claim_ids":["U07","U10","U13","U18"],
+    return {"claim_ids":["U07","U10","U18"],
             "dimensions":WIDTH,"capacity_rows":rows,
             "limitation":"Candidate inventory is supplied; no language generation, unlimited memory or independent causal source."}
 
@@ -161,7 +161,7 @@ def lowrank(seed):
         return error(reconstructed),error(naive)
     fit_err,fit_control=evaluate(structured)
     other_err,other_control=evaluate(random_m)
-    return {"claim_ids":["U09","U14","U22"],
+    return {"claim_ids":["U22"],
             "matrix_dim":n,"fitted_observed_entries":2*n-1,
             "source_unknown_entries":(n-1)**2,
             "factor_floats":2*n,"dense_floats":n*n,
@@ -202,7 +202,7 @@ def graph_rules(seed):
         heldout.append((edges,b,("r","s"),(b+2,)))
     parity=sum(predict(*x[:3],selected)==x[3] for x in heldout)
     unfamiliar=(((700,"r",701),(701,"s",702),(702,"t",703)),700,("r","s","t"),(703,))
-    return {"claim_ids":["U20","U25","U27"],
+    return {"claim_ids":["U20","U27"],
             "candidate_programs_searched":len(candidates),
             "fit_examples":len(rows),"fitted_program":selected,
             "renamed_same_structure_correct":parity,
@@ -240,7 +240,11 @@ def unusual_math(seed):
     phase=cmath.exp(1j*math.pi/4)
     stabilizer_phases=(1,-1,1j,-1j)
     nonclifford=all(abs(phase-v)>1e-8 for v in stabilizer_phases)
-    return {"claim_ids":["U06","U16","U17","U21","U23","U26","U28","U29","U30"],
+    roles_a=((0,"parent",1),(1,"parent",2))
+    roles_b=((0,"friend",1),(1,"friend",2))
+    topology=lambda g:tuple(sorted((a,b) for a,_,b in g))
+    same_topology_different_roles=topology(roles_a)==topology(roles_b) and roles_a!=roles_b
+    return {"claim_ids":["U21","U23","U26","U28","U29","U30"],
             "ntt_matches_naive_mod17":out==naive,
             "spectral_magnitude_loses_order":spectral_collision,
             "eight_bit_value_count":len(buckets),
@@ -248,7 +252,7 @@ def unusual_math(seed):
             "finite_state_chaos_cycle_detected":state_cycle>=1,
             "finite_state_chaos_cycle_length":state_cycle,
             "t_gate_non_stabilizer_relative_phase":nonclifford,
-            "same_topology_can_have_distinct_role_labels":True,
+            "same_topology_can_have_distinct_role_labels":same_topology_different_roles,
             "limitation":"No continuous physical analog/quantum hardware, lossless unlimited compression, or semantic language capability."}
 
 CASES={
