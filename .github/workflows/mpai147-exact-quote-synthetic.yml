@@ -22,7 +22,7 @@ jobs:
             New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
             & git clone --quiet --single-branch --branch proposal/mpai-evidence-sufficiency-20261028 https://github.com/spoonman136668-ai/Mind-Palace.git $repo
             if($LASTEXITCODE -ne 0) { throw 'MPAI147_PRIVATE_CLONE_FAILURE' }
-            $expected = '866a9c3b5b49d9174818a98bf7cec9a37ebb333b'
+            $expected = '7dd66f4b9e80b488ccb880fb62ddae8e7cb01987'
             if((& git -C $repo rev-parse HEAD).Trim() -cne $expected) { throw 'MPAI147_SOURCE_DRIFT' }
             $hash = 'fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742'
             $store = Join-Path $repo '.ice/records.json'
@@ -35,6 +35,9 @@ jobs:
               & python -B -m unittest discover -s tests -p test_mpai_feedback_replay.py -v
               if($LASTEXITCODE -ne 0) { throw 'MPAI_NEXT_ITERATION_TEST_FAIL' }
               Write-Output 'MPAI_NEXT_ITERATION_SYNTHETIC_TEST=PASS'
+              & python -B -m unittest discover -s tests -p test_mpai_integrated_cycle.py -v
+              if($LASTEXITCODE -ne 0) { throw 'MPAI_NEXT_CYCLE_INTEGRATION_FAIL' }
+              Write-Output 'MPAI_NEXT_CYCLE_INTEGRATION=PASS'
               & python -B -c 'import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(encoding="utf-8")) for p in ("agentic/mpai_evidence_sufficiency.py","tests/test_mpai_evidence_sufficiency.py","agentic/mpai_feedback_replay.py","tests/test_mpai_feedback_replay.py")]'
               if($LASTEXITCODE -ne 0) { throw 'MPAI147_SYNTAX_FAIL' }
               if((Get-FileHash -Algorithm SHA256 $store).Hash.ToLowerInvariant() -cne $hash) { throw 'MPAI147_STORE_MUTATION' }
