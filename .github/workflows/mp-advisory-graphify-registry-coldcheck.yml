@@ -1,0 +1,63 @@
+name: Mind-Palace advisory Graphify registry cold-check (owner Windows)
+on:
+  push:
+    branches: [qualification/mp-advisory-graphify-registry-20261028]
+    paths:
+      - .github/workflows/mp-advisory-graphify-registry-coldcheck.yml
+permissions:
+  contents: read
+concurrency:
+  group: mp-advisory-graphify-registry-owner-coldcheck
+  cancel-in-progress: false
+jobs:
+  independent-registry:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 12
+    env:
+      EXPECTED_MIND_PALACE_COMMIT: '39553e44670e228ddf2d4061435381c89c32f08b'
+      RESEARCH_SCIENTIFIC_AUTHORITY: '0'
+      RESEARCH_PROMOTION_ALLOWED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Source-pinned non-credential checkout of FORGE qualifier
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Cold-verify committed private Mind-Palace advisory registry only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'self-hosted'){throw 'MP_ADVISORY_WRONG_RUNNER'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'MP_ADVISORY_HARNESS_DRIFT'}
+          if($env:RESEARCH_SCIENTIFIC_AUTHORITY -cne '0' -or $env:RESEARCH_PROMOTION_ALLOWED -cne '0'){throw 'MP_ADVISORY_UNSAFE_AUTHORITY'}
+          $login=(& gh api user --jq .login 2>$null | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $login -cne 'spoonman136668-ai'){throw 'MP_ADVISORY_WRONG_OWNER'}
+          $root=Join-Path $env:SystemDrive ('mpreg'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'MP_ADVISORY_SCRATCH_COLLISION'}
+          $null=New-Item -ItemType Directory -Force -Path $root
+          $copy=Join-Path $root 'Mind-Palace'
+          $log=Join-Path $root 'private-clone.log'
+          try{
+            & git -c 'credential.helper=!gh auth git-credential' clone --no-checkout --filter=blob:none 'https://github.com/spoonman136668-ai/Mind-Palace.git' $copy *> $log
+            if($LASTEXITCODE -ne 0){throw 'MP_ADVISORY_COLD_CLONE_FAILED'}
+            & git -C $copy checkout --detach $env:EXPECTED_MIND_PALACE_COMMIT *> $log
+            if($LASTEXITCODE -ne 0 -or (git -C $copy rev-parse HEAD).Trim() -cne $env:EXPECTED_MIND_PALACE_COMMIT){throw 'MP_ADVISORY_SOURCE_COMMIT_UNAVAILABLE'}
+            & python -B (Join-Path $copy 'tests/test_advisory_graphify_registry.py')
+            if($LASTEXITCODE -ne 0){throw 'MP_ADVISORY_REGISTRY_TEST_FAILED'}
+            if(@(git -C $copy status --porcelain=v1 --untracked-files=no).Count -gt 0){throw 'MP_ADVISORY_TRACKED_SOURCE_MUTATED'}
+            $protected=@('.ice/records.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/source-ledger.json')
+            foreach($p in $protected){
+              $parent=(& git -C $copy rev-parse ($env:EXPECTED_MIND_PALACE_COMMIT+'^:'+ $p) 2>$null | Out-String).Trim()
+              $child=(& git -C $copy rev-parse ($env:EXPECTED_MIND_PALACE_COMMIT+':'+ $p) 2>$null | Out-String).Trim()
+              if($parent -and $child -and $parent -cne $child){throw 'MP_ADVISORY_PROTECTED_SOURCE_DRIFT'}
+            }
+            Write-Host 'MP_ADVISORY_OWNER_WINDOWS_INDEPENDENT_COLD_CHECK=PASS'
+            Write-Host 'MP_ADVISORY_CURATED_ICE_UNMODIFIED=PASS'
+            Write-Host 'MP_ADVISORY_DIRECT_CHATGPT_PRIVATE_REPOSITORY_ACCESS=NOT_VERIFIED'
+          }finally{
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host 'MP_ADVISORY_COLD_CHECK_TEMP_CLEANUP_REQUESTED=TRUE'
+          }
