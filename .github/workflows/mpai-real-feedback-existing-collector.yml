@@ -1,0 +1,78 @@
+name: MP-AI first actual feedback through existing collector
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai-real-feedback-existing-collector.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai-real-feedback-existing-collector
+  cancel-in-progress: false
+jobs:
+  validate-and-classify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Source-pinned development outcome through existing collector without staging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPAI_FEEDBACK_WRONG_RUNNER'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai-feedback-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $scratch 'private-source'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch integration/mpai-feedback-existing-collector-20261028 https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $scratch 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_PRIVATE_SOURCE_CLONE_FAILED'}
+            if((& git -C $src rev-parse HEAD).Trim() -cne 'd3c168d57b1c7efa412680f4c078f01b9e951e30'){throw 'MPAI_FEEDBACK_SOURCE_SHA_DRIFT'}
+            if((& git -C $src rev-parse 'HEAD^{tree}').Trim() -cne 'e13509ce33608bbdce96e1e9e41e5a3be5d410f0'){throw 'MPAI_FEEDBACK_SOURCE_TREE_DRIFT'}
+            $changed=@(& git -C $src diff --name-only 711da24d1308bb2aec276e240f967e3401ecff27 HEAD)
+            if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne 'pilots/mixed-source/2026-10-28-mpai-real-development-feedback.batch.json'){throw 'MPAI_FEEDBACK_UNEXPECTED_SOURCE_DELTA'}
+            $before=(& git -C $src rev-parse HEAD:'.ice/records.json').Trim()
+            $doc=Join-Path $src 'pilots/mixed-source/2026-10-28-mpai-real-development-feedback.batch.json'
+            $batch=Get-Content -LiteralPath $doc -Raw | ConvertFrom-Json
+            if([string]$batch.schema -cne 'mind-palace.collector-batch.v1' -or
+              [string]$batch.collector.source_kind -cne 'repo' -or
+              @($batch.candidates).Count -ne 1 -or
+              [string]$batch.candidates[0].project -cne 'Mind-Palace' -or
+              [bool]$batch.candidates[0].details.improvement_quality_proven -ne $false -or
+              [bool]$batch.candidates[0].details.holdout_first_use_authenticated -ne $false){
+              throw 'MPAI_FEEDBACK_UNSAFE_BATCH'
+            }
+            $validateLog=Join-Path $scratch 'private-validate.log'
+            $classifyLog=Join-Path $scratch 'private-classify.log'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $src 'tools/collect.ps1') validate -InputPath $doc *> $validateLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_COLLECTOR_VALIDATE_FAILED'}
+            $v=([IO.File]::ReadAllText($validateLog) | ConvertFrom-Json)
+            if([string]$v.schema -cne 'mind-palace.collector-result.v1' -or -not [bool]$v.result.valid -or
+              [int]$v.source_count -ne 3 -or [int]$v.primary_source_count -ne 1 -or [int]$v.candidate_count -lt 1){throw 'MPAI_FEEDBACK_COLLECTOR_VALIDATION_MISMATCH'}
+            Write-Host 'MPAI_REAL_DEVELOPMENT_FEEDBACK_COLLECTOR_VALIDATE=PASS'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $src 'tools/collect.ps1') classify -InputPath $doc *> $classifyLog
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_COLLECTOR_CLASSIFY_FAILED'}
+            $c=([IO.File]::ReadAllText($classifyLog) | ConvertFrom-Json)
+            if([string]$c.schema -cne 'mind-palace.collector-result.v1'){throw 'MPAI_FEEDBACK_CLASSIFIER_SCHEMA'}
+            $matched=@($c.result.results | Where-Object { [string]$_.candidate_id -ceq 'lesson/mpai-hindsight-h2-development-context-efficiency-20261028' })
+            if($matched.Count -ne 1){throw 'MPAI_FEEDBACK_EXPECTED_LESSON_MISSING'}
+            $action=[string]$matched[0].action
+            if(@('new','merge','review','archive','ignore') -cnotcontains $action){throw 'MPAI_FEEDBACK_UNEXPECTED_CLASSIFICATION'}
+            Write-Host ('MPAI_REAL_DEVELOPMENT_FEEDBACK_ACTION='+$action.ToUpperInvariant())
+            $after=(& git -C $src rev-parse HEAD:'.ice/records.json').Trim()
+            if($before -cne $after -or @(& git -C $src status --porcelain --untracked-files=all).Count -ne 0){throw 'MPAI_FEEDBACK_PROTECTED_STATE_MUTATED'}
+            Write-Host 'MPAI_REAL_DEVELOPMENT_FEEDBACK_SOURCE_AND_ICE_CLEAN=PASS'
+            Write-Host 'MPAI_REAL_DEVELOPMENT_FEEDBACK_SCIENCE_NOT_PROVEN=TRUE'
+            Write-Host 'MPAI_REAL_DEVELOPMENT_FEEDBACK_PREVIEW_ONLY=TRUE'
+            Write-Host 'MPAI_REAL_DEVELOPMENT_FEEDBACK_DURABLE_WRITES=0'
+            Write-Host 'MPAI_REAL_DEVELOPMENT_FEEDBACK_MODEL_CALLS=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
