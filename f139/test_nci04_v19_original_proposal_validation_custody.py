@@ -150,9 +150,12 @@ class OriginalProposalValidationCustodyTests(unittest.TestCase):
                 })
             self.assertEqual(self.db.meta(), old)
             self.assertEqual(self.count(), 0)
+            original_handoff = self.db.conn.execute(
+                "SELECT sha FROM events WHERE seq=?",
+                (send["send_attempt_event_seq"] - 1,)).fetchone()
             no_retry = self.fixture.send({
                 "original_post_handoff_event_seq": send["send_attempt_event_seq"] - 1,
-                "original_post_handoff_event_sha256": "f" * 64,
+                "original_post_handoff_event_sha256": original_handoff["sha"],
             })
             self.assertEqual(no_retry["provider_calls_in_this_invocation"], 0)
 
