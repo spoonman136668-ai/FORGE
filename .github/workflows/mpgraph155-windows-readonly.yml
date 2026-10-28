@@ -44,6 +44,12 @@ jobs:
               if ($Label -ceq 'FULL_WINDOWS_REGRESSION' -and (Test-Path -LiteralPath $privateLog)) {
                 $lastTest = Get-Content -LiteralPath $privateLog | Where-Object { $_ -match '^RUN Test-[A-Za-z0-9_.-]+\.ps1$' } | Select-Object -Last 1
                 if ($lastTest) { Write-Host ('MPGRAPH155_LAST_REGRESSION_TEST=' + $lastTest.Substring(4)) }
+                $diagnostic = [regex]::Matches((Get-Content -LiteralPath $privateLog -Raw), 'UQ51_[A-Z0-9_]+')
+                if ($diagnostic.Count -gt 0) {
+                  Write-Host ('MPGRAPH155_UQ51_DIAGNOSTIC_CODE=' + $diagnostic[$diagnostic.Count-1].Value)
+                } else {
+                  Write-Host 'MPGRAPH155_UQ51_DIAGNOSTIC_CODE=NO_WHITELISTED_CODE'
+                }
               }
               throw ('MPGRAPH155_' + $Label + '_FAILED_PRIVATE_OUTPUT_WITHHELD')
             }
