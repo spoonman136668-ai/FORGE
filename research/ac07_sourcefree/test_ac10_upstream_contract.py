@@ -20,6 +20,8 @@ class TestAC10Upstream(unittest.TestCase):
         self.assertEqual(self.source["sha"],ac.SOURCE_COMMIT)
         self.assertEqual(self.source["tree"],ac.SOURCE_TREE)
         self.assertEqual(self.source["verified_git_blobs"],ac.BLOBS)
+        self.assertEqual(self.source["dtr_original_git_blob_sha256"],
+                         "e31eff82f862355057653d150967bb44a5ed57a6acaad57f7ecf2a551f6c6811")
         self.assertGreaterEqual(self.source["root_import_fanout"],10)
         self.assertEqual(self.source["source_native_episodes_executed"],0)
 
