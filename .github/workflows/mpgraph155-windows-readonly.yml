@@ -41,6 +41,57 @@ jobs:
             param([string]$Label,[string]$Executable,[string[]]$CommandArgs)
             & $Executable @CommandArgs *> $privateLog
             if ($LASTEXITCODE -ne 0) {
+              if ($Label -ceq 'FULL_WINDOWS_REGRESSION' -and (Test-Path -LiteralPath $privateLog)) {
+                $lastTest = Get-Content -LiteralPath $privateLog | Where-Object { $_ -match '^RUN Test-[A-Za-z0-9_.-]+\.ps1
+            Write-Host ('MPGRAPH155_' + $Label + '=PASS')
+          }
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            & git clone --quiet --depth 1 --branch $env:MP_BRANCH 'https://github.com/spoonman136668-ai/Mind-Palace.git' $source *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPH155_PRIVATE_SOURCE_READ_UNAVAILABLE' }
+            $actual = (& git -C $source rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $env:EXPECTED_MP_SHA) {
+              throw 'MPGRAPH155_SOURCE_IDENTITY_DRIFT'
+            }
+            $trackedBefore = @(& git -C $source status --porcelain=v1 --untracked-files=no)
+            if ($LASTEXITCODE -ne 0 -or $trackedBefore.Count -ne 0) {
+              throw 'MPGRAPH155_SOURCE_DIRTY'
+            }
+            $records = Join-Path $source '.ice/records.json'
+            $ledger = Join-Path $source '.ice/source-ledger.json'
+            $recordsHash = (Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash
+            $ledgerHash = (Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash
+            Write-Host 'MPGRAPH155_PINNED_PRIVATE_SOURCE=PASS'
+            Push-Location $source
+            try {
+              Invoke-PrivateQualification 'FOCUSED_PYTHON' 'python' @('-B','tests/test_advisory_graphify_registry.py')
+              Invoke-PrivateQualification 'CURATED_VALIDATE' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tools/mind.ps1','validate')
+              Invoke-PrivateQualification 'ARCHIVE_VALIDATE' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tools/archive.ps1','validate')
+              Invoke-PrivateQualification 'FILE_LIBRARY_PILOT' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tools/collect.ps1','validate','-InputPath','pilots/file-library/2026-09-11.batch.json')
+              Invoke-PrivateQualification 'FULL_WINDOWS_REGRESSION' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tests/Test-All.ps1')
+            } finally {
+              Pop-Location
+            }
+            if ((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash -cne $recordsHash -or
+                (Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $ledgerHash) {
+              throw 'MPGRAPH155_CURATED_MEMORY_MUTATION'
+            }
+            $trackedAfter = @(& git -C $source status --porcelain=v1 --untracked-files=no)
+            if ($LASTEXITCODE -ne 0 -or $trackedAfter.Count -ne 0) { throw 'MPGRAPH155_SOURCE_MUTATION' }
+            if ((& git -C $source rev-parse HEAD).Trim() -cne $env:EXPECTED_MP_SHA) {
+              throw 'MPGRAPH155_POST_QUALIFICATION_IDENTITY_DRIFT'
+            }
+            Write-Host 'MPGRAPH155_PRIVATE_SOURCE_AND_ICE_UNCHANGED=PASS'
+            Write-Host 'MPGRAPH155_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED'
+            Write-Host 'MPGRAPH155_PRODUCTION_MEMORY_PROMOTION=NOT_AUTHORIZED'
+          } finally {
+            if (Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Force -Recurse -ErrorAction Stop
+            }
+          }
+ } | Select-Object -Last 1
+                if ($lastTest) { Write-Host ('MPGRAPH155_LAST_REGRESSION_TEST=' + $lastTest.Substring(4)) }
+              }
               throw ('MPGRAPH155_' + $Label + '_FAILED_PRIVATE_OUTPUT_WITHHELD')
             }
             Write-Host ('MPGRAPH155_' + $Label + '=PASS')
