@@ -703,6 +703,36 @@ jobs:
              $release.protected -ne $true) {
             throw 'F139_V18_IMMUTABLE_RELEASE_REF_NOT_QUALIFIED'
           }
+          # A generic protected=true response is not evidence of an
+          # immutable source: inspect the active, no-bypass update+delete rule.
+          $allRules=@(& gh api repos/spoonman136668-ai/FORGE/rulesets | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_V18_RELEASE_RULESET_READ_DENIED'
+          }
+          $matching=@($allRules | Where-Object {
+            $_.name -ceq 'FORGE F139 immutable owner release refs' -and
+            $_.target -ceq 'branch' -and $_.enforcement -ceq 'active'
+          })
+          if($matching.Count -ne 1 -or [int64]$matching[0].id -le 0) {
+            throw 'F139_V18_RELEASE_RULESET_NOT_UNIQUE_OR_ACTIVE'
+          }
+          $rule=(& gh api ("repos/spoonman136668-ai/FORGE/rulesets/"+$matching[0].id) | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $null -eq $rule -or
+             [string]$rule.name -cne 'FORGE F139 immutable owner release refs' -or
+             [string]$rule.target -cne 'branch' -or
+             [string]$rule.enforcement -cne 'active' -or
+             @($rule.bypass_actors).Count -ne 0 -or
+             @($rule.conditions.ref_name.include).Count -ne 1 -or
+             [string]$rule.conditions.ref_name.include[0] -cne 'refs/heads/f139-owner-release-*' -or
+             @($rule.conditions.ref_name.exclude).Count -ne 0) {
+            throw 'F139_V18_RELEASE_RULESET_SCOPE_OR_BYPASS_DRIFT'
+          }
+          $lockTypes=@($rule.rules | ForEach-Object {[string]$_.type} | Sort-Object)
+          if($lockTypes.Count -ne 2 -or $lockTypes[0] -cne 'deletion' -or
+             $lockTypes[1] -cne 'update') {
+            throw 'F139_V18_RELEASE_RULESET_LOCK_WEAKENED'
+          }
+          Write-Host 'F139_V18_RELEASE_REF_IMMUTABILITY=VERIFIED'
           Write-Host 'F139_V18_ORIGINAL_OWNER_PROTECTED_PREFLIGHT=PASS'
           $quiesced=$false
           $mutationPossible=$false
