@@ -745,7 +745,7 @@ jobs:
             }
             @'
           import pathlib, sqlite3, sys
-          from f139.local_controller import Database
+          from f139.local_controller import Database, v17_original_model_history_valid
           from f139.nci04_native_contract import canonical
           from f139.nci04_v17_owner_readonly_preflight import build_v17_readonly_preflight
           db=Database(pathlib.Path(sys.argv[1]))
@@ -760,9 +760,13 @@ jobs:
                   "SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_AUTHENTICATED'").fetchone()[0]
               free_attempt=db.conn.execute(
                   "SELECT COUNT(*) FROM events WHERE kind='FREE_REASONER_ATTEMPTED'").fetchone()[0]
-              assert (g3_attempt==1 and g3_success==1
-                      and model_attempt==3 and model_success==3
-                      and free_attempt==2)
+              assert v17_original_model_history_valid({
+                  "G3_DRAFT_ATTEMPTED": g3_attempt,
+                  "G3_DRAFT_AUTHENTICATED": g3_success,
+                  "MODEL_DRAFT_ATTEMPTED": model_attempt,
+                  "MODEL_DRAFT_AUTHENTICATED": model_success,
+                  "FREE_REASONER_ATTEMPTED": free_attempt,
+              }), "F139_V17_ORIGINAL_BOUNDED_MODEL_HISTORY_DRIFT"
               proof=build_v17_readonly_preflight(db, sys.argv[3], int(sys.argv[4]))
               with sqlite3.connect(sys.argv[2]) as out:
                   db.conn.backup(out)
