@@ -1480,6 +1480,12 @@ class Database:
         from f139.nci04_v19_original_one_shot_free_send import (
             audit_v19_send_events)
         audit_v19_send_events(self)
+        # V19 data-only proposal validation is also cold checked against the
+        # original spent send. A model output never becomes publication,
+        # training, worker-dispatch or scientific authority by itself.
+        from f139.nci04_v19_original_proposal_validation_custody import (
+            audit_original_validated_proposals)
+        audit_original_validated_proposals(self)
 
     @contextlib.contextmanager
     def transaction(self):
