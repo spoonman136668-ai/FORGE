@@ -131,6 +131,9 @@ def reserve_simulated(owner: Database, simulated: sqlite3.Connection, *,
         deny("ORIGINAL_OWNER_DISABLED")
     if type(abort_before_commit) is not bool:
         deny("FAULT_FLAG_INVALID")
+    # Reject a file-backed or original-owner connection BEFORE beginning any
+    # SQLite transaction, even a temporary lock acquisition.
+    rows(simulated, owner)
     # BEGIN IMMEDIATE serializes read, budget decision and insert in this
     # INERT MEMORY LAB. Production will require separately qualified original
     # SQLite event kind, cold verifier and real pre-POST owner transaction.
