@@ -1,0 +1,90 @@
+name: MP-AI merged main native engineering readback
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai-merged-main-readback.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai-integrated-main-post-merge-qualification
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 27
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Verify actual merged source, protected memory, affected suites and original Windows regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPAI_MAIN_BAD_OWNER_RUNNER'}
+          $root=Join-Path $env:RUNNER_TEMP ('mpai-main-post-merge-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          try {
+            New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $root 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI_MAIN_PRIVATE_CLONE_BLOCKED'}
+            $head=(& git -C $src rev-parse HEAD).Trim()
+            if($head -cne '711da24d1308bb2aec276e240f967e3401ecff27'){throw 'MPAI_MAIN_MERGE_SHA_DRIFT'}
+            if((& git -C $src rev-parse 'HEAD^{tree}').Trim() -cne '5ac3c4d5d99b70a6830c48afd80a12c930b3e1d6'){throw 'MPAI_MAIN_MERGE_TREE_DRIFT'}
+            $parents=((& git -C $src rev-list --parents -n 1 HEAD).Trim() -split '\s+')
+            if($parents.Count -ne 3 -or $parents[1] -cne '7ad7230a82e3c748aa5336b7288ad2b45d42630c' -or $parents[2] -cne 'cc8b3ab560b12beb989185343a2b279bfdbca296'){throw 'MPAI_MAIN_MERGE_ANCESTRY_DRIFT'}
+            $changed=@(& git -C $src diff --name-only '7ad7230a82e3c748aa5336b7288ad2b45d42630c' HEAD)
+            if($LASTEXITCODE -ne 0 -or $changed.Count -ne 19){throw 'MPAI_MAIN_DELTA_COUNT_DRIFT'}
+            $allow=@('agentic/','docs/','tests/','tools/')
+            foreach($path in $changed){if(-not ($allow | Where-Object {$path.StartsWith($_)})){throw 'MPAI_MAIN_PROTECTED_PATH_IN_DELTA'}}
+            $record=Join-Path $src '.ice/records.json'
+            $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([IO.File]::ReadAllBytes($record))).ToLowerInvariant()
+            if($sha -cne 'e5066b28ae03b2a6b7c82953a173013e690cf8fe66d5f5bfec6a81dd790409fa'){throw 'MPAI_MAIN_RECORDS_DRIFT'}
+            Write-Host 'MPAI_MAIN_MERGE_SHA_TREE_AND_ANCESTRY=PASS'
+            Write-Host 'MPAI_MAIN_19_FILE_SAFE_DELTA=PASS'
+            Write-Host 'MPAI_MAIN_ORIGINAL_RECORDS_SHA256=PASS'
+            $targets=@(
+              'test_mpai_integrated_cycle.py','test_mpai01_reflect.py',
+              'test_mpai01_probe.py','test_mpai01_mcp_adapter.py',
+              'test_mpai02_probe_mcp.py','test_mpai04_admitted_memory.py',
+              'test_mpai05_runtime_claims.py','test_mpn1_mcp.py'
+            )
+            $total=0
+            Push-Location $src
+            try{
+              foreach($name in $targets){
+                $log=Join-Path $root ('private-'+$name+'.log')
+                & python -B -m unittest discover -s tests -p $name -v *> $log
+                if($LASTEXITCODE -ne 0){throw 'MPAI_MAIN_AFFECTED_TEST_FAILURE'}
+                $txt=[IO.File]::ReadAllText($log)
+                $m=[regex]::Match($txt,'Ran ([0-9]{1,3}) tests? in')
+                if(-not $m.Success -or [int]$m.Groups[1].Value -lt 1 -or $txt -notmatch '(?m)^OK\s*$'){throw 'MPAI_MAIN_AFFECTED_REPORT_INVALID'}
+                $total+=[int]$m.Groups[1].Value
+              }
+              if($total -ne 111){throw 'MPAI_MAIN_FOCUSED_COUNT_DRIFT'}
+              Write-Host 'MPAI_MAIN_111_FOCUSED_TESTS=PASS'
+              $full=Join-Path $root 'private-original-full-regression.log'
+              & pwsh.exe -NoProfile -NonInteractive -File tests/Test-All.ps1 *> $full
+              if($LASTEXITCODE -ne 0){throw 'MPAI_MAIN_FULL_REGRESSION_FAILED'}
+              if(-not [IO.File]::ReadAllText($full).Contains('Mind-Palace regression suite passed')){throw 'MPAI_MAIN_FULL_REGRESSION_RECEIPT_MISSING'}
+              Write-Host 'MPAI_MAIN_ORIGINAL_FULL_WINDOWS_REGRESSION=PASS'
+            }finally{Pop-Location}
+            if((& git -C $src rev-parse HEAD).Trim() -cne '711da24d1308bb2aec276e240f967e3401ecff27'){throw 'MPAI_MAIN_POST_TEST_SOURCE_DRIFT'}
+            $dirty=@(& git -C $src status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI_MAIN_TEST_SOURCE_MUTATED'}
+            Write-Host 'MPAI_MAIN_PRIVATE_SOURCE_CLEAN=PASS'
+            Write-Host 'MPAI_MAIN_REAL_HETEROGENEOUS_AGENTS=NOT_CONNECTED'
+            Write-Host 'MPAI_MAIN_AUTHENTICATED_FEEDBACK=NOT_CONFIGURED'
+            Write-Host 'MPAI_MAIN_SCIENTIFIC_IMPROVEMENT=NOT_PROVEN'
+            Write-Host 'MPAI_MAIN_ICE_AND_CONTROLLER_WRITES=0'
+            Write-Host 'MPAI_MAIN_PAID_API_CALLS=0'
+          }finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+            Write-Host ('MPAI_MAIN_PRIVATE_SCRATCH_REMOVED='+$(if(Test-Path -LiteralPath $root){'FALSE'}else{'TRUE'}))
+          }
