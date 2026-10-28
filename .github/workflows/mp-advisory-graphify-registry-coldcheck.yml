@@ -15,7 +15,7 @@ jobs:
     runs-on: [self-hosted, Windows]
     timeout-minutes: 12
     env:
-      EXPECTED_MIND_PALACE_COMMIT: '39553e44670e228ddf2d4061435381c89c32f08b'
+      EXPECTED_MIND_PALACE_COMMIT: '43efdd7421f936a9386687c9df68d85e46ea02ef'
       RESEARCH_SCIENTIFIC_AUTHORITY: '0'
       RESEARCH_PROMOTION_ALLOWED: '0'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -48,12 +48,20 @@ jobs:
             & python -B (Join-Path $copy 'tests/test_advisory_graphify_registry.py')
             if($LASTEXITCODE -ne 0){throw 'MP_ADVISORY_REGISTRY_TEST_FAILED'}
             if(@(git -C $copy status --porcelain=v1 --untracked-files=no).Count -gt 0){throw 'MP_ADVISORY_TRACKED_SOURCE_MUTATED'}
-            $protected=@('.ice/records.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/source-ledger.json')
-            foreach($p in $protected){
-              $parent=(& git -C $copy rev-parse ($env:EXPECTED_MIND_PALACE_COMMIT+'^:'+ $p) 2>$null | Out-String).Trim()
-              $child=(& git -C $copy rev-parse ($env:EXPECTED_MIND_PALACE_COMMIT+':'+ $p) 2>$null | Out-String).Trim()
-              if($parent -and $child -and $parent -cne $child){throw 'MP_ADVISORY_PROTECTED_SOURCE_DRIFT'}
-            }
+            $base='7d980fc555a3ceeb5571e9481a768c61f5b1ac80'
+            if((& git -C $copy cat-file -t $base | Out-String).Trim() -cne 'commit'){throw 'MP_ADVISORY_BASE_COMMIT_NOT_PRESENT'}
+            $allChanged=@(& git -C $copy diff --name-only $base $env:EXPECTED_MIND_PALACE_COMMIT)
+            if($LASTEXITCODE -ne 0){throw 'MP_ADVISORY_DIFF_FAILED'}
+            $expectedPaths=@(
+              'docs/ADVISORY_GRAPHIFY_SNAPSHOTS.json',
+              'docs/ADVISORY_GRAPHIFY_SNAPSHOTS.md',
+              'docs/RESEARCH_EVIDENCE_CATALOG.md',
+              'tests/test_advisory_graphify_registry.py'
+            )
+            if($allChanged.Count -ne $expectedPaths.Count){throw 'MP_ADVISORY_EXACT_CHANGE_SCOPE_WRONG_COUNT'}
+            foreach($path in $allChanged){if($path -cnotin $expectedPaths){throw 'MP_ADVISORY_OUT_OF_SCOPE_PATH'}}
+            $iceChanged=@(& git -C $copy diff --name-only $base $env:EXPECTED_MIND_PALACE_COMMIT -- .ice)
+            if($LASTEXITCODE -ne 0 -or $iceChanged.Count -ne 0){throw 'MP_ADVISORY_CURATED_ICE_DRIFT'}
             Write-Host 'MP_ADVISORY_OWNER_WINDOWS_INDEPENDENT_COLD_CHECK=PASS'
             Write-Host 'MP_ADVISORY_CURATED_ICE_UNMODIFIED=PASS'
             Write-Host 'MP_ADVISORY_DIRECT_CHATGPT_PRIVATE_REPOSITORY_ACCESS=NOT_VERIFIED'
