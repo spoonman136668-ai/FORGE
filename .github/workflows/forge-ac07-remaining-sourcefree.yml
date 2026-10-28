@@ -6,6 +6,7 @@ on:
     paths:
       - 'research/ac07_sourcefree/**'
       - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
+      - 'docs/research/AC-10-DTR-SOURCE-NATIVE-COMPATIBILITY-PREFLIGHT.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
   pull_request:
     branches:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'research/ac07_sourcefree/**'
       - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
+      - 'docs/research/AC-10-DTR-SOURCE-NATIVE-COMPATIBILITY-PREFLIGHT.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
 permissions:
   contents: read
@@ -30,6 +32,7 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: '1'
+      AC10_UPSTREAM_ROOT: ${{ github.workspace }}/ac10_upstream
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,6 +49,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Check out authentic external upstream DTR at frozen commit
+        uses: actions/checkout@v4
+        with:
+          repository: CausalAILab/Causal-Gymnasium
+          ref: c94e9a4cd3641588b6b8507e71ccee5c27032bdf
+          path: ac10_upstream
+          persist-credentials: false
+          fetch-depth: 1
       - name: Focused AC-07 and AC-06 source-free regressions
         shell: bash
         run: |
@@ -103,6 +114,26 @@ jobs:
           print("AC08_PORTFOLIO_36_OF_36_SOURCE_ONLY=PASS")
           print("AC08_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
           PY
+      - name: AC-10 pinned original DTR import and no-episode packaging qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac10_upstream_contract.py --upstream "$AC10_UPSTREAM_ROOT" --out "$RUNNER_TEMP/ac07/ac10-report.json"
+          python - "$RUNNER_TEMP/ac07/ac10-report.json" <<'PY'
+          import json,sys
+          from pathlib import Path
+          r=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac10.upstream-dtr-source-compatibility.v1"
+          assert r["upstream"]["sha"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["upstream"]["tree"]=="fd8d8a67c1fc7fa62274dc7e12fb1e77945632f0"
+          assert r["original_source_interactions_performed"]==0
+          assert r["native_model_training_performed"] is False
+          assert r["scientific_first_use"] is False
+          assert r["accepted_science_or_native_models_changed"] is False
+          assert r["controller_or_f139_queue_changed"] is False
+          print("AC10_SOURCE_NATIVE_IMPORT_PREFLIGHT_COMPLETED")
+          print("AC10_RUNTIME_IMPORT_STATUS="+r["import_probe"]["status"])
+          PY
       - name: Retain source-free evidence per operating system
         if: success()
         uses: actions/upload-artifact@v4
@@ -111,5 +142,6 @@ jobs:
           path: |
             ${{ runner.temp }}/ac07/report.json
             ${{ runner.temp }}/ac07/portfolio.json
+            ${{ runner.temp }}/ac07/ac10-report.json
           retention-days: 30
           if-no-files-found: error
