@@ -59,6 +59,13 @@ jobs:
             New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
             & git clone --quiet --depth 1 --branch $env:MP_BRANCH 'https://github.com/spoonman136668-ai/Mind-Palace.git' $source *> $privateLog
             if ($LASTEXITCODE -ne 0) { throw 'MPGRAPH155_PRIVATE_SOURCE_READ_UNAVAILABLE' }
+            # Historical UQ51 frozen fixture is a real ancestor of this head (180 commits back).
+            # Fetch that immutable ancestry; do not edit historical fixtures or acceptance logic.
+            & git -C $source fetch --quiet --unshallow origin *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPH155_REQUIRED_HISTORY_UNAVAILABLE' }
+            & git -C $source merge-base --is-ancestor '90d2dc1e79f0fcdcf49fba7680e29b5760e80d6b' HEAD *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPH155_FROZEN_FIXTURE_ANCESTRY_INVALID' }
+            Write-Host 'MPGRAPH155_FROZEN_HISTORY=PASS'
             $actual = (& git -C $source rev-parse HEAD).Trim()
             if ($LASTEXITCODE -ne 0 -or $actual -cne $env:EXPECTED_MP_SHA) {
               throw 'MPGRAPH155_SOURCE_IDENTITY_DRIFT'
