@@ -1,0 +1,98 @@
+name: FORGE AC-04 source-free cross-OS development qualification
+on:
+  push:
+    branches:
+      - research/ac04-crossos-sourcefree-qualification-20261028
+    paths:
+      - 'research/ac02_sourcefree/**'
+      - 'research/ac03_sourcefree/**'
+      - '.github/workflows/forge-ac04-sourcefree-crossos.yml'
+  pull_request:
+    branches:
+      - research/ac03-measured-sourcefree-pilot-20261028
+    paths:
+      - 'research/ac02_sourcefree/**'
+      - 'research/ac03_sourcefree/**'
+      - '.github/workflows/forge-ac04-sourcefree-crossos.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-ac04-sourcefree-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  cpu-sourcefree:
+    name: source-free CPU tests / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 28
+    env:
+      AC04_SOURCEFREE_ONLY: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact candidate without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin source to submitted commit and AC-03 ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 45639966ff8b868acf791159f931408abc7ecc64 "$GITHUB_SHA"
+          ! test -e research/ac03_sourcefree/launch.json
+          echo 'AC04_SOURCE_IDENTITY=PASS'
+      - name: Python 3.11 (no dependency installation)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pre-existing AC-02 and AC-03 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac02_sourcefree -p 'test_*.py' -v
+          python -B -m unittest discover -s research/ac03_sourcefree -p 'test_*.py' -v
+          echo 'AC04_SOURCEFREE_TESTS=PASS'
+      - name: Isolated synthetic benchmark (no original/heldout access)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ac04"
+          python -B research/ac03_sourcefree/ac04_crossos.py --output "$RUNNER_TEMP/ac04/ac04.json"
+          python - "$RUNNER_TEMP/ac04/ac04.json" <<'PY'
+          import json,sys,hashlib,pathlib
+          p=pathlib.Path(sys.argv[1]); j=json.loads(p.read_text(encoding="utf-8"))
+          assert j["schema"]=="forge.ac04.sourcefree.crossos.v1"
+          assert j["scope"]=="DEVELOPMENT_ONLY"
+          assert j["science_admitted"] is False
+          assert j["scientific_original_first_use"] is False
+          assert j["new_controller"] is False
+          assert j["accepted_model_updated"] is False
+          assert j["measured_case_count"]==11
+          assert j["repetitions_per_variant"]==3
+          assert len(j["source_results"])==66
+          assert len(j["summaries"])==11
+          assert all(len([x for x in j["source_results"] if x["case"]==case])==6 for case in j["summaries"])
+          assert all(
+              (s["cpu_ratio_candidate_over_baseline"] is not None and s["cpu_ratio_status"]=="VALID")
+              or (s["cpu_ratio_candidate_over_baseline"] is None and
+                  s["cpu_ratio_status"] in ("ZERO_ARM_TIMER_RESOLUTION","WINDOWS_COARSE_PROCESS_CPU_CLOCK"))
+              for s in j["summaries"].values())
+          assert all(s["wall_ratio_candidate_over_baseline"] is not None for s in j["summaries"].values())
+          missing=[k for k,s in j["summaries"].items() if s["cpu_ratio_candidate_over_baseline"] is None]
+          print("AC04_CPU_RATIO_TIMER_LIMITED_CASES="+",".join(missing))
+          assert j["ac03_source_sha256"]=="b4295236b37b6b017841a863ab8fd551fee26cdafa8f5b02a4d80afdc78f2c5d"
+          print("AC04_SOURCEFREE_MEASUREMENT=PASS")
+          print("AC04_JSON_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Retain exact per-OS measurements
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-ac04-${{ matrix.os }}-sourcefree-cpu
+          path: ${{ runner.temp }}/ac04/ac04.json
+          retention-days: 30
+          if-no-files-found: error
