@@ -11,8 +11,8 @@ A source-free local Python standard-library microbenchmark was run on the analys
 - Executed benchmark source `ac03_benchmark.py` SHA-256: `b4295236b37b6b017841a863ab8fd551fee26cdafa8f5b02a4d80afdc78f2c5d`
 - 3-repetition raw measurements `ac03_results.json` SHA-256: `53d2bfbe4b1563e10066b7c80893d7271b5f28a8a0a5f69365f68eeb40517126`
 - One-run isolated-process spot-check `ac03_isolated_check.json` SHA-256: `d3bbc355e53703aaf7c7330e6621a3896feb8c5a4b1af9205c71a81456bed310`
-- The ZIP and source/measurements were **not uploaded into this Git commit**. These exact hashes are archival references only, not GitHub-attested artifacts or qualified provenance. The actual files must be source-pinned and independently qualified before any scientific use.
-- Local benchmark tests: 5/5 pass against the local executable. AC-02 bundled predecessor tests: 12/12 pass against the attached development bundle; **not exact GitHub PR CI**.
+- The **exact benchmark source** and **exact five-test source** are now in this draft branch under `research/ac03_sourcefree/`. Their Git blob SHA-1 identities match the local files: benchmark `844c9d175e92707c71b7cbbcc3920da6fb65fbb5`, tests `b4b85d3f4fee8540eb92ad1ba70eee63b3382357`. This is *source-identity verification*, not GitHub Actions qualification. The full raw result JSON and isolated-check JSON remain in the companion ZIP, not GitHub-attested artifacts; preserve their SHA-256 above. Do not claim source-pinned Windows/Linux CI or scientific evidence.
+- Local benchmark tests: **5/5** pass on the byte-identical source now committed; this identity was verified via the Git blob hashes. AC-02 bundled predecessor tests: **12/12** pass against the attached development bundle; **not exact GitHub PR CI**.
 
 ## Main measured CPU observations
 
@@ -57,11 +57,12 @@ For each future class, keep exact immutable source/config/harness keys, identica
 This report does not enter an operational queue or claim the controller has consumed it. Existing [ITD-02 #857](https://github.com/spoonman136668-ai/FORGE/issues/857) and [FORGE ADR-0002](https://github.com/spoonman136668-ai/FORGE/blob/main/docs/ADR-0002-MIND-PALACE-ONLY-NO-CKB-DEPENDENCY.md) prevail; independent consequence source for W1 remains `NOT_VERIFIED` at this review. No F139 assignment/eligible labels or new scheduler/controller. Existing NCI-04, ITD-01, Q21, BIO, Mass Research and language/learning work continues unchanged.
 
 `AC03_LOCAL_PILOT=COMPLETE`  
-`AC03_EXACT_GITHUB_SOURCE_TEST=NOT_VERIFIED`  
+`AC03_EXACT_SOURCE_AND_TEST_BLOB_MATCH=PASS`  
+`AC03_GITHUB_ACTIONS_CI=NOT_VERIFIED`  
 `AC03_NATIVE_WINDOWS_QUALIFICATION=NOT_RUN`  
 `ORIGINAL_SCIENTIFIC_FIRSTUSE=FALSE`  
 `W1_CONSEQUENCE_SOURCE=NOT_VERIFIED`  
 `MODEL_OR_ACCEPTED_REF_MUTATED=FALSE`  
 `MERGED=FALSE`
 
-**Next engineering gate:** Commit the actual benchmark source and results under exact source identity, run qualified Windows/Linux trials using existing permitted resources, and then run restricted substantive-learning pilots for the other idea families. Only afterward seek separate FORGE-native scientific admission. Compositional test-result reuse is permitted with exact semantic/harness identity, but one full integration regression remains mandatory before any authorized promotion.
+**Next engineering gate:** Commit the full raw measurement artifacts as independently verifiable content-addressed evidence, run qualified Windows/Linux trials using existing permitted resources, and then run restricted substantive-learning pilots for the other idea families. Only afterward seek separate FORGE-native scientific admission. Compositional test-result reuse is permitted with exact semantic/harness identity, but one full integration regression remains mandatory before any authorized promotion.
