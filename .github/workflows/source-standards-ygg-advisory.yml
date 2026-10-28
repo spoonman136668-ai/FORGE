@@ -1,0 +1,44 @@
+name: Source standards Yggdrasil isolated advisory publication
+on:
+  push:
+    branches: [qualification/source-standards-ygg-advisory-20261028]
+    paths:
+      - .github/workflows/source-standards-ygg-advisory.yml
+permissions:
+  contents: read
+concurrency:
+  group: source-standards-ygg-advisory-one-shot
+  cancel-in-progress: false
+jobs:
+  source-only-private:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 35
+    env:
+      RESEARCH_SCIENTIFIC_AUTHORITY: '0'
+      RESEARCH_PROMOTION_ALLOWED: '0'
+      KTRADE_LIVE_AUTHORITY: '0'
+      GRAPHIFY_QUERY_LOG_DISABLE: '1'
+      GRAPHIFY_QUERY_LOG_RESPONSES: '0'
+    steps:
+      - name: Checkout exact qualification harness without persisted GitHub token
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Confirm isolated Windows qualification and fail-closed authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'YGG_HARNESS_SHA_DRIFT'}
+          if($env:RESEARCH_SCIENTIFIC_AUTHORITY -cne '0' -or $env:RESEARCH_PROMOTION_ALLOWED -cne '0'){throw 'YGG_AUTHORITY_UNSAFE'}
+          if(@(git status --porcelain=v1 --untracked-files=no).Count -ne 0){throw 'YGG_HARNESS_DIRTY'}
+          Write-Host 'YGG_ISOLATED_HARNESS_PRECHECK=PASS'
+      - name: Generate latest pinned public source and publish privately outside native Atlas
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./tools/qualification/ygg-advisory-isolated.ps1
+          if($LASTEXITCODE -and $LASTEXITCODE -ne 0){throw 'YGG_ADVISORY_SCRIPT_FAILED'}
+          Write-Host 'YGG_KNOWLEDGE_ISOLATION_JOB=PASS'
