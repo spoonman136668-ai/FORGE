@@ -19,7 +19,7 @@ from urllib.request import urlopen
 
 NOTE = "002865cd06_test.go"
 WITNESS = "TestStrategy_Phase7_T764_ClosedTrades"
-QUERY = "002865cd06_test.go"
+QUERY = "file:002865cd06"
 
 
 class GateFailure(Exception):
@@ -182,6 +182,8 @@ def ui_state(ws):
       const noteTitle = active?.querySelector('.view-header-title')?.textContent || '';
       const activeText = active?.innerText || '';
       const search = document.querySelector('.search-result-container');
+      const searchInput = document.querySelector('.search-input-container input');
+      const resultFiles = Array.from(document.querySelectorAll('.search-result-file-title, .search-result-file'));
       return {
         title: document.title,
         prompt: !!prompt,
@@ -193,7 +195,12 @@ def ui_state(ws):
         targetPresent: !!obs?.vault?.getAbstractFileByPath?.('002865cd06_test.go.md'),
         suggestionMatch: suggestions.some(x => x.innerText.includes('002865cd06_test.go')),
         suggestionCount: document.querySelectorAll('.suggestion-item').length,
-        searchReady: !!document.querySelector('.search-input-container input'),
+        searchReady: !!searchInput,
+        searchInputMatches: searchInput?.value === 'file:002865cd06',
+        resultFileMatches: resultFiles.some(x => x.textContent?.includes('002865cd06_test.go')),
+        resultFileCount: resultFiles.length,
+        searchContainerPresent: !!search,
+        searchContainerMatch: !!search && search.innerText.includes('002865cd06_test.go'),
         searchResults: search ? search.querySelectorAll('.search-result-file-title, .search-result-file-match').length : 0,
         searchWitness: !!search && search.innerText.includes('002865cd06_test.go'),
         vaultUI: !!document.querySelector('.workspace, .workspace-split')
@@ -266,15 +273,31 @@ def main():
             raise GateFailure("GUI_GLOBAL_SEARCH_COMMAND_UNAVAILABLE")
     until(lambda: bool((ui_state(ws) or {}).get("searchReady")),
           10, "GUI_SEARCH_INPUT_NOT_RENDERED")
-    ws.js("document.querySelector('.search-input-container input').focus()")
+    ws.js("""(() => {
+      const e = document.querySelector('.search-input-container input');
+      e.focus(); e.value = ''; e.dispatchEvent(new Event('input', {bubbles:true}));
+      return true;
+    })()""")
     ws.text(QUERY)
-    until(
-        lambda: (
-            (ui_state(ws) or {}).get("searchResults", 0) > 0
-            and bool((ui_state(ws) or {}).get("searchWitness"))
-        ),
-        100, "GUI_GLOBAL_SEARCH_NO_AUTHENTIC_RESULT"
-    )
+    until(lambda: (ui_state(ws) or {}).get("searchInputMatches"),
+          7, "GUI_SEARCH_TEXT_NOT_ENTERED")
+    try:
+        until(
+            lambda: (
+                (ui_state(ws) or {}).get("resultFileCount", 0) > 0
+                and bool((ui_state(ws) or {}).get("resultFileMatches"))
+                and bool((ui_state(ws) or {}).get("searchInputMatches"))
+            ),
+            120, "GUI_GLOBAL_SEARCH_NO_AUTHENTIC_RESULT"
+        )
+    except GateFailure:
+        s = ui_state(ws) or {}
+        for key in ("searchReady", "searchInputMatches", "searchContainerPresent",
+                    "resultFileCount", "resultFileMatches",
+                    "searchResults", "searchContainerMatch", "searchWitness"):
+            print("KTRADE_GUI_SEARCH_DIAGNOSTIC_" + key.upper() +
+                  "=" + str(s.get(key)), flush=True)
+        raise
     print("KTRADE_GUI_GLOBAL_SEARCH_RESULT=PASS", flush=True)
     print("KTRADE_GUI_SEARCH_SECONDS=" + str(round(time.monotonic()-start_search, 2)), flush=True)
     print("KTRADE_GUI_NO_SIMULATED_UI_AND_NO_MODEL_CALLS=PASS", flush=True)
