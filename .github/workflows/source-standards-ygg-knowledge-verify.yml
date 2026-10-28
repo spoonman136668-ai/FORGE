@@ -1,0 +1,63 @@
+name: Yggdrasil independent advisory knowledge integrity qualification
+on:
+  push:
+    branches: [qualification/source-standards-ygg-advisory-20261028]
+    paths:
+      - .github/workflows/source-standards-ygg-knowledge-verify.yml
+permissions:
+  contents: read
+concurrency:
+  group: source-standards-ygg-independent-integrity
+  cancel-in-progress: false
+jobs:
+  independent-committed-artifact:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 20
+    env:
+      YGG_ADVISORY_SHA: '7ed776d25e273a226684e238efd0fe61fe10183a'
+      YGG_SOURCE_SHA: '14275a69ee553d2ed17c4a9e551d2486454d58f3'
+      RESEARCH_SCIENTIFIC_AUTHORITY: '0'
+      RESEARCH_PROMOTION_ALLOWED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Fetch exact harness with no persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Cold-verify private committed graph and 144-note Obsidian vault
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'self-hosted'){throw 'YGG_QUALIFY_WRONG_RUNNER'}
+          if($env:RESEARCH_SCIENTIFIC_AUTHORITY -cne '0' -or $env:RESEARCH_PROMOTION_ALLOWED -cne '0'){throw 'YGG_QUALIFY_AUTHORITY_UNSAFE'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'YGG_QUALIFY_HARNESS_DRIFT'}
+          $who=(& gh api user --jq .login 2>$null | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $who -cne 'spoonman136668-ai'){throw 'YGG_QUALIFY_WRONG_IDENTITY'}
+          $private=(& gh repo view spoonman136668-ai/yggdrasil-knowledge --json isPrivate --jq .isPrivate | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $private -cne 'true'){throw 'YGG_QUALIFY_KNOWLEDGE_NOT_PRIVATE'}
+          $source=(& gh api repos/spoonman136668-ai/Yggdrasil/git/ref/heads/main --jq .object.sha | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $source -cne $env:YGG_SOURCE_SHA){throw 'YGG_QUALIFY_SOURCE_MAIN_CHANGED'}
+          $root=Join-Path $env:SystemDrive ('yq'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'YGG_QUALIFY_SCRATCH_EXISTS'}
+          $null=New-Item -ItemType Directory -Path $root
+          $repo=Join-Path $root 'knowledge'
+          $privateLog=Join-Path $root 'clone.log'
+          try{
+            $env:GIT_TERMINAL_PROMPT='0'
+            & git -c 'credential.helper=!gh auth git-credential' clone --no-checkout --filter=blob:none 'https://github.com/spoonman136668-ai/yggdrasil-knowledge.git' $repo *> $privateLog
+            if($LASTEXITCODE -ne 0){throw 'YGG_QUALIFY_PRIVATE_CLONE_FAILED'}
+            & git -C $repo config core.longpaths true
+            & git -C $repo checkout --detach $env:YGG_ADVISORY_SHA *> $privateLog
+            if($LASTEXITCODE -ne 0){throw 'YGG_QUALIFY_KNOWLEDGE_CHECKOUT_FAILED'}
+            if((git -C $repo rev-parse HEAD).Trim() -cne $env:YGG_ADVISORY_SHA){throw 'YGG_QUALIFY_SHA_DRIFT'}
+            & python -B ./tools/qualification/ygg-advisory-verify.py $repo
+            if($LASTEXITCODE -ne 0){throw 'YGG_QUALIFY_ARTIFACT_FAILED'}
+            if(@(git -C $repo status --porcelain=v1 --untracked-files=no).Count -ne 0){throw 'YGG_QUALIFY_TRACKED_MUTATION'}
+            Write-Host 'YGG_QUALIFY_INDEPENDENT_COLD_CHECKOUT=PASS'
+            Write-Host 'YGG_QUALIFY_NATIVE_ATLAS_AND_MAIN_UNMODIFIED=PASS'
+          }finally{
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+          }
