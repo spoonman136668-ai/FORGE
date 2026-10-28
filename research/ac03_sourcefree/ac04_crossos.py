@@ -94,10 +94,16 @@ def run(output):
         c=[s for s in rows if s["case"]==case and s["role"]=="candidate"]
         median=lambda seq,k:statistics.median(x[k] for x in seq)
         denom=median(b,"cpu_ns")
+        numerator=median(c,"cpu_ns")
+        # Windows process CPU clocks quantize sub-millisecond workloads: zero
+        # ratios and even nonzero low-count ratios are not reliable speedups.
+        cpu_valid = sys.platform != "win32" and denom>0 and numerator>0
         summaries[case]={
             "claim_ids":prior.IDS[case],
-            "cpu_ratio_candidate_over_baseline":median(c,"cpu_ns")/denom if denom>0 else None,
-            "cpu_ratio_status":"VALID" if denom>0 else "ZERO_BASELINE_TIMER_RESOLUTION",
+            "cpu_ratio_candidate_over_baseline":numerator/denom if cpu_valid else None,
+            "cpu_ratio_status":"VALID" if cpu_valid else (
+                "WINDOWS_COARSE_PROCESS_CPU_CLOCK" if sys.platform=="win32"
+                else "ZERO_ARM_TIMER_RESOLUTION"),
             "wall_ratio_candidate_over_baseline":median(c,"wall_ns")/median(b,"wall_ns") if median(b,"wall_ns")>0 else None,
             "baseline_cpu_median_ns":median(b,"cpu_ns"),
             "candidate_cpu_median_ns":median(c,"cpu_ns"),
