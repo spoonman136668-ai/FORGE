@@ -1,0 +1,46 @@
+name: Source standards three private Obsidian native desktop acceptance
+on:
+  push:
+    branches: [qualification/source-standards-obsidian-gui-20261028]
+    paths:
+      - .github/workflows/source-standards-advisory-obsidian-gui.yml
+      - tools/qualification/advisory-obsidian-gui.ps1
+      - tools/qualification/advisory_obsidian_cdp.py
+permissions:
+  contents: read
+concurrency:
+  group: source-standards-3-vault-desktop-20261028
+  cancel-in-progress: false
+jobs:
+  authentic-desktop:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 25
+    env:
+      RESEARCH_SCIENTIFIC_AUTHORITY: '0'
+      RESEARCH_PROMOTION_ALLOWED: '0'
+      KTRADE_LIVE_AUTHORITY: '0'
+      GRAPHIFY_QUERY_LOG_DISABLE: '1'
+      GRAPHIFY_QUERY_LOG_RESPONSES: '0'
+    steps:
+      - name: Checkout exact qualification harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify owner Windows read-only boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'GUI_HARNESS_SHA_DRIFT'}
+          if($env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'self-hosted'){throw 'GUI_WRONG_RUNNER'}
+          if($env:RESEARCH_SCIENTIFIC_AUTHORITY -cne '0' -or $env:RESEARCH_PROMOTION_ALLOWED -cne '0' -or $env:KTRADE_LIVE_AUTHORITY -cne '0'){throw 'GUI_UNSAFE_AUTHORITY'}
+          Write-Host 'ADVISORY_GUI_OWNER_QUALIFICATION_BOUNDARY=PASS'
+      - name: Open 3 isolated real Obsidian desktop vaults and verify native search
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./tools/qualification/advisory-obsidian-gui.ps1
+          if($LASTEXITCODE -and $LASTEXITCODE -ne 0){throw 'GUI_SCRIPT_FAILED'}
+          Write-Host 'ADVISORY_GUI_FULL_RESEARCH_PORTFOLIO=PASS'
