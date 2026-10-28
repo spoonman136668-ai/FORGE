@@ -1,0 +1,74 @@
+name: FORGE F139 V18 escalated owner GitHub admin credential read-only probe
+on:
+  push:
+    branches: [engineering/f139-v18-escalated-admin-readonly-20261028]
+    paths:
+      - '.github/workflows/f139-v18-escalated-admin-readonly-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-v18-escalated-admin-readonly-20261028
+  cancel-in-progress: false
+jobs:
+  original-owner-readonly-admin-probe:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/engineering/f139-v18-escalated-admin-readonly-20261028'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify original escalated runner and existing GitHub administrator identity (read only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1') {
+            throw 'F139_V18_ADMIN_PROBE_RUNNER_OR_ATTEMPT_DRIFT'
+          }
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($owner).IsInRole(
+               [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'F139_V18_ADMIN_PROBE_ESCALATED_WINDOWS_REQUIRED'
+          }
+          $head=(& git rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA -or
+             @(& git status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_V18_ADMIN_PROBE_SOURCE_NOT_CLEAN_AND_EXACT'
+          }
+          if(-not(Get-Command gh -ErrorAction SilentlyContinue)) {
+            Write-Host 'F139_V18_OWNER_GH_CLI=UNAVAILABLE'
+            return
+          }
+          # The app-provided GitHub workflow token does not include administration.
+          # Do not replace a preexisting local owner GitHub CLI session with it.
+          foreach($name in @('GH_TOKEN','GITHUB_TOKEN','GH_ENTERPRISE_TOKEN','GITHUB_ENTERPRISE_TOKEN')) {
+            Remove-Item -Path ("Env:"+$name) -ErrorAction SilentlyContinue
+          }
+          $env:GH_PROMPT_DISABLED='1'
+          $loginText= & gh api user --jq .login 2>$null
+          if($LASTEXITCODE -ne 0 -or
+             [string]$loginText -cne 'spoonman136668-ai') {
+            Write-Host 'F139_V18_ESCALATED_OWNER_GH_LOGIN=NOT_CONFIRMED'
+            Write-Host 'F139_V18_ADMIN_PROTECTION_ACCESS=NOT_TESTED'
+            return
+          }
+          Write-Host 'F139_V18_ESCALATED_OWNER_GH_LOGIN=VERIFIED'
+          $mainProtection=& gh api repos/spoonman136668-ai/FORGE/branches/main/protection 2>$null
+          if($LASTEXITCODE -ne 0 -or -not $mainProtection) {
+            Write-Host 'F139_V18_ADMIN_PROTECTION_ACCESS=DENIED_OR_UNAVAILABLE'
+            return
+          }
+          $branch=& gh api repos/spoonman136668-ai/FORGE/branches/main --jq .commit.sha 2>$null
+          if($LASTEXITCODE -ne 0 -or
+             [string]$branch -cne '3775bed30891ff748197a539afe5b92813680e26') {
+            throw 'F139_V18_ADMIN_PROBE_PROTECTED_MAIN_MOVED'
+          }
+          Write-Host 'F139_V18_ADMIN_PROTECTION_ACCESS=CONFIRMED_READ_ONLY'
+          Write-Host 'F139_V18_ADMIN_RULESET_MUTATION=FALSE'
+          Write-Host 'F139_V18_OWNER_TASK_OR_LEDGER_ACCESSED=FALSE'
