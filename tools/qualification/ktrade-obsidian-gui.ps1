@@ -73,6 +73,9 @@ try{
   $psi.Environment['LOCALAPPDATA']=$local
   $null=$psi.ArgumentList.Add('--user-data-dir='+$userData)
   $null=$psi.ArgumentList.Add('--force-renderer-accessibility')
+  $port=40000+([int]$env:GITHUB_RUN_ID % 15000)
+  $null=$psi.ArgumentList.Add('--remote-debugging-port='+$port)
+  $null=$psi.ArgumentList.Add('--remote-debugging-address=127.0.0.1')
   $watch=[System.Diagnostics.Stopwatch]::StartNew()
   $launcher=[System.Diagnostics.Process]::Start($psi)
   if($null -eq $launcher){throw 'GUI_START_PROCESS_FAILED'}
@@ -98,100 +101,11 @@ try{
   Write-Host ('KTRADE_GUI_REAL_WINDOW_OPEN_SECONDS='+([Math]::Round($windowWait.Elapsed.TotalSeconds,2)))
   Write-Host 'KTRADE_GUI_REAL_DESKTOP_WINDOW=PASS'
 
-  $keyboardSource=@'
-using System;
-using System.Runtime.InteropServices;
-public static class ObsidianKeyboard {
-  [DllImport("user32.dll", SetLastError=true)]
-  public static extern bool SetForegroundWindow(IntPtr h);
-  [DllImport("user32.dll")]
-  public static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll", CharSet=CharSet.Unicode)]
-  public static extern short VkKeyScan(char c);
-  [DllImport("user32.dll")]
-  public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
-  static void Down(byte k){keybd_event(k,0,0,UIntPtr.Zero);}
-  static void Up(byte k){keybd_event(k,0,2,UIntPtr.Zero);}
-  public static void Key(byte k){Down(k);System.Threading.Thread.Sleep(20);Up(k);}
-  public static void Ctrl(byte k){
-    Down(0x11);System.Threading.Thread.Sleep(35);Key(k);
-    System.Threading.Thread.Sleep(35);Up(0x11);
-  }
-  public static void CtrlShift(byte k) {
-    Down(0x11);Down(0x10);System.Threading.Thread.Sleep(35);Key(k);
-    System.Threading.Thread.Sleep(35);Up(0x10);Up(0x11);
-  }
-  public static void Text(string s) {
-    foreach(char c in s){
-      short scan=VkKeyScan(c);
-      if(scan<0)throw new Exception("GUI_UNMAPPABLE_KEY");
-      bool shift=(scan & 0x0100)!=0;
-      byte key=(byte)(scan & 255);
-      if(shift)Down(0x10);
-      Key(key);
-      if(shift)Up(0x10);
-      System.Threading.Thread.Sleep(10);
-    }
-  }
-}
-'@
-  Add-Type -TypeDefinition $keyboardSource -ErrorAction Stop
-  $shell=New-Object -ComObject WScript.Shell
-  if(-not $shell.AppActivate($window.Id)){throw 'GUI_FOREGROUND_ACTIVATION_FAILED'}
-  [void][ObsidianKeyboard]::SetForegroundWindow($handle)
-  Start-Sleep -Seconds 5
-  if([ObsidianKeyboard]::GetForegroundWindow() -ne $handle){throw 'GUI_NOT_FOREGROUND_DESKTOP'}
-  [ObsidianKeyboard]::Ctrl(0x4F)
-  Start-Sleep -Seconds 2
-  [ObsidianKeyboard]::Text('002865cd06_test.go')
-  Start-Sleep -Seconds 4
-  [ObsidianKeyboard]::Key(0x0D)
-  $opening=[System.Diagnostics.Stopwatch]::StartNew()
-  $opened=$false
-  while($opening.Elapsed.TotalSeconds -lt 65){
-    try {
-      $uia=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
-      $items=$uia.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
-      $names=[System.Collections.Generic.List[string]]::new()
-      foreach($e in $items){
-        $name=$e.Current.Name
-        if(-not [string]::IsNullOrEmpty($name)){[void]$names.Add($name)}
-      }
-      if(@($names|Where-Object{$_ -like '*TestStrategy_Phase7_T764_ClosedTrades*'}).Count -gt 0){
-        $opened=$true;break
-      }
-      $nameNow=(Get-Process -Id $window.Id).MainWindowTitle
-      if($nameNow -like '*002865cd06_test.go*'){$opened=$true;break}
-    }catch{}
-    Start-Sleep -Seconds 2
-  }
-  if(-not $opened){throw 'GUI_NOTE_CONTENT_OR_TITLE_NOT_OBSERVED'}
-  Write-Host ('KTRADE_GUI_NOTE_OPEN_SECONDS='+([Math]::Round($opening.Elapsed.TotalSeconds,2)))
-  Write-Host 'KTRADE_GUI_REAL_NOTE_NAVIGATION=PASS'
-
-  if(-not $shell.AppActivate($window.Id)){throw 'GUI_SEARCH_FOREGROUND_FAILED'}
-  [ObsidianKeyboard]::CtrlShift(0x46)
-  Start-Sleep -Seconds 2
-  [ObsidianKeyboard]::Text('002865cd06_test.go')
-  $search=[System.Diagnostics.Stopwatch]::StartNew()
-  $found=$false
-  while($search.Elapsed.TotalSeconds -lt 90){
-    try {
-      $uia=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
-      $items=$uia.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
-      foreach($e in $items){
-        $name=$e.Current.Name
-        if($name -match '(?i)(1 result|result.{0,20}002865cd06|002865cd06.{0,20}result)'){
-          $found=$true;break
-        }
-      }
-      if($found){break}
-    }catch{}
-    Start-Sleep -Seconds 2
-  }
-  if(-not $found){throw 'GUI_GLOBAL_SEARCH_RESULT_NOT_OBSERVED'}
-  Write-Host ('KTRADE_GUI_SEARCH_RESULT_SECONDS='+([Math]::Round($search.Elapsed.TotalSeconds,2)))
-  Write-Host 'KTRADE_GUI_REAL_GLOBAL_SEARCH=PASS'
+  $cdp=Join-Path $env:GITHUB_WORKSPACE 'tools/qualification/ktrade_obsidian_cdp.py'
+  if(-not (Test-Path -LiteralPath $cdp -PathType Leaf)){throw 'GUI_CDP_HARNESS_MISSING'}
+  & python -B $cdp --port $port
+  if($LASTEXITCODE -ne 0){throw 'GUI_ACTUAL_RENDERER_NAVIGATION_OR_SEARCH_FAILED'}
+  Write-Host 'KTRADE_GUI_RENDERER_INTERACTION=PASS'
   Write-Host ('KTRADE_GUI_FULL_VAULT_SECONDS='+([Math]::Round($watch.Elapsed.TotalSeconds,2)))
   Write-Host 'KTRADE_GUI_TEST_PASS_READ_ONLY_REVIEW_ONLY'
 }finally{
