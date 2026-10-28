@@ -28,8 +28,8 @@ class AC04SourceOnly(TestCase):
         self.assertTrue(all(v>=u for u,v in zip(a,b)))
         self.assertTrue(any(v>u for u,v in zip(a,b)))
     def test_guard_refuses_unqualified_environment(self):
-        with patch.dict(os.environ,{"AC04_NO_NETWORK":"0"}):
-            with self.assertRaisesRegex(RuntimeError,"AC04_NO_NETWORK_GUARD_NOT_SET"):
+        with patch.dict(os.environ,{"AC04_SOURCEFREE_ONLY":"0"}):
+            with self.assertRaisesRegex(RuntimeError,"AC04_SOURCEFREE_ONLY_GUARD_NOT_SET"):
                 m.run("must_not_exist_ac04.json")
     def test_scientific_authority_not_claimed(self):
         import inspect
