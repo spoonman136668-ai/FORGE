@@ -1,0 +1,77 @@
+name: FORGE G66 independent private Graphify review verification
+
+on:
+  push:
+    branches: [qualification/forge-graphify-current-candidate-20261028]
+    paths:
+      - .github/workflows/source-standards-forge-current-independent-verify.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-g66-independent-review-verification
+  cancel-in-progress: false
+
+jobs:
+  cold-verification:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      EXPECTED_SOURCE: 'd8bccc604f8607bf10f9d8bc6aa568d1f98af559'
+      EXPECTED_CANDIDATE: '3eaa9f770de2aef93efbefc6e4ea24a492c87570'
+      EXPECTED_PRIVATE_BASE: '068b99f8891a839c6c014bb77da778641a3a9540'
+      EXPECTED_GRAPH_SHA256: 'b94fc532ed96dea7531cabcc974f99bb25e67e73f286924dcc9fab96fe41778e'
+      EXPECTED_NOTES: '7072'
+      RESEARCH_SCIENTIFIC_AUTHORITY: '0'
+      RESEARCH_PROMOTION_ALLOWED: '0'
+      KTRADE_LIVE_AUTHORITY: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Read-only exact harness checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Cold-verify exact private candidate, graph bytes, Obsidian links and clean custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'FORGE_G66_RUNNER_MISMATCH'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'FORGE_G66_HARNESS_SHA_DRIFT'}
+          if($env:RESEARCH_SCIENTIFIC_AUTHORITY -cne '0' -or $env:RESEARCH_PROMOTION_ALLOWED -cne '0'){throw 'FORGE_G66_AUTHORITY_UNSAFE'}
+          $who=(& gh api user --jq .login 2>$null | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $who -cne 'spoonman136668-ai'){throw 'FORGE_G66_WRONG_IDENTITY'}
+          $private=(& gh repo view spoonman136668-ai/forge-knowledge --json isPrivate --jq .isPrivate 2>$null | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $private -cne 'true'){throw 'FORGE_G66_DESTINATION_NOT_PRIVATE'}
+          $source=((& git ls-remote https://github.com/spoonman136668-ai/FORGE.git refs/heads/main | Out-String).Trim() -split '\s+')[0]
+          if($source -cne $env:EXPECTED_SOURCE){throw 'FORGE_G66_SOURCE_MAIN_DRIFT'}
+          $root=Join-Path $env:SystemDrive ('fg66'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'FORGE_G66_SCRATCH_ALREADY_PRESENT'}
+          $null=New-Item -ItemType Directory -Path $root
+          $privateLog=Join-Path $root 'private.log'
+          $dest=Join-Path $root 'k'
+          try{
+            & git -c 'credential.helper=!gh auth git-credential' clone --no-checkout --filter=blob:none 'https://github.com/spoonman136668-ai/forge-knowledge.git' $dest *> $privateLog
+            if($LASTEXITCODE -ne 0){throw 'FORGE_G66_PRIVATE_CLONE_FAILED'}
+            & git -C $dest config core.longpaths true
+            $original=(& git -C $dest rev-parse refs/remotes/origin/main | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $original -cne $env:EXPECTED_PRIVATE_BASE){throw 'FORGE_G66_KNOWLEDGE_MAIN_DRIFT'}
+            & git -C $dest checkout --detach $env:EXPECTED_CANDIDATE *> $privateLog
+            if($LASTEXITCODE -ne 0 -or (git -C $dest rev-parse HEAD).Trim() -cne $env:EXPECTED_CANDIDATE){throw 'FORGE_G66_PRIVATE_SOURCE_PIN_FAILED'}
+            Write-Host 'FORGE_G66_PRIVATE_COLD_CLONE_PIN=PASS'
+            & python -B tools/qualification/forge-graphify-current-verify.py $dest $env:EXPECTED_GRAPH_SHA256 $env:EXPECTED_NOTES
+            if($LASTEXITCODE -ne 0){throw 'FORGE_G66_GRAPH_AND_WIKILINKS_FAILED'}
+            if(@(git -C $dest status --porcelain=v1 --untracked-files=no).Count -ne 0){throw 'FORGE_G66_PRIVATE_TRACKED_MUTATION'}
+            $after=((& git -C $dest -c 'credential.helper=!gh auth git-credential' ls-remote origin refs/heads/main | Out-String).Trim() -split '\s+')[0]
+            if($after -cne $env:EXPECTED_PRIVATE_BASE){throw 'FORGE_G66_PRIVATE_MAIN_CHANGED'}
+            Write-Host 'FORGE_G66_PRIVATE_SOURCE_AND_MAIN_UNCHANGED=PASS'
+            Write-Host 'FORGE_G66_ADVISORY_ONLY_NO_PROMOTION=PASS'
+          }finally{
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host 'FORGE_G66_PRIVATE_SCRATCH_CLEANUP_REQUESTED=TRUE'
+          }
