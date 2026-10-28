@@ -1,0 +1,92 @@
+name: MP-AI162 PR166 original Windows transaction isolation
+on:
+  push:
+    branches: [qualification/mpai162-exact-windows-20261028]
+    paths: ['.github/workflows/mpai162-pr166-transaction-isolation-20261028.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai162-pr166-isolation-20261028
+  cancel-in-progress: false
+jobs:
+  source-pinned:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+      SOURCE_SHA: 'd78c1edcb509c8bee58bf843e5675a472cc257c1'
+    steps:
+      - name: Pinned Windows PowerShell 7 transaction isolation and guarded full regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI162_UNEXPECTED_RUNNER'
+          }
+          $scratch=Join-Path $env:SystemDrive ('m162p166-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $scratch 'source'
+          try {
+            if(Test-Path -LiteralPath $scratch) { throw 'MPAI162_SCRATCH_COLLISION' }
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $env:TEMP=Join-Path $scratch 'tmp'
+            $env:TMP=$env:TEMP
+            New-Item -ItemType Directory -Path $env:TEMP | Out-Null
+            & git clone --quiet --single-branch --branch repair/mpai162-shell-qualification-only-20261028 https://github.com/spoonman136668-ai/Mind-Palace.git $source *> (Join-Path $scratch 'private-clone.log')
+            if($LASTEXITCODE -ne 0){ throw 'MPAI162_CLONE_FAILED' }
+            $sha=(& git -C $source rev-parse HEAD).Trim()
+            if($LASTEXITCODE -ne 0 -or $sha -cne $env:SOURCE_SHA){ throw 'MPAI162_PR166_SOURCE_DRIFT' }
+            Write-Output ('MPAI162_EXACT_SOURCE='+$sha)
+            Write-Output ('MPAI162_RUNNER='+$env:RUNNER_NAME)
+            $focusedLog=Join-Path $scratch 'private-transaction.log'
+            Push-Location $source
+            try {
+              & pwsh.exe -NoProfile -NonInteractive -File .\tests\Test-RepoSourceTransaction.ps1 *> $focusedLog
+              $transactionExit=$LASTEXITCODE
+            } finally { Pop-Location }
+            $privateLines=@(Get-Content -LiteralPath $focusedLog -ErrorAction SilentlyContinue)
+            $markers=@($privateLines | Where-Object { $_ -match '^UQ51_[A-Z0-9_]+=(PASS|FALSE|TRUE)$' })
+            foreach($m in $markers){ Write-Output ('MPAI162_FOCUSED_MARKER='+$m) }
+            $failureTokens=@([regex]::Matches(($privateLines -join [Environment]::NewLine),'UQ51_[A-Z0-9_]+') | ForEach-Object {$_.Value} | Select-Object -Unique -Last 8)
+            if($transactionExit -ne 0){
+              Write-Output ('MPAI162_TRANSACTION_EXIT='+$transactionExit)
+              foreach($token in $failureTokens){Write-Output ('MPAI162_SAFE_FAILURE_TOKEN='+$token)}
+              Write-Output 'MPAI162_SCIENTIFIC_COMPOSE=NO_GO'
+              Write-Output 'MPAI162_PRODUCTION_WRITES=0'
+              throw 'MPAI162_TRANSACTION_TEST_FAILED'
+            }
+            Write-Output 'MPAI162_TRANSACTION=PASS_ORIGINAL_WINDOWS_PWSH'
+            $fullLog=Join-Path $scratch 'private-full-regression.log'
+            & python -B (Join-Path $source 'tools/mpai162_qualify_exact_head.py') --expected-head $env:SOURCE_SHA --phase full *> $fullLog
+            $fullExit=$LASTEXITCODE
+            $receipts=@(Get-Content -LiteralPath $fullLog | Where-Object { $_ -match '^\{"accepted_observation_registry_verified":' })
+            if($receipts.Count -ne 1){throw 'MPAI162_FULL_RECEIPT_MISSING'}
+            $report=$receipts[0] | ConvertFrom-Json
+            if($report.expected_head -cne $env:SOURCE_SHA -or $report.platform -cne 'Windows' -or $report.phase -cne 'full'){
+              throw 'MPAI162_FULL_RECEIPT_IDENTITY_INVALID'
+            }
+            if($report.answer_authorized -ne $false -or $report.scientific_compose -cne 'NO_GO' -or $report.production_writes -ne 0){
+              throw 'MPAI162_UNEARNED_AUTHORITY'
+            }
+            foreach($step in @($report.steps)){
+              Write-Output ('MPAI162_STEP='+$step.step+',exit='+$step.exit_code+',methods='+$step.methods)
+            }
+            Write-Output ('MPAI162_FULL_EXIT='+$fullExit)
+            Write-Output 'MPAI162_SCIENTIFIC_COMPOSE=NO_GO'
+            Write-Output 'MPAI162_PRODUCTION_WRITES=0'
+            if($fullExit -ne 0 -or $report.engineering_pass -ne $true){
+              throw ('MPAI162_FULL_WINDOWS_HARD_FAIL:'+[string]$report.safe_failure)
+            }
+            $dirty=@(& git -C $source status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI162_FINAL_SOURCE_DIRTY'}
+            Write-Output 'MPAI162_WINDOWS_ENGINEERING=PASS_UNATTESTED_SCIENTIFIC'
+          } finally {
+            Set-Location ($env:SystemDrive+'\')
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
