@@ -1,0 +1,93 @@
+name: MP Graphify 155 focused remote-bootstrap diagnostic
+on:
+  push:
+    branches: [review/mpgraph155-windows-readonly-20261028]
+    paths:
+      - '.github/workflows/mpgraph155-remote-bootstrap-focused.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Diagnose exact-source isolated remote-bootstrap regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          PYTHONDONTWRITEBYTECODE: '1'
+          EXPECTED_MP_SHA: 'a2e9b6c6c7d91bcbcde631a44ed8461656a91dca'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows') {
+            throw 'MPGRAPH155_INVALID_RUNNER'
+          }
+          $root = Join-Path $env:SystemDrive ('m155-rb-' + $env:GITHUB_RUN_ID)
+          $source = Join-Path $root 'source'
+          $diagnosticLog = Join-Path $root 'private-log.txt'
+          $shortTemp = Join-Path $root 'temp'
+          $oldTemp = $env:TEMP
+          $oldTmp = $env:TMP
+          $oldCount = $env:GIT_CONFIG_COUNT
+          $oldKey = $env:GIT_CONFIG_KEY_0
+          $oldValue = $env:GIT_CONFIG_VALUE_0
+          if ($oldCount -or $oldKey -or $oldValue) { throw 'MPGRAPH155_GIT_ENV_ALREADY_OVERRIDDEN' }
+          try {
+            if (Test-Path -LiteralPath $root) { throw 'MPGRAPH155_TEMP_ROOT_COLLISION' }
+            New-Item -ItemType Directory -Path $shortTemp -Force -ErrorAction Stop | Out-Null
+            $env:TEMP = $shortTemp
+            $env:TMP = $shortTemp
+            $env:GIT_CONFIG_COUNT = '1'
+            $env:GIT_CONFIG_KEY_0 = 'core.longpaths'
+            $env:GIT_CONFIG_VALUE_0 = 'true'
+            & git clone --quiet --depth 1 --branch 'docs/graphify-connector-access-verified-20261028' 'https://github.com/spoonman136668-ai/Mind-Palace.git' $source *> $diagnosticLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPH155_SOURCE_CLONE_FAILED' }
+            if ((& git -C $source rev-parse HEAD).Trim() -cne $env:EXPECTED_MP_SHA) { throw 'MPGRAPH155_PIN_DRIFT' }
+            Write-Host 'MPGRAPH155_EXACT_PRIVATE_SOURCE=PASS'
+            Push-Location $source
+            try {
+              & powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'tests/Test-RemoteBootstrap.ps1' *> $diagnosticLog
+              $exitCode = $LASTEXITCODE
+            } finally { Pop-Location }
+            if ($exitCode -ne 0) {
+              $privateText = Get-Content -LiteralPath $diagnosticLog -Raw
+              $classes = [ordered]@{
+                LOCAL_CLONE = 'remote bootstrap test local clone failed'
+                SOURCE_DRIFT = 'remote bootstrap test source SHA drift'
+                SCRATCH_CLEANUP = 'remote bootstrap test scratch cleanup failed'
+                LONG_PATH = '(?i)filename too long|path too long|path exceeds'
+                FILE_MISSING = 'missing remote bridge regression input|remote bridge generator did not create'
+                RECORDS_HASH = 'project-state capsule records hash mismatch'
+                GRAPH_HASH = 'dependency graph records hash mismatch'
+                ORIENTATION = 'remote orientation (count|order) mismatch'
+                RETRIEVAL_CONTRACT = 'model-visible representation drift|relative floor drift|primary budget drift|candidate limit drift'
+                INDEX_RECORD_COUNT = 'remote index active-record count mismatch'
+                BOOTSTRAP_NONDETERMINISM = 'remote bootstrap generation is not deterministic'
+                CATALOG_NONDETERMINISM = 'remote catalog generation is not deterministic'
+                INDEX_NONDETERMINISM = 'remote index generation is not deterministic'
+                CAPSULE_NONDETERMINISM = 'project-state capsule generation is not deterministic'
+                GRAPH_NONDETERMINISM = 'project dependency graph generation is not deterministic'
+                ACCESS = '(?i)access is denied|permission denied'
+                GIT_CLONE = '(?i)fatal:.*clone|could not resolve host|unable to checkout'
+              }
+              $matched = @($classes.Keys | Where-Object { $privateText -match $classes[$_] })
+              if ($matched.Count -eq 0) { Write-Host 'MPGRAPH155_BOOTSTRAP_ERROR_CLASS=UNCLASSIFIED' }
+              foreach ($category in $matched) { Write-Host ('MPGRAPH155_BOOTSTRAP_ERROR_CLASS=' + $category) }
+              throw 'MPGRAPH155_FOCUSED_REMOTE_BOOTSTRAP_FAILED_PRIVATE_OUTPUT_WITHHELD'
+            }
+            Write-Host 'MPGRAPH155_FOCUSED_REMOTE_BOOTSTRAP=PASS'
+            $dirty = @(& git -C $source status --porcelain=v1 --untracked-files=no)
+            if ($dirty.Count -ne 0) { throw 'MPGRAPH155_TRACKED_SOURCE_CHANGED' }
+            Write-Host 'MPGRAPH155_SOURCE_UNCHANGED=PASS'
+          } finally {
+            $env:TEMP = $oldTemp
+            $env:TMP = $oldTmp
+            $env:GIT_CONFIG_COUNT = $oldCount
+            $env:GIT_CONFIG_KEY_0 = $oldKey
+            $env:GIT_CONFIG_VALUE_0 = $oldValue
+            if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop }
+          }
