@@ -1,0 +1,92 @@
+name: FORGE AC-05 source-free learning and interference screen
+on:
+  push:
+    branches:
+      - research/ac05-learned-mechanisms-sourcefree-20261028
+    paths:
+      - 'research/ac05_sourcefree/**'
+      - '.github/workflows/forge-ac05-sourcefree-learning.yml'
+  pull_request:
+    branches:
+      - research/ac04-crossos-sourcefree-qualification-20261028
+    paths:
+      - 'research/ac05_sourcefree/**'
+      - '.github/workflows/forge-ac05-sourcefree-learning.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-ac05-sourcefree-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  sourcefree-learning:
+    name: source-free learning controls / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source and parent identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 3dae23b71f9a9a091075ae100689589f5af90467 "$GITHUB_SHA"
+          test -f research/ac05_sourcefree/learning.py
+          ! test -e research/ac05_sourcefree/launch.json
+          echo "AC05_SOURCE_IDENTITY=PASS"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Focused AC-05 tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac05_sourcefree -p 'test_*.py' -v
+      - name: Affected-interface source-free regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac02_sourcefree -p 'test_*.py' -v
+          python -B -m unittest discover -s research/ac03_sourcefree -p 'test_*.py' -v
+          echo "AC05_FOCUSED_AND_AFFECTED_INTERFACE=PASS"
+      - name: Execute bounded synthetic FIT + transfer diagnostics and preserve negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ac05"
+          python -B research/ac05_sourcefree/learning.py > "$RUNNER_TEMP/ac05/report.json"
+          python - "$RUNNER_TEMP/ac05/report.json" <<'PY'
+          import json,sys,pathlib,hashlib
+          path=pathlib.Path(sys.argv[1]); r=json.loads(path.read_text(encoding='utf-8'))
+          assert r['schema']=='forge.ac05.learned-mechanisms.sourcefree.v1'
+          assert r['scope']=='SYNTHETIC_DEVELOPMENT_ONLY'
+          assert len(r['results'])==6
+          assert set(r['results'])=={'AC-D'+str(x) for x in range(1,7)}
+          assert r['results']['AC-D1']['undercovered_fit_unseen_interaction_failure']
+          assert r['results']['AC-D3']['unobserved_future_error_count']>0
+          assert r['results']['AC-D5']['matched_fitted_ema_parity']
+          assert r['results']['AC-D6']['verified_unfamiliar_transfer'] is False
+          assert r['scientific_first_use'] is False
+          assert r['independent_consequence_source_verified'] is False
+          assert r['native_model_changed'] is False
+          assert r['accepted_science'] is False
+          assert r['new_controller_or_scheduler'] is False
+          print('AC05_SYNTHETIC_DEVELOPMENT=PASS')
+          print('AC05_REPORT_SHA256='+hashlib.sha256(path.read_bytes()).hexdigest())
+          PY
+      - name: Keep complete platform evidence
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-ac05-${{ matrix.os }}-learning-sourcefree
+          path: ${{ runner.temp }}/ac05/report.json
+          if-no-files-found: error
+          retention-days: 30
