@@ -90,6 +90,19 @@ def d2j_plan(source_sha: str, previous_head_sha256: str) -> dict:
     }
 
 
+def preserve_verified_steering(report: dict, steering_selection: dict | None) -> dict:
+    """Retain read-only source-verified idle-intake evidence on terminal reports.
+
+    This cannot make a candidate eligible, issue work, retry a model request or
+    alter the ledger. No witness is invented when the feeder was not reached.
+    """
+    require(type(report) is dict, "STEERING_REPORT_INVALID")
+    if steering_selection is None:
+        return report
+    require(type(steering_selection) is dict, "STEERING_WITNESS_INVALID")
+    return dict(report, steering_selection=steering_selection)
+
+
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -4064,14 +4077,17 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 from f139.nci04_owner_free_reasoner_proposal import (
                     run_original_free_reasoner_once)
                 try:
-                    return run_original_free_reasoner_once(
+                    reasoner_report = run_original_free_reasoner_once(
                         db, api, db_path, source_sha=meta["source_sha"],
                         owner_witness=lambda:
                             native_original_running_publisher_profile(db_path))
                 except (F139Error, ValueError):
-                    return {"disposition":"FREE_REASONER_GUARD_BLOCKED_FAIL_CLOSED",
-                            "scientific_first_use":False,
-                            "worker_dispatched":False,"paid_model_calls":0}
+                    reasoner_report = {
+                        "disposition":"FREE_REASONER_GUARD_BLOCKED_FAIL_CLOSED",
+                        "scientific_first_use":False,
+                        "worker_dispatched":False,"paid_model_calls":0}
+                return preserve_verified_steering(
+                    reasoner_report, steering_selection)
             from f139.nci04_owner_model_free_bootstrap import (
                 run_original_g29_once)
             try:
