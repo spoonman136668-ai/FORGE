@@ -15,15 +15,15 @@ class AC12Tests(unittest.TestCase):
         self.assertEqual(len(mod.MINIGRID_WHEEL_SHA256),64)
 
     def test_parses_actual_missing_module_name(self):
-        raw=b'Traceback (most recent call last):\n  File "..."\nModuleNotFoundError: No module named \\'minigrid\\''
+        raw=b"Traceback (most recent call last):\n  File ...\nModuleNotFoundError: No module named 'minigrid'"
         self.assertEqual(mod.read_exception(raw),
             {"kind":"MISSING_MODULE","module":"minigrid"})
         self.assertEqual(mod.read_exception(
-            b'ModuleNotFoundError: No module named \\'torchvision\\'')["module"],
+            b"ModuleNotFoundError: No module named 'torchvision'")["module"],
             "torchvision")
 
     def test_does_not_echo_unsafe_error_lines(self):
-        data=b'ModuleNotFoundError: No module named \\'minigrid\\'\\nTOKEN=someprivatevalue'
+        data=b"ModuleNotFoundError: No module named 'minigrid'\nTOKEN=someprivatevalue"
         result=mod.read_exception(data)
         self.assertNotIn("TOKEN",repr(result))
         self.assertEqual(result["module"],"minigrid")
