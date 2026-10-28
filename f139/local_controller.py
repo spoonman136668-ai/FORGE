@@ -1870,7 +1870,9 @@ class Database:
                 prev_v16=[e for e in events if e["schema"]==
                           "forge.f139.source-transition.v16"]
                 if prev_v18:
-                    require(allow_v19 is True and len(prev_v18)==1
+                    require(allow_v19 is True
+                            and SingleOwner.held(self.filename.with_suffix(".lock"))
+                            and len(prev_v18)==1
                             and events[-1]["schema"]==
                                 "forge.f139.source-transition.v18"
                             and meta["source_sha"] == prev_v18[0]["to_source_sha"]
