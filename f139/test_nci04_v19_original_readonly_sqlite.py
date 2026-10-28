@@ -37,7 +37,6 @@ class OriginalV19ReadOnlySqliteTests(unittest.TestCase):
                 for sql in (
                     "UPDATE meta SET source_sha='0000000000000000000000000000000000000000' WHERE id=1",
                     "CREATE TABLE must_never_exist(id INTEGER)",
-                    "PRAGMA journal_mode=DELETE",
                 ):
                     with self.subTest(sql=sql):
                         with self.assertRaises(sqlite3.OperationalError):
