@@ -4377,6 +4377,8 @@ def cli(argv=None):
     transition_v17.add_argument("--approval",type=Path,required=True)
     transition_v18=sub.add_parser("transition-qualified-native-v18")
     transition_v18.add_argument("--approval",type=Path,required=True)
+    transition_v19=sub.add_parser("transition-qualified-native-v19")
+    transition_v19.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
@@ -4750,6 +4752,62 @@ def cli(argv=None):
                     "event_head":meta["head_hash"],"event_seq":meta["head_seq"],
                     "v2_production_dispatch_authorized":False,
                     "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="transition-qualified-native-v19":
+            # This command is inert unless an authenticated original owner
+            # explicitly supplies a cold V18-ledger-bound approval file.
+            # Read-only preflight is necessary, not sufficient: caller must
+            # independently authenticate protected main and the owner event.
+            from f139.nci04_v19_owner_readonly_preflight import (
+                verify_v19_readonly_preflight)
+            native_original_owner_profile(args.db)
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"V19_APPROVAL_FILE_INVALID")
+            approval=json.loads(raw)
+            require(type(approval) is dict,"V19_APPROVAL_NOT_OBJECT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read_v19(*parts):
+                result=subprocess.run(
+                    ["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(result.returncode==0,"V19_GIT_COMMAND_FAILED")
+                return result.stdout.decode("utf-8").strip()
+            require(_git_read_v19("rev-parse","HEAD")==approval.get("to_source_sha")
+                    and _git_read_v19("status","--porcelain",
+                                      "--untracked-files=all")=="",
+                    "V19_INSTALLED_CLEAN_EXACT_SOURCE_REQUIRED")
+            api=GitHub()
+            require(api.protected_main()==approval.get("to_source_sha"),
+                    "V19_PROTECTED_MAIN_SHA_DRIFT")
+            api.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                from f139.local_controller import Database as CanonicalOwnerDB
+                validator_db=CanonicalOwnerDB(args.db)
+                try:
+                    verify_v19_readonly_preflight(validator_db,approval)
+                finally:
+                    validator_db.close()
+                before=db.meta()["head_seq"]
+                db.transition_source(approval["to_source_sha"],
+                                     allow_certified_negative=True,
+                                     allow_v19=True)
+                db.verify()
+                meta=db.meta()
+                require(meta["source_sha"]==approval["to_source_sha"]
+                        and meta["head_seq"]==before+1,
+                        "V19_ONE_EVENT_TRANSITION_NOT_ATOMIC")
+                print(json.dumps({
+                    "native_v19_transition":"PASS",
+                    "source_sha":meta["source_sha"],
+                    "event_head":meta["head_hash"],
+                    "event_seq":meta["head_seq"],
+                    "scientific_first_use":False,
+                    "v2_production_dispatch_authorized":False,
+                    "new_controller":False,
+                    "new_scheduler":False,
+                    "new_queue":False,
+                    "paid_api_calls":0},sort_keys=True))
         elif args.verb=="transition-qualified-native-v18":
             # This is callable only by the already-qualified original owner.
             # Read-only preflight is necessary, not sufficient: caller must
