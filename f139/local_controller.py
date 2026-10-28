@@ -226,6 +226,7 @@ class Database:
             db = object.__new__(cls)
             db.filename = filename
             db.conn = conn
+            db._readonly_opened = True
             db.verify()
             return db
         except BaseException:
