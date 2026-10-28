@@ -106,9 +106,9 @@ def shadow_decision(*, owner_source_sha: str, lane: str, target_commit: str,
     require(is_sha40(owner_source_sha) and is_sha40(target_commit)
             and lane in LANES
             and type(native_path) is str and 1 <= len(native_path) <= 200
-            and not native_path.startswith(("/", "\\"))
-            and ".." not in native_path.split("/")
-            and "\\" not in native_path,
+            and re.fullmatch(r"[A-Za-z0-9._/-]+", native_path) is not None
+            and all(part not in ("", ".", "..") for part in native_path.split("/"))
+            and not native_path.startswith("/"),
             "SOURCE_OR_PATH_INVALID")
     require(type(terminal) is dict and set(terminal) == TERMINAL_FIELDS
             and terminal["lane"] == lane
