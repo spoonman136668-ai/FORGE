@@ -179,6 +179,38 @@ class OriginalDraftPreflightTests(unittest.TestCase):
             self.assertEqual(self.db.meta(), old)
             self.assertEqual(self.route_log, [])
 
+    def test_owner_witness_revoked_after_read_only_publication_checks(self):
+        saved = self.stage_candidate()
+        touches = []
+        def owner():
+            touches.append(1)
+            return len(touches) == 1
+        with SingleOwner(self.mutex):
+            old = self.db.meta().copy()
+            with self.assertRaisesRegex(
+                    ShadowDenied, "ORIGINAL_OWNER_MOVED_AFTER_PUBLICATION_PREFLIGHT"):
+                self.preflight(saved, owner=owner)
+            self.assertEqual(self.db.meta(), old)
+            self.assertEqual(len(touches), 2)
+
+    def test_unstable_original_pr_catalog_fails_without_new_git_write(self):
+        saved = self.stage_candidate()
+        seen = []
+        def reader(route):
+            if route.endswith("/pulls?state=all&per_page=100&page=1"):
+                seen.append(route)
+                if len(seen) == 2:
+                    return [{"number": 999,
+                             "head": {"ref": "forged-drift-pr"}}]
+            return self.original_get(route)
+        with SingleOwner(self.mutex):
+            old = self.db.meta().copy()
+            with self.assertRaisesRegex(ModelDraftDenied,
+                                         "PR_HISTORY_MOVED"):
+                self.preflight(saved, getter=reader)
+            self.assertEqual(self.db.meta(), old)
+            self.assertEqual(len(seen), 2)
+
     def test_private_or_unavailable_git_refuses_preflight(self):
         saved = self.stage_candidate()
         with SingleOwner(self.mutex):
