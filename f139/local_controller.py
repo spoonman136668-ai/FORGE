@@ -153,6 +153,31 @@ class SingleOwner:
             self.fd = None
 
 
+def v17_original_model_history_valid(counts: dict) -> bool:
+    """Bound live V16 model custody without pretending the first UTC day froze.
+
+    A subsequent original 300-second owner tick may consume another free
+    request after midnight. The original hash-chain verifier authenticates
+    each preceding attempt, scope, unique lane/day and no-replay semantics.
+    This source transition freezes their exact history digest; it does not
+    need to guess the number of later immutable attempts at release build.
+    """
+    if type(counts) is not dict or set(counts) != {
+            "G3_DRAFT_ATTEMPTED", "G3_DRAFT_AUTHENTICATED",
+            "MODEL_DRAFT_ATTEMPTED", "MODEL_DRAFT_AUTHENTICATED",
+            "FREE_REASONER_ATTEMPTED"}:
+        return False
+    if any(type(n) is not int or n < 0 for n in counts.values()):
+        return False
+    g3a, g3b = counts["G3_DRAFT_ATTEMPTED"], counts["G3_DRAFT_AUTHENTICATED"]
+    model_a = counts["MODEL_DRAFT_ATTEMPTED"]
+    model_b = counts["MODEL_DRAFT_AUTHENTICATED"]
+    free_a = counts["FREE_REASONER_ATTEMPTED"]
+    return (g3a == g3b == 1
+            and 2 <= free_a <= 8
+            and 3 <= model_b <= model_a <= free_a + 1)
+
+
 class Database:
     def __init__(self, filename: Path):
         self.filename = Path(filename)
@@ -1278,11 +1303,7 @@ class Database:
                                      if t["stage"] == "VERIFIED"]) >= 24
                             and all(t["stage"] in ("VERIFIED", "QUARANTINED")
                                     for t in frozen_tasks)
-                            and kinds["G3_DRAFT_ATTEMPTED"] == 1
-                            and kinds["G3_DRAFT_AUTHENTICATED"] == 1
-                            and kinds["MODEL_DRAFT_ATTEMPTED"] == 3
-                            and kinds["MODEL_DRAFT_AUTHENTICATED"] == 3
-                            and kinds["FREE_REASONER_ATTEMPTED"] == 2
+                            and v17_original_model_history_valid(kinds)
                             and doc["verified_historical_tasks"] >= 24
                             and doc["custodied_negative_tickets"] == expected
                             and doc["custodied_negative_tasks"] == len(expected)
@@ -2057,11 +2078,7 @@ class Database:
                                       "MODEL_DRAFT_ATTEMPTED",
                                       "MODEL_DRAFT_AUTHENTICATED",
                                       "FREE_REASONER_ATTEMPTED")}
-                require(kinds["G3_DRAFT_ATTEMPTED"] == 1
-                        and kinds["G3_DRAFT_AUTHENTICATED"] == 1
-                        and kinds["MODEL_DRAFT_ATTEMPTED"] == 3
-                        and kinds["MODEL_DRAFT_AUTHENTICATED"] == 3
-                        and kinds["FREE_REASONER_ATTEMPTED"] == 2,
+                require(v17_original_model_history_valid(kinds),
                         "SOURCE_TRANSITION_V17_MODEL_HISTORY_DRIFT")
                 frozen = [dict(r) for r in self.conn.execute(
                     "SELECT ticket,stage,run_id,evidence_sha,source_sha "

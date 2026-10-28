@@ -3,10 +3,46 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 import unittest
-from f139.local_controller import Database, cli, v2_owner_terminal_release_guard
+from f139.local_controller import (
+    Database, cli, v2_owner_terminal_release_guard, v17_original_model_history_valid
+)
 
 
 class OriginalV17TransitionTests(unittest.TestCase):
+    def test_cumulative_history_admits_new_authenticated_utc_day(self):
+        base = {
+            "G3_DRAFT_ATTEMPTED": 1,
+            "G3_DRAFT_AUTHENTICATED": 1,
+            "MODEL_DRAFT_ATTEMPTED": 3,
+            "MODEL_DRAFT_AUTHENTICATED": 3,
+            "FREE_REASONER_ATTEMPTED": 2,
+        }
+        self.assertTrue(v17_original_model_history_valid(base))
+        # A subsequent original owner tick may commit another free request
+        # after midnight. Its exact bytes remain sealed by event/sha custody.
+        self.assertTrue(v17_original_model_history_valid({
+            **base, "FREE_REASONER_ATTEMPTED": 3}))
+        self.assertTrue(v17_original_model_history_valid({
+            **base, "MODEL_DRAFT_ATTEMPTED": 4,
+            "MODEL_DRAFT_AUTHENTICATED": 4,
+            "FREE_REASONER_ATTEMPTED": 3}))
+        self.assertTrue(v17_original_model_history_valid({
+            **base, "MODEL_DRAFT_ATTEMPTED": 4,
+            "FREE_REASONER_ATTEMPTED": 3}))
+        for bad in (
+            {**base, "G3_DRAFT_ATTEMPTED": 2},
+            {**base, "MODEL_DRAFT_ATTEMPTED": 2},
+            {**base, "MODEL_DRAFT_AUTHENTICATED": 4},
+            {**base, "FREE_REASONER_ATTEMPTED": 1},
+            {**base, "FREE_REASONER_ATTEMPTED": 9},
+            {**base, "MODEL_DRAFT_ATTEMPTED": 9,
+             "MODEL_DRAFT_AUTHENTICATED": 9},
+            {**base, "FREE_REASONER_ATTEMPTED": True},
+            {**base, "extra": 1},
+        ):
+            with self.subTest(bad=bad):
+                self.assertFalse(v17_original_model_history_valid(bad))
+
     def test_cold_ledger_seals_v16_and_pretransition_model_history(self):
         src=inspect.getsource(Database.verify)
         for expected in (
@@ -19,7 +55,7 @@ class OriginalV17TransitionTests(unittest.TestCase):
             'doc["model_history_sha256"]',
             'kind IN ',
             'seq<? ORDER BY seq',
-            'kinds["FREE_REASONER_ATTEMPTED"] == 2',
+            'v17_original_model_history_valid(kinds)',
             'doc["v2_receipt_authorized"] is False',
             'verify_original_negative_custody(self)',
             'verify_second_negative_custody(self)',
