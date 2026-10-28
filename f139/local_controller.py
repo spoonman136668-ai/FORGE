@@ -1487,6 +1487,13 @@ class Database:
             audit_original_validated_proposals)
         audit_original_validated_proposals(self)
 
+        # V19 original-owner draft writes are still source-only. Cold-check
+        # their validation ancestry and no-replay custody without touching
+        # the live V17/V18 tick or changing legacy publication events.
+        from f139.nci04_v19_original_publication_once import (
+            audit_original_v19_draft_attempts)
+        audit_original_v19_draft_attempts(self)
+
     @contextlib.contextmanager
     def transaction(self):
         self.conn.execute("BEGIN IMMEDIATE")
