@@ -135,6 +135,32 @@ class OriginalOneShotSendTests(unittest.TestCase):
             self.assertEqual(self.db.meta(), saved)
         self.assertEqual(len(failed), 1)
 
+    def test_anonymous_public_git_failure_after_precommit_consumes_no_send(self):
+        handoff = self.prepare()
+        visits = []
+        actual_reader = self.source.reader_fixture.public_reader
+        def disappears_after_original_witness(route):
+            visits.append(route)
+            # Original preflight uses exactly two anonymous public Git reads.
+            # The post-commit transport preflight fails, so NO provider POST.
+            if len(visits) > 2:
+                raise FileNotFoundError("simulated public Git outage")
+            return actual_reader(route)
+        with SingleOwner(self.mutex):
+            result = self.send(handoff, reader=disappears_after_original_witness)
+            self.assertEqual(result["disposition"],
+                             "MODEL_SEND_FAILED_OR_AMBIGUOUS_NO_RETRY")
+            self.assertEqual(result["provider_calls_in_this_invocation"], 0)
+            self.assertTrue(result["provider_attempt_history_spent"])
+            self.assertEqual(self.count(), 1)
+            self.db.verify()
+            before = self.db.meta().copy()
+            repeated = self.send(handoff, reader=disappears_after_original_witness)
+            self.assertEqual(repeated["provider_calls_in_this_invocation"], 0)
+            self.assertEqual(self.db.meta(), before)
+            self.assertEqual(len(visits), 3)
+        self.assertEqual(self.calls, [])
+
     def test_precommit_fault_rolls_back_original_chain_and_never_sends(self):
         handoff = self.prepare()
         with SingleOwner(self.mutex):
