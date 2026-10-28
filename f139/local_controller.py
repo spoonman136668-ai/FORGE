@@ -2347,7 +2347,7 @@ class Database:
                     if json.loads(r["payload"]).get("schema") ==
                        "forge.f139.source-transition.v18"]
                 require(len(prior_rows) == 1,
-                        "SOURCE_TRANSITION_V19_V17_SEAL_MISSING")
+                        "SOURCE_TRANSITION_V19_V18_SEAL_MISSING")
                 model = [dict(r) for r in self.conn.execute(
                     "SELECT kind,sha FROM events WHERE kind IN "
                     "('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED',"
