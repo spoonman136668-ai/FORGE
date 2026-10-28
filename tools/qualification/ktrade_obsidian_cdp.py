@@ -273,14 +273,23 @@ def main():
             raise GateFailure("GUI_GLOBAL_SEARCH_COMMAND_UNAVAILABLE")
     until(lambda: bool((ui_state(ws) or {}).get("searchReady")),
           10, "GUI_SEARCH_INPUT_NOT_RENDERED")
-    ws.js("""(() => {
+    set_value = ws.js("""(() => {
       const e = document.querySelector('.search-input-container input');
-      e.focus(); e.value = ''; e.dispatchEvent(new Event('input', {bubbles:true}));
-      return true;
+      if (!e) return false;
+      e.focus();
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      set.call(e, 'file:002865cd06');
+      e.dispatchEvent(new InputEvent('input', {
+        bubbles:true, inputType:'insertText', data:'file:002865cd06'
+      }));
+      e.dispatchEvent(new Event('change', {bubbles:true}));
+      return e.value === 'file:002865cd06';
     })()""")
-    ws.text(QUERY)
+    if not set_value:
+        raise GateFailure("GUI_GLOBAL_SEARCH_INPUT_ELEMENT_REJECTED_QUERY")
     until(lambda: (ui_state(ws) or {}).get("searchInputMatches"),
-          7, "GUI_SEARCH_TEXT_NOT_ENTERED")
+          7, "GUI_SEARCH_INPUT_VALUE_NOT_RETAINED")
+    print("KTRADE_GUI_NATIVE_SEARCH_INPUT_UI_VALUE=PASS", flush=True)
     try:
         until(
             lambda: (
