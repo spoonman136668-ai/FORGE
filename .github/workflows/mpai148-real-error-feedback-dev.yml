@@ -1,0 +1,300 @@
+name: MP-AI148 observed-error local GGUF feedback development
+on:
+  push:
+    branches: [qualification/mpai-sourcecards-original-windows-20261028]
+    paths: ['.github/workflows/mpai148-real-error-feedback-dev.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai148-real-error-feedback-dev
+  cancel-in-progress: false
+jobs:
+  local-real-model-feedback:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 22
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Run genuine bounded offline local inference across two read-only MCP feedback cycles
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI148_WRONG_ORIGINAL_WINDOWS_RUNNER'
+          }
+          $scratch=Join-Path $env:SystemDrive ('mpai-real-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $scratch 'source'
+          try {
+            if(Test-Path -LiteralPath $scratch) { throw 'MPAI148_SCRATCH_COLLISION' }
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch proposal/mpai-evidence-sufficiency-20261028 https://github.com/spoonman136668-ai/Mind-Palace.git $src
+            if($LASTEXITCODE -ne 0){throw 'MPAI148_PRIVATE_SOURCE_CLONE_FAILED'}
+            $expected='7dd66f4b9e80b488ccb880fb62ddae8e7cb01987'
+            if((& git -C $src rev-parse HEAD).Trim() -cne $expected){throw 'MPAI148_SOURCE_PIN_DRIFT'}
+            $env:MPAI_LOOP_SOURCE=$src
+            $env:MPAI_LOOP_SCRATCH=$scratch
+            $program=@'
+          import gc,hashlib,json,os,pathlib,re,shutil,socket,subprocess,sys,time,urllib.request
+          from collections import Counter
+          root=pathlib.Path(os.environ["MPAI_LOOP_SOURCE"])
+          scratch=pathlib.Path(os.environ["MPAI_LOOP_SCRATCH"])
+          sha="7dd66f4b9e80b488ccb880fb62ddae8e7cb01987"
+          records_sha="fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742"
+          model_sha="74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+          if subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],text=True).strip()!=sha:
+              raise RuntimeError("MPAI_REAL_LOOP_SOURCE_DRIFT")
+          protected=root/".ice/records.json"
+          if hashlib.sha256(protected.read_bytes()).hexdigest()!=records_sha:
+              raise RuntimeError("MPAI_REAL_LOOP_ACCEPTED_MEMORY_DRIFT")
+          weights=scratch/"public-pinned-weights.gguf"
+          if shutil.disk_usage(str(scratch)).free<1700000000:
+              raise RuntimeError("MPAI_REAL_LOOP_DISK_BUDGET")
+          url=("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/"
+           "9217f5db79a29953eb74d5343926648285ec7e67/"
+           "qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true")
+          request=urllib.request.Request(url,headers={"User-Agent":"MPAI148-development-feedback-loop/1"})
+          start=time.monotonic();size=0;h=hashlib.sha256()
+          with urllib.request.urlopen(request,timeout=40) as response,weights.open("xb") as out:
+              while True:
+                  chunk=response.read(4*1024*1024)
+                  if not chunk:break
+                  size+=len(chunk);h.update(chunk);out.write(chunk)
+                  if size>510000000 or time.monotonic()-start>240:
+                      raise RuntimeError("MPAI_REAL_LOOP_MODEL_DOWNLOAD_BOUNDS")
+          if size!=491400032 or h.hexdigest()!=model_sha:
+              raise RuntimeError("MPAI_REAL_LOOP_MODEL_PIN_DRIFT")
+          if weights.open("rb").read(4)!=b"GGUF":
+              raise RuntimeError("MPAI_REAL_LOOP_MODEL_INVALID")
+          os.environ["HF_HUB_OFFLINE"]="1"
+          def offline(*args,**kwargs):
+              raise RuntimeError("MPAI_REAL_LOOP_NETWORK_AFTER_MODEL_BLOCKED")
+          socket.socket=offline
+          sys.path.insert(0,str(root/"tools"))
+          from mindpalace_readonly import MemorySnapshot
+          from mindpalace_mcp import handle
+          from llama_cpp import Llama
+          snapshot=MemorySnapshot(root,sha,["Mind-Palace"])
+          assert snapshot.records_sha256==records_sha
+          def mcp(name,arguments):
+              req={"jsonrpc":"2.0","id":11,"method":"tools/call",
+                   "params":{"name":name,"arguments":arguments}}
+              outer=handle(snapshot,req)
+              if "error" in outer:
+                  raise RuntimeError("MPAI_REAL_LOOP_MCP_SOURCE_REJECTED")
+              data=json.loads(outer["result"]["content"][0]["text"])
+              if data.get("source_sha")!=sha:raise RuntimeError("MPAI_REAL_LOOP_MCP_SOURCE_DRIFT")
+              return data
+          ids={
+           "mail":"lesson/mind-palace-mailbox-consumer-result-size-failure-20260928",
+           "budget":"lesson/mind-palace-midday-bootstrap-budget-fail-closed-20260925",
+           "third":"lesson/mind-palace-one-command-third-real-ingestion-20260927",
+           "first":"lesson/mind-palace-one-command-real-ingestion-20260927",
+          "eff":"lesson/mpai-hindsight-h2-development-context-efficiency-20261028",
+          }
+          records={}
+          for key,record_id in ids.items():
+              d=mcp("mindpalace_get_record",{"source_sha":sha,"record_id":record_id,"projects":["Mind-Palace"]})
+              if d.get("found") is not True or not d.get("advisory"):
+                  raise RuntimeError("MPAI_REAL_LOOP_MCP_RECORD_MISSING")
+              rec=d["record"]
+              if rec["id"]!=record_id or rec.get("project")!="Mind-Palace" or rec.get("status")!="observed" or not rec.get("source_refs"):
+                  raise RuntimeError("MPAI_REAL_LOOP_MCP_RECORD_PROVENANCE")
+              records[key]=rec["statement"]
+          # Fixed development tasks: no holdout, no case/hypothesis resampling.
+          # Each arm sees exactly the same original source text.
+          # Development calibration intentionally uses previously failed factual
+          # extraction families; not an independent or unseen holdout.
+          cal=[
+           ("eff","Report the legacy input tokens followed by tiered input tokens.","3513;1665"),
+           ("eff","Report the legacy retrieved-context bytes followed by tiered context bytes.","15051;6610"),
+           ("eff","Report the legacy generation time in milliseconds followed by tiered generation time.","19686;15208"),
+           ("eff","Was factual accuracy independently graded? Reply YES or NO.","NO"),
+           ("eff","Does this comparison scientifically prove autonomous self-improvement? Reply YES or NO.","NO"),
+           ("eff","What single output-token cap did both conditions reach?","96"),
+          ]
+          evaluation=[
+           ("budget","What byte limit did the session-bootstrap output exceed?","12288"),
+           ("mail","What was the exact named bridge error?","BRIDGE_RESULT_TOO_LARGE"),
+           ("third","How many records were in the total after the third ingestion?","176"),
+           ("budget","What exact battery discharge in joules was measured during the rollback?","UNKNOWN"),
+           ("first","How many new records did the first transaction add?","4"),
+           ("mail","What exact device power in watts was measured during the heartbeat freeze?","UNKNOWN"),
+           ("third","How many records were added in the third ingestion?","7"),
+           ("first","What was the exact GPU energy usage in joules for the second transaction?","UNKNOWN"),
+          ]
+          model=Llama(model_path=str(weights),n_ctx=2048,n_gpu_layers=0,n_threads=4,n_batch=128,seed=137,verbose=False)
+          def answer(record_key,question,instruction):
+              context=records[record_key]
+              prompt=("Use only the pinned evidence to answer the question. "
+                "Reply with exactly one number, a comma-separated numeric pair, an exact error name, YES, NO, or UNKNOWN. "
+                "If the answer is not established by the evidence, reply UNKNOWN. "
+                "Do not guess. "+instruction+"\nEvidence:\n"+context+
+                "\nQuestion: "+question+"\nAnswer:")
+              model.reset();t0=time.monotonic()
+              result=model.create_chat_completion(messages=[
+                {"role":"system","content":"You are a source-bound local assistant; do not invent evidence."},
+                {"role":"user","content":prompt}],max_tokens=96,temperature=0.0,top_p=1.0,
+                stop=["\n\n","\nQuestion:","\nEvidence:"])
+              ms=int((time.monotonic()-t0)*1000)
+              choice=result["choices"][0]
+              out=choice["message"].get("content","")
+              usage=result.get("usage",{})
+              if not isinstance(out,str) or not out.strip() or choice.get("finish_reason") not in ("stop","length"):
+                  raise RuntimeError("MPAI_REAL_LOOP_INVALID_MODEL_OUTPUT")
+              if not isinstance(usage.get("prompt_tokens"),int) or not isinstance(usage.get("completion_tokens"),int):
+                  raise RuntimeError("MPAI_REAL_LOOP_MISSING_MODEL_USAGE")
+              return out.strip(),dict(ms=ms,prompt_tokens=usage["prompt_tokens"],
+                                     generated_tokens=usage["completion_tokens"],
+                                     truncated=choice.get("finish_reason")=="length")
+          def grade(response,expected):
+              answer=response.strip().upper()
+              if expected=="UNKNOWN":return answer in ("UNKNOWN","UNKNOWN.")
+              if ";" in expected:return re.findall(r"\d+",answer.replace(",",""))==expected.split(";")
+              if expected.isdigit():return bool(re.fullmatch(re.escape(expected),answer.replace(",","")))
+              return answer==expected
+          actual_events=[]
+          cal_metrics={"complete":0,"errors":0,"new_unsupported":0,"tokens":0,"ms":0}
+          for i,(key,question,truth) in enumerate(cal):
+              out,meta=answer(key,question,"")
+              correct=grade(out,truth)
+              kind=None if correct else ("unsupported_answer" if truth=="UNKNOWN" else "exact_value_mismatch")
+              seed=hashlib.sha256(json.dumps([sha,i,key,question,out,meta],sort_keys=True).encode()).hexdigest()
+              actual_events.append({
+                "event_id":"model-"+seed,
+                "agent_class":"independent-agent",
+                "task_id":"calibration-"+str(i),
+                "failure_code":kind,
+                "source_ref":"local-gguf-receipt:"+seed[:32],
+                "source_sha":sha,
+                "result":"success" if correct else "failure"})
+              cal_metrics["complete"]+=1
+              cal_metrics["errors"]+=int(not correct)
+              cal_metrics["new_unsupported"]+=int(not correct and truth=="UNKNOWN")
+              cal_metrics["tokens"]+=meta["prompt_tokens"]
+              cal_metrics["ms"]+=meta["ms"]
+          def call_cycle(events,next_id):
+              return mcp("mindpalace_improvement_cycle",{
+                "source_sha":sha,"project":"Mind-Palace",
+                "task":"Mind-Palace agentic improvement memory provenance and failure reflection",
+                "experience":{"schema":"mind-palace.mpai01-observations.v1",
+                              "source_sha":sha,"observations":events},
+                "next_iteration":{"task_id":next_id,
+                                  "source_ref":"local-gguf-experimental-cycle:"+next_id}
+              })
+          cycle1=call_cycle(actual_events,"feedback-cycle-1")
+          if cycle1["phase"]!="PROPOSE_ONLY" or cycle1["model_calls"]!=0 or cycle1["production_writes"]!=0:
+              raise RuntimeError("MPAI_REAL_LOOP_MCP_AUTHORITY_DRIFT")
+          fb=cycle1["next_experience"]
+          if fb["durable_memory_write"] or fb["observation_claims_authenticated"] or fb["compose_or_deploy_authorized"]:
+              raise RuntimeError("MPAI_REAL_LOOP_UNTRUSTED_FEEDBACK_ADMITTED")
+          if fb["source_sha"]!=sha or fb["records_sha256"]!=records_sha:
+              raise RuntimeError("MPAI_REAL_LOOP_FEEDBACK_SOURCE_DRIFT")
+          # Actual observed failures may inform the next prompt; the untrusted
+          # probe-not-run notice is not itself falsely scored as an observed model error.
+          failure_codes=sorted({x["failure_code"] for x in actual_events if x["failure_code"]})
+          proposals=cycle1["reflection"]["proposals"]
+          proposal_codes=sorted({p["failure_code"] for p in proposals})
+          if any(p not in failure_codes for p in proposal_codes):
+              raise RuntimeError("MPAI_REAL_LOOP_PROPOSAL_NOT_OBSERVED")
+          control="Check that the answer is concise and precisely fits the requested format."
+          if "unsupported_answer" in proposal_codes:
+              adaptation="An earlier answer invented a measurement not present in evidence. For any absent measurement, output UNKNOWN rather than a number."
+          elif "exact_value_mismatch" in proposal_codes:
+              adaptation="Earlier responses miscopied an observed value. Copy the exact supported numeric value or identifier; never approximate it."
+          else:
+              adaptation=control
+          totals={arm:dict(correct=0,unsupported_errors=0,prompt_tokens=0,output_tokens=0,ms=0,truncated=0) for arm in ("baseline","feedback")}
+          next_observations=[]
+          for i,(key,question,truth) in enumerate(evaluation):
+              for arm in (("baseline","feedback") if i%2==0 else ("feedback","baseline")):
+                  instruction=control if arm=="baseline" else adaptation
+                  out,meta=answer(key,question,instruction)
+                  correct=grade(out,truth)
+                  m=totals[arm]
+                  m["correct"]+=int(correct)
+                  m["unsupported_errors"]+=int(truth=="UNKNOWN" and not correct)
+                  m["prompt_tokens"]+=meta["prompt_tokens"]
+                  m["output_tokens"]+=meta["generated_tokens"]
+                  m["ms"]+=meta["ms"]
+                  m["truncated"]+=int(meta["truncated"])
+                  if arm=="feedback":
+                      seed=hashlib.sha256(json.dumps([sha,i,key,arm,question,out,meta],sort_keys=True).encode()).hexdigest()
+                      next_observations.append({
+                         "event_id":"model-"+seed,"agent_class":"independent-agent",
+                         "task_id":"evaluation-"+str(i),
+                         "failure_code":None if correct else ("unsupported_answer" if truth=="UNKNOWN" else "exact_value_mismatch"),
+                         "source_ref":"local-gguf-receipt:"+seed[:32],
+                         "source_sha":sha,"result":"success" if correct else "failure"})
+          if len(next_observations)!=len(evaluation):raise RuntimeError("MPAI_REAL_LOOP_MISSING_NEXT_OBSERVATIONS")
+          # Resubmit actual second-round model receipts AND the visibly UNTRUSTED
+          # proposal-only handoff. No self-granted authenticity or evidence ingestion.
+          cycle2=call_cycle(actual_events+fb["events_for_caller_review"]+next_observations,
+                            "feedback-cycle-2")
+          if cycle2["phase"]!="PROPOSE_ONLY" or cycle2["model_calls"]!=0 or cycle2["production_writes"]!=0:
+              raise RuntimeError("MPAI_REAL_LOOP_SECOND_CYCLE_AUTHORITY")
+          if cycle2["consumer_identity_authenticated"] or cycle2["independent_qualification_passed"] or cycle2["deployment_authorized"]:
+              raise RuntimeError("MPAI_REAL_LOOP_UNEARNED_IDENTITY")
+          if cycle2["next_experience"]["records_sha256"]!=records_sha:
+              raise RuntimeError("MPAI_REAL_LOOP_SECOND_SOURCE_DRIFT")
+          if hashlib.sha256(protected.read_bytes()).hexdigest()!=records_sha:
+              raise RuntimeError("MPAI_REAL_LOOP_SOURCE_MUTATED")
+          if subprocess.check_output(["git","-C",str(root),"status","--porcelain","--untracked-files=all"],text=True).strip():
+              raise RuntimeError("MPAI_REAL_LOOP_WORKTREE_MUTATED")
+          # Scientific NO-GO is not an execution failure; preserve negatives as metrics.
+          if (totals["feedback"]["unsupported_errors"]>totals["baseline"]["unsupported_errors"]
+              or totals["feedback"]["correct"]<totals["baseline"]["correct"]
+              or totals["feedback"]["truncated"]>0):
+              decision="NO_GO"
+          elif totals["feedback"]["correct"]>totals["baseline"]["correct"] and proposal_codes:
+              decision="DEVELOPMENT_SIGNAL_ONLY_NO_SCIENCE_ADMISSION"
+          else:
+              decision="NO_IMPROVEMENT_ESTABLISHED"
+          print("MPAI_REAL_LOOP_EXACT_PRIVATE_SOURCE=PASS")
+          print("MPAI_REAL_LOOP_LOCAL_GGUF_PIN=PASS")
+          print("MPAI_REAL_LOOP_REAL_LOCAL_MODEL_CALLS="+str(len(cal)+2*len(evaluation)))
+          print("MPAI_REAL_LOOP_CALIBRATION_ERRORS="+str(cal_metrics["errors"]))
+          print("MPAI_REAL_LOOP_RECURRENT_FAILURE_CODES="+str(len(proposal_codes)))
+          print("MPAI_REAL_LOOP_ACTUAL_OBSERVATIONS="+str(len(actual_events)+len(next_observations)))
+          print("MPAI_REAL_LOOP_TWO_REAL_MCP_ROUNDS=PASS")
+          for arm in ("baseline","feedback"):
+              for key in ("correct","unsupported_errors","prompt_tokens","output_tokens","ms","truncated"):
+                  print("MPAI_REAL_LOOP_"+arm.upper()+"_"+key.upper()+"="+str(totals[arm][key]))
+          print("MPAI_REAL_LOOP_SOURCE_IMMUTABILITY=PASS")
+          print("MPAI_REAL_LOOP_INDEPENDENT_AUTHENTICATION=NOT_RUN")
+          print("MPAI_REAL_LOOP_FIRST_USE_HOLDOUT=NOT_RUN")
+          print("MPAI_REAL_LOOP_SCIENCE_COMPOSE=NO_GO")
+          print("MPAI_REAL_LOOP_DEVELOPMENT_DECISION="+decision)
+          del model
+          gc.collect()
+          
+          '@
+            $log=Join-Path $scratch 'private-trial.log'
+            $program | & python -B -c "import sys;exec(sys.stdin.read())" *> $log
+            if($LASTEXITCODE -ne 0){throw 'MPAI148_REAL_LOCAL_MODEL_EXPERIMENT_FAILED'}
+            $raw=[IO.File]::ReadAllText($log)
+            $lines=@($raw -split "\r?\n" | Where-Object {$_ -match '^MPAI_REAL_LOOP_[A-Z_]+=([A-Za-z0-9_]+)$'})
+            if($lines.Count -lt 22){throw 'MPAI148_AGGREGATE_RECEIPT_INCOMPLETE'}
+            foreach($line in $lines){Write-Host $line}
+            if($raw -notmatch 'MPAI_REAL_LOOP_TWO_REAL_MCP_ROUNDS=PASS' -or
+               $raw -notmatch 'MPAI_REAL_LOOP_SOURCE_IMMUTABILITY=PASS' -or
+               $raw -notmatch 'MPAI_REAL_LOOP_SCIENCE_COMPOSE=NO_GO'){
+              throw 'MPAI148_FALSE_SCIENTIFIC_AUTHORITY'
+            }
+            if(@(& git -C $src status --porcelain --untracked-files=all).Count -ne 0){
+              throw 'MPAI148_REPOSITORY_UNCLEAN'
+            }
+            Write-Host 'MPAI148_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Force -Recurse -ErrorAction Stop
+            }
+          }
