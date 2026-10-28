@@ -1,0 +1,81 @@
+name: MP-AI148 real offline model feedback transfer (development only)
+on:
+  push:
+    branches: [qualification/mpai148-real-feedback-development-20261028]
+    paths: ['.github/workflows/mpai148-real-local-feedback-development.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai148-real-offline-feedback-development-20261028
+  cancel-in-progress: false
+jobs:
+  offline-development:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Execute pinned local GGUF and genuine sequential MCP feedback without production writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI148_WRONG_ORIGINAL_RUNNER'
+          }
+          $scratch=Join-Path $env:SystemDrive ('m148-'+$env:GITHUB_RUN_ID)
+          $experiment=Join-Path $scratch 'experiment'
+          $source=Join-Path $scratch 'source'
+          $manifest='evaluation/mpai148-real-feedback-development-v1.json'
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI148_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $env:TEMP=Join-Path $scratch 'temp'
+            $env:TMP=$env:TEMP
+            New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop | Out-Null
+            $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+            & git clone --quiet --single-branch --branch proposal/mpai148-real-feedback-development-20261028 $remote $experiment *> (Join-Path $scratch 'experiment-private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI148_EXPERIMENT_CLONE_FAILED'}
+            & git clone --quiet --single-branch --branch proposal/mpai-evidence-sufficiency-20261028 $remote $source *> (Join-Path $scratch 'source-private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI148_SOURCE_CLONE_FAILED'}
+            if((& git -C $experiment rev-parse HEAD).Trim() -cne '33cd70fbde2e0b6e1dc53f13817aad26ddfeecb1'){
+              throw 'MPAI148_EXPERIMENT_SHA_DRIFT'
+            }
+            if((& git -C $source rev-parse HEAD).Trim() -cne '7dd66f4b9e80b488ccb880fb62ddae8e7cb01987'){
+              throw 'MPAI148_SOURCE_SHA_DRIFT'
+            }
+            if((& git -C $experiment rev-parse "HEAD:$manifest").Trim() -cne
+                (& git -C $experiment rev-parse "d020e7dac39e5e71c75960aca20792c248268c62:$manifest").Trim()){
+              throw 'MPAI148_PREDECLARED_MANIFEST_DRIFT'
+            }
+            if((Get-FileHash -Algorithm SHA256 (Join-Path $source '.ice/records.json')).Hash.ToLowerInvariant() -cne 'fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742'){
+              throw 'MPAI148_ACCEPTED_MEMORY_PIN_DRIFT'
+            }
+            $privateLog=Join-Path $scratch 'private-local-feedback-model-results.log'
+            & python -B (Join-Path $experiment 'tools/mpai148_real_feedback_trial.py') --experiment-root $experiment --source-root $source --scratch $scratch *> $privateLog
+            $exitCode=$LASTEXITCODE
+            # Only preauthorized numeric aggregate markers may enter public CI.
+            $safe=Get-Content -LiteralPath $privateLog | Where-Object {$_ -match '^MPAI148_[A-Z0-9_]+=(?:[A-Za-z0-9_]+)$'}
+            foreach($line in $safe){Write-Output $line}
+            if($exitCode -ne 0){throw 'MPAI148_PRIVATE_LOCAL_MODEL_TRIAL_NOT_COMPLETED'}
+            $required=@('MPAI148_STAGE=REAL_MODEL_TRANSFER_COMPLETE',
+              'MPAI148_AGENT_AUTHENTICATION=NOT_VERIFIED',
+              'MPAI148_SCIENTIFIC_COMPOSE=NO_GO')
+            foreach($line in $required){if($safe -cnotcontains $line){throw 'MPAI148_INCOMPLETE_AGGREGATES'}}
+            foreach($path in @($source,$experiment)){
+              $dirty=@(& git -C $path status --porcelain --untracked-files=all)
+              if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI148_PRODUCTION_SOURCE_MODIFIED'}
+            }
+            Write-Output 'MPAI148_PRIVATE_SOURCE_NO_WRITES=PASS'
+            Write-Output 'MPAI148_NONINDEPENDENT_DEVELOPMENT_ONLY=TRUE'
+          } finally {
+            Set-Location $env:SystemDrive\
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
