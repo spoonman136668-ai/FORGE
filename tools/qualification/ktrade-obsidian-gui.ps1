@@ -98,14 +98,54 @@ try{
   Write-Host ('KTRADE_GUI_REAL_WINDOW_OPEN_SECONDS='+([Math]::Round($windowWait.Elapsed.TotalSeconds,2)))
   Write-Host 'KTRADE_GUI_REAL_DESKTOP_WINDOW=PASS'
 
+  $keyboardSource=@'
+using System;
+using System.Runtime.InteropServices;
+public static class ObsidianKeyboard {
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+  public static extern short VkKeyScan(char c);
+  [DllImport("user32.dll")]
+  public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  static void Down(byte k){keybd_event(k,0,0,UIntPtr.Zero);}
+  static void Up(byte k){keybd_event(k,0,2,UIntPtr.Zero);}
+  public static void Key(byte k){Down(k);System.Threading.Thread.Sleep(20);Up(k);}
+  public static void Ctrl(byte k){
+    Down(0x11);System.Threading.Thread.Sleep(35);Key(k);
+    System.Threading.Thread.Sleep(35);Up(0x11);
+  }
+  public static void CtrlShift(byte k) {
+    Down(0x11);Down(0x10);System.Threading.Thread.Sleep(35);Key(k);
+    System.Threading.Thread.Sleep(35);Up(0x10);Up(0x11);
+  }
+  public static void Text(string s) {
+    foreach(char c in s){
+      short scan=VkKeyScan(c);
+      if(scan<0)throw new Exception("GUI_UNMAPPABLE_KEY");
+      bool shift=(scan & 0x0100)!=0;
+      byte key=(byte)(scan & 255);
+      if(shift)Down(0x10);
+      Key(key);
+      if(shift)Up(0x10);
+      System.Threading.Thread.Sleep(10);
+    }
+  }
+}
+'@
+  Add-Type -TypeDefinition $keyboardSource -ErrorAction Stop
   $shell=New-Object -ComObject WScript.Shell
   if(-not $shell.AppActivate($window.Id)){throw 'GUI_FOREGROUND_ACTIVATION_FAILED'}
+  [void][ObsidianKeyboard]::SetForegroundWindow($handle)
+  Start-Sleep -Seconds 5
+  if([ObsidianKeyboard]::GetForegroundWindow() -ne $handle){throw 'GUI_NOT_FOREGROUND_DESKTOP'}
+  [ObsidianKeyboard]::Ctrl(0x4F)
   Start-Sleep -Seconds 2
-  [System.Windows.Forms.SendKeys]::SendWait('^o')
-  Start-Sleep -Seconds 2
-  [System.Windows.Forms.SendKeys]::SendWait('002865cd06_test.go')
+  [ObsidianKeyboard]::Text('002865cd06_test.go')
   Start-Sleep -Seconds 4
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  [ObsidianKeyboard]::Key(0x0D)
   $opening=[System.Diagnostics.Stopwatch]::StartNew()
   $opened=$false
   while($opening.Elapsed.TotalSeconds -lt 65){
@@ -130,9 +170,9 @@ try{
   Write-Host 'KTRADE_GUI_REAL_NOTE_NAVIGATION=PASS'
 
   if(-not $shell.AppActivate($window.Id)){throw 'GUI_SEARCH_FOREGROUND_FAILED'}
-  [System.Windows.Forms.SendKeys]::SendWait('^+f')
+  [ObsidianKeyboard]::CtrlShift(0x46)
   Start-Sleep -Seconds 2
-  [System.Windows.Forms.SendKeys]::SendWait('002865cd06_test.go')
+  [ObsidianKeyboard]::Text('002865cd06_test.go')
   $search=[System.Diagnostics.Stopwatch]::StartNew()
   $found=$false
   while($search.Elapsed.TotalSeconds -lt 90){
