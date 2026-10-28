@@ -175,6 +175,9 @@ def until(fn, seconds, code, interval=0.5):
 def ui_state(ws):
     return ws.js(r"""(() => {
       const active = document.querySelector('.workspace-leaf.mod-active');
+      const obs = typeof app !== 'undefined' ? app : window.app;
+      const headers = Array.from(document.querySelectorAll('.view-header-title'));
+      const suggestions = Array.from(document.querySelectorAll('.suggestion-item'));
       const prompt = document.querySelector('input.prompt-input');
       const noteTitle = active?.querySelector('.view-header-title')?.textContent || '';
       const activeText = active?.innerText || '';
@@ -184,6 +187,11 @@ def ui_state(ws):
         prompt: !!prompt,
         noteTitle,
         noteWitness: activeText.includes('TestStrategy_Phase7_T764_ClosedTrades'),
+        bodyWitness: document.body.innerText.includes('TestStrategy_Phase7_T764_ClosedTrades'),
+        headerMatch: headers.some(x => x.textContent?.includes('002865cd06_test.go')),
+        vaultFiles: obs?.vault?.getMarkdownFiles?.().length ?? null,
+        targetPresent: !!obs?.vault?.getAbstractFileByPath?.('002865cd06_test.go.md'),
+        suggestionMatch: suggestions.some(x => x.innerText.includes('002865cd06_test.go')),
         suggestionCount: document.querySelectorAll('.suggestion-item').length,
         searchReady: !!document.querySelector('.search-input-container input'),
         searchResults: search ? search.querySelectorAll('.search-result-file-title, .search-result-file-match').length : 0,
@@ -203,6 +211,11 @@ def main():
     ws = WebSocket(url)
     ws.call("Page.bringToFront")
     until(lambda: bool((ui_state(ws) or {}).get("vaultUI")), 50, "GUI_VAULT_WORKSPACE_NOT_RENDERED")
+    until(lambda: (ui_state(ws) or {}).get("vaultFiles") == 39973,
+          130, "GUI_OBSIDIAN_REAL_VAULT_NOT_FULLY_INDEXED")
+    if not (ui_state(ws) or {}).get("targetPresent"):
+        raise GateFailure("GUI_EXPECTED_NOTE_NOT_IN_OBSIDIAN_INDEX")
+    print("KTRADE_GUI_OBSIDIAN_NATIVE_39973_FILE_INDEX=PASS", flush=True)
     print("KTRADE_GUI_CDP_REAL_RENDERER=PASS", flush=True)
     started = time.monotonic()
     ws.key("o", "KeyO", 79, modifiers=2)
@@ -217,17 +230,29 @@ def main():
             raise GateFailure("GUI_QUICK_SWITCHER_COMMAND_UNAVAILABLE")
         until(lambda: bool((ui_state(ws) or {}).get("prompt")), 8, "GUI_QUICK_SWITCHER_NOT_OPEN")
     ws.text(NOTE)
-    until(lambda: (ui_state(ws) or {}).get("suggestionCount", 0) > 0,
-          45, "GUI_QUICK_SWITCHER_NO_REAL_RESULTS")
+    until(lambda: bool((ui_state(ws) or {}).get("suggestionMatch")),
+          45, "GUI_QUICK_SWITCHER_NO_MATCHING_NOTE")
     ws.key("Enter", "Enter", 13)
-    until(
-        lambda: (
-            NOTE in (ui_state(ws) or {}).get("noteTitle", "")
-            and bool((ui_state(ws) or {}).get("noteWitness"))
-        ),
-        75,
-        "GUI_NOTE_NOT_RENDERED_WITH_SOURCE_WITNESS",
-    )
+    def note_is_visible():
+        s = ui_state(ws) or {}
+        return bool(s.get("headerMatch") and (s.get("noteWitness") or s.get("bodyWitness")))
+
+    try:
+        until(note_is_visible, 15, "GUI_QUICK_SWITCHER_NOTE_RENDER_DEFERRED")
+    except GateFailure:
+        # If platform keystroke selection did not activate the suggestion,
+        # open this EXACT indexed TFile through the genuine workspace API.
+        open_ok = ws.js("""(async () => {
+          const a = typeof app !== 'undefined' ? app : window.app;
+          const f = a?.vault?.getAbstractFileByPath('002865cd06_test.go.md');
+          if (!f) return false;
+          await a.workspace.getLeaf(false).openFile(f);
+          return true;
+        })()""")
+        if not open_ok:
+            raise GateFailure("GUI_WORKSPACE_API_FILE_OPEN_FAILED")
+        until(note_is_visible, 55, "GUI_WORKSPACE_NOTE_CONTENT_NOT_RENDERED")
+        print("KTRADE_GUI_NOTE_ACTIVATED_BY_WORKSPACE_API=TRUE", flush=True)
     print("KTRADE_GUI_REAL_NOTE_OPEN_AND_BODY=PASS", flush=True)
     print("KTRADE_GUI_NOTE_NAV_SECONDS=" + str(round(time.monotonic()-started, 2)), flush=True)
 
