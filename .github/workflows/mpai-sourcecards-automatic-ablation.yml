@@ -1,0 +1,197 @@
+name: MP-AI native automatic-card vs verbatim model development ablation
+on:
+  push:
+    branches: [qualification/mpai-sourcecards-original-windows-20261028]
+    paths: ['.github/workflows/mpai-sourcecards-automatic-ablation.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai-sourcecards-automatic-ablation-20261028
+  cancel-in-progress: false
+jobs:
+  read-only-real-model:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+    steps:
+      - name: Bounded CPU GGUF factual evaluation of source-generated evidence cards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI_CARD_ABLATION_NOT_ORIGINAL_RUNNER'
+          }
+          $tmp=Join-Path $env:RUNNER_TEMP ('mpai-card-dev-'+$env:GITHUB_RUN_ID)
+          $repo=Join-Path $tmp 'private-mindpalace'
+          try {
+            if(Test-Path -LiteralPath $tmp) { throw 'MPAI_CARD_ABLATION_SCRATCH_EXISTS' }
+            New-Item -ItemType Directory -Path $tmp -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch proposal/mpai-optin-source-cards-20261028 https://github.com/spoonman136668-ai/Mind-Palace.git $repo *> (Join-Path $tmp 'private-clone.log')
+            if($LASTEXITCODE -ne 0) { throw 'MPAI_CARD_ABLATION_PRIVATE_CLONE_FAILED' }
+            $env:MPAI_CARD_DEV_ROOT=$repo
+            $env:MPAI_CARD_DEV_TMP=$tmp
+            $code=@'
+          import hashlib,json,os,pathlib,re,shutil,socket,subprocess,sys,time,urllib.request
+          from collections import defaultdict
+
+          root=pathlib.Path(os.environ["MPAI_CARD_DEV_ROOT"])
+          scratch=pathlib.Path(os.environ["MPAI_CARD_DEV_TMP"])
+          sha="529d856cb2cac05e5b945711c82ad3199700c4c4"
+          records_digest="fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742"
+          lesson_id="lesson/mpai-hindsight-h2-development-context-efficiency-20261028"
+          if subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],text=True).strip()!=sha:
+              raise RuntimeError("MPAI_CARD_DEV_SOURCE_DRIFT")
+          before=hashlib.sha256((root/".ice/records.json").read_bytes()).hexdigest()
+          if before!=records_digest:raise RuntimeError("MPAI_CARD_DEV_RECORD_DIGEST_DRIFT")
+          print("MPAI_CARD_DEV_PINNED_ACCEPTED_MEMORY=PASS",flush=True)
+          query=("tiered retrieval input tokens 3,513 1,665 context bytes 15,051 "
+                 "6,610 96-token output cap factual grades")
+          def recall(presentation=None):
+              args={"source_sha":sha,"query":query,"projects":["Mind-Palace"],"profile":"architecture"}
+              if presentation:args["presentation"]=presentation
+              msg={"jsonrpc":"2.0","id":1,"method":"tools/call",
+                   "params":{"name":"mindpalace_recall","arguments":args}}
+              cmd=[sys.executable,"-B","-u",str(root/"tools/mindpalace_mcp.py"),
+                   "--root",str(root),"--source",sha,"--project","Mind-Palace","--transport","stdio"]
+              r=subprocess.run(cmd,input=json.dumps(msg)+"\n",text=True,capture_output=True,timeout=50,cwd=str(root))
+              if r.returncode or len(r.stdout.splitlines())!=1:raise RuntimeError("MPAI_CARD_DEV_MCP_TRANSPORT")
+              outer=json.loads(r.stdout)
+              if "error" in outer:raise RuntimeError("MPAI_CARD_DEV_MCP_DENIED")
+              obj=json.loads(outer["result"]["content"][0]["text"])
+              if obj.get("source_sha")!=sha or obj.get("records_sha256")!=records_digest or obj.get("scope")!=["Mind-Palace"]:
+                  raise RuntimeError("MPAI_CARD_DEV_MCP_IDENTITY")
+              return obj
+          plain=recall()
+          flat=recall("source_cards_v1")
+          if "matches" in flat or flat.get("presentation")!="source_cards_v1":raise RuntimeError("MPAI_CARD_DEV_NOT_OPTIN")
+          normal=[v for v in plain["matches"] if v.get("id")==lesson_id]
+          cards=[v for v in flat["source_cards"] if v.get("record_id")==lesson_id]
+          if len(normal)!=1 or len(cards)!=1:raise RuntimeError("MPAI_CARD_DEV_LESSON_MISSING")
+          original=normal[0]["statement"]
+          c=cards[0]
+          if c["record_status"]!="observed" or c["source_refs"]!=normal[0]["source_refs"]:
+              raise RuntimeError("MPAI_CARD_DEV_PROVENANCE")
+          spans=c["numeric_comparison_source_spans"]+c["output_cap_source_spans"]+c["caution_source_sentences"]
+          if not spans or not all(isinstance(v,str) and v in original for v in spans):
+              raise RuntimeError("MPAI_CARD_DEV_NOT_SOURCE_LITERAL")
+          if not all(n in original for n in ("3,513","1,665","15,051","6,610","19,686","15,208","96-token","no independent factual accuracy grades")):
+              raise RuntimeError("MPAI_CARD_DEV_LESSON_DRIFT")
+          if "96-token output cap" not in c["output_cap_source_spans"]:
+              raise RuntimeError("MPAI_CARD_DEV_OUTPUT_CAP_LOST")
+          if not any("no independent factual accuracy grades" in x for x in c["caution_source_sentences"]):
+              raise RuntimeError("MPAI_CARD_DEV_UNGRADED_CAUTION_LOST")
+          # All text presented to treatment is literally selected from that same accepted record.
+          # No manual fact-card or answer template. Source refs checked, but omitted from both prompts.
+          auto="\n".join(["Source-literal numerical comparisons:"]+
+                         c["numeric_comparison_source_spans"]+
+                         ["Source-literal output caps:"]+c["output_cap_source_spans"]+
+                         ["Source-literal cautions:"]+c["caution_source_sentences"])
+          if len(auto.encode("utf8"))>1800 or len(original.encode("utf8"))>1800:
+              raise RuntimeError("MPAI_CARD_DEV_CONTEXT_BUDGET")
+          if auto==original:raise RuntimeError("MPAI_CARD_DEV_IDENTICAL_ARMS")
+          print("MPAI_CARD_DEV_NATIVE_AUTO_SOURCE_EXTRACT=PASS",flush=True)
+          print("MPAI_CARD_DEV_VERBATIM_CONTEXT_BYTES="+str(len(original.encode("utf8"))),flush=True)
+          print("MPAI_CARD_DEV_AUTO_CONTEXT_BYTES="+str(len(auto.encode("utf8"))),flush=True)
+          if shutil.disk_usage(str(scratch)).free<1700000000:raise RuntimeError("MPAI_CARD_DEV_DISK_BUDGET")
+          weights=scratch/"public-pinned-cpu.gguf"
+          url=("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/"
+               "9217f5db79a29953eb74d5343926648285ec7e67/"
+               "qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true")
+          req=urllib.request.Request(url,headers={"User-Agent":"MPAI-automatic-sourcecards-development/1"})
+          h=hashlib.sha256();size=0;t0=time.monotonic()
+          with urllib.request.urlopen(req,timeout=40) as source,weights.open("xb") as out:
+              while True:
+                  buf=source.read(4*1024*1024)
+                  if not buf:break
+                  size+=len(buf)
+                  if size>510000000 or time.monotonic()-t0>240:raise RuntimeError("MPAI_CARD_DEV_DOWNLOAD_BOUNDS")
+                  h.update(buf);out.write(buf)
+          if size!=491400032 or h.hexdigest()!="74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db":
+              raise RuntimeError("MPAI_CARD_DEV_MODEL_IDENTITY")
+          os.environ["HF_HUB_OFFLINE"]="1"
+          def disabled_network(*args,**kwargs):raise RuntimeError("MPAI_CARD_DEV_INFERENCE_NETWORK_FORBIDDEN")
+          socket.socket=disabled_network
+          from llama_cpp import Llama
+          llm=Llama(model_path=str(weights),n_ctx=2048,n_gpu_layers=0,n_threads=4,n_batch=128,seed=137,verbose=False)
+          cases=[
+           ("tokens","Report the legacy input token total followed by the tiered input token total.",["3513","1665"]),
+           ("bytes","Report the legacy retrieved-context byte count followed by the tiered count.",["15051","6610"]),
+           ("latency","Report the legacy generation milliseconds followed by tiered milliseconds.",["19686","15208"]),
+           ("cap","What single output-token cap did both study arms reach?",["96"]),
+           ("grading","Was improvement in factual answer accuracy independently graded? Reply YES or NO.",["NO"]),
+           ("promotion","Does this experiment by itself scientifically prove autonomous self-improvement? Reply YES or NO.",["NO"]),
+           ("newworld","What was the exact accuracy score on the never-before-seen unfamiliar-world holdout? Reply UNKNOWN unless supported.",["UNKNOWN"]),
+           ("unrelated","What exact battery power consumption in joules was measured? Reply UNKNOWN unless supported.",["UNKNOWN"])
+          ]
+          def grade(name,answer,expected):
+              cleaned=answer.strip().upper()
+              if name in ("tokens","bytes","latency","cap"):
+                  return int(re.findall(r"\b\d+\b",cleaned.replace(",",""))==expected)
+              if name in ("grading","promotion"):return int(bool(re.fullmatch(r"\s*NO[.!]?\s*",cleaned)))
+              return int(bool(re.fullmatch(r"\s*UNKNOWN[.!]?\s*",cleaned)))
+          metrics={arm:dict(correct=0,complete=0,truncated=0,fabricated=0,prompt_tokens=0,output_tokens=0,wall_ms=0) for arm in ("verbatim","auto_card")}
+          scores=[]
+          for i,(case,question,truth) in enumerate(cases):
+              row={"task":case}
+              for arm in (("verbatim","auto_card") if i%2==0 else ("auto_card","verbatim")):
+                  evidence=original if arm=="verbatim" else auto
+                  instruction=("Answer with ONLY the requested exact integers, YES, NO or UNKNOWN, on one short line. "
+                               "Separate integer pairs with a comma. Do not provide reasoning. "
+                               "If source doesn't establish a requested fact, answer UNKNOWN. No numerical guesses. "
+                               "Evidence:\n"+evidence+"\nQuestion: "+question+"\nAnswer:")
+                  llm.reset();start=time.monotonic()
+                  out=llm.create_chat_completion(
+                      messages=[
+                       {"role":"system","content":"You are a source-bound retrieval assistant. Give one concise line. Never invent evidence."},
+                       {"role":"user","content":instruction}],
+                      max_tokens=256,temperature=0.0,top_p=1.0,
+                      stop=["\n\n","\nQuestion:","\nEvidence:"])
+                  elapsed=int((time.monotonic()-start)*1000)
+                  ch=out["choices"][0];answer=ch["message"]["content"];reason=ch.get("finish_reason");usage=out.get("usage",{})
+                  if not isinstance(answer,str) or not answer.strip() or reason not in ("stop","length") or not usage.get("completion_tokens"):
+                      raise RuntimeError("MPAI_CARD_DEV_MODEL_RECEIPT_INVALID")
+                  done=reason=="stop";credit=grade(case,answer,truth) if done else 0
+                  m=metrics[arm]
+                  m["correct"]+=credit;m["complete"]+=int(done);m["truncated"]+=int(not done)
+                  m["prompt_tokens"]+=int(usage["prompt_tokens"])
+                  m["output_tokens"]+=int(usage["completion_tokens"])
+                  m["wall_ms"]+=elapsed
+                  if case in ("newworld","unrelated") and done and credit==0:m["fabricated"]+=1
+                  row[arm]={"credit":credit,"complete":int(done)}
+              scores.append(row)
+          if hashlib.sha256((root/".ice/records.json").read_bytes()).hexdigest()!=before:
+              raise RuntimeError("MPAI_CARD_DEV_SOURCE_MUTATED")
+          if subprocess.check_output(["git","-C",str(root),"status","--porcelain","--untracked-files=all"],text=True).strip():
+              raise RuntimeError("MPAI_CARD_DEV_WORKTREE_MUTATED")
+          print("MPAI_CARD_DEV_REAL_LOCAL_GGUF_CALLS=16",flush=True)
+          print("MPAI_CARD_DEV_CASES=8",flush=True)
+          for arm in ("verbatim","auto_card"):
+              for key,value in metrics[arm].items():
+                  print("MPAI_CARD_DEV_"+arm.upper()+"_"+key.upper()+"="+str(value),flush=True)
+          print("MPAI_CARD_DEV_SCORE_ROWS="+json.dumps(scores,separators=(",",":")),flush=True)
+          print("MPAI_CARD_DEV_AUTOMATIC_NOT_MANUALLY_CURATED=TRUE",flush=True)
+          print("MPAI_CARD_DEV_MODEL_CHECKSUM_PINNED=TRUE",flush=True)
+          print("MPAI_CARD_DEV_INDEPENDENT_HOLDOUT=FALSE",flush=True)
+          print("MPAI_CARD_DEV_INDEPENDENT_GRADING=FALSE",flush=True)
+          print("MPAI_CARD_DEV_CLOUD_CHATGPT_CONNECTED=FALSE",flush=True)
+          print("MPAI_CARD_DEV_PRODUCTION_WRITES=0",flush=True)
+          print("MPAI_CARD_DEV_SCIENCE_COMPOSE=NO_GO",flush=True)
+          '@
+            $log=Join-Path $tmp 'private-answers-redacted.log'
+            $code | & python -B -c 'import sys;exec(sys.stdin.read())' *> $log
+            if($LASTEXITCODE -ne 0){
+              $safe=Get-Content -LiteralPath $log | Where-Object {$_ -match 'MPAI_CARD_DEV_|Traceback|RuntimeError|Error'} | Select-Object -Last 28
+              $safe | Write-Host
+              throw 'MPAI_CARD_DEV_OFFLINE_MODEL_STUDY_FAILED'
+            }
+            Get-Content -LiteralPath $log | Where-Object {$_ -match '^MPAI_CARD_DEV_'} | Write-Host
+            Write-Host 'MPAI_CARD_DEV_ORIGINAL_RUNNER_EVALUATION_FINISHED=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction Stop }
+          }
