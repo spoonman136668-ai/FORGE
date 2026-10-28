@@ -1743,6 +1743,8 @@ class Database:
                           "forge.f139.source-transition.v15"]
                 prev_v17=[e for e in events if e["schema"]==
                           "forge.f139.source-transition.v17"]
+                prev_v16=[e for e in events if e["schema"]==
+                          "forge.f139.source-transition.v16"]
                 if prev_v17:
                     require(allow_v18 is True and len(prev_v17)==1
                             and events[-1]["schema"]==
@@ -1752,8 +1754,6 @@ class Database:
                             and self.active() is None and self.ready() is None,
                             "SOURCE_TRANSITION_V18_ORIGINAL_CUSTODY_REQUIRED")
                     schema="forge.f139.source-transition.v18"
-                prev_v16=[e for e in events if e["schema"]==
-                          "forge.f139.source-transition.v16"]
                 elif prev_v16:
                     require(allow_v17 is True and len(prev_v16)==1
                             and events[-1]["schema"]==
