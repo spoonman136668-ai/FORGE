@@ -108,16 +108,29 @@ jobs:
               $shortTemp = Join-Path $env:SystemDrive ('m155-' + $env:GITHUB_RUN_ID)
               $previousTemp = $env:TEMP
               $previousTmp = $env:TMP
+              $priorGitConfigCount = $env:GIT_CONFIG_COUNT
+              $priorGitConfigKey = $env:GIT_CONFIG_KEY_0
+              $priorGitConfigValue = $env:GIT_CONFIG_VALUE_0
+              if ($priorGitConfigCount -or $priorGitConfigKey -or $priorGitConfigValue) {
+                throw 'MPGRAPH155_UNEXPECTED_GIT_CONFIG_OVERRIDE'
+              }
               try {
                 if (Test-Path -LiteralPath $shortTemp) { throw 'MPGRAPH155_TEMP_COLLISION' }
                 New-Item -ItemType Directory -Path $shortTemp -ErrorAction Stop | Out-Null
                 $env:TEMP = $shortTemp
                 $env:TMP = $shortTemp
+                $env:GIT_CONFIG_COUNT = '1'
+                $env:GIT_CONFIG_KEY_0 = 'core.longpaths'
+                $env:GIT_CONFIG_VALUE_0 = 'true'
                 Write-Host 'MPGRAPH155_ISOLATED_SHORT_TEMP=PASS'
+                Write-Host 'MPGRAPH155_CHILD_GIT_LONGPATHS=TRUE'
                 Invoke-PrivateQualification 'FULL_WINDOWS_REGRESSION' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tests/Test-All.ps1')
               } finally {
                 $env:TEMP = $previousTemp
                 $env:TMP = $previousTmp
+                $env:GIT_CONFIG_COUNT = $priorGitConfigCount
+                $env:GIT_CONFIG_KEY_0 = $priorGitConfigKey
+                $env:GIT_CONFIG_VALUE_0 = $priorGitConfigValue
                 if (Test-Path -LiteralPath $shortTemp) {
                   Remove-Item -LiteralPath $shortTemp -Force -Recurse -ErrorAction Stop
                 }
