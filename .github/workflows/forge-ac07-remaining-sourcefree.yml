@@ -8,6 +8,7 @@ on:
       - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
       - 'docs/research/AC-10-DTR-SOURCE-NATIVE-COMPATIBILITY-PREFLIGHT.md'
       - 'docs/research/AC-11-AUTHENTIC-DTR-DEPENDENCY-PUBLIC-SMOKE-PROTOCOL.md'
+      - 'docs/research/AC-12-GENUINE-UPSTREAM-IMPORT-REPAIR-PROTOCOL.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
   pull_request:
     branches:
@@ -17,6 +18,7 @@ on:
       - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
       - 'docs/research/AC-10-DTR-SOURCE-NATIVE-COMPATIBILITY-PREFLIGHT.md'
       - 'docs/research/AC-11-AUTHENTIC-DTR-DEPENDENCY-PUBLIC-SMOKE-PROTOCOL.md'
+      - 'docs/research/AC-12-GENUINE-UPSTREAM-IMPORT-REPAIR-PROTOCOL.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
 permissions:
   contents: read
@@ -173,6 +175,48 @@ jobs:
                   assert r["source_owned_actions_executed"]==0
           print("AC11_DIAGNOSTIC_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
           PY
+      - name: AC-12 try verified pinned real Minigrid wheel after exact first original import error
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac12_import_repair.py --upstream "$AC10_UPSTREAM_ROOT" --venv "$RUNNER_TEMP/ac11_venv" --out "$RUNNER_TEMP/ac07/ac12-report.json" --freeze "$RUNNER_TEMP/ac07/ac12-freeze.txt"
+          python - "$RUNNER_TEMP/ac07/ac12-report.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac12.source-native-missing-dependency.v1"
+          assert r["scope"]=="EXACT_AUTHENTIC_UPSTREAM_PUBLIC_DEVELOPMENT_ONLY"
+          assert r["original_source_sha"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["original_source_tree"]=="fd8d8a67c1fc7fa62274dc7e12fb1e77945632f0"
+          assert r["original_dtr_sha256"]=="e31eff82f862355057653d150967bb44a5ed57a6acaad57f7ecf2a551f6c6811"
+          assert r["pinned_extra_name"]=="minigrid==2.3.1"
+          assert r["reserved_fit_validation_dev_seeds_used"] is False
+          assert r["science_unknown_family_touched"] is False
+          assert r["fitted_models_count"]==0
+          assert r["native_model_modified"] is False
+          assert r["original_first_use_authorized"] is False
+          assert r["scientific_admission"] is False
+          assert r["forged_causal_source_created"] is False
+          assert r["source_files_edited"] is False
+          assert r["controller_or_queue_mutated"] is False
+          if r["pinned_extra_install_attempted"] and r["dependency_install_return_code"]==0:
+              assert r["authentic_pypi_wheel_sha256_verified"] is True
+          if r["public_smoke_status"]=="ACTUAL_ORIGINAL_PUBLIC_SMOKE_PASS":
+              assert r["source_public_episodes_executed"]==2
+              assert r["source_public_actions_executed"]==4
+              assert r["public_smoke"]["learner_receives_unfiltered_info"] is False
+              print("AC12_AUTHENTIC_PUBLIC_SOURCE=PASS")
+          else:
+              print("AC12_AUTHENTIC_PUBLIC_SOURCE=BLOCKED")
+              print("AC12_FIRST_MISSING="+str(r["first_original_import"]["exception"]["module"]))
+              print("AC12_NEXT_MISSING="+str(r["original_import_after_pinned_extra"]["exception"]["module"]))
+              if r["public_smoke_attempted"]:
+                  assert r["source_public_episodes_executed"] is None
+                  assert r["source_public_actions_executed"] is None
+              else:
+                  assert r["source_public_episodes_executed"]==0
+                  assert r["source_public_actions_executed"]==0
+          print("AC12_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
       - name: Retain source-free evidence per operating system
         if: success()
         uses: actions/upload-artifact@v4
@@ -184,5 +228,7 @@ jobs:
             ${{ runner.temp }}/ac07/ac10-report.json
             ${{ runner.temp }}/ac07/ac11-report.json
             ${{ runner.temp }}/ac07/ac11-freeze.txt
+            ${{ runner.temp }}/ac07/ac12-report.json
+            ${{ runner.temp }}/ac07/ac12-freeze.txt
           retention-days: 30
           if-no-files-found: error
