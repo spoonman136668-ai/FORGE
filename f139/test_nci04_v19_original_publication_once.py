@@ -48,7 +48,7 @@ class OriginalV19OnceWriterTests(unittest.TestCase):
         # simulated outbound Git mutation. Never contact GitHub.
         self.remote_calls.append(("FAKE_ONLY", plan["repository"], plan["branch"]))
         latest = self.db.conn.execute(
-            "SELECT kind,payload,prior_sha,sha FROM events ORDER BY seq DESC LIMIT 1"
+            "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq DESC LIMIT 1"
         ).fetchone()
         self.assertEqual(latest["kind"], "MODEL_DRAFT_ATTEMPTED")
         self.assertFalse(json.loads(latest["payload"])["retry_allowed"])
