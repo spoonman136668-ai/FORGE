@@ -1,0 +1,48 @@
+name: FORGE current advisory Obsidian native desktop witness
+on:
+  push:
+    branches: [qualification/forge-current-obsidian-gui-20261028]
+    paths:
+      - .github/workflows/forge-current-advisory-obsidian-gui.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-current-advisory-gui-20261028
+  cancel-in-progress: false
+
+jobs:
+  current-forge-native-gui:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      RESEARCH_SCIENTIFIC_AUTHORITY: '0'
+      RESEARCH_PROMOTION_ALLOWED: '0'
+      KTRADE_LIVE_AUTHORITY: '0'
+      GRAPHIFY_QUERY_LOG_DISABLE: '1'
+      GRAPHIFY_QUERY_LOG_RESPONSES: '0'
+    steps:
+      - name: Checkout exact original desktop probe
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact runner and read-only source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'FORGE_GUI_HARNESS_DRIFT'}
+          if($env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'FORGE_GUI_WRONG_RUNNER'}
+          if($env:RESEARCH_SCIENTIFIC_AUTHORITY -cne '0' -or $env:RESEARCH_PROMOTION_ALLOWED -cne '0' -or $env:KTRADE_LIVE_AUTHORITY -cne '0'){throw 'FORGE_GUI_UNSAFE_AUTHORITY'}
+          if(@(git status --porcelain=v1 --untracked-files=no).Count -ne 0){throw 'FORGE_GUI_HARNESS_DIRTY'}
+          Write-Host 'FORGE_CURRENT_GUI_HARNESS=PASS'
+      - name: Open exact private FORGE Obsidian GUI and verify native search and editor parity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./tools/qualification/forge_current_obsidian_gui.ps1
+          if($LASTEXITCODE -and $LASTEXITCODE -ne 0){throw 'FORGE_CURRENT_GUI_FAILED'}
+          Write-Host 'FORGE_CURRENT_ADVISORY_GUI_COMPLETE=PASS'
