@@ -100,10 +100,10 @@ class V19IsolatedEngineTests(unittest.TestCase):
 
     def test_v19_requires_explicit_flag_and_existing_owner_mutex(self):
         self.harness()
-        with self.assertRaisesRegex(Exception, "V19_ORIGINAL_CUSTODY_REQUIRED"):
+        with self.assertRaisesRegex(Exception, "V19_ORIGINAL_MUTEX_REQUIRED"):
             self.transition(allow_v19=True)
         with SingleOwner(self.path.with_suffix(".lock")):
-            with self.assertRaisesRegex(Exception, "V19_ORIGINAL_CUSTODY_REQUIRED"):
+            with self.assertRaisesRegex(Exception, "V19_EXPLICIT_OPT_IN_REQUIRED"):
                 self.transition()
         self.assertEqual(self.db.meta(), self.before)
         self.assertEqual(self.v19_events(), [])
