@@ -1,0 +1,95 @@
+name: MP-AI152 genuine local CPU selective abstention development gate
+on:
+  push:
+    branches: [qualification/mpai152-quantity-witness-20261028]
+    paths: ['.github/workflows/mpai152-quantity-witness-development.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai152-source-guard-development-20261028
+  cancel-in-progress: false
+jobs:
+  read-only-local:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Exact pinned source synthetic guards and local-model transfer, no writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI152_OWNER_RUNNER_BOUNDARY'
+          }
+          $scratch=Join-Path $env:SystemDrive ('m152-'+$env:GITHUB_RUN_ID)
+          $experiment=Join-Path $scratch 'experiment'
+          $original=Join-Path $scratch 'original'
+          $freeze='b9812ec95ae5cf8efe67f751fd02ba99103748a3'
+          $manifest='evaluation/mpai152-frozen-quantity-witness-v1.json'
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI152_SCRATCH_EXISTS'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $env:TEMP=Join-Path $scratch 'tmp'
+            $env:TMP=$env:TEMP
+            New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop | Out-Null
+            $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+            & git clone --quiet --single-branch --branch proposal/mpai152-quantity-witness-20261028 $remote $experiment *> (Join-Path $scratch 'private-experiment-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI152_PRIVATE_EXPERIMENT_CLONE_DENIED'}
+            & git clone --quiet --single-branch --branch proposal/mpai-evidence-sufficiency-20261028 $remote $original *> (Join-Path $scratch 'private-source-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI152_PRIVATE_ORIGINAL_CLONE_DENIED'}
+            if((& git -C $experiment rev-parse HEAD).Trim() -cne '85c01cfe8a1c9857a84f1fa15f69e2cac82283d1'){
+              throw 'MPAI152_EXPERIMENT_SOURCE_CHANGED'
+            }
+            if((& git -C $original rev-parse HEAD).Trim() -cne '7dd66f4b9e80b488ccb880fb62ddae8e7cb01987'){
+              throw 'MPAI152_MCP_SOURCE_CHANGED'
+            }
+            if((& git -C $experiment rev-parse "HEAD:$manifest").Trim() -cne
+               (& git -C $experiment rev-parse "$($freeze):$($manifest)").Trim()){
+              throw 'MPAI152_FROZEN_MANIFEST_CHANGED'
+            }
+            $hash='fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742'
+            if((Get-FileHash -Algorithm SHA256 (Join-Path $original '.ice/records.json')).Hash.ToLowerInvariant() -cne $hash){
+              throw 'MPAI152_ACCEPTED_MEMORY_CHANGED'
+            }
+            Push-Location $experiment
+            try {
+              & python -B -m unittest discover -s tests -p test_mpai152_quantity_witness.py -v
+              if($LASTEXITCODE -ne 0){throw 'MPAI152_SYNTHETIC_FILTER_UNIT_TEST_FAILED'}
+              Write-Output 'MPAI152_SYNTHETIC_FILTER_TESTS=PASS'
+              & python -B -c 'import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(encoding="utf-8")) for p in ("agentic/mpai152_quantity_witness.py","tools/mpai152_quantity_witness_model_trial.py","tests/test_mpai152_quantity_witness.py")]'
+              if($LASTEXITCODE -ne 0){throw 'MPAI152_SYNTAX_FAILED'}
+              Write-Output 'MPAI152_SOURCE_SYNTAX=PASS'
+            } finally {Pop-Location}
+            $privateLog=Join-Path $scratch 'private-model-answers-and-errors.log'
+            & python -B (Join-Path $experiment 'tools/mpai152_quantity_witness_model_trial.py') --experiment-root $experiment --source-root $original --scratch $scratch *> $privateLog
+            $code=$LASTEXITCODE
+            $safe=Get-Content -LiteralPath $privateLog | Where-Object {$_ -match '^MPAI152_[A-Z0-9_]+=[A-Za-z0-9_.]+$'}
+            foreach($line in $safe){Write-Output $line}
+            if($code -ne 0){throw 'MPAI152_PRIVATE_REAL_MODEL_EVAL_FAILED'}
+            $must=@('MPAI152_STAGE=PAIRED_WITNESS_TRIAL_COMPLETE',
+                    'MPAI152_AUTHENTICATED_CONSUMER=FALSE',
+                    'MPAI152_INDEPENDENT_HOLDOUT=FALSE',
+                    'MPAI152_SCIENTIFIC_COMPOSE=NO_GO')
+            foreach($line in $must){if($safe -cnotcontains $line){throw 'MPAI152_AGGREGATE_RECEIPT_INCOMPLETE'}}
+            foreach($path in @($original,$experiment)){
+              $status=@(& git -C $path status --porcelain --untracked-files=all)
+              if($LASTEXITCODE -ne 0 -or $status.Count -ne 0){throw 'MPAI152_READONLY_SOURCE_DIRTY'}
+            }
+            if((Get-FileHash -Algorithm SHA256 (Join-Path $original '.ice/records.json')).Hash.ToLowerInvariant() -cne $hash){
+              throw 'MPAI152_READONLY_MEMORY_CHANGED'
+            }
+            Write-Output 'MPAI152_ORIGINAL_MEMORY_AND_GIT_UNMODIFIED=PASS'
+            Write-Output 'MPAI152_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:SystemDrive\
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
