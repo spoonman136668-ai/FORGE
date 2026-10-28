@@ -104,6 +104,11 @@ try{
   $readme|Set-Content -LiteralPath (Join-Path $d 'README.md') -Encoding utf8
   & git -C $d add -A *> $log
   if($LASTEXITCODE -ne 0){throw 'FORGE_STAGE_FAILED'}
+  $staged=@(& git -C $d diff --cached --name-only)
+  if($LASTEXITCODE -ne 0 -or $staged.Count -eq 0){throw 'FORGE_PRIVATE_CANDIDATE_EMPTY_OR_DIFF_FAILED'}
+  foreach($file in $staged){
+    if($file -cne 'README.md' -and -not $file.StartsWith('Graphify/')){throw 'FORGE_PRIVATE_CANDIDATE_OUT_OF_SCOPE'}
+  }
   & git -C $d -c user.name='FORGE advisory qualifier' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m ('Pin FORGE main advisory Graphify '+$source) *> $log
   if($LASTEXITCODE -ne 0){throw 'FORGE_COMMIT_FAILED'}
   & git -C $d -c 'credential.helper=!gh auth git-credential' push origin ('HEAD:refs/heads/'+$candidate) *> $log
