@@ -1,0 +1,73 @@
+name: MP-AI153 adversarial quantity original Windows development
+on:
+  push:
+    branches: [qualification/mpai153-adversarial-quantity-20261028]
+    paths: ['.github/workflows/mpai153-adversarial-quantity.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai153-adversarial-quantity-20261028
+  cancel-in-progress: false
+jobs:
+  real-adversarial:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 22
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Pinned offline CPU Qwen + original quantity witness; private disposable scratch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI153_ORIGINAL_RUNNER_NOT_VERIFIED'
+          }
+          $scratch=Join-Path $env:SystemDrive ('m153-'+$env:GITHUB_RUN_ID)
+          $repo=Join-Path $scratch 'source'
+          $manifest='evaluation/mpai153-adversarial-quantity-frozen-v1.json'
+          $expected='217dcc1eb987eabbc123e33129fa6870ba1c3325'
+          $frozen='dd4c2cd2cc8c8702bfe2911bb3b27030c5e629e8'
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI153_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $env:TEMP=Join-Path $scratch 'tmp'
+            $env:TMP=$env:TEMP
+            New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop | Out-Null
+            $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+            & git clone --quiet --single-branch --branch proposal/mpai153-adversarial-quantity-20261028 $remote $repo *> (Join-Path $scratch 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI153_PRIVATE_REPO_CLONE_DENIED'}
+            if((& git -C $repo rev-parse HEAD).Trim() -cne $expected){throw 'MPAI153_EXACT_SOURCE_MISMATCH'}
+            $now=(& git -C $repo rev-parse "HEAD:$manifest").Trim()
+            $before=(& git -C $repo rev-parse "$($frozen):$($manifest)").Trim()
+            if($now -cne $before){throw 'MPAI153_FROZEN_CASES_TAMPERED'}
+            if((Get-FileHash -Algorithm SHA256 (Join-Path $repo '.ice/records.json')).Hash.ToLowerInvariant() -cne 'fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742'){
+              throw 'MPAI153_MEMORY_CHANGED'
+            }
+            & python -B -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))' (Join-Path $repo 'tools/mpai153_adversarial_quantity_trial.py')
+            if($LASTEXITCODE -ne 0){throw 'MPAI153_SOURCE_SYNTAX_FAILED'}
+            Write-Output 'MPAI153_SOURCE_SYNTAX=PASS'
+            $privateLog=Join-Path $scratch 'private-development-metrics.log'
+            & python -B (Join-Path $repo 'tools/mpai153_adversarial_quantity_trial.py') --experiment $repo --scratch $scratch *> $privateLog
+            $code=$LASTEXITCODE
+            $safe=Get-Content -LiteralPath $privateLog | Where-Object {$_ -match '^MPAI153_[A-Z0-9_]+=[A-Za-z0-9_.]+$'}
+            foreach($line in $safe){Write-Output $line}
+            if($code -ne 0){throw 'MPAI153_MODEL_DEVELOPMENT_JOB_FAILED'}
+            foreach($mark in @('MPAI153_EVALUATION_COMPLETED=PASS','MPAI153_INDEPENDENT_WITNESS=FALSE','MPAI153_SCIENTIFIC_COMPOSE=NO_GO')){
+              if($safe -cnotcontains $mark){throw 'MPAI153_EXPECTED_BOUNDARY_MARKER_MISSING'}
+            }
+            $dirty=@(& git -C $repo status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI153_REPO_DIRTY'}
+            Write-Output 'MPAI153_PRIVATE_SOURCE_NOT_MODIFIED=PASS'
+            Write-Output 'MPAI153_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:SystemDrive\
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
