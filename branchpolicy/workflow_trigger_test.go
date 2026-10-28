@@ -17,6 +17,26 @@ func TestRulesetProposalDoesNotSelfRaceOnMainPush(t *testing.T){
   !strings.Contains(s,"EXPECTED_MAIN_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}"){
   t.Fatal("unsafe R20 check-run probe trigger/sha identity")
  }
+ // The exact current original main SHA accumulates many unrelated skipped
+ // checks from owner issue events. Never treat a truncated first page as a
+ // complete check inventory or fabricate source verification.
+ for _,context:=range []string{"linux","windows"}{
+  if !strings.Contains(s,"check-runs?check_name="+context+"&per_page=100"){
+   t.Fatalf("missing independently filtered required GitHub check: %s",context)
+  }
+ }
+ if !strings.Contains(s,".total_count == 1")||
+    !strings.Contains(s,"check_runs: (.[0].check_runs + .[1].check_runs)")||
+    strings.Contains(s,"check-runs\" > \"$RUNNER_TEMP/main-checks.json\""){
+  t.Fatal("main ruleset probe may consume truncated or unverified check page")
+ }
+ if !strings.Contains(s,"F139_V18_ADMIN_SCRIPT_PARSE_ONLY=PASS") ||
+    !strings.Contains(s,"Language.Parser]::ParseFile(") ||
+    !strings.Contains(s,"scripts/Install-F139V18ReleaseRuleset.ps1") ||
+    !strings.Contains(s,"shell: pwsh") ||
+    strings.Contains(s,"Install-F139V18ReleaseRuleset.ps1 -Apply") {
+  t.Fatal("admin script must be parsed only; never executed by CI")
+ }
  qualifier,err:=os.ReadFile("../.github/workflows/qualify.yml")
  if err!=nil{t.Fatal(err)}
  q:=strings.ReplaceAll(string(qualifier),"\r\n","\n")
