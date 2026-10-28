@@ -1,0 +1,146 @@
+name: F139 I1016 ORIGINAL owner ledger read-only terminal witness
+on:
+  push:
+    branches: [qualification/f139-ygg1016-audit-20261027]
+    paths: [.github/workflows/qualify-f139-i1016-original-ledger-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-i1016-cold-ledger-readonly-once
+  cancel-in-progress: false
+jobs:
+  original-ledger-cold-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Independently verify original Windows scheduled owner and cold immutable event chain
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $source='d2f683e87a87245441ce34b20f80fc1cf6b98470'
+          $ticket='f139-nci04-i1016-014233524d6d-96581984'
+          $runId='40580855892'
+          $file='.github/workflows/qualify-f139-i1016-original-ledger-readonly.yml'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-ygg1016-audit-20261027' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'F139_I1016_UNQUALIFIED_READONLY_RUNNER'
+          }
+          $changed=@(& git diff --name-only $source HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne $file){
+            throw 'F139_I1016_UNAUTHORIZED_SOURCE_DIFF'
+          }
+          if(@(& git status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_I1016_CHECKOUT_NOT_CLEAN'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Ready','Running') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){
+            throw 'F139_I1016_ORIGINAL_TASK_TOPOLOGY_DRIFT'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=$principal
+          if($principal -notmatch '^S-1-'){
+            $sid=(New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne $who.User.Value){throw 'F139_I1016_OWNER_SID_MISMATCH'}
+          $argsText=[string]$task.Actions[0].Arguments
+          function Field([string]$name){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_I1016_TASK_ARG_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $db=Field 'Database'
+          $python=Field 'PythonExe'
+          $wrapper=Field 'File'
+          if([IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1' -or
+             [IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139/state.sqlite')) -or
+             -not (Test-Path -LiteralPath $python -PathType Leaf)){
+            throw 'F139_I1016_ORIGINAL_OWNER_ROUTE_DRIFT'
+          }
+          if((& git -C $root rev-parse HEAD | Out-String).Trim() -cne $source -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_I1016_ORIGINAL_CONTROLLER_SOURCE_DRIFT'
+          }
+          $audit=@'
+          import json,os,pathlib,sqlite3,subprocess,sys
+          dbpath=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          root=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          ticket=sys.argv[3];source=sys.argv[4];expected_run=int(sys.argv[5])
+          cmd=[sys.executable,"-B","-m","f139.local_controller","--db",str(dbpath),"status"]
+          p=subprocess.run(cmd,cwd=str(root),capture_output=True,text=True,timeout=65,check=False)
+          if p.returncode!=0: raise RuntimeError("F139_ORIGINAL_COLD_CHAIN_VERIFICATION_FAILED")
+          status=json.loads(p.stdout.strip().splitlines()[-1])["status"]
+          meta=status["meta"]
+          if meta["source_sha"]!=source or meta["enabled"]!=1 or meta["legacy_suspended"]!=1 or meta["head_seq"]<278:
+              raise RuntimeError("F139_ORIGINAL_ACTIVATION_OR_SOURCE_DRIFT")
+          task=[x for x in status["tasks"] if x["ticket"]==ticket]
+          if len(task)!=1:raise RuntimeError("F139_I1016_MISSING_OR_DUPLICATE_ORIGINAL_TICKET")
+          record=task[0]
+          if record["source_sha"]!="014233524d6de4b78436ece4696cd5b1e1c31f35" or record["lane"]!="Yggdrasil":
+              raise RuntimeError("F139_I1016_ORIGINAL_TASK_IDENTITY_DRIFT")
+          allowed={"READY","START_RISK","WAIT_PROVIDER","VERIFIED","QUARANTINED"}
+          if record["stage"] not in allowed:raise RuntimeError("F139_I1016_ORIGINAL_TASK_STAGE_INVALID")
+          events=[]
+          with sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=15) as con:
+              for seq,kind,payload in con.execute(
+                "SELECT seq,kind,payload FROM events WHERE kind IN "
+                "('NATIVE_DEVELOPMENT_ADMITTED','TASK_INTAKE','BEFORE_DISPATCH_INTENT',"
+                "'DISPATCH_POST_RETURNED','PROVIDER_VERIFIED_TERMINAL','ATTEMPT_QUARANTINED') "
+                "ORDER BY seq"):
+                  j=json.loads(payload)
+                  if j.get("ticket")==ticket:events.append((seq,kind,j))
+          counts={k:sum(e[1]==k for e in events) for k in (
+              "NATIVE_DEVELOPMENT_ADMITTED","TASK_INTAKE","BEFORE_DISPATCH_INTENT",
+              "DISPATCH_POST_RETURNED","PROVIDER_VERIFIED_TERMINAL","ATTEMPT_QUARANTINED")}
+          if counts["NATIVE_DEVELOPMENT_ADMITTED"]!=1 or counts["TASK_INTAKE"]!=1 or any(v>1 for v in counts.values()):
+              raise RuntimeError("F139_I1016_DUPLICATE_OR_MISSING_ADMISSION_EVENT")
+          terminal=[x for x in events if x[1]=="PROVIDER_VERIFIED_TERMINAL"]
+          if terminal and (terminal[0][2].get("run_id")!=expected_run or
+                          record["run_id"]!=expected_run or
+                          record["evidence_sha"]!=terminal[0][2].get("evidence_sha")):
+              raise RuntimeError("F139_I1016_ORIGINAL_TERMINAL_PROVIDER_DRIFT")
+          verified=(record["stage"]=="VERIFIED" and len(terminal)==1
+                    and counts["BEFORE_DISPATCH_INTENT"]==1
+                    and counts["DISPATCH_POST_RETURNED"]==1
+                    and counts["ATTEMPT_QUARANTINED"]==0)
+          if verified:
+              order=[next(seq for seq,k,_ in events if k==kind) for kind in (
+                "NATIVE_DEVELOPMENT_ADMITTED","BEFORE_DISPATCH_INTENT",
+                "DISPATCH_POST_RETURNED","PROVIDER_VERIFIED_TERMINAL")]
+              if order!=sorted(set(order)):raise RuntimeError("F139_I1016_NATIVE_EVENT_ORDER_DRIFT")
+          report={"schema":"forge.f139.i1016-original-cold-ledger-readonly.v1",
+             "source_sha":source,"historical_ticket_source_sha":"014233524d6de4b78436ece4696cd5b1e1c31f35","ticket":ticket,"provider_run_id":expected_run,
+             "original_task_stage":record["stage"],
+             "original_cold_chain_verified":True,"native_event_counts":counts,
+             "event_head_seq":meta["head_seq"],"event_head_sha256":meta["head_hash"],
+             "original_terminal_reconciled":verified,"original_custody_lane_free":verified,
+             "science_first_use_authorized":False,"accepted_checkpoint_promoted":False,
+             "original_sqlite_mutated":False,"new_dispatches":0,"paid_model_calls":0}
+          out=pathlib.Path(os.environ["RUNNER_TEMP"])/"f139-i1016-original-readonly.json"
+          with out.open("x",encoding="utf-8") as f:json.dump(report,f,sort_keys=True,separators=(",",":"));f.write("\n")
+          print(json.dumps(report,sort_keys=True))
+          print("F139_I1016_ORIGINAL_COLD_LEDGER="+("VERIFIED" if verified else "NOT_TERMINAL"))
+          if not verified:sys.exit(2)
+          '@
+          & $python -B -c $audit $db $root $ticket $source $runId
+          if($LASTEXITCODE -ne 0){throw 'F139_I1016_ORIGINAL_TERMINAL_NOT_VERIFIED'}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: f139-i1016-original-cold-ledger-readonly
+          path: ${{ runner.temp }}/f139-i1016-original-readonly.json
+          if-no-files-found: warn
+          retention-days: 7
