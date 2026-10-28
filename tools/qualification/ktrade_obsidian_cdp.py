@@ -208,6 +208,28 @@ def ui_state(ws):
     })()""")
 
 
+
+def search_state(ws):
+    # Search can produce a very large result DOM; never read document.body.innerText
+    # or the complete result-container innerText during responsive polling.
+    return ws.js("""(() => {
+      const input=document.querySelector('.search-input-container input');
+      const titles=document.querySelectorAll(
+        '.search-result-file-title, .search-result-file .tree-item-inner'
+      );
+      let match=false;
+      for(const node of titles){
+        if(node.textContent?.includes('002865cd06_test.go')){match=true;break}
+      }
+      return {
+        ready: !!input,
+        inputMatches: input?.value === 'file:002865cd06',
+        resultTitles: titles.length,
+        resultMatch: match,
+        resultContainerPresent: !!document.querySelector('.search-result-container')
+      };
+    })()""")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
@@ -265,13 +287,13 @@ def main():
 
     start_search = time.monotonic()
     ws.key("f", "KeyF", 70, modifiers=3)
-    if not (ui_state(ws) or {}).get("searchReady"):
+    if not (search_state(ws) or {}).get("ready"):
         result = ws.js(
             "typeof app!=='undefined' && !!app.commands.executeCommandById('global-search:open')"
         )
         if not result:
             raise GateFailure("GUI_GLOBAL_SEARCH_COMMAND_UNAVAILABLE")
-    until(lambda: bool((ui_state(ws) or {}).get("searchReady")),
+    until(lambda: bool((search_state(ws) or {}).get("ready")),
           10, "GUI_SEARCH_INPUT_NOT_RENDERED")
     set_value = ws.js("""(() => {
       const e = document.querySelector('.search-input-container input');
@@ -287,25 +309,27 @@ def main():
     })()""")
     if not set_value:
         raise GateFailure("GUI_GLOBAL_SEARCH_INPUT_ELEMENT_REJECTED_QUERY")
-    until(lambda: (ui_state(ws) or {}).get("searchInputMatches"),
+    until(lambda: (search_state(ws) or {}).get("inputMatches"),
           7, "GUI_SEARCH_INPUT_VALUE_NOT_RETAINED")
     print("KTRADE_GUI_NATIVE_SEARCH_INPUT_UI_VALUE=PASS", flush=True)
     try:
         until(
             lambda: (
-                (ui_state(ws) or {}).get("resultFileCount", 0) > 0
-                and bool((ui_state(ws) or {}).get("resultFileMatches"))
-                and bool((ui_state(ws) or {}).get("searchInputMatches"))
+                (search_state(ws) or {}).get("resultTitles", 0) > 0
+                and bool((search_state(ws) or {}).get("resultMatch"))
+                and bool((search_state(ws) or {}).get("inputMatches"))
             ),
-            120, "GUI_GLOBAL_SEARCH_NO_AUTHENTIC_RESULT"
+            90, "GUI_GLOBAL_SEARCH_NO_AUTHENTIC_RESULT"
         )
     except GateFailure:
-        s = ui_state(ws) or {}
-        for key in ("searchReady", "searchInputMatches", "searchContainerPresent",
-                    "resultFileCount", "resultFileMatches",
-                    "searchResults", "searchContainerMatch", "searchWitness"):
-            print("KTRADE_GUI_SEARCH_DIAGNOSTIC_" + key.upper() +
-                  "=" + str(s.get(key)), flush=True)
+        try:
+            s = search_state(ws) or {}
+            for key in ("ready", "inputMatches", "resultContainerPresent",
+                        "resultTitles", "resultMatch"):
+                print("KTRADE_GUI_SEARCH_DIAGNOSTIC_" + key.upper() +
+                      "=" + str(s.get(key)), flush=True)
+        except (OSError, TimeoutError):
+            print("KTRADE_GUI_SEARCH_DIAGNOSTIC_RENDERER_UNRESPONSIVE=TRUE", flush=True)
         raise
     print("KTRADE_GUI_GLOBAL_SEARCH_RESULT=PASS", flush=True)
     print("KTRADE_GUI_SEARCH_SECONDS=" + str(round(time.monotonic()-start_search, 2)), flush=True)
