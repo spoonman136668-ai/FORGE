@@ -149,5 +149,17 @@ class OriginalV17TransitionTests(unittest.TestCase):
         self.assertNotIn('Stop-Process -Force',v17)
 
 
+    def test_v17_selection_witness_visible_in_existing_readonly_status(self):
+        workflow=(Path(__file__).resolve().parent.parent/
+                  ".github/workflows/f139-g54-v9-owner-cutover.yml").read_text()
+        self.assertEqual(workflow.count("  read-only-status:\n"), 1)
+        section=workflow.split("  read-only-status:\n",1)[1].split(
+            "\n  cutover-v17:\n",1)[0]
+        self.assertIn("F139_G54_CONTROLLER_LOG_TAIL=", section)
+        self.assertEqual(section.count(
+            "steering_selection=(OptionalField $e 'steering_selection')"), 1)
+        self.assertIn("F139_G54_STATUS_READ_ONLY=PASS", section)
+
+
 if __name__=="__main__":
     unittest.main()
