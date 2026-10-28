@@ -24,6 +24,23 @@ SCHEMA = "forge.ac04.sourcefree.crossos.v1"
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
+
+# Compare the committed Git blob, not checkout bytes: Git for Windows may
+# materialize CRLF while the original committed content remains unchanged.
+PRIOR_GIT_BLOB = "844c9d175e92707c71b7cbbcc3920da6fb65fbb5"
+def canonical_ac03_sha256():
+    root = Path(__file__).resolve().parents[2]
+    path = "research/ac03_sourcefree/ac03_benchmark.py"
+    blob = subprocess.check_output(
+        ["git", "rev-parse", "HEAD:"+path], cwd=str(root), text=True
+    ).strip()
+    if blob != PRIOR_GIT_BLOB:
+        raise RuntimeError("AC03_GIT_BLOB_IDENTITY_DRIFT")
+    canonical = subprocess.check_output(
+        ["git", "show", "HEAD:"+path], cwd=str(root)
+    )
+    return hashlib.sha256(canonical).hexdigest()
+
 def one(case, variant):
     command = [sys.executable, "-B", str(Path(prior.__file__).resolve()),
                "--child", case, variant]
@@ -42,7 +59,7 @@ def one(case, variant):
 
 def run(output):
     source=Path(prior.__file__).resolve()
-    if digest(source) != SOURCE_SHA256:
+    if canonical_ac03_sha256() != SOURCE_SHA256:
         raise RuntimeError("AC03_SOURCE_SHA256_DRIFT")
     if set(prior.CASES) != set(ALLOWED_CASES) or prior.REPEATS != REPEATS:
         raise RuntimeError("AC03_PROTOCOL_DRIFT")

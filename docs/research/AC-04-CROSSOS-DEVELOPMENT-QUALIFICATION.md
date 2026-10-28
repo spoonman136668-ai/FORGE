@@ -44,3 +44,7 @@ After the exact GitHub candidate jobs succeed, record the per-platform result id
 `NEW_CONTROLLER_OR_SCHEDULER=FALSE`
 `PROTECTED_MAIN_OR_MODEL_MUTATED=FALSE`
 `AC04_ACCEPTED_SCIENCE=FALSE`
+
+## Windows checkout newline correction
+
+The second run demonstrated Linux success and Windows test rejection solely at the raw checkout SHA-256 invariant: Windows checkout represented an unchanged Git blob with CRLF. The bounded repair pins both the original Git blob SHA and SHA-256 of `git show HEAD:research/ac03_sourcefree/ac03_benchmark.py` canonical committed bytes. It does not weaken source identity, modify AC-03 methods, rerun used science, or reinterpret missing Windows measurements as a scientific negative. Requalification against the corrected exact head is mandatory.

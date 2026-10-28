@@ -8,7 +8,7 @@ import ac04_crossos as m
 
 class AC04SourceOnly(TestCase):
     def test_exact_parent_source_pin(self):
-        self.assertEqual(m.digest(prior.__file__),m.SOURCE_SHA256)
+        self.assertEqual(m.canonical_ac03_sha256(),m.SOURCE_SHA256)
         self.assertEqual(m.REPEATS,3)
         self.assertEqual(len(m.ALLOWED_CASES),11)
     def test_six_new_and_some_original_ideas_represented(self):
