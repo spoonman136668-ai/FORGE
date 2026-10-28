@@ -30,6 +30,13 @@ func TestRulesetProposalDoesNotSelfRaceOnMainPush(t *testing.T){
     strings.Contains(s,"check-runs\" > \"$RUNNER_TEMP/main-checks.json\""){
   t.Fatal("main ruleset probe may consume truncated or unverified check page")
  }
+ if !strings.Contains(s,"F139_V18_ADMIN_SCRIPT_PARSE_ONLY=PASS") ||
+    !strings.Contains(s,"Language.Parser]::ParseFile(") ||
+    !strings.Contains(s,"scripts/Install-F139V18ReleaseRuleset.ps1") ||
+    !strings.Contains(s,"shell: pwsh") ||
+    strings.Contains(s,"Install-F139V18ReleaseRuleset.ps1 -Apply") {
+  t.Fatal("admin script must be parsed only; never executed by CI")
+ }
  qualifier,err:=os.ReadFile("../.github/workflows/qualify.yml")
  if err!=nil{t.Fatal(err)}
  q:=strings.ReplaceAll(string(qualifier),"\r\n","\n")
