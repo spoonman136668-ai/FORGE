@@ -1,0 +1,82 @@
+name: MP-AI162 bounded first-failing Windows PowerShell test locator
+on:
+  push:
+    branches: [qualification/mpai162-exact-windows-20261028]
+    paths: ['.github/workflows/mpai162-bounded-locator-20261028.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai162-bounded-locator-single-20261028
+  cancel-in-progress: false
+jobs:
+  locate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+      EXPECTED: 'fe51396a3e2bb29f1147e81786fa072a6d566f53'
+    steps:
+      - name: Diagnose pinned Test-All without private source log exposure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'MPAI162_UNEXPECTED_ORIGINAL_RUNNER' }
+          $scratch=Join-Path $env:SystemDrive ('m162loc-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $scratch 'src'
+          $child=$null
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI162_SCRATCH_EXISTS'}
+            New-Item -ItemType Directory -Path $scratch | Out-Null
+            $env:TEMP=Join-Path $scratch 'tmp'
+            $env:TMP=$env:TEMP
+            New-Item -ItemType Directory -Path $env:TEMP | Out-Null
+            & git clone --quiet --single-branch --branch proposal/mpai162-clause-ownership-20261028 https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $scratch 'clone-private.log')
+            if ($LASTEXITCODE -ne 0) { throw 'MPAI162_PRIVATE_CLONE_FAILED' }
+            if ((& git -C $src rev-parse HEAD).Trim() -cne $env:EXPECTED) { throw 'MPAI162_SOURCE_SHA_CHANGED' }
+            Write-Output ('MPAI162_EXACT_SOURCE='+$env:EXPECTED)
+            Write-Output ('MPAI162_RUNNER='+$env:RUNNER_NAME)
+            $out=Join-Path $scratch 'stdout.private.log'
+            $err=Join-Path $scratch 'stderr.private.log'
+            $script=Join-Path $src 'tests\Test-All.ps1'
+            $argString='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$script+'"'
+            $child=Start-Process -FilePath 'powershell.exe' -WorkingDirectory $src -ArgumentList $argString -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+            $deadline=[DateTime]::UtcNow.AddMinutes(5)
+            $markers=0
+            while(-not $child.HasExited -and [DateTime]::UtcNow -lt $deadline){
+              Start-Sleep -Seconds 2
+              $lines=@()
+              if(Test-Path $out){$lines=@(Get-Content -LiteralPath $out -ErrorAction SilentlyContinue)}
+              $names=@($lines | Where-Object {$_ -match '^RUN Test-[A-Za-z0-9-]+\.ps1$'})
+              if($names.Count -gt $markers){
+                foreach($name in $names[$markers..($names.Count-1)]){
+                  Write-Output ('MPAI162_BOUNDED_TEST_ENTERED='+($name -replace '^RUN ',''))
+                }
+                $markers=$names.Count
+              }
+            }
+            if(-not $child.HasExited){
+              & taskkill.exe /PID $child.Id /T /F *> (Join-Path $scratch 'kill.private.log')
+              Write-Output 'MPAI162_BOUNDED_TIMEOUT=TRUE'
+              Write-Output ('MPAI162_TESTS_STARTED='+$markers)
+              throw 'MPAI162_BOUNDED_TEST_TIMEOUT'
+            }
+            $child.WaitForExit()
+            Write-Output ('MPAI162_TESTS_STARTED='+$markers)
+            Write-Output ('MPAI162_TEST_ALL_EXIT='+$child.ExitCode)
+            Write-Output 'MPAI162_SCIENTIFIC_COMPOSE=NO_GO'
+            Write-Output 'MPAI162_PRODUCTION_WRITES=0'
+            if($child.ExitCode -ne 0){throw 'MPAI162_TEST_ALL_FAILED'}
+            Write-Output 'MPAI162_BOUNDED_TEST_ALL=PASS'
+          } finally {
+            if($null -ne $child -and -not $child.HasExited) {
+              & taskkill.exe /PID $child.Id /T /F *> $null
+            }
+            Set-Location ($env:SystemDrive+'\')
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+          }
