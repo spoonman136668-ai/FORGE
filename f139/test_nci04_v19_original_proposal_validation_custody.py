@@ -38,7 +38,7 @@ class OriginalProposalValidationCustodyTests(unittest.TestCase):
         return validate_original_response_without_publication(
             self.db, send_receipt=receipt,
             public_packet=(self.fixture.source.packet if packet is None else packet),
-            owner_witness=(lambda: True if witness is None else witness),
+            owner_witness=((lambda: True) if witness is None else witness),
             fault_after_append=fault)
 
     def count(self):
