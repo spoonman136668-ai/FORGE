@@ -1546,6 +1546,20 @@ class Database:
                 and (len(active_rows)<=1 or all(
                     r["ticket"].startswith("f139-nci04-") for r in active_rows)),
                 "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
+        # V19 is verify-only at this gate. The original V17/V18 tick path
+        # cannot emit a renewal event or invoke any provider. When a future
+        # separately qualified original-owner cutover enables the event,
+        # every cold reopen validates it against the full existing SHA chain,
+        # authentic native terminal and spent free-model history.
+        from f139.nci04_v19_original_attempt_schema import (
+            audit_v19_original_request_events)
+        audit_v19_original_request_events(self)
+        # A future original-owner handoff is independently cold-verified as
+        # exactly one source-bound, no-retry pre-transport spend; V17/V18
+        # histories with no such event retain their original semantics.
+        from f139.nci04_v19_original_one_post_handoff import (
+            audit_v19_post_handoff_events)
+        audit_v19_post_handoff_events(self)
 
     @contextlib.contextmanager
     def transaction(self):
