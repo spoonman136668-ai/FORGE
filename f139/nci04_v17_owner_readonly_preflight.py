@@ -45,7 +45,7 @@ def need(ok: bool, reason: str) -> None:
 
 
 def _original_state(db) -> dict:
-    from f139.local_controller import Database
+    from f139.local_controller import Database, v17_original_model_history_valid
 
     need(type(db) is Database, "ORIGINAL_DATABASE_REQUIRED")
     db.verify()
@@ -85,10 +85,7 @@ def _original_state(db) -> dict:
         "'MODEL_DRAFT_ATTEMPTED','MODEL_DRAFT_AUTHENTICATED',"
         "'FREE_REASONER_ATTEMPTED') ORDER BY seq")]
     counts = {kind: sum(row["kind"] == kind for row in history) for kind in KINDS}
-    need(all(counts[kind] == 1 for kind in KINDS[:2])
-         and counts["MODEL_DRAFT_ATTEMPTED"] == 3
-         and counts["MODEL_DRAFT_AUTHENTICATED"] == 3
-         and counts["FREE_REASONER_ATTEMPTED"] == 2,
+    need(v17_original_model_history_valid(counts),
          "MODEL_HISTORY_UNRESOLVED_OR_ALREADY_CONSUMED")
     historical = {sha for doc in docs
                   for sha in (doc["from_source_sha"], doc["to_source_sha"])}
