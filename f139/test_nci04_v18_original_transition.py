@@ -9,6 +9,7 @@ import inspect
 import unittest
 
 from f139.local_controller import Database, cli, v2_owner_terminal_release_guard
+from f139.nci04_owner_ledger import activate_native
 from f139.nci04_v18_owner_readonly_preflight import (
     FROM_V17, SCHEMA, build_v18_readonly_preflight,
     verify_v18_readonly_preflight,
@@ -82,6 +83,14 @@ class OriginalV18TransitionSourceTests(unittest.TestCase):
         self.assertLess(verify.index('if is_v17:'), verify.index('if is_v18:'))
         self.assertIn('v17_original_model_history_valid(kinds)', verify)
         self.assertIn('"v17_terminal_event_sha256"', verify)
+
+    def test_original_native_activation_retains_negative_custody_at_v18(self):
+        source = inspect.getsource(activate_native)
+        self.assertIn('"forge.f139.source-transition.v18"', source)
+        self.assertIn('negative_successors[-1]["custodied_negative_tickets"]', source)
+        self.assertIn('verify_original_negative_custody(db)', source)
+        self.assertIn('verify_second_negative_custody(db)', source)
+        self.assertIn('verify_g49_custody(db)', source)
 
     def test_original_cli_adds_no_automatic_release_or_worker(self):
         src = inspect.getsource(cli)
