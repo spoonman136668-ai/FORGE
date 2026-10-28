@@ -36,6 +36,9 @@ def _original_state(db: Database) -> dict:
     need(type(db) is Database, "ORIGINAL_DATABASE_REQUIRED")
     need(SingleOwner.held(db.filename.with_suffix(".lock")),
          "EXISTING_ORIGINAL_MUTEX_REQUIRED")
+    need(getattr(db, "_readonly_opened", False) is True
+         and db.conn.execute("PRAGMA query_only").fetchone()[0] == 1,
+         "SQLITE_MODE_RO_REQUIRED")
     db.verify()
     meta = db.meta().copy()
     need(meta["source_sha"] == SOURCE
