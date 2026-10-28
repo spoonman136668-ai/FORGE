@@ -71,6 +71,18 @@ class OriginalV18TransitionSourceTests(unittest.TestCase):
         self.assertIn('and event.get("v2_receipt_authorized") is False', src)
         self.assertIn('verify_native_activation(db)', src)
 
+    def test_explicit_v18_is_never_default_enabled_and_keeps_v17_historical(self):
+        transition = inspect.getsource(Database.transition_source)
+        verify = inspect.getsource(Database.verify)
+        self.assertIn('allow_v18: bool = False', transition)
+        self.assertIn('require(allow_v18 is True and len(prev_v17)==1', transition)
+        self.assertIn('elif prev_v16:', transition)
+        self.assertIn('if is_v17:', verify)
+        self.assertIn('if is_v18:', verify)
+        self.assertLess(verify.index('if is_v17:'), verify.index('if is_v18:'))
+        self.assertIn('v17_original_model_history_valid(kinds)', verify)
+        self.assertIn('"v17_terminal_event_sha256"', verify)
+
     def test_original_cli_adds_no_automatic_release_or_worker(self):
         src = inspect.getsource(cli)
         self.assertIn('transition-qualified-native-v18', src)
