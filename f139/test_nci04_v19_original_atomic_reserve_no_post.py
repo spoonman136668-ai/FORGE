@@ -191,6 +191,37 @@ class OriginalAtomicNoPostTests(unittest.TestCase):
             self.assertFalse(report["original_owner_request_authorized"])
             self.assertEqual(self.count(), 1)
 
+    def test_owner_witness_revoked_after_append_rolls_back_original_chain(self):
+        self.native()
+        observations = []
+        def witness():
+            observations.append(True)
+            # First entry and pre-insert attestations pass; revoke at the
+            # final pre-COMMIT attestation after original append/verify.
+            return len(observations) < 3
+        with SingleOwner(self.mutex):
+            old = self.db.meta().copy()
+            with self.assertRaisesRegex(ShadowDenied,
+                                         "PRECOMMIT_OWNER_OR_SHA_CHANGED"):
+                self.reserve(witness=witness)
+            self.assertEqual(self.db.meta(), old)
+            self.assertEqual(self.count(), 0)
+            self.db.verify()
+        self.assertEqual(len(observations), 3)
+
+    def test_inflight_original_work_blocks_request_spend(self):
+        from f139.nci04_owner_ledger import activate_native, admit_native_issue
+        issue = self.fixture.fixture.fixture.native
+        activate_native(self.db, self.fixture.fixture.fixture.approval())
+        admit_native_issue(self.db, issue, "2026-10-28T09:00:00Z")
+        with SingleOwner(self.mutex):
+            old = self.db.meta().copy()
+            r = self.reserve()
+            self.assertEqual(r["disposition"],
+                             "BLOCKED_ORIGINAL_OWNER_DISABLED_OR_BUSY")
+            self.assertEqual(self.db.meta(), old)
+            self.assertEqual(self.count(), 0)
+
     def test_corrupt_original_head_cannot_reserve(self):
         self.native()
         self.db.conn.execute(
