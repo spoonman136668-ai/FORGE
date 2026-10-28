@@ -671,14 +671,21 @@ class Database:
                               "provider_failures_sha256", "v17_terminal_event_sha256",
                               "terminal_tasks_sha256", "model_history_sha256",
                               "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18,
+                is_v19 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v19"
+                          and set(doc) == base_fields | {
+                              "custodied_negative_tasks", "custodied_negative_tickets",
+                              "provider_failures_sha256", "v18_terminal_event_sha256",
+                              "terminal_tasks_sha256", "model_history_sha256",
+                              "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1403,6 +1410,73 @@ class Database:
                             and verify_second_negative_custody(self)
                             and verify_g49_custody(self),
                             "SOURCE_TRANSITION_V18_ORIGINAL_CUSTODY_DRIFT")
+                if is_v19:
+                    from f139.nci04_negative_owner_store import (
+                        verify_original_negative_custody, TICKET as FIRST)
+                    from f139.nci04_split_negative_owner_store import (
+                        verify_second_negative_custody, TICKET as SECOND)
+                    from f139.nci04_g49_prepost_negative import (
+                        verify_g49_custody, TICKET as PREPOST)
+                    v18_rows = [
+                        r for r in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' AND seq<? "
+                            "ORDER BY seq", (row["seq"],))
+                        if json.loads(r["payload"]).get("schema") ==
+                           "forge.f139.source-transition.v18"]
+                    providers = self.verified_native_provider_failures(
+                        through_seq=row["seq"])
+                    g54 = g54_original_canonical(self, through_seq=row["seq"])
+                    expected = sorted({FIRST, SECOND, PREPOST, g54["ticket"]} |
+                                      set(providers))
+                    prior_sources = {value for tr in source_transitions
+                                     for value in (tr["from_source_sha"],
+                                                   tr["to_source_sha"])}
+                    frozen_tasks = [dict(task) for task in self.conn.execute(
+                        "SELECT ticket,stage,run_id,evidence_sha,source_sha "
+                        "FROM tasks ORDER BY ticket")
+                        if task["source_sha"] in prior_sources]
+                    frozen_model = [dict(evt) for evt in self.conn.execute(
+                        "SELECT kind,sha FROM events WHERE kind IN "
+                        "('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED',"
+                        "'MODEL_DRAFT_ATTEMPTED','MODEL_DRAFT_AUTHENTICATED',"
+                        "'FREE_REASONER_ATTEMPTED') AND seq<? ORDER BY seq",
+                        (row["seq"],))]
+                    kinds = {name: sum(evt["kind"] == name for evt in frozen_model)
+                             for name in ("G3_DRAFT_ATTEMPTED",
+                                          "G3_DRAFT_AUTHENTICATED",
+                                          "MODEL_DRAFT_ATTEMPTED",
+                                          "MODEL_DRAFT_AUTHENTICATED",
+                                          "FREE_REASONER_ATTEMPTED")}
+                    require(not any(t["schema"] == "forge.f139.source-transition.v19" for t in source_transitions)
+                            and len(v18_rows) == 1 and source_transitions
+                            and source_transitions[-1]["schema"] ==
+                                "forge.f139.source-transition.v18"
+                            and doc["from_source_sha"] ==
+                                source_transitions[-1]["to_source_sha"]
+                            and doc["v18_terminal_event_sha256"] == v18_rows[0]["sha"]
+                            and doc["terminal_tasks_sha256"] ==
+                                hash_bytes(canonical(frozen_tasks))
+                            and doc["model_history_sha256"] ==
+                                hash_bytes(canonical(frozen_model))
+                            and len([t for t in frozen_tasks
+                                     if t["stage"] == "VERIFIED"]) >= 24
+                            and all(t["stage"] in ("VERIFIED", "QUARANTINED")
+                                    for t in frozen_tasks)
+                            and v17_original_model_history_valid(kinds)
+                            and doc["verified_historical_tasks"] >= 24
+                            and doc["custodied_negative_tickets"] == expected
+                            and doc["custodied_negative_tasks"] == len(expected)
+                            and doc["provider_failures_sha256"] == hash_bytes(
+                                canonical([{"ticket": t,
+                                            "source_sha": providers[t][0],
+                                            "event_sha": providers[t][1]}
+                                           for t in sorted(providers)]))
+                            and doc["v2_receipt_authorized"] is False
+                            and verify_original_negative_custody(self)
+                            and verify_second_negative_custody(self)
+                            and verify_g49_custody(self),
+                            "SOURCE_TRANSITION_V19_ORIGINAL_CUSTODY_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -1624,7 +1698,8 @@ class Database:
                           allow_v15: bool = False,
                           allow_v16: bool = False,
                           allow_v17: bool = False,
-                          allow_v18: bool = False):
+                          allow_v18: bool = False,
+                          allow_v19: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -1642,7 +1717,7 @@ class Database:
         prepost = verify_g49_custody(self)
         if prepost:
             recognized[PREPOST] = SOURCE_V7
-        if allow_v11 or allow_v12 or allow_v13 or allow_v14 or allow_v15 or allow_v16 or allow_v17 or allow_v18:
+        if allow_v11 or allow_v12 or allow_v13 or allow_v14 or allow_v15 or allow_v16 or allow_v17 or allow_v18 or allow_v19:
             from f139.nci04_g54_ambiguous_start_custody import (
                 verified_g54_ambiguous_start)
             frozen_ambiguous=g54_original_canonical(self)
@@ -1730,6 +1805,7 @@ class Database:
                         and verify_original_negative_custody(self)
                         and verify_second_negative_custody(self)
                         and events and events[-1]["schema"] in (
+                            "forge.f139.source-transition.v18",
                             "forge.f139.source-transition.v17",
                             "forge.f139.source-transition.v16",
                             "forge.f139.source-transition.v15",
@@ -1789,9 +1865,22 @@ class Database:
                           "forge.f139.source-transition.v15"]
                 prev_v17=[e for e in events if e["schema"]==
                           "forge.f139.source-transition.v17"]
+                prev_v18=[e for e in events if e["schema"]==
+                          "forge.f139.source-transition.v18"]
                 prev_v16=[e for e in events if e["schema"]==
                           "forge.f139.source-transition.v16"]
-                if prev_v17:
+                if prev_v18:
+                    require(allow_v19 is True and len(prev_v18)==1
+                            and events[-1]["schema"]==
+                                "forge.f139.source-transition.v18"
+                            and meta["source_sha"] == prev_v18[0]["to_source_sha"]
+                            and meta["source_sha"] ==
+                                "d8bccc604f8607bf10f9d8bc6aa568d1f98af559"
+                            and verify_native_activation(self)
+                            and self.active() is None and self.ready() is None,
+                            "SOURCE_TRANSITION_V19_ORIGINAL_CUSTODY_REQUIRED")
+                    schema="forge.f139.source-transition.v19"
+                elif prev_v17:
                     require(allow_v18 is True and len(prev_v17)==1
                             and events[-1]["schema"]==
                                 "forge.f139.source-transition.v17"
@@ -1952,7 +2041,8 @@ class Database:
                             "forge.f139.source-transition.v15",
                             "forge.f139.source-transition.v16",
                             "forge.f139.source-transition.v17",
-                            "forge.f139.source-transition.v18"):
+                            "forge.f139.source-transition.v18",
+                            "forge.f139.source-transition.v19"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -2245,6 +2335,34 @@ class Database:
                     "SELECT ticket,stage,run_id,evidence_sha,source_sha "
                     "FROM tasks ORDER BY ticket")]
                 event["v17_terminal_event_sha256"] = prior_rows[0]["sha"]
+                event["terminal_tasks_sha256"] = hash_bytes(canonical(frozen))
+                event["model_history_sha256"] = hash_bytes(canonical(model))
+                event["v2_receipt_authorized"] = False
+            if schema == "forge.f139.source-transition.v19":
+                prior_rows = [r for r in self.conn.execute(
+                    "SELECT sha,payload FROM events "
+                    "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                    if json.loads(r["payload"]).get("schema") ==
+                       "forge.f139.source-transition.v18"]
+                require(len(prior_rows) == 1,
+                        "SOURCE_TRANSITION_V19_V17_SEAL_MISSING")
+                model = [dict(r) for r in self.conn.execute(
+                    "SELECT kind,sha FROM events WHERE kind IN "
+                    "('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED',"
+                    "'MODEL_DRAFT_ATTEMPTED','MODEL_DRAFT_AUTHENTICATED',"
+                    "'FREE_REASONER_ATTEMPTED') ORDER BY seq")]
+                kinds = {name: sum(r["kind"] == name for r in model)
+                         for name in ("G3_DRAFT_ATTEMPTED",
+                                      "G3_DRAFT_AUTHENTICATED",
+                                      "MODEL_DRAFT_ATTEMPTED",
+                                      "MODEL_DRAFT_AUTHENTICATED",
+                                      "FREE_REASONER_ATTEMPTED")}
+                require(v17_original_model_history_valid(kinds),
+                        "SOURCE_TRANSITION_V19_MODEL_HISTORY_DRIFT")
+                frozen = [dict(r) for r in self.conn.execute(
+                    "SELECT ticket,stage,run_id,evidence_sha,source_sha "
+                    "FROM tasks ORDER BY ticket")]
+                event["v18_terminal_event_sha256"] = prior_rows[0]["sha"]
                 event["terminal_tasks_sha256"] = hash_bytes(canonical(frozen))
                 event["model_history_sha256"] = hash_bytes(canonical(model))
                 event["v2_receipt_authorized"] = False
