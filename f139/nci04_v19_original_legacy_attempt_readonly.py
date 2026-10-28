@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 
 from f139.local_controller import Database, SingleOwner, canonical
 from f139.nci04_free_reasoner_provider import MODEL
-from f139.nci04_model_owner_publication import SCHEMA as DRAFT_SCHEMA
+from f139.nci04_model_owner_publication import (SCHEMA as DRAFT_SCHEMA, BRANCH as ORIGINAL_DRAFT_BRANCH)
 from f139.nci04_owner_free_reasoner_proposal import (
     SCHEMA as FREE_SCHEMA, MAX_LIFETIME_REQUESTS, reasoner_scope,
 )
@@ -129,8 +128,7 @@ def original_legacy_attempt_snapshot(db: Database) -> dict:
                     or data["scientific_first_use"] is not False
                     or data["retry_allowed"] is not False
                     or type(data["branch"]) is not str
-                    or not re.fullmatch(r"f139/auto-model-[wy]-[a-f0-9-]{12,100}",
-                                        data["branch"])
+                    or ORIGINAL_DRAFT_BRANCH.fullmatch(data["branch"]) is None
                     or prior != event["prior_sha"]):
                 deny("DRAFT_ATTEMPT_FIELDS")
             key = data["candidate_identity"]
