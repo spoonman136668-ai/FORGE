@@ -145,6 +145,16 @@ def custody_original_post_handoff_without_post(
     if public_packet.get("schema") != PUBLIC_SCHEMA:
         deny("PUBLIC_PACKET_SCHEMA_INVALID")
 
+    # The original, cold-verified ledger is the cheapest and strongest
+    # negative witness. Never repeat even anonymous Git fetches for a spent
+    # reservation after a lost response, restart or UTC rollover.
+    # Revalidate this observation *again* under BEGIN IMMEDIATE below.
+    db.verify()
+    observed = db.meta()
+    if (observed["head_seq"] != reservation_seq
+            or observed["head_hash"] != reservation_sha256):
+        return outcome("BLOCKED_RESERVATION_ALREADY_SPENT_OR_HISTORY_MOVED")
+
     # These are source-only and anonymous Git reads; never pass a user token.
     # No pre-POST attempt is emitted if bytes are not publicly verifiable.
     body = make_body(public_packet)
