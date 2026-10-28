@@ -1,0 +1,84 @@
+name: FORGE AC-06 source-free unconventional mechanism qualification
+on:
+  push:
+    branches:
+      - research/ac06-restricted-originals-sourcefree-20261028
+    paths:
+      - 'research/ac06_sourcefree/**'
+      - '.github/workflows/forge-ac06-restricted-sourcefree.yml'
+  pull_request:
+    branches:
+      - research/ac05-learned-mechanisms-sourcefree-20261028
+    paths:
+      - 'research/ac06_sourcefree/**'
+      - '.github/workflows/forge-ac06-restricted-sourcefree.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-ac06-sourcefree-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  restricted-sourcefree:
+    name: original-proposal restricted tests / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate exact source ancestry and no protected source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 9c1b1ec121c680fba1c754a1db5a1bdc5b2b247a "$GITHUB_SHA"
+          test -f research/ac06_sourcefree/restricted.py
+          ! test -e research/ac06_sourcefree/launch.json
+          echo 'AC06_SOURCE_BOUND=PASS'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact source-free AC-06 regression and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac06_sourcefree -p 'test_*.py' -v
+          python -B -m unittest discover -s research/ac05_sourcefree -p 'test_*.py' -v
+          echo 'AC06_AND_PARENT_NEGATIVE_GUARDS=PASS'
+      - name: Execute all bounded source-visible probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ac06"
+          python -B research/ac06_sourcefree/restricted.py > "$RUNNER_TEMP/ac06/results.json"
+          python - "$RUNNER_TEMP/ac06/results.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding='utf-8'))
+          assert r['schema']=='forge.ac06.restricted-originals.sourcefree.v1'
+          assert r['scope']=='SYNTHETIC_DEVELOPMENT_ONLY'
+          assert r['measured_families']==7
+          assert len(r['observations'])==21
+          assert len(r['experiment_claim_ids'])+len(r['unmeasured_original_ids'])==30
+          assert r['native_learning_or_transfer_superiority'] is False
+          assert r['scientific_first_use'] is False
+          assert r['independent_consequence_source_verified'] is False
+          assert r['accepted_science'] is False
+          assert r['new_controller_or_scheduler'] is False
+          print('AC06_ORIGINAL_RESTRICTED_PROPOSALS_SOURCEFREE=PASS')
+          print('AC06_REPORT_SHA256='+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Retain complete per-OS source-visible reports
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-ac06-${{ matrix.os }}-restricted-proposals
+          path: ${{ runner.temp }}/ac06/results.json
+          if-no-files-found: error
+          retention-days: 30
