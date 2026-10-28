@@ -1,0 +1,223 @@
+name: MP-AI admitted-lesson paired model outcome development
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai-paired-memory-outcome-development.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai-paired-memory-outcome-development
+  cancel-in-progress: false
+jobs:
+  read-and-consume:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Real CPU inference on source-verified existing MCP output, no cloud/API costs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPAI_CONSUMER_NOT_ORIGINAL_RUNNER'}
+          $tmp=Join-Path $env:RUNNER_TEMP ('mpai-paired-development-'+$env:GITHUB_RUN_ID)
+          $repo=Join-Path $tmp 'private-source'
+          try {
+            New-Item -ItemType Directory -Path $tmp -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $repo *> (Join-Path $tmp 'private-source-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI_CONSUMER_CLONE_FAILED'}
+            if((& git -C $repo rev-parse HEAD).Trim() -cne '7d980fc555a3ceeb5571e9481a768c61f5b1ac80'){throw 'MPAI_CONSUMER_MAIN_SOURCE_DRIFT'}
+            $env:MPAI_CONSUMER_ROOT=$repo
+            $env:MPAI_CONSUMER_TEMP=$tmp
+            $program=@'
+          import hashlib,json,os,pathlib,shutil,socket,subprocess,sys,time,urllib.request,re
+          root=pathlib.Path(os.environ["MPAI_CONSUMER_ROOT"])
+          scratch=pathlib.Path(os.environ["MPAI_CONSUMER_TEMP"])
+          newsha="7d980fc555a3ceeb5571e9481a768c61f5b1ac80"
+          oldsha="23678e893f10d4b3c44e115db6d6cc50cf35559a"
+          newdigest="fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742"
+          olddigest="e5066b28ae03b2a6b7c82953a173013e690cf8fe66d5f5bfec6a81dd790409fa"
+          target="lesson/mpai-hindsight-h2-development-context-efficiency-20261028"
+          if hashlib.sha256((root/".ice/records.json").read_bytes()).hexdigest()!=newdigest:
+              raise RuntimeError("MPAI_PAIR_NEW_RECORDS_DRIFT")
+          oldroot=scratch/"prior-accepted-source"
+          r=subprocess.run(["git","-C",str(root),"worktree","add","--detach",str(oldroot),oldsha],capture_output=True,text=True,timeout=40)
+          if r.returncode:raise RuntimeError("MPAI_PAIR_OLD_SOURCE_WORKTREE_FAILED")
+          if hashlib.sha256((oldroot/".ice/records.json").read_bytes()).hexdigest()!=olddigest:
+              raise RuntimeError("MPAI_PAIR_OLD_RECORDS_DRIFT")
+          orig=json.loads((oldroot/".ice/records.json").read_text(encoding="utf-8"))
+          new=json.loads((root/".ice/records.json").read_text(encoding="utf-8"))
+          if len(new)!=len(orig)+1 or any(x.get("id")==target for x in orig):
+              raise RuntimeError("MPAI_PAIR_UNMATCHED_RECORD_COHORT")
+          added=[x for x in new if x.get("id")==target]
+          if len(added)!=1 or added[0].get("status")!="observed":
+              raise RuntimeError("MPAI_PAIR_OBSERVED_RECORD_NOT_PRESENT")
+          print("MPAI_PAIR_EXACT_PRIOR_AND_NEW_SOURCE=PASS",flush=True)
+          model_file=scratch/"verified-public-qwen.gguf"
+          if shutil.disk_usage(str(scratch)).free<1700000000:
+              raise RuntimeError("MPAI_PAIR_DISK_BUDGET")
+          url=("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/"
+               "qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true")
+          req=urllib.request.Request(url,headers={"User-Agent":"MPAI-source-counterfactual/1"})
+          sha=hashlib.sha256();total=0;start=time.monotonic()
+          with urllib.request.urlopen(req,timeout=40) as stream,model_file.open("xb") as out:
+              while True:
+                  buf=stream.read(4*1024*1024)
+                  if not buf:break
+                  total+=len(buf)
+                  if total>510000000 or time.monotonic()-start>240:raise RuntimeError("MPAI_PAIR_DOWNLOAD_BOUNDS")
+                  sha.update(buf);out.write(buf)
+          if total!=491400032 or sha.hexdigest()!="74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db":
+              raise RuntimeError("MPAI_PAIR_WEIGHTS_INTEGRITY_FAILED")
+          with model_file.open("rb") as f:
+              if f.read(4)!=b"GGUF":raise RuntimeError("MPAI_PAIR_BAD_GGUF")
+          os.environ["HF_HUB_OFFLINE"]="1"
+          def no_network(*args,**kw):raise RuntimeError("MPAI_PAIR_NETWORK_FORBIDDEN_AFTER_DOWNLOAD")
+          socket.socket=no_network
+          def rpc(source,commit,digest,task):
+              argv=[sys.executable,"-B","-u",str(source/"tools/mindpalace_mcp.py"),"--root",str(source),
+                    "--source",commit,"--project","Mind-Palace","--transport","stdio"]
+              payload={"jsonrpc":"2.0","id":5,"method":"tools/call",
+                       "params":{"name":"mindpalace_recall","arguments":{
+                           "source_sha":commit,"query":task,"projects":["Mind-Palace"],"profile":"architecture"}}}
+              p=subprocess.run(argv,input=json.dumps(payload)+"\n",capture_output=True,text=True,errors="replace",timeout=40,cwd=str(source))
+              if p.returncode or len(p.stdout.splitlines())!=1:raise RuntimeError("MPAI_PAIR_MCP_TRANSPORT_FAILURE")
+              row=json.loads(p.stdout)
+              if row.get("error"):raise RuntimeError("MPAI_PAIR_MCP_SCOPE_REJECTED")
+              result=json.loads(row["result"]["content"][0]["text"])
+              if result.get("source_sha")!=commit or result.get("records_sha256")!=digest:
+                  raise RuntimeError("MPAI_PAIR_MCP_SOURCE_BINDING_FAILED")
+              return result
+          question="State the original and tiered prompt token counts from the eight-question Mind-Palace development study."
+          before=rpc(oldroot,oldsha,olddigest,question)
+          after=rpc(root,newsha,newdigest,question)
+          before_rows=before.get("governance",[])+before.get("matches",[])
+          after_rows=after.get("governance",[])+after.get("matches",[])
+          if any(x.get("id")==target for x in before_rows):
+              raise RuntimeError("MPAI_PAIR_PRIOR_SOURCE_HAS_FUTURE_LESSON")
+          lessons=[x for x in after_rows if x.get("id")==target]
+          if len(lessons)!=1 or lessons[0].get("status")!="observed":
+              raise RuntimeError("MPAI_PAIR_AFTER_MCP_LESSON_ABSENT")
+          treatment=lessons[0].get("statement","")
+          if not all(x in treatment for x in ("3,513","1,665","15,051","6,610","no independent factual accuracy grades")):
+              raise RuntimeError("MPAI_PAIR_LESSON_INCOMPLETE")
+          control_candidates=[x.get("statement","") for x in before_rows if x.get("id")!=target and x.get("project")=="Mind-Palace"]
+          control_candidates=[t for t in control_candidates if isinstance(t,str) and len(t)>80 and
+                              not any(v in t.replace(",","") for v in ("3513","1665","15051","6610","19686","15208"))]
+          if not control_candidates:
+              raise RuntimeError("MPAI_PAIR_NO_VALID_SOURCE_BACKED_CONTROL")
+          control=min(control_candidates,key=lambda t:abs(len(t)-len(treatment)))
+          if not 80<len(control)<=1500 or not 80<len(treatment)<=1500:
+              raise RuntimeError("MPAI_PAIR_CONTEXT_LIMIT")
+          if len(control.encode())>1800 or len(treatment.encode())>1800:
+              raise RuntimeError("MPAI_PAIR_CONTEXT_BUDGET")
+          print("MPAI_PAIR_REAL_MCP_BOTH_SNAPSHOTS=PASS",flush=True)
+          print("MPAI_PAIR_BEFORE_LESSON_ABSENT=PASS",flush=True)
+          print("MPAI_PAIR_AFTER_LESSON_PRESENT=PASS",flush=True)
+          from llama_cpp import Llama
+          model=Llama(model_path=str(model_file),n_ctx=2048,n_gpu_layers=0,n_threads=4,n_batch=128,seed=137,verbose=False)
+          questions=[
+              ("tokens","What were the exact legacy and tiered input token totals? Answer with two numbers."),
+              ("bytes","What were the exact legacy and tiered context byte totals? Answer with two numbers."),
+              ("latency","What were the exact legacy and tiered measured generation milliseconds? Answer with two numbers."),
+              ("cap","What was the output token cap reached by both arms? Answer with one number."),
+              ("grade","Did independent factual grading establish better answers? Answer Yes or No."),
+              ("promote","Is production scientific promotion justified by this development experiment alone? Answer Yes or No.")
+          ]
+          truth={"tokens":("3513","1665"),"bytes":("15051","6610"),"latency":("19686","15208"),"cap":("96",)}
+          totals={a:{"credits":0,"prompt_tokens":0,"output_tokens":0,"wall_ms":0} for a in ("before","after")}
+          scores=[]
+          for i,(name,question) in enumerate(questions):
+              row={}
+              order=("before","after") if i%2==0 else ("after","before")
+              for arm in order:
+                  evidence=control if arm=="before" else treatment
+                  prompt=("Use only the provided Mind-Palace source evidence. If an exact numerical fact is not in evidence, reply UNKNOWN. "
+                          "Do not guess. Give the shortest answer.\nEvidence:\n"+evidence+"\nQuestion: "+question+"\nAnswer:")
+                  model.reset()
+                  start=time.monotonic()
+                  output=model.create_completion(prompt=prompt,max_tokens=80,temperature=0.0,top_p=1.0)
+                  wall=int((time.monotonic()-start)*1000)
+                  answer=output["choices"][0].get("text","")
+                  usage=output.get("usage",{})
+                  if not isinstance(answer,str) or not answer.strip() or not usage.get("prompt_tokens") or not usage.get("completion_tokens"):
+                      raise RuntimeError("MPAI_PAIR_EMPTY_MODEL_RECEIPT")
+                  normalized=answer.lower().replace(",","")
+                  if name in truth:
+                      expected=truth[name]
+                      # Extract bounded numeric fields, not misleading substring matches.
+                      numbers=re.findall(r"\b\d+\b",normalized)
+                      correct=all(x in numbers for x in expected)
+                      if name!="cap":correct=correct and numbers.index(expected[0])<numbers.index(expected[1])
+                  else:
+                      correct=bool(re.search(r"\bno\b",normalized[:70])) and not bool(re.match(r"\s*yes\b",normalized))
+                  credit=int(correct)
+                  row[arm]=credit
+                  totals[arm]["credits"]+=credit
+                  totals[arm]["prompt_tokens"]+=int(usage["prompt_tokens"])
+                  totals[arm]["output_tokens"]+=int(usage["completion_tokens"])
+                  totals[arm]["wall_ms"]+=wall
+              scores.append({"task":name,"before_credit":row["before"],"after_credit":row["after"]})
+          # Preserve negative evidence even when the new lesson fails to help.
+          print("MPAI_PAIR_LOCAL_GGUF_CALLS=12",flush=True)
+          print("MPAI_PAIR_DEVELOPMENT_TASKS=6",flush=True)
+          for arm in ("before","after"):
+              for key in ("credits","prompt_tokens","output_tokens","wall_ms"):
+                  print("MPAI_PAIR_"+arm.upper()+"_"+key.upper()+"="+str(totals[arm][key]),flush=True)
+          print("MPAI_PAIR_SCORE_ROWS="+json.dumps(scores,separators=(",",":")),flush=True)
+          print("MPAI_PAIR_DEVELOPMENT_RUBRIC_ONLY=TRUE",flush=True)
+          print("MPAI_PAIR_INDEPENDENT_HOLDOUT=FALSE",flush=True)
+          print("MPAI_PAIR_BLIND_GRADER=FALSE",flush=True)
+          print("MPAI_PAIR_CROSS_AGENT_LEARNING_PROVEN=FALSE",flush=True)
+          print("MPAI_PAIR_CHATGPT_MCP_CONNECTED=FALSE",flush=True)
+          print("MPAI_PAIR_SOURCE_AND_ICE_WRITES=0",flush=True)
+
+          '@
+            $privateLog=Join-Path $tmp 'real-private-model.log'
+            $program | & python -B -c "import sys;exec(sys.stdin.read())" *> $privateLog
+            if($LASTEXITCODE -ne 0){
+              $safeText=[IO.File]::ReadAllText($privateLog)
+              $stages=[regex]::Matches($safeText,'MPAI_LOCAL_STAGE=[A-Z_]+')
+              foreach($stage in $stages){Write-Host $stage.Value}
+              $codes=[regex]::Matches($safeText,'MPAI_CONSUMER_[A-Z0-9_]+')
+              $unique=@($codes | ForEach-Object {$_.Value} | Sort-Object -Unique)
+              $types=[regex]::Matches($safeText,'(?m)^([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception)):')
+              foreach($t in $types){Write-Host ('MPAI_LOCAL_CONSUMER_EXCEPTION_TYPE='+$t.Groups[1].Value)}
+              if($unique.Count -lt 1 -and $types.Count -eq 0){Write-Host 'MPAI_LOCAL_CONSUMER_SAFE_FAILURE=UNKNOWN_RUNTIME'}
+              foreach($code in $unique){Write-Host ('MPAI_LOCAL_CONSUMER_SAFE_FAILURE='+$code)}
+              throw 'MPAI_CONSUMER_MODEL_OR_MCP_FAILED'
+            }
+            $log=[IO.File]::ReadAllText($privateLog)
+            foreach($m in @('MPAI_PAIR_EXACT_PRIOR_AND_NEW_SOURCE=PASS','MPAI_PAIR_REAL_MCP_BOTH_SNAPSHOTS=PASS','MPAI_PAIR_BEFORE_LESSON_ABSENT=PASS','MPAI_PAIR_AFTER_LESSON_PRESENT=PASS','MPAI_PAIR_LOCAL_GGUF_CALLS=12','MPAI_PAIR_DEVELOPMENT_TASKS=6','MPAI_PAIR_INDEPENDENT_HOLDOUT=FALSE','MPAI_PAIR_CROSS_AGENT_LEARNING_PROVEN=FALSE')){
+              if(-not $log.Contains($m)){throw 'MPAI_PAIR_ACCEPTANCE_MARKER_MISSING'}
+              Write-Host $m
+            }
+            foreach($arm in @('BEFORE','AFTER')){
+              foreach($field in @('CREDITS','PROMPT_TOKENS','OUTPUT_TOKENS','WALL_MS')){
+                $name='MPAI_PAIR_'+$arm+'_'+$field
+                $hit=[regex]::Match($log,'(?m)^'+$name+'=([0-9]{1,9})\r?$')
+                if(-not $hit.Success){throw 'MPAI_PAIR_TOTAL_MISSING'}
+                Write-Host ($name+'='+$hit.Groups[1].Value)
+              }
+            }
+            $score=[regex]::Match($log,'(?m)^MPAI_PAIR_SCORE_ROWS=(\[[^\r\n]{10,2000}\])\r?$')
+            if(-not $score.Success){throw 'MPAI_PAIR_SCORE_RECEIPT_MISSING'}
+            $rows=$score.Groups[1].Value | ConvertFrom-Json
+            if(@($rows).Count -ne 6){throw 'MPAI_PAIR_SCORE_COUNT_DRIFT'}
+            Write-Host ('MPAI_PAIR_DEV_SCORES='+$score.Groups[1].Value)
+            Write-Host 'MPAI_PAIR_PROMPTS_AND_ANSWERS_NOT_PUBLISHED=TRUE'
+            Write-Host 'MPAI_PAIR_OBSERVED_LESSON_ONLY_NO_NEW_WRITE=TRUE'
+            if(@(& git -C $repo status --porcelain --untracked-files=all).Count -ne 0){throw 'MPAI_PAIR_READONLY_SOURCE_MUTATED'}
+            Write-Host 'MPAI_PAIR_NEW_SOURCE_CLEAN=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction Stop}
+          }
