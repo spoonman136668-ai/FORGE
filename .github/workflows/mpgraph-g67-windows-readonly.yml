@@ -1,0 +1,180 @@
+name: MP Graphify G67 exact private Windows qualification
+on:
+  push:
+    branches: [qualification/mpgraph-g67-windows-20261028]
+    paths:
+      - '.github/workflows/mpgraph-g67-windows-readonly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpgraphg67-private-windows-one-shot
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    steps:
+      - name: Exact private Mind-Palace source and Windows-only tests
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          PYTHONDONTWRITEBYTECODE: '1'
+          EXPECTED_MP_SHA: 'ac3147668db116549e6405d98a743b25f8218ac5'
+          MP_BRANCH: 'docs/forge-graphify-g67-review-20261028'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:RUNNER_ENVIRONMENT -cne 'self-hosted') {
+            throw 'MPGRAPHG67_UNAUTHORIZED_QUALIFICATION_SURFACE'
+          }
+          $scratch = Join-Path $env:RUNNER_TEMP ('mpgraphg67-' + $env:GITHUB_RUN_ID)
+          $source = Join-Path $scratch 'private-mind-palace'
+          $privateLog = Join-Path $scratch 'private-regression.log'
+          function Invoke-PrivateQualification {
+            param([string]$Label,[string]$Executable,[string[]]$CommandArgs)
+            & $Executable @CommandArgs *> $privateLog
+            if ($LASTEXITCODE -ne 0) {
+              if ($Label -ceq 'FULL_WINDOWS_REGRESSION' -and (Test-Path -LiteralPath $privateLog)) {
+                $lastTest = Get-Content -LiteralPath $privateLog | Where-Object { $_ -match '^RUN Test-[A-Za-z0-9_.-]+\.ps1$' } | Select-Object -Last 1
+                if ($lastTest) { Write-Host ('MPGRAPHG67_LAST_REGRESSION_TEST=' + $lastTest.Substring(4)) }
+                $diagnostic = [regex]::Matches((Get-Content -LiteralPath $privateLog -Raw), 'UQ51_[A-Z0-9_]+')
+                if ($diagnostic.Count -gt 0) {
+                  Write-Host ('MPGRAPHG67_UQ51_DIAGNOSTIC_CODE=' + $diagnostic[$diagnostic.Count-1].Value)
+                } else {
+                  Write-Host 'MPGRAPHG67_UQ51_DIAGNOSTIC_CODE=NO_WHITELISTED_CODE'
+                }
+                $safeCategories = [ordered]@{
+                  LONG_PATH = '(?i)filename too long|path too long|path exceeds'
+                  INVALID_PATH = '(?i)invalid path|invalid argument'
+                  DIR_EXISTS = '(?i)already exists and is not an empty directory'
+                  GIT_LOCK = '(?i)index.lock|unable to create lock'
+                  PERMISSION = '(?i)permission denied|access is denied'
+                  REPO_REF = '(?i)remote branch main not found|could not find remote ref'
+                  CHECKOUT = '(?i)unable to checkout|unable to create file'
+                  DISK = '(?i)no space left on device|disk full'
+                  OWNERSHIP = '(?i)dubious ownership|safe.directory'
+                  AUTH = '(?i)authentication failed|could not read username'
+                  NETWORK = '(?i)could not resolve host|connection timed out'
+                  GIT_OBJECT = '(?i)bad object|unable to read tree|not a valid object'
+                }
+                $privateLines = Get-Content -LiteralPath $privateLog -Raw
+                $matchedSafe = @($safeCategories.Keys | Where-Object { $privateLines -match $safeCategories[$_] })
+                if ($matchedSafe.Count -eq 0) { Write-Host 'MPGRAPHG67_GIT_ERROR_CLASS=UNKNOWN' }
+                foreach ($category in $matchedSafe) { Write-Host ('MPGRAPHG67_GIT_ERROR_CLASS=' + $category) }
+              }
+              if (($Label -ceq 'FOCUSED_REMOTE_BOOTSTRAP' -or $Label -ceq 'FULL_WINDOWS_REGRESSION') -and (Test-Path -LiteralPath $privateLog)) {
+                # Print only enumerated, source-defined failure categories; never private test text.
+                $privateText = Get-Content -LiteralPath $privateLog -Raw
+                $remoteFailureCodes = [ordered]@{
+                  CLONE_FAILED = 'remote bootstrap test local clone failed'
+                  SOURCE_SHA_DRIFT = 'remote bootstrap test source SHA drift'
+                  MISSING_INPUT = 'missing remote bridge regression input'
+                  GENERATOR_MISSING_OUTPUT = 'remote bridge generator did not create'
+                  SCHEMA = 'unexpected remote (bootstrap|catalog) schema'
+                  RECORD_HASH = '(records hash mismatch|source_records_sha256)'
+                  INDEX_COUNT = '(remote index active-record count mismatch|remote catalog active_record_count mismatch)'
+                  INDEX_ID = '(duplicate remote-index id|remote index emitted|active durable id missing from remote index)'
+                  PROJECT_RANGE = '(catalog .* mismatch|remote catalog missing project range|catalog range .* not contiguous)'
+                  ORIENTATION = '(remote orientation count mismatch|remote orientation order mismatch)'
+                  RETRIEVAL_CONTRACT = '(candidate limit drift|relative floor drift|primary max drift|primary budget drift|model-visible representation drift)'
+                  GENERATOR_NONDETERMINISTIC = '(remote bootstrap generation is not deterministic|remote catalog generation is not deterministic|remote index generation is not deterministic|project-state capsule generation is not deterministic|project dependency graph generation is not deterministic)'
+                  SCRATCH_CLEANUP = 'remote bootstrap test scratch cleanup failed'
+                }
+                $matchedRemote = @($remoteFailureCodes.Keys | Where-Object { $privateText -match $remoteFailureCodes[$_] })
+                if ($matchedRemote.Count -eq 0) { Write-Host 'MPGRAPHG67_REMOTE_FAILURE_CLASS=UNCLASSIFIED' }
+                foreach ($code in $matchedRemote) { Write-Host ('MPGRAPHG67_REMOTE_FAILURE_CLASS=' + $code) }
+              }
+              throw ('MPGRAPHG67_' + $Label + '_FAILED_PRIVATE_OUTPUT_WITHHELD')
+            }
+            Write-Host ('MPGRAPHG67_' + $Label + '=PASS')
+          }
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            & git clone --quiet --depth 1 --branch $env:MP_BRANCH 'https://github.com/spoonman136668-ai/Mind-Palace.git' $source *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPHG67_PRIVATE_SOURCE_READ_UNAVAILABLE' }
+            # Historical UQ51 frozen fixture is a real ancestor of this head (180 commits back).
+            # Fetch that immutable ancestry; do not edit historical fixtures or acceptance logic.
+            & git -C $source fetch --quiet --unshallow origin *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPHG67_REQUIRED_HISTORY_UNAVAILABLE' }
+            & git -C $source merge-base --is-ancestor '90d2dc1e79f0fcdcf49fba7680e29b5760e80d6b' HEAD *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPHG67_FROZEN_FIXTURE_ANCESTRY_INVALID' }
+            Write-Host 'MPGRAPHG67_FROZEN_HISTORY=PASS'
+            $actual = (& git -C $source rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $env:EXPECTED_MP_SHA) {
+              throw 'MPGRAPHG67_SOURCE_IDENTITY_DRIFT'
+            }
+            $trackedBefore = @(& git -C $source status --porcelain=v1 --untracked-files=no)
+            if ($LASTEXITCODE -ne 0 -or $trackedBefore.Count -ne 0) {
+              throw 'MPGRAPHG67_SOURCE_DIRTY'
+            }
+            $records = Join-Path $source '.ice/records.json'
+            $ledger = Join-Path $source '.ice/source-ledger.json'
+            $recordsHash = (Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash
+            $ledgerHash = (Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash
+            Write-Host 'MPGRAPHG67_PINNED_PRIVATE_SOURCE=PASS'
+            Push-Location $source
+            try {
+              Invoke-PrivateQualification 'FOCUSED_PYTHON' 'python' @('-B','tests/test_advisory_graphify_registry.py')
+              Invoke-PrivateQualification 'CURATED_VALIDATE' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tools/mind.ps1','validate')
+              Invoke-PrivateQualification 'ARCHIVE_VALIDATE' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tools/archive.ps1','validate')
+              Invoke-PrivateQualification 'FILE_LIBRARY_PILOT' 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File','tools/collect.ps1','validate','-InputPath','pilots/file-library/2026-09-11.batch.json')
+              # Windows UQ51 synthetic nested Git fixture requires a short isolated TEMP root.
+              # Never alter system TEMP or another runner's paths outside this child process.
+              $shortTemp = Join-Path $env:SystemDrive ('mg67-' + $env:GITHUB_RUN_ID)
+              $previousTemp = $env:TEMP
+              $previousTmp = $env:TMP
+              $priorGitConfigCount = $env:GIT_CONFIG_COUNT
+              $priorGitConfigKey = $env:GIT_CONFIG_KEY_0
+              $priorGitConfigValue = $env:GIT_CONFIG_VALUE_0
+              if ($priorGitConfigCount -or $priorGitConfigKey -or $priorGitConfigValue) {
+                throw 'MPGRAPHG67_UNEXPECTED_GIT_CONFIG_OVERRIDE'
+              }
+              try {
+                if (Test-Path -LiteralPath $shortTemp) { throw 'MPGRAPHG67_TEMP_COLLISION' }
+                New-Item -ItemType Directory -Path $shortTemp -ErrorAction Stop | Out-Null
+                $env:TEMP = $shortTemp
+                $env:TMP = $shortTemp
+                $env:GIT_CONFIG_COUNT = '1'
+                $env:GIT_CONFIG_KEY_0 = 'core.longpaths'
+                $env:GIT_CONFIG_VALUE_0 = 'true'
+                Write-Host 'MPGRAPHG67_ISOLATED_SHORT_TEMP=PASS'
+                Write-Host 'MPGRAPHG67_CHILD_GIT_LONGPATHS=TRUE'
+                Invoke-PrivateQualification 'FOCUSED_REMOTE_BOOTSTRAP' 'pwsh.exe' @('-NoProfile','-NonInteractive','-File','tests/Test-RemoteBootstrap.ps1')
+                Invoke-PrivateQualification 'FULL_WINDOWS_REGRESSION' 'pwsh.exe' @('-NoProfile','-NonInteractive','-File','tests/Test-All.ps1')
+              } finally {
+                $env:TEMP = $previousTemp
+                $env:TMP = $previousTmp
+                $env:GIT_CONFIG_COUNT = $priorGitConfigCount
+                $env:GIT_CONFIG_KEY_0 = $priorGitConfigKey
+                $env:GIT_CONFIG_VALUE_0 = $priorGitConfigValue
+                if (Test-Path -LiteralPath $shortTemp) {
+                  Remove-Item -LiteralPath $shortTemp -Force -Recurse -ErrorAction Stop
+                }
+              }
+            } finally {
+              Pop-Location
+            }
+            if ((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash -cne $recordsHash -or
+                (Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $ledgerHash) {
+              throw 'MPGRAPHG67_CURATED_MEMORY_MUTATION'
+            }
+            $trackedAfter = @(& git -C $source status --porcelain=v1 --untracked-files=no)
+            if ($LASTEXITCODE -ne 0 -or $trackedAfter.Count -ne 0) { throw 'MPGRAPHG67_SOURCE_MUTATION' }
+            if ((& git -C $source rev-parse HEAD).Trim() -cne $env:EXPECTED_MP_SHA) {
+              throw 'MPGRAPHG67_POST_QUALIFICATION_IDENTITY_DRIFT'
+            }
+            Write-Host 'MPGRAPHG67_PRIVATE_SOURCE_AND_ICE_UNCHANGED=PASS'
+            Write-Host 'MPGRAPHG67_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED'
+            Write-Host 'MPGRAPHG67_PRODUCTION_MEMORY_PROMOTION=NOT_AUTHORIZED'
+          } finally {
+            if (Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Force -Recurse -ErrorAction Stop
+            }
+          }
