@@ -30,6 +30,15 @@ type f139ReleaseRuleset struct {
 }
 
 func checkF139ReleaseRuleset(src []byte) error {
+	// Git on Windows may checkout text files with CRLF. Normalize only
+	// complete CRLF pairs while rejecting stray CR or mixed newlines.
+	crlf := bytes.Contains(src, []byte("\r\n"))
+	if crlf {
+		src = bytes.ReplaceAll(src, []byte("\r\n"), []byte("\n"))
+	}
+	if bytes.Contains(src, []byte("\r")) {
+		return fmt.Errorf("ambiguous newline or stray carriage return")
+	}
 	dec := json.NewDecoder(bytes.NewReader(src))
 	dec.DisallowUnknownFields()
 	var p f139ReleaseRuleset
@@ -108,6 +117,20 @@ func TestF139OwnerReleaseRulesetRejectsWeakenings(t *testing.T) {
 			return append(p, []byte("{}")...)
 		},
 	}
+	// Source content has identical semantics on LF and Windows CRLF
+	// checkouts. A lone carriage return is never an accepted variant.
+	t.Run("windows_crlf",func(t *testing.T){
+		win := bytes.ReplaceAll(b, []byte("\n"), []byte("\r\n"))
+		if err := checkF139ReleaseRuleset(win); err != nil {
+			t.Fatalf("identical windows checkout rejected: %v",err)
+		}
+	})
+	t.Run("stray_cr",func(t *testing.T){
+		tampered := bytes.Replace(b, []byte("\n"), []byte("\r"),1)
+		if err := checkF139ReleaseRuleset(tampered); err == nil {
+			t.Fatal("stray CR wrongly accepted")
+		}
+	})
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
 			if err := checkF139ReleaseRuleset(mutate(bytes.Clone(b))); err == nil {
