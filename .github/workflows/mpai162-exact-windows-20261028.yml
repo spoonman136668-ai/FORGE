@@ -1,0 +1,84 @@
+name: MP-AI162 exact-source original Windows regression (NO SCIENTIFIC ACCEPTANCE)
+on:
+  push:
+    branches: [qualification/mpai162-exact-windows-20261028]
+    paths: ['.github/workflows/mpai162-exact-windows-20261028.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpai162-one-shot-windows-20261028
+  cancel-in-progress: false
+
+jobs:
+  exact-mind-palace:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+      MPAI162_EXACT_SHA: 'fe51396a3e2bb29f1147e81786fa072a6d566f53'
+    steps:
+      - name: Read-only pinned private source and one Windows full regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI162_UNEXPECTED_EXISTING_ORIGINAL_RUNNER'
+          }
+          if ($env:MPAI162_EXACT_SHA -cne 'fe51396a3e2bb29f1147e81786fa072a6d566f53') {
+            throw 'MPAI162_SHA_POLICY_DRIFT'
+          }
+          $scratch = Join-Path $env:SystemDrive ('m162-' + $env:GITHUB_RUN_ID)
+          $source = Join-Path $scratch 'source'
+          try {
+            if (Test-Path -LiteralPath $scratch) { throw 'MPAI162_SCRATCH_COLLISION' }
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $env:TEMP = Join-Path $scratch 'tmp'
+            $env:TMP = $env:TEMP
+            New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop | Out-Null
+            $cloneLog = Join-Path $scratch 'private-clone.log'
+            & git clone --quiet --single-branch --branch proposal/mpai162-clause-ownership-20261028 https://github.com/spoonman136668-ai/Mind-Palace.git $source *> $cloneLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPAI162_PRIVATE_CLONE_FAILED' }
+            $actual = (& git -C $source rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $env:MPAI162_EXACT_SHA) {
+              throw 'MPAI162_PRIVATE_SOURCE_SHA_DRIFT'
+            }
+            Write-Output ('MPAI162_EXACT_SOURCE=' + $actual)
+            Write-Output ('MPAI162_ORIGINAL_RUNNER=' + $env:RUNNER_NAME)
+            $privateLog = Join-Path $scratch 'private-qualification.log'
+            & python -B (Join-Path $source 'tools/mpai162_qualify_exact_head.py') --expected-head $env:MPAI162_EXACT_SHA --phase full *> $privateLog
+            $code = $LASTEXITCODE
+            $rows = @(Get-Content -LiteralPath $privateLog)
+            $receipts = @($rows | Where-Object { $_ -match '^\{"accepted_observation_registry_verified":' })
+            if ($receipts.Count -ne 1) { throw 'MPAI162_QUALIFICATION_RECEIPT_MISSING' }
+            $report = $receipts[0] | ConvertFrom-Json
+            if ($report.expected_head -cne $env:MPAI162_EXACT_SHA) { throw 'MPAI162_RECEIPT_SHA_DRIFT' }
+            if ($report.phase -cne 'full' -or $report.platform -cne 'Windows') { throw 'MPAI162_NOT_WINDOWS_FULL' }
+            if ($report.answer_authorized -ne $false -or $report.scientific_compose -cne 'NO_GO' -or $report.production_writes -ne 0) {
+              throw 'MPAI162_UNEARNED_SCIENTIFIC_AUTHORITY'
+            }
+            Write-Output ('MPAI162_FOCUSED_AND_FULL_WINDOWS_RESULT=' + [string]$report.engineering_pass)
+            Write-Output ('MPAI162_STEP_COUNT=' + @($report.steps).Count)
+            Write-Output ('MPAI162_ENGINEERING_EXIT=' + $code)
+            Write-Output 'MPAI162_SCIENTIFIC_COMPOSE=NO_GO'
+            Write-Output 'MPAI162_PRODUCTION_WRITES=0'
+            if ($code -ne 0 -or $report.engineering_pass -ne $true) {
+              throw ('MPAI162_PINNED_WINDOWS_REGRESSION_FAILED:' + [string]$report.safe_failure)
+            }
+            $dirty = @(& git -C $source status --porcelain --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'MPAI162_SOURCE_CHANGED' }
+            Write-Output 'MPAI162_EXACT_PINNED_WINDOWS_QUALIFICATION=PASS'
+          } finally {
+            Set-Location ($env:SystemDrive + '\')
+            if (Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
