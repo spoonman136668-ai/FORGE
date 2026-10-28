@@ -1,0 +1,90 @@
+name: MP-AI158 authentic research field binding original Windows development
+on:
+  push:
+    branches: [qualification/mpai158-authentic-source-field-20261028]
+    paths: ['.github/workflows/mpai158-authentic-source-field-development.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai158-proof-binding-20261028
+  cancel-in-progress: false
+jobs:
+  real-relational-safety:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Freeze provenance, run focused gates and offline paired safety trial
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI158_UNEXPECTED_RUNNER'
+          }
+          $scratch=Join-Path $env:SystemDrive ('m158-'+$env:GITHUB_RUN_ID)
+          $experiment=Join-Path $scratch 'experiment'
+          $source=Join-Path $scratch 'original'
+          $manifest='evaluation/mpai158-frozen-authentic-bindings-v1.json'
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI158_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $env:TEMP=Join-Path $scratch 'tmp'
+            $env:TMP=$env:TEMP
+            New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop | Out-Null
+            $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+            & git clone --quiet --single-branch --branch proposal/mpai158-authentic-source-field-20261028 $remote $experiment *> (Join-Path $scratch 'experiment-private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI158_EXPERIMENT_PRIVATE_CLONE_FAILED'}
+            & git clone --quiet --single-branch --branch proposal/mpai-evidence-sufficiency-20261028 $remote $source *> (Join-Path $scratch 'original-private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI158_ORIGINAL_PRIVATE_CLONE_FAILED'}
+            if((& git -C $experiment rev-parse HEAD).Trim() -cne 'ba53bd2afc14611160073a4eaba3e9480974ee31'){
+              throw 'MPAI158_EXPERIMENT_SOURCE_DRIFT'
+            }
+            if((& git -C $source rev-parse HEAD).Trim() -cne '7dd66f4b9e80b488ccb880fb62ddae8e7cb01987'){
+              throw 'MPAI158_ORIGINAL_SOURCE_DRIFT'
+            }
+            $manifestAtHead=(& git -C $experiment rev-parse "HEAD:$manifest").Trim()
+            $manifestAtFreeze=(& git -C $experiment rev-parse "63d2b354827ec3537c2a492ae152af4e84d262bc:$manifest").Trim()
+            if($manifestAtHead -cne $manifestAtFreeze){throw 'MPAI158_PREDECLARED_MANIFEST_CHANGED'}
+            if((Get-FileHash -Algorithm SHA256 (Join-Path $source '.ice/records.json')).Hash.ToLowerInvariant() -cne 'fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742'){
+              throw 'MPAI158_ACCEPTED_MEMORY_DRIFT'
+            }
+            Push-Location $experiment
+            try {
+              & python -B -m unittest discover -s tests -p test_mpai158_field_binding.py -v
+              if($LASTEXITCODE -ne 0){throw 'MPAI158_RELATIONAL_UNIT_TESTS_FAILED'}
+              Write-Output 'MPAI158_FOCUSED_FIELD_TESTS=PASS'
+              & python -B -c 'import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(encoding="utf8")) for p in ("agentic/mpai158_field_propose.py","agentic/mpai158_field_verify.py","tools/mpai158_authentic_field_trial.py","tests/test_mpai158_field_binding.py")]'
+              if($LASTEXITCODE -ne 0){throw 'MPAI158_SOURCE_SYNTAX_FAILED'}
+              Write-Output 'MPAI158_SOURCE_SYNTAX=PASS'
+            } finally {Pop-Location}
+            $privateLog=Join-Path $scratch 'private-offline-model-and-source.log'
+            & python -B (Join-Path $experiment 'tools/mpai158_authentic_field_trial.py') --experiment $experiment --original $source --scratch $scratch *> $privateLog
+            $code=$LASTEXITCODE
+            # Public logs allow only numerical totals and approved state markers.
+            $safe=Get-Content -LiteralPath $privateLog | Where-Object {$_ -match '^MPAI158_[A-Z0-9_]+=[A-Za-z0-9_.]+$'}
+            foreach($line in $safe){Write-Output $line}
+            if($code -ne 0){throw 'MPAI158_PRIVATE_REAL_MODEL_TRIAL_FAILED'}
+            foreach($required in @('MPAI158_EVALUATION_EXECUTED=PASS',
+              'MPAI158_BLIND_HOLDOUT=FALSE',
+              'MPAI158_SCIENTIFIC_COMPOSE=NO_GO')){
+              if($safe -cnotcontains $required){throw 'MPAI158_RECEIPT_INCOMPLETE'}
+            }
+            foreach($location in @($experiment,$source)){
+              $dirty=@(& git -C $location status --porcelain --untracked-files=all)
+              if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI158_SOURCE_WORKTREE_DIRTY'}
+            }
+            Write-Output 'MPAI158_PRIVATE_SOURCE_AND_MEMORY_UNMODIFIED=PASS'
+            Write-Output 'MPAI158_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:SystemDrive\
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
