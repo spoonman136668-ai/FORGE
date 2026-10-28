@@ -128,6 +128,21 @@ class OriginalWitnessTests(unittest.TestCase):
             self.assertEqual(r["shadow"]["disposition"], "BLOCKED_ALREADY_CONSUMED")
             self.assertFalse(r["owner_request_authorized"])
 
+    def test_tampered_terminal_digest_refused_before_shadow(self):
+        activate_native(self.db, self.fixture.approval())
+        admit_native_issue(self.db, self.fixture.native,
+                           "2026-10-28T09:00:00Z")
+        self.db.claim(self.fixture.native.ticket, "2026-10-28T09:01:00Z")
+        self.db.dispatch_observed(self.fixture.native.ticket)
+        self.db.terminal(self.fixture.native.ticket, 98012345678,
+                         "/tmp/f139-test-fixture-receipt", "e"*64)
+        self.db.conn.execute(
+            "UPDATE tasks SET evidence_sha=? WHERE ticket=?",
+            ("f"*64, self.fixture.native.ticket))
+        with SingleOwner(self.lockfile):
+            with self.assertRaises(Exception):
+                self.read(lane=self.fixture.native.lane)
+
     def test_no_write_no_provider_network_even_if_shadow_says_eligible(self):
         activate_native(self.db, self.fixture.approval())
         admit_native_issue(self.db, self.fixture.native,
