@@ -1,0 +1,44 @@
+name: KTRADE Obsidian authentic desktop UX acceptance (review only)
+on:
+  push:
+    branches: [qualification/ktrade-obsidian-desktop-20261028]
+    paths:
+      - .github/workflows/ktrade-obsidian-gui-windows.yml
+      - tools/qualification/ktrade-obsidian-gui.ps1
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-obsidian-actual-gui-20261028
+  cancel-in-progress: false
+jobs:
+  actual-gui:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 20
+    env:
+      KTRADE_LIVE_AUTHORITY: '0'
+      KTRADE_COINBASE_ALLOWED: '0'
+      KTRADE_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Checkout qualified GUI test harness (no credentials persisted)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact GUI harness and Windows safety boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'GUI_HARNESS_HEAD_DRIFT'}
+          if($env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'self-hosted'){throw 'GUI_NOT_OWNER_WINDOWS'}
+          if($env:KTRADE_LIVE_AUTHORITY -cne '0' -or $env:KTRADE_COINBASE_ALLOWED -cne '0' -or $env:KTRADE_PROMOTION_ALLOWED -cne '0'){throw 'GUI_UNSAFE_AUTHORITY'}
+          if(@(git status --porcelain=v1 --untracked-files=no).Count -ne 0){throw 'GUI_HARNESS_DIRTY'}
+          Write-Host 'KTRADE_GUI_HARNESS_EXACT_SHA=PASS'
+      - name: Open actual committed Obsidian vault, navigate note, test global search
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./tools/qualification/ktrade-obsidian-gui.ps1 -KnowledgeCommit 'b5c2b23a095a057fb25e3dbec6c9fb558d26ca7a' -KtradeSource 'a359e86d05e5ba24b71a1f4bdd8a5e36ebd31b58'
+          if($LASTEXITCODE -and $LASTEXITCODE -ne 0){throw 'GUI_TEST_SCRIPT_FAILED'}
+          Write-Host 'KTRADE_OBSIDIAN_AUTHENTIC_GUI_COMPLETED=PASS'
