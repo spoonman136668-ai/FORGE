@@ -161,6 +161,9 @@ def run(upstream: Path, out: Path, freeze_path:Path, venv_path:Path):
     diagnostic=classification(stderr,timeout) if (rc!=0 or timeout) else None
     import_status="NOT_ATTEMPTED_INSTALL_BLOCKED"
     source_smoke=None
+    public_episode_count=0
+    public_action_count=0
+    public_smoke_attempted=False
     if rc==0:
         status="DEPENDENCIES_INSTALLED"
         import_cmd=[str(py),"-B","-c",
@@ -168,6 +171,7 @@ def run(upstream: Path, out: Path, freeze_path:Path, venv_path:Path):
         irc,io,ie,_,it=run_cmd(import_cmd,cwd=venv_path,env=env,timeout=MAX_CHILD_SECONDS)
         if irc==0 and b"REAL_ORIGINAL_IMPORT_OK" in io:
             import_status="ORIGINAL_IMPORT_PASS"
+            public_smoke_attempted=True
             src_rc,src_out,src_err,_,src_timeout=run_cmd(
                 [str(py),"-B","-c",_SMOKE_CHILD],
                 cwd=venv_path,env=env,timeout=MAX_CHILD_SECONDS)
@@ -175,6 +179,8 @@ def run(upstream: Path, out: Path, freeze_path:Path, venv_path:Path):
                 try:
                     source_smoke=json.loads(src_out.decode("utf-8").strip())
                     validate_smoke(source_smoke)
+                    public_episode_count=source_smoke["source_owned_episodes"]
+                    public_action_count=source_smoke["source_owned_actions"]
                     status="ACTUAL_SOURCE_PUBLIC_SMOKE_PASS"
                 except (UnicodeError,json.JSONDecodeError,RuntimeError) as exc:
                     diagnostic="PUBLIC_OUTPUT_VALIDATION_FAILED:"+type(exc).__name__
@@ -211,8 +217,11 @@ def run(upstream: Path, out: Path, freeze_path:Path, venv_path:Path):
         "upstream_import_status":import_status,
         "public_development_smoke_status":status,
         "public_smoke":source_smoke,
-        "source_owned_episodes_executed":2 if source_smoke is not None and status=="ACTUAL_SOURCE_PUBLIC_SMOKE_PASS" else 0,
-        "source_owned_actions_executed":4 if source_smoke is not None and status=="ACTUAL_SOURCE_PUBLIC_SMOKE_PASS" else 0,
+        # On a failed child run, partial original-source interactions may have
+        # occurred before its exit; record UNKNOWN, never an invented zero.
+        "source_public_smoke_attempted":public_smoke_attempted,
+        "source_owned_episodes_executed":public_episode_count if status=="ACTUAL_SOURCE_PUBLIC_SMOKE_PASS" else (None if public_smoke_attempted else 0),
+        "source_owned_actions_executed":public_action_count if status=="ACTUAL_SOURCE_PUBLIC_SMOKE_PASS" else (None if public_smoke_attempted else 0),
         "reserved_fit_seeds_used":False,
         "reserved_validation_seeds_used":False,
         "reserved_dev_seeds_used":False,
