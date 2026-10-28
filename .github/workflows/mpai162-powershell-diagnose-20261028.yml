@@ -1,0 +1,70 @@
+name: MP-AI162 source-pinned PowerShell failure localization (NO ACCEPTANCE)
+on:
+  push:
+    branches: [qualification/mpai162-exact-windows-20261028]
+    paths: ['.github/workflows/mpai162-powershell-diagnose-20261028.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai162-diagnostic-20261028
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+      MPAI162_EXACT_SHA: 'fe51396a3e2bb29f1147e81786fa072a6d566f53'
+    steps:
+      - name: Find first failing frozen PowerShell test without public source logs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'MPAI162_DIAGNOSTIC_RUNNER_NOT_AUTHORIZED'}
+          $scratch=Join-Path $env:SystemDrive ('m162diag-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $scratch 'source'
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI162_DIAGNOSTIC_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $env:TEMP=Join-Path $scratch 'tmp'
+            $env:TMP=$env:TEMP
+            New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch proposal/mpai162-clause-ownership-20261028 https://github.com/spoonman136668-ai/Mind-Palace.git $source *> (Join-Path $scratch 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI162_DIAGNOSTIC_CLONE_FAILED'}
+            $actual=(& git -C $source rev-parse HEAD).Trim()
+            if($LASTEXITCODE -ne 0 -or $actual -cne $env:MPAI162_EXACT_SHA){throw 'MPAI162_DIAGNOSTIC_SOURCE_CHANGED'}
+            $log=Join-Path $scratch 'private-powershell-regression.log'
+            Push-Location $source
+            try {
+              & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tests\Test-All.ps1 *> $log
+              $code=$LASTEXITCODE
+            } finally {Pop-Location}
+            $rows=@(Get-Content -LiteralPath $log)
+            $markers=@($rows | Where-Object {$_ -match '^RUN [A-Za-z0-9_.-]+\.ps1$'})
+            Write-Output ('MPAI162_DIAGNOSTIC_SOURCE='+$actual)
+            Write-Output ('MPAI162_DIAGNOSTIC_RUNNER='+$env:RUNNER_NAME)
+            Write-Output ('MPAI162_TESTS_ENTERED='+$markers.Count)
+            if($markers.Count -gt 0){Write-Output ('MPAI162_LAST_TEST='+$markers[-1])}
+            # Only publish bounded machine-readable *error identifiers*, never
+            # private source lines, raw exception text, or attached logs.
+            $codes = @($rows | Select-String -AllMatches '\b[A-Z][A-Z0-9_]{7,}\b' | ForEach-Object {$_.Matches.Value} | Sort-Object -Unique)
+            foreach($token in $codes | Select-Object -Last 12) {
+              if($token -match '^(?:TEST|MIND|SOURCE|MPAI|UQ|FAIL|INVALID|MISSING|UNEXPECTED|ERROR|ARCHIVE|RECORD)[A-Z0-9_]*$'){
+                Write-Output ('MPAI162_DIAGNOSTIC_CODE='+$token)
+              }
+            }
+            Write-Output ('MPAI162_POWERSHELL_EXIT='+$code)
+            Write-Output 'MPAI162_SCIENTIFIC_COMPOSE=NO_GO'
+            Write-Output 'MPAI162_PRODUCTION_WRITES=0'
+            if($code -ne 0){throw 'MPAI162_DIAGNOSED_EXISTING_REGRESSION_FAILURE'}
+            Write-Output 'MPAI162_TEST_ALL_DIAGNOSTIC=PASS'
+          } finally {
+            Set-Location ($env:SystemDrive + '\')
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
