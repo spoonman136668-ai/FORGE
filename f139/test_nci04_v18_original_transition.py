@@ -96,9 +96,9 @@ class OriginalV18TransitionSourceTests(unittest.TestCase):
     def test_one_time_guarded_windows_owner_release_is_separate_and_deny_by_default(self):
         workflow = (Path(__file__).resolve().parent.parent /
                     ".github/workflows/f139-g54-v9-owner-cutover.yml").read_text()
-        self.assertEqual(workflow.count("  cutover-v18:\\n"), 1)
-        begin = workflow.index("  cutover-v18:\\n")
-        end = workflow.index("  cutover-v17:\\n", begin)
+        self.assertEqual(workflow.count("  cutover-v18:\n"), 1)
+        begin = workflow.index("  cutover-v18:\n")
+        end = workflow.index("  cutover-v17:\n", begin)
         part = workflow[begin:end]
         for expected in (
             "github.actor == 'spoonman136668-ai'",
@@ -128,7 +128,7 @@ class OriginalV18TransitionSourceTests(unittest.TestCase):
             "F139_V17_",
         ):
             self.assertNotIn(forbidden, part)
-        self.assertIn("concurrency:\\n  group: forge-f139-g54-v9-owner-cutover",
+        self.assertIn("concurrency:\n  group: forge-f139-g54-v9-owner-cutover",
                       workflow)
 
     def test_original_cli_adds_no_automatic_release_or_worker(self):
