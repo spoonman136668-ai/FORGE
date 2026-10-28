@@ -131,6 +131,19 @@ class V19OnePostHandoffCustodyTests(unittest.TestCase):
             self.assertEqual(self.count(), 1)
             self.assertEqual(self.db.meta(), before)
 
+    def test_spent_scope_skips_even_anonymous_public_source_network(self):
+        reserved = self.start()
+        with SingleOwner(self.mutex):
+            self.spend(reserved)
+            frozen = self.db.meta().copy()
+            def forbidden_public_fetch(route):
+                self.fail("spent handoff must not fetch even public source")
+            repeated = self.spend(reserved, reader=forbidden_public_fetch)
+            self.assertEqual(repeated["disposition"],
+                             "BLOCKED_RESERVATION_ALREADY_SPENT_OR_HISTORY_MOVED")
+            self.assertEqual(self.count(), 1)
+            self.assertEqual(self.db.meta(), frozen)
+
     def test_fully_mocked_one_free_model_result_stays_untrusted(self):
         reserved = self.start()
         with SingleOwner(self.mutex):
