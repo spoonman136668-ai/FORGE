@@ -87,6 +87,18 @@ def inspect_upstream(root: Path) -> dict:
         actual[name]=blob
     if git(root,"status","--porcelain","--untracked-files=no"):
         raise RuntimeError("AC10_AUTHENTIC_CHECKOUT_MODIFIED")
+    # Use committed Git blob bytes, not checkout LF/CRLF working-tree bytes:
+    # Windows checkout can render different physical newline sequences.
+    blob_proc=subprocess.run(
+        ["git","-C",str(root),"show","HEAD:causal_gym/envs/dtr.py"],
+        capture_output=True,timeout=15)
+    if blob_proc.returncode:
+        raise RuntimeError("AC10_CANNOT_READ_AUTHENTIC_DTR_GIT_BLOB")
+    dtr_blob=blob_proc.stdout
+    if hashlib.sha1(
+        b"blob "+str(len(dtr_blob)).encode("ascii")+b"\\0"+dtr_blob
+    ).hexdigest()!=BLOBS["causal_gym/envs/dtr.py"]:
+        raise RuntimeError("AC10_DTR_GIT_BLOB_CONTENT_DRIFT")
     dtr=(root/"causal_gym/envs/dtr.py").read_bytes()
     pch=(root/"causal_gym/core/pch.py").read_bytes()
     init=(root/"causal_gym/envs/__init__.py").read_text(encoding="utf-8")
@@ -110,7 +122,7 @@ def inspect_upstream(root: Path) -> dict:
     return {
         "sha":head,"tree":tree,
         "verified_git_blobs":actual,
-        "dtr_source_sha256":hashlib.sha256(dtr).hexdigest(),
+        "dtr_original_git_blob_sha256":hashlib.sha256(dtr_blob).hexdigest(),
         "dtr_scm_methods":sorted(dtr_scm),
         "dtr_pch_methods":sorted(dtr_pch),
         "pch_permission_methods_verified":True,
