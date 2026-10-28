@@ -54,12 +54,12 @@ class ReadOnlyOwnerProbeTests(unittest.TestCase):
                     probe, "v19_original_release_readonly_preflight",
                     return_value=readonly) as preflight:
                 proof = probe.inspect_original_owner(db_path)
+                self.assertEqual(preflight.call_count, 1)
+                _, kwargs = preflight.call_args
+                self.assertTrue(callable(kwargs["owner_witness"]))
+                self.assertTrue(callable(kwargs["original_get"]))
+                self.assertEqual(kwargs["owner_witness"](), True)
             self.assertEqual(proof, readonly)
-            self.assertEqual(preflight.call_count, 1)
-            _, kwargs = preflight.call_args
-            self.assertTrue(callable(kwargs["owner_witness"]))
-            self.assertTrue(callable(kwargs["original_get"]))
-            self.assertEqual(kwargs["owner_witness"](), True)
 
     def test_foreign_authority_proof_rejected(self):
         with tempfile.TemporaryDirectory(prefix="f139-nowrite-reject-") as td:
