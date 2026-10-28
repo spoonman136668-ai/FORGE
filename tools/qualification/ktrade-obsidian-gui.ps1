@@ -73,7 +73,7 @@ try{
   $psi.Environment['LOCALAPPDATA']=$local
   $null=$psi.ArgumentList.Add('--user-data-dir='+$userData)
   $null=$psi.ArgumentList.Add('--force-renderer-accessibility')
-  $port=40000+([int]$env:GITHUB_RUN_ID % 15000)
+  $port=40000+([long]$env:GITHUB_RUN_ID % 15000)
   $null=$psi.ArgumentList.Add('--remote-debugging-port='+$port)
   $null=$psi.ArgumentList.Add('--remote-debugging-address=127.0.0.1')
   $watch=[System.Diagnostics.Stopwatch]::StartNew()
