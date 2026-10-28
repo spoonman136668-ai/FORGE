@@ -33,12 +33,28 @@ The payload creates **one** active branch ruleset with **no bypass actors**,
 matching only `refs/heads/f139-owner-release-*`. It blocks updates and
 deletions of those release branches after creation; it does not block creation,
 alter main, change owner policy #807, or modify any source/ledger. A repository
-administrator with **Administration:write** can perform this operation using
-their pre-existing authenticated GitHub CLI session:
+administrator with **Administration:write** can use the checked-in, bounded
+PowerShell handoff from a qualified, clean checkout of this governance branch,
+under their own already authenticated GitHub CLI session:
 
 ```powershell
-gh api --method POST repos/spoonman136668-ai/FORGE/rulesets --input reference/governance/f139-owner-release-ref-ruleset-proposal.json
+# Read-only by default: check original V17 main, issue #807, source branch,
+# negative ruleset tests and whether the admin lock already exists.
+pwsh -NoProfile -File scripts/Install-F139V18ReleaseRuleset.ps1
+
+# One-time bounded admin write, only after authorizing the reviewed ruleset:
+pwsh -NoProfile -File scripts/Install-F139V18ReleaseRuleset.ps1 -Apply
 ```
+
+The script refuses any changed main SHA, owner-policy drift, dirty/unqualified
+checkout, missing active main ruleset, ambiguous duplicate release rules,
+or weakened scoped source policy. It uses exactly one GitHub administration
+POST when the rule is missing and `-Apply` is explicitly provided; otherwise
+it remains read-only. Afterwards it independently reads the actual ruleset
+detail and the exact pre-merge preview branch's `protected` value. Any 403
+or insufficient admin permission fails closed. It **never** merges, creates
+a final release ref, dispatches a workflow, stops the original owner task,
+or changes the F139 SQLite ledger.
 
 Run the command from a clean checkout of the **qualified governance proposal**,
 not from the live Windows F139 controller's installed source directory.
