@@ -46,8 +46,8 @@ def run(output):
         raise RuntimeError("AC03_SOURCE_SHA256_DRIFT")
     if set(prior.CASES) != set(ALLOWED_CASES) or prior.REPEATS != REPEATS:
         raise RuntimeError("AC03_PROTOCOL_DRIFT")
-    if os.environ.get("AC04_NO_NETWORK") != "1":
-        raise RuntimeError("AC04_NO_NETWORK_GUARD_NOT_SET")
+    if os.environ.get("AC04_SOURCEFREE_ONLY") != "1":
+        raise RuntimeError("AC04_SOURCEFREE_ONLY_GUARD_NOT_SET")
     rows=[]
     for case,(baseline,candidate) in prior.CASES.items():
         for replicate in range(REPEATS):
