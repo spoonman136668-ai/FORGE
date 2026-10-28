@@ -111,8 +111,20 @@ jobs:
             $again=@($recheck.result.results | Where-Object { [string]$_.candidate_id -ceq $candidate })
             if($again.Count -ne 1 -or [string]$again[0].action -cne 'merge'){throw 'MPAI_FEEDBACK_REPLAY_NOT_DEDUPLICATED'}
             Write-Host 'MPAI_FEEDBACK_REPLAY_CLASSIFICATION=MERGE_NOT_DUPLICATE'
-            $dirty=@(& git -C $src status --porcelain --untracked-files=all)
-            if($LASTEXITCODE -ne 0 -or (@($dirty | Sort-Object) -join '|') -cne (@(' M .ice/records.json',' M .ice/source-ledger.json') | Sort-Object) -join '|'){throw 'MPAI_FEEDBACK_SCRATCH_UNEXPECTED_TRACKED_CHANGE'}
+            $dirty=@(& git -C $src diff --name-only)
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_SCRATCH_DIFF_FAILED'}
+            $actualDirty=[string](($dirty | Sort-Object) -join '|')
+            $wantedDirty=[string]((@('.ice/records.json','.ice/source-ledger.json') | Sort-Object) -join '|')
+            $staged=@(& git -C $src diff --cached --name-only)
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_SCRATCH_STAGED_CHECK_FAILED'}
+            $untracked=@(& git -C $src ls-files --others --exclude-standard)
+            if($LASTEXITCODE -ne 0){throw 'MPAI_FEEDBACK_SCRATCH_UNTRACKED_CHECK_FAILED'}
+            if($actualDirty -cne $wantedDirty -or $staged.Count -ne 0 -or $untracked.Count -ne 0){
+              Write-Host ('MPAI_FEEDBACK_SCRATCH_TRACKED_DIRTY_COUNT='+$dirty.Count)
+              Write-Host ('MPAI_FEEDBACK_SCRATCH_STAGED_COUNT='+$staged.Count)
+              Write-Host ('MPAI_FEEDBACK_SCRATCH_UNTRACKED_COUNT='+$untracked.Count)
+              throw 'MPAI_FEEDBACK_SCRATCH_UNEXPECTED_TRACKED_CHANGE'
+            }
             Write-Host 'MPAI_FEEDBACK_SCRATCH_ONLY_TWO_DURABLE_FILES=PASS'
             Write-Host 'MPAI_FEEDBACK_REAL_SOURCE_CHECKPOINTED_IN_PRODUCTION=FALSE'
             Write-Host 'MPAI_FEEDBACK_APPROVED_REPO_SOURCE_WRITER_AUTHORITY=NOT_PRESENT'
