@@ -716,8 +716,27 @@ jobs:
           if($matching.Count -ne 1 -or [int64]$matching[0].id -le 0) {
             throw 'F139_V18_RELEASE_RULESET_NOT_UNIQUE_OR_ACTIVE'
           }
-          $rule=(& gh api ("repos/spoonman136668-ai/FORGE/rulesets/"+$matching[0].id) | ConvertFrom-Json)
-          if($LASTEXITCODE -ne 0 -or $null -eq $rule -or
+          # The short-lived GitHub Actions token has issues:write but no
+          # administration:read; GitHub omits bypass_actors for that token.
+          # Authenticate to the already-verified local owner gh session for
+          # the one sensitive ruleset detail read, then restore the Actions
+          # token for the original guarded issue-policy PATCH.
+          $workflowToken=$env:GH_TOKEN
+          try {
+            Remove-Item -Path Env:GH_TOKEN -ErrorAction SilentlyContinue
+            $localOwner=(& gh api user --jq .login | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $localOwner -cne 'spoonman136668-ai') {
+              throw 'F139_V18_LOCAL_OWNER_GH_IDENTITY_NOT_VERIFIED'
+            }
+            $rule=(& gh api ("repos/spoonman136668-ai/FORGE/rulesets/"+$matching[0].id) | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or $null -eq $rule -or
+               @($rule.PSObject.Properties.Name) -cnotcontains 'bypass_actors') {
+              throw 'F139_V18_ADMIN_READBACK_BYPASS_FIELD_UNAVAILABLE'
+            }
+          } finally {
+            $env:GH_TOKEN=$workflowToken
+          }
+          if($null -eq $rule -or
              [string]$rule.name -cne 'FORGE F139 immutable owner release refs' -or
              [string]$rule.target -cne 'branch' -or
              [string]$rule.enforcement -cne 'active' -or
