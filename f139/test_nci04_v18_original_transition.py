@@ -129,6 +129,24 @@ class OriginalV18TransitionSourceTests(unittest.TestCase):
             "F139_V17_",
         ):
             self.assertNotIn(forbidden, part)
+        # Verify actual enforcement, not the generic GitHub protected bit.
+        for locked in (
+            "F139_V18_RELEASE_RULESET_READ_DENIED",
+            "F139_V18_RELEASE_RULESET_NOT_UNIQUE_OR_ACTIVE",
+            "F139_V18_RELEASE_RULESET_SCOPE_OR_BYPASS_DRIFT",
+            "F139_V18_RELEASE_RULESET_LOCK_WEAKENED",
+            "FORGE F139 immutable owner release refs",
+            "refs/heads/f139-owner-release-*",
+            "@($rule.bypass_actors).Count -ne 0",
+            "$lockTypes[0] -cne 'deletion'",
+            "$lockTypes[1] -cne 'update'",
+            "F139_V18_RELEASE_REF_IMMUTABILITY=VERIFIED",
+        ):
+            with self.subTest(locked=locked):
+                self.assertIn(locked, part)
+        self.assertLess(
+            part.index("F139_V18_RELEASE_REF_IMMUTABILITY=VERIFIED"),
+            part.index("Disable-ScheduledTask"))
         self.assertIn("concurrency:\n  group: forge-f139-g54-v9-owner-cutover",
                       workflow)
 
