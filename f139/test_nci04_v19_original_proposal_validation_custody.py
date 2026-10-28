@@ -131,6 +131,31 @@ class OriginalProposalValidationCustodyTests(unittest.TestCase):
             self.assertEqual(self.db.meta(), old)
             self.assertEqual(self.count(), 0)
 
+    def test_noop_model_candidate_is_rejected_and_send_remains_spent(self):
+        send = self.prepared_response()
+        from f139.nci04_native_contract import canonical, digest
+        reply = send["untrusted_response"]
+        parsed = json.loads(reply["proposal_bytes"])
+        parsed["candidate_source"] = self.fixture.source.packet["public_source"]
+        raw = canonical(parsed)
+        with SingleOwner(self.mutex):
+            old = self.db.meta().copy()
+            with self.assertRaisesRegex(
+                    ProposalDenied, "SOURCE_SIZE_OR_CHANGE_INVALID"):
+                self.validate({
+                    **send, "untrusted_response": {
+                        **reply, "proposal_bytes": raw,
+                        "proposal_sha256": digest(raw),
+                    },
+                })
+            self.assertEqual(self.db.meta(), old)
+            self.assertEqual(self.count(), 0)
+            no_retry = self.fixture.send({
+                "original_post_handoff_event_seq": send["send_attempt_event_seq"] - 1,
+                "original_post_handoff_event_sha256": "f" * 64,
+            })
+            self.assertEqual(no_retry["provider_calls_in_this_invocation"], 0)
+
     def test_bad_send_receipt_and_wrong_original_head_never_custodied(self):
         send = self.prepared_response()
         with SingleOwner(self.mutex):
