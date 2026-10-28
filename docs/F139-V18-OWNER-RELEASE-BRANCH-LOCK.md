@@ -1,7 +1,9 @@
 # F139 V18 — enforce immutable owner-release refs
 
-**Status:** administrator-ready proposal; **not installed**. This document does
-not grant source, model, worker, or scientific execution authority.
+**Status:** release-ref ruleset **INSTALLED** on the existing escalated original
+Windows owner runner and independently read back (2026-10-28). **No V18 source
+merge, task cutover or scientific first-use has occurred.** This document does
+not grant source, model, worker or scientific execution authority.
 
 ## Verified original state (2026-10-28)
 
@@ -12,24 +14,33 @@ not grant source, model, worker, or scientific execution authority.
   passed all three exact-head controller/public/hosted Linux/Windows workflows.
 - A **pre-merge candidate only**
   `f139-owner-release-5a040dd4dd8c4a3203c7e4d751a0cf01065717ad`
-  matches the PR HEAD, but GitHub reports `protected=false`. It **must not**
+  matches the PR HEAD and now reports **`protected=true`** after rule installation.
+  It **must not**
   be used as the final owner-release reference.
 - The active main-only ruleset `25031517` requires PRs and permits **only**
   the `merge` method. A PR #1035 merge therefore creates a **new merge
   commit M**, rather than advancing main to that PR's head. Consequently the
   final release ref must be **created after the merge**, at the actual main
   SHA M, never from any already created PR-head preview ref.
-- The scoped candidate in
+- The scoped policy in
   `reference/governance/f139-owner-release-ref-ruleset-proposal.json`
-  is **not applied**. The connected engineering GitHub App cannot write
-  repository administration; a read-only GET to branch protection returns
-  `403 Resource not accessible by integration`.
+  was installed by the original Windows runner using its authenticated local
+  owner GitHub CLI session: [run #40708377855](https://github.com/spoonman136668-ai/FORGE/actions/runs/40708377855).
+  **Actual rule ID `26049392`**, `enforcement=active`, exact include
+  `refs/heads/f139-owner-release-*`, no exclusions or bypass actors, rules
+  exactly `update` and `deletion`. The repository GitHub App still lacks
+  administrative permissions; it did **not** install this rule.
+- Fresh post-installation original Windows owner [read-only status
+  #40708586277](https://github.com/spoonman136668-ai/FORGE/actions/runs/40708586277)
+  PASS: SQLite quick_check OK, head sequence 290, 24 VERIFIED, 15
+  QUARANTINED, zero active/ready, original task Running and V17 source pin
+  unchanged. No spent reasoner work was replayed.
 - The existing active main ruleset (ID `25031517`) applies exclusively
   to `refs/heads/main`; it must remain untouched.
 
 ## Precisely scoped administrator operation
 
-The payload creates **one** active branch ruleset with **no bypass actors**,
+The now-installed payload defines **one** active branch ruleset with **no bypass actors**,
 matching only `refs/heads/f139-owner-release-*`. It blocks updates and
 deletions of those release branches after creation; it does not block creation,
 alter main, change owner policy #807, or modify any source/ledger. A repository
@@ -42,8 +53,8 @@ under their own already authenticated GitHub CLI session:
 # negative ruleset tests and whether the admin lock already exists.
 pwsh -NoProfile -File scripts/Install-F139V18ReleaseRuleset.ps1
 
-# One-time bounded admin write, only after authorizing the reviewed ruleset:
-pwsh -NoProfile -File scripts/Install-F139V18ReleaseRuleset.ps1 -Apply
+# The one-time -Apply operation was completed in run #40708377855.
+# Do not reapply it. Use read-only inspection above to check configuration.
 ```
 
 The script refuses any changed main SHA, owner-policy drift, dirty/unqualified
