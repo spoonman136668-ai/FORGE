@@ -1,0 +1,77 @@
+name: F139 V17 original-owner read-only model attempt census
+on:
+  push:
+    branches:
+      - qualification/f139-v17-readonly-attempt-census-20261028
+    paths:
+      - .github/workflows/f139-v17-readonly-attempt-census.yml
+permissions:
+  contents: read
+jobs:
+  census:
+    if: github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Observe existing owner SQLite with read-only connection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v17-readonly-attempt-census-20261028') {
+            throw 'F139_V17_CENSUS_ORIGINAL_RUNNER_REQUIRED'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+              [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'F139_V17_CENSUS_OWNER_REQUIRED'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3) {
+            throw 'F139_V17_CENSUS_TASK_TOPOLOGY_DRIFT'
+          }
+          $m=[regex]::Match([string]$task.Actions[0].Arguments,
+                  '(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          if(-not $m.Success){throw 'F139_V17_CENSUS_DB_NOT_IDENTIFIED'}
+          $db=$m.Groups[1].Value
+          $pythonMatch=[regex]::Match([string]$task.Actions[0].Arguments,
+                  '(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if(-not $pythonMatch.Success){throw 'F139_V17_CENSUS_PYTHON_NOT_IDENTIFIED'}
+          $py=$pythonMatch.Groups[1].Value
+          Write-Host ('F139_V17_CENSUS_TASK_STATE=' + [string]$task.State)
+          @'
+          import json,pathlib,sqlite3,sys
+          uri=pathlib.Path(sys.argv[1]).resolve(strict=True).as_uri()+"?mode=ro"
+          db=sqlite3.connect(uri,uri=True)
+          db.row_factory=sqlite3.Row
+          try:
+              db.execute("PRAGMA query_only=ON")
+              check=db.execute("PRAGMA quick_check").fetchone()[0]
+              meta=dict(db.execute("SELECT schema,source_sha,enabled,legacy_suspended,head_seq,head_hash FROM meta WHERE id=1").fetchone())
+              wanted=["G3_DRAFT_ATTEMPTED","G3_DRAFT_AUTHENTICATED","MODEL_DRAFT_ATTEMPTED",
+                      "MODEL_DRAFT_AUTHENTICATED","FREE_REASONER_ATTEMPTED"]
+              counts={kind:db.execute("SELECT COUNT(*) FROM events WHERE kind=?",(kind,)).fetchone()[0]
+                      for kind in wanted}
+              stages={r["stage"]:r["n"] for r in db.execute(
+                  "SELECT stage,COUNT(*) AS n FROM tasks GROUP BY stage")}
+              free=[json.loads(r["payload"]) for r in db.execute(
+                  "SELECT payload FROM events WHERE kind='FREE_REASONER_ATTEMPTED' ORDER BY seq")]
+              scopes=[dict(lane=a.get("lane"),utc_day=a.get("utc_day"),target_commit=a.get("target_commit"),
+                           model=a.get("model")) for a in free]
+              transitions=[json.loads(r["payload"]).get("schema") for r in db.execute(
+                  "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
+              if check!="ok" or meta["source_sha"]!="d2f683e87a87245441ce34b20f80fc1cf6b98470":
+                  raise RuntimeError("F139_V17_CENSUS_ORIGINAL_V16_SOURCE_OR_INTEGRITY_FAILED")
+              print("F139_V17_CENSUS_READONLY="+json.dumps(
+                  dict(quick_check=check,source_sha=meta["source_sha"],event_head=meta["head_seq"],
+                       head_sha256=meta["head_hash"],model_counts=counts,free_scopes=scopes,
+                       task_stages=stages,last_transition=transitions[-1] if transitions else None),
+                  sort_keys=True,separators=(",",":")))
+              print("F139_V17_CENSUS_NO_MUTATION=PASS")
+          finally:
+              db.close()
+          '@ | & $py -B - $db
+          if($LASTEXITCODE -ne 0){throw 'F139_V17_CENSUS_READ_ONLY_FAILED'}
