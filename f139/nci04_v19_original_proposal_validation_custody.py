@@ -11,8 +11,9 @@ import hashlib
 import json
 from typing import Callable
 
-from f139.local_controller import Database, SingleOwner, canonical
+from f139.local_controller import Database, SingleOwner
 from f139.nci04_autonomy_feed import candidate_identity
+from f139.nci04_native_contract import canonical as candidate_canonical
 from f139.nci04_model_proposal import validate as validate_untrusted_proposal
 from f139.nci04_v19_original_one_shot_free_send import (
     KIND as SEND_KIND, SCHEMA as SEND_SCHEMA,
@@ -139,7 +140,7 @@ def audit_original_validated_proposals(db: Database) -> None:
                                       doc["native_path"],
                                       doc["source_after_sha256"])
                    != doc["candidate_identity"]
-                or hashlib.sha256(canonical(_record(doc))).hexdigest()
+                or hashlib.sha256(candidate_canonical(_record(doc))).hexdigest()
                    != doc["validation_record_sha256"]
                 or doc["candidate_identity"] in seen_identity
                 or doc["source_after_sha256"] in seen_after):
