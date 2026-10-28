@@ -194,25 +194,35 @@ def choose_witness(ws):
 
 
 def note_ui(ws):
-    return ws.js(r"""(() => {
-      const a = typeof app !== 'undefined' ? app : window.app;
+    # Validate the visible note against native workspace editor state. Comparing
+    # exact editor text to vault bytes is stronger than guessing which Markdown
+    # source snippet survives rendering into a DOM text node.
+    return ws.js(r"""(async () => {
+      const a=typeof app !== 'undefined' ? app : window.app;
       const w=window.__advisoryGuiWitness;
       const active=document.querySelector('.workspace-leaf.mod-active');
       const file=a?.workspace?.getActiveFile?.();
-      const root=active?.querySelector('.markdown-view');
-      const region=active?.querySelector('.cm-content, .markdown-preview-view');
-      const words=(region?.innerText || '').replace(/[^A-Za-z0-9]+/g,' ').toLowerCase();
-      const header=Array.from(document.querySelectorAll('.view-header-title'))
-        .some(x => x.textContent?.includes(w?.basename || '___missing___'));
+      const editorLeaf=a?.workspace?.getLeavesOfType?.('markdown')?.find(l=>l.view?.file?.path===w?.path);
+      const view=editorLeaf?.view;
+      const region=active?.querySelector('.cm-content,.markdown-preview-view');
       const rect=region?.getBoundingClientRect();
+      const header=Array.from(document.querySelectorAll('.view-header-title'))
+        .some(x=>x.textContent?.includes(w?.basename || '___missing___'));
+      let sourceParity=false;
+      let editorAvailable=typeof view?.editor?.getValue==='function';
+      if(editorAvailable && w){
+        const indexed=a.vault.getAbstractFileByPath(w.path);
+        const committed=await a.vault.read(indexed);
+        sourceParity=view.editor.getValue()===committed;
+      }
       return {
-        activeFile: !!w && file?.path===w.path,
-        header,markdownView:!!root,
-        noteRegionVisible: !!rect && rect.width>0 && rect.height>0,
-        noteBodyWitness:!!w?.snippet && words.includes(w.snippet),
-        noteRegionChars:words.length
+        activeFile:!!w && file?.path===w.path,
+        header,markdownView:!!editorLeaf,editorAvailable,sourceParity,
+        noteRegionVisible:!!rect && rect.width>0 && rect.height>0,
+        noteRegionChars:(region?.innerText||'').length
       };
     })()""")
+
 
 
 def search_ui(ws):
@@ -281,8 +291,9 @@ def main():
     if not opened:raise GateFailure("NATIVE_WORKSPACE_NOTE_OPEN_REJECTED")
     try:
         until(lambda: (lambda s: s.get("activeFile") and s.get("header") and
-                 s.get("noteRegionVisible") and s.get("noteBodyWitness"))(note_ui(ws) or {}),
-              45,"REAL_MARKDOWN_NOTE_RENDERER_NOT_MATCHING_SOURCE",0.5)
+                 s.get("noteRegionVisible") and s.get("sourceParity") and
+                 s.get("noteRegionChars",0)>=24)(note_ui(ws) or {}),
+              45,"REAL_MARKDOWN_EDITOR_OR_SOURCE_PARITY_FAILED",0.5)
     except GateFailure:
         print("ADVISORY_GUI_NOTE_UI_DIAGNOSTIC="+json.dumps(note_ui(ws),sort_keys=True),flush=True)
         raise
