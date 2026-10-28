@@ -117,7 +117,7 @@ class OriginalV19OnceWriterTests(unittest.TestCase):
         calls = []
         def witness():
             calls.append(1)
-            return len(calls) < 9
+            return len(calls) < 7
         with SingleOwner(self.mutex), patch(
                 "f139.nci04_v19_original_publication_once._write_draft",
                 side_effect=AssertionError("NO REMOTE CALL")):
