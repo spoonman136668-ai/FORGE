@@ -8,7 +8,7 @@ permissions:
 jobs:
   mpai147-targeted:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 7
+    timeout-minutes: 24
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONNOUSERSITE: '1'
@@ -41,6 +41,15 @@ jobs:
               & python -B -m unittest discover -s tests -p test_mpai_integrated_cycle.py -v
               if($LASTEXITCODE -ne 0) { throw 'MPAI_NEXT_CYCLE_INTEGRATION_FAIL' }
               Write-Output 'MPAI_NEXT_CYCLE_INTEGRATION=PASS'
+              & pwsh.exe -NoProfile -NonInteractive -File .\tests\Test-All.ps1
+              if($LASTEXITCODE -ne 0) { throw 'MPAI_NEXT_CYCLE_FULL_WINDOWS_REGRESSION_FAILED' }
+              Write-Output 'MPAI_NEXT_CYCLE_FULL_WINDOWS_REGRESSION=PASS'
+              & pwsh.exe -NoProfile -NonInteractive -File .\tools\mind.ps1 validate
+              if($LASTEXITCODE -ne 0) { throw 'MPAI_NEXT_CYCLE_STORE_VALIDATE_FAILED' }
+              Write-Output 'MPAI_NEXT_CYCLE_STORE_VALIDATION=PASS'
+              & pwsh.exe -NoProfile -NonInteractive -File .\tools\archive.ps1 validate
+              if($LASTEXITCODE -ne 0) { throw 'MPAI_NEXT_CYCLE_ARCHIVE_VALIDATE_FAILED' }
+              Write-Output 'MPAI_NEXT_CYCLE_ARCHIVE_VALIDATION=PASS'
               & python -B -c 'import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(encoding="utf-8")) for p in ("agentic/mpai_evidence_sufficiency.py","tests/test_mpai_evidence_sufficiency.py","agentic/mpai_feedback_replay.py","tests/test_mpai_feedback_replay.py")]'
               if($LASTEXITCODE -ne 0) { throw 'MPAI147_SYNTAX_FAIL' }
               if((Get-FileHash -Algorithm SHA256 $store).Hash.ToLowerInvariant() -cne $hash) { throw 'MPAI147_STORE_MUTATION' }
