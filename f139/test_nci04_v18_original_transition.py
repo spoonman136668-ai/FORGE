@@ -108,6 +108,7 @@ class OriginalV18TransitionSourceTests(unittest.TestCase):
             "FORGE-CODEX-REMOTE",
             "F139_V18_ORIGINAL_OWNER_NOT_QUIESCENT",
             "F139_V18_IMMUTABLE_RELEASE_REF_NOT_QUALIFIED",
+            "$release.protected -ne $true",
             "F139_V18_ORIGINAL_LEDGER_BACKUP=PASS",
             "build_v18_readonly_preflight",
             "transition-qualified-native-v18 --approval",
