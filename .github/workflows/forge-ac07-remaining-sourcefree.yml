@@ -7,6 +7,7 @@ on:
       - 'research/ac07_sourcefree/**'
       - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
       - 'docs/research/AC-10-DTR-SOURCE-NATIVE-COMPATIBILITY-PREFLIGHT.md'
+      - 'docs/research/AC-11-AUTHENTIC-DTR-DEPENDENCY-PUBLIC-SMOKE-PROTOCOL.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
   pull_request:
     branches:
@@ -15,6 +16,7 @@ on:
       - 'research/ac07_sourcefree/**'
       - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
       - 'docs/research/AC-10-DTR-SOURCE-NATIVE-COMPATIBILITY-PREFLIGHT.md'
+      - 'docs/research/AC-11-AUTHENTIC-DTR-DEPENDENCY-PUBLIC-SMOKE-PROTOCOL.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
 permissions:
   contents: read
@@ -29,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       AC10_UPSTREAM_ROOT: ${{ github.workspace }}/ac10_upstream
@@ -134,6 +136,43 @@ jobs:
           print("AC10_SOURCE_NATIVE_IMPORT_PREFLIGHT_COMPLETED")
           print("AC10_RUNTIME_IMPORT_STATUS="+r["import_probe"]["status"])
           PY
+      - name: AC-11 install original upstream dependencies and run constrained public smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac11_original_dtr.py --upstream "$AC10_UPSTREAM_ROOT" --out "$RUNNER_TEMP/ac07/ac11-report.json" --freeze "$RUNNER_TEMP/ac07/ac11-freeze.txt" --venv "$RUNNER_TEMP/ac11_venv"
+          python - "$RUNNER_TEMP/ac07/ac11-report.json" <<'PY'
+          import json,sys,hashlib,pathlib
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac11.original-dtr-public-compatibility.v1"
+          assert r["scope"]=="AUTHENTIC_SOURCE_PUBLIC_DEVELOPMENT_ONLY"
+          assert r["upstream_source_sha"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["upstream_tree_sha"]=="fd8d8a67c1fc7fa62274dc7e12fb1e77945632f0"
+          assert r["original_setup_py_used"] is True
+          assert r["full_declared_dependency_install_attempted"] is True
+          assert r["real_scientific_first_use"] is False
+          assert r["native_model_training_performed"] is False
+          assert r["accepted_model_or_controller_modified"] is False
+          assert r["reserved_fit_seeds_used"] is False
+          assert r["reserved_validation_seeds_used"] is False
+          assert r["reserved_dev_seeds_used"] is False
+          if r["public_development_smoke_status"]=="ACTUAL_SOURCE_PUBLIC_SMOKE_PASS":
+              assert r["source_owned_episodes_executed"]==2
+              assert r["source_owned_actions_executed"]==4
+              assert r["public_smoke"]["source_env_exposed_to_learner"] is False
+              assert r["public_smoke"]["learner_receives_unfiltered_info"] is False
+              print("AC11_AUTHENTIC_PUBLIC_SMOKE=PASS")
+          else:
+              print("AC11_AUTHENTIC_PUBLIC_SMOKE=BLOCKED")
+              print("AC11_BLOCKER="+str(r["installation_diagnostic"]))
+              if r["source_public_smoke_attempted"]:
+                  assert r["source_owned_episodes_executed"] is None
+                  assert r["source_owned_actions_executed"] is None
+              else:
+                  assert r["source_owned_episodes_executed"]==0
+                  assert r["source_owned_actions_executed"]==0
+          print("AC11_DIAGNOSTIC_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
       - name: Retain source-free evidence per operating system
         if: success()
         uses: actions/upload-artifact@v4
@@ -143,5 +182,7 @@ jobs:
             ${{ runner.temp }}/ac07/report.json
             ${{ runner.temp }}/ac07/portfolio.json
             ${{ runner.temp }}/ac07/ac10-report.json
+            ${{ runner.temp }}/ac07/ac11-report.json
+            ${{ runner.temp }}/ac07/ac11-freeze.txt
           retention-days: 30
           if-no-files-found: error
