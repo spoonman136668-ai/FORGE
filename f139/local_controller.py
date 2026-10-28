@@ -1703,6 +1703,15 @@ class Database:
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
+        # Deny V18->V19 before any historical task/custody processing.
+        # Without this early guard the generic task scan can obscure the
+        # missing owner mutex or absent one-time explicit V19 opt-in.
+        if self.meta()["source_sha"] == (
+                "d8bccc604f8607bf10f9d8bc6aa568d1f98af559"):
+            require(allow_v19 is True,
+                    "SOURCE_TRANSITION_V19_EXPLICIT_OPT_IN_REQUIRED")
+            require(SingleOwner.held(self.filename.with_suffix(".lock")),
+                    "SOURCE_TRANSITION_V19_ORIGINAL_MUTEX_REQUIRED")
         from f139.nci04_negative_owner_store import (
             SOURCE_SHA as SOURCE_696, TICKET as NEGATIVE_696,
             verify_original_negative_custody)
