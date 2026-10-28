@@ -99,9 +99,14 @@ def fusion_experiment():
     summary=lambda groups: [{"signature":list(key),"identities":identities}
                             for key,identities in groups.items()]
     early_bytes=len(json.dumps(summary(early),sort_keys=True))
-    mistaken_prediction_count=100  # half the identities have unseen delayed outcome.
+    # Before future labels become observable, a merged memory has no basis
+    # to distinguish members. Use an explicitly declared default-zero
+    # prediction; measure errors from withheld synthetic outcomes below.
+    default_future_prediction=0
     for i in range(200):
         items[f"h{i:03}"]["delayed"] = 0 if i<100 else 1
+    mistaken_prediction_count=sum(default_future_prediction!=record["delayed"]
+                                   for record in items.values())
     split=grouping(items)
     later_bytes=len(json.dumps(summary(split),sort_keys=True))
     roundtrip=json.loads(json.dumps(items,sort_keys=True))
@@ -109,6 +114,7 @@ def fusion_experiment():
             "fit_full_serialized_bytes":before_bytes,
             "fit_group_serialized_bytes":early_bytes,
             "unobserved_future_error_count":mistaken_prediction_count,
+            "future_prediction_policy":"default_zero_for_unobserved_outcome",
             "post_counterexample_groups":len(split),
             "post_counterexample_group_bytes":later_bytes,
             "cold_restart_history_roundtrip":roundtrip==items,
@@ -157,8 +163,14 @@ def credit_experiment():
     train_accuracy=sum(abs(trace[i]-rewards[i])<1e-9 for i in range(8))
     shifted=rewards[::-1]
     shift_accuracy=sum(abs(trace[i]-shifted[i])<1e-9 for i in range(8))
-    # A naive eligibility rule blames an unrelated coactivated cell.
-    spurious_credit=True
+    # A deliberately naive shared-eligibility update gives a coactivated
+    # but causally unrelated cell credit for the selected action reward.
+    # It is a negative control, not an intrinsic failure of the local estimator.
+    naive_credit=[0.0]*8
+    for a in range(8):
+        if rewards[a]:
+            naive_credit[(a+1)%8] += rewards[a]
+    spurious_credit=any(naive_credit[i]>0 for i in range(8) if rewards[i]==0)
     return {"fit_updates":reward_updates,"fit_action_reward_exact":train_accuracy,
             "matched_fitted_ema_parity":ema==trace,
             "shifted_family_action_reward_exact":shift_accuracy,
