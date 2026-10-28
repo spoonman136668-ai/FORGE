@@ -12,6 +12,9 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONNOUSERSITE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
     steps:
       - name: Verify exact candidate and synthetic test with no production writes
         shell: pwsh
@@ -41,6 +44,10 @@ jobs:
               & python -B -m unittest discover -s tests -p test_mpai_integrated_cycle.py -v
               if($LASTEXITCODE -ne 0) { throw 'MPAI_NEXT_CYCLE_INTEGRATION_FAIL' }
               Write-Output 'MPAI_NEXT_CYCLE_INTEGRATION=PASS'
+              $env:TEMP = Join-Path $scratch 'tmp'
+              $env:TMP = $env:TEMP
+              New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop | Out-Null
+              Write-Output 'MPAI_WINDOWS_SHORT_TEMP=ENABLED'
               & pwsh.exe -NoProfile -NonInteractive -File .\tests\Test-All.ps1
               if($LASTEXITCODE -ne 0) { throw 'MPAI_NEXT_CYCLE_FULL_WINDOWS_REGRESSION_FAILED' }
               Write-Output 'MPAI_NEXT_CYCLE_FULL_WINDOWS_REGRESSION=PASS'
