@@ -14,6 +14,10 @@ on:
       - 'cmd/forge-required-policy-check/**'
       - 'reference/governance/**'
       - '.github/workflows/forge-ruleset-readiness.yml'
+      - 'reference/governance/f139-owner-release-ref-ruleset-proposal.json'
+      - 'branchpolicy/f139_release_ref_ruleset_test.go'
+      - 'branchpolicy/f139_release_ref_installer_test.go'
+      - 'scripts/Install-F139V18ReleaseRuleset.ps1'
 permissions:
   contents: read
   checks: read
@@ -40,6 +44,20 @@ jobs:
         run: |
           set -euo pipefail
           go test -count=1 ./branchpolicy ./cmd/forge-required-policy-check
+      - name: Parse administrator handoff PowerShell without executing any operation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null
+          $parseErrors=$null
+          $path=Join-Path $env:GITHUB_WORKSPACE 'scripts/Install-F139V18ReleaseRuleset.ps1'
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              $path,[ref]$tokens,[ref]$parseErrors) | Out-Null
+          if(@($parseErrors).Count -ne 0) {
+            $parseErrors | ForEach-Object {Write-Error $_.Message}
+            throw 'F139_V18_ADMIN_SCRIPT_POWERSHELL_PARSE_FAILED'
+          }
+          Write-Host 'F139_V18_ADMIN_SCRIPT_PARSE_ONLY=PASS'
       - name: Verify actual GitHub Actions source and main job contexts
         shell: bash
         run: |
