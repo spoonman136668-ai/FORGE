@@ -1,0 +1,50 @@
+name: FORGE G62 exact-source private Graphify candidate
+on:
+  push:
+    branches: [qualification/forge-graphify-current-candidate-20261028]
+    paths:
+      - .github/workflows/source-standards-forge-current-candidate.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-current-graphify-candidate-20261028
+  cancel-in-progress: false
+
+jobs:
+  advisory-private-candidate:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    env:
+      RESEARCH_SCIENTIFIC_AUTHORITY: '0'
+      RESEARCH_PROMOTION_ALLOWED: '0'
+      KTRADE_LIVE_AUTHORITY: '0'
+      GRAPHIFY_QUERY_LOG_DISABLE: '1'
+      GRAPHIFY_QUERY_LOG_RESPONSES: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Checkout isolated exact one-shot harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify unmodified public source and unauthorized write prevention
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'self-hosted') { throw 'FORGE_CANDIDATE_WRONG_RUNNER' }
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'FORGE_CANDIDATE_HARNESS_DRIFT' }
+          if ($env:RESEARCH_SCIENTIFIC_AUTHORITY -cne '0' -or $env:RESEARCH_PROMOTION_ALLOWED -cne '0') { throw 'FORGE_CANDIDATE_AUTHORITY_UNSAFE' }
+          if (@(git status --porcelain=v1 --untracked-files=no).Count -ne 0) { throw 'FORGE_CANDIDATE_HARNESS_DIRTY' }
+          Write-Host 'FORGE_CANDIDATE_HARNESS_PIN=PASS'
+      - name: Generate current pinned source and publish to new private review branch only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tools/qualification/forge-graphify-refresh-candidate.ps1
+          if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'FORGE_CANDIDATE_SCRIPT_FAILED' }
+          Write-Host 'FORGE_PRIVATE_REVIEW_CANDIDATE_JOB=PASS'
