@@ -225,6 +225,19 @@ def search_state(ws):
       );
       const hits = view?.dom?.resultDomLookup;
       const target = a?.vault?.getAbstractFileByPath?.('002865cd06_test.go.md');
+      const container = view?.containerEl?.querySelector('.search-result-container');
+      const targetDom = target && hits?.get?.(target);
+      const targetEl = targetDom?.containerEl || targetDom?.el || targetDom?.dom?.containerEl;
+      const titleText = container?.textContent || '';
+      const resultTargetElements = container?.querySelectorAll(
+        '.search-result-file, .tree-item, .search-result-file-title') || [];
+      let visibleTargetElement = false;
+      for (const element of resultTargetElements) {
+        if (element.textContent?.includes('002865cd06_test.go')) {
+          const rect = element.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {visibleTargetElement = true; break;}
+        }
+      }
       let match = false;
       for (const node of titles) {
         if (node.textContent?.includes('002865cd06_test.go')) { match=true; break; }
@@ -240,6 +253,11 @@ def search_state(ws):
         nativeHitMapPresent: !!hits,
         nativeHitCount: hits?.size ?? null,
         nativeTargetHit: !!target && !!hits?.has?.(target),
+        nativeTargetDomPresent: !!targetDom,
+        nativeTargetElementConnected: !!targetEl?.isConnected,
+        rendererResultFilenamePresent: titleText.includes('002865cd06_test.go'),
+        rendererTargetVisible: visibleTargetElement,
+        rendererContainerChildCount: container?.children?.length ?? null,
         pluginOpenSearchAvailable: typeof a?.internalPlugins?.plugins?.['global-search']?.instance?.openGlobalSearch === 'function',
         inputMatches: input?.value === 'file:002865cd06',
         resultTitles: titles.length,
@@ -366,15 +384,25 @@ def main():
                   "=" + str(s.get(key)), flush=True)
         raise
     try:
-        until(lambda: bool((search_state(ws) or {}).get("resultMatch")),
-              90, "GUI_NATIVE_SEARCH_MATCH_NOT_RENDERED")
+        def actual_search_result():
+            s = search_state(ws) or {}
+            return bool(
+                s.get("nativeTargetHit") and s.get("inputMatches") and
+                s.get("rendererResultFilenamePresent") and
+                (s.get("rendererTargetVisible") or s.get("nativeTargetElementConnected"))
+            )
+
+        until(actual_search_result, 40, "GUI_NATIVE_SEARCH_RESULT_NOT_VISIBLE")
     except (GateFailure, TimeoutError, OSError):
         try:
             s = search_state(ws) or {}
             for key in ("pluginPresent", "searchLeafPresent", "setQueryAvailable",
                         "nativeQueryMatches", "nativeHitMapPresent",
-                        "nativeHitCount", "nativeTargetHit", "inputMatches",
-                        "resultContainerPresent", "resultTitles", "resultMatch"):
+                        "nativeHitCount", "nativeTargetHit", "nativeTargetDomPresent",
+                        "nativeTargetElementConnected", "rendererResultFilenamePresent",
+                        "rendererTargetVisible", "rendererContainerChildCount",
+                        "inputMatches", "resultContainerPresent",
+                        "resultTitles", "resultMatch"):
                 print("KTRADE_GUI_NATIVE_SEARCH_DIAGNOSTIC_" + key.upper() +
                       "=" + str(s.get(key)), flush=True)
         except (OSError, TimeoutError):
