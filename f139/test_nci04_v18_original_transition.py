@@ -6,6 +6,7 @@ SQLite mutation. The existing full-F139 regression still runs separately.
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 import unittest
 
 from f139.local_controller import Database, cli, v2_owner_terminal_release_guard
@@ -91,6 +92,44 @@ class OriginalV18TransitionSourceTests(unittest.TestCase):
         self.assertIn('verify_original_negative_custody(db)', source)
         self.assertIn('verify_second_negative_custody(db)', source)
         self.assertIn('verify_g49_custody(db)', source)
+
+    def test_one_time_guarded_windows_owner_release_is_separate_and_deny_by_default(self):
+        workflow = (Path(__file__).resolve().parent.parent /
+                    ".github/workflows/f139-g54-v9-owner-cutover.yml").read_text()
+        self.assertEqual(workflow.count("  cutover-v18:\\n"), 1)
+        begin = workflow.index("  cutover-v18:\\n")
+        end = workflow.index("  cutover-v17:\\n", begin)
+        part = workflow[begin:end]
+        for expected in (
+            "github.actor == 'spoonman136668-ai'",
+            "github.event.issue.number == 807",
+            "F139-V18-OWNER-CUTOVER ",
+            "$old='3775bed30891ff748197a539afe5b92813680e26'",
+            "FORGE-CODEX-REMOTE",
+            "F139_V18_ORIGINAL_OWNER_NOT_QUIESCENT",
+            "F139_V18_IMMUTABLE_RELEASE_REF_NOT_QUALIFIED",
+            "F139_V18_ORIGINAL_LEDGER_BACKUP=PASS",
+            "build_v18_readonly_preflight",
+            "transition-qualified-native-v18 --approval",
+            "F139_V18_ORIGINAL_SOURCE_CUTOVER=PASS",
+            "F139_V18_EXISTING_TASK_RESUMED=PASS",
+            "F139_V18_PARTIAL_CUSTODY_EXISTING_TASK_HELD_DISABLED",
+            "F139_V18_PAID_API_CALLS=0",
+            "F139_V18_SCIENTIFIC_FIRST_USE=FALSE",
+            "F139_V18_POLICY_SOURCE_PROMOTION_FAILED",
+            "F139_V18_SOURCE_PINNED_OWNER_POLICY_DRIFT",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, part)
+        for forbidden in (
+            "F139-V17-OWNER-CUTOVER ",
+            "transition-qualified-native-v17 --approval",
+            "Stop-Process -Force",
+            "F139_V17_",
+        ):
+            self.assertNotIn(forbidden, part)
+        self.assertIn("concurrency:\\n  group: forge-f139-g54-v9-owner-cutover",
+                      workflow)
 
     def test_original_cli_adds_no_automatic_release_or_worker(self):
         src = inspect.getsource(cli)
