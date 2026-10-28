@@ -135,6 +135,13 @@ class OriginalV18TransitionSourceTests(unittest.TestCase):
             "F139_V18_RELEASE_RULESET_NOT_UNIQUE_OR_ACTIVE",
             "F139_V18_RELEASE_RULESET_SCOPE_OR_BYPASS_DRIFT",
             "F139_V18_RELEASE_RULESET_LOCK_WEAKENED",
+            "F139_V18_LOCAL_OWNER_GH_IDENTITY_NOT_VERIFIED",
+            "F139_V18_ADMIN_READBACK_BYPASS_FIELD_UNAVAILABLE",
+            "$workflowToken=$env:GH_TOKEN",
+            "Remove-Item -Path Env:GH_TOKEN",
+            "gh api user --jq .login",
+            "$env:GH_TOKEN=$workflowToken",
+            "@($rule.PSObject.Properties.Name) -cnotcontains 'bypass_actors'",
             "FORGE F139 immutable owner release refs",
             "refs/heads/f139-owner-release-*",
             "@($rule.bypass_actors).Count -ne 0",
@@ -147,6 +154,13 @@ class OriginalV18TransitionSourceTests(unittest.TestCase):
         self.assertLess(
             part.index("F139_V18_RELEASE_REF_IMMUTABILITY=VERIFIED"),
             part.index("Disable-ScheduledTask"))
+        # The original owner must only read through its independently
+        # authenticated local admin gh CLI, then restore workflow issue-write.
+        self.assertLess(part.index("Remove-Item -Path Env:GH_TOKEN"),
+                        part.index("gh api (\"repos/spoonman136668-ai/FORGE/rulesets/\""))
+        self.assertLess(part.index("$env:GH_TOKEN=$workflowToken"),
+                        part.index("Disable-ScheduledTask"))
+
         self.assertIn("concurrency:\n  group: forge-f139-g54-v9-owner-cutover",
                       workflow)
 
