@@ -96,7 +96,7 @@ def inspect_upstream(root: Path) -> dict:
         raise RuntimeError("AC10_CANNOT_READ_AUTHENTIC_DTR_GIT_BLOB")
     dtr_blob=blob_proc.stdout
     if hashlib.sha1(
-        b"blob "+str(len(dtr_blob)).encode("ascii")+b"\\0"+dtr_blob
+        b"blob "+str(len(dtr_blob)).encode("ascii")+b"\0"+dtr_blob
     ).hexdigest()!=BLOBS["causal_gym/envs/dtr.py"]:
         raise RuntimeError("AC10_DTR_GIT_BLOB_CONTENT_DRIFT")
     dtr=(root/"causal_gym/envs/dtr.py").read_bytes()
