@@ -221,16 +221,27 @@ def one_original_free_send_source_only(
     # It is now permanently spent, BEFORE the external transport. The caller
     # never supplies its own HTTP URL/model and cannot regain a spent handoff.
     # infer_free_once guarantees exact free model, source and response bounds.
+    actual_calls = 0
+    def once_only_transport(body: bytes, supplied_token: str) -> bytes:
+        nonlocal actual_calls
+        # The original event has already committed; count even an
+        # ambiguous/failed transport. Any accidental second invocation is
+        # rejected in-process and original cold SQLite still denies replay.
+        if actual_calls != 0:
+            deny("SECOND_PROVIDER_SEND_WITH_SAME_ORIGINAL_HANDOFF")
+        actual_calls += 1
+        return transport(body, supplied_token)
+
     try:
         response = infer_free_once(
-            public_packet, token=token, transport=transport,
+            public_packet, token=token, transport=once_only_transport,
             public_reader=public_reader)
     except (FreeReasonerUnavailable, FreeReasonerDenied):
         return verdict("MODEL_SEND_FAILED_OR_AMBIGUOUS_NO_RETRY",
-                       seq=final_seq, sha=final_sha, called=1)
+                       seq=final_seq, sha=final_sha, called=actual_calls)
     except Exception:
         return verdict("MODEL_SEND_FAILED_OR_AMBIGUOUS_NO_RETRY",
-                       seq=final_seq, sha=final_sha, called=1)
+                       seq=final_seq, sha=final_sha, called=actual_calls)
     return verdict("ONE_MODEL_RESPONSE_UNTRUSTED_NO_PUBLICATION",
-                   seq=final_seq, sha=final_sha, called=1,
+                   seq=final_seq, sha=final_sha, called=actual_calls,
                    untrusted_response=response)
