@@ -116,7 +116,7 @@ class OriginalRequestColdVerifierTests(unittest.TestCase):
             old = self.db.meta().copy()
             second = {**first, "prior_event_head_sha256": old["head_hash"],
                       "utc_day": "2026-10-29"}
-            with self.assertRaisesRegex(Exception, "REPLAY|NOT_NEW"):
+            with self.assertRaisesRegex(Exception, "REPLAY|NOT_NEW|SCOPE_ALREADY_ATTEMPTED"):
                 self.append(second)
             self.assertEqual(self.db.meta(), old)
             self.db.verify()
