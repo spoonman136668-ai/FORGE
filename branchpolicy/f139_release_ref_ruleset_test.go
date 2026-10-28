@@ -34,6 +34,9 @@ func checkF139ReleaseRuleset(src []byte) error {
 	// complete CRLF pairs while rejecting stray CR or mixed newlines.
 	crlf := bytes.Contains(src, []byte("\r\n"))
 	if crlf {
+		if bytes.Count(src, []byte("\r\n")) != bytes.Count(src, []byte("\n")) {
+			return fmt.Errorf("mixed line endings in ruleset")
+		}
 		src = bytes.ReplaceAll(src, []byte("\r\n"), []byte("\n"))
 	}
 	if bytes.Contains(src, []byte("\r")) {
@@ -123,6 +126,13 @@ func TestF139OwnerReleaseRulesetRejectsWeakenings(t *testing.T) {
 		win := bytes.ReplaceAll(b, []byte("\n"), []byte("\r\n"))
 		if err := checkF139ReleaseRuleset(win); err != nil {
 			t.Fatalf("identical windows checkout rejected: %v",err)
+		}
+	})
+	t.Run("mixed_line_endings",func(t *testing.T){
+		win := bytes.ReplaceAll(b, []byte("\n"), []byte("\r\n"))
+		mixed := bytes.Replace(win, []byte("\r\n"), []byte("\n"),1)
+		if err := checkF139ReleaseRuleset(mixed); err == nil {
+			t.Fatal("mixed Windows/Unix line endings accepted")
 		}
 	})
 	t.Run("stray_cr",func(t *testing.T){
