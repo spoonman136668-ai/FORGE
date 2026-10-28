@@ -10,6 +10,7 @@ on:
       - 'docs/research/AC-11-AUTHENTIC-DTR-DEPENDENCY-PUBLIC-SMOKE-PROTOCOL.md'
       - 'docs/research/AC-12-GENUINE-UPSTREAM-IMPORT-REPAIR-PROTOCOL.md'
       - 'docs/research/AC-13-REAL-PYTORCH-TORCHVISION-REPAIR-PROTOCOL.md'
+      - 'docs/research/AC-14-AUTHENTIC-OGBENCH-IMPORT-PROTOCOL.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
   pull_request:
     branches:
@@ -21,6 +22,7 @@ on:
       - 'docs/research/AC-11-AUTHENTIC-DTR-DEPENDENCY-PUBLIC-SMOKE-PROTOCOL.md'
       - 'docs/research/AC-12-GENUINE-UPSTREAM-IMPORT-REPAIR-PROTOCOL.md'
       - 'docs/research/AC-13-REAL-PYTORCH-TORCHVISION-REPAIR-PROTOCOL.md'
+      - 'docs/research/AC-14-AUTHENTIC-OGBENCH-IMPORT-PROTOCOL.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
 permissions:
   contents: read
@@ -263,6 +265,52 @@ jobs:
           print("AC13_DEVELOPMENT_DIAGNOSTIC=PASS")
           print("AC13_EVIDENCE_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
           PY
+      - name: AC-14 verify authentic OGBench wheel and re-evaluate original DTR
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac14_ogbench.py --upstream "$AC10_UPSTREAM_ROOT" --venv "$RUNNER_TEMP/ac11_venv" --ac13-report "$RUNNER_TEMP/ac07/ac13-report.json" --out "$RUNNER_TEMP/ac07/ac14-report.json" --freeze "$RUNNER_TEMP/ac07/ac14-freeze.txt"
+          python - "$RUNNER_TEMP/ac07/ac14-report.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac14.original-ogbench-compatibility.v1"
+          assert r["scope"]=="AUTHENTIC_SOURCE_PUBLIC_ENGINEERING_ONLY"
+          assert r["original_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["original_tree"]=="fd8d8a67c1fc7fa62274dc7e12fb1e77945632f0"
+          assert r["original_dtr_sha256"]=="e31eff82f862355057653d150967bb44a5ed57a6acaad57f7ecf2a551f6c6811"
+          assert r["pypi_version"]=="1.2.1"
+          assert r["expected_wheel_sha256"]=="597ac2207935e4edc46de5d5742e940a753f2329e18612e9cfe7f9e857435f83"
+          assert r["source_files_modified"] is False
+          assert r["original_source_birth_signed"] is False
+          assert r["reserved_fit_valid_dev_used"] is False
+          assert r["unknown_family_used"] is False
+          assert r["native_model_trained"] is False
+          assert r["native_model_changed"] is False
+          assert r["scientific_first_use"] is False
+          assert r["scientific_admission"] is False
+          assert r["controller_or_f139_queue_changed"] is False
+          assert r["accepted_science_updated"] is False
+          if r["wheel_verified"]:
+              assert r["official_wheel_metadata"]["sha256"]==r["downloaded_wheel_sha256"]
+              assert r["downloaded_wheel_bytes"]==8940331
+          if r["smoke_status"]=="REAL_SOURCE_PUBLIC_SMOKE_PASS":
+              assert r["source_owned_public_episodes"]==2
+              assert r["source_owned_public_actions"]==4
+              assert r["actual_public_smoke"]["learner_receives_unfiltered_info"] is False
+              assert r["actual_public_smoke"]["source_env_exposed_to_learner"] is False
+              print("AC14_ORIGINAL_PUBLIC_SOURCE=PASS")
+          else:
+              print("AC14_ORIGINAL_PUBLIC_SOURCE=BLOCKED")
+              print("AC14_NEXT_BLOCKER="+str(r["error_class"]))
+              if r["smoke_attempted"]:
+                  assert r["source_owned_public_episodes"] is None
+                  assert r["source_owned_public_actions"] is None
+              else:
+                  assert r["source_owned_public_episodes"]==0
+                  assert r["source_owned_public_actions"]==0
+          print("AC14_ENGINEERING_DIAGNOSTICS=PASS")
+          print("AC14_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
       - name: Retain source-free evidence per operating system
         if: success()
         uses: actions/upload-artifact@v4
@@ -278,5 +326,7 @@ jobs:
             ${{ runner.temp }}/ac07/ac12-freeze.txt
             ${{ runner.temp }}/ac07/ac13-report.json
             ${{ runner.temp }}/ac07/ac13-freeze.txt
+            ${{ runner.temp }}/ac07/ac14-report.json
+            ${{ runner.temp }}/ac07/ac14-freeze.txt
           retention-days: 30
           if-no-files-found: error
