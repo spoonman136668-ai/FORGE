@@ -120,16 +120,19 @@ func TestF139OwnerReleaseRulesetRejectsWeakenings(t *testing.T) {
 			return append(p, []byte("{}")...)
 		},
 	}
-	// Source content has identical semantics on LF and Windows CRLF
-	// checkouts. A lone carriage return is never an accepted variant.
+	// Git can check out the fixture itself as CRLF on Windows.
+	// Normalize that checked-out baseline to LF BEFORE constructing a CRLF
+	// variant; otherwise an existing CRLF becomes CRCRLF in this test.
+	// The validator still rejects mixed endings and stray CR bytes.
+	lf := bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
 	t.Run("windows_crlf",func(t *testing.T){
-		win := bytes.ReplaceAll(b, []byte("\n"), []byte("\r\n"))
+		win := bytes.ReplaceAll(lf, []byte("\n"), []byte("\r\n"))
 		if err := checkF139ReleaseRuleset(win); err != nil {
 			t.Fatalf("identical windows checkout rejected: %v",err)
 		}
 	})
 	t.Run("mixed_line_endings",func(t *testing.T){
-		win := bytes.ReplaceAll(b, []byte("\n"), []byte("\r\n"))
+		win := bytes.ReplaceAll(lf, []byte("\n"), []byte("\r\n"))
 		mixed := bytes.Replace(win, []byte("\r\n"), []byte("\n"),1)
 		if err := checkF139ReleaseRuleset(mixed); err == nil {
 			t.Fatal("mixed Windows/Unix line endings accepted")
