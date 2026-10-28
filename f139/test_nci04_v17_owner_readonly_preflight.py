@@ -117,7 +117,7 @@ class OriginalOwnerV17ReadOnlyTests(unittest.TestCase):
         self.assertIn("verified_g54_ambiguous_start(db)", code)
         self.assertIn("db.ready() is None and not db.actives()", code)
         self.assertIn('"FREE_REASONER_ATTEMPTED"', inspect.getsource(module))
-        self.assertIn('counts["FREE_REASONER_ATTEMPTED"] == 2', code)
+        self.assertIn('v17_original_model_history_valid(counts)', code)
         self.assertNotIn("db.event(", code)
         self.assertNotIn("db.conn.execute(\"UPDATE", code)
         self.assertNotIn("requests.post(", inspect.getsource(module))
