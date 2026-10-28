@@ -117,12 +117,16 @@ class V19AtomicRehearsalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="v19-other-db-") as root:
             other = sqlite3.connect(str(Path(root) / "unsafe.sqlite"),
                                     isolation_level=None)
-            self.addCleanup(other.close)
-            with SingleOwner(self.mutex):
-                with self.assertRaisesRegex(
-                        ShadowDenied, "PERSISTENT_OR_ATTACHED_DATABASE_FORBIDDEN"):
-                    reserve_simulated(self.db, other, lane="Wingless",
-                                      utc_day="2026-10-28")
+            try:
+                with SingleOwner(self.mutex):
+                    with self.assertRaisesRegex(
+                            ShadowDenied, "PERSISTENT_OR_ATTACHED_DATABASE_FORBIDDEN"):
+                        reserve_simulated(self.db, other, lane="Wingless",
+                                          utc_day="2026-10-28")
+            finally:
+                # On Windows, close the SQLite file before TemporaryDirectory
+                # tries to remove it; do not mask the actual gate outcome.
+                other.close()
 
     def test_mutex_required_and_original_disabled_is_not_eligibility(self):
         self.genuine_terminal()
