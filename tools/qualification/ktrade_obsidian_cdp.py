@@ -228,6 +228,8 @@ def search_state(ws):
       const container = view?.containerEl?.querySelector('.search-result-container');
       const targetDom = target && hits?.get?.(target);
       const targetEl = targetDom?.containerEl || targetDom?.el || targetDom?.dom?.containerEl;
+      const leafRoot = view?.containerEl;
+      const leafRect = leafRoot?.getBoundingClientRect();
       const titleText = container?.textContent || '';
       const resultTargetElements = container?.querySelectorAll(
         '.search-result-file, .tree-item, .search-result-file-title') || [];
@@ -255,6 +257,11 @@ def search_state(ws):
         nativeTargetHit: !!target && !!hits?.has?.(target),
         nativeTargetDomPresent: !!targetDom,
         nativeTargetElementConnected: !!targetEl?.isConnected,
+        searchViewConnected: !!leafRoot?.isConnected,
+        searchViewVisible: !!leafRect && leafRect.width > 0 && leafRect.height > 0,
+        searchViewWidth: Math.round(leafRect?.width ?? 0),
+        searchViewHeight: Math.round(leafRect?.height ?? 0),
+        searchLeafIsActive: leaf?.getViewState?.()?.type === 'search',
         rendererResultFilenamePresent: titleText.includes('002865cd06_test.go'),
         rendererTargetVisible: visibleTargetElement,
         rendererContainerChildCount: container?.children?.length ?? null,
@@ -356,6 +363,16 @@ def main():
     if not trigger_native_search(ws):
         raise GateFailure("GUI_NATIVE_SEARCH_SETQUERY_REJECTED")
     print("KTRADE_GUI_NATIVE_SEARCH_QUERY_SUBMITTED=PASS", flush=True)
+    revealed = ws.js("""(async () => {
+      const a = typeof app !== 'undefined' ? app : window.app;
+      const leaf = a?.workspace?.getLeavesOfType?.('search')?.[0];
+      if (!leaf || typeof a.workspace.revealLeaf !== 'function') return false;
+      await a.workspace.revealLeaf(leaf);
+      return true;
+    })()""")
+    if not revealed:
+        raise GateFailure("GUI_NATIVE_SEARCH_VIEW_REVEAL_UNAVAILABLE")
+    print("KTRADE_GUI_NATIVE_SEARCH_LEAF_REVEALED=PASS", flush=True)
     state = search_state(ws) or {}
     if not state.get("inputMatches"):
         print("KTRADE_GUI_NATIVE_SETQUERY_INPUT_NOT_SYNCED=TRUE", flush=True)
@@ -399,7 +416,9 @@ def main():
             for key in ("pluginPresent", "searchLeafPresent", "setQueryAvailable",
                         "nativeQueryMatches", "nativeHitMapPresent",
                         "nativeHitCount", "nativeTargetHit", "nativeTargetDomPresent",
-                        "nativeTargetElementConnected", "rendererResultFilenamePresent",
+                        "nativeTargetElementConnected", "searchViewConnected",
+                        "searchViewVisible", "searchViewWidth", "searchViewHeight",
+                        "searchLeafIsActive", "rendererResultFilenamePresent",
                         "rendererTargetVisible", "rendererContainerChildCount",
                         "inputMatches", "resultContainerPresent",
                         "resultTitles", "resultMatch"):
