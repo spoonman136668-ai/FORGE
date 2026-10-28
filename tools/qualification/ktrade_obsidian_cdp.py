@@ -210,25 +210,48 @@ def ui_state(ws):
 
 
 def search_state(ws):
-    # Search can produce a very large result DOM; never read document.body.innerText
-    # or the complete result-container innerText during responsive polling.
+    # Read bounded native search state and a limited number of rendered titles.
+    # Never walk the entire 39,973-note DOM or report private note text.
     return ws.js("""(() => {
-      const input=document.querySelector('.search-input-container input');
-      const titles=document.querySelectorAll(
+      const a = typeof app !== 'undefined' ? app : window.app;
+      const leaf = a?.workspace?.getLeavesOfType?.('search')?.[0];
+      const view = leaf?.view;
+      const input = document.querySelector('.search-input-container input');
+      const titles = document.querySelectorAll(
         '.search-result-file-title, .search-result-file .tree-item-inner'
       );
-      let match=false;
-      for(const node of titles){
-        if(node.textContent?.includes('002865cd06_test.go')){match=true;break}
+      let match = false;
+      for (const node of titles) {
+        if (node.textContent?.includes('002865cd06_test.go')) { match=true; break; }
       }
       return {
-        ready: !!input,
+        pluginPresent: !!a?.internalPlugins?.plugins?.['global-search'],
+        searchLeafPresent: !!leaf,
+        setQueryAvailable: typeof view?.setQuery === 'function',
+        nativeQueryMatches: view?.query?.query === 'file:002865cd06' ||
+                            view?.query?.queryString === 'file:002865cd06' ||
+                            view?.query === 'file:002865cd06',
         inputMatches: input?.value === 'file:002865cd06',
         resultTitles: titles.length,
         resultMatch: match,
         resultContainerPresent: !!document.querySelector('.search-result-container')
       };
     })()""")
+
+
+def trigger_native_search(ws):
+    # Use the actual application's SearchView mechanism, not a value-only DOM
+    # mutation. Require a concrete search leaf and a native query setter.
+    return ws.js("""(async () => {
+      const a = typeof app !== 'undefined' ? app : window.app;
+      const leaf = a?.workspace?.getLeavesOfType?.('search')?.[0];
+      const view = leaf?.view;
+      if (!view || typeof view.setQuery !== 'function') return false;
+      const result = view.setQuery('file:002865cd06');
+      if (result?.then) await result;
+      return true;
+    })()""")
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -287,49 +310,40 @@ def main():
 
     start_search = time.monotonic()
     ws.key("f", "KeyF", 70, modifiers=3)
-    if not (search_state(ws) or {}).get("ready"):
+    if not (search_state(ws) or {}).get("searchLeafPresent"):
         result = ws.js(
             "typeof app!=='undefined' && !!app.commands.executeCommandById('global-search:open')"
         )
         if not result:
-            raise GateFailure("GUI_GLOBAL_SEARCH_COMMAND_UNAVAILABLE")
-    until(lambda: bool((search_state(ws) or {}).get("ready")),
-          10, "GUI_SEARCH_INPUT_NOT_RENDERED")
-    set_value = ws.js("""(() => {
-      const e = document.querySelector('.search-input-container input');
-      if (!e) return false;
-      e.focus();
-      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-      set.call(e, 'file:002865cd06');
-      e.dispatchEvent(new InputEvent('input', {
-        bubbles:true, inputType:'insertText', data:'file:002865cd06'
-      }));
-      e.dispatchEvent(new Event('change', {bubbles:true}));
-      return e.value === 'file:002865cd06';
-    })()""")
-    if not set_value:
-        raise GateFailure("GUI_GLOBAL_SEARCH_INPUT_ELEMENT_REJECTED_QUERY")
-    until(lambda: (search_state(ws) or {}).get("inputMatches"),
-          7, "GUI_SEARCH_INPUT_VALUE_NOT_RETAINED")
-    print("KTRADE_GUI_NATIVE_SEARCH_INPUT_UI_VALUE=PASS", flush=True)
+            raise GateFailure("GUI_NATIVE_SEARCH_COMMAND_UNAVAILABLE")
+    until(lambda: bool((search_state(ws) or {}).get("searchLeafPresent")),
+          15, "GUI_SEARCH_LEAF_NOT_OPEN")
+    native = search_state(ws) or {}
+    print("KTRADE_GUI_NATIVE_SEARCH_PLUGIN_PRESENT=" +
+          str(native.get("pluginPresent")), flush=True)
+    print("KTRADE_GUI_NATIVE_SEARCH_SETQUERY_AVAILABLE=" +
+          str(native.get("setQueryAvailable")), flush=True)
+    if not native.get("pluginPresent") or not native.get("setQueryAvailable"):
+        raise GateFailure("GUI_NATIVE_SEARCH_PLUGIN_OR_SETQUERY_MISSING")
+    if not trigger_native_search(ws):
+        raise GateFailure("GUI_NATIVE_SEARCH_SETQUERY_REJECTED")
+    print("KTRADE_GUI_NATIVE_SEARCH_QUERY_SUBMITTED=PASS", flush=True)
+    until(lambda: bool((search_state(ws) or {}).get("inputMatches")),
+          10, "GUI_NATIVE_QUERY_NOT_REFLECTED_IN_SEARCH_UI")
     try:
-        until(
-            lambda: (
-                (search_state(ws) or {}).get("resultTitles", 0) > 0
-                and bool((search_state(ws) or {}).get("resultMatch"))
-                and bool((search_state(ws) or {}).get("inputMatches"))
-            ),
-            90, "GUI_GLOBAL_SEARCH_NO_AUTHENTIC_RESULT"
-        )
-    except GateFailure:
+        until(lambda: bool((search_state(ws) or {}).get("resultMatch")),
+              90, "GUI_NATIVE_SEARCH_MATCH_NOT_RENDERED")
+    except (GateFailure, TimeoutError, OSError):
         try:
             s = search_state(ws) or {}
-            for key in ("ready", "inputMatches", "resultContainerPresent",
+            for key in ("pluginPresent", "searchLeafPresent", "setQueryAvailable",
+                        "nativeQueryMatches", "inputMatches", "resultContainerPresent",
                         "resultTitles", "resultMatch"):
-                print("KTRADE_GUI_SEARCH_DIAGNOSTIC_" + key.upper() +
+                print("KTRADE_GUI_NATIVE_SEARCH_DIAGNOSTIC_" + key.upper() +
                       "=" + str(s.get(key)), flush=True)
         except (OSError, TimeoutError):
-            print("KTRADE_GUI_SEARCH_DIAGNOSTIC_RENDERER_UNRESPONSIVE=TRUE", flush=True)
+            print("KTRADE_GUI_NATIVE_SEARCH_DIAGNOSTIC_RENDERER_UNRESPONSIVE=TRUE",
+                  flush=True)
         raise
     print("KTRADE_GUI_GLOBAL_SEARCH_RESULT=PASS", flush=True)
     print("KTRADE_GUI_SEARCH_SECONDS=" + str(round(time.monotonic()-start_search, 2)), flush=True)
