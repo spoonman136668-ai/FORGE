@@ -77,6 +77,20 @@ jobs:
               $matched = @($classes.Keys | Where-Object { $privateText -match $classes[$_] })
               if ($matched.Count -eq 0) { Write-Host 'MPGRAPH155_BOOTSTRAP_ERROR_CLASS=UNCLASSIFIED' }
               foreach ($category in $matched) { Write-Host ('MPGRAPH155_BOOTSTRAP_ERROR_CLASS=' + $category) }
+              Write-Host ('MPGRAPH155_PRIVATE_LOG_LENGTH=' + $privateText.Length)
+              Write-Host ('MPGRAPH155_PRIVATE_LOG_NEWLINES=' + @([regex]::Matches($privateText, '\n')).Count)
+              $PSForms = [ordered]@{
+                PARSER = '(?i)ParserError|Unexpected token|Missing closing'
+                POWERSHELL_RUNTIME = '(?i)CategoryInfo|FullyQualifiedErrorId|Exception:|RuntimeException'
+                NATIVE_EXIT = '(?i)exited with code|ExitCode|Process completed'
+                REMOTE_SNAPSHOT = '(?i)remote-snapshot\.ps1'
+                TEST_FILE = '(?i)Test-RemoteBootstrap\.ps1'
+                GIT_SUBPROCESS = '(?i)git\.exe|fatal:'
+                IO_EXCEPTION = '(?i)IOException|PathTooLongException|DirectoryNotFoundException'
+                PROTECTED_STATE = '(?i)\.ice|records\.json'
+                STDOUT_RESULT = 'Remote bootstrap bridge regression passed'
+              }
+              foreach ($tag in $PSForms.Keys) { if ($privateText -match $PSForms[$tag]) { Write-Host ('MPGRAPH155_BOOTSTRAP_LOG_FORM=' + $tag) } }
               $scriptLine = [regex]::Match($privateText, '(?i)Test-RemoteBootstrap\.ps1:(\d+)')
               if ($scriptLine.Success) { Write-Host ('MPGRAPH155_REMOTE_FAILURE_SOURCE_LINE=' + $scriptLine.Groups[1].Value) }
               $safeTypes = [ordered]@{
