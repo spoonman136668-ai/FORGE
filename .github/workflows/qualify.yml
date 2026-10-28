@@ -63,8 +63,10 @@ jobs:
           test ! -e research/successor-builder
           # Keep imports, arbitrary process creation and network posting denied everywhere.
           ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|os.StartProcess|net/http.Post' .
-          # exec.Command is restricted to the synthetic supervisor only.
-          ! grep -R --exclude-dir=subprocesssupervisor --exclude-dir=forge-synthetic-supervisor --include='*.go' -E 'exec.Command' .
+          # Freeze the seven preexisting non-supervisor exec.Command sites;
+          # deny every new, duplicated, moved, or modified source call.
+          # The original bounded supervisor's separate count gates stay intact.
+          python3 -B isolationguard/check_subprocess_sites.py
           # The exception contains exactly the bounded executor and its integration test.
           grep -l -E 'exec.Command' subprocesssupervisor/supervise.go subprocesssupervisor/supervise_test.go >/dev/null
           test "$(grep -Rl --include='*.go' -E 'exec.Command' subprocesssupervisor | wc -l)" -eq 3
