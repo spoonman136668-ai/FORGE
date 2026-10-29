@@ -219,6 +219,50 @@ def execute_v2_development(admission: NativeAdmission, native_root: Path,
     return receipt, bool(receipt["native_qualified"])
 
 
+
+def execute_v3_development(admission: NativeAdmission, native_root: Path,
+                           scratch: Path, output: Path):
+    """New native V3 candidate producer inside the ORIGINAL worker module.
+
+    No V1/V2 contract changes. A genuine original-owner V3-specific signature
+    and GitHub authorization job must precede any call to this function.
+    Until the source-specific original signer and provider verifier are added,
+    the report is ALWAYS negative and cannot be a production terminal.
+    """
+    from f139.nci04_worker_v3 import run_v3, receipt_v3, TARGET
+    require(isinstance(admission, NativeAdmission)
+            and admission.lane == admission.intent.lane == "Yggdrasil"
+            and admission.intent.path == TARGET
+            and admission.runner_os in ("ubuntu-latest", "windows-latest")
+            and ((os.name == "nt") == (admission.runner_os == "windows-latest")),
+            "V3_ORIGINAL_SIGNED_ADMISSION_REQUIRED")
+    require(os.environ.get("F139_NATIVE_PROTOCOL") == "v3"
+            and os.environ.get("F139_NATIVE_V3_AUTHORIZATION_PASSED") == "true",
+            "V3_AUTHORIZED_SOURCE_ROUTE_MISSING")
+    require(not any(os.environ.get(k) for k in (
+        "F139_WORKER_HMAC_KEY", "GH_TOKEN", "GITHUB_TOKEN",
+        "OPENAI_API_KEY", "CLOUDFLARE_API_TOKEN")),
+        "V3_SIGNER_OR_API_CREDENTIAL_EXPOSURE")
+    require(native_root.is_dir() and not native_root.is_symlink()
+            and scratch.is_dir() and not scratch.is_symlink()
+            and output.is_dir() and not output.is_symlink()
+            and not any(output.iterdir()),
+            "V3_OUTPUT_OR_ROOT_ISOLATION_INVALID")
+    report = run_v3(admission.intent, native_root, scratch,
+                    oslabel=admission.runner_os)
+    receipt = receipt_v3(admission, report)
+    for name, obj in (
+        ("f139-v3-native-report.json", report),
+        ("f139-v3-native-receipt.json", receipt),
+    ):
+        with (output / name).open("xb") as stream:
+            stream.write(canonical(obj))
+            stream.flush()
+            os.fsync(stream.fileno())
+    # No positive dispatch outcome until real resource + original owner custody.
+    return receipt, False
+
+
 def cli():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="verb", required=True)
