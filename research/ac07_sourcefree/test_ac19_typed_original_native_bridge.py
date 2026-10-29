@@ -42,9 +42,21 @@ class AC19Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"TERMINAL_MASK"):
             a.decode_after(b)
         b=a.encode_before(0,0,1)
-        b[6]=1
+        b[0]=1  # reserved outside original site-5 neighborhood
         with self.assertRaisesRegex(ValueError,"INVALID_TYPED_BEFORE_BITS"):
             a.decode_before(b)
+
+    def test_all_public_contexts_accessible_within_original_reward_cell_one_hop(self):
+        local={}
+        for stage in (0,1):
+            for observation in (0,1):
+                for action in (0,1):
+                    b=a.encode_before(stage,observation,action)
+                    # Original LocalTaskRuntime site 5 sees self and neighbors 4,6.
+                    local[(stage,observation,action)]=(b[4],b[5],b[6])
+        self.assertEqual(len(set(local.values())),8)
+        self.assertEqual(a.ensure_exhaustive_roundtrips()[
+            "native_reward_cell_one_hop_distinguishable_public_inputs"],8)
 
     def test_no_outcome_target_leakage_into_native_inputs(self):
         def event(y):
