@@ -41,7 +41,8 @@ git -C "$RUNNER_TEMP/mg06/yggdrasil" fetch --no-tags --depth 1 origin b27372e6c6
 git -C "$RUNNER_TEMP/mg06/yggdrasil" checkout --detach -q b27372e6c670166749dc3dc41ab6cfe9b263292f
 test "$(git -C "$RUNNER_TEMP/mg06/yggdrasil" hash-object research/native/itd02/r10/public_adapter.py)" = 3917d36ce9f86a2c1b998a0a2f93fb27674a9205
 test "$(git -C "$RUNNER_TEMP/mg06/yggdrasil" hash-object research/native/itd02/r11/affordance_cells.py)" = 614c7dfb1b43f485009b70cb85e9b7b5119cafc2
-test "$(git -C "$RUNNER_TEMP/mg06/yggdrasil" hash-object research/native/itd02/r12/outcome_choice.py)" = 2d19b28d6d4db1988ae908fe91be1a27ce4c1907\ntest "$(git -C "$RUNNER_TEMP/mg06/yggdrasil" hash-object research/native/itd02/r13/explore_choice.py)" = 51c421fbd34b5e88e02bf89acab0de7b11eee1c9
+test "$(git -C "$RUNNER_TEMP/mg06/yggdrasil" hash-object research/native/itd02/r12/outcome_choice.py)" = 2d19b28d6d4db1988ae908fe91be1a27ce4c1907
+test "$(git -C "$RUNNER_TEMP/mg06/yggdrasil" hash-object research/native/itd02/r13/explore_choice.py)" = 51c421fbd34b5e88e02bf89acab0de7b11eee1c9
 
 git init -q "$RUNNER_TEMP/mg06/collector"
 git -C "$RUNNER_TEMP/mg06/collector" remote add origin https://github.com/spoonman136668-ai/Yggdrasil.git
