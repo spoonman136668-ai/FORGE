@@ -18,6 +18,11 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
     steps:
+      - name: Exact Git source newline before checkout
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
       - name: Checkout prospective frozen MG20 source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -73,6 +78,8 @@ jobs:
             --go-binary "$ROOT/mg20-probe.exe" \
             --output "$ROOT/receipt.json"
           test -s "$ROOT/receipt.json"
+          echo MG20_POSTSOURCE_GIT_STATUS_START
+          git status --porcelain --untracked-files=all
           test -z "$(git status --porcelain --untracked-files=all)"
           echo MG20_QUARANTINED_SOURCE_NO_TRAINING_ORIGINAL_MISSION_SOURCE_GATE_PASS
       - name: Preserve authenticated read-only source comparison
