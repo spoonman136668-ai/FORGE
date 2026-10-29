@@ -1,0 +1,76 @@
+name: F139 V19 G31 read-only cross-OS diagnostic contract
+on:
+  push:
+    branches: [research/f139-v19-g31-dual-custody-contract-20261029]
+    paths:
+      - f139/nci04_v19_g31_diagnostic_reconcile.py
+      - f139/test_nci04_v19_g31_diagnostic_reconcile.py
+      - .github/workflows/f139-v19-g31-diagnostic-contract.yml
+permissions:
+  contents: read
+concurrency:
+  group: f139-v19-g31-readonly-contract
+  cancel-in-progress: false
+jobs:
+  source-only-contract:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/research/f139-v19-g31-dual-custody-contract-20261029' &&
+      github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Enforce exact stacked source-only changes
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parent = '21a28b17ed5c0d544bec924d85cc2f74c7454ae3'
+          $sha = (& git rev-parse HEAD | Out-String).Trim()
+          if ($sha -cne $env:GITHUB_SHA) { throw 'F139_G31_SHA_DRIFT' }
+          & git merge-base --is-ancestor $parent HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F139_G31_PARENT_NOT_ANCESTOR' }
+          $files = @(& git diff --name-only $parent HEAD | Sort-Object)
+          $expected = @(
+            '.github/workflows/f139-v19-g31-diagnostic-contract.yml',
+            'f139/nci04_v19_g31_diagnostic_reconcile.py',
+            'f139/test_nci04_v19_g31_diagnostic_reconcile.py'
+          ) | Sort-Object
+          if (($files -join '|') -cne ($expected -join '|')) {
+            throw ('F139_G31_SOURCE_SCOPE_DRIFT=' + ($files -join ','))
+          }
+          if (@(& git status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_G31_DIRTY_CHECKOUT'
+          }
+          if ($env:OPENAI_API_KEY -or $env:GH_TOKEN -or $env:F139_WORKER_HMAC_KEY) {
+            throw 'F139_G31_CREDENTIAL_EXPOSURE'
+          }
+          Write-Output 'F139_G31_EXACT_THREE_PATH_SOURCE_SCOPE=PASS'
+      - name: Execute inert schema and false-success controls
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & python -B -m unittest f139.test_nci04_v19_g31_diagnostic_reconcile -v
+          if ($LASTEXITCODE -ne 0) { throw 'F139_G31_CONTRACT_NEGATIVE_TESTS_FAILED' }
+          & python -B -c "import ast,pathlib; [ast.parse(pathlib.Path(p).read_text('utf-8')) for p in ['f139/nci04_v19_g31_diagnostic_reconcile.py','f139/test_nci04_v19_g31_diagnostic_reconcile.py']]"
+          if ($LASTEXITCODE -ne 0) { throw 'F139_G31_SOURCE_COMPILATION_FAILED' }
+          Write-Output 'F139_G31_SOURCE_ONLY_TESTS=PASS'
+          Write-Output 'F139_G31_SIGNED_NATIVE_WORKER=NOT_QUALIFIED'
+          Write-Output 'F139_G31_ORIGINAL_OWNER_CONSUMPTION=NOT_QUALIFIED'
+          Write-Output 'F139_G31_ORIGINAL_WINDOWS_RESOURCE=NEGATIVE_RETAINED'
+          Write-Output 'F139_G31_SCIENTIFIC_FIRST_USE=FALSE'
