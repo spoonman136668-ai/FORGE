@@ -1,0 +1,104 @@
+name: MP-AI05 P11 original Windows retrieval failure diagnosis
+on:
+  push:
+    branches: [proposal/mpai05-p11-retrieval-diagnosis-20261029]
+    paths: ['.github/workflows/mpai05-p11-retrieval-diagnosis.yml']
+permissions:
+  contents: read
+jobs:
+  p11-original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source-pinned real corpus field coverage and P10 retrieval diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'MPAI05_P11_WRONG_ORIGINAL_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P11_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P11_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'MPAI05_P11_WORKFLOW_HEAD_DRIFT'}
+          $blobs=@{
+            'tools/mpai05_p9_dataset_freeze.py'='2c2100c53c001d28843bc2da664c3e92d413e2e6'
+            'tools/mpai05_p10_public_development.py'='7bd698e3265cc41ee4d286461980d7586a25ac99'
+            'tools/mpai05_p11_diagnose.py'='0a2a97dd6b8ce5ef0f372ce897b5a9c0bf13a3ef'
+            'tests/test_mpai05_p11_diagnose.py'='1ebca9eccf9f2172468331813c610236a745cc23'
+          }
+          foreach($path in $blobs.Keys){
+            $actual=(git rev-parse ('HEAD:'+$path)).Trim()
+            if($LASTEXITCODE -ne 0 -or $actual -cne $blobs[$path]){
+              throw 'MPAI05_P11_SOURCE_PIN_DRIFT'
+            }
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-p11-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $env:RUNNER_TEMP ('mpai05-p11-private-'+$env:GITHUB_RUN_ID+'.log')
+          $env:MPAI05_P11_SCRATCH=$scratch
+          try{
+            if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $private)){
+              throw 'MPAI05_P11_SCRATCH_COLLISION'
+            }
+            & python -B -m unittest discover -s tests -p test_mpai05_p11_diagnose.py -v *> $private
+            $testExit=$LASTEXITCODE
+            $raw=Get-Content -Raw -LiteralPath $private
+            if($testExit -ne 0 -or $raw -notmatch 'Ran 8 tests' -or $raw -notmatch '(?m)^OK(?:\s|$)'){
+              throw 'MPAI05_P11_FOCUSED_FAIL_PRIVATE_LOG'
+            }
+            Write-Output 'MPAI05_P11_FOCUSED_TESTS=8_PASS'
+            Remove-Item -LiteralPath $private -Force
+            & python -B tools/mpai05_p11_diagnose.py *> $private
+            $code=$LASTEXITCODE
+            $raw=Get-Content -Raw -LiteralPath $private
+            if($code -ne 0){
+              $m=[regex]::Match($raw,'MPAI05_P11_SAFE_FAILURE=(MPAI05_P11_[A-Z0-9_]+|PRIVATE_EXCEPTION)')
+              if($m.Success){Write-Output ('MPAI05_P11_FAILURE_CLASS='+$m.Groups[1].Value)}
+              $phase=[regex]::Match($raw,'MPAI05_P11_SAFE_PHASE=([A-Z_]+)')
+              if($phase.Success){Write-Output ('MPAI05_P11_FAILURE_STAGE='+$phase.Groups[1].Value)}
+              throw 'MPAI05_P11_SOURCE_DIAGNOSIS_FAILED_PRIVATE_LOG'
+            }
+            foreach($marker in @(
+             'MPAI05_P11_PUBLIC_DEVELOPMENT_ONLY=TRUE',
+             'MPAI05_P11_DATASET_COHORT_SHA256=103dbf87dda69f03b32f4c6a3a987b5ab5b7a8d3c3ceeb11f223ad5cf358ae52',
+             'MPAI05_P11_OFFICIAL_SCORE_DENOMINATOR=11',
+             'MPAI05_P11_UNSCORABLE_CASES=5',
+             'MPAI05_P11_DIAG_CASE_COUNT=16',
+             'MPAI05_P11_LITERAL_TEST_NOT_SEMANTIC_GRADING=TRUE',
+             'MPAI05_P11_LOCAL_MODEL_CALLS=0',
+             'MPAI05_P11_SCIENTIFIC_ACCEPTANCE=FALSE',
+             'MPAI05_P11_PRODUCTION_WRITES=0',
+             'MPAI05_P11_SOURCE_CUSTODY=PASS')){
+              if(-not $raw.Contains($marker)){throw 'MPAI05_P11_DIAGNOSIS_RECEIPT_INCOMPLETE'}
+            }
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI05_P11_(?:STRUCT|DIAG|FIELD|UNUSED_FIELD)_[A-Z0-9_]+=([0-9]+)$'){
+                 Write-Output $line
+              }
+              elseif($line -match '^MPAI05_P11_(PUBLIC_DEVELOPMENT_ONLY|DATASET_COHORT_SHA256|OFFICIAL_SCORE_DENOMINATOR|UNSCORABLE_CASES|IGNORED_NONEMPTY_STRING_FIELD_TOTAL|LITERAL_TEST_NOT_SEMANTIC_GRADING|LOCAL_MODEL_CALLS|SCIENTIFIC_ACCEPTANCE|PRODUCTION_WRITES|SOURCE_CUSTODY)=(TRUE|FALSE|PASS|[0-9]+|[a-f0-9]{64})$'){
+                 Write-Output $line
+              }
+            }
+            $dirty=@(git status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_P11_FORGE_CHECKOUT_MUTATED'}
+            Write-Output 'MPAI05_P11_FORGE_SOURCE_UNCHANGED=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI05_P11_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $private){Remove-Item -LiteralPath $private -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_P11_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
