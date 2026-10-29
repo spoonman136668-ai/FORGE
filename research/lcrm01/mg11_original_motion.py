@@ -242,6 +242,7 @@ def episode(role,seed,trained,binary,p):
         seen=set()
         time_start=time.perf_counter()
         cpu_start=time.process_time()
+        child_before=resource.getrusage(resource.RUSAGE_CHILDREN)
         for index in range(p["DEV"]["limit"]):
             public=source.normalize(collector,owner,raw)
             if public!=adapter.current:raise ValueError("MG11_UNORIGINAL_PUBLIC_STATE")
@@ -340,9 +341,19 @@ def episode(role,seed,trained,binary,p):
             "forward_while_held":forward_held,"front_door_while_held":front_held,
             "source_visible_door_openings":doors,"source_goal_rewards":goals,
             "distinct_public_views":len(seen),
+            "distinct_action_ids":len({e["actual_original_source_action"] for e in events}),
+            "same_heading_scene_change_count":sum(
+                e["public_before"]["direction"]==e["public_after"]["direction"] and
+                e["public_before"]["image"]!=e["public_after"]["image"] for e in events),
+            "heading_change_count":sum(
+                e["public_before"]["direction"]!=e["public_after"]["direction"] for e in events),
             "episode_host_wall_s":round(time.perf_counter()-time_start,6),
             "episode_python_cpu_only_s":round(time.process_time()-cpu_start,6),
-            "go_child_cpu_included":False,
+            "go_child_cpu_included":True,
+            "go_child_cpu_s":round(resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime+
+                resource.getrusage(resource.RUSAGE_CHILDREN).ru_stime-
+                child_before.ru_utime-child_before.ru_stime,6),
+            "go_child_max_rss_kib":resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
             "cold_checkpoint_sha256":sha(checkpoint),"real_source_events":events}
     finally:
         env.close()
@@ -362,7 +373,8 @@ def run(binary,p):
     summary={}
     fields=("original_live_selected_steps","source_key_pickups","source_key_drops",
             "forward_while_held","front_door_while_held","source_visible_door_openings",
-            "source_goal_rewards","distinct_public_views")
+            "source_goal_rewards","distinct_public_views","distinct_action_ids",
+            "same_heading_scene_change_count","heading_change_count")
     for role in ROLES:
         arms=[r for r in rows if r["role"]==role]
         summary[role]={name:sum(r[name] for r in arms) for name in fields}
@@ -374,7 +386,9 @@ def run(binary,p):
     resources=[{"role":row["role"],"seed":row["seed_evaluator_only"],
                 "episode_host_wall_s":row.pop("episode_host_wall_s"),
                 "episode_python_cpu_only_s":row.pop("episode_python_cpu_only_s"),
-                "go_child_cpu_included":row.pop("go_child_cpu_included")}
+                "go_child_cpu_included":row.pop("go_child_cpu_included"),
+                "go_child_cpu_s":row.pop("go_child_cpu_s"),
+                "go_child_max_rss_kib":row.pop("go_child_max_rss_kib")}
                for row in rows]
     met=all(summary[role]["source_goal_rewards"]>=1 for role in ROLES[:2])
     evidence={"original_upstream_farama":p["parent"]["original_farama"],
@@ -409,7 +423,7 @@ def main():
     report["host_wall_s"]=round(time.perf_counter()-start,6)
     report["host_python_cpu_only_s"]=round(time.process_time()-cpu,6)
     report["host_max_rss_kib"]=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    report["go_child_CPU_excluded_from_python_CPU_measure"]=True
+    report["go_child_CPU_separately_reported_from_python_CPU"]=True
     a.output.write_text(json.dumps(report,sort_keys=True,indent=2,allow_nan=False)+"\n")
     print("MG11_CLASSIFICATION",report["classification"])
     print("MG11_ORIGINAL_SOURCE_SHA",report.get("canonical_original_source_sha256","NONE"))
