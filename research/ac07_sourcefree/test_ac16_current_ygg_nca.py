@@ -3,9 +3,16 @@
 Fixtures below test our boundaries only; no fake DTR evidence is emitted.
 """
 import unittest
-import torch
-import ac16_current_ygg_nca as ac
+try:
+    import torch
+    import ac16_current_ygg_nca as ac
+except ModuleNotFoundError as exc:
+    if exc.name != "torch":
+        raise
+    torch = None
+    ac = None
 
+@unittest.skipIf(torch is None, "AC16 original torch tests require isolated pinned CPU venv")
 class AC16Tests(unittest.TestCase):
     def test_pinned_current_actual_native_src(self):
         self.assertEqual(ac.ACTIVE_YGG_SHA,"92c421a5475a27015a390efb88c373eb5f15379d")
