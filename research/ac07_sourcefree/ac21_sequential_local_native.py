@@ -210,7 +210,8 @@ def run(ygg: Path, source: Path, parent15: Path, parent18: Path):
     for episode in dev["episodes"]:
         bits, truth, writes = public_episode_bits(episode)
         key = tuple(bits[3:7])
-        count = full_counts[key]
+        # Missing DEV contexts must never insert entries into FIT state.
+        count = full_counts.get(key, (0, 0))
         n = sum(count)
         native_p = two_site_score(native, bits)
         if native_p != two_site_score(restored, bits):
