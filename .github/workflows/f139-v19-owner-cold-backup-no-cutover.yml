@@ -1,0 +1,185 @@
+name: FORGE F139 V19 original-owner cold backup without cutover
+on:
+  push:
+    branches: [qualification/f139-v19-cold-backup-no-cutover-20261029]
+    paths: [.github/workflows/f139-v19-owner-cold-backup-no-cutover.yml]
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: f139-v19-owner-backup-no-cutover-20261029
+  cancel-in-progress: false
+jobs:
+  original-backup:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-cold-backup-no-cutover-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Original V18 read-only attestation, SQLite online backup, cold verify and evidence archive custody
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-cold-backup-no-cutover-20261029' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY) {
+            throw 'F139_BACKUP_WRONG_ORIGINAL_OWNER_OR_PAID_API'
+          }
+          $parent=(& git rev-parse 'HEAD^' | Out-String).Trim()
+          $changed=@(& git diff --name-only 'HEAD^' 'HEAD')
+          if ($LASTEXITCODE -ne 0 -or
+              $parent -cne '694588b693ed91187f1a15eacd842c1adc798b61' -or
+              $changed.Count -ne 1 -or
+              $changed[0] -cne '.github/workflows/f139-v19-owner-cold-backup-no-cutover.yml') {
+            throw 'F139_BACKUP_SOURCE_SCOPE_NOT_VERIFIED'
+          }
+          $blob=(& git rev-parse 'HEAD:f139/nci04_v19_original_release_readonly_preflight.py' | Out-String).Trim()
+          if ($blob -cne '5599b50fce67d24a13e2daedf0840f1ed15ec651') {
+            throw 'F139_BACKUP_READONLY_HELPER_NOT_QUALIFIED'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ([string]$task.State -cnotin @('Running','Ready') -or
+              @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+              [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ine 'powershell.exe') {
+            throw 'F139_BACKUP_ORIGINAL_TASK_DRIFT'
+          }
+          $text=[string]$task.Actions[0].Arguments
+          $dbm=[regex]::Match($text,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          $pym=[regex]::Match($text,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if (-not $dbm.Success -or -not $pym.Success) { throw 'F139_BACKUP_TASK_ARGUMENT_DRIFT' }
+          $db=[string]$dbm.Groups[1].Value
+          $py=[string]$pym.Groups[1].Value
+          if ([IO.Path]::GetFullPath($db) -ine
+              [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+              -not(Test-Path -LiteralPath $py -PathType Leaf)) {
+            throw 'F139_BACKUP_ORIGINAL_PATH_DRIFT'
+          }
+          $before=& $py -B -m f139.nci04_v19_original_owner_nowrite_probe --db $db
+          if ($LASTEXITCODE -ne 0) { throw 'F139_BACKUP_ORIGINAL_PREWITNESS_DENIED' }
+          $pre=($before | Out-String | ConvertFrom-Json)
+          if ($pre.disposition -cne 'ORIGINAL_V18_AND_V19_RELEASE_SOURCE_READONLY_ONLY' -or
+              $pre.candidate_source_sha -cne 'ea2d1c99d7afc1e991510d51168dd010a0b56ec5') {
+            throw 'F139_BACKUP_ORIGINAL_PREWITNESS_SOURCE_DRIFT'
+          }
+          $target=Join-Path (Join-Path (Split-Path -Parent $db) 'v19-custody-backups') ('v19-cold-'+$env:GITHUB_RUN_ID)
+          @'
+          import hashlib,json,os,pathlib,shutil,sqlite3,sys,tempfile
+          from f139.local_controller import Database
+          from f139.nci04_negative_owner_store import TICKET as A, RUN_ID as AR, ARTIFACT_SHA as AH
+          from f139.nci04_split_negative_custody import TICKET as B, RUN_ID as BR, ARTIFACT_SHA256 as BH
+          source=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          owner=source.parent.resolve(strict=True)
+          target=pathlib.Path(sys.argv[2])
+          assert source==owner/'state.sqlite' and target.parent.parent==owner, 'BACKUP_OWNER_PATH_MISMATCH'
+          assert not owner.is_symlink() and not target.exists() and not target.is_symlink(), 'BACKUP_DESTINATION_UNSAFE'
+          target.parent.mkdir(exist_ok=True)
+          assert not target.parent.is_symlink(), 'BACKUP_PARENT_SYMLINK'
+          target.mkdir(exist_ok=False)
+          data={'schema':'forge.f139.v19.owner-cold-archive.v1','release_sha':'ea2d1c99d7afc1e991510d51168dd010a0b56ec5','run':os.environ['GITHUB_RUN_ID'],'sha256':{}}
+          MAX_BYTES=2*1024*1024*1024
+          used=0
+          def copy(sourcefile,relative,expected=None):
+              global used
+              assert sourcefile.is_file() and not sourcefile.is_symlink(), 'BACKUP_SOURCE_NOT_REGULAR'
+              assert not relative.is_absolute() and '..' not in relative.parts, 'BACKUP_RELATIVE_UNSAFE'
+              size=sourcefile.stat().st_size
+              used+=size
+              assert size<=MAX_BYTES and used<=MAX_BYTES,'BACKUP_BOUNDED_BUDGET_EXCEEDED'
+              targetfile=target/relative
+              targetfile.parent.mkdir(parents=True,exist_ok=True)
+              assert not targetfile.exists(), 'BACKUP_FILE_COLLISION'
+              with sourcefile.open('rb') as inp,targetfile.open('xb') as out:
+                  shutil.copyfileobj(inp,out,1024*1024)
+              h=hashlib.file_digest(sourcefile.open('rb'),'sha256').hexdigest()
+              assert hashlib.file_digest(targetfile.open('rb'),'sha256').hexdigest()==h, 'BACKUP_DIGEST_DRIFT'
+              assert expected is None or h==expected, 'BACKUP_HISTORICAL_CUSTODY_DRIFT'
+              data['sha256'][relative.as_posix()]=h
+          original=Database.open_readonly(source)
+          try:
+              meta=original.meta().copy()
+              assert meta['source_sha']=='d8bccc604f8607bf10f9d8bc6aa568d1f98af559' and meta['enabled']==1 and meta['legacy_suspended']==1,'BACKUP_ORIGINAL_V18_NOT_ACTIVE'
+              assert original.ready() is None and not original.actives(),'BACKUP_INFLIGHT_WORK_PRESENT'
+              snapshot=target/'state.sqlite'
+              with sqlite3.connect(str(snapshot)) as dest:
+                  original.conn.backup(dest,pages=1000,sleep=0.05)
+              dirs=set()
+              for row in original.conn.execute("SELECT evidence_dir FROM tasks WHERE evidence_dir IS NOT NULL AND evidence_dir!=''"):
+                  p=pathlib.Path(row[0]).resolve(strict=True)
+                  assert p.is_relative_to(owner/'evidence'),'BACKUP_HISTORICAL_PATH_OUTSIDE_OWNER'
+                  dirs.add(p)
+          finally:
+              original.close()
+          data['sha256']['state.sqlite']=hashlib.file_digest(snapshot.open('rb'),'sha256').hexdigest()
+          used+=snapshot.stat().st_size
+          assert used<=MAX_BYTES,'BACKUP_DATABASE_SIZE_BUDGET'
+          copy(owner/'worker-hmac.dpapi.xml',pathlib.Path('worker-hmac.dpapi.xml'))
+          for folder in sorted(dirs):
+              assert folder.is_dir() and not folder.is_symlink(),'BACKUP_EVIDENCE_FOLDER_INVALID'
+              for p in sorted(folder.rglob('*')):
+                  assert not p.is_symlink(),'BACKUP_EVIDENCE_SYMLINK'
+                  if p.is_file():copy(p,p.relative_to(owner))
+                  else: assert p.is_dir(),'BACKUP_EVIDENCE_SPECIAL_FILE'
+          for ticket,run,expected in ((A,AR,AH),(B,BR,BH)):
+              rel=pathlib.Path('native-negative')/ticket/str(run)/'ubuntu-latest.zip'
+              copy(owner/rel,rel,expected)
+          with tempfile.TemporaryDirectory(prefix='v19-cold-restore-',dir=target.parent) as tmp:
+              restored=pathlib.Path(tmp)/'state.sqlite'
+              shutil.copyfile(snapshot,restored)
+              cold=Database.open_readonly(restored)
+              try:
+                  cold.verify()
+                  assert cold.meta()==meta,'BACKUP_COLD_HEAD_MISMATCH'
+                  assert cold.conn.execute('PRAGMA integrity_check').fetchone()[0]=='ok','BACKUP_COLD_INTEGRITY_FAILED'
+                  assert cold.conn.execute('SELECT COUNT(*) FROM events').fetchone()[0]==meta['head_seq'],'BACKUP_COLD_EVENT_COUNT_MISMATCH'
+              finally:cold.close()
+          after=Database.open_readonly(source)
+          try:
+              assert after.meta()==meta,'BACKUP_ORIGINAL_MOVED_DURING_COPY'
+              after.verify()
+          finally:after.close()
+          for rel,h in data['sha256'].items():
+              with (target/rel).open('rb') as f:
+                  assert hashlib.file_digest(f,'sha256').hexdigest()==h,'BACKUP_FINAL_READBACK_MISMATCH'
+          data['head_seq']=meta['head_seq']
+          data['head_sha256']=meta['head_hash']
+          data['file_count']=len(data['sha256'])
+          data['bytes']=used
+          manifest=target/'manifest.json'
+          body=json.dumps(data,sort_keys=True,separators=(',',':')).encode()
+          with manifest.open('xb') as f:f.write(body)
+          manifest_sha=hashlib.sha256(body).hexdigest()
+          assert hashlib.sha256(manifest.read_bytes()).hexdigest()==manifest_sha,'BACKUP_MANIFEST_DRIFT'
+          print('F139_V19_ORIGINAL_COLD_BACKUP=PASS')
+          print('F139_V19_BACKUP_RECEIPT='+json.dumps({'run':data['run'],'head_seq':meta['head_seq'],'head_sha256':meta['head_hash'],
+              'db_sha256':data['sha256']['state.sqlite'],'manifest_sha256':manifest_sha,'files':data['file_count'],'bytes':used,
+              'same_disk':True,'cold_sqlite_open':True,'original_db_writes':0,'task_edits':0,'provider_calls':0},sort_keys=True))
+          '@ | & $py -B - $db $target
+          if ($LASTEXITCODE -ne 0) { throw 'F139_BACKUP_VERIFICATION_FAILED' }
+          $after=& $py -B -m f139.nci04_v19_original_owner_nowrite_probe --db $db
+          if ($LASTEXITCODE -ne 0) { throw 'F139_BACKUP_OWNER_POSTWITNESS_DENIED' }
+          $post=($after | Out-String | ConvertFrom-Json)
+          if ($post.original_head_seq -ne $pre.original_head_seq -or
+              $post.original_head_sha256 -cne $pre.original_head_sha256 -or
+              $post.runtime_cutover_authorized -ne $false) {
+            throw 'F139_BACKUP_OWNER_HEAD_MOVED'
+          }
+          $taskPost=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ([string]$taskPost.State -cnotin @('Running','Ready')) {
+            throw 'F139_BACKUP_RUNNING_OWNER_INTERRUPTED'
+          }
+          Write-Output 'F139_V19_ORIGINAL_OWNER_TASK_PRESERVED=PASS'
+          Write-Output 'F139_V19_BACKUP_SAME_DISK_NOT_DISASTER_RECOVERY=TRUE'
