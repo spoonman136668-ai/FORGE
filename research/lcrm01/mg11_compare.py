@@ -25,8 +25,8 @@ def verify(r):
         raise ValueError("MG11_NOT_SEVEN_INDEPENDENT_SOURCE_ROLES")
     for seed in SEEDS:
         group=[x for x in records if x["evaluator_seed_only"]==seed]
-        if len(group)!=7 or {r["role"] for r in group}!=set(ROLES) or
-            len({r["original_public_start_sha"] for r in group})!=1:
+        if (len(group)!=7 or {r["role"] for r in group}!=set(ROLES) or
+            len({r["original_public_start_sha"] for r in group})!=1):
             raise ValueError("MG11_FAIR_SOURCE_RESET_MISSING")
         for arm in group:
             events=arm["all_original_public_selected_events"]
