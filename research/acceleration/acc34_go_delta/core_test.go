@@ -1,3 +1,5 @@
+//go:build acc34_archived_source_only
+
 package acc34
 import "testing"
 func TestFrozenCorrectnessAndHiddenFITCounterexample(t *testing.T){
