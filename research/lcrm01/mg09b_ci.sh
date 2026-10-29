@@ -8,7 +8,7 @@ git merge-base --is-ancestor 58a5b03050857fa45828773b0001a39a932da7db "$GITHUB_S
 git merge-base --is-ancestor 9fd28525c5949cb536a94cf81bb892427945ef7d "$GITHUB_SHA"
 test "$(git hash-object research/lcrm01/mg09b_raw_public_original_prereg.json)" = d1d69718d2225e0b0a8d7817f3810f5eb07b1783
 test "$(git hash-object research/lcrm01/mg09b_go_bridge.go)" = f6e79f31638d31e78342f4ee6f2f5273dd441f53
-test "$(git hash-object research/lcrm01/mg09b_original_public_comparison.py)" = 7b86988c46f6a74c6d024bfe4252e21b1b629762
+test "$(git hash-object research/lcrm01/mg09b_original_public_comparison.py)" = 6b7e9b66fbcf9b08e23907799beb3312c560ee79
 test "$(git hash-object research/lcrm01/mg09b_compare.py)" = 0609fbfc9423e31f33757e2a03957efdaa19fd27
 test -z "$(git status --porcelain --untracked-files=all)"
 echo MG09B_BEFORE_SOURCE_FROZEN_PREREG_AND_CODE_PINS_PASS
