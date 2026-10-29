@@ -30,3 +30,36 @@ def protocol():
   raise ValueError("MG21_FROZEN_BEFORE_SOURCE_PROTOCOL_DRIFT")
  return p
 
+def cold_retention(role,actor,go_binary,expected):
+ if role=="random":return {"bytes":0,"sha256":None}
+ if role.startswith("go_"):
+  state=actor.snapshot();cold=WingBridge(go_binary)
+  try:
+   ack=cold.request("load",state=base64.b64encode(state).decode("ascii"))
+   if ack.get("updates",0)!=expected or cold.snapshot()!=state:
+    raise ValueError("MG21_GO_COLD_RETENTION_FAILED")
+  finally:cold.close()
+ elif role.startswith("ygg_"):
+  state=actor.checkpoint()
+  if actor.samples!=expected or MissionCells.restore(state).checkpoint()!=state:
+   raise ValueError("MG21_YGG_COLD_RETENTION_FAILED")
+ else:
+  state=actor.checkpoint()
+  if actor.samples!=expected or Tabular.restore(state).checkpoint()!=state:
+   raise ValueError("MG21_CONTROL_COLD_RETENTION_FAILED")
+ return {"bytes":len(state),"sha256":hashlib.sha256(state).hexdigest()}
+
+def execute(source_root,go_binary):
+ p=protocol()
+ if not Path(minigrid.__file__).resolve().is_relative_to(source_root.resolve()):
+  raise ValueError("MG21_SOURCE_NOT_ORIGINAL_PIN")
+ orig=frozen();attest_source(source_root,orig)
+ registrations={f["id"]:f["entry_point"] for f in orig["families"]}
+ all_rows=[];fit_receipts=[]
+ for family in FAMILIES:
+  if gym.spec(family).entry_point!=registrations[family]:
+   raise ValueError("MG21_SOURCE_REGISTRY_CHANGED")
+  start,fit=family_fit(gym,family,p["world"]["quarantined_fit_seed"],24)
+  fit_receipts.append({"family":family,"original_start_sha256":digest(start),
+        "original_source_events":fit,"source_fit_sha256":digest(fit),
+        "shared_original_fit_count":len(fit)})
