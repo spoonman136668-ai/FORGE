@@ -40,8 +40,8 @@ func(m *windowsMapping)ReadBlock(off int64)([]byte,error){
 	// MapViewOfFile returns a Win32 address (uintptr), not a Go-owned pointer.
 	// Copy through an OS-provided native routine; do not cast arbitrary uintptr into unsafe.Pointer.
 	// This charges a bounded 64-KiB user buffer to the MMAP control.
-	_,_,e:=rtlMoveMemory.Call(uintptr(unsafe.Pointer(&m.scratch[0])),m.view+uintptr(off),blockSize)
-	if e!=nil && e!=syscall.Errno(0){return nil,fmt.Errorf("RtlMoveMemory: %v",e)}
+	// RtlMoveMemory returns void; the last-error value is not a success indicator.
+	_,_,_ = rtlMoveMemory.Call(uintptr(unsafe.Pointer(&m.scratch[0])),m.view+uintptr(off),blockSize)
 	return m.scratch,nil
 }
 func(m *windowsMapping)Close()error{
