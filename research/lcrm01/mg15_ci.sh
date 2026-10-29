@@ -6,8 +6,8 @@ export PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 PIP_DISABLE_PIP_VERSION_CHECK=
 
 git merge-base --is-ancestor 1bf88f162a4dd105091dc54cf75efa9ffd0caf7b "$GITHUB_SHA"
 git merge-base --is-ancestor 4f584699fec2853974fb81d91420f1e1316535b3 "$GITHUB_SHA"
-git merge-base --is-ancestor 854b5bed780be5b2c81f2a91b119e3bf28bb01c8
-git merge-base --is-ancestor 96f41fe58b58913509dd365d7435f4c14e315438 "$GITHUB_SHA" "$GITHUB_SHA"
+git merge-base --is-ancestor 854b5bed780be5b2c81f2a91b119e3bf28bb01c8 "$GITHUB_SHA"
+git merge-base --is-ancestor 96f41fe58b58913509dd365d7435f4c14e315438 "$GITHUB_SHA"
 git merge-base --is-ancestor 589be68394b64e477ca222200c2d7ea240588455 "$GITHUB_SHA"
 test "$(git hash-object research/lcrm01/mg15_online_frozen_prereg.json)" = a68d3d9ed29c2d7af67c7f59824d39941e386645
 test "$(git hash-object research/lcrm01/mg15_online_frozen_original.py)" = 003c5f502e00a072e29ea0206be92aae57462c37
