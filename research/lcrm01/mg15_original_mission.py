@@ -322,111 +322,129 @@ def fit(binary,p):
 
 
 def episode(role,seed,environment,trained,binary,p):
-    gym,owner,collector,SuccessorCells=modules()
+    gym,owner,collector,MissionCells,OriginalMissionAdapter=modules()
     env=gym.make(environment)
-    adapter=owner.DoorKeyPublicAdapter()
-    go=None;ygg=None;control=None
+    mission=p["DEV"]["mission_by_env"][environment]
+    go=ygg=blind=conditioned=None
+    adapter=OriginalMissionAdapter() if role==ROLES[1] else owner.DoorKeyPublicAdapter()
     rng=random.Random(p["DEV"]["random_seed_offset"]+seed)
     try:
         raw,_=env.reset(seed=seed)
-        source_before,before=original_and_masked_public(raw,collector,owner,
-            p["DEV"]["mission_by_env"][environment])
-        start_sha=owner.digest(source_before)
-        adapter.reset_public(before)
+        before=authentic_public(raw,collector,owner,mission)
+        start_sha=owner.digest(before)
+        adapter.reset_public(before if role==ROLES[1] else legacy_public(before))
         if role==ROLES[0]:
             go=WingBridge(binary)
             ack=go.request("load",state=base64.b64encode(trained["go"]).decode())
-            if ack.get("updates")!=trained["samples"] or go.snapshot()!=trained["go"]:
-                raise ValueError("MG15_GO_SOURCE_FIT_NOT_COLD")
+            if ack.get("updates")!=1664 or go.snapshot()!=trained["go"]:
+                raise ValueError("MG15_GO_ORIGINAL_FIT_NOT_COLD")
             go.request("begin_episode")
         elif role==ROLES[1]:
-            ygg=SuccessorCells.restore(trained["ygg"])
-            if ygg.samples!=1664:raise ValueError("MG15_YGG_SOURCE_FIT_NOT_COLD")
-            ygg.start_session(adapter,f"mg15-original-{seed}",live=True)
+            ygg=MissionCells.restore(trained["ygg"])
+            if ygg.samples!=1664:raise ValueError("MG15_YGG_FIT_NOT_COLD")
+            ygg.start_session(adapter,"mg15-original-"+str(seed),live=True)
         elif role==ROLES[2]:
-            control=ConventionalSuccessor.restore(trained["conventional"])
-            if control.samples!=1664:raise ValueError("MG15_CONVENTIONAL_FIT_NOT_COLD")
-            control.begin_episode()
-        elif role!=ROLES[3]:
-            raise ValueError("MG15_UNREGISTERED_ORIGINAL_WORLD_ARM")
+            conditioned=ConventionalMission.restore(trained["conditioned"])
+            if conditioned.samples!=1664:raise ValueError("MG15_CONDITIONED_FIT_NOT_COLD")
+            conditioned.begin_episode()
+        elif role==ROLES[3]:
+            blind=ConventionalSuccessor.restore(trained["blind"])
+            if blind.samples!=1664:raise ValueError("MG15_BLIND_FIT_NOT_COLD")
+            blind.begin_episode()
+        elif role!=ROLES[4]:
+            raise ValueError("MG15_UNREGISTERED_ORIGINAL_ROLE")
+        seen=set()
         events=[]
         pickups=drops=forward_held=front_held=doors=goals=0
-        seen=set()
-        time_start=time.perf_counter()
-        cpu_start=time.process_time()
-        child_before=resource.getrusage(resource.RUSAGE_CHILDREN)
+        clock=time.perf_counter()
+        cpu=time.process_time()
+        child=resource.getrusage(resource.RUSAGE_CHILDREN)
         for index in range(p["DEV"]["limit"]):
-            true_before,public=original_and_masked_public(raw,collector,owner,
-                p["DEV"]["mission_by_env"][environment])
-            if public!=adapter.current:raise ValueError("MG15_UNORIGINAL_PUBLIC_STATE")
-            held=public["image"][3][6][0] in (5,6,7)
+            before=authentic_public(raw,collector,owner,mission)
+            for_legacy=legacy_public(before)
+            if adapter.current!=(before if ygg is not None else for_legacy):
+                raise ValueError("MG15_ORIGINAL_CURRENT_SOURCE_PUBLIC_MISMATCH")
+            held=before["image"][3][6][0] in (5,6,7)
             if go is not None:
-                proposal=go.request("choose",before=public)
-                action=proposal.get("action");reason=proposal.get("status")
-                provenance="NATIVE_GO_DK13_RAW_PUBLIC_ONLY"
+                proposal=go.request("choose",before=before)
+                action=proposal.get("action")
+                reason=proposal.get("status")
+                origin="NATIVE_GO_DK14_GENUINE_MISSION"
             elif ygg is not None:
-                proposal=ygg.choose(public)
-                action=proposal["action"];reason=proposal["status"]
-                provenance="NATIVE_YGG_R17_RAW_PUBLIC_ONLY"
-            elif control is not None:
-                action=control.choose(public)
-                reason="CONVENTIONAL_EQUIVALENT_EMPIRICAL_PUBLIC"
-                provenance="CONVENTIONAL_EQUIVALENT_EMPIRICAL_PUBLIC"
+                proposal=ygg.choose(before)
+                action=proposal["action"]
+                reason=proposal["status"]
+                origin="NATIVE_YGG_R18_GENUINE_MISSION"
+            elif conditioned is not None:
+                action=conditioned.choose(before)
+                reason="CONVENTIONAL_GENUINE_MISSION_REWARD"
+                origin="CONVENTIONAL_GENUINE_MISSION"
+            elif blind is not None:
+                action=blind.choose(for_legacy)
+                reason="CONVENTIONAL_MISSION_BLIND"
+                origin="CONVENTIONAL_MISSION_BLIND"
             else:
                 action=rng.randrange(7)
-                reason="CONVENTIONAL_UNIFORM_RANDOM"
-                provenance="CONVENTIONAL_UNIFORM_RANDOM"
+                reason="CONVENTIONAL_SEEDED_UNIFORM_RANDOM"
+                origin="CONVENTIONAL_UNIFORM_RANDOM"
             if type(action)is not int or action not in range(7):
-                raise ValueError("MG15_NO_VALID_SELF_SELECTED_ACTION")
+                raise ValueError("MG15_INVALID_ORIGINALLY_SELECTED_ACTION")
             if go is not None:
-                ack=go.request("commit",before=public,action=action)
+                ack=go.request("commit",before=before,action=action)
                 if ack.get("updates")!=1664+index:
-                    raise ValueError("MG15_GO_UNCOMMITTED_SELECTED")
+                    raise ValueError("MG15_GO_ORIGINAL_SELECTED_COMMIT_LOST")
             if adapter.submit(action)!=action:
-                raise ValueError("MG15_SELECTED_SOURCE_ACTION_REMAP")
+                raise ValueError("MG15_ORIGINAL_SELECTED_ACTION_REMAP")
             new_raw,reward,terminated,truncated,_=env.step(action)
-            true_after,after=original_and_masked_public(new_raw,collector,owner,
-                p["DEV"]["mission_by_env"][environment])
-            public_event=adapter.complete(after,float(reward),bool(terminated),bool(truncated))
+            after=authentic_public(new_raw,collector,owner,mission)
+            outcome=adapter.complete(after if ygg is not None else legacy_public(after),
+                                     float(reward),bool(terminated),bool(truncated))
             if go is not None:
-                ack=go.request("feedback",before=public,action=action,after=after,
-                               reward=float(reward),terminal=bool(terminated or truncated))
-                if (ack.get("updates")!=1664+index+1 or ack.get("live")!=index+1):
-                    raise ValueError("MG15_GO_SELECTED_UPDATE_LOST")
+                ack=go.request("feedback",before=before,action=action,after=after,
+                     reward=float(reward),terminal=bool(terminated or truncated))
+                if ack.get("updates")!=1664+index+1 or ack.get("live")!=index+1:
+                    raise ValueError("MG15_GO_SELECTED_FEEDBACK_COUNT")
             elif ygg is not None:
-                receipt=ygg.learn_selected(adapter,public,after)
-                if (receipt["sample_index"]!=1664+index+1 or ygg.samples!=1664+index+1):
-                    raise ValueError("MG15_YGG_SELECTED_UPDATE_LOST")
-            elif control is not None:
-                control.learn(public,action,after)
-                if control.samples!=1664+index+1:
-                    raise ValueError("MG15_CONVENTIONAL_SELECTED_UPDATE_LOST")
+                receipt=ygg.learn_selected(adapter,before,after)
+                if (receipt["sample_index"]!=1664+index+1 or
+                    ygg.samples!=1664+index+1):
+                    raise ValueError("MG15_YGG_SELECTED_SOURCE_COUNT")
+            elif conditioned is not None:
+                conditioned.learn(before,action,after,float(reward))
+                if conditioned.samples!=1664+index+1:
+                    raise ValueError("MG15_CONDITIONED_SELECTED_SOURCE_COUNT")
+            elif blind is not None:
+                blind.learn(for_legacy,action,legacy_public(after))
+                if blind.samples!=1664+index+1:
+                    raise ValueError("MG15_BLIND_SELECTED_SOURCE_COUNT")
             next_held=after["image"][3][6][0] in (5,6,7)
-            pickup=not held and next_held
-            drop=held and not next_held
-            front=held and public["image"][3][5][0]==4
-            door=bool(public_event["visible_door_opened"])
+            pickup=(not held and next_held)
+            drop=(held and not next_held)
+            front=(held and before["image"][3][5][0]==4)
+            door=bool(outcome["visible_door_opened"])
             pickups+=int(pickup);drops+=int(drop)
             forward_held+=int(held and action==2)
-            front_held+=int(front);doors+=int(door)
-            goals+=int(float(reward)>0)
-            before_sha=owner.digest(true_before)
-            repeated=before_sha in seen;seen.add(before_sha)
-            events.append({"step":index+1,"role":role,"native_or_control_origin":provenance,
-               "selected_reason":reason,"actual_original_source_action":action,
-               "public_before":true_before,"public_after":true_after,
-               "policy_before_sha256":owner.digest(public),
-               "policy_after_sha256":owner.digest(after),
-               "mission_masked_for_every_trained_actor":True,
-               "original_public_before_sha256":before_sha,
-               "original_public_after_sha256":owner.digest(true_after),
-               "source_reward":float(reward),"terminated":bool(terminated),
-               "truncated":bool(truncated),"source_visible_door_opened":door,
-               "public_pickup":bool(pickup),"public_drop":bool(drop),
-               "public_forward_while_held":bool(held and action==2),
-               "public_door_front_while_held":bool(front),
-               "repeated_before_public_view":bool(repeated),
-               "external_live_actions":0})
+            front_held+=int(front)
+            doors+=int(door);goals+=int(float(reward)>0)
+            before_sha=owner.digest(before)
+            repeated=before_sha in seen
+            seen.add(before_sha)
+            events.append({
+                "step":index+1,"role":role,"native_or_control_origin":origin,
+                "selected_reason":reason,"actual_original_source_action":action,
+                "public_before":before,"public_after":after,
+                "original_public_before_sha256":before_sha,
+                "original_public_after_sha256":owner.digest(after),
+                "native_mission_input":mission if go is not None or ygg is not None else None,
+                "mission_conditioned_conventional_input":mission if conditioned is not None else None,
+                "control_mission_blind":blind is not None,
+                "source_reward":float(reward),"terminated":bool(terminated),
+                "truncated":bool(truncated),"source_visible_door_opened":door,
+                "public_pickup":bool(pickup),"public_drop":bool(drop),
+                "public_forward_while_held":bool(held and action==2),
+                "public_door_front_while_held":bool(front),
+                "repeated_before_public_view":bool(repeated),
+                "external_live_actions":0})
             raw=new_raw
             if terminated or truncated:break
         if go is not None:
@@ -434,26 +452,31 @@ def episode(role,seed,environment,trained,binary,p):
             fresh=WingBridge(binary)
             try:
                 ack=fresh.request("load",state=base64.b64encode(checkpoint).decode())
-                if (ack.get("updates")!=1664+len(events) or
-                    ack.get("live")!=len(events) or fresh.snapshot()!=checkpoint):
-                    raise ValueError("MG15_GO_COLD_LIVE_CHECKPOINT")
+                if (ack.get("updates")!=1664+len(events) or ack.get("live")!=len(events)
+                    or fresh.snapshot()!=checkpoint):
+                    raise ValueError("MG15_GO_LIVE_COLD_CUSTODY")
             finally:fresh.close()
         elif ygg is not None:
             checkpoint=ygg.checkpoint()
-            if (SuccessorCells.restore(checkpoint).checkpoint()!=checkpoint or
+            if (MissionCells.restore(checkpoint).checkpoint()!=checkpoint or
                 ygg.samples!=1664+len(events)):
-                raise ValueError("MG15_YGG_COLD_LIVE_CHECKPOINT")
-        elif control is not None:
-            checkpoint=control.checkpoint()
+                raise ValueError("MG15_YGG_LIVE_COLD_CUSTODY")
+        elif conditioned is not None:
+            checkpoint=conditioned.checkpoint()
+            if (ConventionalMission.restore(checkpoint).checkpoint()!=checkpoint or
+                conditioned.samples!=1664+len(events)):
+                raise ValueError("MG15_CONDITIONED_LIVE_COLD_CUSTODY")
+        elif blind is not None:
+            checkpoint=blind.checkpoint()
             if (ConventionalSuccessor.restore(checkpoint).checkpoint()!=checkpoint or
-                control.samples!=1664+len(events)):
-                raise ValueError("MG15_CONVENTIONAL_COLD_LIVE_CHECKPOINT")
+                blind.samples!=1664+len(events)):
+                raise ValueError("MG15_BLIND_LIVE_COLD_CUSTODY")
         else:
-            checkpoint=canon({"schema":"mg15.separate-random-no-learn.v1",
-                 "seed":seed,"selected":len(events)}).encode()
+            checkpoint=canon({"schema":"mg15.original-random-no-learn.v1",
+                              "seed":seed,"selected":len(events)}).encode()
+        child_now=resource.getrusage(resource.RUSAGE_CHILDREN)
         return {"role":role,"environment":environment,"seed_evaluator_only":seed,
-            "actual_source_mission":p["DEV"]["mission_by_env"][environment],
-            "mission_blind_ablation":True,
+            "actual_source_mission":mission,
             "original_start_public_sha256":start_sha,
             "original_live_selected_steps":len(events),"external_actions":0,
             "source_key_pickups":pickups,"source_key_drops":drops,
@@ -467,17 +490,17 @@ def episode(role,seed,environment,trained,binary,p):
                 e["public_before"]["image"]!=e["public_after"]["image"] for e in events),
             "heading_change_count":sum(
                 e["public_before"]["direction"]!=e["public_after"]["direction"] for e in events),
-            "episode_host_wall_s":round(time.perf_counter()-time_start,6),
-            "episode_python_cpu_only_s":round(time.process_time()-cpu_start,6),
+            "episode_host_wall_s":round(time.perf_counter()-clock,6),
+            "episode_python_cpu_only_s":round(time.process_time()-cpu,6),
             "go_child_cpu_included":True,
-            "go_child_cpu_s":round(resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime+
-                resource.getrusage(resource.RUSAGE_CHILDREN).ru_stime-
-                child_before.ru_utime-child_before.ru_stime,6),
-            "go_child_max_rss_kib":resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+            "go_child_cpu_s":round(child_now.ru_utime+child_now.ru_stime-
+                  child.ru_utime-child.ru_stime,6),
+            "go_child_max_rss_kib":child_now.ru_maxrss,
             "cold_checkpoint_sha256":sha(checkpoint),"real_source_events":events}
     finally:
         env.close()
         if go is not None:go.close()
+
 
 
 def run(binary,p):
