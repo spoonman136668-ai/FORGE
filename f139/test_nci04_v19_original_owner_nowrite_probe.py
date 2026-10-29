@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -37,6 +38,66 @@ class ReadOnlyOwnerProbeTests(unittest.TestCase):
         self.assertIn("Database.open_readonly(db_path)", source)
         self.assertIn("with SingleOwner(db_path.with_suffix(\".lock\")):", source)
         self.assertIn("v19_original_release_readonly_preflight(", source)
+
+    def test_action_route_contract_is_present(self):
+        source = probe._TASK_PROBE
+        self.assertIn("V19_ACTION_ROUTE_BEGIN", source)
+        self.assertIn("V19_ACTION_ROUTE_END", source)
+        self.assertIn("GetFileName([string]$action.Execute)", source)
+        self.assertIn("powershell.exe", source)
+        self.assertIn("$wrapper=Field 'File'", source)
+        self.assertIn("Run-FORGE-F139.ps1", source)
+        self.assertIn("IsPathRooted($wrapper)", source)
+        self.assertIn("Test-Path -LiteralPath $wrapper -PathType Leaf", source)
+
+    @unittest.skipUnless(probe.os.name == "nt", "Windows PowerShell 5.1 required")
+    def test_action_route_accepts_only_original_executable_and_existing_wrapper(self):
+        source = probe._TASK_PROBE
+        guard = source.split("# V19_ACTION_ROUTE_BEGIN\n", 1)[1].split(
+            "# V19_ACTION_ROUTE_END", 1)[0]
+        powershell = probe.shutil.which("powershell.exe")
+        self.assertIsNotNone(powershell)
+        with tempfile.TemporaryDirectory(prefix="f139-v19-action-route-") as td:
+            original = Path(td) / "Run-FORGE-F139.ps1"
+            alternate = Path(td) / "Other-Launcher.ps1"
+            original.write_text("# test-only wrapper\n", encoding="utf-8")
+            alternate.write_text("# test-only alternate\n", encoding="utf-8")
+            def options(path):
+                return f'-File "{path}" -PollSeconds 300'
+
+            cases = (
+                ("authentic", "powershell.exe", options(original), 0),
+                ("wrong-executable", "cmd.exe", options(original), 37),
+                ("wrong-wrapper", "powershell.exe", options(alternate), 38),
+                ("missing-wrapper", "powershell.exe",
+                 options(Path(td) / "missing" / original.name), 38),
+                ("relative-wrapper", "powershell.exe", options(original.name), 38),
+            )
+            script = (
+                "$ErrorActionPreference='Stop';\n"
+                "$t=[pscustomobject]@{Actions=@([pscustomobject]@{"
+                "Execute=$env:F139_TEST_ACTION_EXECUTE;"
+                "Arguments=$env:F139_TEST_ACTION_ARGUMENTS})};\n"
+                + guard + "\nWrite-Output 'ACTION_ROUTE_OK'\n"
+            )
+            for name, executable, arguments, expected in cases:
+                with self.subTest(name=name):
+                    environment = {
+                        **probe.os.environ,
+                        "F139_TEST_ACTION_EXECUTE": executable,
+                        "F139_TEST_ACTION_ARGUMENTS": arguments,
+                    }
+                    result = subprocess.run(
+                        [powershell, "-NoProfile", "-NonInteractive",
+                         "-Command", script],
+                        env=environment, stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        timeout=15, check=False,
+                    )
+                    self.assertEqual(result.returncode, expected,
+                                     result.stderr.decode(errors="replace")[:400])
+                    if expected == 0:
+                        self.assertEqual(result.stdout.strip(), b"ACTION_ROUTE_OK")
 
     def test_probe_output_cannot_authorize_source_cutover(self):
         with tempfile.TemporaryDirectory(prefix="f139-nowrite-proof-") as td:
