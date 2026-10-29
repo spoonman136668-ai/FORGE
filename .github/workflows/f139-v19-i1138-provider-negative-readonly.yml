@@ -1,0 +1,132 @@
+name: F139 V19 original worker 1138 terminal custody READ ONLY
+on:
+  push:
+    branches: [qualification/f139-v19-i1138-provider-negative-ro-20261029]
+    paths: [.github/workflows/f139-v19-i1138-provider-negative-readonly.yml]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+concurrency:
+  group: f139-v19-i1138-provider-negative-readonly
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-i1138-provider-negative-ro-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Read-only native issue eligibility, original ledger and task state
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-i1138-provider-negative-ro-20261029' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY){
+            throw 'F139_V19_ISSUE1138_WRONG_ORIGINAL_OWNER'
+          }
+          $parent=(& git rev-parse HEAD^ | Out-String).Trim()
+          $files=@(& git diff --name-only HEAD^ HEAD)
+          if($LASTEXITCODE -ne 0 -or
+             $parent -cne '503a55be9eaa34ade818f3a47ca530e67f26ba8f' -or
+             $files.Count -ne 1 -or
+             $files[0] -cne '.github/workflows/f139-v19-i1138-provider-negative-readonly.yml'){
+            throw 'F139_V19_ISSUE1138_SCOPE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){
+            throw 'F139_V19_ISSUE1138_TASK_CHANGED'
+          }
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($principal -ine $owner.Name -and $sid -cne $owner.User.Value){
+            throw 'F139_V19_ISSUE1138_SID_DRIFT'
+          }
+          $argsText=[string]$task.Actions[0].Arguments
+          function Field([string]$name){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_V19_ISSUE1138_TASK_ARG_MISSING'}
+            return [string]$m.Groups[1].Value
+          }
+          $db=Field 'Database'
+          $py=Field 'PythonExe'
+          $root=Field 'RepositoryRoot'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             -not(Test-Path -LiteralPath $py -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne
+             '0743ca22b76ebd943a66f05a36ea919301676be0'){
+            throw 'F139_V19_ISSUE1138_INSTALLED_V19_DRIFT'
+          }
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+              Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+                $_.CommandLine.Contains($db)})
+          Write-Output ('F139_V19_ISSUE1138_OWNER_TASK_STATE='+[string]$task.State)
+          Write-Output ('F139_V19_ISSUE1138_OWNER_LAST_TASK_RESULT='+[string]$info.LastTaskResult)
+          Write-Output ('F139_V19_ISSUE1138_OWNER_LAST_RUN_UTC='+$info.LastRunTime.ToUniversalTime().ToString('o'))
+          Write-Output ('F139_V19_ISSUE1138_ORIGINAL_OWNER_PROCESS_COUNT='+$processes.Count)
+          $old=$env:GH_TOKEN
+          try{
+            Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+            $ownerLogin=(& gh api user --jq .login | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $ownerLogin -cne 'spoonman136668-ai'){
+              throw 'F139_V19_ISSUE1138_LOCAL_GITHUB_OWNER_UNQUALIFIED'
+            }
+            Set-Location -LiteralPath $root
+          @'
+          import json,pathlib,sys
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import native_events,verify_native_activation
+          src='0743ca22b76ebd943a66f05a36ea919301676be0'
+          db=Database.open_readonly(pathlib.Path(sys.argv[1]))
+          try:
+              db.conn.execute('BEGIN')
+              db.verify()
+              m=db.meta()
+              assert m['source_sha']==src and verify_native_activation(db),'ORIGINAL_RELEASE_OR_NATIVE_ACTIVATION_DRIFT'
+              admitted=native_events(db)
+              match=[e for e in admitted if e['issue_number']==1138]
+              assert len(match)==1,'ISSUE1138_ADMISSION_NOT_SINGLE'
+              task=list(db.conn.execute("SELECT ticket,stage,run_id,quarantine_reason FROM tasks WHERE ticket LIKE 'f139-nci04-i1138-%'"))
+              assert len(task)==1,'ISSUE1138_TASK_NOT_SINGLE'
+              assert task[0]['ticket']==match[0]['ticket'],'ISSUE1138_TICKET_CUSTODY_DRIFT'
+              assert m['head_seq']>=320,'ISSUE1138_DISPATCH_LEDGER_NOT_CLOSED'
+              last=[{'seq':row['seq'],'kind':row['kind']} for row in db.conn.execute(
+                  'SELECT seq,kind FROM events WHERE seq>316 ORDER BY seq')]
+              report={'schema':'forge.f139.v19.issue1138.original-terminal-readonly.v1',
+                  'source_sha':src,'event_head_seq':m['head_seq'],
+                  'event_head_sha256':m['head_hash'],
+                  'issue1138_admitted':True,
+                  'issue1138_ticket':task[0]['ticket'],
+                  'issue1138_task_stage':task[0]['stage'],
+                  'issue1138_run_id':task[0]['run_id'],
+                  'issue1138_quarantine_reason':task[0]['quarantine_reason'],
+                  'event_kinds_since_activation':last,
+                  'native_issue_count':len(admitted),
+                  'original_sqlite_writes':0,'github_writes':0,
+                  'manual_dispatch':False,'scientific_first_use':False}
+              print('F139_V19_ISSUE1138_ORIGINAL_CUSTODY='+json.dumps(report,sort_keys=True))
+              db.conn.execute('ROLLBACK')
+          finally:db.close()
+          '@ | & $py -B - $db
+            if($LASTEXITCODE -ne 0){throw 'F139_V19_ISSUE1138_NATIVE_LEDGER_READONLY_DENIED'}
+          } finally {$env:GH_TOKEN=$old}
+          Write-Output 'F139_V19_ISSUE1138_NATIVE_LEDGER_INSPECTION_READONLY=PASS'
