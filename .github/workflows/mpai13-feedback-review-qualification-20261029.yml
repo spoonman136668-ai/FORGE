@@ -1,0 +1,186 @@
+name: MP-AI13 integrated Hindsight Harness2 feedback-to-collector review gate
+on:
+  push:
+    branches: [proposal/mpai13-feedback-qualification-20261029]
+    paths:
+      - .github/workflows/mpai13-feedback-review-qualification-20261029.yml
+permissions:
+  contents: read
+jobs:
+  original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact-head integrated feedback handoff and canonical Windows regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONNOUSERSITE: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'MPAI13_ORIGINAL_WINDOWS_RUNNER_REQUIRED'
+          }
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI13_NO_REPLAY'}
+          if((git.exe rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI13_FORGE_WORKFLOW_SOURCE_DRIFT'
+          }
+          $mpBranch='proposal/mpai13-feedback-review-handoff-20261029'
+          $mpSha='f28991fc9e81bdef2be3424264bd3a5d81757c3a'
+          $originalMain='f31e4203892730ddbe24d44ce5674f5678d498aa'
+          $repo='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai13-private-source-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $log=Join-Path $scratch 'private-test.log'
+          $protected=@(
+            '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson','.ice/chat-delta-state.json',
+            '.ice/project-state-capsules.json','.ice/project-dependency-graph.json'
+          )
+          $pins=@{
+            'agentic/mpai05_feedback_review_handoff.py'='a8a6cd02c92eab336b7ef937d88e195c350d4a31'
+            'tools/mindpalace_mcp.py'='efdc3ce7a6fa01eadf4cbe3f5507f133f5d015de'
+            'tests/test_mpai05_feedback_review_handoff.py'='1c20f6d9b43cfb11b78d5997e52cc7fc6492104e'
+            'tests/test_mpai_integrated_cycle.py'='d18e19d960038fef571c1a00b4d78d2eef073ff5'
+            'tools/mindpalace_readonly.py'='f164c4fc4aa82184a2149966bc095ca39a77f1e7'
+            'tests/Test-All.ps1'='439797231d3a093628f95f783f5f30dbf93fe5bf'
+          }
+          if(Test-Path -LiteralPath $scratch){throw 'MPAI13_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          try {
+            $remote=@(git.exe ls-remote --exit-code $repo ('refs/heads/'+$mpBranch))
+            if($LASTEXITCODE -ne 0 -or $remote.Count -ne 1 -or
+               -not ([string]$remote[0]).StartsWith($mpSha)){
+              throw 'MPAI13_REMOTE_SOURCE_REF_DRIFT'
+            }
+            & git.exe clone --quiet --no-checkout --single-branch --branch $mpBranch $repo $root
+            if($LASTEXITCODE -ne 0){throw 'MPAI13_PRIVATE_CLONE_FAILED'}
+            $shallow=(git.exe -C $root rev-parse --is-shallow-repository | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $shallow -cne 'false'){
+              throw 'MPAI13_FULL_HISTORY_REQUIRED'
+            }
+            $need=@('agentic/mpai05_feedback_review_handoff.py','tools/mindpalace_mcp.py',
+                    'tests/test_mpai05_feedback_review_handoff.py',
+                    'tests/test_mpai_integrated_cycle.py','tools/mindpalace_readonly.py',
+                    'tests/test_mpn1_mcp.py','tests/Test-All.ps1') + $protected
+            $patterns=@($need | ForEach-Object {'/'+$_})
+            & git.exe -C $root sparse-checkout set --no-cone @patterns
+            if($LASTEXITCODE -ne 0){throw 'MPAI13_SPARSE_CLONE_FAILURE'}
+            & git.exe -C $root checkout --force $mpSha
+            if($LASTEXITCODE -ne 0 -or
+               (git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $mpSha){
+              throw 'MPAI13_COMMIT_SOURCE_DRIFT'
+            }
+            foreach($file in $pins.Keys){
+              $actual=(git.exe -C $root rev-parse ('HEAD:'+$file) | Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $actual -cne $pins[$file]){
+                throw 'MPAI13_PROGRAM_FILE_BLOB_DRIFT'
+              }
+            }
+            if((git.exe -C $root rev-parse 'HEAD:.ice' | Out-String).Trim() -cne
+               '842b8c1318db3b826bdb7243b0cdf0d5d8efedc2'){
+              throw 'MPAI13_ACCEPTED_MEMORY_ICE_DRIFT'
+            }
+            & git.exe -C $root merge-base --is-ancestor $originalMain $mpSha
+            if($LASTEXITCODE -ne 0){throw 'MPAI13_ACCEPTED_MAIN_NOT_ANCESTOR'}
+            $frozenFixture='90d2dc1e79f0fcdcf49fba7680e29b5760e80d6b'
+            & git.exe -C $root cat-file -e ($frozenFixture+':.ice/records.json')
+            if($LASTEXITCODE -ne 0){throw 'MPAI13_FROZEN_FIXTURE_MISSING'}
+            $hashes=@{}
+            foreach($file in $protected){
+              $full=Join-Path $root $file
+              if(-not(Test-Path -LiteralPath $full)){throw 'MPAI13_MISSING_PROTECTED_FILE'}
+              $hashes[$file]=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash
+            }
+            & git.exe -C $root sparse-checkout disable
+            if($LASTEXITCODE -ne 0){throw 'MPAI13_FULL_CHECKOUT_FAILURE'}
+            Set-Location $root
+            & python -B -m unittest discover -s tests -p test_mpai05_feedback_review_handoff.py -v *> $log
+            $rc=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($rc -ne 0 -or $raw -notmatch 'Ran 7 tests' -or
+               $raw -notmatch '(?m)^OK(?:\s|$)'){
+              foreach($m in [regex]::Matches($raw,'(?m)^(FAIL|ERROR): (test_[a-z0-9_]+)')){
+                Write-Output ('MPAI13_UNIT_FAILURE='+$m.Groups[2].Value)
+              }
+              throw 'MPAI13_UNIT_TEST_FAILED_PRIVATE'
+            }
+            Write-Output 'MPAI13_REVIEW_HANDOFF_UNIT_TESTS=7_PASS'
+            Remove-Item -LiteralPath $log -Force
+            & python -B -m unittest discover -s tests -p test_mpai_integrated_cycle.py -v *> $log
+            $rc=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($rc -ne 0 -or $raw -notmatch 'Ran 10 tests' -or
+               $raw -notmatch '(?m)^OK(?:\s|$)'){
+              foreach($m in [regex]::Matches($raw,'(?m)^(FAIL|ERROR): (test_[a-z0-9_]+)')){
+                Write-Output ('MPAI13_INTEGRATION_FAILURE='+$m.Groups[2].Value)
+              }
+              throw 'MPAI13_SOURCE_BACKED_MCP_FAILED_PRIVATE'
+            }
+            Write-Output 'MPAI13_EXISTING_HINDSIGHT_H2_INTEGRATED_TESTS=10_PASS'
+            Remove-Item -LiteralPath $log -Force
+            & python -B -m unittest discover -s tests -p test_mpn1_mcp.py -v *> $log
+            $rc=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($rc -ne 0 -or $raw -notmatch '(?m)^OK(?:\s|$)'){
+              throw 'MPAI13_LEGACY_MCP_REGRESSION_FAILED_PRIVATE'
+            }
+            Write-Output 'MPAI13_MCP_STDIO_AUTHENTICATED_LOOPBACK=PASS'
+            & git.exe -C $root switch --create mpai13-qual-only
+            if($LASTEXITCODE -ne 0 -or
+               (git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $mpSha){
+              throw 'MPAI13_LOCAL_FIXTURE_BRANCH_FAILURE'
+            }
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $root 'tests/Test-All.ps1') *> $log
+            $rc=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($rc -ne 0 -or -not $raw.Contains('Mind-Palace regression suite passed')){
+              $last='NONE'
+              foreach($line in ($raw -split [char]10)){
+                if($line.Trim().StartsWith('RUN Test-')){$last=$line.Trim().Substring(0,[Math]::Min(80,$line.Trim().Length))}
+              }
+              Write-Output ('MPAI13_FULL_LAST_TEST='+$last)
+              Write-Output ('MPAI13_FULL_EXIT_NONZERO='+[string]($rc -ne 0))
+              throw 'MPAI13_FULL_CANONICAL_WINDOWS_REGRESSION_FAILED_PRIVATE'
+            }
+            Write-Output 'MPAI13_CANONICAL_WINDOWS_TEST_ALL=PASS'
+            foreach($file in $protected){
+              $now=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+              if($now -cne $hashes[$file]){
+                throw 'MPAI13_PROTECTED_MEMORY_MUTATION'
+              }
+            }
+            $dirty=@(git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+              throw 'MPAI13_WORKTREE_MUTATED'
+            }
+            $remoteAgain=@(git.exe ls-remote --exit-code $repo ('refs/heads/'+$mpBranch))
+            if($LASTEXITCODE -ne 0 -or $remoteAgain.Count -ne 1 -or
+               -not ([string]$remoteAgain[0]).StartsWith($mpSha)){
+              throw 'MPAI13_REMOTE_COMMIT_CHANGED'
+            }
+            Write-Output 'MPAI13_SOURCE_PIN=PASS'
+            Write-Output 'MPAI13_PROTECTED_MEMORY_WRITES=0'
+            Write-Output 'MPAI13_COLLECTOR_AUTO_ADMISSION=FALSE'
+            Write-Output 'MPAI13_NEW_CONTROLLERS=0'
+            Write-Output 'MPAI13_REAL_EXTERNAL_AGENT_IDENTITY=NOT_ESTABLISHED'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI13_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
