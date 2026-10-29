@@ -1,0 +1,135 @@
+name: ACC49 original U05 exact activation-lookup Go
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc49_go_u05/**'
+      - 'docs/research/ACC-49-*'
+      - '.github/workflows/forge-acc49-original-u05-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    runs-on: ${{ matrix.os }}
+    name: ACC49 original U05 60 real workers / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate actual U05 and frozen protocol and Go code
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor b1336c50d116664a4c3314644a5f41a84a079362 HEAD
+          test "$(git hash-object docs/research/ACC-49-U05-ACTIVATION-LOOKUP-PREREG.md)" = 347bde86c7a684b5afedce3e1b0810b0715c444b
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python - <<'PY'
+          import ast,pathlib
+          a=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          n=ast.literal_eval(next(v.value for v in a.body if isinstance(v,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in v.targets)))
+          assert len(n)==30 and n[4]=='activation/prompt lookup'
+          print('ACC49_AUTHENTIC_U05_IDENTITY=PASS')
+          PY
+          test "$(git hash-object research/acceleration/acc49_go_u05/go.mod)" = 9bac6d806f84b166916bb817b6a2425319f09f66
+          test "$(git hash-object research/acceleration/acc49_go_u05/main.go)" = de6cd29e43ec714d860bb6596bf9d4d297f4ba75
+          test "$(git hash-object research/acceleration/acc49_go_u05/core_test.go)" = 3d7ba8b51a8995c970571c135d992ee86ae82a0e
+          test "$(git hash-object research/acceleration/acc49_go_u05/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc49_go_u05/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          echo ACC49_PREREG_FIRST_GO_SOURCE_HASHES=PASS
+      - name: Retain the 36 original research negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc49-36.json"
+      - name: Test vet build and run 60 cold U05 workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc49_go_u05
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc49"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc49-report.json"
+      - name: Validate all exact workers and physical CPU memory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/acc49-report.json" <<'PY'
+          import json,sys,math
+          j=json.load(open(sys.argv[1]))
+          assert j['Schema']=='forge.acc49.original-u05.nativego.v1'
+          assert j['NativeChildCount']==len(j['Records'])==60 and len(j['Comparisons'])==3
+          assert not j['ScientificFirstUse'] and not j['NativeModelAcceleration']
+          assert j['Classification'] in ('U05_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U05_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY')
+          pairs={};keys=set()
+          for r in j['Records']:
+            w=r['Worker'];key=(w['Mode'],w['Cohort'],w['Seed'])
+            assert key not in keys;keys.add(key)
+            assert w['Sessions']==32 and w['Queries']==32*8192
+            assert w['Hits']+w['Misses']==w['Queries']
+            assert w['PeakRSSBytes']>0 and r['CPUSeconds']>0 and r['WallSeconds']>0
+            assert w['TruthSHA256']==w['OutputSHA256']
+            assert len(w['SourceSHA256'])==64
+            pair=(w['Cohort'],w['Seed'])
+            assert pair not in pairs or pairs[pair]==w['SourceSHA256']
+            pairs[pair]=w['SourceSHA256']
+          assert len(pairs)==15 and len(keys)==60
+          print('ACC49_U05_60_COLD_NATIVE_CPU_RSS_WORKERS=PASS')
+          print('ACC49_U05_ENGINEERING='+j['Classification'])
+          PY
+      - name: Preserve raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc49-u05-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc49-report.json
+            ${{ runner.temp }}/acc49-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    name: ACC49 independent exact 60/60 input-output audit
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc49-u05-*
+          path: artifacts
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc49-u05-ubuntu-latest'/'acc49-report.json').read_text())
+          b=json.loads((p/'acc49-u05-windows-latest'/'acc49-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda t:(t['Worker']['Mode'],t['Worker']['Cohort'],t['Worker']['Seed'])
+          aa={key(t):t['Worker'] for t in a['Records']}
+          bb={key(t):t['Worker'] for t in b['Records']}
+          assert len(aa)==len(bb)==60 and set(aa)==set(bb)
+          for k in aa:
+            for f in ('SourceSHA256','TruthSHA256','OutputSHA256','Hits','Misses','LogicalBytes','Queries'):
+              assert aa[k][f]==bb[k][f],(k,f)
+          print('ACC49_U05_ORIGINAL_EXACT_CROSSOS_60_OF_60_PASS')
+          print('ACC49_LINUX='+a['Classification'])
+          print('ACC49_WINDOWS='+b['Classification'])
+          print('ACC49_ACTUAL_NATIVE_MODEL_SPEEDUP=UNVERIFIED')
+          PY
