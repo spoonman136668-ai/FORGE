@@ -183,6 +183,12 @@ def main():
           separators=(",",":"),sort_keys=True))
     print("MPAI05_P11_IGNORED_NONEMPTY_TEXT_KEYS="+json.dumps(
           {k:unused[k] for k in sorted(unused)},separators=(",",":"),sort_keys=True))
+    print("MPAI05_P11_IGNORED_NONEMPTY_STRING_FIELD_TOTAL="+str(sum(unused.values())))
+    for key,count in sorted(keys.items(),key=lambda x:(-x[1],x[0]))[:24]:
+        if key not in ("screenshot","image","image_path"):
+            print("MPAI05_P11_FIELD_"+key.upper()+"="+str(count))
+    for key,count in sorted(unused.items(),key=lambda x:(-x[1],x[0]))[:16]:
+        print("MPAI05_P11_UNUSED_FIELD_"+key.upper()+"="+str(count))
     print("MPAI05_P11_LITERAL_TEST_NOT_SEMANTIC_GRADING=TRUE")
     print("MPAI05_P11_LOCAL_MODEL_CALLS=0")
     print("MPAI05_P11_SCIENTIFIC_ACCEPTANCE=FALSE")
