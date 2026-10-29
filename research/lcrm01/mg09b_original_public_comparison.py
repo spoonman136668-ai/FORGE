@@ -362,7 +362,8 @@ def run(binary,p):
        "FORGE_or_CKB_controller_modified":False,"same_original_selected_FIT_samples":1664,
        "original_episode_count":12,"external_live_actions":0,
        "canonical_original_source_sha256":sha(canon(evidence).encode()),
-       "canonical_original_source_evidence":evidence,\n       "nondeterministic_original_episode_resource_receipts":resources}
+       "canonical_original_source_evidence":evidence,
+       "nondeterministic_original_episode_resource_receipts":resources}
 
 
 def main():
