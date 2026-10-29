@@ -26,7 +26,6 @@ SCHEMA="forge.f139.original-owner-v3-provider-custody.v1"
 REPO="spoonman136668-ai/FORGE"
 WORKFLOW="forge-f139-development-worker.yml"
 WORKFLOW_ID=388797257
-REPOSITORY_ID=1070528144
 MEMBERS={"f139-v3-native-report.json","f139-v3-native-receipt.json"}
 MAX_BYTES=2_000_000
 SHA64=re.compile(r"[a-f0-9]{64}\Z")
