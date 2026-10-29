@@ -6,7 +6,7 @@ Counterfactual *proposal* outcomes remain unknown. The strong MG28 prior
 (action-only beats context+action for next-visible-change prediction) remains.
 """
 from __future__ import annotations
-import argparse,base64,collections,hashlib,json,subprocess,math,resource,time
+import argparse,base64,collections,hashlib,json,subprocess,math,time
 from pathlib import Path
 
 from mg25_original_policy_activation_audit import get_source,inspect,ROLES,SEEDS,FAMILIES,digest
