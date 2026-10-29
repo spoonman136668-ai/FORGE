@@ -29,10 +29,10 @@ git init -q "$RUNNER_TEMP/mg06/wingless"
 git -C "$RUNNER_TEMP/mg06/wingless" remote add origin https://github.com/spoonman136668-ai/Wingless.git
 git -C "$RUNNER_TEMP/mg06/wingless" fetch --no-tags --depth 1 origin f002936d7757af386143b748bbe4427214e5fd5b
 git -C "$RUNNER_TEMP/mg06/wingless" checkout --detach -q f002936d7757af386143b748bbe4427214e5fd5b
-test "$(git -C "$RUNNER_TEMP/mg06/wingless" hash-object research/native/itd02/dk9/explore_policy.go)" = 3fe0000000000000000000000000000000000000
-test "$(git -C "$RUNNER_TEMP/mg06/wingless" hash-object research/native/itd02/dk9bridge/main.go)" = 4fe0000000000000000000000000000000000000
+test "$(git -C "$RUNNER_TEMP/mg06/wingless" hash-object research/native/itd02/dk9/explore_policy.go)" = b2914104945ecc29ecc265dbc9ce03f78170dc7a
+test "$(git -C "$RUNNER_TEMP/mg06/wingless" hash-object research/native/itd02/dk9bridge/main.go)" = 930aee2066bfe71ef92dea804604ac3dbcfd4a25
 test "$(git -C "$RUNNER_TEMP/mg06/wingless" hash-object research/native/itd02/r8/online_beliefs.go)" = 6857ecbef2d63f459a432a5d68c7edda2b5347c4
-(cd "$RUNNER_TEMP/mg06/wingless" && go test -count=1 ./research/native/itd02/dk9/... && go build -trimpath -o "$RUNNER_TEMP/mg06/wingless-dk8-go" ./research/native/itd02/dk9bridge)
+(cd "$RUNNER_TEMP/mg06/wingless" && go test -count=1 ./research/native/itd02/dk9/... && go build -trimpath -o "$RUNNER_TEMP/mg06/wingless-dk9-go" ./research/native/itd02/dk9bridge)
 echo MG06_ORIGINAL_OPTIN_GO_DK8_ENGINEERING_PASS
 
 git init -q "$RUNNER_TEMP/mg06/yggdrasil"
@@ -54,13 +54,13 @@ export PYTHONPATH="$RUNNER_TEMP/mg06/yggdrasil:$GITHUB_WORKSPACE/research/lcrm01
 echo MG06_INDEPENDENT_CONVENTIONAL_AND_ORIGINAL_YGGDRASIL_SOURCE_PINS_PASS
 
 python -B research/lcrm01/mg06_original_doorkey_exploration.py \
- --wingless-dk9-go "$RUNNER_TEMP/mg06/wingless-dk8-go" \
+ --wingless-dk9-go "$RUNNER_TEMP/mg06/wingless-dk9-go" \
  --output "$RUNNER_TEMP/mg06/first.json" > "$RUNNER_TEMP/mg06/first.log" 2>&1 || {
  cat "$RUNNER_TEMP/mg06/first.log"; exit 1;
 }
 cat "$RUNNER_TEMP/mg06/first.log"
 python -B research/lcrm01/mg06_original_doorkey_exploration.py \
- --wingless-dk9-go "$RUNNER_TEMP/mg06/wingless-dk8-go" \
+ --wingless-dk9-go "$RUNNER_TEMP/mg06/wingless-dk9-go" \
  --output "$RUNNER_TEMP/mg06/second.json" > "$RUNNER_TEMP/mg06/second.log" 2>&1 || {
  cat "$RUNNER_TEMP/mg06/second.log"; exit 1;
 }
@@ -74,4 +74,4 @@ test -z "$(git -C "$RUNNER_TEMP/mg06/minigrid" status --porcelain --untracked-fi
 test -z "$(git -C "$RUNNER_TEMP/mg06/wingless" status --porcelain --untracked-files=no)"
 test -z "$(git -C "$RUNNER_TEMP/mg06/yggdrasil" status --porcelain --untracked-files=no)"
 test -z "$(git -C "$RUNNER_TEMP/mg06/collector" status --porcelain --untracked-files=no)"
-echo MG06_AUTHENTIC_NATIVE_ONLY_NO_HIDDEN_EXTERNAL_ACTIONS_AND_CAPPED_SOURCE_RUN_COMPLETE_NOT_SCIENCE
+echo MG06_AUTHENTIC_NATIVE_ONLY_SELF_SELECTED_ACTIONS_WITHOUT_EXTERNAL_COLLECTOR_NOT_SCIENCE
