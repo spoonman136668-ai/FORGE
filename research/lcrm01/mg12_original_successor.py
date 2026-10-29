@@ -368,6 +368,7 @@ def episode(role,seed,trained,binary,p):
             "forward_while_held":forward_held,"front_door_while_held":front_held,
             "source_visible_door_openings":doors,"source_goal_rewards":goals,
             "distinct_public_views":len(seen),
+            "source_public_revisit_count":len(events)-len(seen),
             "distinct_action_ids":len({e["actual_original_source_action"] for e in events}),
             "same_heading_scene_change_count":sum(
                 e["public_before"]["direction"]==e["public_after"]["direction"] and
