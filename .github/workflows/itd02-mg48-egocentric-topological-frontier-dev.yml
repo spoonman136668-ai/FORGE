@@ -1,0 +1,159 @@
+name: ITD-02 MG48 public-egocentric source-aligned topological frontier original DEV
+on:
+  push:
+    branches: [research/itd02-mg48-egocentric-topological-frontier-original-dev-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-source-only-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Exact LF source identity before checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Exact frozen MG45 research source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Source-only seed lineage, non-scripted explorer, true-native untouched
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 80b1843717b63b3cefbeccaaeab65ed5f4174e68 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG48_PROSPECTIVE_FREEZE_AFTER_EXECUTABLE' }
+          $changed=@(git diff --name-only 25bed29fc76e6046bc9e71f34ad47b1b38fd7263 $env:GITHUB_SHA)
+          $expected=@('.github/workflows/itd02-mg48-egocentric-topological-frontier-dev.yml',
+            'research/lcrm01/mg48_egocentric_topological_frontier_prereg.json',
+            'research/lcrm01/mg48_egocentric_topological_frontier_dev.py')
+          if (@(Compare-Object $changed $expected).Count -ne 0) { throw 'MG48_OUTSIDE_ISOLATED_RESEARCH_SCOPE' }
+          python -B research/lcrm01/mg48_egocentric_topological_frontier_dev.py --preflight
+          if ($LASTEXITCODE -ne 0) { throw 'MG48_SEED_LINEAGE_OR_GENERIC_EXPLORATION_FAILED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG48_SOURCE_NOT_CLEAN' }
+          Write-Host 'MG48_INDEPENDENT_FRESH_COHORT_SOURCE_ONLY_PREFLIGHT_PASS_NO_SCIENCE'
+  genuine-original-selected-world-acquisition:
+    needs: independent-source-only-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Exact source checkout LF
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Freeze before original source, exact Farama and unchanged native candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 80b1843717b63b3cefbeccaaeab65ed5f4174e68 "$GITHUB_SHA"
+          python -B research/lcrm01/mg48_egocentric_topological_frontier_dev.py --preflight
+          root="$RUNNER_TEMP/mg48"
+          mkdir -p "$root"
+          python -m pip install 'pip==24.0' 'setuptools==69.5.1' 'wheel==0.43.0'
+          python -m pip install 'numpy==1.26.4' 'gymnasium==1.1.1' 'pygame-ce==2.5.3'
+          for entry in 'minigrid Farama-Foundation/Minigrid 7f5853792ea7f04f75614661006d87fcf949f26d' 'wingless spoonman136668-ai/Wingless ebbadd157cc1df6eabfa5a550c8876ca87dc91e9' 'yggdrasil spoonman136668-ai/Yggdrasil f0dd99d59ce00da7ad17ff49900a1af6d2322a77'; do
+            read -r name repository revision <<< "$entry"
+            git init -q "$root/$name"
+            git -C "$root/$name" remote add origin "https://github.com/$repository.git"
+            git -C "$root/$name" fetch --no-tags --depth 1 origin "$revision"
+            git -C "$root/$name" checkout --detach -q "$revision"
+            test "$(git -C "$root/$name" rev-parse HEAD)" = "$revision"
+          done
+          test "$(git -C "$root/minigrid" hash-object minigrid/envs/doorkey.py)" = df5b29ef063be34e6d83b8b478e092c6e3e01512
+          test "$(git -C "$root/wingless" hash-object research/native/itd02/mg19/genuine_mission.go)" = df6111abd421f601b976273abf61aaad6d0bf61a
+          test "$(git -C "$root/yggdrasil" hash-object research/native/itd02/mg19/genuine_mission_cells.py)" = 6a2a60eb9c9b77436421aa7ccbe785d29a163280
+          python -m pip install --no-deps -e "$root/minigrid"
+          (cd "$root/wingless" && go test -count=1 ./research/native/itd02/mg19/... && go build -trimpath -o "$root/wingless-go" "$GITHUB_WORKSPACE/research/lcrm01/mg20_wingless_original_source_bridge.go")
+          export PYTHONPATH="$root/yggdrasil:$GITHUB_WORKSPACE/research/lcrm01"
+          python -B -m unittest -q research.native.itd02.mg19.test_genuine_mission_cells
+          # Source-identical MG33-C nondegenerate baseline: separate qualified commit,
+          # not a reimplementation or mutated previous comparator.
+          git init -q "$root/actioncontrol"
+          git -C "$root/actioncontrol" remote add origin "https://github.com/spoonman136668-ai/FORGE.git"
+          git -C "$root/actioncontrol" fetch --no-tags --depth 1 origin f6a0363fd0c0c1ae0f312a4de9062b9395e70aac
+          git -C "$root/actioncontrol" checkout --detach -q f6a0363fd0c0c1ae0f312a4de9062b9395e70aac
+          test "$(git -C "$root/actioncontrol" rev-parse HEAD)" = f6a0363fd0c0c1ae0f312a4de9062b9395e70aac
+          test "$(git -C "$root/actioncontrol" hash-object research/lcrm01/mg33c_actiononly_control.py)" = 082ef861258476703a0590a4092add1ce0ab57c5
+          python -B "$root/actioncontrol/research/lcrm01/mg33c_actiononly_control.py" --preflight --report "$root/mg33c-synthetic.json"
+          echo MG48_EXACT_QUALIFIED_MG33C_NONDEGENERATE_CONTROL_SOURCE_PASS
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo MG48_FARAMA_NATIVE_SOURCE_ALL_PINS_AND_PROSPECTIVE_COHORT_VERIFIED_BEFORE_NEW_WORLD
+      - name: First independent real original Farama source DEV actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/mg48"
+          export PYTHONPATH="$root/yggdrasil:$GITHUB_WORKSPACE/research/lcrm01"
+          python -B research/lcrm01/mg48_egocentric_topological_frontier_dev.py \
+            --source-root "$root/minigrid" --native-go "$root/wingless-go" \
+            --control-root "$root/actioncontrol" \
+            --output "$root/first.json" --resources "$root/first-resources.json" > "$root/first.log" 2>&1 || {
+            tail -90 "$root/first.log"; exit 1;
+          }
+          tail -4 "$root/first.log"
+      - name: Second independent original Farama source DEV action process
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/mg48"
+          export PYTHONPATH="$root/yggdrasil:$GITHUB_WORKSPACE/research/lcrm01"
+          python -B research/lcrm01/mg48_egocentric_topological_frontier_dev.py \
+            --source-root "$root/minigrid" --native-go "$root/wingless-go" \
+            --control-root "$root/actioncontrol" \
+            --output "$root/second.json" --resources "$root/second-resources.json" > "$root/second.log" 2>&1 || {
+            tail -90 "$root/second.log"; exit 1;
+          }
+          tail -4 "$root/second.log"
+          python -B research/lcrm01/mg48_egocentric_topological_frontier_dev.py \
+            --compare "$root/first.json" "$root/second.json" \
+            > "$root/comparison.log" 2>&1 || {
+            cat "$root/comparison.log"; exit 1;
+          }
+          tail -4 "$root/comparison.log"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo MG48_UNMODIFIED_POLICY_NEW_FAMILY_TRANSFER_DEV_ONLY_NO_SCIENCE
+      - name: Preserve two original source processes including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg48-genuine-original-topological-frontier-development
+          path: |
+            ${{ runner.temp }}/mg48/first.json
+            ${{ runner.temp }}/mg48/second.json
+            ${{ runner.temp }}/mg48/*-resources.json
+            ${{ runner.temp }}/mg48/*.log
+            ${{ runner.temp }}/mg48/mg33c-synthetic.json
+          retention-days: 30
+          if-no-files-found: warn
