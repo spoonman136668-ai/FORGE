@@ -77,7 +77,7 @@ def wingless(name, go_bin, seed):
     bridge = WingBridge(go_bin)
     try:
         response = bridge.request("begin_episode")
-        if response["updates"] != 0:
+        if response.get("updates", 0) != 0:
             raise ValueError("MG18_WINGLESS_UNEXPECTED_PRIOR_SAMPLES")
         try:
             suggestion = bridge.request("choose", before=before)
