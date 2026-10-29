@@ -161,57 +161,22 @@ jobs:
             $report=Get-Content -LiteralPath $testLog -Raw
             if($rc -ne 0 -or -not $report.Contains('Mind-Palace regression suite passed')){
               Write-Output ('MPAI_USAGE_FULL_WINDOWS_EXIT_NONZERO='+[string]($rc -ne 0))
-              $markers=[regex]::Matches($report,'(?m)^RUN (Test-[A-Za-z0-9-]+\.ps1)\r?
-            Write-Output 'MPAI_USAGE_FULL_WINDOWS_TEST_ALL=PASS'
-            foreach($name in $guard){
-              $now=(Get-FileHash -LiteralPath (Join-Path $root $name) -Algorithm SHA256).Hash
-              if($before[$name] -cne $now){throw 'MPAI_USAGE_PROTECTED_SOURCE_CHANGED'}
-            }
-            $dirty=@(git.exe -C $root status --porcelain=v1 --untracked-files=all)
-            if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){
-              throw 'MPAI_USAGE_SOURCE_WORKTREE_CHANGED'
-            }
-            $remoteAfter=@(git.exe ls-remote --exit-code $privateRepo ('refs/heads/'+$mpBranch))
-            if($LASTEXITCODE -ne 0 -or $remoteAfter.Count -ne 1 -or
-               -not ([string]$remoteAfter[0]).StartsWith($mpSource)){
-              throw 'MPAI_USAGE_REMOTE_PIN_DRIFT'
-            }
-            Write-Output 'MPAI_USAGE_SOURCE_PIN=PASS'
-            Write-Output 'MPAI_USAGE_PROTECTED_MEMORY_WRITES=0'
-            Write-Output 'MPAI_USAGE_NEW_CONTROLLERS=0'
-            Write-Output 'MPAI_USAGE_REAL_CLIENT_IDENTITY_PROVEN=FALSE'
-            Write-Output 'MPAI_USAGE_BEHAVIORAL_IMPROVEMENT_PROVEN=FALSE'
-          } finally {
-            Set-Location $env:RUNNER_TEMP
-            if(Test-Path -LiteralPath $scratch){
-              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
-            }
-            Write-Output ('MPAI_USAGE_PRIVATE_SCRATCH_CLEAN='+[string](-not (Test-Path -LiteralPath $scratch)))
-          }
-)
-              if($markers.Count -gt 0){
-                Write-Output ('MPAI_USAGE_FULL_LAST_TEST='+$markers[$markers.Count-1].Groups[1].Value)
-              } else {
-                Write-Output 'MPAI_USAGE_FULL_LAST_TEST=NO_TEST_MARKER'
+              $lastTest='NO_TEST_MARKER'
+              foreach($logLine in $report.Split([char]10)){
+                $lineText=$logLine.Trim()
+                if($lineText.StartsWith('RUN Test-') -and $lineText.EndsWith('.ps1') -and $lineText.Length -le 80){
+                  $lastTest=$lineText
+                }
               }
-              $classes=@(
-                'CommandNotFoundException','UnauthorizedAccessException',
-                'NativeCommandError','ParameterBindingException',
-                'PSSecurityException','RuntimeException','MethodException',
-                'FileNotFoundException','DirectoryNotFoundException',
-                'InvalidOperationException','ParserError'
-              )
-              foreach($type in $classes){
-                if($report.Contains($type)){
-                  Write-Output ('MPAI_USAGE_FULL_ERROR_KIND='+$type)
+              Write-Output ('MPAI_USAGE_FULL_LAST_TEST='+$lastTest)
+              foreach($errorKind in @('CommandNotFoundException','UnauthorizedAccessException','NativeCommandError','ParameterBindingException','PSSecurityException','RuntimeException','MethodException','FileNotFoundException','DirectoryNotFoundException','InvalidOperationException','ParserError')){
+                if($report.Contains($errorKind)){
+                  Write-Output ('MPAI_USAGE_FULL_ERROR_KIND='+$errorKind)
                   break
                 }
               }
-              if($report -match 'running scripts is disabled'){
+              if($report.Contains('running scripts is disabled')){
                 Write-Output 'MPAI_USAGE_FULL_EXECUTION_POLICY_BLOCK=TRUE'
-              }
-              if($report -match 'cannot be loaded because'){
-                Write-Output 'MPAI_USAGE_FULL_SCRIPT_LOAD_BLOCK=TRUE'
               }
               throw 'MPAI_USAGE_FULL_WINDOWS_REGRESSION_FAILED_PRIVATE'
             }
