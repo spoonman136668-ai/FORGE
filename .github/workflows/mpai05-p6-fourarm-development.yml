@@ -1,0 +1,68 @@
+name: MP-AI05 P6 pinned non-Qwen four-arm development experiment
+on:
+  push:
+    branches: [proposal/mpai05-p6-fourarm-development-20261029]
+    paths: ['.github/workflows/mpai05-p6-fourarm-development.yml']
+permissions:
+  contents: read
+jobs:
+  original-fourarm-dev:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 28
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source-pinned 32 offline non-Qwen development trials, no scientific admission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI05_P6_WRONG_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P6_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P6_NO_REPLAY'}
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-p6-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          $env:MPAI05_P6_SCRATCH=$root
+          try{
+            if(Test-Path -LiteralPath $root){throw 'MPAI05_P6_SCRATCH_COLLISION'}
+            $private=Join-Path $env:RUNNER_TEMP ('mpai05-p6-log-'+$env:GITHUB_RUN_ID+'.txt')
+            if(Test-Path -LiteralPath $private){throw 'MPAI05_P6_LOG_COLLISION'}
+            try {
+              & python -B tools/mpai05_p6_fourarm_dev.py *> $private
+              $exit=$LASTEXITCODE
+              $raw=Get-Content -Raw -LiteralPath $private -ErrorAction Stop
+              if($exit -ne 0){
+                $m=[regex]::Match($raw,'MPAI05_P6_SAFE_FAILURE=(MPAI05_P6_[A-Z0-9_]{3,80})')
+                if($m.Success){Write-Output ('MPAI05_P6_FAILURE_CLASS='+$m.Groups[1].Value)}
+                else {Write-Output 'MPAI05_P6_FAILURE_CLASS=PRIVATE_EXCEPTION'}
+                throw 'MPAI05_P6_PRIVATE_RUN_FAILED'
+              }
+              if($raw -notmatch 'MPAI05_P6_LOCAL_MODEL_CALLS=32' -or
+                 $raw -notmatch 'MPAI05_P6_PRIVATE_MCP=PASS' -or
+                 $raw -notmatch 'MPAI05_P6_SCIENTIFIC_ACCEPTANCE=FALSE' -or
+                 $raw -notmatch 'MPAI05_P6_PRODUCTION_WRITES=0'){
+                 throw 'MPAI05_P6_RECEIPT_INCOMPLETE'
+              }
+              foreach($line in ($raw -split '\r?\n')){
+                if($line -match '^MPAI05_P6_[A-Z0-9_]+=(?:[0-9]+|PASS|FALSE|TRUE|PROPOSE_ONLY)$'){
+                  Write-Output $line
+                }
+              }
+            } finally {
+              if(Test-Path -LiteralPath $private){Remove-Item -LiteralPath $private -Force}
+            }
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI05_P6_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Force -Recurse -ErrorAction Stop}
+            Write-Output ('MPAI05_P6_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
