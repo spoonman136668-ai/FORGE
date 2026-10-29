@@ -46,7 +46,13 @@ def verify_repository_file(root,head,path,blob):
     f=root/path
     if not f.is_file():
         raise RuntimeError("AC25_ORIGINAL_CONTRACT_FILE_MISSING")
-    return f.read_bytes()
+    # Compare immutable GIT BLOBS, not checkout working-tree newline
+    # conversion (Windows may materialize CRLF from identical LF blobs).
+    p=subprocess.run(["git","-C",str(root),"show","HEAD:"+path],
+        capture_output=True,timeout=12)
+    if p.returncode:
+        raise RuntimeError("AC25_IMMUTABLE_ORIGINAL_GIT_BLOB_READ_FAILED")
+    return p.stdout
 
 def read_existing_ac24(raw,os):
     if os not in AC24_REPORT_HASHES or hashlib.sha256(raw).hexdigest()!=AC24_REPORT_HASHES[os]:
