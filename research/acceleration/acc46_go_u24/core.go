@@ -3,7 +3,6 @@ package main
 import (
  "encoding/binary"
  "hash"
- "math"
 )
 
 const (
@@ -56,7 +55,7 @@ func truth(ruleset rules,mode string,step int,cell,pattern int)uint8{
  if mode=="UNIFORM"{table=ruleset.Old[0]}else if mode=="RULE_SHIFT"&&step>=fitStates/2{table=ruleset.New[region]}else{table=ruleset.Old[region]}
  return (table>>uint(pattern))&1
 }
-func saturate(n *uint16){if *n<math.MaxUint16{*n++}}
+func saturate(n *uint16){if *n<^uint16(0){*n++}}
 func addHash(h hash.Hash,tag byte,x uint64){
  var b [9]byte;b[0]=tag;binary.LittleEndian.PutUint64(b[1:],x);_,_=h.Write(b[:])
 }
