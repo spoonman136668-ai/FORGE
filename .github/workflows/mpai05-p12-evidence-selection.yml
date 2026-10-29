@@ -1,0 +1,129 @@
+name: MP-AI05 P12 original Windows gold-blind ranking comparison
+on:
+  push:
+    branches: [proposal/mpai05-p12-evidence-selection-20261029]
+    paths: ['.github/workflows/mpai05-p12-evidence-selection.yml']
+permissions:
+  contents: read
+jobs:
+  original-windows-p12:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: P12 original-source matched evidence selection without inference
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI05_P12_WRONG_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P12_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P12_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'MPAI05_P12_HEAD_MISMATCH'}
+          $blobs=@{
+            'tools/mpai05_p9_dataset_freeze.py'='2c2100c53c001d28843bc2da664c3e92d413e2e6'
+            'tools/mpai05_p10_public_development.py'='7bd698e3265cc41ee4d286461980d7586a25ac99'
+            'tools/mpai05_p11_diagnose.py'='5beb813560d0e4f816a0dabefd1aa5fcc89321a9'
+            'tools/mpai05_p12_evidence_selection.py'='de13820b5598e2cabf8432481b9a34abfd6e461b'
+            'tests/test_mpai05_p12_evidence_selection.py'='749697a7967ae7622449a2174e59ef59ea76c30e'
+          }
+          foreach($path in $blobs.Keys){
+            $actual=(git rev-parse ('HEAD:'+$path)).Trim()
+            if($LASTEXITCODE -ne 0 -or $actual -cne $blobs[$path]){
+              throw 'MPAI05_P12_SOURCE_PIN_DRIFT'
+            }
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-p12-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $env:RUNNER_TEMP ('mpai05-p12-private-'+$env:GITHUB_RUN_ID+'.log')
+          $env:MPAI05_P12_SCRATCH=$root
+          try {
+            if((Test-Path -LiteralPath $root) -or (Test-Path -LiteralPath $private)){
+              throw 'MPAI05_P12_SCRATCH_COLLISION'
+            }
+            & python -B -m unittest discover -s tests -p test_mpai05_p12_evidence_selection.py -v *> $private
+            $code=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $private -Raw
+            if($code -ne 0 -or $raw -notmatch 'Ran 11 tests' -or $raw -notmatch '(?m)^OK(?:\s|$)'){
+              foreach($m in [regex]::Matches($raw,'(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                Write-Output ('MPAI05_P12_TEST_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+              }
+              foreach($reason in @('SyntaxError','AssertionError','TypeError','ModuleNotFoundError')){
+                if($raw.Contains($reason)){Write-Output ('MPAI05_P12_TEST_FAILURE_TYPE='+$reason);break}
+              }
+              throw 'MPAI05_P12_FOCUSED_TEST_FAILURE_PRIVATE_LOG'
+            }
+            Write-Output 'MPAI05_P12_FOCUSED_TESTS=11_PASS'
+            Remove-Item -LiteralPath $private -Force
+            & python -B tools/mpai05_p12_evidence_selection.py *> $private
+            $code=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $private -Raw
+            if($code -ne 0){
+              $c=[regex]::Match($raw,'MPAI05_P12_FAILURE_CLASS=(MPAI05_P12_[A-Z0-9_]+|PRIVATE_EXCEPTION)')
+              if($c.Success){Write-Output ('MPAI05_P12_SAFE_FAILURE_CLASS='+$c.Groups[1].Value)}
+              $phase=[regex]::Match($raw,'MPAI05_P12_FAILURE_STAGE=([A-Z_]+)')
+              if($phase.Success){Write-Output ('MPAI05_P12_SAFE_FAILURE_STAGE='+$phase.Groups[1].Value)}
+              $type=[regex]::Match($raw,'MPAI05_P12_FAILURE_TYPE=([A-Za-z]{3,40})')
+              if($type.Success){Write-Output ('MPAI05_P12_SAFE_FAILURE_TYPE='+$type.Groups[1].Value)}
+              throw 'MPAI05_P12_PRIVATE_STUDY_FAILURE'
+            }
+            foreach($marker in @(
+              'MPAI05_P12_ORIGINAL_SOURCE=PASS',
+              'MPAI05_P12_OFFICIAL_DATA_SHA256=PASS',
+              'MPAI05_P12_FROZEN_COHORT_SHA256=103dbf87dda69f03b32f4c6a3a987b5ab5b7a8d3c3ceeb11f223ad5cf358ae52',
+              'MPAI05_P12_FROZEN_METHODS=3',
+              'MPAI05_P12_GOLD_USED_FOR_RANKING=FALSE',
+              'MPAI05_P12_LITERAL_PROXY_NOT_SEMANTIC_GRADE=TRUE',
+              'MPAI05_P12_MODEL_CALLS=0',
+              'MPAI05_P12_SCIENTIFIC_ACCEPTANCE=FALSE',
+              'MPAI05_P12_PRODUCTION_WRITES=0')){
+              if(-not $raw.Contains($marker)){throw 'MPAI05_P12_INCOMPLETE_RECEIPT'}
+            }
+            $seen=@{}
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI05_P12_(P10_LEXICAL|IDF_DIVERSE|IDF_NEIGHBOR)_([A-Z0-9_]+)=([0-9]+)$'){
+                $name=$Matches[1]
+                $key=$Matches[2]
+                $value=[int64]$Matches[3]
+                if(-not $seen.ContainsKey($name)){$seen[$name]=@{}}
+                $seen[$name][$key]=$value
+                Write-Output $line
+              }
+              elseif($line -match '^MPAI05_P12_(ORIGINAL_SOURCE|OFFICIAL_DATA_SHA256|FROZEN_COHORT_SHA256|FROZEN_METHODS|GOLD_USED_FOR_RANKING|LITERAL_PROXY_NOT_SEMANTIC_GRADE|PUBLIC_DEVELOPMENT_ONLY|FIRST_USE|MODEL_CALLS|SCIENTIFIC_ACCEPTANCE|PRODUCTION_WRITES)=(PASS|TRUE|FALSE|[0-9]+|[a-f0-9]{64})$'){
+                Write-Output $line
+              }
+            }
+            if($seen.Count -ne 3){throw 'MPAI05_P12_ARM_COUNT'}
+            foreach($name in @('P10_LEXICAL','IDF_DIVERSE','IDF_NEIGHBOR')){
+              if($seen[$name].CASES -ne 16 -or
+                 $seen[$name].LITERAL_ELIGIBLE_CASES -ne 7 -or
+                 $seen[$name].LITERAL_REFERENCE_PRESENT -gt 16){
+                throw 'MPAI05_P12_DENOMINATOR_INVALID'
+              }
+            }
+            if($seen['P10_LEXICAL'].LITERAL_REFERENCE_PRESENT -ne 2){
+              throw 'MPAI05_P12_P11_REFERENCE_DRIFT'
+            }
+            $dirty=@(git status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_P12_FORGE_SOURCE_CHANGED'}
+            Write-Output 'MPAI05_P12_FORGE_SOURCE_CUSTODY=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI05_P12_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $private){Remove-Item -LiteralPath $private -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_P12_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
