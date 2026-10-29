@@ -40,6 +40,26 @@ class TestLocalPulseReconstruction(unittest.TestCase):
         self.assertNotIn("s1",early)
         self.assertEqual(set(fully),{"s1","x1"})
 
+    def test_strict_stage0_local_learning_precedes_stage1_without_future_data(self):
+        m=ac23.LocalPulseReconstruction()
+        with self.assertRaisesRegex(RuntimeError,"AC23_PUBLIC_STAGE1_BEFORE_STAGE0"):
+            m.finish_public_episode(0,1,1)
+        m.begin_public_episode(1,1)
+        initial_gates=dict(m.gates)
+        self.assertGreater(initial_gates[3],0.)
+        self.assertGreater(initial_gates[4],0.)
+        self.assertEqual(m.updates,0)
+        with self.assertRaisesRegex(RuntimeError,"AC23_PUBLIC_EPISODE_ALREADY_STARTED"):
+            m.begin_public_episode(0,1)
+        m.finish_public_episode(0,1,0)
+        self.assertEqual(m.gates,initial_gates)
+        self.assertEqual(m.updates,1)
+        self.assertIsNone(m._episode)
+        with self.assertRaisesRegex(RuntimeError,"AC23_PUBLIC_STAGE1_BEFORE_STAGE0"):
+            m.finish_public_episode(0,1,1)
+        with self.assertRaises(TypeError):
+            m.begin_public_episode(1,1,u=0.5)
+
     def test_only_local_two_gate_parameters_moved_and_cold_restored(self):
         m=ac23.LocalPulseReconstruction()
         rows=[((1,1,0,1),1),((0,0,1,0),0)]
