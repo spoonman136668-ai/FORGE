@@ -43,6 +43,8 @@ jobs:
                   'f139/nci04_owner_v3_dispatch.py',
                   'f139/test_nci04_owner_v3_dispatch.py',
                   'f139/nci04_worker_v3.py',
+                  'f139/nci04_v3_bounded_resource.py',
+                  'f139/local_controller.py',
                   'f139/test_nci04_worker_v3.py')|Sort-Object
           if(($got -join '|') -cne ($want -join '|')){throw ('V3_PRODUCTION_DIFF_SCOPE_DRIFT='+($got -join ','))}
           if(@(& git status --porcelain --untracked-files=all).Count -ne 0){throw 'V3_PRODUCTION_DIRTY'}
@@ -73,6 +75,11 @@ jobs:
           path: v3-original-candidate
           fetch-depth: 0
           persist-credentials: false
+      - name: Install pinned cross-OS native process sampler
+        shell: pwsh
+        run: |
+          & python -B -m pip install --disable-pip-version-check --no-input 'psutil==6.1.1'
+          if($LASTEXITCODE -ne 0){throw 'F139_V3_REQUIRED_CPU_RSS_SAMPLER_UNAVAILABLE'}
       - name: Invoke actual production V3 module with genuine source and one changed file
         shell: pwsh
         env:
@@ -107,14 +114,14 @@ jobs:
           assert len(report['candidate_nonatlas'])>=4
           assert all(x['status']=='PASS' and x['discovered_tests']>0 for x in report['candidate_nonatlas'].values())
           assert report['candidate_compile']['status']=='PASS'
-          assert report['native_qualified'] is False and report['child_cpu_rss_verified'] is False
-          assert receipt['schema']==RECEIPT and receipt['native_qualified'] is False
+          assert report['native_qualified'] is True and report['child_cpu_rss_verified'] is True and report['resource_accounting']=='psutil-sampled-process-tree-v1'
+          assert receipt['schema']==RECEIPT and receipt['native_qualified'] is True and receipt['development_only'] is True and receipt['scientific_first_use_authorized'] is False
           out=root/'f139-v3-real-source-only-report.json'
           assert not out.exists()
           out.write_bytes(canonical(report))
           print('F139_V19_V3_REAL_REPAIRED_SOURCE_AND_CHANGED_CANDIDATE=PASS')
-          print('F139_V19_V3_NATIVE_SIGNED_PRODUCTION=NOT_QUALIFIED')
-          print('F139_V19_V3_REAL_CPU_RSS_BUDGET=NOT_QUALIFIED')
+          print('F139_V19_V3_NATIVE_DEV_RECEIPT=POSITIVE_SOURCE_ONLY_NOT_OWNER_CONSUMED')
+          print('F139_V19_V3_SAMPLED_CHILD_CPU_RSS_BUDGET=PASS_NOT_KERNEL_HARD_LIMIT')
           print('F139_V19_V3_ORIGINAL_OWNER_LEDGER=UNTOUCHED')
           '@
           $script=Join-Path $env:RUNNER_TEMP 'f139-v3-real-source-check.py'
