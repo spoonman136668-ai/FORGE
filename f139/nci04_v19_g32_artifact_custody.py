@@ -67,7 +67,7 @@ def json_object(raw, label, *, strict=False):
         # newline rewrite, whitespace normalization, or fallback source.
         allowed = (standard == raw or
                    (label == "WINDOWS_G29" and
-                    standard.replace(b"\\n", b"\\r\\n") == raw))
+                    standard.replace(b"\n", b"\r\n") == raw))
         require(allowed, label + "_NONCANONICAL")
     return value
 
