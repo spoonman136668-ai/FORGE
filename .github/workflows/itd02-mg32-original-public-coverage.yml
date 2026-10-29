@@ -1,0 +1,107 @@
+name: ITD-02 MG32 exposed original-world public opportunity audit
+on:
+  push:
+    branches: [research/itd02-mg32-exposed-original-coverage-audit-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  offline-source-only-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Exact LF checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout isolated research branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Freeze lineage, change isolation, pure offline metric preflight
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 978c4ec06bd52593845f95b8e30d614182fcc843 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG32_PREREG_NOT_FROZEN_BEFORE_EXECUTABLE' }
+          $changed=@(git diff --name-only 70fb89763d8331c23e2ab5f3845c475e31c25711 $env:GITHUB_SHA)
+          $expected=@('.github/workflows/itd02-mg32-original-public-coverage.yml',
+            'research/lcrm01/mg32_original_public_coverage_prereg.json',
+            'research/lcrm01/mg32_original_public_coverage.py')
+          if (@(Compare-Object $changed $expected).Count -ne 0) { throw 'MG32_OUTSIDE_EXPOSED_SOURCE_AUDIT_SCOPE' }
+          python -B research/lcrm01/mg32_original_public_coverage.py --preflight
+          if ($LASTEXITCODE -ne 0) { throw 'MG32_SOURCE_PREFLIGHT_FAILED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG32_SOURCE_NOT_CLEAN' }
+          Write-Host 'MG32_WINDOWS_UBUNTU_FROZEN_SOURCE_ONLY_PREFLIGHT_PASS_NO_SCIENCE'
+  offline-pinned-artifact-audit:
+    needs: offline-source-only-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Preserve exact LF checkout
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Retrieve exactly pinned MG31 immutable exposed original-world archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/mg31-exposed.zip"
+          curl --fail --silent --show-error --location --max-time 120 --retry 2 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12916955991/zip" \
+            --output "$archive"
+          test "$(stat -c%s "$archive")" -lt 10000000
+          printf '%s  %s\n' ef80b5b69fd6fb7a41f2f452dbc286d6024a8279050b7798ba8eb59219876b23 "$archive" | sha256sum --check --status
+          echo MG32_IMMUTABLE_EXPOSED_ARCHIVE_SHA256_PASS
+      - name: Decompose frozen original public approach exposure and selected decisions offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/mg32_original_public_coverage.py \
+            --artifact "$RUNNER_TEMP/mg31-exposed.zip" \
+            --output "$RUNNER_TEMP/mg32-report.json" \
+            > "$RUNNER_TEMP/mg32-report.log"
+          grep -F 'MG32_RETROSPECTIVE_EXPOSURE_ACTION_DECOMPOSITION_ONLY_NO_SCIENCE' "$RUNNER_TEMP/mg32-report.log"
+          grep -F 'MG32_PINNED_TWO_PROCESS_SOURCE_AND_AUDIT_PASS' "$RUNNER_TEMP/mg32-report.log"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo MG32_OFFLINE_EXPOSED_OPPORTUNITY_AUDIT_COMPLETE_NO_NEW_FARAMA_STEP_NO_SCIENCE
+      - name: Save source-validated public audit receipt (even failure logs)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg32-original-public-exposed-coverage-audit
+          path: |
+            ${{ runner.temp }}/mg32-report.json
+            ${{ runner.temp }}/mg32-report.log
+          if-no-files-found: warn
+          retention-days: 30
