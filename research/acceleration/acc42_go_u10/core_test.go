@@ -33,18 +33,19 @@ func TestLastWriteWinsAndAbsence(t *testing.T){
 }
 func TestCandidateFingerprintFalsePositiveIsVisible(t *testing.T){
  // Same two bucket addresses and same 16-bit tag, distinct keys; audit must report error.
- seen:=map[[3]int]uint64{}
- for k:=uint64(0);k<3000000;k++{
-  tag:=fp(k);a:=b1(k,2048);b:=b2(k,2048)
-  key:=[3]int{a,b,int(tag)}
+ seen:=map[[2]int]uint64{}
+ for k:=uint64(0);k<100000;k++{
+  // Same primary bucket and tag is sufficient for an unknown-key false positive.
+  // With 134,217,728 combined possibilities, collision is deterministic by pigeonhole at larger ranges.
+  key:=[2]int{b1(k,2048),int(fp(k))}
   if prior,ok:=seen[key];ok&&prior!=k{
    tab,_:=newTable("SKETCH_TWO");tab.Put(prior,11,1)
-   v,exists:=tab.Get(k);if !exists||v!=11{t.Fatal("candidate should expose collision")}
+   v,exists:=tab.Get(k);if !exists||v!=11{t.Fatal("candidate collision not exposed")}
    return
   }
   seen[key]=k
  }
- t.Skip("rare exact same 2-bucket+tag collision not found in bounded search; skip, not pass")
+ t.Fatal("could not construct source-free fingerprint false positive")
 }
 func TestEveryArmSameInputAndAudit(t *testing.T){
  for _,c:=range cohorts{
