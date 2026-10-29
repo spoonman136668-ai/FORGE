@@ -1,0 +1,55 @@
+name: ACC46 original U24 cellular learning prereg identity and provenance
+on:
+  pull_request:
+    paths:
+      - 'docs/research/ACC-46-*'
+      - 'research/acceleration/acc46_go_u24/**'
+      - '.github/workflows/forge-acc46-original-u24-prereg.yml'
+permissions:
+  contents: read
+jobs:
+  u24-prereg:
+    name: Original U24 provenance-only, not experiment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 50
+      - name: Original 30 ID names and immutable U24 protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          git merge-base --is-ancestor e000726ee3e5f040db534efa4eb32c400de99cd3 HEAD
+          test "$(git hash-object docs/research/ACC-46-U24-LOCAL-CA-PREREG.md)" = 85d353c6dd1891753af714c25e6a66784baeaf20
+          python - <<'PY'
+          import ast,pathlib
+          src=pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text()
+          mod=ast.parse(src)
+          names=ast.literal_eval(next(z.value for z in mod.body
+            if isinstance(z,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in z.targets)))
+          assert len(names)==30
+          assert names[23]=='cellular-automata local learning'
+          assert names[21]=='low-rank/tensor-train factorization'
+          assert names[9]=='holographic associative memory'
+          assert names[12]=='fixed-size KV sketches'
+          print('ACC46_SOURCE_IDENTITIES_U10_U13_U22_U24=PASS')
+          PY
+      - name: Preserve all 36 legacy candidates and negative cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc46-36.json"
+          python - "$RUNNER_TEMP/acc46-36.json" <<'PY'
+          import json,sys
+          j=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert {z['claim_id'] for z in j['rows']}==({f'U{i:02}' for i in range(1,31)}|{f'AC-D{i}' for i in range(1,7)})
+          assert j['stage2_qualified_native_model_speedups']==0
+          assert not j['scientific_admission'] and not j['scientific_first_use']
+          print('ACC46_ORIGINAL_36_NEGATIVE_EVIDENCE_PRESERVED=PASS')
+          print('ACC46_U24_PERFORMANCE_AND_MODEL_ACCELERATION=NOT_TESTED')
+          PY
