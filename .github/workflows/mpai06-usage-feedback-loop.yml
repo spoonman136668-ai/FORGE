@@ -1,0 +1,103 @@
+name: MP-AI06 actual Mind-Palace accepted feedback and cold-recall gate
+on:
+  push:
+    branches: [proposal/mpai06-usage-feedback-loop-20261029]
+    paths: ['.github/workflows/mpai06-usage-feedback-loop.yml']
+permissions:
+  contents: read
+jobs:
+  original-windows-feedback-loop:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+    steps:
+      - uses: actions/checkout@v4
+      - name: Qualify genuine accepted memory readback and canonical new feedback classification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+             throw 'MPAI06_WRONG_ORIGINAL_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI06_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI06_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+             throw 'MPAI06_SOURCE_HEAD_DRIFT'
+          }
+          $blobs=@{
+            'tools/mpai06_usage_feedback_gate.py'='153cf52657b66e23388f5705570d7053a28695ab'
+            'tests/test_mpai06_usage_feedback_gate.py'='a7090da0ea14082fee96e15fbf97b5cd5018dff1'
+          }
+          foreach($p in $blobs.Keys){
+            $got=(git rev-parse ('HEAD:'+$p)).Trim()
+            if($LASTEXITCODE -ne 0 -or $got -cne $blobs[$p]){
+              throw 'MPAI06_SOURCE_BLOB_DRIFT'
+            }
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $env:RUNNER_TEMP ('mpai06-private-'+$env:GITHUB_RUN_ID+'.log')
+          $env:MPAI06_SCRATCH=$scratch
+          try{
+            if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $private)){
+              throw 'MPAI06_SCRATCH_COLLISION'
+            }
+            & python -B -m unittest discover -s tests -p test_mpai06_usage_feedback_gate.py -v *> $private
+            $rc=$LASTEXITCODE
+            $text=Get-Content -LiteralPath $private -Raw -ErrorAction Stop
+            if($rc -ne 0 -or $text -notmatch 'Ran 8 tests' -or $text -notmatch '(?m)^OK(?:\s|$)'){
+              foreach($m in [regex]::Matches($text,'(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                 Write-Host ('MPAI06_TEST_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+              }
+              throw 'MPAI06_FOCUSED_REGRESSION_FAILED'
+            }
+            Write-Host 'MPAI06_FOCUSED_TESTS=8_PASS'
+            Remove-Item -LiteralPath $private -Force
+            & python -B tools/mpai06_usage_feedback_gate.py *> $private
+            $rc=$LASTEXITCODE
+            $text=Get-Content -LiteralPath $private -Raw -ErrorAction Stop
+            if($rc -ne 0){
+              $a=[regex]::Match($text,'MPAI06_SAFE_FAILURE=(MPAI06_[A-Z0-9_]+|PRIVATE_FAILURE)')
+              if($a.Success){Write-Host ('MPAI06_FAILURE_CLASS='+$a.Groups[1].Value)}
+              $b=[regex]::Match($text,'MPAI06_SAFE_ERROR_TYPE=([A-Za-z]{3,45})')
+              if($b.Success){Write-Host ('MPAI06_FAILURE_TYPE='+$b.Groups[1].Value)}
+              throw 'MPAI06_REAL_SOURCE_GATE_FAILED_PRIVATE_LOG'
+            }
+            foreach($expected in @(
+              'MPAI06_REAL_RUNS=2_AUTHENTIC',
+              'MPAI06_ORIGINAL_WINDOWS=PASS',
+              'MPAI06_ACCEPTED_COLD_RECALL=2_PASS',
+              'MPAI06_PROJECT_SCOPE=PASS',
+              'MPAI06_CANONICAL_COLLECTOR_CLASSIFY=PASS',
+              'MPAI06_NEW_FEEDBACK_ACCEPTED=FALSE',
+              'MPAI06_NINE_PROTECTED_HASHES=PASS',
+              'MPAI06_PRIVATE_MAIN_STABLE=PASS',
+              'MPAI06_AUTOMATIC_INGESTION=FALSE',
+              'MPAI06_PRODUCTION_WRITES=0',
+              'MPAI06_SCIENTIFIC_ACCEPTANCE=FALSE')){
+              if(-not $text.Contains($expected)){throw 'MPAI06_INCOMPLETE_PROVENANCE_OR_READONLY_RECEIPT'}
+            }
+            foreach($line in ($text -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI06_(REAL_RUNS|ORIGINAL_WINDOWS|ACCEPTED_COLD_RECALL|PROJECT_SCOPE|CANONICAL_COLLECTOR_CLASSIFY|NEW_USAGE_FEEDBACK_DISPOSITION|NEW_FEEDBACK_ACCEPTED|PRIVATE_SOURCE_SHA|NINE_PROTECTED_HASHES|PRIVATE_MAIN_STABLE|AUTOMATIC_INGESTION|PRODUCTION_WRITES|SCIENTIFIC_ACCEPTANCE)=([A-Z0-9_]+|[a-f0-9]{40})$'){
+                Write-Host $line
+              }
+            }
+            $dirty=@(git status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+              throw 'MPAI06_FORGE_SOURCE_CHANGED'
+            }
+            Write-Host 'MPAI06_FORGE_SOURCE_CUSTODY=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI06_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $private){Remove-Item -LiteralPath $private -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Write-Host ('MPAI06_PRIVATE_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
