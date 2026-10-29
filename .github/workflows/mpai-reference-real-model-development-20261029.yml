@@ -108,8 +108,45 @@ jobs:
               'MPAI_DEV_SCIENTIFIC_ACCEPTANCE=FALSE','MPAI_DEV_PRODUCTION_WRITES=0')){
               if(-not $raw.Contains($marker)){throw 'MPAI_DEV_RESULT_RECEIPT_MISSING'}
             }
+            $report=Get-Content -LiteralPath (Join-Path $scratch 'private-model-decisions.json') -Raw | ConvertFrom-Json
+            if($report.schema -cne 'forge.mpai-reference-development-real-model.v1' -or
+               $report.source_sha -cne $sourceHead -or
+               $report.model_sha256 -cne '2fa3f013dcdd7b99f9b237717fa0b12d75bbb89984cc1274be1471a465bac9c2' -or
+               $report.real_local_model_calls -ne 8 -or
+               $report.development_only -ne $true -or
+               $report.scientific_admission -ne $false -or
+               $report.matched_information -ne $false -or
+               @($report.private_trials).Count -ne 8){
+              throw 'MPAI_DEV_AGGREGATE_RECEIPT_INVALID'
+            }
+            foreach($arm in @('baseline','candidate')){
+              if($report.stats.$arm.calls -ne 4){
+                throw 'MPAI_DEV_ARM_SAMPLE_COUNT_INVALID'
+              }
+            }
             foreach($line in ($raw -split [char]10)){
-              if($line -match '^MPAI_DEV_(BASELINE|CANDIDATE)_(CALLS|EXACT_ANSWER_AGREEMENT|ABSTENTIONS|UNSCORABLE|PROMPT_TOKENS|OUTPUT_TOKENS|INFERENCE_MS)=[0-9]+$'){
+              $line=$line.Trim()
+              if($line -match '^MPAI_DEV_(BASELINE|CANDIDATE)_(CALLS|EXACT_ANSWER_AGREEMENT|ABSTENTIONS|UNSCORABLE|PROMPT_TOKENS|OUTPUT_TOKENS|INFERENCE_MS)=[0-9]+
+            foreach($file in $guard){
+              $after=(Get-FileHash -LiteralPath (Join-Path $original $file) -Algorithm SHA256).Hash
+              if($after -cne $before[$file]){throw 'MPAI_DEV_PROTECTED_MEMORY_CHANGED'}
+            }
+            if(@(git -C $original status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'MPAI_DEV_PRIVATE_SOURCE_DIRTY'}
+            if(@(git status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'MPAI_DEV_FORGE_SOURCE_DIRTY'}
+            Write-Output 'MPAI_DEV_MODEL_EXECUTION_AUTHENTIC=PASS'
+            Write-Output 'MPAI_DEV_NINE_PROTECTED_HASHES=PASS'
+            Write-Output 'MPAI_DEV_SOURCE_AND_SCOPE_PIN=PASS'
+            Write-Output 'MPAI_DEV_REAL_INDEPENDENT_AGENT_AUTHENTICATED=FALSE'
+            Write-Output 'MPAI_DEV_SCIENTIFIC_ACCEPTANCE=FALSE'
+            Write-Output 'MPAI_DEV_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI_DEV_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
+){
                 Write-Output $line
               }
             }
