@@ -259,8 +259,16 @@ def execute_v3_development(admission: NativeAdmission, native_root: Path,
             stream.write(canonical(obj))
             stream.flush()
             os.fsync(stream.fileno())
-    # No positive dispatch outcome until real resource + original owner custody.
-    return receipt, False
+    # Positive V3 DEVELOPMENT results may finish their worker job; only the
+    # original Windows owner may authenticate both provider ZIPs and settle
+    # the SQLite terminal. This never grants scientific-first-use or a merge.
+    require(receipt["native_qualified"] is report["native_qualified"]
+            and receipt["development_only"] is True
+            and receipt["scientific_first_use_authorized"] is False
+            and receipt["accepted_ref_mutations"] == 0
+            and receipt["paid_model_calls"] == 0,
+            "V3_SIGNED_RESOURCE_AND_DEVELOPMENT_AUTHORITY_DRIFT")
+    return receipt, bool(receipt["native_qualified"])
 
 
 def cli():
