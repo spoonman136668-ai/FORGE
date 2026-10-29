@@ -1,0 +1,101 @@
+name: MP-AI05 P9 public LongMemEval-V2 development cohort freeze
+on:
+  push:
+    branches: [proposal/mpai05-p9-dataset-freeze-20261029]
+    paths: ['.github/workflows/mpai05-p9-dataset-freeze.yml']
+permissions:
+  contents: read
+jobs:
+  original-windows-p9:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify source custody and freeze actual public development cohort
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI05_P9_WRONG_ORIGINAL_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P9_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P9_NO_REPLAY'}
+          $p=(git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $p -cne $env:GITHUB_SHA){throw 'MPAI05_P9_WORKFLOW_HEAD_MISMATCH'}
+          $blobs=@{
+            'tools/mpai05_p9_dataset_freeze.py'='2c2100c53c001d28843bc2da664c3e92d413e2e6'
+            'tests/test_mpai05_p9_dataset_freeze.py'='17ee29ddb0b10c2128fed8d49870eb8f2846923d'
+          }
+          foreach($k in $blobs.Keys){
+            $current=(git rev-parse ('HEAD:'+$k)).Trim()
+            if($LASTEXITCODE -ne 0 -or $current -cne $blobs[$k]){throw 'MPAI05_P9_SOURCE_BYTES_DRIFT'}
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-p9-'+$env:GITHUB_RUN_ID)
+          try{
+            if(Test-Path -LiteralPath $root){throw 'MPAI05_P9_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -LiteralPath $root -ErrorAction Stop | Out-Null
+            & python -B -m unittest discover -s tests -p test_mpai05_p9_dataset_freeze.py -v *> (Join-Path $root 'private-tests.log')
+            $code=$LASTEXITCODE
+            $output=Get-Content -Raw -LiteralPath (Join-Path $root 'private-tests.log')
+            if($code -ne 0 -or $output -notmatch 'Ran 11 tests' -or $output -notmatch '(?m)^OK(?:\s|$)'){
+              throw 'MPAI05_P9_NEGATIVE_TESTS_FAILED_PRIVATE_LOG'
+            }
+            Write-Output 'MPAI05_P9_NEGATIVE_TESTS=11_PASS'
+            # Downloads only 4 small public metadata/data files from the exact
+            # upstream revision. Never fetches the 1.2GB trajectories file.
+            & python -B tools/mpai05_p9_dataset_freeze.py *> (Join-Path $root 'private-intake.json')
+            if($LASTEXITCODE -ne 0){
+              $raw=Get-Content -Raw -LiteralPath (Join-Path $root 'private-intake.json') -ErrorAction SilentlyContinue
+              foreach($reason in @('PUBLISHED_DATA_HASH_DRIFT','DATA_BYTES_DRIFT',
+                  'CHECKSUM_MANIFEST_FORMAT','QUESTION_COUNT_OR_TYPE',
+                  'HAYSTACK_QUESTION_ID_PARITY','TEXT_ONLY_CAPACITY',
+                  'COHORT_FAMILY_COVERAGE','SMALL_HAYSTACK_INVALID',
+                  'QUESTION_TYPE_OR_DOMAIN','FILE_SIZE_CAP','REMOTE_COMMIT_DRIFT',
+                  'SCHEMA_INTERFACE_DRIFT')){
+                 if($raw.Contains('MPAI05_P9_'+$reason)){Write-Output ('MPAI05_P9_SAFE_FAILURE='+$reason);break}
+              }
+              throw 'MPAI05_P9_FREEZE_FAILED_PRIVATE_LOG'
+            }
+            $r=Get-Content -LiteralPath (Join-Path $root 'private-intake.json') -Raw -ErrorAction Stop | ConvertFrom-Json
+            if($r.schema -cne 'mind-palace.mpai05.p9.frozen-public-development-source.v1' -or
+               $r.dataset_revision -cne 'f152293e235517d504809563c833d7190b8c713b' -or
+               $r.development_case_count -ne 16 -or
+               $r.domains.web -ne 8 -or $r.domains.enterprise -ne 8 -or
+               $r.benchmark_questions_read -ne 451 -or
+               $r.trajectory_payloads_read -ne 0 -or
+               $r.scored_questions -ne 0 -or
+               $r.first_use_holdout -ne $false -or
+               $r.scientific_acceptance -ne $false -or
+               $r.model_calls -ne 0 -or $r.accepted_memory_writes -ne 0 -or
+               $r.cohort_sha256 -cnotmatch '^[a-f0-9]{64}$'){
+              throw 'MPAI05_P9_RECEIPT_UNQUALIFIED'
+            }
+            Write-Output 'MPAI05_P9_UPSTREAM_CHECKSUMS=PASS'
+            Write-Output 'MPAI05_P9_COHORT_DETERMINISTIC=PASS'
+            Write-Output ('MPAI05_P9_PUBLIC_DATASET_REVISION='+$r.dataset_revision)
+            Write-Output ('MPAI05_P9_COHORT_SHA256='+$r.cohort_sha256)
+            Write-Output ('MPAI05_P9_DEVELOPMENT_CASES='+$r.development_case_count)
+            Write-Output ('MPAI05_P9_WEB='+$r.domains.web)
+            Write-Output ('MPAI05_P9_ENTERPRISE='+$r.domains.enterprise)
+            Write-Output 'MPAI05_P9_QUESTIONS_METADATA_READ=451'
+            Write-Output 'MPAI05_P9_HOLDOUT_FIRST_USE=FALSE'
+            Write-Output 'MPAI05_P9_LOCAL_MODEL_CALLS=0'
+            Write-Output 'MPAI05_P9_PRODUCTION_WRITES=0'
+            $dirty=@(git status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_P9_SOURCE_CHECKOUT_DIRTY'}
+            Write-Output 'MPAI05_P9_POST_SOURCE_CUSTODY=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_P9_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
