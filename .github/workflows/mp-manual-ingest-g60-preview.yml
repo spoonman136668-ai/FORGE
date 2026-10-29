@@ -128,11 +128,19 @@ jobs:
               try {
                 $env:TEMP=$tempShort; $env:TMP=$tempShort
                 $env:GIT_CONFIG_COUNT='1'; $env:GIT_CONFIG_KEY_0='core.longpaths'; $env:GIT_CONFIG_VALUE_0='true'
+                # Historical UQ51 frozen-source tests require full original Git ancestry.
+                $fetchLog=Join-Path $root 'history-private.log'
+                & git fetch --unshallow origin *> $fetchLog
+                if($LASTEXITCODE -ne 0){throw 'G60_FROZEN_HISTORY_UNAVAILABLE'}
+                & git merge-base --is-ancestor '90d2dc1e79f0fcdcf49fba7680e29b5760e80d6b' $env:EXPECTED_MP_SOURCE
+                if($LASTEXITCODE -ne 0){throw 'G60_FROZEN_UQ51_ANCESTRY_UNVERIFIED'}
+                Write-Host 'G60_FROZEN_HISTORICAL_ANCESTRY=PASS'
                 $fullLog=Join-Path $root 'full-regression.log'
                 & pwsh.exe -NoProfile -NonInteractive -File 'tests/Test-All.ps1' *> $fullLog
                 if($LASTEXITCODE -ne 0){
                   $privateText=Get-Content -LiteralPath $fullLog -Raw
-                  $lastTest=@([regex]::Matches($privateText,'(?m)^RUN Test-[A-Za-z0-9_.-]+[.]ps1$') | ForEach-Object {$_.Value}) | Select-Object -Last 1
+                  $lastTest=@([regex]::Matches($privateText,'(?i)RUN Test-[A-Za-z0-9_.-]+[.]ps1') | ForEach-Object {$_.Value}) | Select-Object -Last 1
+                  if(-not $lastTest) { Write-Host ('G60_FULL_LOG_BYTES='+$privateText.Length) }
                   if($lastTest){Write-Host ('G60_FAILED_LAST_NATIVE_TEST='+$lastTest)}
                   throw 'G60_FULL_REGRESSION_FAILED_PRIVATE_LOG_WITHHELD'
                 }
