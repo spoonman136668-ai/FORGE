@@ -1,0 +1,109 @@
+name: ITD-02 MG39 exact original MG38 pickup precondition source audit
+on:
+  push:
+    branches: [research/itd02-mg39-exposed-mg38-pickup-precondition-audit-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  frozen-source-only-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Exact LF source settings
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout unchanged pinned MG38 parent plus MG39 diagnostic only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Verify source lineage and all original policy binaries remain untouched
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 744c12e43b4f60e8da59ee95656b8f7c5b2c40fb $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG39_AUDIT_METRIC_FREEZE_NOT_BEFORE_EXECUTABLE' }
+          $changed=@(git diff --name-only 204fa4115637c1f3b8aa037a058cba6db0fc44db $env:GITHUB_SHA)
+          $expected=@('research/lcrm01/mg39_mg38_pickup_audit_prereg.json',
+            'research/lcrm01/mg39_mg38_pickup_audit.py',
+            '.github/workflows/itd02-mg39-mg38-pickup-audit.yml')
+          if (@(Compare-Object $changed $expected).Count -ne 0) { throw 'MG39_UNAUTHORIZED_MODEL_OR_SOURCE_CHANGE' }
+          python -B research/lcrm01/mg38_navigation_aware_original_dev.py --preflight
+          if ($LASTEXITCODE -ne 0) { throw 'MG39_MG35_INHERITED_PREFLIGHT_FAIL' }
+          python -B research/lcrm01/mg39_mg36_navigation_audit.py --preflight
+          if ($LASTEXITCODE -ne 0) { throw 'MG39_DIAGNOSTIC_PREFLIGHT_FAIL' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG39_SOURCE_NOT_CLEAN' }
+          Write-Host MG39_FROZEN_READONLY_AUDIT_CROSS_HOST_SOURCE_PREFLIGHT_PASS_NO_SCIENCE
+  pinned-exposed-source-only-audit:
+    needs: frozen-source-only-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Exact LF source settings
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Download exact immutable original MG38 evidence archive, no new world action
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mg39"
+          curl --fail --silent --show-error --location --max-time 120 --retry 2 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12930423838/zip" \
+            --output "$RUNNER_TEMP/mg39/mg38-immutable.zip"
+          test "$(stat -c%s "$RUNNER_TEMP/mg39/mg38-immutable.zip")" -lt 12000000
+          printf '%s  %s\n' 0e3800d2ba42c2cdfa41e3cb13430e624482291e21b7d1d78322d2a0375dd556 "$RUNNER_TEMP/mg39/mg38-immutable.zip" | sha256sum --check --status
+          echo MG39_ORIGINAL_EXPOSED_ARCHIVE_BYTE_CUSTODY_PASS
+      - name: Verify all original MG38 selected pickup outcomes and public-history evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/mg39_mg36_navigation_audit.py \
+            --archive "$RUNNER_TEMP/mg39/mg38-immutable.zip" \
+            --output "$RUNNER_TEMP/mg39/report.json" \
+            > "$RUNNER_TEMP/mg39/diagnostic.log"
+          grep -F 'MG39_EXPOSED_MG38_SELECTED_PICKUP_CONSEQUENCE_AUDIT_PASS_NO_SCIENCE' "$RUNNER_TEMP/mg39/diagnostic.log"
+          grep -F 'MG39_TWO_COMPLETE_ORIGINAL_PROCESSES_AUDITED_PASS' "$RUNNER_TEMP/mg39/diagnostic.log"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo MG39_EXPOSED_SOURCE_ONLY_AUDIT_COMPLETE_NO_FARAMA_ACTION_OR_SCIENTIFIC_FIRST_USE
+      - name: Upload compact original-source validated diagnostic receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg39-mg38-exact-selected-pickup-consequence-audit
+          path: |
+            ${{ runner.temp }}/mg39/report.json
+            ${{ runner.temp }}/mg39/diagnostic.log
+          if-no-files-found: warn
+          retention-days: 30
