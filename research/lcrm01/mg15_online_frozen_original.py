@@ -100,7 +100,9 @@ def frozen_episode(role,seed,trained,binary,protocol):
             elif role=="yggdrasil_r17_frozen":
                 ygg=MotionCells.restore(trained["ygg"])
                 if ygg.samples!=1664:raise ValueError("MG15_YGG_ORIGINAL_SOURCE_FIT_NOT_RESTORED")
-                ygg.start_session(adapter,"mg15-frozen-original-source",live=True)
+                fresh_public_adapter=owner.DoorKeyPublicAdapter()
+                fresh_public_adapter.reset_public(before)
+                ygg.start_session(fresh_public_adapter,"mg15-frozen-original-source",live=True)
                 option=ygg.choose(before)
                 act=option["action"];reason=option["status"]
                 if ygg.samples!=1664:raise ValueError("MG15_YGG_FROZEN_CHOOSE_UPDATED")
