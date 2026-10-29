@@ -1,0 +1,91 @@
+{
+  "schema": "itd02.mg11.selected-public-nonrotational-consequence-learning.v1",
+  "freeze": "PREREG_BEFORE_ANY_NATIVE_DK12_OR_R16_EXECUTABLE_AND_NEW_WORLD_RUN",
+  "parents": {
+    "forge_mg09b_pr": 1087,
+    "forge_head": "0939a567d6bc378b4efd2694f1bade8e539faf39",
+    "original_run": 40837698834,
+    "canonical_sha": "b1639894a7b68861d61a63003bea2ac382388315b2b1671df34c4ff315a40bd6",
+    "wingless_dk11_head": "e75cc1ac6d302f4926df9fd28f3aab02eded1de3",
+    "yggdrasil_r15_head": "630dde83f45d845488d59a36136d6c026e10880b",
+    "farama_original": "7f5853792ea7f04f75614661006d87fcf949f26d"
+  },
+  "hypothesis": "Both earlier stage-free empirical agents made the same 576 repeated turns (action 0) because any orientation-induced image change was rewarded as progress. A generic native source-selected distinction between changed camera heading and observed change with same heading, using regularized action statistics, should break this rotational cycle without programming forward-action preference.",
+  "inputs": {
+    "raw": [
+      "image",
+      "direction",
+      "mission"
+    ],
+    "legal_actions": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "no_private_pose": true,
+    "no_map": true,
+    "no_supplied_stage": true
+  },
+  "method": {
+    "feature": "Only original raw public before.direction and after.direction, full 7x7 image, source-public carried object slot; no rewards or future outcomes for action choice.",
+    "learn": "For every original selected source before/action/after, count public episode samples, same-heading visual change, orientation change, unchanged, held retention, held loss. No unselected, hidden, or manually labelled movement action.",
+    "score": "For each legal action, score 12*same_heading_image_change/(count+64) - 4*heading_change/(count+64) - 8*held_loss/(count+64) + 4*held_retained_same_heading_image_change/(count+64) when carrying, signed integer scale 1024. Shrink low-support action effects using fixed prior 64. No hardcoded mapping to forward/turn/pickup/drop/toggle action IDs.",
+    "zero_support": "If all action empirical scores are <=0, choose minimum episode-selected action count with deterministic SHA(public, episode selected counts) tie, never a fixed preferred action.",
+    "episode": "Recent raw public before SHA revisits and selected-action counts reset; FIT empirical consequence evidence persists across episodes and cold snapshots. Episode selected counts bounded 192.",
+    "limits": {
+      "native_source_samples": 4096,
+      "context_class": "global selected action effect; single held-object bit only for gating held loss/reward",
+      "checkpoint_bytes": 600000
+    }
+  },
+  "source_tests": [
+    "Both original unchanged parents still learn selected action exactly once",
+    "Selected observed same-heading public image change outranks heading-only visual change despite lower raw overall image novelty",
+    "No mapping from particular action code to locomotion",
+    "Zero-evidence policy cannot loop on one action forever in identical public state",
+    "Wrong/duplicate source feedback rejects without mutation",
+    "Checkpoint tamper rejection, native cold restored deterministic next action",
+    "Linux and Windows focused R16/DK12 tests, original parent source unchanged"
+  ],
+  "future_original": {
+    "new_run_this_gate": false,
+    "training_count": 1664,
+    "development_seeds": [
+      71301,
+      71303,
+      71307
+    ],
+    "cap": 192,
+    "roles": [
+      "wingless_go_dk12",
+      "yggdrasil_r16",
+      "conventional_regularized_public_effect",
+      "conventional_seeded_random"
+    ],
+    "equal_raw_public": true,
+    "external_live_collector": 0,
+    "selected_source_evidence_two_process_reproducible": true,
+    "metrics": [
+      "orientation transitions",
+      "same-heading visual changes",
+      "distinct public states",
+      "observed key retained and forward actions",
+      "door effect",
+      "original reward",
+      "zero source rescue",
+      "CPU and RSS incl Go child for full resource parity"
+    ]
+  },
+  "authority": {
+    "scientific_first_use": false,
+    "accepted_model_promoted": false,
+    "FORGE_controller_mutation": false,
+    "CKB_plane": false,
+    "G29_Atlas_waiver": false,
+    "merge": false
+  }
+}
