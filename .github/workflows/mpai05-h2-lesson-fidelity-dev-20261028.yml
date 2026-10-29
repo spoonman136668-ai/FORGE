@@ -1,0 +1,225 @@
+name: MP-AI05 paired lesson fidelity development test
+on:
+  push:
+    branches: [qualification/mpai05-h2-lesson-fidelity-dev-20261028]
+    paths: ['.github/workflows/mpai05-h2-lesson-fidelity-dev-20261028.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-fidelity-one-shot-dev
+  cancel-in-progress: false
+jobs:
+  paired-development:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      MPL_FIDELITY_SOURCE: 'b59e9b55a1d7cf3cf3f415317048d2f95b0539dc'
+      MPL_FIDELITY_DIGEST: 'fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Original source and real MCP; equal-information local Qwen A/B task fidelity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPL_FIDELITY_WRONG_RUNNER'}
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-fidelity-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          try {
+           if(Test-Path -LiteralPath $root){throw 'MPL_FIDELITY_SCRATCH_COLLISION'}
+           New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+           & git clone --quiet --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $root 'private-clone.log')
+           if($LASTEXITCODE -ne 0){throw 'MPL_FIDELITY_SOURCE_CLONE_FAILED'}
+           & git -C $src cat-file -e ($env:MPL_FIDELITY_SOURCE+'^{commit}')
+           if($LASTEXITCODE -ne 0){throw 'MPL_FIDELITY_PINNED_COMMIT_MISSING'}
+           & git -C $src checkout -q --detach $env:MPL_FIDELITY_SOURCE
+           if($LASTEXITCODE -ne 0 -or (& git -C $src rev-parse HEAD).Trim() -cne $env:MPL_FIDELITY_SOURCE){throw 'MPL_FIDELITY_CHECKOUT_MISMATCH'}
+           $env:MPL_FIDELITY_ROOT=$root
+           $program=@'
+          import hashlib,json,os,pathlib,re,shutil,socket,subprocess,sys,time,urllib.request
+          root=pathlib.Path(os.environ["MPL_FIDELITY_ROOT"]);src=root/"source"
+          source=os.environ["MPL_FIDELITY_SOURCE"];digest=os.environ["MPL_FIDELITY_DIGEST"]
+          lesson_id="lesson/mpai-hindsight-h2-development-context-efficiency-20261028"
+          model_path=root/"verified-qwen.gguf"
+          model_digest="74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+          url=("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/"
+           "9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true")
+          # Frozen development tasks and grading BEFORE model inference: same lesson and budget, different instruction policy.
+          cases=[
+           ("input_pct","What percentage reduction in input tokens was measured?",["52.6"]),
+           ("input_counts","How many input tokens did legacy and tiered retrieval use respectively?",["3513","1665"]),
+           ("context_pct","What percentage reduction in context bytes was measured?",["56.1"]),
+           ("latency_pct","What percentage reduction in measured generation time was reported?",["22.7"]),
+           ("model_calls","How many genuine local CPU GGUF model calls were made?",["16"]),
+           ("case_count","How many development questions were compared?",["8"]),
+           ("output_cap","What output-token limit did both arms reach in every case?",["96"]),
+           ("accuracy_limit","Was a factual accuracy improvement independently graded and proven?",["NEGATIVE_ACCURACY"])
+          ]
+          if shutil.disk_usage(str(root)).free<1700000000:raise RuntimeError("MPL_FIDELITY_NO_SPACE")
+          print("MPL_FIDELITY_STAGE=MODEL_FETCH",file=sys.stderr,flush=True)
+          r=urllib.request.Request(url,headers={"User-Agent":"MindPalace-development-fidelity/1"})
+          start=time.monotonic();size=0;h=hashlib.sha256()
+          with urllib.request.urlopen(r,timeout=45) as inp,model_path.open("xb") as out:
+           while True:
+            chunk=inp.read(4*1024*1024)
+            if not chunk:break
+            size+=len(chunk)
+            if size>510000000 or time.monotonic()-start>270:raise RuntimeError("MPL_FIDELITY_DOWNLOAD_BOUND")
+            h.update(chunk);out.write(chunk)
+          if size!=491400032 or h.hexdigest()!=model_digest:raise RuntimeError("MPL_FIDELITY_MODEL_DRIFT")
+          with model_path.open("rb") as f:
+           if f.read(4)!=b"GGUF":raise RuntimeError("MPL_FIDELITY_MODEL_FORMAT")
+          print("MPL_FIDELITY_STAGE=WEIGHTS_VERIFIED",file=sys.stderr,flush=True)
+          os.environ["HF_HUB_OFFLINE"]="1"
+          def network_denied(*args,**kwargs):raise RuntimeError("MPL_FIDELITY_NETWORK_AFTER_WEIGHTS")
+          socket.socket=network_denied
+          # Only actual existing read-only MCP tool; no raw-file shortcuts, no writes.
+          def rpc(i,name,args):
+           return {"jsonrpc":"2.0","id":i,"method":"tools/call","params":{"name":name,"arguments":args}}
+          calls=[
+           {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"qwen-development-fidelity","version":"1"}}},
+           rpc(2,"mindpalace_bootstrap",{"source_sha":source}),
+           rpc(3,"mindpalace_get_record",{"source_sha":source,"record_id":lesson_id,"projects":["Mind-Palace"]})
+          ]
+          p=subprocess.run([sys.executable,"-B",str(src/"tools"/"mindpalace_mcp.py"),"--root",str(src),
+           "--source",source,"--project","Mind-Palace","--transport","stdio"],
+           input="".join(json.dumps(x,separators=(",",":"))+"\n" for x in calls),
+           capture_output=True,text=True,encoding="utf-8",errors="replace",cwd=src,timeout=65)
+          if p.returncode:raise RuntimeError("MPL_FIDELITY_MCP_TRANSPORT")
+          answers=[json.loads(line) for line in p.stdout.splitlines()]
+          if len(answers)!=3 or [x.get("id") for x in answers]!=[1,2,3]:raise RuntimeError("MPL_FIDELITY_MCP_ENVELOPE")
+          def get(i):
+           x=answers[i].get("result")
+           if not isinstance(x,dict) or x.get("isError") is not False:raise RuntimeError("MPL_FIDELITY_MCP_RESULT")
+           parts=x.get("content",[])
+           if len(parts)!=1 or parts[0].get("type")!="text":raise RuntimeError("MPL_FIDELITY_MCP_CONTENT")
+           return json.loads(parts[0]["text"])
+          boot=get(1);result=get(2)
+          if boot.get("source_sha")!=source or boot.get("records_sha256")!=digest or boot.get("permitted_projects")!=["Mind-Palace"] or boot.get("read_only") is not True:
+           raise RuntimeError("MPL_FIDELITY_SOURCE_DRIFT")
+          if result.get("found") is not True or result.get("source_sha")!=source or result.get("advisory") is not True:
+           raise RuntimeError("MPL_FIDELITY_LESSON_ABSENT")
+          lesson=result["record"]
+          statement=lesson.get("statement","")
+          refs=lesson.get("source_refs")
+          if (lesson.get("id")!=lesson_id or lesson.get("project")!="Mind-Palace" or lesson.get("status")!="observed"
+           or not isinstance(refs,list) or not any(isinstance(x,dict) and x.get("type")=="acceptance"
+            and x.get("ref")=="https://github.com/spoonman136668-ai/FORGE/actions/runs/40606525917" for x in refs)
+           or not all(t in statement for t in ("52.6%","56.1%","22.7%","3,513","1,665","15,051","6,610","16 genuine local","eight-question","96-token","no independent factual accuracy grades","or scientific improvement claim exist"))):
+           raise RuntimeError("MPL_FIDELITY_LESSON_INVALID")
+          print("MPL_FIDELITY_STAGE=MCP_SOURCE_VERIFIED",file=sys.stderr,flush=True)
+          from llama_cpp import Llama
+          model=Llama(model_path=str(model_path),n_ctx=1024,n_threads=4,n_gpu_layers=0,n_batch=128,seed=137,verbose=False)
+          # Source information EXACTLY same in both arms. Candidate policy is a bounded context/harness proposal,
+          # not a secretly enriched answer key or an approved learning improvement.
+          instructions={
+           "A":"Use only the evidence. Answer the question accurately and briefly. If unknown, say evidence is insufficient.",
+           "B":"Use only the evidence. Answer directly in one sentence under 30 words. Copy figures exactly and distinguish observed efficiency from unproven accuracy. If unknown, abstain."
+          }
+          def normalize(s):return re.sub(r"[, _]","",s.casefold())
+          def grade(answer,required):
+           low=answer.casefold();flat=normalize(answer)
+           if required==["NEGATIVE_ACCURACY"]:
+            neg=bool(re.search(r"\b(no|not|never|unproven|unknown|cannot|can't|without|lack|insufficient|wasn't|isn't|didn't)\b",low))
+            relevant=bool(re.search(r"accur|grad|prov|verif|improv|scientif",low))
+            return neg and relevant
+           return all(w.replace(".","") in flat for w in required)
+          def hard_claim(answer):
+           low=answer.casefold()
+           # Narrow positive assertion only. This is a conservative flag, not exhaustive semantic grading.
+           if bool(re.search(r"\b(no|not|never|unproven|cannot|can't|without|insufficient|wasn't|isn't)\b",low)):return False
+           return bool(re.search(r"(scientifically proven|accuracy (?:was |is )?(?:proven|verified|confirmed|improved)|factual accuracy improved|verified better answers)",low))
+          report_rows=[];start=time.monotonic()
+          for n,(case_id,question,required) in enumerate(cases):
+           for arm in (("A","B") if n%2==0 else ("B","A")):
+            prompt=(instructions[arm]+"\nEvidence:\n"+statement+"\nQuestion: "+question+"\nAnswer:")
+            t=time.monotonic()
+            result=model.create_completion(prompt=prompt,max_tokens=96,temperature=0.0,top_p=1.0)
+            ms=int((time.monotonic()-t)*1000)
+            answer=result.get("choices",[{}])[0].get("text","")
+            if not isinstance(answer,str):raise RuntimeError("MPL_FIDELITY_OUTPUT_TYPE")
+            tokens=int(result.get("usage",{}).get("completion_tokens",0))
+            input_tokens=int(result.get("usage",{}).get("prompt_tokens",0))
+            report_rows.append({"id":case_id,"arm":arm,"correct":bool(grade(answer,required)),
+             "hard_claim":hard_claim(answer),"nonempty":bool(answer.strip()),"output_tokens":tokens,
+             "input_tokens":input_tokens,"hit_output_cap":tokens>=96,"latency_ms":ms,
+             "answer_sha256":hashlib.sha256(answer.encode("utf-8")).hexdigest()})
+          if len(report_rows)!=16 or len({(x["id"],x["arm"]) for x in report_rows})!=16:
+           raise RuntimeError("MPL_FIDELITY_UNBALANCED")
+          summary={}
+          for arm in ("A","B"):
+           rows=[x for x in report_rows if x["arm"]==arm]
+           summary[arm]={"cases":len(rows),"correct":sum(x["correct"] for x in rows),
+           "hard_claims":sum(x["hard_claim"] for x in rows),"empty":sum(not x["nonempty"] for x in rows),
+           "cap_hits":sum(x["hit_output_cap"] for x in rows),"input_tokens":sum(x["input_tokens"] for x in rows),
+           "output_tokens":sum(x["output_tokens"] for x in rows),"latency_ms":sum(x["latency_ms"] for x in rows)}
+          report={"schema":"mind-palace.mpai05-development-fidelity.v1","evidence_class":"development_only_not_independent_first_use",
+           "source_sha":source,"records_sha256":digest,"mcp_readback_pass":True,
+           "model_sha256":model_digest,"model_calls":16,"same_source_info":True,
+           "max_output_tokens_per_call":96,"candidate_harness_unqualified":True,
+           "scoring":"exact reported numerals or negative-accuracy phrase heuristic, self-authored development-only rubric",
+           "summary":summary,"per_case":report_rows,
+           "independent_blind_grading":False,"independent_scientific_review":False,
+           "production_writes":0,"scientific_admission":False,"promotion_authorized":False}
+          (root/"private-fidelity-result.json").write_text(json.dumps(report,sort_keys=True),encoding="utf-8")
+          print("MPL_FIDELITY_STAGE=DEVELOPMENT_TRIAL_DONE",file=sys.stderr,flush=True)
+          
+          '@
+           $logPath=Join-Path $root 'private-run.log'
+           $program | & python -B -c "import sys;exec(sys.stdin.read())" *> $logPath
+           if($LASTEXITCODE -ne 0){
+            $raw=Get-Content -LiteralPath $logPath -Raw -ErrorAction SilentlyContinue
+            if($raw){
+             $stages=[regex]::Matches($raw,'MPL_FIDELITY_STAGE=(MODEL_FETCH|WEIGHTS_VERIFIED|MCP_SOURCE_VERIFIED|DEVELOPMENT_TRIAL_DONE)')
+             if($stages.Count -gt 0){Write-Output ('MPL_FIDELITY_LAST_SAFE_STAGE='+$stages[$stages.Count-1].Groups[1].Value)}
+             foreach($code in @('MPL_FIDELITY_NO_SPACE','MPL_FIDELITY_DOWNLOAD_BOUND','MPL_FIDELITY_MODEL_DRIFT','MPL_FIDELITY_MODEL_FORMAT','MPL_FIDELITY_MCP_TRANSPORT','MPL_FIDELITY_MCP_ENVELOPE','MPL_FIDELITY_MCP_RESULT','MPL_FIDELITY_MCP_CONTENT','MPL_FIDELITY_SOURCE_DRIFT','MPL_FIDELITY_LESSON_ABSENT','MPL_FIDELITY_LESSON_INVALID','MPL_FIDELITY_OUTPUT_TYPE','MPL_FIDELITY_UNBALANCED')){
+              if($raw.Contains($code)){Write-Output ('MPL_FIDELITY_SAFE_ERROR='+$code);break}
+             }
+             foreach($name in @('SyntaxError','IndentationError','ModuleNotFoundError','ImportError','OSError','RuntimeError','ValueError','TypeError','KeyError')){
+              if($raw.Contains($name)){Write-Output ('MPL_FIDELITY_EXCEPTION='+$name);break}
+             }
+            }
+            throw 'MPL_FIDELITY_PRIVATE_QUALIFICATION_FAILED'
+           }
+           $r=Get-Content -LiteralPath (Join-Path $root 'private-fidelity-result.json') -Raw | ConvertFrom-Json
+           if($r.schema -cne 'mind-palace.mpai05-development-fidelity.v1' -or
+            $r.source_sha -cne $env:MPL_FIDELITY_SOURCE -or $r.records_sha256 -cne $env:MPL_FIDELITY_DIGEST -or
+            $r.model_calls -ne 16 -or $r.same_source_info -ne $true -or
+            $r.mcp_readback_pass -ne $true -or $r.independent_blind_grading -ne $false -or
+            $r.scientific_admission -ne $false -or $r.production_writes -ne 0 -or
+            $r.per_case.Count -ne 16 -or $r.summary.A.cases -ne 8 -or $r.summary.B.cases -ne 8){
+            throw 'MPL_FIDELITY_RECEIPT_REJECTED'
+           }
+           $dirty=@(& git -C $src status --porcelain --untracked-files=all)
+           if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPL_FIDELITY_CHECKOUT_DIRTY'}
+           Write-Output ('MPL_FIDELITY_SOURCE='+$r.source_sha)
+           Write-Output ('MPL_FIDELITY_RECORDS_DIGEST='+$r.records_sha256)
+           Write-Output 'MPL_FIDELITY_REAL_MCP=PASS'
+           Write-Output 'MPL_FIDELITY_LOCAL_MODEL_CALLS=16'
+           foreach($arm in @('A','B')){
+            $x=$r.summary.$arm
+            Write-Output ('MPL_FIDELITY_ARM_'+$arm+'_CORRECT='+[int]$x.correct)
+            Write-Output ('MPL_FIDELITY_ARM_'+$arm+'_HARD_CLAIMS='+[int]$x.hard_claims)
+            Write-Output ('MPL_FIDELITY_ARM_'+$arm+'_CAP_HITS='+[int]$x.cap_hits)
+            Write-Output ('MPL_FIDELITY_ARM_'+$arm+'_INPUT_TOKENS='+[int]$x.input_tokens)
+            Write-Output ('MPL_FIDELITY_ARM_'+$arm+'_OUTPUT_TOKENS='+[int]$x.output_tokens)
+            Write-Output ('MPL_FIDELITY_ARM_'+$arm+'_LATENCY_MS='+[int]$x.latency_ms)
+           }
+           foreach($p in @($r.per_case)){
+            Write-Output ('MPL_FIDELITY_CASE='+$p.id+',arm='+$p.arm+',correct='+[int]$p.correct+',cap='+[int]$p.hit_output_cap)
+           }
+           Write-Output 'MPL_FIDELITY_NO_INDEPENDENT_GRADING=TRUE'
+           Write-Output 'MPL_FIDELITY_SCIENTIFIC_ADMISSION=FALSE'
+           Write-Output 'MPL_FIDELITY_PRODUCTION_WRITES=0'
+          } finally {
+           Set-Location $env:RUNNER_TEMP
+           if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+           Write-Output ('MPL_FIDELITY_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
