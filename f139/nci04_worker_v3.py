@@ -217,6 +217,12 @@ def receipt_v3(admission:NativeAdmission, report:dict):
          and admission.intent.target_tree_sha==report.get("target_tree_sha")
          and admission.intent.intent_sha256==report.get("intent_sha256")
          and admission.intent.qualification_key==report.get("qualification_key")
+         and report.get("path")==admission.intent.path==TARGET
+         and report.get("candidate_sha256")==admission.intent.after_sha256
+         and report.get("scientific_first_use") is False
+         and report.get("protected_holdouts_accessed")==0
+         and report.get("accepted_ref_mutations")==0
+         and report.get("paid_model_calls")==0
          and type(report.get("native_qualified")) is bool
          and type(report.get("child_cpu_rss_verified")) is bool
          and report["native_qualified"] is report["child_cpu_rss_verified"],
