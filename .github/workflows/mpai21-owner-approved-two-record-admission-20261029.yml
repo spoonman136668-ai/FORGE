@@ -72,6 +72,11 @@ jobs:
             & git.exe -C $root checkout -q -B main refs/remotes/origin/main
             Assert ($LASTEXITCODE -eq 0) 'EXACT_ACCEPTED_MAIN_CHECKOUT'
             Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $mainBase) 'ORIGINAL_MAIN_PIN'
+            # The mandatory full suite uses documents/fixtures outside the narrowly
+            # sparse checkpoint proof; materialize all exact-pinned paths BEFORE writes.
+            & git.exe -C $root sparse-checkout disable
+            Assert ($LASTEXITCODE -eq 0) 'ORIGINAL_FULL_SOURCE_MATERIALIZATION'
+            Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $mainBase) 'FULL_CHECKOUT_SHA_DRIFT'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/collect.ps1'|Out-String).Trim() -ceq '057feea4d3cecf0d57b7be498c58d8466fc20ff2') 'COLLECTOR_SHA'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/mind.ps1'|Out-String).Trim() -ceq 'bb8c46f3c22f689e5f44dbe06ccc286014bd9130') 'CANONICAL_MEMORY_WRITER_SHA'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/update-checkpoint.ps1'|Out-String).Trim() -ceq 'feb1b8573763ae2ed2e6150020742f4d7ed2c919') 'COMMIT_WRITER_SHA'
@@ -222,7 +227,73 @@ jobs:
             try {
               $fullRegression=Join-Path $private 'mandatory-full-regression.log'
               & $pwsh -NoProfile -NonInteractive -File tests/Test-All.ps1 *> $fullRegression
-              Assert ($LASTEXITCODE -eq 0) 'FINAL_FULL_REGRESSION'
+              if($LASTEXITCODE -ne 0){
+                # Bounded diagnostic: publish only the name of the failed test,
+                # not any private source contents, source refs or raw test logs.
+                $safeLines=@(Get-Content -LiteralPath $fullRegression -ErrorAction SilentlyContinue)
+                $lastTest=@($safeLines|Where-Object { $_ -match '^RUN Test-[A-Za-z0-9-]+[.]ps1
+              # The canonical writer owns Git staging, validation, commit, push,
+              # remote concurrency check and remote main verification. No direct push.
+              & git.exe -C $root config user.name 'spoonman136668-ai'
+              Assert ($LASTEXITCODE -eq 0) 'LOCAL_COMMIT_IDENTITY_NAME'
+              & git.exe -C $root config user.email 'spoonman136668-ai@users.noreply.github.com'
+              Assert ($LASTEXITCODE -eq 0) 'LOCAL_COMMIT_IDENTITY_EMAIL'
+              $commitReceipt=Join-Path $private 'canonical-commit.json'
+              & $pwsh -NoProfile -NonInteractive -File tools/update-checkpoint.ps1 commit -Message 'memory: admit two verified MP-AI05 usage lessons' -ConfirmCheckpoint *> $commitReceipt
+              Assert ($LASTEXITCODE -eq 0) 'CANONICAL_COMMIT'
+            } finally { Pop-Location }
+            $acceptedSha=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+            Assert ($acceptedSha -cne $mainBase -and $acceptedSha -match '^[a-f0-9]{40}$') 'ACCEPTED_REMOTE_SHA'
+            & git.exe -C $root fetch --quiet origin refs/heads/main:refs/remotes/origin/main
+            Assert ($LASTEXITCODE -eq 0) 'POSTCOMMIT_REMOTE_FETCH'
+            Assert ((& git.exe -C $root rev-parse refs/remotes/origin/main|Out-String).Trim() -ceq $acceptedSha) 'REMOTE_SHA_NOT_ACCEPTED'
+            $changedAfter=@(& git.exe -C $root diff $mainBase $acceptedSha --name-only)
+            Assert ($LASTEXITCODE -eq 0 -and $changedAfter.Count -gt 0) 'COMMITTED_DIFF_INVALID'
+            foreach($path in $changedAfter){
+              Assert ($allowed -ccontains [string]$path) 'OUTSIDE_COMMITTED_DURABLE_PATHS'
+            }
+            $dirty=@(& git.exe -C $root status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'POSTCOMMIT_DIRTY'
+            $coldLog=Join-Path $private 'postproduction-cold.log'
+            & python -B -c $rehearsalQuery $root $acceptedSha yes *> $coldLog
+            Assert ($LASTEXITCODE -eq 0) 'POSTPRODUCTION_COLD_PROCESS'
+            $result=Get-Content -LiteralPath $coldLog -Raw
+            Assert ($result.Contains('MPAI05_FB_COLD_BOTH_RECORDS_FOUND=TRUE') -and
+                    $result.Contains('MPAI05_FB_COLD_SNAPSHOT_SHA_VERIFIED=PASS')) 'POSTPRODUCTION_COLD_RECEIPT'
+            Write-Output 'MPAI21_CANONICAL_COLLECTOR_STAGE=2_PASS'
+            Write-Output 'MPAI21_LEDGER_AND_CANONICAL_SNAPSHOT=PASS'
+            Write-Output 'MPAI21_FULL_CHECKPOINT_VALIDATION=PASS'
+            Write-Output 'MPAI21_POSTPRODUCTION_COLD_RECALL=2_PASS'
+            Write-Output 'MPAI21_ORIGINAL_RECORDS_UNCHANGED=PASS'
+            Write-Output 'MPAI21_REMOTE_MAIN_SHA_VERIFIED=PASS'
+            Write-Output ('MPAI21_REMOTE_ACCEPTED_SHA='+$acceptedSha)
+            Write-Output 'MPAI21_AUTONOMOUS_LEARNING=NOT_DEMONSTRATED'
+            Write-Output 'MPAI21_CROSS_AGENT_SCIENCE=NOT_PROVEN'
+          } finally{
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI05_FB_COLD_PRIVATE_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
+ }|Select-Object -Last 1)
+                if($lastTest.Count -eq 1){
+                  Write-Output ('MPAI21_FULL_REGRESSION_FAILURE_AT='+($lastTest[0] -replace '^RUN ',''))
+                } else {
+                  Write-Output 'MPAI21_FULL_REGRESSION_FAILURE_AT=UNCLASSIFIED'
+                }
+                $rawFailure=$safeLines -join [Environment]::NewLine
+                if($rawFailure -match 'missing (test|file|path|fixture|input)'){
+                  Write-Output 'MPAI21_FULL_REGRESSION_FAILURE_CLASS=MISSING_INPUT'
+                } elseif($rawFailure -match 'Assert|expected|mismatch|not equal|drift'){
+                  Write-Output 'MPAI21_FULL_REGRESSION_FAILURE_CLASS=ASSERTION_OR_BASELINE'
+                } elseif($rawFailure -match 'ParserError|InvalidOperation|CommandNotFound'){
+                  Write-Output 'MPAI21_FULL_REGRESSION_FAILURE_CLASS=RUNTIME'
+                }else{
+                  Write-Output 'MPAI21_FULL_REGRESSION_FAILURE_CLASS=OTHER_PRIVATE'
+                }
+                Assert $false 'FINAL_FULL_REGRESSION'
+              }
               Write-Output 'MPAI21_FINAL_FULL_REGRESSION=PASS'
               # The canonical writer owns Git staging, validation, commit, push,
               # remote concurrency check and remote main verification. No direct push.
