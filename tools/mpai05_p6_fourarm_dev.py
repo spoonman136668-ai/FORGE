@@ -273,7 +273,21 @@ def main():
     import mpai05_dev_ablation_gate as audit
     import mpai05_local_model_preflight as weights
     PHASE="WEIGHT_PREFLIGHT"
-    receipt=weights.preflight(model,MODEL_SHA)
+    try:
+        receipt=weights.preflight(model,MODEL_SHA)
+    except weights.PreflightError as exc:
+        allowed={"NOT_GGUF","UNSUPPORTED_GGUF_VERSION","OVERSIZE_KV_COUNT",
+                 "TRUNCATED_METADATA","DUPLICATE_METADATA_KEY",
+                 "NESTED_METADATA_ARRAY","UNKNOWN_METADATA_ARRAY_TYPE",
+                 "UNKNOWN_METADATA_TYPE","MISSING_OR_BAD_MODEL_IDENTITY",
+                 "ARCHITECTURE_MISSING","QWEN_NOT_ALLOWED",
+                 "EXPECTED_SHA256_REQUIRED","ABSOLUTE_GGUF_PATH_REQUIRED",
+                 "MODEL_FILE_NOT_FOUND_OR_UNSAFE","MODEL_TOO_SMALL",
+                 "MODEL_CHANGED_DURING_PREFLIGHT","CHECKPOINT_SHA256_MISMATCH",
+                 "OVERSIZE_STRING","INVALID_STRING","OVERSIZE_ARRAY"}
+        reason=str(exc)
+        require(reason in allowed,"MPAI05_P6_GGUF_UNKNOWN")
+        raise RuntimeError("MPAI05_P6_GGUF_"+reason) from None
     require(receipt.get("status")=="MODEL_FILE_BYTES_PINNED_RUNTIME_NOT_AUTHENTICATED" and
             receipt.get("gguf",{}).get("architecture")!="qwen2",
             "MPAI05_P6_CHECKPOINT_PREFLIGHT")
