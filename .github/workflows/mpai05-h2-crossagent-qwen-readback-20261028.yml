@@ -1,0 +1,150 @@
+name: MP-AI05 one-shot local Qwen shared memory readback
+on:
+  push:
+    branches: [qualification/mpai05-h2-crossagent-qwen-readback-20261028]
+    paths: ['.github/workflows/mpai05-h2-crossagent-qwen-readback-20261028.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-crossagent-readback-once
+  cancel-in-progress: false
+jobs:
+  local-readback:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      MP_READBACK_SOURCE: 'b59e9b55a1d7cf3cf3f415317048d2f95b0539dc'
+      MP_READBACK_DIGEST: 'fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Pinned MCP readback and one offline model answer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'CROSSAGENT_WRONG_RUNNER'}
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-cx-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          try {
+            if(Test-Path -LiteralPath $root){throw 'CROSSAGENT_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $root 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'CROSSAGENT_CLONE_FAILURE'}
+            & git -C $src cat-file -e ($env:MP_READBACK_SOURCE+'^{commit}')
+            if($LASTEXITCODE -ne 0){throw 'CROSSAGENT_SOURCE_UNAVAILABLE'}
+            & git -C $src checkout -q --detach $env:MP_READBACK_SOURCE
+            if($LASTEXITCODE -ne 0 -or (& git -C $src rev-parse HEAD).Trim() -cne $env:MP_READBACK_SOURCE){throw 'CROSSAGENT_SOURCE_DRIFT'}
+            $env:MP_READBACK_SCRATCH=$root
+            $program=@'
+          import hashlib,json,os,pathlib,shutil,socket,subprocess,sys,time,urllib.request
+          root=pathlib.Path(os.environ["MP_READBACK_SCRATCH"]);src=root/"source"
+          commit=os.environ["MP_READBACK_SOURCE"];expected=os.environ["MP_READBACK_DIGEST"]
+          lesson_id="lesson/mpai-hindsight-h2-development-context-efficiency-20261028"
+          model_path=root/"verified-public-qwen.gguf"
+          url=("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/"
+           "9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true")
+          model_digest="74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+          if shutil.disk_usage(str(root)).free<1700000000:raise RuntimeError("CROSSAGENT_SPACE")
+          # Public download first; no private content read until after strict hash and network cutoff.
+          r=urllib.request.Request(url,headers={"User-Agent":"mpai05-local-readback/1"})
+          start=time.monotonic();n=0;h=hashlib.sha256()
+          with urllib.request.urlopen(r,timeout=45) as inp,model_path.open("xb") as out:
+           while True:
+            chunk=inp.read(4*1024*1024)
+            if not chunk:break
+            n+=len(chunk)
+            if n>510000000 or time.monotonic()-start>270:raise RuntimeError("CROSSAGENT_DOWNLOAD_LIMIT")
+            h.update(chunk);out.write(chunk)
+          if n!=491400032 or h.hexdigest()!=model_digest:raise RuntimeError("CROSSAGENT_WEIGHT_DRIFT")
+          with model_path.open("rb") as f:
+           if f.read(4)!=b"GGUF":raise RuntimeError("CROSSAGENT_NOT_GGUF")
+          os.environ["HF_HUB_OFFLINE"]="1"
+          def network_denied(*a,**kw):raise RuntimeError("CROSSAGENT_NETWORK_DENIED")
+          socket.socket=network_denied
+          def rpc(i,m,p):return {"jsonrpc":"2.0","id":i,"method":m,"params":p}
+          calls=[
+           rpc(1,"initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"local-qwen-cpu-readback","version":"1"}}),
+           rpc(2,"tools/call",{"name":"mindpalace_bootstrap","arguments":{"source_sha":commit}}),
+           rpc(3,"tools/call",{"name":"mindpalace_get_record","arguments":{"source_sha":commit,"record_id":lesson_id,"projects":["Mind-Palace"]}}),
+           rpc(4,"tools/call",{"name":"mindpalace_get_record","arguments":{"source_sha":commit,"record_id":lesson_id,"projects":["Wingless"]}})
+          ]
+          p=subprocess.run([sys.executable,"-B",str(src/"tools"/"mindpalace_mcp.py"),"--root",str(src),
+           "--source",commit,"--project","Mind-Palace","--transport","stdio"],
+           input="".join(json.dumps(c,separators=(",",":"))+"\n" for c in calls),
+           text=True,capture_output=True,encoding="utf-8",errors="replace",cwd=src,timeout=55)
+          if p.returncode:raise RuntimeError("CROSSAGENT_MCP_FAILED")
+          reply=[json.loads(line) for line in p.stdout.splitlines()]
+          if len(reply)!=4 or [x.get("id") for x in reply]!=[1,2,3,4]:raise RuntimeError("CROSSAGENT_MCP_ENVELOPE")
+          def get(i):
+           x=reply[i].get("result")
+           if not isinstance(x,dict) or x.get("isError") is not False:raise RuntimeError("CROSSAGENT_MCP_ERROR")
+           parts=x.get("content")
+           if not isinstance(parts,list) or len(parts)!=1 or parts[0].get("type")!="text":raise RuntimeError("CROSSAGENT_MCP_CONTENT")
+           return json.loads(parts[0]["text"])
+          bootstrap=get(1);record=get(2)
+          if (bootstrap.get("source_sha")!=commit or bootstrap.get("records_sha256")!=expected or
+           bootstrap.get("permitted_projects")!=["Mind-Palace"] or
+           bootstrap.get("active_record_count")!=262 or bootstrap.get("read_only") is not True):
+           raise RuntimeError("CROSSAGENT_BOOTSTRAP_MISMATCH")
+          if not record.get("found") or not record.get("advisory") or record.get("source_sha")!=commit:
+           raise RuntimeError("CROSSAGENT_RECORD_MISSING")
+          rec=record["record"];details=rec.get("details",{})
+          if (rec.get("id")!=lesson_id or rec.get("project")!="Mind-Palace" or rec.get("status")!="observed"
+           or details.get("model_calls")!=16 or details.get("improvement_quality_proven") is not False
+           or details.get("holdout_first_use_authenticated") is not False
+           or "52.6%" not in rec.get("statement","") or "22.7%" not in rec.get("statement","")):
+           raise RuntimeError("CROSSAGENT_RECORD_DRIFT")
+          if reply[3].get("error",{}).get("code")!=-32602:raise RuntimeError("CROSSAGENT_SCOPE_BYPASS")
+          from llama_cpp import Llama
+          model=Llama(model_path=str(model_path),n_ctx=1024,n_threads=4,n_gpu_layers=0,n_batch=128,seed=137,verbose=False)
+          prompt=("Use only this advisory memory to describe the measured efficiencies and whether answer accuracy was proven. "
+           "Do not claim scientific approval.\nMemory:\n"+rec["statement"]+"\nAnswer:")
+          t=time.monotonic();out=model.create_completion(prompt=prompt,max_tokens=112,temperature=0.0,top_p=1.0)
+          answer=out.get("choices",[{}])[0].get("text","")
+          if not isinstance(answer,str) or not answer.strip() or len(answer)>3000:
+           raise RuntimeError("CROSSAGENT_INFERENCE_EMPTY_OR_OVERSIZED")
+          usage=out.get("usage",{})
+          report={"schema":"mind-palace.crossagent.local-readback.v1","source_sha":commit,
+           "records_sha256":bootstrap["records_sha256"],"mcp_transport":"real_stdio",
+           "record_id_matched":True,"client_class":"Qwen2.5-0.5B-Instruct CPU GGUF",
+           "model_sha256":model_digest,"model_calls":1,"nonempty":True,"scope_denied":True,
+           "mentions_both_efficiency_percentages":("52.6" in answer and "22.7" in answer),
+           "output_tokens":int(usage.get("completion_tokens",0)),
+           "input_tokens":int(usage.get("prompt_tokens",0)),
+           "model_answer_sha256":hashlib.sha256(answer.encode("utf-8")).hexdigest(),
+           "inference_ms":int((time.monotonic()-t)*1000),
+           "scientific_first_use":False,"independently_graded":False,"writes":0}
+          (root/"private-readback-receipt.json").write_text(json.dumps(report,sort_keys=True),encoding="utf-8")
+          del model
+          
+          '@
+            $program | & python -B -c "import sys;exec(sys.stdin.read())" *> (Join-Path $root 'private-run.log')
+            if($LASTEXITCODE -ne 0){throw 'CROSSAGENT_LOCAL_RUN_FAILED_PRIVATE_LOG'}
+            $r=Get-Content -LiteralPath (Join-Path $root 'private-readback-receipt.json') -Raw | ConvertFrom-Json
+            if($r.schema -cne 'mind-palace.crossagent.local-readback.v1' -or
+               $r.source_sha -cne $env:MP_READBACK_SOURCE -or $r.records_sha256 -cne $env:MP_READBACK_DIGEST -or
+               $r.model_calls -ne 1 -or $r.record_id_matched -ne $true -or $r.scope_denied -ne $true -or
+               $r.nonempty -ne $true -or $r.scientific_first_use -ne $false -or $r.writes -ne 0){throw 'CROSSAGENT_RECEIPT_MISMATCH'}
+            $status=@(& git -C $src status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $status.Count -ne 0){throw 'CROSSAGENT_SOURCE_DIRTY'}
+            Write-Output ('MPAI05_CROSSAGENT_SOURCE='+$r.source_sha)
+            Write-Output ('MPAI05_CROSSAGENT_RECORDS_DIGEST='+$r.records_sha256)
+            Write-Output 'MPAI05_CROSSAGENT_MCP_READ=PASS'
+            Write-Output 'MPAI05_CROSSAGENT_SCOPE_DENY=PASS'
+            Write-Output 'MPAI05_CROSSAGENT_QWEN_LOCAL_INFERENCE=PASS'
+            Write-Output ('MPAI05_CROSSAGENT_OUTPUT_TOKENS='+[int]$r.output_tokens)
+            Write-Output ('MPAI05_CROSSAGENT_MODEL_MENTIONS_SAVINGS='+[string]$r.mentions_both_efficiency_percentages)
+            Write-Output 'MPAI05_CROSSAGENT_SCIENTIFIC_FIRST_USE=FALSE'
+            Write-Output 'MPAI05_CROSSAGENT_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_CROSSAGENT_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
