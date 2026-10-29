@@ -11,6 +11,7 @@ RUNS={"40865946484":"f5900a0336995123238e22d124f90875ea1154c0",
 IDS={"Wingless":"project_state/wingless-p6o-native-bayesian-causal-policy-equal-control-negative-20261021",
      "Yggdrasil":"project_state/yggdrasil-mr29-original-native-causal-alias-dev-signal-negative-20261021"}
 NEW="lesson/mpai06-p16-memory-efficacy-public-development-no-go-20261029"
+STAGE="PRECHECK"
 GUARD=(".ice/records.json",".ice/source-ledger.json","archive/index.json",
  ".ice/remote-bootstrap.json",".ice/remote-catalog.json",".ice/remote-index.ndjson",
  ".ice/chat-delta-state.json",".ice/project-state-capsules.json",
@@ -91,16 +92,22 @@ def main():
     check(not scratch.exists() and shutil.disk_usage(scratch.parent).free>500000000,
           "SCRATCH_BOUND")
     scratch.mkdir()
+    global STAGE
+    STAGE="AUTH_RUNS"
     authentic_runs()
+    STAGE="PRIVATE_CLONE"
     root=scratch/"mind-palace"
     process(["git","clone","--quiet","--filter=blob:none","--depth","1",
              "--single-branch","--branch","main",MAIN,str(root)],timeout=170)
+    STAGE="PRIVATE_SOURCE_READ"
     head=git("rev-parse","HEAD",cwd=root)
     check(re.fullmatch("[a-f0-9]{40}",head)!=None,"SOURCE_SHA")
     before={k:hashlib.sha256((root/k).read_bytes()).hexdigest() for k in GUARD}
+    STAGE="COLD_RECALL"
     snap=cold(root,head)
     batchfile=scratch/"feedback.json"
     batchfile.write_text(json.dumps(batch(),indent=2),encoding="utf-8")
+    STAGE="CLASSIFY_EXISTING_COLLECTOR"
     data=process(["powershell.exe","-NoProfile","-NonInteractive",
         "-ExecutionPolicy","Bypass","-File",str(root/"tools"/"collect.ps1"),
         "classify","-InputPath",str(batchfile)],cwd=root)
@@ -115,6 +122,7 @@ def main():
     choice=inner["results"][0]
     check(choice.get("candidate_id")==NEW and choice.get("action") in
           ("new","review","merge","archive","ignore"),"CLASSIFICATION_IDENTITY")
+    STAGE="DURABLE_INTEGRITY"
     check(before=={k:hashlib.sha256((root/k).read_bytes()).hexdigest()
                     for k in GUARD},"PROTECTED_DURABLE_FILE_CHANGED")
     check(git("rev-parse","HEAD",cwd=root)==head,"PRIVATE_HEAD_CHANGED")
@@ -143,4 +151,5 @@ if __name__=="__main__":
         print("MPAI06_SAFE_FAILURE="+
           (msg if re.fullmatch("MPAI06_[A-Z0-9_]{3,80}",msg) else "PRIVATE_FAILURE"))
         print("MPAI06_SAFE_ERROR_TYPE="+type(exc).__name__)
+        print("MPAI06_SAFE_STAGE="+STAGE)
         sys.exit(2)
