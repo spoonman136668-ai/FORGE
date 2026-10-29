@@ -1,0 +1,119 @@
+name: MP-AI06 source-preserving accepted memory recall repair qualification
+on:
+  push:
+    branches: [proposal/mpai06-usage-feedback-loop-20261029]
+    paths: ['.github/workflows/mpai06-recall-repair-qualification.yml']
+permissions:
+  contents: read
+jobs:
+  original-windows-recall:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+    steps:
+      - uses: actions/checkout@v4
+      - name: Qualify private source-pinned oversized lesson excerpt with real accepted records
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'MPAI06_RECALL_WRONG_ORIGINAL_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI06_RECALL_PAID_API_DENIED'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI06_RECALL_WORKFLOW_HEAD_DRIFT'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-recall-'+$env:GITHUB_RUN_ID)
+          $checkout=Join-Path $scratch 'mind-palace'
+          $log=Join-Path $scratch 'private-test-output.log'
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI06_RECALL_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            & git clone --quiet --filter=blob:none --depth 1 --single-branch --branch review/mpai06-recall-excerpt-fix-20261029 https://github.com/spoonman136668-ai/Mind-Palace.git $checkout 2> (Join-Path $scratch 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI06_RECALL_PRIVATE_SOURCE_CLONE_FAILED'}
+            $sha=(git -C $checkout rev-parse HEAD).Trim()
+            if($sha -cne 'ff3568a09b8bca29cba4616dacbc0e657a38a5ac'){
+               throw 'MPAI06_RECALL_SOURCE_SHA_DRIFT'
+            }
+            $blob=(git -C $checkout rev-parse 'HEAD:tools/mindpalace_readonly.py').Trim()
+            $test=(git -C $checkout rev-parse 'HEAD:tests/test_mpai06_recall_excerpts.py').Trim()
+            if($blob -cne 'd79045628567648a1945779dfb303644dfc15b46' -or
+               $test -cne '0da88fad7d8fb768bd4dc2af7cd98dfdf8e1872b'){
+              throw 'MPAI06_RECALL_SOURCE_AND_TEST_BLOBS_DRIFT'
+            }
+            $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+               '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+               '.ice/remote-index.ndjson','.ice/chat-delta-state.json',
+               '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $hashes=@{}
+            foreach($k in $guard){
+              $hashes[$k]=(git -C $checkout rev-parse ('HEAD:'+$k)).Trim()
+            }
+            & python -B -m unittest discover -s (Join-Path $checkout 'tests') -p test_mpai06_recall_excerpts.py -v *> $log
+            $rc=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($rc -ne 0 -or $raw -notmatch 'Ran 9 tests' -or $raw -notmatch '(?m)^OK(?:\s|$)'){
+              foreach($m in [regex]::Matches($raw,'(?m)^(FAIL|ERROR): (test_[a-z_]{3,90}) \(')){
+                Write-Output ('MPAI06_RECALL_TEST_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+              }
+              throw 'MPAI06_RECALL_NEW_NEGATIVE_TESTS_FAILED'
+            }
+            Write-Output 'MPAI06_RECALL_FOCUSED_TESTS=9_PASS'
+            $script=@'
+import json,pathlib,sys
+root=pathlib.Path(sys.argv[1])
+head=sys.argv[2]
+sys.path.insert(0,str(root/"tools"))
+from mindpalace_readonly import MemorySnapshot
+snapshot=MemorySnapshot(root,head,["Wingless","Yggdrasil"])
+rows={"Wingless":"project_state/wingless-p6o-native-bayesian-causal-policy-equal-control-negative-20261021",
+"Yggdrasil":"project_state/yggdrasil-mr29-original-native-causal-alias-dev-signal-negative-20261021"}
+out={}
+for project,identity in rows.items():
+    record=snapshot.get_record(head,identity,[project])
+    assert record["found"] and record["record"]["status"]=="observed"
+    recalled=snapshot.recall(head,identity,[project],profile="continuation")
+    hits=[x for x in recalled["matches"] if x["id"]==identity]
+    assert len(hits)==1
+    assert recalled["estimated_text_tokens"]<=snapshot.profiles["continuation"]["primary_token_budget"]
+    assert hits[0]["source_refs"]==record["record"]["source_refs"]
+    assert snapshot.get_record(head,rows["Yggdrasil" if project=="Wingless" else "Wingless"],[project])["found"] is False
+    out[project]={"exact":True,"excerpt":bool(hits[0].get("excerpt_only",False))}
+print(json.dumps(out,sort_keys=True))
+'@
+            & python -B -c $script $checkout $sha *> $log
+            $rc=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($rc -ne 0){throw 'MPAI06_RECALL_ACTUAL_ACCEPTED_RECORDS_NOT_RETRIEVED'}
+            $proof=$raw|ConvertFrom-Json -ErrorAction Stop
+            if(-not $proof.Wingless.exact -or -not $proof.Yggdrasil.exact){
+              throw 'MPAI06_RECALL_EXACT_SOURCE_PROOF_FAILED'
+            }
+            Write-Output 'MPAI06_RECALL_ORIGINAL_ACCEPTED_EXACT_IDS=2_PASS'
+            Write-Output ('MPAI06_RECALL_WINGLESS_EXCERPT='+[string]$proof.Wingless.excerpt)
+            Write-Output ('MPAI06_RECALL_YGGDRASIL_EXCERPT='+[string]$proof.Yggdrasil.excerpt)
+            Write-Output 'MPAI06_RECALL_PROJECT_SCOPE=PASS'
+            foreach($k in $guard){
+              $now=(git -C $checkout rev-parse ('HEAD:'+$k)).Trim()
+              if($now -cne $hashes[$k]){throw 'MPAI06_RECALL_PROTECTED_SOURCE_DRIFT'}
+            }
+            if(@(git -C $checkout status --porcelain --untracked-files=all).Count -ne 0){
+              throw 'MPAI06_RECALL_PRIVATE_CHECKOUT_DIRTY'
+            }
+            Write-Output 'MPAI06_RECALL_NINE_PROTECTED_SOURCE_BLOBS=PASS'
+            Write-Output 'MPAI06_RECALL_PRODUCTION_WRITES=0'
+            Write-Output 'MPAI06_RECALL_SCIENTIFIC_ACCEPTANCE=FALSE'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI06_RECALL_PRIVATE_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
