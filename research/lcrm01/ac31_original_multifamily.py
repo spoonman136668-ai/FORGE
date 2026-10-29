@@ -123,7 +123,7 @@ def fit(binary,p):
     # Cold independent restores of all source-trained learners.
     cold=WingBridge(binary)
     try:
-        ack=cold.request("load",state=base64.b64encode(go_checkpoint).decode())
+        ack=cold.request("load_parent",state=base64.b64encode(go_checkpoint).decode())
         if ack.get("updates")!=1664 or cold.snapshot()!=go_checkpoint:
             raise ValueError("MG12_GO_FIT_COLD_CUSTODY")
     finally:cold.close()
