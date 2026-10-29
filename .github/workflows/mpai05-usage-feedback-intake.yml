@@ -1,0 +1,127 @@
+name: MP-AI05 actual usage feedback original Windows collector rehearsal
+on:
+  push:
+    branches: [proposal/mpai05-real-usage-feedback-intake-20261029]
+    paths: ['.github/workflows/mpai05-usage-feedback-intake.yml']
+permissions:
+  contents: read
+jobs:
+  real-usage-feedback:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      PYTHONNOUSERSITE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Original Windows source-scoped validated usage feedback into existing collector (scratch only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'MPAI05_FEEDBACK_WRONG_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_FEEDBACK_PAID_API_DENIED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_FEEDBACK_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI05_FEEDBACK_HEAD_DRIFT'
+          }
+          $repo='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $source='f15810a16b3b31d72f0f9639f167c854ea6de52f'
+          $batch='pilots/mixed-source/2026-10-29-mpai05-authenticated-usage-feedback.batch.json'
+          $blob='6048ca181c66afcce179ec07af3d7f4e6d20b896'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-usage-feedback-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'private'
+          $private=Join-Path $scratch 'private-output.log'
+          $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          $env:PSModulePath=$native+[IO.Path]::PathSeparator+$env:PSModulePath
+          $ps=(Get-Command powershell.exe -ErrorAction Stop).Source
+          function Require([bool]$good,[string]$reason){
+            if(-not $good){throw ('MPAI05_FEEDBACK_'+$reason)}
+          }
+          function Hash([string]$path){
+            $h=[Security.Cryptography.SHA256]::Create()
+            $s=[IO.File]::OpenRead($path)
+            try{return ([BitConverter]::ToString($h.ComputeHash($s))).Replace('-','').ToLowerInvariant()}
+            finally {$h.Dispose();$s.Dispose()}
+          }
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+             '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+             '.ice/remote-index.ndjson','.ice/chat-delta-state.json',
+             '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          if(Test-Path -LiteralPath $scratch){throw 'MPAI05_FEEDBACK_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+          try{
+            & git.exe clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch review/mpai05-usage-feedback-20261029 $repo $root
+            Require ($LASTEXITCODE -eq 0) 'PRIVATE_BLOBLESS_CLONE'
+            Require ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'PRIVATE_EXACT_SOURCE_HEAD'
+            Require ((& git.exe -C $root config --get remote.origin.partialclonefilter|Out-String).Trim() -ceq 'blob:none') 'PRIVATE_PARTIAL_CLONE_FILTER'
+            & git.exe -C $root sparse-checkout set --cone .ice tools policies schemas pilots/mixed-source agentic archive
+            Require ($LASTEXITCODE -eq 0) 'PRIVATE_SPARSE_SET'
+            & git.exe -C $root checkout --force $source
+            Require ($LASTEXITCODE -eq 0) 'PRIVATE_PINNED_CHECKOUT'
+            Require ((& git.exe -C $root rev-parse ('HEAD:'+$batch)|Out-String).Trim() -ceq $blob) 'BATCH_PIN'
+            Require ((& git.exe -C $root rev-parse 'HEAD:tools/collect.ps1'|Out-String).Trim() -ceq '057feea4d3cecf0d57b7be498c58d8466fc20ff2') 'EXISTING_COLLECTOR_SOURCE_DRIFT'
+            Require ((& git.exe -C $root rev-parse 'HEAD:tools/ingest.ps1'|Out-String).Trim() -ceq 'ff5d9375ab3b28efc09cfaa5fad314bf426a1b68') 'EXISTING_CLASSIFIER_SOURCE_DRIFT'
+            $live=(Join-Path $root $batch)
+            $doc=Get-Content -LiteralPath $live -Raw|ConvertFrom-Json
+            Require ([string]$doc.schema -ceq 'mind-palace.collector-batch.v1') 'COLLECTOR_SCHEMA'
+            Require (@($doc.candidates).Count -eq 2 -and @($doc.sources).Count -eq 5) 'BOUNDED_TWO_REAL_LESSONS'
+            $before=@{}
+            foreach($path in $guard){
+              $p=Join-Path $root $path
+              Require (Test-Path -LiteralPath $p -PathType Leaf) 'GUARDED_FILE_MISSING'
+              $before[$path]=Hash $p
+            }
+            $validate=Join-Path $root 'tools/collect.ps1'
+            $srcCheck=Join-Path $root 'tools/source-ledger.ps1'
+            Push-Location $root
+            try{
+              $valid=(& $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $validate validate -InputPath $live 2>&1|Out-String)
+              Require ($LASTEXITCODE -eq 0) 'COLLECTOR_VALIDATION'
+              $v=$valid|ConvertFrom-Json
+              Require ([string]$v.schema -ceq 'mind-palace.collector-result.v1' -and
+                       [int]$v.candidate_count -eq 2) 'VALIDATION_RECEIPT'
+              Write-Output 'MPAI05_FEEDBACK_EXISTING_COLLECTOR_VALIDATE=PASS'
+              $class=(& $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $validate classify -InputPath $live 2>&1|Out-String)
+              Require ($LASTEXITCODE -eq 0) 'COLLECTOR_CLASSIFY'
+              $r=$class|ConvertFrom-Json
+              Require ([string]$r.schema -ceq 'mind-palace.collector-result.v1' -and
+                       [int]$r.candidate_count -eq 2) 'CLASSIFY_SCHEMA'
+              $n=[int]$r.result.result.counts.new
+              $review=[int]$r.result.result.counts.review
+              $merge=[int]$r.result.result.counts.merge
+              $ignored=[int]$r.result.result.counts.ignore
+              $archive=[int]$r.result.result.counts.archive
+              $supersede=[int]$r.result.result.counts.supersede
+              Require (($n+$review+$merge+$ignored+$archive+$supersede) -eq 2) 'CLASSIFICATION_BUDGET'
+              Require ($ignored -eq 0 -and $archive -eq 0 -and $supersede -eq 0) 'NEGATIVE_FEEDBACK_NOT_LOST'
+              Write-Output ('MPAI05_FEEDBACK_NEW='+$n)
+              Write-Output ('MPAI05_FEEDBACK_REVIEW='+$review)
+              Write-Output ('MPAI05_FEEDBACK_MERGE='+$merge)
+              Write-Output 'MPAI05_FEEDBACK_ORIGINAL_WINDOWS_CLASSIFICATION=PASS'
+              $ledger=(& $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $srcCheck check -BatchPath $live 2>&1|Out-String)
+              Require ($LASTEXITCODE -eq 0) 'SOURCE_LEDGER_CHECK'
+              $ledgerDoc=$ledger|ConvertFrom-Json
+              Require ([string]$ledgerDoc.schema -ceq 'mind-palace.source-ledger-check.v1') 'SOURCE_LEDGER_RECEIPT'
+              Write-Output 'MPAI05_FEEDBACK_ORIGINAL_SOURCE_LEDGER=PASS'
+            } finally {Pop-Location}
+            foreach($path in $guard){
+              Require ((Hash (Join-Path $root $path)) -ceq $before[$path]) 'GUARDED_MEMORY_CHANGED'
+            }
+            Write-Output 'MPAI05_FEEDBACK_NINE_PROTECTED_FILES_UNCHANGED=PASS'
+            Write-Output 'MPAI05_FEEDBACK_QUALIFIED_SOURCE_BRANCH_ONLY=TRUE'
+            Write-Output 'MPAI05_FEEDBACK_PRODUCTION_ICE_WRITES=0'
+            Write-Output 'MPAI05_FEEDBACK_NO_PROMOTION=TRUE'
+            Write-Output 'MPAI05_FEEDBACK_NO_NEW_CONTROLLER=TRUE'
+          } finally{
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI05_FEEDBACK_PRIVATE_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
