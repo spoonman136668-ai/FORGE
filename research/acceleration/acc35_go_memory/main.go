@@ -77,7 +77,7 @@ func writeNode(b *bytes.Buffer,n *node){
  putVar(b,uint64(len(sorted)))
  for _,e:=range sorted{putVar(b,uint64(len(e.label)));b.Write(e.label);writeNode(b,e.next)}
 }
-func (r *radix) snapshot []byte{var b bytes.Buffer;b.WriteString("AC35R1");writeNode(&b,r.root);return b.Bytes()}
+func (r *radix) snapshot() []byte{var b bytes.Buffer;b.WriteString("AC35R1");writeNode(&b,r.root);return b.Bytes()}
 func readNode(rd *bytes.Reader,depth int)(*node,error){
  if depth>64{return nil,errors.New("ACC35_RADIX_DEPTH")}
  flag,e:=rd.ReadByte();if e!=nil||flag>1{return nil,errors.New("ACC35_RADIX_TERMINAL")}
