@@ -82,6 +82,20 @@ jobs:
                 $tail=Get-Content -LiteralPath $log -Tail 120
                 $test=$tail|Where-Object{$_ -match '^(RUN Test-[A-Za-z0-9-]+\.ps1)$'}|Select-Object -Last 1
                 if($test){Write-Output ('MPAI06_FULL_LAST_TEST='+$test)}
+                # Report a source-defined uppercase error code only. Never
+                # print the private exception payload, paths, token or record.
+                $codes=[regex]::Matches(($tail -join [char]10),'UQ51_[A-Z0-9_]{5,80}')
+                if($codes.Count -gt 0){
+                  Write-Output ('MPAI06_FULL_FAILURE_CLASS='+$codes[$codes.Count-1].Value)
+                }
+                foreach($kind in @('RepositoryNotFoundException','CommandNotFoundException',
+                  'MethodException','ParameterBindingException','NativeCommandError',
+                  'ScriptHalted','UnauthorizedAccessException')){
+                  if(($tail -join [char]10).Contains($kind)){
+                    Write-Output ('MPAI06_FULL_FAILURE_KIND='+$kind)
+                    break
+                  }
+                }
                 throw 'MPAI06_FULL_CANONICAL_SUITE_FAILURE_PRIVATE_LOG'
               }
               $raw=Get-Content -LiteralPath $log -Raw
