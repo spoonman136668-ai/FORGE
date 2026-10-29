@@ -11,6 +11,7 @@ on:
       - 'docs/research/AC-12-GENUINE-UPSTREAM-IMPORT-REPAIR-PROTOCOL.md'
       - 'docs/research/AC-13-REAL-PYTORCH-TORCHVISION-REPAIR-PROTOCOL.md'
       - 'docs/research/AC-14-AUTHENTIC-OGBENCH-IMPORT-PROTOCOL.md'
+      - 'docs/research/AC-15-AUTHENTIC-DTR-YGG-LEARNER-PROTOCOL.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
   pull_request:
     branches:
@@ -23,6 +24,7 @@ on:
       - 'docs/research/AC-12-GENUINE-UPSTREAM-IMPORT-REPAIR-PROTOCOL.md'
       - 'docs/research/AC-13-REAL-PYTORCH-TORCHVISION-REPAIR-PROTOCOL.md'
       - 'docs/research/AC-14-AUTHENTIC-OGBENCH-IMPORT-PROTOCOL.md'
+      - 'docs/research/AC-15-AUTHENTIC-DTR-YGG-LEARNER-PROTOCOL.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
 permissions:
   contents: read
@@ -311,6 +313,49 @@ jobs:
           print("AC14_ENGINEERING_DIAGNOSTICS=PASS")
           print("AC14_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
           PY
+      - name: Check out actual existing Yggdrasil causal-cell developer source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 992ef142aaa551156749a1de484a971b9a0c092f
+          path: ac15_ygg
+          persist-credentials: false
+          fetch-depth: 1
+      - name: AC-15 fit unchanged Ygg cells on authentic DTR FIT and test frozen DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac15_native_public_adapter.py --upstream "$AC10_UPSTREAM_ROOT" --ygg "$GITHUB_WORKSPACE/ac15_ygg" --venv "$RUNNER_TEMP/ac11_venv" --ac14-report "$RUNNER_TEMP/ac07/ac14-report.json" --out "$RUNNER_TEMP/ac07/ac15-report.json"
+          python - "$RUNNER_TEMP/ac07/ac15-report.json" <<'PY'
+          import json,pathlib,sys,hashlib
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding='utf-8'))
+          assert r["schema"]=="forge.ac15.original-dtr-ygg-public-causal-cells.v1"
+          assert r["scope"]=="AUTHENTIC_PUBLIC_DEVELOPMENT_LEARNER_CONTROL_ONLY"
+          assert r["upstream_sha"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["existing_ygg_commit"]=="992ef142aaa551156749a1de484a971b9a0c092f"
+          assert r["existing_ygg_git_blob"]=="f2fda603fbed965a3b4e7cc28844b2246bf8ac2b"
+          assert r["source_fit"]["source_owned_episodes"]==8
+          assert r["source_dev"]["source_owned_episodes"]==4
+          assert r["source_fit"]["source_owned_actions"]==16
+          assert r["source_dev"]["source_owned_actions"]==8
+          assert r["fit_observed_action_outcome_updates"]==16
+          assert r["retained_checkpoint_bytes"]==164
+          assert r["cold_restore_identical"] is True
+          assert r["fully_fitted_tabular_control_parity"] is True
+          assert r["dev_updates"]==0
+          assert len(r["dev_choices"])==8
+          assert r["candidate_beats_fully_fitted_control"] is False
+          assert r["candidate_realized_policy_value_measured"] is False
+          for k in ("scientific_first_use","protected_science_family_used",
+                    "native_wingless_or_yggdrasil_source_modified",
+                    "controller_or_queue_changed","accepted_science_changed",
+                    "independent_unfamiliar_family_transfer_tested",
+                    "reserved_public_valid_used"):
+              assert r[k] is False
+          print("AC15_ACTUAL_SOURCE_NATIVE_CONTROL_FIT_DEV=PASS")
+          print("AC15_ORIGINAL_CHECKPOINT_AND_TABULAR_PARITY=PASS")
+          print("AC15_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
       - name: Retain source-free evidence per operating system
         if: success()
         uses: actions/upload-artifact@v4
@@ -328,5 +373,6 @@ jobs:
             ${{ runner.temp }}/ac07/ac13-freeze.txt
             ${{ runner.temp }}/ac07/ac14-report.json
             ${{ runner.temp }}/ac07/ac14-freeze.txt
+            ${{ runner.temp }}/ac07/ac15-report.json
           retention-days: 30
           if-no-files-found: error
