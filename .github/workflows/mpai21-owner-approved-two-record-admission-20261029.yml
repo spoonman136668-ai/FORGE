@@ -14,6 +14,10 @@ jobs:
       GCM_INTERACTIVE: Never
       PYTHONNOUSERSITE: '1'
       PYTHONDONTWRITEBYTECODE: '1'
+      # Ephemeral per-job Git policy: permit already-authorized long Windows paths.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -100,7 +104,17 @@ jobs:
                 $safeCodes=@($focusLines | Select-String -Pattern 'UQ51_[A-Z0-9_]+' -AllMatches |
                     ForEach-Object { $_.Matches | ForEach-Object { $_.Value } } | Select-Object -Unique)
                 $safeText=$focusLines -join [Environment]::NewLine
-                if($safeText -match 'not a git repository|does not appear to be a git repository'){
+                if($safeText -match 'Filename too long|path too long|longpaths|exceeds.*260'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=WINDOWS_LONG_PATH'
+                }elseif($safeText -match 'already exists and is not an empty directory|destination path'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=CLONE_DESTINATION_COLLISION'
+                }elseif($safeText -match 'unable to checkout working tree|cannot create directory|cannot create file|unable to create file'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=CHECKOUT_FILESYSTEM'
+                }elseif($safeText -match 'early EOF|invalid index-pack|unpack-objects|remote end hung up'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=TRANSFER'
+                }elseif($safeText -match 'failed to resolve|could not resolve host|unable to access'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=NETWORK'
+                }elseif($safeText -match 'not a git repository|does not appear to be a git repository'){
                   Write-Output 'MPAI21_BASELINE_GIT_ERROR=INVALID_REPOSITORY'
                 }elseif($safeText -match 'shallow|missing.*object|bad object|invalid object|promisor|reference is not a tree'){
                   Write-Output 'MPAI21_BASELINE_GIT_ERROR=MISSING_GIT_OBJECT'
