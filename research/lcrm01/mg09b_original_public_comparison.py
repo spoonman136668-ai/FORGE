@@ -339,6 +339,14 @@ def run(binary,p):
         summary[role]={name:sum(r[name] for r in arms) for name in fields}
         summary[role]["episodes"]=len(arms)
         summary[role]["external_actions"]=0
+    # Resource observations vary across fresh OS processes and must not be
+    # hashed as though they were deterministic original selected-source events.
+    # Keep complete per-episode CPU/wall receipts outside the canonical trace.
+    resources=[{"role":row["role"],"seed":row["seed_evaluator_only"],
+                "episode_host_wall_s":row.pop("episode_host_wall_s"),
+                "episode_python_cpu_only_s":row.pop("episode_python_cpu_only_s"),
+                "go_child_cpu_included":row.pop("go_child_cpu_included")}
+               for row in rows]
     met=all(summary[role]["source_goal_rewards"]>=1 for role in ROLES[:2])
     evidence={"original_upstream_farama":p["parent"]["original_farama"],
       "original_training_stream_sha256":trained["selected_history_sha256"],
@@ -354,7 +362,7 @@ def run(binary,p):
        "FORGE_or_CKB_controller_modified":False,"same_original_selected_FIT_samples":1664,
        "original_episode_count":12,"external_live_actions":0,
        "canonical_original_source_sha256":sha(canon(evidence).encode()),
-       "canonical_original_source_evidence":evidence}
+       "canonical_original_source_evidence":evidence,\n       "nondeterministic_original_episode_resource_receipts":resources}
 
 
 def main():
