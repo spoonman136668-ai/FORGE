@@ -69,7 +69,7 @@ def _git(root, *args):
 def _verify(root, commit, filename, blob):
     root = Path(root).resolve(strict=True)
     if (_git(root, "rev-parse", "HEAD") != commit or
-        _git(root, "hash-object", "--", filename) != blob or
+        _git(root, "rev-parse", "HEAD:" + filename) != blob or
         _git(root, "status", "--porcelain", "--untracked-files=no")):
         raise RuntimeError("AC20_ORIGINAL_SOURCE_IDENTITY_OR_CLEANNESS_DRIFT")
     return root
