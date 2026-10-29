@@ -95,6 +95,7 @@ def inspect(s):
         results[role]=dict(tally)
         per_family[role]=family_rows
     return {"schema":"itd02.mg26.original-source-public-consequence-sufficiency.v1",
+            "classification":"EXPOSED_PUBLIC_SOURCE_EARLY_SIGNAL_AUDIT_NOT_SCIENCE",
             "source_sha256":SOURCE_SHA,"read_only_original_source_episodes":72,
             "read_only_original_source_actions":9186,
             "nonterminal_signal_results":results,
