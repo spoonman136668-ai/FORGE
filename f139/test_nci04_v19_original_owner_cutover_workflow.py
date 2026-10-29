@@ -69,6 +69,26 @@ class V19OriginalOwnerReleaseGateTests(unittest.TestCase):
         self.assertIn("Stop-ScheduledTask",s)
         self.assertIn("F139_V19_ORIGINAL_OWNER_NOT_QUIESCENT",s)
 
+    def test_release_backup_is_portable_and_contains_exact_historical_custody(self):
+        s = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("$backupDir=Join-Path",s)
+        self.assertIn("$backup=Join-Path $backupDir 'state.sqlite'",s)
+        self.assertIn("FIRST_TICKET, FIRST_RUN, FIRST_SHA",s)
+        self.assertIn("SECOND_TICKET, SECOND_RUN, SECOND_SHA",s)
+        self.assertIn('pathlib.Path("native-negative")',s)
+        self.assertIn('"ubuntu-latest.zip"',s)
+        self.assertIn("source.is_file() and not source.is_symlink()",s)
+        self.assertIn("copied.parent.is_dir() and not copied.parent.is_symlink()",s)
+        self.assertIn("source.stat().st_size <= 2_000_000",s)
+        self.assertIn("hashlib.sha256(source.read_bytes()).hexdigest()==expected_sha",s)
+        self.assertIn("hashlib.sha256(copied.read_bytes()).hexdigest()==expected_sha",s)
+        self.assertIn('custody_manifest["state.sqlite"]=',s)
+        self.assertIn('"manifest.sha256.json"',s)
+        self.assertIn("cold=Database.open_readonly(backup)",s)
+        self.assertNotIn("cold=Database(backup)",s)
+        self.assertIn("F139_V19_ORIGINAL_COLD_CUSTODY_BUNDLE=PASS",s)
+        self.assertEqual(s.count("transition-qualified-native-v19 --approval $approval"),1)
+
     def test_cold_backed_up_before_sqlite_transaction_and_policy_promotion(self):
         s = WORKFLOW.read_text(encoding="utf-8")
         def pos(x):
@@ -76,8 +96,9 @@ class V19OriginalOwnerReleaseGateTests(unittest.TestCase):
             self.assertNotEqual(i,-1,x)
             return i
         self.assertLess(pos("Disable-ScheduledTask"),pos("db.conn.backup(out)"))
-        self.assertLess(pos("db.conn.backup(out)"),pos("cold=Database(backup)"))
-        self.assertLess(pos("cold=Database(backup)"),pos("F139_V19_COLD_BACKUP_RECEIPT_MISSING"))
+        self.assertLess(pos("db.conn.backup(out)"),pos("cold=Database.open_readonly(backup)"))
+        self.assertLess(pos("shutil.copyfile(source,copied)"),pos("db.conn.backup(out)"))
+        self.assertLess(pos("cold=Database.open_readonly(backup)"),pos("F139_V19_COLD_BACKUP_RECEIPT_MISSING"))
         self.assertLess(pos("F139_V19_COLD_BACKUP_RECEIPT_MISSING"),
                         pos("transition-qualified-native-v19 --approval $approval"))
         self.assertLess(pos("transition-qualified-native-v19 --approval $approval"),
