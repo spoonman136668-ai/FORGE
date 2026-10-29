@@ -1,0 +1,724 @@
+#!/usr/bin/env python3
+"""MG42 prospective original public selected-action prerequisite evidence ablation.
+
+MG42 uses a hand-engineered selected-action PUBLIC effect detector and a
+memory-based policy score condition. It is not proof of native model improvement,
+automatic discovery of object semantics, or held-out scientific transfer.
+"""
+from __future__ import annotations
+import argparse, collections, hashlib, json, math, subprocess, time, traceback
+from pathlib import Path
+from mg40_action_precondition_dev import evidence_episode as original_mg40_evidence_episode
+from mg39b_original_affordance_ablation import (
+    FAMILIES, UPSTREAM, digest, event_metric, mg33_episode, mg34_episode,
+    corrected_class, control_episode, original_mg38_episode, ablated_episode,
+    NavigationAwareModel, source_only as mg39b_source_only)
+
+HERE=Path(__file__).resolve().parent
+PREREG=HERE/"mg42_observed_reversal_guard_prereg.json"
+PARENT="404b9c7d4df594c186df7d758b71f5f676e67c92"
+FREEZE="a1b50f2ec2258efefdd9cfa41e59871a2cfb4eb1"
+ROLES=("wingless_mg19_unchanged","yggdrasil_mg19_unchanged",
+ "mg33_public_history_frontier_unchanged","mg34_graph_lookahead_unchanged",
+ "mg33c_actiononly_ucb_exact_source","mg33c_actiononly_round_robin_exact_source",
+ "mg38_generic_affordance_prior_enabled_exact_source",
+ "mg39b_generic_affordance_prior_removed",
+ "mg40_precondition_memory_enabled_unchanged",
+ "mg40_precondition_memory_ablated_unchanged",
+ "mg42_observed_reversal_guard_candidate",
+ "seeded_uniform_random")
+SEEDS=((1021101,1021103,1021107),(1021201,1021203,1021207),
+       (1021301,1021303,1021307),(1021401,1021403,1021407))
+
+def git(*args):
+    return subprocess.run(["git",*args],cwd=HERE.parents[1],
+                          capture_output=True,text=True,check=False)
+
+def frozen():
+    p=json.loads(PREREG.read_text(encoding="utf-8"))
+    c=p["cohort"];m=p["mechanism"]["coefficients"]
+    if (p.get("schema")!="itd02.mg42.original-public-observed-immediate-reversal-guard.dev.v1"
+        or p["phase"]!="PROSPECTIVE_FROZEN_BEFORE_EXECUTABLE_AND_NEW_ORIGINAL_SOURCE_ACTIONS"
+        or p["parent"]["mg41_head"]!=PARENT
+        or p["sources"]["original_farama"]!=UPSTREAM
+        or tuple(c["families"])!=FAMILIES
+        or tuple(c["roles"])!=ROLES
+        or tuple(map(tuple,c["new_development_seeds"]))!=SEEDS
+        or c["source_episodes"]!=144 or c["cap_per_episode"]!=192
+        or c["original_source_reproductions"]!=2
+        or m!={"rapid_pair_max_gap":4,"guard_cooldown_source_actions":8,
+                "guard_drop_score_penalty":12}
+        or not all(p["prohibitions"].values())):
+        raise ValueError("MG42_FROZEN_ORIGINAL_DEV_PROTOCOL_DRIFT")
+    seeds=[x for grp in SEEDS for x in grp]
+    if len(seeds)!=12 or len(set(seeds))!=12:
+        raise ValueError("MG42_FROZEN_DEV_SEED_DUPLICATE")
+    for sha in (PARENT,FREEZE):
+        if git("merge-base","--is-ancestor",sha,"HEAD").returncode:
+            raise ValueError("MG42_PREREG_NOT_ANCESTOR_OF_EXECUTABLE")
+    for seed in seeds:
+        x=git("grep","-n","-w",str(seed),PARENT,"--","research/lcrm01","docs/research")
+        if x.returncode==0:
+            raise ValueError("MG42_PRIOR_EXPOSED_SEED")
+        if x.returncode!=1:
+            raise ValueError("MG42_PRIOR_SOURCE_CUSTODY_UNAVAILABLE")
+    return p
+
+class EvidenceNavigation(NavigationAwareModel):
+    """Exact original MG38 scorer plus frozen public-evidence addends.
+
+    'occupied_proxy' is never read from environment inventory. It is only
+    an episode-local inference from one's own publicly observed action effects.
+    """
+    SCHEMA="mg42.public-effect-proxy-navigation.v1"
+
+    def __init__(self,edges=None,visits=None,global_actions=None,total=0,
+                 turn_chain=0,last_forward_nochange=False,occupied_proxy=False,
+                 evidence_enabled=True,observed_pickups=0,observed_drops=0):
+        super().__init__(edges,visits,global_actions,total,turn_chain,
+                         last_forward_nochange)
+        self.occupied_proxy=occupied_proxy
+        self.evidence_enabled=evidence_enabled
+        self.observed_pickups=observed_pickups
+        self.observed_drops=observed_drops
+
+    def begin_episode(self):
+        super().begin_episode()
+        self.occupied_proxy=False
+
+    def choose(self, public):
+        if self.pending is not None:
+            raise ValueError("MG38_DOUBLE_CHOICE_BEFORE_ORIGINAL_FEEDBACK")
+        key = digest(public)
+        first = int(key[:2], 16) % 7
+        front = public["image"][3][5]
+        row = self.edges.get(key, {})
+        chosen = None
+        best = None
+        for offset in range(7):
+            action = (first + offset) % 7
+            cell = row.get(str(action))
+            local_count = cell["n"] if cell else 0
+            g = self.global_actions[action]
+            g_count = g["n"]
+            effect = (g["changed"] + 0.5) / (g_count + 1)
+            novel = (g["novel"] + 0.5) / (g_count + 1)
+            goal = (g["goals"] + 0.25) / (g_count + 1)
+            if action == 2:
+                # Forward public change is *not* assumed to prove locomotion.
+                local_nochange = (0 if cell is None else
+                                  (cell["n"] - cell["changed"]) / cell["n"])
+                score = (2.3 + 1.7 / (1 + local_count)
+                         + 1.0 * novel - 2.0 * local_nochange)
+            elif action in (0, 1):
+                # Rotations NEVER get credit for changing egocentric public SHA.
+                # Rotation is still eligible after unsuccessful own forward.
+                score = (0.4 + 0.4 / (1 + local_count)
+                         + 2.5 * int(self.last_forward_nochange)
+                         - 1.25 * self.turn_chain)
+                if self.turn_chain >= 2:
+                    score -= 8.0
+            else:
+                score = (0.6 + 1.7 / (1 + local_count) + 2.0 * goal
+                         + 0.7 * effect - 0.1 * local_count)
+                # Public object classes only; NOT a mission-target matcher.
+                if action == 3 and front[0] in (5,6,7):
+                    score += 2.2
+                elif action == 5 and front[0] == 4:
+                    score += 2.2
+            # MG42 prospective public-action-effect proxy: bounded engineered
+            # score adjustments. Not a learned semantic/action-rule discovery.
+            if self.evidence_enabled and self.occupied_proxy:
+                if action == 4 and front[0] == 1:
+                    score += 8.0
+                if action == 3 and front[0] in (5, 6, 7):
+                    score -= 8.0
+            # Keep reward tied only to selected empirical source consequences.
+            if cell is not None:
+                score += 2.0 * cell["goals"] / (1 + cell["n"])
+            if best is None or score > best:
+                best = score
+                chosen = action
+        self.pending = (key, chosen)
+        return chosen
+
+    def observe_selected(self,before,action,after,reward,terminated):
+        # Validation and empirical transition update first; no offpolicy data.
+        super().observe_selected(before,action,after,reward,terminated)
+        front=before["image"][3][5]
+        later=after["image"][3][5]
+        same_heading=before["direction"]==after["direction"]
+        if (action==3 and same_heading and front[0] in (5,6,7)
+            and later[0]==1):
+            self.occupied_proxy=True
+            self.observed_pickups+=1
+        elif (action==4 and same_heading and front[0]==1
+              and later[0] in (5,6,7)):
+            self.occupied_proxy=False
+            self.observed_drops+=1
+
+    def checkpoint(self):
+        if self.pending is not None:
+            raise ValueError("MG42_PENDING_SELECTED_ACTION_NOT_CHECKPOINTABLE")
+        obj={"schema":self.SCHEMA,"edges":self.edges,"visits":self.visits,
+          "global_actions":self.global_actions,"total":self.total,
+          "turn_chain":self.turn_chain,
+          "last_forward_nochange":self.last_forward_nochange,
+          "occupied_proxy":self.occupied_proxy,
+          "evidence_enabled":self.evidence_enabled,
+          "observed_pickups":self.observed_pickups,
+          "observed_drops":self.observed_drops}
+        return json.dumps(obj,sort_keys=True,separators=(",",":"),
+                          ensure_ascii=True).encode("utf-8")
+
+    @classmethod
+    def restore(cls,raw):
+        d=json.loads(raw)
+        expected={"schema","edges","visits","global_actions","total",
+          "turn_chain","last_forward_nochange","occupied_proxy",
+          "evidence_enabled","observed_pickups","observed_drops"}
+        if (set(d)!=expected or d["schema"]!=cls.SCHEMA
+            or any(type(d[x]) is not bool for x in
+                   ("occupied_proxy","evidence_enabled","last_forward_nochange"))
+            or any(type(d[x]) is not int or d[x]<0 for x in
+                   ("total","turn_chain","observed_pickups","observed_drops"))):
+            raise ValueError("MG42_INVALID_COLD_EVIDENCE_SCHEMA")
+        model=cls(d["edges"],d["visits"],d["global_actions"],d["total"],
+                  d["turn_chain"],d["last_forward_nochange"],d["occupied_proxy"],
+                  d["evidence_enabled"],d["observed_pickups"],d["observed_drops"])
+        if (raw!=model.checkpoint() or len(model.global_actions)!=7
+            or model.total!=sum(z["n"] for z in model.global_actions)
+            or model.total!=sum(c["n"] for r in model.edges.values()
+                                for c in r.values())
+            or any(c["n"]!=sum(c["next"].values()) for r in model.edges.values()
+                   for c in r.values())
+            or model.observed_pickups>model.total
+            or model.observed_drops>model.total):
+            raise ValueError("MG42_COLD_SELECTED_ACTION_EVIDENCE_DIVERGED")
+        return model
+
+class ReversalGuardNavigation(EvidenceNavigation):
+    SCHEMA="mg42.observed-public-effect-reversal-guard.v1"
+
+    def __init__(self,edges=None,visits=None,global_actions=None,total=0,
+                 turn_chain=0,last_forward_nochange=False,occupied_proxy=False,
+                 evidence_enabled=True,observed_pickups=0,observed_drops=0,
+                 reversal_evidence_count=0,last_pickup_total=-1):
+        super().__init__(edges,visits,global_actions,total,turn_chain,
+                         last_forward_nochange,occupied_proxy,evidence_enabled,
+                         observed_pickups,observed_drops)
+        self.reversal_evidence_count=reversal_evidence_count
+        self.last_pickup_total=last_pickup_total
+
+    def begin_episode(self):
+        super().begin_episode()
+        self.last_pickup_total=-1
+
+    def choose(self, public):
+        if self.pending is not None:
+            raise ValueError("MG38_DOUBLE_CHOICE_BEFORE_ORIGINAL_FEEDBACK")
+        key = digest(public)
+        first = int(key[:2], 16) % 7
+        front = public["image"][3][5]
+        row = self.edges.get(key, {})
+        chosen = None
+        best = None
+        for offset in range(7):
+            action = (first + offset) % 7
+            cell = row.get(str(action))
+            local_count = cell["n"] if cell else 0
+            g = self.global_actions[action]
+            g_count = g["n"]
+            effect = (g["changed"] + 0.5) / (g_count + 1)
+            novel = (g["novel"] + 0.5) / (g_count + 1)
+            goal = (g["goals"] + 0.25) / (g_count + 1)
+            if action == 2:
+                # Forward public change is *not* assumed to prove locomotion.
+                local_nochange = (0 if cell is None else
+                                  (cell["n"] - cell["changed"]) / cell["n"])
+                score = (2.3 + 1.7 / (1 + local_count)
+                         + 1.0 * novel - 2.0 * local_nochange)
+            elif action in (0, 1):
+                # Rotations NEVER get credit for changing egocentric public SHA.
+                # Rotation is still eligible after unsuccessful own forward.
+                score = (0.4 + 0.4 / (1 + local_count)
+                         + 2.5 * int(self.last_forward_nochange)
+                         - 1.25 * self.turn_chain)
+                if self.turn_chain >= 2:
+                    score -= 8.0
+            else:
+                score = (0.6 + 1.7 / (1 + local_count) + 2.0 * goal
+                         + 0.7 * effect - 0.1 * local_count)
+                # Public object classes only; NOT a mission-target matcher.
+                if action == 3 and front[0] in (5,6,7):
+                    score += 2.2
+                elif action == 5 and front[0] == 4:
+                    score += 2.2
+            # MG40 prospective public-action-effect proxy: bounded engineered
+            # score adjustments. Not a learned semantic/action-rule discovery.
+            if self.evidence_enabled and self.occupied_proxy:
+                if action == 4 and front[0] == 1:
+                    score += 8.0
+                if action == 3 and front[0] in (5, 6, 7):
+                    score -= 8.0
+            # Keep reward tied only to selected empirical source consequences.
+            if cell is not None:
+                score += 2.0 * cell["goals"] / (1 + cell["n"])
+            # MG42: only observed own pickup->drop reversals trigger a
+            # bounded local anti-reversal penalty. No hidden inventory or
+            # mission-target identity is used by this action scorer.
+            if (action == 4 and self.occupied_proxy
+                and self.reversal_evidence_count > 0
+                and self.last_pickup_total >= 0
+                and self.total - self.last_pickup_total <= 8):
+                score -= 12.0
+            if best is None or score > best:
+                best = score
+                chosen = action
+        self.pending = (key, chosen)
+        return chosen
+
+    def observe_selected(self,before,action,after,reward,terminated):
+        before_pickups=self.observed_pickups
+        before_drops=self.observed_drops
+        # Exact MG40 selected public-effect model validates the source
+        # action and updates all empirical transition/reward observations.
+        super().observe_selected(before,action,after,reward,terminated)
+        if self.observed_pickups>before_pickups:
+            self.last_pickup_total=self.total
+        if self.observed_drops>before_drops:
+            if (self.last_pickup_total>=0 and
+                1 <= self.total-self.last_pickup_total <= 4):
+                self.reversal_evidence_count+=1
+            self.last_pickup_total=-1
+
+    def checkpoint(self):
+        if self.pending is not None:
+            raise ValueError("MG42_PENDING_SOURCE_SELECTED_ACTION")
+        x={"schema":self.SCHEMA,"edges":self.edges,"visits":self.visits,
+           "global_actions":self.global_actions,"total":self.total,
+           "turn_chain":self.turn_chain,"last_forward_nochange":self.last_forward_nochange,
+           "occupied_proxy":self.occupied_proxy,"evidence_enabled":self.evidence_enabled,
+           "observed_pickups":self.observed_pickups,"observed_drops":self.observed_drops,
+           "reversal_evidence_count":self.reversal_evidence_count,
+           "last_pickup_total":self.last_pickup_total}
+        return json.dumps(x,sort_keys=True,separators=(",",":"),
+                          ensure_ascii=True).encode("utf-8")
+
+    @classmethod
+    def restore(cls,raw):
+        x=json.loads(raw)
+        expected={"schema","edges","visits","global_actions","total","turn_chain",
+                  "last_forward_nochange","occupied_proxy","evidence_enabled",
+                  "observed_pickups","observed_drops","reversal_evidence_count",
+                  "last_pickup_total"}
+        if (set(x)!=expected or x["schema"]!=cls.SCHEMA
+            or any(type(x[k]) is not bool for k in
+               ("last_forward_nochange","occupied_proxy","evidence_enabled"))
+            or any(type(x[k]) is not int for k in
+               ("total","turn_chain","observed_pickups","observed_drops",
+                "reversal_evidence_count","last_pickup_total"))
+            or min(x["total"],x["turn_chain"],x["observed_pickups"],
+                   x["observed_drops"],x["reversal_evidence_count"])<0
+            or x["last_pickup_total"]<-1):
+            raise ValueError("MG42_INVALID_PUBLIC_REVERSAL_COLD_SOURCE")
+        z=cls(x["edges"],x["visits"],x["global_actions"],x["total"],
+              x["turn_chain"],x["last_forward_nochange"],x["occupied_proxy"],
+              x["evidence_enabled"],x["observed_pickups"],x["observed_drops"],
+              x["reversal_evidence_count"],x["last_pickup_total"])
+        if (z.checkpoint()!=raw or z.total!=sum(q["n"] for q in z.global_actions)
+            or z.total!=sum(a["n"] for row in z.edges.values() for a in row.values())
+            or any(a["n"]!=sum(a["next"].values())
+                   for row in z.edges.values() for a in row.values())
+            or z.last_pickup_total>z.total):
+            raise ValueError("MG42_COLD_RETAINED_EFFECT_HISTORY_NOT_VERIFIED")
+        return z
+
+def reversal_episode(gym,entry,family,seed,prior,cap,public,original_digest):
+    env=gym.make(family)
+    try:
+        if gym.spec(family).entry_point!=entry or getattr(env.action_space,"n",None)!=7:
+            raise ValueError("MG42_NOT_PINNED_ORIGINAL_FARAMA_WORLD")
+        raw,_=env.reset(seed=seed)
+        first=public(raw);mission=first["mission"]
+        actor=(ReversalGuardNavigation() if prior is None
+               else ReversalGuardNavigation.restore(prior))
+        actor.begin_episode()
+        start_n=actor.total;events=[]
+        for n in range(1,cap+1):
+            before=public(raw)
+            if before["mission"]!=mission:
+                raise ValueError("MG42_ORIGINAL_MISSION_CHANGED")
+            action=actor.choose(before)
+            raw2,reward,term,trunc,_=env.step(action)
+            after=public(raw2)
+            if (after["mission"]!=mission or type(term) is not bool
+                or type(trunc) is not bool or not math.isfinite(float(reward))):
+                raise ValueError("MG42_INVALID_ORIGINAL_SOURCE_FEEDBACK")
+            actor.observe_selected(before,action,after,float(reward),term)
+            events.append({"index":n,"before":before,"after":after,
+                "action":action,"mission":mission,"reward":float(reward),
+                "terminated":term,"truncated":trunc,
+                "before_sha256":original_digest(before),
+                "after_sha256":original_digest(after),"external_actions":0,
+                "policy_status":"MG42_OBSERVED_SOURCE_REVERSAL_GUARD"})
+            raw=raw2
+            if term or trunc:break
+        state=actor.checkpoint()
+        if (ReversalGuardNavigation.restore(state).checkpoint()!=state
+            or actor.total!=start_n+len(events)):
+            raise ValueError("MG42_COLD_SOURCE_MEMORY_LOST")
+        return ({"family":family,"role":ROLES[10],
+                 "seed_dev_exposed":seed,
+                 "public_start_sha256":original_digest(first),
+                 "original_public_mission":mission,
+                 "original_source_actions":len(events),
+                 "prior_selected_source_samples":start_n,
+                 "selected_source_samples_after":actor.total,
+                 "original_terminal_goal_rewards":
+                     sum(int(e["reward"]>0 and e["terminated"]) for e in events),
+                 "observed_public_changes":
+                     sum(e["before_sha256"]!=e["after_sha256"] for e in events),
+                 "unique_public_views":len({e["before_sha256"] for e in events}),
+                 "distinct_actions":len({e["action"] for e in events}),
+                 "checkpoint_sha256":hashlib.sha256(state).hexdigest(),
+                 "observed_public_proxy_pickups":actor.observed_pickups,
+                 "observed_public_proxy_drops":actor.observed_drops,
+                 "observed_source_reversals":actor.reversal_evidence_count,
+                 "source_events_sha256":original_digest(events),
+                 "source_events":events},state)
+    finally:
+        env.close()
+
+def evidence_episode(gym,entry,family,seed,prior,cap,public,original_digest,enabled):
+    env=gym.make(family)
+    try:
+        if gym.spec(family).entry_point!=entry or getattr(env.action_space,"n",None)!=7:
+            raise ValueError("MG42_INVALID_ORIGINAL_ENVIRONMENT")
+        raw,_=env.reset(seed=seed)
+        first=public(raw)
+        mission=first["mission"]
+        model=(EvidenceNavigation(evidence_enabled=enabled)
+               if prior is None else EvidenceNavigation.restore(prior))
+        if model.evidence_enabled is not enabled:
+            raise ValueError("MG42_EVIDENCE_ABLATION_STATE_DRIFT")
+        model.begin_episode()
+        start_n=model.total
+        events=[]
+        for n in range(1,cap+1):
+            before=public(raw)
+            if before["mission"]!=mission:
+                raise ValueError("MG42_PUBLIC_MISSION_DRIFT")
+            action=model.choose(before)
+            raw2,reward,term,trunc,_=env.step(action)
+            after=public(raw2)
+            if (after["mission"]!=mission or type(term) is not bool
+                or type(trunc) is not bool or not math.isfinite(float(reward))):
+                raise ValueError("MG42_ORIGINAL_SELECTED_SOURCE_FEEDBACK_INVALID")
+            model.observe_selected(before,action,after,float(reward),term)
+            events.append({"index":n,"before":before,"after":after,
+                "action":action,"mission":mission,"reward":float(reward),
+                "terminated":term,"truncated":trunc,
+                "before_sha256":original_digest(before),
+                "after_sha256":original_digest(after),"external_actions":0,
+                "policy_status":"MG42_PUBLIC_EFFECT_EVIDENCE_ON" if enabled
+                                else "MG42_PUBLIC_EFFECT_EVIDENCE_ABLATION"})
+            raw=raw2
+            if term or trunc:
+                break
+        state=model.checkpoint()
+        if (EvidenceNavigation.restore(state).checkpoint()!=state
+            or model.total!=start_n+len(events)):
+            raise ValueError("MG42_COLD_PUBLIC_SOURCE_HISTORY_LOSS")
+        return ({"family":family,"role":ROLES[8] if enabled else ROLES[9],
+                 "seed_dev_exposed":seed,"public_start_sha256":original_digest(first),
+                 "original_public_mission":mission,
+                 "original_source_actions":len(events),
+                 "prior_selected_source_samples":start_n,
+                 "selected_source_samples_after":model.total,
+                 "original_terminal_goal_rewards":
+                     sum(int(e["reward"]>0 and e["terminated"]) for e in events),
+                 "observed_public_changes":
+                     sum(e["before_sha256"]!=e["after_sha256"] for e in events),
+                 "unique_public_views":len({e["before_sha256"] for e in events}),
+                 "distinct_actions":len({e["action"] for e in events}),
+                 "checkpoint_sha256":hashlib.sha256(state).hexdigest(),
+                 "observed_public_proxy_pickups":model.observed_pickups,
+                 "observed_public_proxy_drops":model.observed_drops,
+                 "source_events_sha256":original_digest(events),
+                 "source_events":events},state)
+    finally:
+        env.close()
+
+def synthetic_source_preflight():
+    import inspect
+    p=frozen()
+    # Inherit exact MG40 legacy control unchanged, then verify MG42 scorer
+    # has one and only one added engineered observed-reversal guard.
+    from mg40_action_precondition_dev import EvidenceNavigation as OriginalMG40
+    old=inspect.getsource(OriginalMG40.choose)
+    new=inspect.getsource(ReversalGuardNavigation.choose)
+    block=("            # MG42: only observed own pickup->drop reversals trigger a\n"
+      "            # bounded local anti-reversal penalty. No hidden inventory or\n"
+      "            # mission-target identity is used by this action scorer.\n"
+      "            if (action == 4 and self.occupied_proxy\n"
+      "                and self.reversal_evidence_count > 0\n"
+      "                and self.last_pickup_total >= 0\n"
+      "                and self.total - self.last_pickup_total <= 8):\n"
+      "                score -= 12.0\n")
+    if new.count(block)!=1 or new.replace(block,"")!=old:
+        raise ValueError("MG42_NOT_ORIGINAL_MG40_CHOOSE_PLUS_FROZEN_GUARD")
+    before={"image":[[[1,0,0] for _ in range(7)] for _ in range(7)],
+            "direction":0,"mission":"pick up the red box"}
+    after=json.loads(json.dumps(before))
+    before["image"][3][5]=[7,0,0]
+    learner=ReversalGuardNavigation()
+    learner.pending=(digest(before),3)
+    learner.observe_selected(before,3,after,0.0,False)
+    if not learner.occupied_proxy or learner.observed_pickups!=1:
+        raise ValueError("MG42_ORIGINAL_PICKUP_PUBLIC_EFFECT_MISSING")
+    learner.pending=(digest(after),4)
+    learner.observe_selected(after,4,before,0.0,False)
+    if learner.reversal_evidence_count!=1 or learner.occupied_proxy:
+        raise ValueError("MG42_MISSING_OWN_OBSERVED_REVERSAL_EVIDENCE")
+    learner.pending=(digest(before),3)
+    learner.observe_selected(before,3,after,0.0,False)
+    if not learner.occupied_proxy:raise ValueError("MG42_NEW_PICKUP_PROXY_NOT_SET")
+    original=OriginalMG40.restore(OriginalMG40(
+         learner.edges,learner.visits,learner.global_actions,learner.total,
+         learner.turn_chain,learner.last_forward_nochange,
+         learner.occupied_proxy,True,
+         learner.observed_pickups,learner.observed_drops).checkpoint())
+    candidate_action=learner.choose(after)
+    baseline_action=original.choose(after)
+    if baseline_action!=4 or candidate_action==4:
+        raise ValueError("MG42_REVERSAL_PENALTY_NOT_DIFFERENT_FROM_MG40_SOURCE")
+    # Synthetic choose leaves a pending proposal; there was no genuine
+    # env.step in this source-only unit fixture to consume that proposal.
+    learner.pending=None
+    raw=learner.checkpoint()
+    if ReversalGuardNavigation.restore(raw).checkpoint()!=raw:
+        raise ValueError("MG42_COLD_REVERSAL_EVIDENCE_LOST")
+    learner.pending=None
+    learner.begin_episode()
+    if (learner.occupied_proxy or learner.last_pickup_total!=-1
+        or learner.reversal_evidence_count!=1):
+        raise ValueError("MG42_EPISODE_RESET_ERASED_OWN_EVIDENCE")
+    print("MG42_SOURCE_ONLY_GUARD_IS_EXACT_MG40_PLUS_ONE_EVIDENCE_CONDITION_PASS")
+    return p
+
+def summarize(rows):
+    totals={}
+    for family in FAMILIES:
+        totals[family]={}
+        for role in ROLES:
+            group=[x for x in rows if x["family"]==family and x["role"]==role]
+            if len(group)!=3 or group[0]["prior_selected_source_samples"] not in (None,0):
+                raise ValueError("MG42_INCOMPLETE_TRIPLE_COLD_ORIGINAL_SOURCE")
+            if role!=ROLES[-1]:
+                for a,b in zip(group,group[1:]):
+                    if a["selected_source_samples_after"]!=b["prior_selected_source_samples"]:
+                        raise ValueError("MG42_COLD_SOURCE_MEMORY_NOT_RETAINED")
+            action_hist=[0]*7
+            seen=collections.Counter()
+            goal_episodes=0
+            for ep in group:
+                if digest(ep["source_events"])!=ep["source_events_sha256"]:
+                    raise ValueError("MG42_ORIGINAL_EVENT_SOURCE_HASH_CHANGED")
+                goal_episodes+=int(ep["original_terminal_goal_rewards"]>0)
+                for e in ep["source_events"]:
+                    z=event_metric(e)
+                    seen.update(z)
+                    act=e["action"]
+                    action_hist[act]+=1
+                    f=e["before"]["image"][3][5]
+                    aft=e["after"]["image"][3][5]
+                    if act==4:
+                        seen["selected_drops"]+=1
+                        if f[0]==1:
+                            seen["selected_drops_empty_front"]+=1
+                            if aft[0] in (5,6,7) and e["before"]["direction"]==e["after"]["direction"]:
+                                seen["actual_public_drop_effects"]+=1
+                    if act==3 and f[0] in (5,6,7) and aft[0]==1 and e["before"]["direction"]==e["after"]["direction"]:
+                        seen["actual_public_generic_pickup_effects"]+=1
+            if sum(action_hist)!=sum(x["original_source_actions"] for x in group):
+                raise ValueError("MG42_ORIGINAL_SOURCE_ACTION_DENOMINATOR_MISMATCH")
+            totals[family][role]={
+                "episodes":3,"actions":sum(action_hist),
+                "action_histogram":action_hist,
+                "positive_goal_episodes":goal_episodes,
+                "target_front":seen["target_front_frames"],
+                "target_pick_attempt":seen["target_front_selected_pickup_attempts"],
+                "target_pick_effect":seen["target_front_selected_effects"],
+                "target_visible":seen["target_any_visible_frames"],
+                "door_open":seen["locked_door_openings"],
+                "selected_drops":seen["selected_drops"],
+                "selected_drops_empty_front":seen["selected_drops_empty_front"],
+                "actual_public_drop_effects":seen["actual_public_drop_effects"],
+                "actual_public_generic_pickup_effects":seen["actual_public_generic_pickup_effects"]}
+    return totals
+
+def execute(root,native_go,control_root,p):
+    import gymnasium as gym
+    import minigrid
+    from mg17_original_family_source_qual import (
+        frozen as original_frozen,attest_source,public,digest as original_digest)
+    from mg21_original_development import one_episode,ROLES as native_roles
+    if not Path(minigrid.__file__).resolve().is_relative_to(root.resolve()):
+        raise ValueError("MG42_FARAMA_SOURCE_NOT_FROM_PINNED_ROOT")
+    upstream=original_frozen()
+    attest_source(root,upstream)
+    registry={f["id"]:f["entry_point"] for f in upstream["families"]}
+    exact_control=corrected_class(control_root)
+    result=[]
+    for family,seeds in zip(FAMILIES,SEEDS):
+        memory={role:None for role in ROLES}
+        for seed in seeds:
+            starts=[]
+            for role in ROLES:
+                if role in (ROLES[0],ROLES[1],ROLES[-1]):
+                    actual=(native_roles[0] if role==ROLES[0]
+                            else native_roles[1] if role==ROLES[1] else native_roles[3])
+                    ep,_,state=one_episode(family,seed,actual,192,
+                                           memory[role],native_go,registry[family])
+                elif role==ROLES[2]:
+                    ep,state=mg33_episode(gym,registry[family],family,seed,
+                                         memory[role],192,public,original_digest)
+                elif role==ROLES[3]:
+                    ep,state=mg34_episode(gym,registry[family],family,seed,
+                                         memory[role],192,public,original_digest)
+                elif role in (ROLES[4],ROLES[5]):
+                    mode="ucb" if role==ROLES[4] else "round_robin"
+                    ep,state=control_episode(gym,registry[family],family,seed,
+                                              mode,memory[role],192,public,
+                                              original_digest,exact_control)
+                elif role==ROLES[6]:
+                    ep,state=original_mg38_episode(gym,registry[family],family,
+                                                   seed,memory[role],192,
+                                                   public,original_digest)
+                elif role==ROLES[7]:
+                    ep,state=ablated_episode(gym,registry[family],family,seed,
+                                             memory[role],192,public,original_digest)
+                elif role in (ROLES[8],ROLES[9]):
+                    ep,state=original_mg40_evidence_episode(gym,registry[family],family,
+                                              seed,memory[role],192,public,
+                                              original_digest,role==ROLES[8])
+                elif role==ROLES[10]:
+                    ep,state=reversal_episode(gym,registry[family],family,
+                                               seed,memory[role],192,
+                                               public,original_digest)
+                else:
+                    raise ValueError("MG42_UNAUTHORIZED_ORIGINAL_ROLE")
+                ep["role"]=role
+                starts.append(ep["public_start_sha256"])
+                if role!=ROLES[-1]:
+                    memory[role]=state
+                result.append(ep)
+            if len(set(starts))!=1:
+                raise ValueError("MG42_NOT_MATCHED_ORIGINAL_SEED_RESET")
+    if len(result)!=144 or any(not (1<=x["original_source_actions"]<=192)
+                                for x in result):
+        raise ValueError("MG42_INCOMPLETE_144_EPISODES")
+    table=summarize(result)
+    unfamiliar=FAMILIES[1:]
+    candidate=ROLES[10]
+    controls=(ROLES[8],ROLES[9],ROLES[6],ROLES[7],ROLES[4],ROLES[5])
+    measured=(candidate,*controls)
+    effects={role:sum(table[f][role]["target_pick_effect"] for f in unfamiliar)
+             for role in measured}
+    goals={role:sum(table[f][role]["positive_goal_episodes"] for f in unfamiliar)
+           for role in measured}
+    drops={role:sum(table[f][role]["actual_public_drop_effects"] for f in unfamiliar)
+           for role in measured}
+    positive_families=sum(table[f][candidate]["positive_goal_episodes"]>0 for f in unfamiliar)
+    difficult=any(table[f][candidate]["positive_goal_episodes"]>0 for f in FAMILIES[1:3])
+    def pairs(role):
+        count=0
+        for ep in result:
+            if ep["role"]!=role or ep["family"] not in unfamiliar:
+                continue
+            was_pick=False
+            for e in ep["source_events"]:
+                before=e["before"]["image"][3][5];after=e["after"]["image"][3][5]
+                same=e["before"]["direction"]==e["after"]["direction"]
+                pick=(e["action"]==3 and same and before[0] in (5,6,7) and after[0]==1)
+                drop=(e["action"]==4 and same and before[0]==1 and after[0] in (5,6,7))
+                if was_pick and drop:count+=1
+                was_pick=pick
+        return count
+    immediate_pairs={role:pairs(role) for role in (candidate,ROLES[8])}
+    success=(effects[candidate]>=1 and positive_families>=2 and difficult
+             and all(goals[candidate]>goals[role] for role in controls)
+             and immediate_pairs[candidate]<immediate_pairs[ROLES[8]])
+    label=p["frozen_dev_filter"]
+    source={"schema":"itd02.mg42.original-public-observed-reversal-guard.dev-source.v1",
+        "classification":label["pass"] if success else label["fail"],
+        "original_144_episodes":result,"original_selected_action_count":
+            sum(x["original_source_actions"] for x in result),
+        "per_family_per_role":table,
+        "paired_reversal_guard_controls":{
+            "target_effects":effects,"positive_goals":goals,
+            "public_drop_effects":drops,
+            "candidate_positive_unfamiliar_families":positive_families,
+            "immediate_pickup_drop_pairs":immediate_pairs,
+            "candidate_positive_unlock_or_blocked":difficult,
+            "filter_supported":success},
+        "source_parent":PARENT,"farama_source":UPSTREAM,
+        "exposed_dev_seeds":[list(x) for x in SEEDS],
+        "scientific_first_use":False,"zero_external_actions":True,
+        "native_models_or_controllers_modified":False,
+        "mg28_native_rollout_permitted":False,
+        "native_resource_parity_qualified":False,
+        "hand_engineered_public_effect_detectors":True}
+    return {"schema":source["schema"],"source":source,
+            "canonical_source_sha256":digest(source)}
+
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--preflight",action="store_true")
+    parser.add_argument("--source-root",type=Path)
+    parser.add_argument("--native-go",type=Path)
+    parser.add_argument("--control-root",type=Path)
+    parser.add_argument("--output",type=Path)
+    parser.add_argument("--compare",nargs=2,type=Path)
+    args=parser.parse_args()
+    p=frozen()
+    if args.preflight:
+        synthetic_source_preflight()
+        return
+    if args.compare:
+        a,b=[json.loads(x.read_text(encoding="utf8")) for x in args.compare]
+        if (a.get("source")!=b.get("source")
+            or a.get("canonical_source_sha256")!=b.get("canonical_source_sha256")
+            or a.get("canonical_source_sha256")!=digest(a["source"])
+            or len(a["source"]["original_144_episodes"])!=144
+            or a["source"]["scientific_first_use"] is not False
+            or a["source"]["zero_external_actions"] is not True):
+            raise ValueError("MG42_TWO_ORIGINAL_PROCESSES_NOT_MATCHED")
+        print("MG42_TWO_INDEPENDENT_ORIGINAL_SOURCE_PROCESSES_IDENTICAL",
+              a["canonical_source_sha256"])
+        print("MG42_FROZEN_DEV_CLASSIFICATION",a["source"]["classification"])
+        print("MG42_PAIRED_EVIDENCE_ON_OFF",json.dumps(
+              a["source"]["paired_reversal_guard_controls"],sort_keys=True))
+        return
+    if any(x is None for x in (args.source_root,args.native_go,args.control_root,args.output)):
+        parser.error("require --source-root, --native-go, --control-root, --output")
+    start=time.perf_counter()
+    try:
+        r=execute(args.source_root,args.native_go,args.control_root,p)
+    except Exception as e:
+        r={"schema":"itd02.mg42.original-public-observed-reversal-guard.dev-source.v1",
+           "classification":"MG42_ORIGINAL_SOURCE_BLOCKED_NO_SCIENCE",
+           "error_type":type(e).__name__,"error":str(e),
+           "trace_tail":traceback.format_exc().splitlines()[-15:]}
+    r["host_wall_time_outside_canonical_source_seconds"]=round(time.perf_counter()-start,6)
+    args.output.write_text(json.dumps(r,sort_keys=True,indent=2)+"\n",encoding="utf8")
+    cls=r.get("classification",r.get("source",{}).get(
+        "classification","MG42_MISSING_ORIGINAL_CLASSIFICATION"))
+    print("MG42_ORIGINAL_SOURCE_CLASSIFICATION",cls)
+    if "BLOCKED" in cls:
+        raise ValueError(r.get("error","MG42_UNKNOWN_ORIGINAL_SOURCE_BLOCKER"))
+    print("MG42_ORIGINAL_SOURCE_SHA256",r["canonical_source_sha256"])
+
+if __name__=="__main__":
+    main()
