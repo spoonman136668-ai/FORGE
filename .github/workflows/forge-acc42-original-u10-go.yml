@@ -1,0 +1,162 @@
+name: ACC42 original U10 fixed-KV sketch resource versus equal-budget exact indexing
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc42_go_u10/**'
+      - 'docs/research/ACC-42-*'
+      - '.github/workflows/forge-acc42-original-u10-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-u10-native:
+    name: ACC42 original U10 60 child workers / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Freeze original U10 prereg before executable, verify source Git objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 7be5b17f37ae65eabf90aa16500d1237c970b09a HEAD
+          test "$(git hash-object docs/research/ACC-42-U10-PACKED-KV-SKETCH-PREREG.md)" = afc8dbdbc75106c8923010d3ef6e35ce2f30d739
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/ac06_sourcefree/restricted.py)" = 19c5ce8f485900f06adaffe97f998c83c78aab4c
+          test "$(git hash-object research/acceleration/acc42_go_u10/go.mod)" = a517cc8522d971dd61395f976f1910b7d0a74eac
+          test "$(git hash-object research/acceleration/acc42_go_u10/core.go)" = 730cf658d077a7b1841d434f613b74cdb98e755c
+          test "$(git hash-object research/acceleration/acc42_go_u10/main.go)" = e43bc4d8560cc6868c02fd309229a20ae566ca44
+          test "$(git hash-object research/acceleration/acc42_go_u10/core_test.go)" = 183b4489e208cbf9660c6d5451ed13e52cfc894c
+          test "$(git hash-object research/acceleration/acc42_go_u10/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc42_go_u10/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          test "$(git status --porcelain --untracked-files=all)" = ""
+          echo ACC42_ORIGINAL_U10_PREREG_FIRST_SOURCE_GIT_BLOBS=PASS
+      - name: Reproduce original 36 candidate source negative screening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc42-36.json"
+          python - "$RUNNER_TEMP/acc42-36.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding='utf-8'))
+          ids={r['claim_id'] for r in d['rows']}
+          assert ids==({f'U{i:02}' for i in range(1,31)}|{f'AC-D{i}' for i in range(1,7)})
+          assert d['scientific_first_use'] is False and d['scientific_admission'] is False
+          assert d['stage2_qualified_native_model_speedups']==0
+          print('ACC42_U10_ALL_ORIGINAL_36_REGRESSION=PASS')
+          PY
+      - name: Compiled native Go source-free test, vet, build, cold child resource trials
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc42_go_u10
+          go test -count=1 -v ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc42"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc42-report.json"
+      - name: Validate every native child original U10 input and accountable CPU and RSS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/acc42-report.json" <<'PY'
+          import json,sys,math
+          r=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert r['Schema']=='forge.acc42.original-u10-packed-kv-sketch.v1'
+          assert r['OS'] in ('linux','windows')
+          assert r['OriginalCount']==30 and r['AddedCount']==6
+          assert r['ScientificFirstUse']==False and r['NativeModelSpeedupProven']==False
+          assert r['NativeChildCount']==60 and len(r['Records'])==60
+          assert len(r['Comparisons'])==3
+          assert r['Classification'] in ('U10_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U10_RESTRICTED_GO_KV_ENGINEERING_POSITIVE_ONLY')
+          keys=set()
+          for row in r['Records']:
+            w=row['Worker']
+            k=(w['Mode'],w['Cohort'],w['Seed'])
+            assert k not in keys;k=tuple(k);keys.add(k)
+            assert w['Episodes']==16
+            assert w['InsertCount']==8192*16 and w['QueryCount']==16384*16
+            assert w['PresentCount']==w['AbsentCount']==8192*16
+            assert w['StateBytes'] in (-1,65536)
+            assert w['PeakRSSBytes']>0 and row['CPUSeconds']>0 and row['WallSeconds']>0
+            assert w['MemoryMetric']=='OS_PROCESS_PEAK_PHYSICAL_RSS_BYTES'
+            assert len(w['SourceDigest'])==len(w['OracleDigest'])==len(w['ResultDigest'])==64
+            assert math.isfinite(w['Recall']) and math.isfinite(w['FalsePositiveRate'])
+          assert len(keys)==60
+          for c in r['Comparisons']:
+            assert c['Cohort'] in ('HOT','WIDE','CHURN')
+            assert c['SpeedControl'] in ('EXACT_SINGLE','EXACT_TWO')
+            assert c['RecallControl'] in ('EXACT_SINGLE','EXACT_TWO')
+            assert all(math.isfinite(c[k]) for k in ('CPUratio','RSSratio','RecallGap'))
+          print('ACC42_ORIGINAL_U10_60_ACTUAL_CHILDS_AND_CPU_RSS=PASS')
+          print('ACC42_U10_ENGINEERING_CLASSIFICATION='+r['Classification'])
+          PY
+      - name: Preserve all raw receipts, even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc42-original-u10-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc42-report.json
+            ${{ runner.temp }}/acc42-36.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  independent-crossos:
+    name: ACC42 independently verify exact U10 source and truth identity across OS
+    runs-on: ubuntu-latest
+    needs: original-u10-native
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc42-original-u10-*
+          path: artifacts
+          merge-multiple: false
+      - name: Independent literal source and oracle parity and classifications
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('artifacts')
+          a=json.loads((root/'acc42-original-u10-ubuntu-latest'/'acc42-report.json').read_text())
+          b=json.loads((root/'acc42-original-u10-windows-latest'/'acc42-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          assert len(a['Records'])==len(b['Records'])==60
+          key=lambda row:(row['Worker']['Mode'],row['Worker']['Cohort'],row['Worker']['Seed'])
+          aa={key(row):row['Worker'] for row in a['Records']}
+          bb={key(row):row['Worker'] for row in b['Records']}
+          assert set(aa)==set(bb)
+          for k in aa:
+            for field in ('SourceDigest','OracleDigest','ResultDigest','CorrectPresent',
+                          'WrongPresentValue','FalsePositiveAbsent','StateBytes','OccupiedSlots','Evictions'):
+              assert aa[k][field]==bb[k][field],(k,field)
+          p=json.loads((root/'acc42-original-u10-ubuntu-latest'/'acc42-36.json').read_text())
+          q=json.loads((root/'acc42-original-u10-windows-latest'/'acc42-36.json').read_text())
+          assert p['rows']==q['rows'] and len(p['rows'])==36
+          print('ACC42_ORIGINAL_U10_CROSSOS_SOURCE_ORACLE_AND_RESULTS_60_OF_60_PASS')
+          print('ACC42_U10_LINUX='+a['Classification'])
+          print('ACC42_U10_WINDOWS='+b['Classification'])
+          passed=(a['Classification']=='U10_RESTRICTED_GO_KV_ENGINEERING_POSITIVE_ONLY' and
+                  b['Classification']=='U10_RESTRICTED_GO_KV_ENGINEERING_POSITIVE_ONLY')
+          print('ACC42_GENERAL_ORIGINAL_NATIVE_GO_RESOURCE_WIN='+('YES' if passed else 'NO'))
+          print('ACC42_LLM_AND_NATIVE_MODEL_INTEGRATION=UNVERIFIED')
+          PY
