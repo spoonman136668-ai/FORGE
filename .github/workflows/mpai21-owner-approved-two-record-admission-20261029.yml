@@ -76,6 +76,14 @@ jobs:
             & git.exe -C $root sparse-checkout disable
             Assert ($LASTEXITCODE -eq 0) 'ORIGINAL_FULL_SOURCE_MATERIALIZATION'
             Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $mainBase) 'FULL_CHECKOUT_SHA_DRIFT'
+            # Full regression's UQ51/UQ53/UQ55 fixture reconstructs frozen
+            # history commit 90d2dc1e..., which a depth-one clone omits.
+            # Restore real original ancestry, without changing frozen tests.
+            & git.exe -C $root fetch --quiet --unshallow origin refs/heads/main:refs/remotes/origin/main
+            Assert ($LASTEXITCODE -eq 0) 'FULL_REGRESSION_SOURCE_HISTORY_FETCH'
+            & git.exe -C $root cat-file -e '90d2dc1e79f0fcdcf49fba7680e29b5760e80d6b^{commit}'
+            Assert ($LASTEXITCODE -eq 0) 'FROZEN_UQ51_COMMIT_PRESENT'
+            Assert ((& git.exe -C $root rev-parse refs/remotes/origin/main|Out-String).Trim() -ceq $mainBase) 'FULL_HISTORY_MAIN_SHA_DRIFT'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/collect.ps1'|Out-String).Trim() -ceq '057feea4d3cecf0d57b7be498c58d8466fc20ff2') 'COLLECTOR_SHA'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/mind.ps1'|Out-String).Trim() -ceq 'bb8c46f3c22f689e5f44dbe06ccc286014bd9130') 'CANONICAL_MEMORY_WRITER_SHA'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/update-checkpoint.ps1'|Out-String).Trim() -ceq 'feb1b8573763ae2ed2e6150020742f4d7ed2c919') 'COMMIT_WRITER_SHA'
