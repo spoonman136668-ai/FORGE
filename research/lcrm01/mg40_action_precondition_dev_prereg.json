@@ -1,0 +1,137 @@
+{
+  "schema": "itd02.mg40.public-action-consequence-precondition-memory-dev.v1",
+  "phase": "FROZEN_BEFORE_MG40_EXECUTABLE_AND_BEFORE_NEW_ORIGINAL_ACTIONS",
+  "parent": {
+    "mg39b_head": "0ecf3ac957aec1c39bd974cb89e2564f6cef6cd1",
+    "mg39b_pr": 1183,
+    "mg39b_original_dev_status": "LIVE_AT_MG40_FREEZE",
+    "mg39_head": "46e7cc2acf84487f15f5eb21c785967ac6ac31cc",
+    "mg39_pr": 1182,
+    "mg39_audit_receipt": "99692e25dcaccf07c5d56805de8ebd744b6e35d5a6d4079c1a5c09a505dff985",
+    "mg38_original_head": "5512fa26a55484ebd5e0db1c3927c396ab231cdf",
+    "mg38_original_dev_classification": "MG38_NAVIGATION_AWARE_MODEL_ORIGINAL_DEV_NOT_SUPPORTED_NO_SCIENCE"
+  },
+  "original_sources": {
+    "farama": "7f5853792ea7f04f75614661006d87fcf949f26d",
+    "wingless_mg19": "ebbadd157cc1df6eabfa5a550c8876ca87dc91e9",
+    "yggdrasil_mg19": "f0dd99d59ce00da7ad17ff49900a1af6d2322a77",
+    "corrected_actiononly": "f6a0363fd0c0c1ae0f312a4de9062b9395e70aac",
+    "mg38_source": "5512fa26a55484ebd5e0db1c3927c396ab231cdf"
+  },
+  "cohort": {
+    "families": [
+      "MiniGrid-DoorKey-6x6-v0",
+      "MiniGrid-UnlockPickup-v0",
+      "MiniGrid-BlockedUnlockPickup-v0",
+      "MiniGrid-KeyCorridorS3R1-v0"
+    ],
+    "dev_seeds": [
+      [
+        1015101,
+        1015103,
+        1015107
+      ],
+      [
+        1015201,
+        1015203,
+        1015207
+      ],
+      [
+        1015301,
+        1015303,
+        1015307
+      ],
+      [
+        1015401,
+        1015403,
+        1015407
+      ]
+    ],
+    "excluded_prior_cohort_prefixes": [
+      "959",
+      "973",
+      "983",
+      "993",
+      "997",
+      "1003",
+      "1011"
+    ],
+    "roles": [
+      "wingless_mg19_unchanged",
+      "yggdrasil_mg19_unchanged",
+      "mg33_public_history_frontier_unchanged",
+      "mg34_graph_lookahead_unchanged",
+      "mg33c_actiononly_ucb_exact_source",
+      "mg33c_actiononly_round_robin_exact_source",
+      "mg38_generic_affordance_prior_enabled_exact_source",
+      "mg39b_generic_affordance_prior_removed",
+      "mg40_precondition_memory_enabled",
+      "mg40_precondition_memory_ablated",
+      "seeded_uniform_random"
+    ],
+    "steps_cap": 192,
+    "episodes": 132,
+    "reproductions": 2,
+    "environment_first_use": false,
+    "source_public_fields": [
+      "image",
+      "direction",
+      "mission"
+    ],
+    "shared_information": "only original public fields, own selected actions and feedback; no hidden inventory/pose/map/episode oracle or external selected actions",
+    "per_role_family_continuity": "selected empirical history across three seeds within same family, never across role/family; episode-local inferred occupancy resets at env.reset",
+    "native_original_sources_unmodified": true
+  },
+  "hypothesis": "Original-world MG38 failed to complete pickup missions because 152/152 selected drop actions faced nonempty front; test if memory of own pickup/drop public effects leads to better selection of permissible drop opportunities, freeing the action precondition for subsequent targets.",
+  "mechanism": {
+    "name": "public-action-effect-proxy memory, not true hidden carrying state",
+    "selected_pickup_effect": "own selected action3 when before.public.front type in 5,6,7; after.public.front type1 empty with unchanged direction",
+    "selected_drop_effect": "own selected action4 when before.public.front type1 empty; after.public.front type in 5,6,7 with unchanged direction",
+    "inferred_occupied_proxy": "true after observed selected pickup effect, false after observed selected drop effect, reset false at source env.reset. May differ from private inventory; never inspect private inventory.",
+    "enabled_policy": "inherits unchanged MG38 navigation-aware action scorer and generic engineered public-front priors. When proxy true AND current public front empty, prefer action4/drop by a bounded explicit addend 8.0; when proxy true AND before public front has pickupable object type5/6/7, penalize action3 by 8.0; otherwise identical scorer. Only exact own observed effects update proxy.",
+    "ablated_policy": "identical code, action scorer, inputs, source feedback, checkpoints and seeded history; occupancy proxy still audited but evidence-derived action overrides disabled",
+    "coefficients": {
+      "empty_front_drop_bonus": 8,
+      "occupied_pickup_penalty": 8
+    },
+    "no_hidden_or_scripted_route": true,
+    "explicit_engineered_priors": "Object class, action3/4 and public front outcome detectors as well as original MG38 generic front object prior are hand-engineered. A pass supports a precondition-memory engineering hypothesis, not autonomous discovery of semantic rules.",
+    "cold_checkpoint": "canonical exact selected history and inferred occupancy proxy persist intra-episode, with episode-local occupancy reset on each authentic env.reset; both arms checked and compared for deterministic replay"
+  },
+  "metrics": {
+    "per_role_family": "actual positive original terminal goal episodes, genuine exact mission target pickup disappearance, target-anywhere/target-front opportunities, selected pickup attempts, selected drop front-empty attempts and public-confirmed successful drops, public locked door opens, action histogram and source selected count",
+    "denominators": "report all selected drop attempts, before-front empty fraction, observed selected drop effects, selected front-target pickup effects, per-episode inferred proxy transitions; do not count repeated views as independent locations",
+    "replay": "two full independent original-world processes with identical canonical evidence digest, no hidden state, equal 192 own-selected action caps per episode",
+    "resources": "original action/observation cap matched; wall/CPU optional separate; full native child CPU/RSS and power parity unqualified"
+  },
+  "frozen_dev_filter": {
+    "require_all": [
+      "memory-enabled candidate >=1 publicly confirmed successful drop from empty-front in unfamiliar pickup family",
+      "memory-enabled exact mission target pickup effect >=1 in unfamiliar pickup families",
+      "memory-enabled positive terminal goal episodes >=2 unfamiliar pickup families including UnlockPickup or BlockedUnlockPickup",
+      "memory-enabled original positive unfamiliar goal count strictly exceeds memory-disabled matched ablation AND the MG38 and MG39B original controls",
+      "exact reproducible 132 original episodes and full genuine own-selected source hashes match across two processes"
+    ],
+    "pass": "MG40_ACTION_EFFECT_PRECONDITION_MEMORY_DEV_SIGNAL_ONLY_NO_SCIENCE",
+    "fail": "MG40_ACTION_EFFECT_PRECONDITION_MEMORY_DEV_NOT_SUPPORTED_NO_SCIENCE",
+    "source_errors": "MG40_ORIGINAL_SOURCE_BLOCKED_NO_SCIENCE"
+  },
+  "prohibitions": {
+    "no_world_step_before_dual_OS_preflight": true,
+    "no_heldout_or_scientific_first_use": true,
+    "no_native_Wingless_or_Yggdrasil_edit": true,
+    "no_MG28_rollout": true,
+    "no_F139_controller_owner_queue_change": true,
+    "no_CKB_plane_execution": true,
+    "no_accepted_main_merge": true,
+    "no_posthoc_seed_threshold_or_control_change": true,
+    "no_hidden_inventory_key_map_or_pose": true,
+    "no_scripted_target_route_or_reward_shaping": true,
+    "no_external_selected_action": true,
+    "no_assumed_hidden_state_from_public_proxy": true,
+    "no_paid_api": true,
+    "no_live_trading": true,
+    "no_claim_native_intelligence_improved": true
+  },
+  "next": "Even successful engineering DEV requires new independent held-out family transfer, matched computational resource controls, removal/ablation of engineered prior features and independent scientific witness before any native promotion."
+}
