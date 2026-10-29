@@ -1,0 +1,59 @@
+# ACC-40 — original U12 out-of-core parameter streaming: prospective native Go resource preregistration
+
+**PREREGISTRATION-ONLY GATE — FREEZE BEFORE EXECUTABLE / MEASUREMENT.** This is original candidate **U12, "out-of-core parameter streaming"** from the 30 original unconventional acceleration proposals, not a new candidate or a MiniGrid experiment. The broader portfolio remains exactly U01–U30 plus AC-D1–AC-D6, including all negative evidence. This document contains the prospective study design; it is **not** evidence of implementation, CI, first use, model-native acceleration, or an approved FORGE selection.
+
+## Source and ownership boundary
+
+- Immutable research parent: FORGE ACC-34 draft PR #1131, commit `45b5d8173538a566bf0f63a8e2ade2dedb6e6166`. Original AC-08 registry `research/ac07_sourcefree/ac08_portfolio.py`, Git blob `5126c860771fb024ccfc14c3f7ee8925edf29787`; existing 36-ID scoreboard `research/acceleration/acc34_scoreboard.py`.
+- Prior disjoint acceleration evidence: ACC-34 AC-D1 guarded-delta CPU negative, ACC-35 AC-D3 negative, ACC-36 U07/U18 original Windows CPU measurement blocker, ACC-37 U11/U15 engineering negatives, ACC-38 U02 negative, ACC-39 U01 whole-process general-win negative. Preserve exact evidence and do not promote any past result or this pilot.
+- Isolated branch `research/acc40-u12-outofcore-prereg-20261029`, stacked on ACC-34 draft. No protected-main modification, FORGE F139 owner/runtime, new controller, scientific queue, Wingless/Yggdrasil original models, CKB-plane dependency, paid API, deployment, accepted-ref mutation, or live scientific admission.
+- Required staged order: (1) preregistration-only commit and source custody; (2) separately added Go implementation and source-only unit tests; (3) pinned-source cross-platform CI; (4) independent result audit. Every implementation/measurement is labeled unverified until independently recorded.
+
+## Falsifiable hypothesis and scope
+
+Hypothesis: for a parameter-like file larger than the configured memory budget, a *bounded* asynchronous/predictive read path can reduce actual request-to-response wall time at exact output parity and without higher process CPU or peak resident memory compared with strong conventional bounded I/O controls. This is a **compiled native Go file-access analogue**. It does **not** run LLM weights, matrix kernels, training, GPU/VRAM, inference tokens, neural-quality tests, real-world model traces, or actual Wingless/Yggdrasil integration. The word "predictive" is a candidate implementation strategy within original U12, not evidence that the original proposal required or has achieved forecasting.
+
+## Frozen source and workload
+
+- Public deterministic test files: **24 MiB FIT** and **192 MiB OUT_OF_CORE**. The explicit process physical RSS target is **64 MiB** for the 192 MiB candidate; benchmark files reside on local runner filesystem. A source generator deterministically fills independently addressable 64-KiB blocks using a published, fixed seed/keyed pseudo-random byte function, not repeated zeroes or high-compressibility toy tiles. Freeze generator source and its whole-file SHA-256 before execution. Same byte-identical file, offsets, read lengths and arithmetic checksum across all arms.
+- Three public access schedules: **SEQUENTIAL** contiguous 64-KiB blocks; **STRIDED** deterministic periodic offset transitions with a stride co-prime to block count and wraparound; **SHUFFLED** deterministic pseudo-random block permutation (unpredictable negative control). Each worker executes **two complete schedule cycles**, and all cases perform the same 64-bit arithmetic byte-consumption kernel on the exact bytes returned, plus a cryptographic complete-consumption trace digest. No arm may omit an access, return stale bytes, shorten a block, or use expected answers to skip I/O.
+- Candidate prefetch may use *only already served offsets*, current request offset and explicitly published file format/size. It cannot consult future trace entries, the schedule generator's hidden internal state, the full planned sequence, or a precomputed answer table. The STRIDED predictor may infer stride from historical addresses; SHUFFLED forces misprediction or fallback. Prefetch bytes fetched but not consumed are nevertheless charged.
+- Build/test environment: Go **1.25.5**, fresh compiled binaries on both `ubuntu-latest` and `windows-latest`. Record exact OS image, runner/CPU identity, Go version, source commit and relevant build flags; they are not assumed immutable across future GitHub runner images.
+
+## Frozen five independent arms
+
+1. **RESIDENT**: conventional full-file materialization, 24/192 MiB held in user memory. It is the throughput/latency reference but **not a bounded-memory winner** for 192 MiB; charge file loading and peak memory.
+2. **SYNC**: ordinary synchronous `ReadAt` or platform-equivalent direct file reads into bounded, reusable 64-KiB buffers. Strong simple baseline; charge all opens, reads, allocations and integrity.
+3. **MMAP**: ordinary OS page-mapped file access with exact 64-KiB block reads, no custom prefetch; charge mapping, paging and RSS. Mapped virtual address size is not physical RSS; never treat mapping bytes as RAM.
+4. **STATIC**: bounded two-buffer asynchronous sequential read-ahead with no history learning and no oracle. For any nonsequential access it falls back to explicit current-address reads; speculative bytes still counted.
+5. **PREDICTIVE**: bounded asynchronous ring-buffer prefetch; next block offsets estimated online from previously fulfilled requests only, with prediction-failure eviction and synchronous fallback, all worker CPU and wasted reads charged. No future access metadata, hidden oracle, unchecked answer cache, or extra RAM.
+
+Use identical budget bookkeeping for SYNC, MMAP, STATIC and PREDICTIVE. Limit candidate buffered/cache state to at most **16 MiB** and report true total process peak RSS, not merely application buffer allocation. Worker file-descriptor and goroutine lifetimes must be closed/joined. The RESIDENT diagnostic is allowed to exceed the bounded target and cannot establish a low-memory streaming advantage.
+
+## Cache, pairing and actual resource metering
+
+- File materialization is a **separate, explicitly timed setup** before each matched measurement block. Keep its exact bytes, SHA and setup time; setup must not be counted as an optimized candidate advantage. All five arms must operate over the same staged file. Cold-start **process** initialization, first file open/read, prediction startup and cleanup *are charged* to worker measurements.
+- No administrator cache drop, root shell commands or claimed physical cold-disk guarantee. The first access to a freshly staged file is labeled **FIRST_TOUCH_WITH_UNKNOWN_OS_CACHE**, never genuine `cold disk`; later passes labeled **WARM_OR_UNCONTROLLED_CACHE**. Do not invent cache status. Alternate arm order in paired trials to reduce bias, and log order. If host cache/runner asymmetry prevents attribution, report **CACHE_UNCONTROLLED** rather than an out-of-core disk speedup.
+- Frozen five distinct paired trial seeds per workload: `49101, 49103, 49107, 49109, 49111`. Run each arm in a newly started child process; alternate A/B and B/A order for PREDICTIVE versus each conventional control. Never reuse child state between independently cold sessions. Keep all trials, including failures, and report raw values and medians without deleting outliers.
+- Independent parent captures child-process user+system **CPU time**, spawn-to-exit **wall time**, exit code, response trace, actual bytes requested/read/prefetched/discarded, and peak **OS physical resident memory** (Linux `ru_maxrss` or `/proc` equivalent in KiB; Windows `GetProcessMemoryInfo` `PeakWorkingSetSize` equivalent in bytes), explicitly normalized to bytes. Also report page faults if supported and optional OS I/O counters as diagnostics, not as fabricated disk-media bytes. `runtime.MemStats.Sys` and `TotalAlloc` are Go allocator diagnostics, not RSS.
+- Missing/zero valid process CPU, unavailable peak RSS, digest mismatch, missing worker, unsupported native mmap implementation, incomplete pair, orphan goroutine, or implementation/source drift => **BLOCKED**, not CPU/memory success. Report both OS separately; no cross-host absolute-time pooling. Do not assume runner access grants privileged file-cache control.
+
+## Preregistered decision rule
+
+The **global U12 ENGINEERING POSITIVE** requires all conditions at the exact frozen executable source, with at least five complete paired trials on each OS/workload:
+
+1. All five arms produce identical full consumed-byte and 64-bit arithmetic output plus SHA-256 trace for each shared source/schedule/seed; zero wrong deliveries and zero truncated reads.
+2. For **192 MiB SEQUENTIAL and STRIDED** on **both operating systems**, PREDICTIVE median whole-child wall time is at most **0.90x** the *fastest median* of the SYNC, MMAP and STATIC conventional bounded controls. Report all three controls; do not cherry-pick a weak comparator.
+3. For those same cells, PREDICTIVE median whole-child CPU time is **no greater than 1.05x** the same selected control's median CPU, and median OS peak RSS is **<=64 MiB** and **<=1.10x** the same selected control's median RSS. This is a real RSS comparison, not virtual mmap size or `MemStats.Sys`.
+4. On **192 MiB SHUFFLED**, PREDICTIVE has no worse than **1.10x** the fastest-control median wall, CPU or peak RSS and preserves full correctness; it must not be catastrophically dependent on predictable order.
+5. On **24 MiB FIT**, all measured arms retain exact correctness and the candidate does not exceed **1.10x** the fastest-control median wall, CPU or peak RSS on either OS across all three schedules.
+6. Logs contain pair order, exact source/dataset identities, every trial, environment and resource units. Fail closed for missing data. A supported OS API absence must be reported as a qualification blocker, not approximated from Go allocator metrics.
+
+If fully measured but any condition fails, record **U12_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN** with per-cohort conditional outcomes; this does not disprove specialized future use. If native meters, parity or provenance are unavailable, record **ACC40_U12_BLOCKED** and repair as a *new prospective source version* without retroactively changing results or thresholds. A pass would mean only **bounded native Go file-access engineering**, not real LLM/native cognition acceleration, claimed disk IOPS speedup, first-use scientific acceptance, deployment or admission.
+
+## Mandatory qualification and conservation
+
+- First preregistration commit SHA and Git blob must be immutable ancestors of every candidate executable; subsequent workflow must prove prereg-first with `git merge-base --is-ancestor`, hash exact Go source/tests and the unchanged AC-08 registry, and fail if dirty.
+- Focused tests: source file generator and SHA consistency, all 5-mode output identity, schedule fairness, stride inference only from observed history, impossible future access rejection, misprediction eviction, bounded prefetch buffers, mmap correctness/cleanup, incomplete/truncated file fail-closed, CPU/RSS unit conversion, seed and cold-child pairing and fully conservative threshold logic.
+- Run Go focused tests, vet, build, actual cross-OS 5-arm resource workers, inspect raw artifacts, compare public input and trace digests across OS. Preserve all U01–U30 and AC-D1–AC-D6 IDs via original source-only register regression.
+- Final separate original scientific qualification and optional FORGE research ingestion require their own existing verified authority; **no** acceptance, model selection, performance integration, auto-promotion, live runtime or owner action is granted by this draft.
