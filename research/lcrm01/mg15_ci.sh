@@ -9,8 +9,9 @@ git merge-base --is-ancestor 4f584699fec2853974fb81d91420f1e1316535b3 "$GITHUB_S
 git merge-base --is-ancestor 854b5bed780be5b2c81f2a91b119e3bf28bb01c8 "$GITHUB_SHA"
 git merge-base --is-ancestor 96f41fe58b58913509dd365d7435f4c14e315438 "$GITHUB_SHA"
 git merge-base --is-ancestor 589be68394b64e477ca222200c2d7ea240588455 "$GITHUB_SHA"
+git merge-base --is-ancestor 2f4a6a0a4f0dc62563702ff4c293a21798d105da "$GITHUB_SHA"
 test "$(git hash-object research/lcrm01/mg15_online_frozen_prereg.json)" = a68d3d9ed29c2d7af67c7f59824d39941e386645
-test "$(git hash-object research/lcrm01/mg15_online_frozen_original.py)" = 003c5f502e00a072e29ea0206be92aae57462c37
+test "$(git hash-object research/lcrm01/mg15_online_frozen_original.py)" = 9ab438d7400c47b03f075faa27c858a1c5490204
 test "$(git hash-object research/lcrm01/mg15_compare.py)" = dc9df3880dc210cfb800f8449b878744af1da439
 test "$(git hash-object research/lcrm01/mg14_original_successor.py)" = 0374e659f3d77db571018e2121f07fbdd3001c26
 test "$(git hash-object research/lcrm01/mg14_go_bridge.go)" = a775d24b8dae9879e79e12a4a3af74eb01bb934f
