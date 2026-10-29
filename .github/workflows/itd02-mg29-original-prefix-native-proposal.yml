@@ -1,0 +1,129 @@
+name: ITD-02 MG29 source-authentic native MG28 offline action-override falsification
+on:
+  push:
+    branches: [research/itd02-mg29-original-prefix-native-override-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-original-selected-public-prefix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - name: Original research source LF policy
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Frozen prospective-to-analytic source checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Source-only original Python 3.11 runtime
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Native Go 1.25.5
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Immutable MG24 source action prefixes and source-pinned dual native replay
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          git merge-base --is-ancestor 29ce096c13991cef3c7138f8bf241a7c87451683 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_MG28_PRESERVED_SOURCE_PARENT_MISSING' }
+          git merge-base --is-ancestor 91ef4f0237cfd846fe891cab099aade11d950e93 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_SOURCE_ONLY_PREREG_NOT_BEFORE_EXECUTABLE' }
+          $work=Join-Path $env:RUNNER_TEMP 'mg29'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          gh run download 40874118161 --repo spoonman136668-ai/FORGE --name mg24-original-selected-dev-nine-arm-ubuntu-24.04 --dir $work
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_ORIGINAL_IMMUTABLE_SOURCE_NOT_AVAILABLE' }
+          $first=Join-Path $work 'mg24-real-dev/first.json'
+          $second=Join-Path $work 'mg24-real-dev/second.json'
+          if (!(Test-Path $first) -or !(Test-Path $second)) { throw 'MG29_TWO_ORIGINAL_WORLD_PROCESSES_MISSING' }
+          function Fetch-Original([string]$dest,[string]$remote,[string]$revision) {
+            git init -q $dest
+            if ($LASTEXITCODE -ne 0) { throw 'MG29_GIT_SOURCE_INIT_FAILED' }
+            git -C $dest remote add origin $remote
+            git -C $dest fetch --no-tags --depth 1 origin $revision
+            if ($LASTEXITCODE -ne 0) { throw 'MG29_EXACT_SOURCE_FETCH_FAILED' }
+            git -C $dest checkout --detach -q $revision
+            if ($LASTEXITCODE -ne 0) { throw 'MG29_EXACT_SOURCE_CHECKOUT_FAILED' }
+            if ((git -C $dest rev-parse HEAD).Trim() -ne $revision) { throw 'MG29_NATIVE_SOURCE_SHA_DRIFT' }
+          }
+          $w=Join-Path $work 'Wingless'
+          $y=Join-Path $work 'Yggdrasil'
+          Fetch-Original $w 'https://github.com/spoonman136668-ai/Wingless.git' '0a7dde659045719763dfadf656fea1be2818d7ab'
+          Fetch-Original $y 'https://github.com/spoonman136668-ai/Yggdrasil.git' 'e6f20efd875642421ef8c34ae87c8b1a1e4618a5'
+          if ((git -C $w hash-object research/native/itd02/mg28/selected_change.go).Trim() -ne '751f95e1ef29cee2870cbaf5e78b8170867f8af2') { throw 'MG29_GO_MG28_NATIVE_SOURCE_CHANGED' }
+          if ((git -C $y hash-object research/native/itd02/mg28/selected_change_cells.py).Trim() -ne '2c30ca4da6f6603ecc5ec36b1f460a246b120d89') { throw 'MG29_YGG_MG28_NATIVE_SOURCE_CHANGED' }
+          Push-Location $w
+          try {
+            go test -count=1 ./research/native/itd02/mg28/... ./research/native/itd02/mg23/...
+            if ($LASTEXITCODE -ne 0) { throw 'MG29_NATIVE_GO_INHERITED_REGRESSION_FAILED' }
+            $goExe=Join-Path $work 'mg29-native-go'
+            if ($IsWindows) { $goExe="$goExe.exe" }
+            go build -trimpath -o $goExe "$env:GITHUB_WORKSPACE/research/lcrm01/mg29_wingless_mg28_prefix_bridge.go"
+            if ($LASTEXITCODE -ne 0) { throw 'MG29_GO_ORIGINAL_SELECTED_PREFIX_BRIDGE_BUILD_FAILED' }
+          } finally { Pop-Location }
+          $env:PYTHONPATH="$y$([IO.Path]::PathSeparator)$(Join-Path $env:GITHUB_WORKSPACE 'research/lcrm01')"
+          python -B -m unittest -q research.native.itd02.mg28.test_selected_change_cells
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_NATIVE_YGG_REGRESSION_FAILED' }
+          python -B research/lcrm01/mg29_real_selected_prefix_offline.py --first $first --second $second --go_binary $goExe --output (Join-Path $work 'first-receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_REAL_ORIGINAL_SELECTED_PREFIX_FIRST_RUN_FAILED' }
+          python -B research/lcrm01/mg29_real_selected_prefix_offline.py --first $first --second $second --go_binary $goExe --output (Join-Path $work 'second-receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_REAL_ORIGINAL_SELECTED_PREFIX_SECOND_RUN_FAILED' }
+          $one=Get-Content -Raw (Join-Path $work 'first-receipt.json') | ConvertFrom-Json
+          $two=Get-Content -Raw (Join-Path $work 'second-receipt.json') | ConvertFrom-Json
+          if ($one.canonical_reproducible_receipt_sha256 -ne $two.canonical_reproducible_receipt_sha256) { throw 'MG29_ORIGINAL_PREFIX_NATIVE_REPRODUCTION_FAILED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG29_RESEARCH_WORKTREE_DIRTY' }
+          Write-Host "MG29_TWO_REAL_SOURCE_PREFIX_PROCESSES_NATIVE_PROPOSAL_AUDITED_NOT_SCIENCE $($one.canonical_reproducible_receipt_sha256)"
+      - name: Preserve original native source prefix exact candidate and null controls
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg29-native-original-prefix-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/mg29/first-receipt.json
+            ${{ runner.temp }}/mg29/second-receipt.json
+          retention-days: 30
+          if-no-files-found: warn
+  independent-cross-platform-original-receipt:
+    needs: native-original-selected-public-prefix
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: mg29-native-original-prefix-*
+          path: mg29-receipts
+      - name: Cross-host full identical source-only public proposal outcome
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          files=sorted(pathlib.Path("mg29-receipts").rglob("first-receipt.json"))
+          if len(files)!=2:raise SystemExit("MG29_MISSING_TWO_ORIGINAL_HOST_RECEIPTS")
+          a,b=[json.loads(p.read_text()) for p in files]
+          if a!=b:raise SystemExit("MG29_NATIVE_CROSS_HOST_SOURCE_REPLAY_DIFFERS")
+          r=a["result"]
+          if (r["original_source_selected_actions_verified"]!=9186 or
+              r["original_source_selected_72_full_episodes_verified"]!=72 or
+              r["original_world_actions_executed"]!=0 or
+              r["hypothetical_action_outcomes_known"] is not False or
+              r["scientific_first_use"] is not False):
+              raise SystemExit("MG29_ORIGINAL_SOURCE_CUSTODY_OR_SCIENCE_VIOLATION")
+          print("MG29_CROSS_OS_ACTUAL_NATIVE_OFFLINE_SOURCE_PROPOSAL_CUSTODY_PASS",a["canonical_reproducible_receipt_sha256"])
+          PY
