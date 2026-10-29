@@ -1,0 +1,124 @@
+name: ITD-02 MG29 original-world native proposal vs action-only falsification
+on:
+  push:
+    branches: [research/itd02-mg29-native-action-proposal-relevance-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  exact-original-source-proposals:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+      PYTHONPATH: research/lcrm01
+    steps:
+      - name: Freeze LF source
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Exact source only research
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Check prereg before executable and five additive exact source blobs
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 5927496d5f6e02c2cbff1974912f03aa2b2a245c $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_STRONG_ACTION_ONLY_FALSIFICATION_PARENT_MISSING' }
+          git merge-base --is-ancestor fc8bdfaf37621c72137c4020abf6e58fb4167229 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_METHOD_WAS_NOT_PRECOMMITTED' }
+          $expected=@(
+            '.github/workflows/itd02-mg29-original-native-proposal.yml'
+            'research/lcrm01/mg29_native_policy_proposal_prereg.json'
+            'research/lcrm01/mg29_policy_proposal_proxy.py'
+            'research/lcrm01/mg29_native_action_proposal_audit.py'
+            'research/lcrm01/test_mg29_native_action_proposal.py'
+          )
+          $actual=@(git diff --name-only 5927496d5f6e02c2cbff1974912f03aa2b2a245c $env:GITHUB_SHA)
+          if (@(Compare-Object $expected $actual).Count -ne 0) { throw 'MG29_ADDITIVE_RESEARCH_SCOPE_VIOLATION' }
+          $pins=@{
+            'research/lcrm01/mg29_native_policy_proposal_prereg.json'='0ead890e2b1e48ac61a7730be2df90a304edf73e'
+            'research/lcrm01/mg29_policy_proposal_proxy.py'='dc290e286666650037e1b9b86196cfb07a0f23d9'
+            'research/lcrm01/mg29_native_action_proposal_audit.py'='6805954501ab76adcf3823cc8187deef4cbb6e59'
+            'research/lcrm01/test_mg29_native_action_proposal.py'='84e48191f1a5d06cd4679854a66350cad1593e21'
+          }
+          foreach ($path in $pins.Keys) {
+            if ((git hash-object $path).Trim() -ne $pins[$path]) { throw "MG29_SOURCE_IDENTITY:$path" }
+          }
+          if (git status --porcelain --untracked-files=all) { throw 'MG29_SOURCE_WORKTREE_DIRTY' }
+          Write-Host 'MG29_FROZEN_METHOD_AND_ALL_SOURCE_BLOBS_PASS'
+      - name: Adversarial synthetic temporal controls before historical originals
+        shell: pwsh
+        run: |
+          python -B -m unittest -v test_mg29_native_action_proposal
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_PRE_ORIGINAL_SOURCE_NEGATIVE_CONTROL_FAIL' }
+      - name: Authenticate twice-original Farama MG24 ledger and check strictly earlier proposals
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'mg29'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          gh run download 40874118161 --repo spoonman136668-ai/FORGE --name mg24-original-selected-dev-nine-arm-ubuntu-24.04 --dir $root
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_FROZEN_ORIGINAL_SOURCE_ARCHIVE_NOT_AVAILABLE' }
+          $first=Join-Path $root 'mg24-real-dev/first.json'
+          $second=Join-Path $root 'mg24-real-dev/second.json'
+          if (!(Test-Path $first) -or !(Test-Path $second)) { throw 'MG29_MISSING_INDEPENDENT_SOURCE_PROCESSES' }
+          python -B research/lcrm01/mg29_native_action_proposal_audit.py --first $first --second $second --output (Join-Path $root 'receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'MG29_ORIGINAL_SOURCE_ACTOR_FALSIFICATION_FAILED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG29_SOURCE_MATERIAL_MUTATED' }
+          Write-Host 'MG29_REAL_ORIGINAL_SELECTED_SOURCE_RETROSPECTIVE_ANALYSIS_NO_SCIENCE'
+      - name: Preserve exact read-only negative evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg29-native-proposal-vs-action-only-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg29/receipt.json
+          retention-days: 30
+          if-no-files-found: warn
+  cross-host-original-source-receipt:
+    needs: exact-original-source-proposals
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: mg29-native-proposal-vs-action-only-*
+          path: original-receipts
+      - name: Independently demand identical Windows/Linux authentic receipt
+        run: |
+          python - <<'PY'
+          import pathlib,json,hashlib
+          paths=sorted(pathlib.Path('original-receipts').rglob('receipt.json'))
+          if len(paths)!=2:raise SystemExit('MG29_WINDOWS_OR_LINUX_EVIDENCE_MISSING')
+          a,b=(json.loads(path.read_text(encoding='utf-8')) for path in paths)
+          if a!=b:raise SystemExit('MG29_WINDOWS_LINUX_SOURCE_PREFIX_NONIDENTICAL')
+          if (a['original_source_sha256']!='e2dda4721d6d96ffd083faac5960013380b29c3325f560defa989c4eef0852a9'
+             or a['source_actions_authenticated']!=9186
+             or a['source_episodes_authenticated']!=72
+             or a['new_original_source_actions']!=0
+             or a['MG28_optin_authorized_for_new_source_world'] is not False
+             or a['scientific_first_use'] is not False):
+            raise SystemExit('MG29_SOURCE_OR_PROMOTION_FENCE_DRIFT')
+          raw=json.dumps({k:v for k,v in a.items() if k!='sha256'},sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False).encode('ascii')
+          if hashlib.sha256(raw).hexdigest()!=a['sha256']:
+            raise SystemExit('MG29_FINAL_EVIDENCE_SHA_DRIFT')
+          print('MG29_REAL_ORIGINAL_SOURCE_NATIVE_PROPOSAL_VS_ACTION_ONLY_WINDOWS_LINUX_PASS',a['sha256'])
+          print('MG29_OBSERVED_POLICY_PROXY_SUPPORT',json.dumps(a['totals'],sort_keys=True))
+          print('MG29_NO_NEW_WORLD_OR_SCIENTIFIC_FIRST_USE')
+          PY
