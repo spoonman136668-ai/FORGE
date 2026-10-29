@@ -52,8 +52,8 @@ POLICIES = {
         "there is not enough information. Output one label."
     ),
     "reflect": (
-        "Before choosing, examine the causal or scientific mechanism, "
-        "rule out unsupported options and check uncertainty. "
+        "Before choosing, verify what the supplied evidence establishes, "
+        "distinguish supported inference from assumptions, and check uncertainty. "
         "Use the same supplied evidence only. "
         "Choose A, B, C or D, or UNKNOWN if evidence is insufficient. "
         "Output one label."
