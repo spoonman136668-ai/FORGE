@@ -1,0 +1,130 @@
+name: ACC39 original U01 native Go JIT compression versus uncompressed controls
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc39_go_u01/**'
+      - 'docs/research/ACC-39-*'
+      - '.github/workflows/forge-acc39-original-u01-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-go-four-arm:
+    name: ACC39 original U01 real Go CPU and source fidelity / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 50
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Frozen prereg-first and exact source Git blobs before native executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor c380152d7a4ee4bbff41696c52defc0cd700d6de HEAD
+          test "$(git hash-object research/acceleration/acc39_go_u01/go.mod)" = 7af62ce7c8733c143ec10fbfba279df5fe3e4caf
+          test "$(git hash-object research/acceleration/acc39_go_u01/main.go)" = 026f9a6268fe1089fcddfb6f3acc5dd3909e5b62
+          test "$(git hash-object research/acceleration/acc39_go_u01/main_test.go)" = e6de8635c39b0a28954d1f437038ae4432beb01a
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git status --porcelain --untracked-files=all)" = ""
+          echo ACC39_ORIGINAL_U01_SOURCE_FROZEN_BEFORE_REAL_GO=PASS
+      - name: Original 36 acceleration hypotheses and negative screening regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc39-original-36.json"
+          python - "$RUNNER_TEMP/acc39-original-36.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert len(x["rows"])==36
+          assert {r["claim_id"] for r in x["rows"]} == (
+             {f"U{i:02}" for i in range(1,31)} | {f"AC-D{i}" for i in range(1,7)})
+          assert x["scientific_first_use"] is False
+          print("ACC39_ORIGINAL_ALL_36_ACCELERATION_PROPOSALS_PRESERVED=PASS")
+          PY
+      - name: Native Go tests, go vet, build and 40 actual child CPU workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc39_go_u01
+          go test -count=1 -v ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc39"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc39-report.json"
+          python - "$RUNNER_TEMP/acc39-report.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert r["schema"]=="forge.acc39.original-u01-native-go-jit-decompression.v1"
+          assert r["native_go_child_count"]==40 and len(r["records"])==40
+          assert r["portfolio_original_count"]==30 and r["portfolio_new_count"]==6
+          assert r["scientific_first_use"] is False
+          assert r["real_llm_acceleration_proven"] is False
+          for c in ("REPEATED","RANDOM"):
+              x=r["comparisons"][c]
+              assert x["all_trace_equal"]
+              assert x["stored_compressed_over_raw"]>0
+              roles={v["worker"]["mode"] for v in r["records"] if v["worker"]["cohort"]==c}
+              assert roles=={"RAW","JIT","CACHED","STREAM"}
+          print("ACC39_REAL_NATIVE_GO_ALL_FOUR_ARMS_EXACT_SOURCE_AND_COSTS=PASS")
+          PY
+      - name: Archive native Go raw CPU and source-only portfolio custody
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc39-original-u01-native-go-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc39-report.json
+            ${{ runner.temp }}/acc39-original-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  independent-source-semantic-comparison:
+    name: ACC39 independently reconcile original native Go source across OS
+    runs-on: ubuntu-latest
+    needs: native-go-four-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc39-original-u01-native-go-*
+          path: artifacts
+          merge-multiple: false
+      - name: Verify all real Go complete source trace and 36-ID parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          a=pathlib.Path("artifacts")
+          x=json.loads((a/"acc39-original-u01-native-go-ubuntu-latest"/"acc39-report.json").read_text())
+          y=json.loads((a/"acc39-original-u01-native-go-windows-latest"/"acc39-report.json").read_text())
+          assert {x["os"],y["os"]}=={"linux","windows"}
+          assert len(x["records"])==len(y["records"])==40
+          for b,c in zip(x["records"],y["records"]):
+             p,q=b["worker"],c["worker"]
+             for key in ("mode","cohort","sessions","passes","source_bytes",
+                         "compressed_bytes_total","decoded_bytes_total","trace_digest"):
+                assert p[key]==q[key],(key,p.get(key),q.get(key))
+          p=json.loads((a/"acc39-original-u01-native-go-ubuntu-latest"/"acc39-original-36.json").read_text())
+          q=json.loads((a/"acc39-original-u01-native-go-windows-latest"/"acc39-original-36.json").read_text())
+          assert p["rows"]==q["rows"] and len(p["rows"])==36
+          print("ACC39_CROSS_OS_REAL_GO_SOURCE_FUNCTIONAL_PARITY=40_OF_40_PASS")
+          print("ACC39_ORIGINAL_ALL_36_PROPOSALS_CROSS_OS=PASS")
+          print("ACC39_LINUX="+x["classification"])
+          print("ACC39_WINDOWS="+y["classification"])
+          PY
