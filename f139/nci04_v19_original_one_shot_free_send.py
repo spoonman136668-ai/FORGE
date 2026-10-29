@@ -229,6 +229,12 @@ def one_original_free_send_source_only(
         # rejected in-process and original cold SQLite still denies replay.
         if actual_calls != 0:
             deny("SECOND_PROVIDER_SEND_WITH_SAME_ORIGINAL_HANDOFF")
+        # Public-source verification after the committed send receipt can
+        # revoke the owner witness. Recheck immediately before any transport;
+        # the committed original attempt remains spent on a revoked witness.
+        if (owner_witness() is not True
+                or not SingleOwner.held(db.filename.with_suffix(".lock"))):
+            deny("ORIGINAL_OWNER_REVOKED_BEFORE_PROVIDER_TRANSPORT")
         actual_calls += 1
         return transport(body, supplied_token)
 
