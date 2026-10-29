@@ -1,0 +1,132 @@
+name: F139 V19 G34 original failed provider and owner custody read-only
+on:
+  push:
+    branches: [research/f139-v19-g34-real-failed-provider-owner-readonly-20261029]
+    paths:
+      - f139/nci04_v19_g34_original_negative_custody.py
+      - f139/test_nci04_v19_g34_original_negative_custody.py
+      - .github/workflows/f139-v19-g34-original-negative-custody.yml
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f139-v19-g34-sourceonly-no-provider-dispatch
+  cancel-in-progress: false
+jobs:
+  preserve-original-negative:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/research/f139-v19-g34-real-failed-provider-owner-readonly-20261029' &&
+      github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate exact original G33 + three-file G34 delta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='3293cdfcf5163777ad50e1b1d0f1debb25aa485a'
+          if(((& git rev-parse HEAD | Out-String).Trim()) -cne $env:GITHUB_SHA){
+            throw 'F139_G34_EXACT_SOURCE_SHA_DRIFT'
+          }
+          & git merge-base --is-ancestor $base HEAD
+          if($LASTEXITCODE -ne 0){throw 'F139_G34_PARENT_NOT_ANCESTOR'}
+          $changed=@(& git diff --name-only $base HEAD | Sort-Object)
+          $allowed=@(
+            '.github/workflows/f139-v19-g34-original-negative-custody.yml',
+            'f139/nci04_v19_g34_original_negative_custody.py',
+            'f139/test_nci04_v19_g34_original_negative_custody.py'
+          ) | Sort-Object
+          if(($changed -join '|') -cne ($allowed -join '|')){
+            throw ('F139_G34_SOURCE_FILE_DELTA_DRIFT='+($changed -join ','))
+          }
+          if(@(& git status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G34_DIRTY_SOURCE'
+          }
+          Write-Output 'F139_G34_EXACT_THREE_PATH_SOURCE=PASS'
+      - name: Test historic owner/worker fail-closed contract
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GH_TOKEN -or $env:F139_WORKER_HMAC_KEY -or $env:OPENAI_API_KEY){
+            throw 'F139_G34_TEST_CREDENTIAL_EXPOSURE'
+          }
+          & python -B -m unittest f139.test_nci04_v19_g34_original_negative_custody -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G34_OFFLINE_NEGATIVES_FAILED'}
+          Write-Output 'F139_G34_OFFLINE_NEGATIVE_CUSTODY_TESTS=PASS'
+      - name: Fetch real original FAILED provider ZIPs and original owner witness
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'f139-v19-g34-real-original'
+          New-Item -Path $root -ItemType Directory -ErrorAction Stop | Out-Null
+          $curl=if($IsWindows){'curl.exe'}else{'curl'}
+          $api='https://api.github.com/repos/spoonman136668-ai/FORGE'
+          $urls=@{
+            'provider-run.json'=($api+'/actions/runs/40861987373')
+            'owner-run.json'=($api+'/actions/runs/40870419796')
+            'owner-jobs.json'=($api+'/actions/runs/40870419796/jobs?per_page=100')
+            'provider-artifacts.json'=($api+'/actions/runs/40861987373/artifacts?per_page=100')
+            'linux.zip'=($api+'/actions/artifacts/12892091559/zip')
+            'windows.zip'=($api+'/actions/artifacts/12892316111/zip')
+            'owner.log'=($api+'/actions/jobs/123435731436/logs')
+          }
+          foreach($file in @('provider-run.json','owner-run.json','owner-jobs.json','provider-artifacts.json','linux.zip','windows.zip','owner.log')){
+            & $curl --fail --silent --show-error --location --max-time 75 --retry 0 -H "Authorization: Bearer $env:GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' $urls[$file] --output (Join-Path $root $file)
+            if($LASTEXITCODE -ne 0){throw ('F139_G34_AUTHENTIC_ORIGINAL_API_READ_FAILED_'+$file)}
+          }
+          $zipHashes=@{
+            'linux.zip'='a8be7c06879c80d471578afd94a2dce9fd00894f4815dc84f67aed98a699c592'
+            'windows.zip'='34ebd629f8ee1535ed9cfc062653367368ccbd7edc071c99dfbb678d0d7a3dfe'
+          }
+          foreach($file in $zipHashes.Keys){
+            $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root $file)).Hash.ToLowerInvariant()
+            if($actual -cne $zipHashes[$file]){throw ('F139_G34_ORIGINAL_ZIP_SHA_MISMATCH_'+$file)}
+          }
+          Write-Output 'F139_G34_ORIGINAL_TWO_FAILED_PROVIDER_ZIPS_SHA256=PASS'
+      - name: Join authentic FAILED provider receipts to owner original no-replay witness
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GH_TOKEN -or $env:F139_WORKER_HMAC_KEY -or $env:OPENAI_API_KEY){
+            throw 'F139_G34_REAL_VERIFIER_CREDENTIAL_INHERITANCE'
+          }
+          $root=Join-Path $env:RUNNER_TEMP 'f139-v19-g34-real-original'
+          $out=Join-Path $env:RUNNER_TEMP 'f139-v19-g34-original-negative-custody.json'
+          & python -B -m f139.nci04_v19_g34_original_negative_custody --input $root --output $out
+          if($LASTEXITCODE -ne 0){throw 'F139_G34_ORIGINAL_FAILED_PROVIDER_OWNER_PROOF_REJECTED'}
+          $record=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($record.original_negative_preserved -ne $true -or
+             $record.signed_native_v3_provider_success -ne $false -or
+             $record.new_owner_admission_and_consumption_verified -ne $false -or
+             $record.production_release_authorized -ne $false){
+            throw 'F139_G34_FAILURE_RELABELLED_AS_SUCCESS'
+          }
+          Write-Output 'F139_G34_ORIGINAL_FAILED_PROVIDER_AND_OWNER_NO_REPLAY=PASS'
+          Write-Output 'F139_G34_NEW_REAL_SIGNED_PROVIDER=NOT_QUALIFIED'
+          Write-Output 'F139_G34_CONTINUOUS_AUTONOMY=NOT_VERIFIED'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: f139-v19-g34-original-negative-readonly-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-v19-g34-original-negative-custody.json
+          if-no-files-found: error
+          retention-days: 90
