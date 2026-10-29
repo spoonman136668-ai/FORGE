@@ -132,7 +132,7 @@ def native_session(role,first,second,binary,p):
         model=WingBridge(binary)
         parent=None
         try:
-            yield from replay_first_second(role,first,second,model,None,None,p)
+            yield from replay_first_second(role,first,second,model,None,None,p,binary)
         finally:
             model.close()
     elif role==NATIVE[1]:
@@ -142,7 +142,7 @@ def native_session(role,first,second,binary,p):
     else:
         raise ValueError("MG29_WRONG_NATIVE_ROLE")
 
-def replay_first_second(role,first,second,go,ygg,Adapter,p):
+def replay_first_second(role,first,second,go,ygg,Adapter,p,binary=None):
     controls={name:IndependentConventional(name) for name in
               ("full","mission_blind","action_scrambled","outcome_inverted","action_only")}
     count=0
