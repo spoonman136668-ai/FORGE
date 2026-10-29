@@ -1,0 +1,47 @@
+name: AC31 source-free DK13 versus DK15 cold checkpoint isolation
+on:
+  pull_request:
+    paths:
+      - 'research/lcrm01/ac31_native_go_bridge.go'
+      - 'research/lcrm01/ac31_bridge_loader_test.go'
+      - '.github/workflows/forge-ac31-sourcefree-bridge-repair.yml'
+permissions:
+  contents: read
+jobs:
+  exact-original-fit-and-new-actor:
+    name: AC31 old FIT vs full native actor cold restore / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout source-free blocked original trial repair
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Native Go compiler
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Test exact unchanged Wingless native and isolated new actor bridge, no env imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/lcrm01/ac31_native_go_bridge.go)" = 7b42d310ffe2cc6573d1ed085c0cbae2dce3ca6d
+          test "$(git hash-object research/lcrm01/ac31_bridge_loader_test.go)" = eb61ec7cea3d7cb8b3c324fedfdbba0bf72d5393
+          mkdir -p "$RUNNER_TEMP/ac31-sourceonly/wingless"
+          git init -q "$RUNNER_TEMP/ac31-sourceonly/wingless"
+          git -C "$RUNNER_TEMP/ac31-sourceonly/wingless" remote add origin https://github.com/spoonman136668-ai/Wingless.git
+          git -C "$RUNNER_TEMP/ac31-sourceonly/wingless" fetch --no-tags --depth 1 origin 9a712f574e48a3d47f2d986d8be3d0eda2b3b9bd
+          git -C "$RUNNER_TEMP/ac31-sourceonly/wingless" checkout --detach -q 9a712f574e48a3d47f2d986d8be3d0eda2b3b9bd
+          test "$(git -C "$RUNNER_TEMP/ac31-sourceonly/wingless" hash-object research/native/itd02/dk15/mission_actor.go)" = 104e039c5c172a1bd60f03efb49ac0a877ff86fc
+          (cd "$RUNNER_TEMP/ac31-sourceonly/wingless" &&
+           go test -count=1 -v "$GITHUB_WORKSPACE/research/lcrm01/ac31_native_go_bridge.go" "$GITHUB_WORKSPACE/research/lcrm01/ac31_bridge_loader_test.go" &&
+           go test -count=1 ./research/native/itd02/dk15/... ./research/native/itd02/dk13/...)
+          echo AC31_DK13_FIT_VS_DK15_FULL_COLD_RESTORE=PASS
+          echo AC31_ORIGINAL_SOURCE_NEW_ACTIONS=ZERO
+          echo AC31_EXPOSED_WORLD_SEED_REUSE=FORBIDDEN
