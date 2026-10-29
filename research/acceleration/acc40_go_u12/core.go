@@ -78,7 +78,7 @@ type blockReader struct {
 	file *os.File
 	mode string
 	size int64
-	mapped []byte
+	mapped mappedRegion
 	resident []byte
 	current []byte
 	ahead []byte
@@ -138,7 +138,7 @@ func (r *blockReader) Read(off int64)([]byte,error){
 	if off<0 || off%blockSize!=0 || off+blockSize>r.size{return nil,fmt.Errorf("unaligned/out-of-range offset %d",off)}
 	switch r.mode {
 	case "RESIDENT":return r.resident[int(off):int(off)+blockSize],nil
-	case "MMAP":return r.mapped[int(off):int(off)+blockSize],nil
+	case "MMAP":return r.mapped.ReadBlock(off)
 	case "SYNC":
 		n,e:=r.file.ReadAt(r.current,off)
 		r.readBytes+=int64(n)
@@ -172,7 +172,7 @@ func (r *blockReader) Read(off int64)([]byte,error){
 }
 func(r *blockReader)Close()error{
 	_,e:=r.settle(-1,false)
-	if r.mapped!=nil {if x:=unmapFile(r.mapped);e==nil{e=x}}
+	if r.mapped!=nil {if x:=r.mapped.Close();e==nil{e=x}}
 	return e
 }
 

@@ -6,7 +6,16 @@ import (
 	"os"
 	"syscall"
 )
-func mapFile(f *os.File,n int)([]byte,error){
-	return syscall.Mmap(int(f.Fd()),0,n,syscall.PROT_READ,syscall.MAP_SHARED)
+
+type mappedRegion interface {
+	ReadBlock(off int64)([]byte,error)
+	Close()error
 }
-func unmapFile(b []byte)error{return syscall.Munmap(b)}
+type linuxMapping struct{ data []byte }
+func mapFile(f *os.File,n int)(mappedRegion,error){
+	b,err:=syscall.Mmap(int(f.Fd()),0,n,syscall.PROT_READ,syscall.MAP_SHARED)
+	if err!=nil{return nil,err}
+	return &linuxMapping{data:b},nil
+}
+func(m *linuxMapping)ReadBlock(off int64)([]byte,error){return m.data[int(off):int(off)+blockSize],nil}
+func(m *linuxMapping)Close()error{return syscall.Munmap(m.data)}
