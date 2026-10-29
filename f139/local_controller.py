@@ -118,8 +118,13 @@ def parse_time(value: str) -> dt.datetime:
 
 
 class SingleOwner:
-    """Kernel-released process lock, held during each reconciliation tick."""
-    _held_paths = set()
+    """Kernel-released process lock, held during each reconciliation tick.
+
+    Both the __main__ CLI copy and canonical f139.local_controller verifier
+    use the SAME imported registry. Entry adds membership only AFTER the
+    real kernel file lock succeeds; exit removes it before unlocking.
+    """
+    from f139.nci04_owner_lock_state import HELD_PATHS as _held_paths
 
     @classmethod
     def held(cls, path: Path) -> bool:
