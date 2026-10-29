@@ -21,7 +21,8 @@ func TestSourceDisjointAndDeterministic(t *testing.T){
  }
 }
 func TestNeverReuseMisidentifiedACC42Source(t *testing.T){
- oldBase:=split(uint64(86101)^uint64(3)*0x9e3779b97f4a7c15^0xcaffeebad)
+ sess:=uint64(3)
+ oldBase:=split(uint64(86101)^sess*0x9e3779b97f4a7c15^0xcaffeebad)
  oldKey:=keyFor(oldBase,0,2048)
  fresh,e:=makeEpisode("HOT",86101,3);if e!=nil{t.Fatal(e)}
  if fresh.Inserts[0].Key==oldKey{t.Fatal("ACC42 source namespace accidentally reused")}
