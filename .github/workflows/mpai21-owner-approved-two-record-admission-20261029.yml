@@ -89,6 +89,25 @@ jobs:
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/update-checkpoint.ps1'|Out-String).Trim() -ceq 'feb1b8573763ae2ed2e6150020742f4d7ed2c919') 'COMMIT_WRITER_SHA'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/source-ledger.ps1'|Out-String).Trim() -ceq 'f8b494ffee6fe3d79032a52d311d231617b368c8') 'SOURCE_LEDGER_WRITER_SHA'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tests/Test-All.ps1'|Out-String).Trim() -ceq '439797231d3a093628f95f783f5f30dbf93fe5bf') 'MANDATORY_REGRESSION_SHA'
+
+            # Explicit baseline control: pre-apply UQ51 must pass on untouched main.
+            Push-Location $root
+            try {
+              $focus=Join-Path $private 'original-untouched-uq51.log'
+              & $pwsh -NoProfile -NonInteractive -File tests/Test-RepoSourceTransaction.ps1 *> $focus
+              if($LASTEXITCODE -ne 0){
+                $focusLines=@(Get-Content -LiteralPath $focus -ErrorAction SilentlyContinue)
+                $safeCodes=@($focusLines | Select-String -Pattern 'UQ51_[A-Z0-9_]+' -AllMatches |
+                    ForEach-Object { $_.Matches | ForEach-Object { $_.Value } } | Select-Object -Unique)
+                if($safeCodes.Count -gt 0){
+                  Write-Output ('MPAI21_BASELINE_UQ51_CODES='+($safeCodes -join ','))
+                }else{
+                  Write-Output 'MPAI21_BASELINE_UQ51_CODES=NO_UQ51_MARKER'
+                }
+                Assert $false 'BASELINE_UQ51_REGRESSION'
+              }
+              Write-Output 'MPAI21_BASELINE_UNMODIFIED_UQ51=PASS'
+            } finally { Pop-Location }
             $original=Join-Path $root '.ice/records.json'
             $data=Get-Content -LiteralPath $original -Raw|ConvertFrom-Json
             $beforeCount=@($data).Count
@@ -242,6 +261,11 @@ jobs:
                   Write-Output ('MPAI21_FULL_REGRESSION_FAILURE_AT='+($lastTest[0] -replace '^RUN ',''))
                 }else{
                   Write-Output 'MPAI21_FULL_REGRESSION_FAILURE_AT=UNCLASSIFIED'
+                }
+                $uqCodes=@($safeLines | Select-String -Pattern 'UQ51_[A-Z0-9_]+' -AllMatches |
+                    ForEach-Object { $_.Matches | ForEach-Object { $_.Value } } | Select-Object -Unique)
+                if($uqCodes.Count -gt 0){
+                  Write-Output ('MPAI21_FULL_REGRESSION_UQ51_CODES='+($uqCodes -join ','))
                 }
                 $rawFailure=$safeLines -join [Environment]::NewLine
                 if($rawFailure -match 'missing (test|file|path|fixture|input)'){
