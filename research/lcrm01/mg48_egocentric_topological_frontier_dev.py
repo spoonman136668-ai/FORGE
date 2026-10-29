@@ -282,7 +282,7 @@ class ObservableFrontier(DoorMemoryNavigation):
 
 def preflight():
     p=frozen()
-    original_mg48_preflight()
+    original_mg47_preflight()
     # Public pose translation fixture: the same original observed object cells
     # under real movement are *more consistent* under a translated hypothesis.
     image=[[[2,0,(x+y)%3] for y in range(7)] for x in range(7)]
@@ -500,7 +500,7 @@ def run_original(source_root,native_go,control_root,p):
                         gym,entrypoints[family],family,seed,memory[role],
                         192,public,original_digest,role==ROLES[13])
                 elif role in (ROLES[15],ROLES[16]):
-                    ep,state=original_mg48_door_episode(
+                    ep,state=original_mg47_door_episode(
                         gym,entrypoints[family],family,seed,memory[role],
                         192,public,original_digest,role==ROLES[15])
                 elif role in (ROLES[17],ROLES[18]):
