@@ -1,0 +1,170 @@
+name: ACC45 original U22 low-rank native Go source and resource qualification
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc45_go_u22/**'
+      - 'docs/research/ACC-45-*'
+      - '.github/workflows/forge-acc45-original-u22-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-u22:
+    name: ACC45 authentic U22 Go 60 cold workers / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Authenticate U22 identity and original 36-register BEFORE source execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python - <<'PY'
+          import ast,pathlib
+          v=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          names=ast.literal_eval(next(a.value for a in v.body if isinstance(a,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in a.targets)))
+          assert len(names)==30
+          assert names[21]=='low-rank/tensor-train factorization'
+          assert names[9]=='holographic associative memory' and names[12]=='fixed-size KV sketches'
+          print('ACC45_ORIGINAL_U22_SOURCE_IDENTITY=PASS')
+          PY
+      - name: Prereg committed first and exact implementation Git blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 7b8e665cb4d4dac66704ab4df2cfcc1f5282d02d HEAD
+          test "$(git hash-object docs/research/ACC-45-ORIGINAL-U22-LOWRANK-PREREG.md)" = 03a35fdbb562b8c25715f27bdeca4a7bdfda938b
+          test "$(git hash-object research/ac06_sourcefree/restricted.py)" = 19c5ce8f485900f06adaffe97f998c83c78aab4c
+          test "$(git hash-object research/acceleration/acc45_go_u22/go.mod)" = 24f28589a7dfa4e6aaa559a9f6aaf0282f31503d
+          test "$(git hash-object research/acceleration/acc45_go_u22/data.go)" = 450da99edf1a2c602b4e2cdb7769e6a1dbeed5d7
+          test "$(git hash-object research/acceleration/acc45_go_u22/factor.go)" = d62c96da0e9d663162d53fd6e28b6e2e3e356ce3
+          test "$(git hash-object research/acceleration/acc45_go_u22/worker.go)" = efbbc6d880acafba09c843b7867af29fa53012e7
+          test "$(git hash-object research/acceleration/acc45_go_u22/main.go)" = 37358db065e12ff4a8d9257fd27d1b84f3024a94
+          test "$(git hash-object research/acceleration/acc45_go_u22/core_test.go)" = d3ba0256ff988b9a26f10a392651ab4bbc8fc8f1
+          test "$(git hash-object research/acceleration/acc45_go_u22/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc45_go_u22/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo ACC45_U22_PREREG_AND_NATIVE_SOURCES_PINNED=PASS
+      - name: Reproduce all original source-only 36 proposal negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc45-36.json"
+          python - "$RUNNER_TEMP/acc45-36.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert {v['claim_id'] for v in r['rows']}==({f'U{i:02}' for i in range(1,31)}|{f'AC-D{i}' for i in range(1,7)})
+          assert not r['scientific_admission'] and not r['scientific_first_use']
+          print('ACC45_ORIGINAL_36_RETAINED_NEGATIVE_EVIDENCE=PASS')
+          PY
+      - name: Go tests vet build and 60 cold full-worker CPU RSS trials
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc45_go_u22
+          go test -count=1 -v ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc45"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc45-report.json"
+      - name: Check every worker truth, source, CPU, RSS and frozen classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/acc45-report.json" <<'PY'
+          import json,sys,math
+          r=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert r['Schema']=='forge.acc45.original-u22.lowrank.nativego.v1'
+          assert r['OS'] in ('windows','linux')
+          assert r['NativeChildCount']==len(r['Records'])==60
+          assert len(r['Cohorts'])==3
+          assert r['OriginalHypotheses']==30 and r['AdditionalHypotheses']==6
+          assert not r['ScientificFirstUse'] and not r['NativeModelAcceleration']
+          assert r['Classification'] in ('U22_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U22_RESTRICTED_NATIVE_GO_ENGINEERING_POSITIVE_ONLY')
+          seen=set();sources={}
+          for row in r['Records']:
+            w=row['Worker']; k=(w['Mode'],w['Cohort'],w['Seed'])
+            assert k not in seen;seen.add(k)
+            assert w['Episodes']==32 and w['QueryVectors']==4096 and w['MatrixRows']==128
+            assert w['PeakRSSBytes']>0 and row['CPUSeconds']>0 and row['WallSeconds']>0
+            assert w['MemoryMetric']=='OS_PROCESS_PEAK_PHYSICAL_RSS_BYTES'
+            assert len(w['SourceSHA256'])==len(w['TruthSHA256'])==len(w['OutputSHA256'])==64
+            assert math.isfinite(w['NormalizedRMSE']) and w['NormalizedRMSE']>=0
+            assert w['Mode']!='LOWRANK16' or (w['LogicalBytes']<=65536 and 0<=w['LastFactorRank']<=16)
+            key=(w['Cohort'],w['Seed']); sig=(w['SourceSHA256'],w['TruthSHA256'])
+            assert key not in sources or sources[key]==sig
+            sources[key]=sig
+          assert len(seen)==60 and len(sources)==15
+          for c in r['Cohorts']:
+            assert c['FastestControl'] in ('DENSE','TILED','CSR')
+            assert all(math.isfinite(c[k]) for k in ('CPURatio','RSSRatio','FactorBytesRatio'))
+          print('ACC45_U22_NATIVE_60_PROCESSES_AND_OS_RSS=PASS')
+          print('ACC45_U22_ENGINEERING_CLASSIFICATION='+r['Classification'])
+          PY
+      - name: Retain raw 60-worker receipt and original portfolio proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc45-original-u22-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc45-report.json
+            ${{ runner.temp }}/acc45-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    name: ACC45 independent original U22 exact source/output cross-OS audit
+    needs: native-u22
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc45-original-u22-*
+          path: artifacts
+          merge-multiple: false
+      - name: Independently audit all inputs, truth and outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc45-original-u22-ubuntu-latest'/'acc45-report.json').read_text())
+          b=json.loads((p/'acc45-original-u22-windows-latest'/'acc45-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda row:(row['Worker']['Mode'],row['Worker']['Cohort'],row['Worker']['Seed'])
+          aa={key(r):r['Worker'] for r in a['Records']}
+          bb={key(r):r['Worker'] for r in b['Records']}
+          assert len(aa)==len(bb)==60 and set(aa)==set(bb)
+          for k in aa:
+            for field in ('SourceSHA256','TruthSHA256','OutputSHA256','LogicalBytes','LastFactorRank','QueryVectors'):
+              assert aa[k][field]==bb[k][field],(k,field)
+            assert abs(aa[k]['NormalizedRMSE']-bb[k]['NormalizedRMSE'])<=1e-12,k
+          x=json.loads((p/'acc45-original-u22-ubuntu-latest'/'acc45-36.json').read_text())
+          y=json.loads((p/'acc45-original-u22-windows-latest'/'acc45-36.json').read_text())
+          assert x['rows']==y['rows'] and len(x['rows'])==36
+          print('ACC45_ORIGINAL_U22_CROSSOS_INPUT_TRUTH_OUTPUT_60_OF_60_PASS')
+          print('ACC45_LINUX='+a['Classification'])
+          print('ACC45_WINDOWS='+b['Classification'])
+          ok=all(z['Classification']=='U22_RESTRICTED_NATIVE_GO_ENGINEERING_POSITIVE_ONLY' for z in (a,b))
+          print('ACC45_GENERAL_NATIVE_GO_RESOURCE_WIN='+('YES' if ok else 'NO'))
+          print('ACC45_REAL_NATIVE_MODEL_ACCELERATION=UNVERIFIED')
+          PY
