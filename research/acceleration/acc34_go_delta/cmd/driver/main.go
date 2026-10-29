@@ -1,6 +1,6 @@
 // ACC34 paired full-process Go resource/quality meter, no model source imports.
 package main
-import("bytes";"encoding/json";"errors";"flag";"fmt";"math";"os";"os/exec";"runtime";"sort";"time";a "example.org/acc34delta")
+import("bytes";"encoding/json";"errors";"flag";"fmt";"math";"os";"os/exec";"runtime";"sort";"time";a "example.org/acc34delta/isolated_core")
 var Seeds=[]int{91101,91103,91107,91109,91111}
 var Scenarios=[]string{"benign","hidden_interaction"}
 var Modes=[]string{"full","verified","unverified","oracle"}
