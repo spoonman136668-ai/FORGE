@@ -1,0 +1,89 @@
+name: ITD-02 MG22 original mission/key/door public selected-effect forensic audit
+on:
+  push:
+    branches: [research/itd02-mg22-retrospective-public-action-effect-audit-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-original-world-public-effect-witness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - name: Pin git original SHA with LF before checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Authenticated MG21 original source parent and frozen audit code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Original Python 3.11 audit reader
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Download immutable two-process MG21 original Farama source; no new original world actions
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          git merge-base --is-ancestor bad469f4f8a630b453cd6f386e4bb04bd9cdf578 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG22_ORIGINAL_SOURCE_PARENT_NOT_ANCESTOR' }
+          git merge-base --is-ancestor 0acc8f84d56606435e8dc257af3484df584b6f69 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG22_FROZEN_RETROSPECTIVE_METHOD_NOT_PRE_EXECUTABLE' }
+          $root=Join-Path $env:RUNNER_TEMP 'mg22'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          gh run download 40860988829 --repo spoonman136668-ai/FORGE --name mg21-original-four-family-native-development-ubuntu --dir $root
+          if ($LASTEXITCODE -ne 0) { throw 'MG22_AUTHENTIC_SOURCE_ARTIFACT_NOT_AVAILABLE' }
+          $first=Join-Path $root 'mg21-original/first.json'
+          $second=Join-Path $root 'mg21-original/second.json'
+          if (!(Test-Path $first) -or !(Test-Path $second)) { throw 'MG22_TWO_ORIGINAL_SOURCE_PROCESSES_MISSING' }
+          python -B research/lcrm01/mg22_original_public_effect_audit.py --first $first --second $second --output (Join-Path $root 'receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'MG22_ORIGINAL_SELECTED_SOURCE_EFFECTS_INVALID' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG22_SOURCE_WORKTREE_DIRTY' }
+          Write-Host 'MG22_AUTHENTIC_ORIGINAL_RETROSPECTIVE_PUBLIC_EFFECTS__NO_SCIENCE'
+      - name: Preserve source-only retrospective native/controls causal exposure receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg22-authentic-original-effect-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg22/receipt.json
+          if-no-files-found: warn
+          retention-days: 30
+  independent-cross-os-equality:
+    needs: independent-original-world-public-effect-witness
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: mg22-authentic-original-effect-*
+          path: mg22-receipts
+      - name: Compare exact full original source forensic results from independent OS hosts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          files=sorted(Path("mg22-receipts").rglob("receipt.json"))
+          if len(files)!=2:raise SystemExit("MG22_MISSING_CROSS_HOST_AUTHENTIC_RECEIPTS")
+          a,b=(json.loads(f.read_text()) for f in files)
+          if a!=b:raise SystemExit("MG22_WINDOWS_LINUX_PUBLIC_EFFECT_AUDITS_DISAGREE")
+          if (a["source_sha256"]!="d6068acb9c246da4347afc065028983026e6b2bbaa03300e803c1f70995e8df2" or
+              a["source_action_effect_diagnostics"]["original_source_actions_verified"]!=3997 or
+              a["source_action_effect_diagnostics"]["verified_original_episode_count"]!=32 or
+              a["new_original_environment_steps"]!=0 or a["scientific_first_use"] is not False):
+              raise SystemExit("MG22_UNQUALIFIED_SELECTED_SOURCE_AUDIT")
+          print("MG22_INDEPENDENT_CROSS_OS_AUTHENTIC_CAUSAL_EXPOSURE_WITNESS_PASS",a["canonical_receipt_sha256"])
+          PY
