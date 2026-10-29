@@ -1,0 +1,157 @@
+name: ACC41 original U08 fixed reservoir native Go resource and accuracy qualification
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc41_go_u08/**'
+      - 'docs/research/ACC-41-*'
+      - '.github/workflows/forge-acc41-original-u08-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-original-u08:
+    name: ACC41 original U08 60 child workers / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original frozen U08 prereg-before-code and Git blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor af125b5ba1dc6428a04396c5fb10bd5b70c4480a HEAD
+          git merge-base --is-ancestor f41a5f31607ed4cd07efabd8952eaa87b7c3ab1d HEAD
+          test "$(git hash-object docs/research/ACC-41-U08-FIXED-RESERVOIR-GO-PREREG.md)" = 5e19fd5ea86fc2eaae2129792a30554cf00eabc7
+          test "$(git hash-object research/ac06_sourcefree/restricted.py)" = 19c5ce8f485900f06adaffe97f998c83c78aab4c
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/acceleration/acc41_go_u08/go.mod)" = c02c7478d680c105b6644e6e45090835daef7159
+          test "$(git hash-object research/acceleration/acc41_go_u08/core.go)" = 641baf3a2a8975e79b55951ac7f83a9882131add
+          test "$(git hash-object research/acceleration/acc41_go_u08/main.go)" = c6c0ab919b85f43c326e280c9ad43b37476f3ef5
+          test "$(git hash-object research/acceleration/acc41_go_u08/core_test.go)" = 9dc8836482816f57fb755a2a09c57f0b97f8145f
+          test "$(git hash-object research/acceleration/acc41_go_u08/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc41_go_u08/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          test "$(git status --porcelain --untracked-files=all)" = ""
+          echo ACC41_ORIGINAL_U08_PREREG_FIRST_AND_GO_BLOBS=PASS
+      - name: Original 36-hypothesis and source-free screening regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc41-36.json"
+          python - "$RUNNER_TEMP/acc41-36.json" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1],encoding='utf-8'))
+          names={x['claim_id'] for x in p['rows']}
+          assert names==({f'U{i:02}' for i in range(1,31)}|{f'AC-D{i}' for i in range(1,7)})
+          assert not p['scientific_admission'] and not p['scientific_first_use']
+          print('ACC41_ALL_ORIGINAL_36_WITH_NEGATIVES=PASS')
+          PY
+      - name: Go test vet build and 60 independently cold original U08 workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc41_go_u08
+          go test -count=1 -v ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc41"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc41-report.json"
+      - name: Check source parity training and heldout resource integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/acc41-report.json" <<'PY'
+          import json,sys,math
+          r=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert r['schema']=='forge.acc41.original-u08-native-go-fixed-reservoir.v1'
+          assert r['native_go_child_count']==60 and len(r['records'])==60
+          assert len(r['comparisons'])==3
+          assert r['original_candidate_count']==30 and r['extra_candidate_count']==6
+          assert not r['scientific_first_use'] and not r['native_model_acceleration_proven']
+          assert r['classification'] in ('U08_NO_GENERAL_VERIFIED_NATIVE_GO_ACCELERATION','U08_RESTRICTED_NATIVE_GO_ENGINEERING_POSITIVE_ONLY')
+          seen=set()
+          for row in r['records']:
+            x=row['worker'];k=(x['mode'],x['scenario'],x['seed'])
+            assert k not in seen;seen.add(k)
+            assert x['sessions']==32
+            assert x['train_samples']==x['heldout_samples']==32*(4096-12)
+            assert len(x['train_source_sha256'])==len(x['heldout_source_sha256'])==len(x['prediction_sha256'])==64
+            assert x['peak_rss_bytes']>0 and row['cpu_seconds']>0 and row['wall_seconds']>0
+            assert math.isfinite(x['heldout_mse']) and x['heldout_mse']>=0
+            assert x['memory_metric']=='OS_PROCESS_PEAK_PHYSICAL_RSS_BYTES'
+          assert len(seen)==60
+          for c in r['comparisons']:
+            assert c['accuracy_control'] in ('LAG12','LINEAR12')
+            assert c['cpu_control'] in ('LAG12','LINEAR12')
+            assert all(math.isfinite(c[k]) for k in ('mse_margin_vs_best_fitted','cpu_ratio','rss_ratio'))
+          print('ACC41_U08_NATIVE_GO_60_COLD_CHILDS_COMPLETE=PASS')
+          print('ACC41_U08_ENGINEERING_RESULT='+r['classification'])
+          PY
+      - name: Preserve raw source and native CPU/RSS measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc41-u08-native-go-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc41-report.json
+            ${{ runner.temp }}/acc41-36.json
+          if-no-files-found: warn
+          retention-days: 30
+  independent-reconciliation:
+    name: ACC41 original-source cross-platform heldout audit
+    runs-on: ubuntu-latest
+    needs: native-original-u08
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc41-u08-native-go-*
+          path: artifacts
+          merge-multiple: false
+      - name: Compare source identity, heldout outputs and original portfolio
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib,math
+          base=pathlib.Path('artifacts')
+          a=json.loads((base/'acc41-u08-native-go-ubuntu-latest'/'acc41-report.json').read_text())
+          b=json.loads((base/'acc41-u08-native-go-windows-latest'/'acc41-report.json').read_text())
+          assert {a['os'],b['os']}=={'linux','windows'}
+          assert len(a['records'])==len(b['records'])==60
+          key=lambda row:(row['worker']['mode'],row['worker']['scenario'],row['worker']['seed'])
+          x={key(row):row['worker'] for row in a['records']}
+          y={key(row):row['worker'] for row in b['records']}
+          assert set(x)==set(y)
+          for k in x:
+            for field in ('train_source_sha256','heldout_source_sha256','train_samples','heldout_samples','sessions'):
+              assert x[k][field]==y[k][field],(k,field)
+            # Go math.Tanh can differ in the last ULP across OS; disclose, do not manufacture exact trace parity.
+            if x[k]['prediction_sha256']!=y[k]['prediction_sha256']:
+              assert abs(x[k]['heldout_mse']-y[k]['heldout_mse'])<=1e-12,('floating-drift',k)
+          p=json.loads((base/'acc41-u08-native-go-ubuntu-latest'/'acc41-36.json').read_text())
+          q=json.loads((base/'acc41-u08-native-go-windows-latest'/'acc41-36.json').read_text())
+          assert p['rows']==q['rows'] and len(p['rows'])==36
+          print('ACC41_CROSS_OS_ORIGINAL_INPUT_AND_HELDOUT_PARITY_60_OF_60=PASS')
+          print('ACC41_LINUX='+a['classification'])
+          print('ACC41_WINDOWS='+b['classification'])
+          global_win=all(z['classification']=='U08_RESTRICTED_NATIVE_GO_ENGINEERING_POSITIVE_ONLY' for z in (a,b))
+          print('ACC41_GENERAL_ORIGINAL_U08_GO_SPEEDUP='+('PASS' if global_win else 'NO'))
+          print('ACC41_WINGLESS_YGGDRASIL_MODEL_INTEGRATION=UNVERIFIED')
+          PY
