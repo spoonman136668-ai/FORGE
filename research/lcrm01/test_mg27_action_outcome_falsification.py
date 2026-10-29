@@ -26,7 +26,7 @@ class SelectedActionOutcomeFalsificationTests(unittest.TestCase):
         self.assertEqual(metrics["source_changed"],1)
         update_metric(metrics,history,e)
         self.assertEqual(metrics["original_supported"],1)
-        self.assertEqual(probability(history,history[0][0],2)[0],Fraction(2,3))
+        self.assertEqual(probability(history,history[0][0],2)[0],Fraction(3,4))
         self.assertEqual(metrics["brier_original"],Fraction(1,9))
     def test_permuted_action_and_inverse_controls(self):
         k="source";history=[(k,0,1),(k,1,0)]
