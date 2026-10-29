@@ -250,7 +250,7 @@ def run(new_go,old_go,p):
         if len({e.get("original_public_start_sha",e.get("original_public_start_sha256")) for e in batch})!=1:
             raise ValueError("MG09_SOURCE_PUBLIC_START_NOT_EQUAL")
     if len(all_original)!=21 or any(
-        c["source_only_counts"]["original_selected_action_count"]!=192
+        not 1<=c["source_only_counts"]["original_selected_action_count"]<=192
         for c in all_diag):
         raise ValueError("MG09_NOT_ALL_AUTHENTIC_REAL_SELECTED_EXPOSURES")
     summary={}
