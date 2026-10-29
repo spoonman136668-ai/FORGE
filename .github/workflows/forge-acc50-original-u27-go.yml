@@ -1,0 +1,133 @@
+name: ACC50 original U27 typed rewrite native Go
+on:
+  pull_request:
+    paths:
+      - 'docs/research/ACC-50-*'
+      - 'research/acceleration/acc50_go_u27/**'
+      - '.github/workflows/forge-acc50-original-u27-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    name: ACC50 original U27 80 cold native Go children / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authentic original U27, prereg before code, exact code blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor b53e85f8378fb8ef860b730c5ccb3a0de141b09d HEAD
+          test "$(git hash-object docs/research/ACC-50-U27-TYPED-GRAPH-PREREG.md)" = fdc6c51862dcf00e370dca123f8d3f30f7f34266
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python - <<'PY'
+          import ast,pathlib
+          m=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          n=ast.literal_eval(next(v.value for v in m.body if isinstance(v,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in v.targets)))
+          assert len(n)==30 and n[26]=='typed graph rewriting'
+          print('ACC50_AUTHENTIC_ORIGINAL_U27_IDENTITY=PASS')
+          PY
+          test "$(git hash-object research/acceleration/acc50_go_u27/go.mod)" = acdb82cd3e7c092fead5b396f81eb05c571ed1d4
+          test "$(git hash-object research/acceleration/acc50_go_u27/main.go)" = e953ed171d913c3d98ba99a56cbd4f7052bdfcc1
+          test "$(git hash-object research/acceleration/acc50_go_u27/core_test.go)" = 7753fe5c3c2b9ba36f0f2ae703cb49e2a14c724c
+          test "$(git hash-object research/acceleration/acc50_go_u27/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc50_go_u27/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          echo ACC50_PREREG_FIRST_SOURCE_BLOBS=PASS
+      - name: Validate unchanged 36 original source-screening records
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc50-36.json"
+      - name: Run unit tests vet build and 80 genuinely cold workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc50_go_u27
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc50"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc50-report.json"
+      - name: Audit full-worker CPU RSS and source equality
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP/acc50-report.json" <<'PY'
+          import json,math,sys
+          a=json.load(open(sys.argv[1]))
+          assert a['Schema']=='forge.acc50.original-u27.nativego.v1'
+          assert a['NativeChildCount']==len(a['Records'])==80 and len(a['Cohorts'])==4
+          assert not a['ScientificFirstUse'] and not a['NativeModelAcceleration']
+          assert a['Classification'] in ('U27_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U27_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY')
+          seen=set();sources={}
+          for t in a['Records']:
+            w=t['Worker'];k=(w['Mode'],w['Cohort'],w['Seed'])
+            assert k not in seen;seen.add(k)
+            assert w['Episodes']==32 and w['Queries']==32*2048
+            assert w['PeakRSSBytes']>0 and t['CPUSeconds']>0 and t['WallSeconds']>0
+            assert w['TruthSHA256']==w['OutputSHA256'] and len(w['SourceSHA256'])==64
+            pair=(w['Cohort'],w['Seed'])
+            assert pair not in sources or sources[pair]==w['SourceSHA256']
+            sources[pair]=w['SourceSHA256']
+          assert len(seen)==80 and len(sources)==20
+          for c in a['Cohorts']:
+            assert c['Fastest'] in ('DIRECT','STRUCT_CACHE','FOLDED')
+            assert all(math.isfinite(c[k]) for k in ('CPURatio','RSSRatio','BytesRatio'))
+          print('ACC50_U27_80_NATIVE_CPU_RSS_AND_EXACT_OUTPUT=PASS')
+          print('ACC50_U27_CLASSIFICATION='+a['Classification'])
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc50-u27-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc50-report.json
+            ${{ runner.temp }}/acc50-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    name: ACC50 exact independent 80/80 source and output audit
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc50-u27-*
+          path: artifacts
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib,json
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc50-u27-ubuntu-latest'/'acc50-report.json').read_text())
+          b=json.loads((p/'acc50-u27-windows-latest'/'acc50-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda t:(t['Worker']['Mode'],t['Worker']['Cohort'],t['Worker']['Seed'])
+          aa={key(t):t['Worker'] for t in a['Records']};bb={key(t):t['Worker'] for t in b['Records']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for k in aa:
+            for v in ('SourceSHA256','TruthSHA256','OutputSHA256','Queries','CacheHits','LogicalBytes'):
+              assert aa[k][v]==bb[k][v],(k,v)
+          print('ACC50_U27_CROSSOS_80_OF_80_INPUT_TRUTH_OUTPUT=PASS')
+          print('ACC50_LINUX='+a['Classification'])
+          print('ACC50_WINDOWS='+b['Classification'])
+          print('ACC50_NATIVE_MODEL_ACCELERATION=UNVERIFIED')
+          PY
