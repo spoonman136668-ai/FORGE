@@ -95,6 +95,12 @@ class V3WorkerContractTests(unittest.TestCase):
         report={"schema":v3.SCHEMA,"os":"ubuntu-latest",
                 "ticket_source_commit":self.candidate.target_commit,
                 "target_tree_sha":self.candidate.target_tree_sha,
+                "path":self.candidate.path,
+                "candidate_sha256":self.candidate.after_sha256,
+                "scientific_first_use":False,
+                "protected_holdouts_accessed":0,
+                "accepted_ref_mutations":0,
+                "paid_model_calls":0,
                 "intent_sha256":self.candidate.intent_sha256,
                 "qualification_key":self.candidate.qualification_key,
                 "native_qualified":False,"child_cpu_rss_verified":False}
