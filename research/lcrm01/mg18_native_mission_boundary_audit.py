@@ -13,7 +13,42 @@ from pathlib import Path
 
 import gymnasium as gym
 import minigrid
-from k4u_native_minigrid import WingBridge
+import subprocess
+
+
+class WingBridge:
+    """Portable source-only JSONL client; no Unix resource dependency."""
+    def __init__(self, executable):
+        self.proc = subprocess.Popen(
+            [str(executable)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1)
+
+    def request(self, op, **parts):
+        if self.proc.poll() is not None:
+            raise ValueError("MG18_NATIVE_GO_SOURCE_PROCESS_EXITED")
+        self.proc.stdin.write(canonical({"op": op, **parts}).decode("ascii") + "\n")
+        self.proc.stdin.flush()
+        raw = self.proc.stdout.readline()
+        if not raw:
+            raise ValueError("MG18_NATIVE_GO_RESPONSE_MISSING")
+        response = json.loads(raw)
+        if response.get("ok") is not True:
+            raise ValueError("WINGLESS_NATIVE_SOURCE_REJECTED:" + str(response.get("error")))
+        return response
+
+    def snapshot(self):
+        return base64.b64decode(self.request("snapshot")["state"])
+
+    def close(self):
+        if self.proc.poll() is None:
+            try:
+                self.request("quit")
+            except (ValueError, OSError):
+                pass
+            self.proc.stdin.close()
+            self.proc.stdout.close()
+            self.proc.wait(timeout=10)
+
 from mg17_original_family_source_qual import attest_source, public, canonical, digest
 from research.native.itd02.r18.mission_cells import OriginalMissionAdapter
 from research.native.itd02.r20.state_credit_cells import StateCreditCells
