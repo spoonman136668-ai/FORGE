@@ -145,8 +145,9 @@ def audit(source,p):
         assert v["selected_drop"]==acts[group][4]
         assert v["selected_toggle"]==acts[group][5]
         assert v["selected_done"]==acts[group][6]
-        assert v["selected_turn_left"]+v["selected_turn_right"]+v["selected_forward"]+
-            v["selected_pickup"]+v["selected_drop"]+v["selected_toggle"]+v["selected_done"]==v["actions"]
+        assert (v["selected_turn_left"]+v["selected_turn_right"]+v["selected_forward"]+
+                v["selected_pickup"]+v["selected_drop"]+v["selected_toggle"]+
+                v["selected_done"])==v["actions"]
         assert sum(front_acts[group])==v["target_front_frames"]
         rows.append({"family":group[0],"role":group[1],**{k:v[k] for k in METRICS},
           "target_any_visible_episodes":any_seen[group],
@@ -183,10 +184,10 @@ def run(artifact,out):
             assert digest(rec["source"])==rec["canonical_source_sha256"]
             sources.append(rec["source"]);reports.append(audit(rec["source"],p))
         assert sources[0]==sources[1] and reports[0]==reports[1]
-        assert p["parent"]["canonical_original_source_sha256"] in z.read("comparison.log").decode("utf8")
+        assert p["parent"]["original_canonical_source_sha256"] in z.read("comparison.log").decode("utf8")
     report=reports[0]
     report["original_archive_sha256"]=zsha
-    report["original_canonical_source_sha256"]=p["parent"]["canonical_original_source_sha256"]
+    report["original_canonical_source_sha256"]=p["parent"]["original_canonical_source_sha256"]
     report["audit_sha256"]=digest(reports[0])
     out.write_text(json.dumps(report,sort_keys=True,indent=2)+"\n",encoding="utf8")
     print(report["classification"])
