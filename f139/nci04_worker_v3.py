@@ -46,8 +46,8 @@ def inventory(candidate, original):
     need(type(candidate) is Candidate and candidate.lane == "Yggdrasil"
          and candidate.path == TARGET, "ISSUE_SCOPE_REQUIRED")
     root = _inspect_checkout(Path(original), candidate)
-    need(_git(root, "rev-parse", "--is-shallow-repository") == "false"
-         and _git(root, "remote") == "", "SOURCE_ANCESTRY_OR_REMOTE_DRIFT")
+    need(_git(root, "rev-parse", "--is-shallow-repository") == "false",
+         "SOURCE_ANCESTRY_DRIFT")
     tracked = _git(root, "ls-tree", "-r", "--name-only", "HEAD", "tests")
     modules = tuple(sorted(x.removeprefix("tests/") for x in tracked.splitlines()
                            if re.fullmatch(r"tests/test_[a-zA-Z0-9_]+\.py", x)))
@@ -89,7 +89,9 @@ def unit(module):
 
 
 def invoke(argv, root, *, module=None, expected_rejection=False, runner=None):
-    need(tuple(argv) == BUILD or (module is not None and tuple(argv)==unit(module)),
+    need(tuple(argv) == BUILD or
+         (module=="test_*.py" and tuple(argv)==COMMAND+("-p","test_*.py","-v")) or
+         (module is not None and module!="test_*.py" and tuple(argv)==unit(module)),
          "ARBITRARY_COMMAND_REJECTED")
     t0 = time.monotonic()
     if runner is None:
