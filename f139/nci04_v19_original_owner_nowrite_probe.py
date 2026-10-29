@@ -43,7 +43,12 @@ try {
 if ($principal -ine $identity.Name -and $sid -cne $identity.User.Value) {
     exit 32
 }
-$arguments=[string]$t.Actions[0].Arguments
+# V19_ACTION_ROUTE_BEGIN
+$action=$t.Actions[0]
+if ([IO.Path]::GetFileName([string]$action.Execute) -ine 'powershell.exe') {
+    exit 37
+}
+$arguments=[string]$action.Arguments
 if ($arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {
     exit 33
 }
@@ -52,6 +57,13 @@ function Field([string]$key) {
     if (-not $match.Success) { exit 34 }
     return $match.Groups[1].Value
 }
+$wrapper=Field 'File'
+if (-not ([IO.Path]::IsPathRooted($wrapper)) -or
+    [IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1' -or
+    -not (Test-Path -LiteralPath $wrapper -PathType Leaf)) {
+    exit 38
+}
+# V19_ACTION_ROUTE_END
 $db=Field 'Database'
 $root=Field 'RepositoryRoot'
 $py=Field 'PythonExe'
