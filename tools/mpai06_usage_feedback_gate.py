@@ -43,13 +43,13 @@ def cold(root,head):
         "s=MemorySnapshot(p,h,['Wingless','Yggdrasil','Mind-Palace'])\n"
         "ids={'Wingless':'project_state/wingless-p6o-native-bayesian-causal-policy-equal-control-negative-20261021','Yggdrasil':'project_state/yggdrasil-mr29-original-native-causal-alias-dev-signal-negative-20261021'}\n"
         "for project,key in ids.items():\n"
-        "  r=s.get_record(h,key,[project]);assert r['found'] and r['record']['status']=='observed'\n"
-        "  assert 'scientific' in r['record']['statement'].casefold()\n"
-        "  assert r['record'].get('details',{}).get('scientific_acceptance') is not True\n"
+        "  r=s.get_record(h,key,[project]);assert r['found'] and r['record']['status']=='observed','COLD_RECORD_NOT_OBSERVED'\n"
+        "  assert 'scientific' in r['record']['statement'].casefold(),'COLD_LESSON_NEGATIVE_STATEMENT'\n"
+        "  assert r['record'].get('details',{}).get('scientific_acceptance') is not True,'COLD_SCIENCE_UNQUALIFIED'\n"
         "  q='wingless p6o bayesian causal control' if project=='Wingless' else 'yggdrasil mr29 causal alias'\n"
-        "  v=s.recall(h,q,[project]);assert any(x['id']==key for x in v['matches'])\n"
-        "  assert not s.get_record(h,ids['Yggdrasil' if project=='Wingless' else 'Wingless'],[project])['found']\n"
-        "assert not s.get_record(h,'"+NEW+"',['Mind-Palace'])['found']\n"
+        "  v=s.recall(h,q,[project]);assert any(x['id']==key for x in v['matches']),'COLD_LESSON_RECALL_NOT_SELECTED'\n"
+        "  assert not s.get_record(h,ids['Yggdrasil' if project=='Wingless' else 'Wingless'],[project])['found'],'COLD_PROJECT_SCOPE_LEAK'\n"
+        "assert not s.get_record(h,'"+NEW+"',['Mind-Palace'])['found'],'COLD_PROPOSED_LESSON_ALREADY_ACCEPTED'\n"
         "print(s.records_sha256)\n")
     p=subprocess.run([sys.executable,"-B","-c",script,str(root),head],
                      capture_output=True,text=True,timeout=90)
@@ -65,6 +65,8 @@ def cold(root,head):
             if marker in p.stderr:
                 diag=marker.upper().replace(" ","_").replace(":","").replace("'","")
                 break
+        result=re.search(r"AssertionError: (COLD_[A-Z_]+)",p.stderr)
+        if result:diag=result.group(1)
         print("MPAI06_COLD_DIAG="+diag,flush=True)
         check(False,"ACCEPTED_SOURCE_COLD_RECALL")
     return p.stdout.strip()
