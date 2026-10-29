@@ -255,7 +255,11 @@ class OriginalOneShotSendTests(unittest.TestCase):
             self.assertEqual(len(witnesses), 4)
             self.assertEqual(self.calls, [])
             self.db.verify()
-            again = self.send(handoff, witness=witness, reader=public_reader)
+            # Re-open the authorization gate only to verify that the
+            # already-spent handoff still blocks any later replay.
+            again = self.send(handoff, witness=lambda: True, reader=public_reader)
+            self.assertEqual(again["disposition"],
+                             "BLOCKED_HANDOFF_ALREADY_SPENT_OR_HEAD_MOVED")
             self.assertEqual(again["provider_calls_in_this_invocation"], 0)
             self.assertEqual(self.count(), 1)
 
