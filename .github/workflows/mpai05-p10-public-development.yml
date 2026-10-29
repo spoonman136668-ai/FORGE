@@ -1,0 +1,118 @@
+name: MP-AI05 P10 16-case public development comparison
+on:
+  push:
+    branches: [proposal/mpai05-p10-public-development-20261029]
+    paths: ['.github/workflows/mpai05-p10-public-development.yml']
+permissions:
+  contents: read
+jobs:
+  p10-original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 28
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: P10 same-model, actual public trajectory data and official pure graders only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'MPAI05_P10_WRONG_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P10_PAID_API_DENIED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P10_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'MPAI05_P10_SELF_HEAD_DRIFT'}
+          $pinned=@{
+            'tools/mpai05_p9_dataset_freeze.py'='2c2100c53c001d28843bc2da664c3e92d413e2e6'
+            'tools/mpai05_p10_public_development.py'='7bd698e3265cc41ee4d286461980d7586a25ac99'
+            'tests/test_mpai05_p10_public_development.py'='cf628b7798c8ab656353b8b3f13e3830375dbaa4'
+          }
+          foreach($k in $pinned.Keys){
+            $actual=(git rev-parse ('HEAD:'+$k)).Trim()
+            if($LASTEXITCODE -ne 0 -or $actual -cne $pinned[$k]){
+              throw 'MPAI05_P10_SOURCE_FILE_DRIFT'
+            }
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-p10-'+$env:GITHUB_RUN_ID)
+          $env:MPAI05_P10_SCRATCH=$scratch
+          $private=Join-Path $env:RUNNER_TEMP ('mpai05-p10-private-'+$env:GITHUB_RUN_ID+'.log')
+          try{
+            if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $private)){
+              throw 'MPAI05_P10_SCRATCH_COLLISION'
+            }
+            & python -B -m unittest discover -s tests -p test_mpai05_p10_public_development.py -v *> $private
+            $testExit=$LASTEXITCODE
+            $testLog=Get-Content -Raw -LiteralPath $private
+            if($testExit -ne 0 -or $testLog -notmatch 'Ran 11 tests' -or
+               $testLog -notmatch '(?m)^OK(?:\s|$)'){
+              throw 'MPAI05_P10_FOCUSED_TEST_FAILED_PRIVATE_LOG'
+            }
+            Write-Output 'MPAI05_P10_FOCUSED_TESTS=11_PASS'
+            Remove-Item -LiteralPath $private -Force
+            & python -B tools/mpai05_p10_public_development.py *> $private
+            $runExit=$LASTEXITCODE
+            $log=Get-Content -LiteralPath $private -Raw
+            if($runExit -ne 0){
+              $reason=[regex]::Match($log,'MPAI05_P10_SAFE_FAILURE=(MPAI05_P10_[A-Z0-9_]+|PRIVATE_EXCEPTION)')
+              if($reason.Success){Write-Output ('MPAI05_P10_FAILURE_CLASS='+$reason.Groups[1].Value)}
+              $phase=[regex]::Match($log,'MPAI05_P10_SAFE_PHASE=([A-Z_]+)')
+              if($phase.Success){Write-Output ('MPAI05_P10_FAILURE_STAGE='+$phase.Groups[1].Value)}
+              $kind=[regex]::Match($log,'MPAI05_P10_SAFE_TYPE=([A-Za-z]{3,35})')
+              if($kind.Success){Write-Output ('MPAI05_P10_FAILURE_TYPE='+$kind.Groups[1].Value)}
+              throw 'MPAI05_P10_DEVELOPMENT_EXECUTION_FAILED_PRIVATE_LOG'
+            }
+            if(-not $log.Contains('MPAI05_P10_ACTUAL_MODEL_CALLS=64') -or
+               -not $log.Contains('MPAI05_P10_DATASET_CASES=16') -or
+               -not $log.Contains('MPAI05_P10_PUBLIC_DATA_SHA256=PASS') -or
+               -not $log.Contains('MPAI05_P10_ORIGINAL_OFFICIAL_SCORER_BLOB=PASS') -or
+               -not $log.Contains('MPAI05_P10_SCIENTIFIC_ADMISSION=FALSE') -or
+               -not $log.Contains('MPAI05_P10_PRODUCTION_WRITES=0')){
+              throw 'MPAI05_P10_INCOMPLETE_OUTPUT'
+            }
+            $seen=0
+            foreach($line in ($log -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI05_P10_ARM_(NO_MEMORY|MEMORY_ONLY|MEMORY_REFLECTION|CHAR_MATCHED_PLACEBO)=(\{.*\})$'){
+                $name=$Matches[1]
+                $stats=$Matches[2] | ConvertFrom-Json
+                if($stats.calls -ne 16 -or
+                   $stats.official_graded+$stats.unscorable -ne 16 -or
+                   $stats.official_correct -gt $stats.official_graded){
+                  throw 'MPAI05_P10_DENOMINATOR_INVALID'
+                }
+                $seen++
+                Write-Output ('MPAI05_P10_'+$name+'_OFFICIAL_GRADED='+$stats.official_graded)
+                Write-Output ('MPAI05_P10_'+$name+'_OFFICIAL_CORRECT='+$stats.official_correct)
+                Write-Output ('MPAI05_P10_'+$name+'_UNSCORABLE='+$stats.unscorable)
+                Write-Output ('MPAI05_P10_'+$name+'_TOTAL_TOKENS='+$stats.total_tokens)
+                Write-Output ('MPAI05_P10_'+$name+'_TOTAL_MS='+$stats.total_ms)
+                Write-Output ('MPAI05_P10_'+$name+'_CAP_HITS='+$stats.cap_hits)
+              }
+              elseif($line -match '^MPAI05_P10_(ACTUAL_MODEL_CALLS|DATASET_CASES|DATA_COHORT_SHA256|ORIGINAL_OFFICIAL_SCORER_BLOB|PUBLIC_DATA_SHA256|MODEL_SHA256|OFFICIAL_BLIND_GRADING|PRIVATE_HOLDOUT_FIRST_USE|SCIENTIFIC_ADMISSION|PRODUCTION_WRITES)=(?:[0-9]+|[a-f0-9]{64}|PASS|FALSE)$'){
+                Write-Output $line
+              }
+            }
+            if($seen -ne 4){throw 'MPAI05_P10_MISSING_ARM_SUMMARY'}
+            $dirty=@(git status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+              throw 'MPAI05_P10_WORKSPACE_DIRTY'
+            }
+            Write-Output 'MPAI05_P10_REPO_SOURCE_CUSTODY=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI05_P10_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $private){Remove-Item -LiteralPath $private -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_P10_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
