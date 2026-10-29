@@ -1,0 +1,113 @@
+name: ITD-02 MG30 original source public decision opportunity and action-only control
+on:
+  push:
+    branches: [research/itd02-mg30-original-public-decision-opportunity-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  selected-original-opportunity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+      PYTHONPATH: research/lcrm01
+    steps:
+      - name: Source original LF identity before checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout source-only MG30
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Original Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Freeze original action-only parent and prereg before executable
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor e4d794e46e6ca39b4f400fbd3c17e68dd6270d11 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG30_ORIGINAL_ACTION_ONLY_FALSIFICATION_PARENT_MISSING' }
+          git merge-base --is-ancestor b9f83a84d8c5a263b956cb9d3e40b84005cc0124 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG30_PRECOMMITTED_DECISION_RULE_NOT_OLDER_THAN_EXECUTABLE' }
+          $actual=@(git diff --name-only e4d794e46e6ca39b4f400fbd3c17e68dd6270d11 $env:GITHUB_SHA)
+          $expected=@(
+            'research/lcrm01/mg30_public_decision_opportunity_prereg.json'
+            'research/lcrm01/mg30_public_decision_opportunity_audit.py'
+            '.github/workflows/itd02-mg30-original-public-opportunity.yml'
+          )
+          if (@(Compare-Object $actual $expected).Count -ne 0) { throw 'MG30_CHANGED_NON_RESEARCH_ORIGINAL_SOURCE' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG30_SOURCE_NOT_CLEAN' }
+      - name: Original public front-cell and wrong-action negative tests
+        shell: pwsh
+        run: |
+          python -B research/lcrm01/mg30_public_decision_opportunity_audit.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'MG30_SOURCE_PUBLIC_OPPORTUNITY_NEGATIVE_TEST_FAILED' }
+      - name: Authenticate two complete original MG24 source processes and evaluate matched actor/public opportunity
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'mg30'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          gh run download 40874118161 --repo spoonman136668-ai/FORGE --name mg24-original-selected-dev-nine-arm-ubuntu-24.04 --dir $root
+          if ($LASTEXITCODE -ne 0) { throw 'MG30_ORIGINAL_REAL_WORLD_ARTIFACT_UNAVAILABLE' }
+          $one=Join-Path $root 'mg24-real-dev/first.json'
+          $two=Join-Path $root 'mg24-real-dev/second.json'
+          if (!(Test-Path $one) -or !(Test-Path $two)) { throw 'MG30_MISSING_TWO_INDEPENDENT_ORIGINAL_SOURCE_TRACES' }
+          python -B research/lcrm01/mg30_public_decision_opportunity_audit.py --first $one --second $two --output (Join-Path $root 'receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'MG30_SOURCE_PUBLIC_DECISION_OPPORTUNITY_MISMATCH' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG30_ORIGINAL_SOURCE_WORKTREE_DIRTY' }
+          Write-Host 'MG30_AUTHENTIC_RETROSPECTIVE_NATIVE_DECISION_OPPORTUNITY_COMPLETE_NO_SCIENCE'
+      - name: Retain true original selected source public opportunity evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg30-original-decision-opportunity-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg30/receipt.json
+          retention-days: 30
+          if-no-files-found: warn
+  cross-host-original-opportunity-integrity:
+    needs: selected-original-opportunity
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: mg30-original-decision-opportunity-*
+          path: receipts
+      - name: Independent SHA and complete cross-host source equality
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          docs=sorted(Path('receipts').rglob('receipt.json'))
+          if len(docs)!=2:raise SystemExit('MG30_MISSING_CROSS_HOST_ORIGINAL_CUSTODY')
+          a,b=(json.loads(p.read_text()) for p in docs)
+          if a!=b:raise SystemExit('MG30_DIFFERENT_ORIGINAL_PUBLIC_SOURCE_OPPORTUNITY_COUNTS')
+          if (a['source_original_sha256']!='e2dda4721d6d96ffd083faac5960013380b29c3325f560defa989c4eef0852a9'
+             or a['all_original_actions_authenticated']!=9186
+             or a['all_original_episodes_authenticated']!=72
+             or a['no_new_original_world_actions'] is not True
+             or a['scientific_first_use'] is not False
+             or a['authorize_new_original_native_live_rollout'] is not False):
+              raise SystemExit('MG30_FALSE_ORIGINAL_SOURCE_PROMOTION')
+          raw=json.dumps({k:v for k,v in a.items() if k!='sha256'},
+             separators=(',',':'),sort_keys=True,ensure_ascii=True,allow_nan=False).encode('ascii')
+          if hashlib.sha256(raw).hexdigest()!=a['sha256']:
+              raise SystemExit('MG30_FINAL_ORIGINAL_SOURCE_RECEIPT_SHA_FAILURE')
+          print('MG30_TWO_HOST_AUTHENTIC_ORIGINAL_DECISION_OPPORTUNITY_SOURCE_PASS',a['sha256'])
+          print('MG30_FROZEN_DECISION',a['classification'])
+          PY
