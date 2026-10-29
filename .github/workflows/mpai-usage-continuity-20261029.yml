@@ -156,6 +156,16 @@ jobs:
               throw 'MPAI_USAGE_MCP_STDIO_LOOPBACK_FAILED_PRIVATE'
             }
             Write-Output 'MPAI_USAGE_MCP_STDIO_LOOPBACK_REGRESSION=PASS'
+            # UQ51 repository-transaction fixture clones the current branch;
+            # create a local-only name for this exact pinned detached commit.
+            & git.exe -C $root switch --create mpai-qual-only
+            if($LASTEXITCODE -ne 0){throw 'MPAI_USAGE_LOCAL_TEST_BRANCH_FAILED'}
+            $onBranch=(git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $branchName=(git.exe -C $root branch --show-current | Out-String).Trim()
+            if($onBranch -cne $mpSource -or $branchName -cne 'mpai-qual-only'){
+              throw 'MPAI_USAGE_TEST_BRANCH_SOURCE_DRIFT'
+            }
+            Write-Output 'MPAI_USAGE_LOCAL_BRANCH_SAME_SOURCE_SHA=PASS'
             & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $root 'tests/Test-All.ps1') *> $testLog
             $rc=$LASTEXITCODE
             $report=Get-Content -LiteralPath $testLog -Raw
