@@ -1,5 +1,5 @@
 package main
-import("bytes";"crypto/sha256";"encoding/binary";"encoding/hex";"encoding/json";"errors";"flag";"fmt";"math";"os";"os/exec";"runtime";"sort";"time")
+import("bytes";"crypto/sha256";"encoding/binary";"encoding/hex";"encoding/json";"errors";"flag";"fmt";"os";"os/exec";"runtime";"sort";"time")
 const(schema="forge.acc52.u11.go.v1";size=4096;episodes=128;dots=256)
 var seeds=[]uint64{102101,102103,102107,102109,102111}
 var regimes=[]string{"DENSE","SPARSE","POSITIVE","ALTERNATING"}
@@ -49,7 +49,7 @@ func work(mode,regime string,seed uint64)(worker,error){
  src,ref,pred:=sha256.New(),sha256.New(),sha256.New();logical:=0
  for e:=0;e<episodes;e++{for d:=0;d<dots;d++{
   a,w:=input(seed,e,d,regime)
-  src.Write(a[:]);src.Write(w[:])
+  for i:=0;i<size;i++{src.Write([]byte{byte(a[i]),byte(w[i])})}
   target:=truth(&a,&w)
   result,bytes:=execute(mode,&a,&w)
   if target!=result{return r,errors.New("wrong dot product")}
