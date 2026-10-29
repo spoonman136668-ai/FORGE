@@ -1,0 +1,116 @@
+name: ACC36 original U07 U18 real Go vector memory interference
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc36_go_vector/**'
+      - 'docs/research/ACC-36-*'
+      - '.github/workflows/forge-acc36-original-vector-memory.yml'
+permissions:
+  contents: read
+jobs:
+  original-u07-u18-vector:
+    name: ACC36 original source-free Go vector vs exact dictionary / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Read-only checkout of exact acceleration source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Standard Python for all-original 36 portfolio audit
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Go 1.25 for compiled native CPU benchmark
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Freeze prereg/source before model memory training or any trial
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object docs/research/ACC-36-ORIGINAL-VECTOR-SYMBOLIC-MEMORY-PREREG.md)" = fa6b42f4c776453ff6a2b6c39e1c256c320f7687
+          test "$(git hash-object research/acceleration/acc36_go_vector/main.go)" = 3dd30e4ded06476ca1522f20173e087a13e19343
+          test "$(git hash-object research/acceleration/acc36_go_vector/main_test.go)" = 9b0ba3f16c3cc3469973233ec14cb2ccfcf6cae9
+          test "$(git hash-object research/acceleration/acc36_go_vector/go.mod)" = bfff7a4b347ed294a6bd2e8304ae25284c11c11b
+          test "$(git hash-object research/acceleration/acc34_scoreboard.py)" = 9f85860fc63cbe091180001a04f9bbe6f441af0e
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc36-36-register.json"
+          python - "$RUNNER_TEMP/acc36-36-register.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert d["total_registered_candidates"]==36
+          assert d["original_user_proposals"]==30
+          assert d["additional_mechanism_hypotheses"]==6
+          assert d["stage2_qualified_native_model_speedups"]==0
+          assert d["hardware_substitutes_not_physical_results"]==["U03","U06"]
+          assert {x["claim_id"] for x in d["rows"]}=={
+             *(f"U{i:02d}" for i in range(1,31)),
+             *(f"AC-D{i}" for i in range(1,7))}
+          assert all(not x["scientific_admission"] for x in d["rows"])
+          print("ACC36_ORIGINAL_ALL_36_ID_SCIENCE_BOUNDARY=PASS")
+          PY
+      - name: Real Go source-free memory negative/parity tests and vet
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc36_go_vector
+          go test -count=1 -v ./...
+          go vet ./...
+          echo ACC36_REAL_GO_MEMORY_TESTS_AND_VET=PASS
+      - name: Measure 240 independent Go child-process trials and cold checkpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc36_go_vector
+          exe="$RUNNER_TEMP/acc36-vector"
+          if [ "$RUNNER_OS" = Windows ]; then exe="$RUNNER_TEMP/acc36-vector.exe"; fi
+          go build -trimpath -o "$exe" .
+          "$exe" benchmark > "$RUNNER_TEMP/acc36-vector-go-report.json"
+          python - "$RUNNER_TEMP/acc36-vector-go-report.json" <<'PY'
+          import hashlib,json,math,pathlib,sys
+          raw=pathlib.Path(sys.argv[1]).read_bytes()
+          r=json.loads(raw)
+          assert r["schema"]=="forge.acc36.u07u18.bipolar-memory-go.v1"
+          assert r["portfolio_original_claims"]==30 and r["portfolio_additional_mechanisms"]==6
+          assert r["tested_original_candidates"]==["U07","U18"]
+          assert set(["U08","U10","U22","U24"]).issubset(r["not_fully_tested_candidates"])
+          assert r["repetitions_per_cohort_arm"]==5 and r["cold_sessions_per_child"]==32
+          assert len(r["cohorts"])==12 and len(r["trials"])==240
+          assert r["original_source_episodes"]==0
+          assert r["native_llm_model_accelerated"] is False and r["scientific_first_use"] is False
+          for row in r["cohorts"]:
+              assert row["items"] in (16,64,256,512) and row["seed"] in (11,29,47)
+              assert row["membership_unknown_abstentions"]==32*64
+              assert row["bundle_unknown_false_positives"]==32*64
+              assert row["shuffled_known_wrong"]>0
+              assert row["membership_known_correct"]+row["membership_known_wrong"]==32*256
+              for key in ("membership_cpu_over_dictionary","membership_runtime_sys_over_dictionary",
+                          "membership_checkpoint_bytes_over_dictionary"):
+                  assert math.isfinite(row[key]) and row[key]>0
+          if r["classification"]=="ACC36_U07_U18_BOUNDED_GO_RESOURCE_POSITIVE__NO_SCIENCE":
+              assert all(row["engineering_acceptance"] for row in r["cohorts"])
+          else:
+              assert r["classification"]=="ACC36_U07_U18_NO_EXACT_NATIVE_GO_MEMORY_RESOURCE_WIN__NO_SCIENCE"
+              assert any(not row["engineering_acceptance"] for row in r["cohorts"])
+          print("ACC36_NATIVE_GO_MEMORY_CLASSIFICATION="+r["classification"])
+          for row in r["cohorts"]:
+              print("ACC36_REAL_CPU_AND_CORRECTNESS="+json.dumps(row,sort_keys=True))
+          print("ACC36_REPORT_SHA256="+hashlib.sha256(raw).hexdigest())
+          print("ACC36_NATIVE_MODEL_SPEEDUP_OR_SCIENTIFIC_FIRST_USE=NOT_PROVEN")
+          PY
+      - name: Preserve exact original portfolio and resource/quality evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc36-original-u07-u18-native-go-memory-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc36-vector-go-report.json
+            ${{ runner.temp }}/acc36-36-register.json
+          retention-days: 30
+          if-no-files-found: error
