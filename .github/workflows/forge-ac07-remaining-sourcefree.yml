@@ -1,0 +1,585 @@
+name: FORGE AC-07 remaining originals source-free qualification
+on:
+  push:
+    branches:
+      - research/ac07-remaining-originals-sourcefree-20261028
+    paths:
+      - 'research/ac07_sourcefree/**'
+      - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
+      - 'docs/research/AC-10-DTR-SOURCE-NATIVE-COMPATIBILITY-PREFLIGHT.md'
+      - 'docs/research/AC-11-AUTHENTIC-DTR-DEPENDENCY-PUBLIC-SMOKE-PROTOCOL.md'
+      - 'docs/research/AC-12-GENUINE-UPSTREAM-IMPORT-REPAIR-PROTOCOL.md'
+      - 'docs/research/AC-13-REAL-PYTORCH-TORCHVISION-REPAIR-PROTOCOL.md'
+      - 'docs/research/AC-14-AUTHENTIC-OGBENCH-IMPORT-PROTOCOL.md'
+      - 'docs/research/AC-15-AUTHENTIC-DTR-YGG-LEARNER-PROTOCOL.md'
+      - 'docs/research/AC-16-REAL-DTR-NATIVE-YGG-NCA-PREREGISTRATION.md'
+      - 'docs/research/AC-17-NATIVE-IDENTIFIABILITY-DIAGNOSTIC-PREREGISTRATION.md'
+      - 'docs/research/AC-18-ORIGINAL-EIGHT-CELL-DTR-RETENTION-PREREGISTRATION.md'
+      - 'docs/research/AC-19-TYPED-REAL-DTR-EIGHT-CELL-PREREGISTRATION.md'
+      - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
+  pull_request:
+    branches:
+      - research/ac06-restricted-originals-sourcefree-20261028
+    paths:
+      - 'research/ac07_sourcefree/**'
+      - 'docs/research/AC-08-PORTFOLIO-CONSOLIDATION-DECISION.md'
+      - 'docs/research/AC-10-DTR-SOURCE-NATIVE-COMPATIBILITY-PREFLIGHT.md'
+      - 'docs/research/AC-11-AUTHENTIC-DTR-DEPENDENCY-PUBLIC-SMOKE-PROTOCOL.md'
+      - 'docs/research/AC-12-GENUINE-UPSTREAM-IMPORT-REPAIR-PROTOCOL.md'
+      - 'docs/research/AC-13-REAL-PYTORCH-TORCHVISION-REPAIR-PROTOCOL.md'
+      - 'docs/research/AC-14-AUTHENTIC-OGBENCH-IMPORT-PROTOCOL.md'
+      - 'docs/research/AC-15-AUTHENTIC-DTR-YGG-LEARNER-PROTOCOL.md'
+      - 'docs/research/AC-16-REAL-DTR-NATIVE-YGG-NCA-PREREGISTRATION.md'
+      - 'docs/research/AC-17-NATIVE-IDENTIFIABILITY-DIAGNOSTIC-PREREGISTRATION.md'
+      - 'docs/research/AC-18-ORIGINAL-EIGHT-CELL-DTR-RETENTION-PREREGISTRATION.md'
+      - 'docs/research/AC-19-TYPED-REAL-DTR-EIGHT-CELL-PREREGISTRATION.md'
+      - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-ac07-sourcefree-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  remaining:
+    name: source-free original complements / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      AC10_UPSTREAM_ROOT: ${{ github.workspace }}/ac10_upstream
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact Git commit and AC-06 parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor aac74498ec2be61af140b0e2602da8a73d6221e2 "$GITHUB_SHA"
+          test ! -e research/ac07_sourcefree/launch.json
+          echo "AC07_SOURCE_IDENTITY=PASS"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check out authentic external upstream DTR at frozen commit
+        uses: actions/checkout@v4
+        with:
+          repository: CausalAILab/Causal-Gymnasium
+          ref: c94e9a4cd3641588b6b8507e71ccee5c27032bdf
+          path: ac10_upstream
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Focused AC-07 and AC-06 source-free regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_*.py' -v
+          python -B -m unittest discover -s research/ac06_sourcefree -p 'test_*.py' -v
+          python -B -m unittest discover -s research/ac05_sourcefree -p 'test_*.py' -v
+          echo "AC07_SOURCEFREE_REGRESSIONS=PASS"
+      - name: Execute restricted 15-claim complement with all negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ac07"
+          python -B research/ac07_sourcefree/remaining.py > "$RUNNER_TEMP/ac07/report.json"
+          python - "$RUNNER_TEMP/ac07/report.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding='utf-8'))
+          assert r["schema"]=="forge.ac07.remaining-originals.sourcefree.v1"
+          assert r["scope"]=="SYNTHETIC_DEVELOPMENT_ONLY"
+          assert r["families"]==9
+          assert len(r["observations"])==27
+          assert len(r["restricted_new_original_ids"])==15
+          assert r["combined_ac06_ac07_original_id_coverage"]==30
+          assert r["physical_substitute_not_physical_result"]==["U03","U06"]
+          assert r["relevant_baseline_improvement_proven"] is False
+          assert r["scientific_first_use"] is False
+          assert r["scientific_admission"] is False
+          assert r["native_model_or_architecture_changed"] is False
+          assert r["independent_itd02_consequence_source_verified"] is False
+          assert r["controller_or_queue_modified"] is False
+          print("AC07_ORIGINAL_COMPLEMENT_DEVELOPMENT=PASS")
+          print("AC07_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Reconcile all 36 source-free candidates without scientific admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac08_portfolio.py > "$RUNNER_TEMP/ac07/portfolio.json"
+          python - "$RUNNER_TEMP/ac07/portfolio.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac08.portfolio-reconciliation.sourcefree.v1"
+          assert r["scope"]=="READ_ONLY_RECONCILIATION_OF_SYNTHETIC_DEVELOPMENT"
+          assert r["unique_claim_count"]==36
+          assert r["original_count"]==30 and r["native_hypothesis_count"]==6
+          assert len(r["portfolio_rows"])==36
+          assert len({x["claim_id"] for x in r["portfolio_rows"]})==36
+          assert r["physical_substitute_only_ids"]==["U03","U06"]
+          assert r["scientific_first_use_authorized"] is False
+          assert r["scientific_admission_authorized"] is False
+          assert r["model_promotion_authorized"] is False
+          assert r["controller_or_queue_changed"] is False
+          assert r["native_model_learning_superiority_proven"] is False
+          assert r["independent_itd02_consequence_source_verified"] is False
+          print("AC08_PORTFOLIO_36_OF_36_SOURCE_ONLY=PASS")
+          print("AC08_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: AC-10 pinned original DTR import and no-episode packaging qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac10_upstream_contract.py --upstream "$AC10_UPSTREAM_ROOT" --out "$RUNNER_TEMP/ac07/ac10-report.json"
+          python - "$RUNNER_TEMP/ac07/ac10-report.json" <<'PY'
+          import json,sys
+          from pathlib import Path
+          r=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac10.upstream-dtr-source-compatibility.v1"
+          assert r["upstream"]["sha"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["upstream"]["tree"]=="fd8d8a67c1fc7fa62274dc7e12fb1e77945632f0"
+          assert r["original_source_interactions_performed"]==0
+          assert r["native_model_training_performed"] is False
+          assert r["scientific_first_use"] is False
+          assert r["accepted_science_or_native_models_changed"] is False
+          assert r["controller_or_f139_queue_changed"] is False
+          print("AC10_SOURCE_NATIVE_IMPORT_PREFLIGHT_COMPLETED")
+          print("AC10_RUNTIME_IMPORT_STATUS="+r["import_probe"]["status"])
+          PY
+      - name: AC-11 install original upstream dependencies and run constrained public smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac11_original_dtr.py --upstream "$AC10_UPSTREAM_ROOT" --out "$RUNNER_TEMP/ac07/ac11-report.json" --freeze "$RUNNER_TEMP/ac07/ac11-freeze.txt" --venv "$RUNNER_TEMP/ac11_venv"
+          python - "$RUNNER_TEMP/ac07/ac11-report.json" <<'PY'
+          import json,sys,hashlib,pathlib
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac11.original-dtr-public-compatibility.v1"
+          assert r["scope"]=="AUTHENTIC_SOURCE_PUBLIC_DEVELOPMENT_ONLY"
+          assert r["upstream_source_sha"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["upstream_tree_sha"]=="fd8d8a67c1fc7fa62274dc7e12fb1e77945632f0"
+          assert r["original_setup_py_used"] is True
+          assert r["full_declared_dependency_install_attempted"] is True
+          assert r["real_scientific_first_use"] is False
+          assert r["native_model_training_performed"] is False
+          assert r["accepted_model_or_controller_modified"] is False
+          assert r["reserved_fit_seeds_used"] is False
+          assert r["reserved_validation_seeds_used"] is False
+          assert r["reserved_dev_seeds_used"] is False
+          if r["public_development_smoke_status"]=="ACTUAL_SOURCE_PUBLIC_SMOKE_PASS":
+              assert r["source_owned_episodes_executed"]==2
+              assert r["source_owned_actions_executed"]==4
+              assert r["public_smoke"]["source_env_exposed_to_learner"] is False
+              assert r["public_smoke"]["learner_receives_unfiltered_info"] is False
+              print("AC11_AUTHENTIC_PUBLIC_SMOKE=PASS")
+          else:
+              print("AC11_AUTHENTIC_PUBLIC_SMOKE=BLOCKED")
+              print("AC11_BLOCKER="+str(r["installation_diagnostic"]))
+              if r["source_public_smoke_attempted"]:
+                  assert r["source_owned_episodes_executed"] is None
+                  assert r["source_owned_actions_executed"] is None
+              else:
+                  assert r["source_owned_episodes_executed"]==0
+                  assert r["source_owned_actions_executed"]==0
+          print("AC11_DIAGNOSTIC_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: AC-12 try verified pinned real Minigrid wheel after exact first original import error
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac12_import_repair.py --upstream "$AC10_UPSTREAM_ROOT" --venv "$RUNNER_TEMP/ac11_venv" --out "$RUNNER_TEMP/ac07/ac12-report.json" --freeze "$RUNNER_TEMP/ac07/ac12-freeze.txt"
+          python - "$RUNNER_TEMP/ac07/ac12-report.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac12.source-native-missing-dependency.v1"
+          assert r["scope"]=="EXACT_AUTHENTIC_UPSTREAM_PUBLIC_DEVELOPMENT_ONLY"
+          assert r["original_source_sha"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["original_source_tree"]=="fd8d8a67c1fc7fa62274dc7e12fb1e77945632f0"
+          assert r["original_dtr_sha256"]=="e31eff82f862355057653d150967bb44a5ed57a6acaad57f7ecf2a551f6c6811"
+          assert r["pinned_extra_name"]=="minigrid==2.3.1"
+          assert r["reserved_fit_validation_dev_seeds_used"] is False
+          assert r["science_unknown_family_touched"] is False
+          assert r["fitted_models_count"]==0
+          assert r["native_model_modified"] is False
+          assert r["original_first_use_authorized"] is False
+          assert r["scientific_admission"] is False
+          assert r["forged_causal_source_created"] is False
+          assert r["source_files_edited"] is False
+          assert r["controller_or_queue_mutated"] is False
+          if r["pinned_extra_install_attempted"] and r["dependency_install_return_code"]==0:
+              assert r["authentic_pypi_wheel_sha256_verified"] is True
+          if r["public_smoke_status"]=="ACTUAL_ORIGINAL_PUBLIC_SMOKE_PASS":
+              assert r["source_public_episodes_executed"]==2
+              assert r["source_public_actions_executed"]==4
+              assert r["public_smoke"]["learner_receives_unfiltered_info"] is False
+              print("AC12_AUTHENTIC_PUBLIC_SOURCE=PASS")
+          else:
+              print("AC12_AUTHENTIC_PUBLIC_SOURCE=BLOCKED")
+              print("AC12_FIRST_MISSING="+str(r["first_original_import"]["exception"]["module"]))
+              print("AC12_NEXT_MISSING="+str(r["original_import_after_pinned_extra"]["exception"]["module"]))
+              if r["public_smoke_attempted"]:
+                  assert r["source_public_episodes_executed"] is None
+                  assert r["source_public_actions_executed"] is None
+              else:
+                  assert r["source_public_episodes_executed"]==0
+                  assert r["source_public_actions_executed"]==0
+          print("AC12_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: AC-13 authenticate official CPU PyTorch wheels and original DTR import
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac13_cpu_torchvision.py --upstream "$AC10_UPSTREAM_ROOT" --venv "$RUNNER_TEMP/ac11_venv" --ac12-report "$RUNNER_TEMP/ac07/ac12-report.json" --out "$RUNNER_TEMP/ac07/ac13-report.json" --freeze "$RUNNER_TEMP/ac07/ac13-freeze.txt"
+          python - "$RUNNER_TEMP/ac07/ac13-report.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac13.original-pytorch-cpu-import.v1"
+          assert r["scope"]=="AUTHENTIC_ORIGINAL_PUBLIC_DEVELOPMENT_COMPATIBILITY_ONLY"
+          assert r["original_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["original_tree"]=="fd8d8a67c1fc7fa62274dc7e12fb1e77945632f0"
+          assert r["original_dtr_sha256"]=="e31eff82f862355057653d150967bb44a5ed57a6acaad57f7ecf2a551f6c6811"
+          assert r["cpu_only"] is True
+          assert r["pinned_torch"]=="2.3.1+cpu"
+          assert r["pinned_torchvision"]=="0.18.1+cpu"
+          assert r["reserved_fit_validation_dev_used"] is False
+          assert r["unknown_family_used"] is False
+          assert r["trained_native_model"] is False
+          assert r["scientific_first_use"] is False
+          assert r["scientific_admission"] is False
+          assert r["source_edited"] is False
+          assert r["controller_or_queue_mutated"] is False
+          assert r["accepted_model_changed"] is False
+          for pkg,value in r["downloaded_sha256"].items():
+              assert value==r["official_index_sha256"][pkg]
+          if r["public_smoke_status"]=="ACTUAL_SOURCE_PUBLIC_SMOKE_PASS":
+              assert r["source_owned_episodes"]==2 and r["source_owned_actions"]==4
+              assert r["public_smoke"]["source_env_exposed_to_learner"] is False
+              assert r["public_smoke"]["learner_receives_unfiltered_info"] is False
+              print("AC13_REAL_PUBLIC_SOURCE_SMOKE=PASS")
+          else:
+              print("AC13_REAL_PUBLIC_SOURCE_SMOKE=BLOCKED")
+              print("AC13_PACKAGE_BLOCKER="+str(r["failure_class"]))
+              if r["source_public_smoke_attempted"]:
+                  assert r["source_owned_episodes"] is None
+                  assert r["source_owned_actions"] is None
+              else:
+                  assert r["source_owned_episodes"]==0
+                  assert r["source_owned_actions"]==0
+          print("AC13_DEVELOPMENT_DIAGNOSTIC=PASS")
+          print("AC13_EVIDENCE_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: AC-14 verify authentic OGBench wheel and re-evaluate original DTR
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac14_ogbench.py --upstream "$AC10_UPSTREAM_ROOT" --venv "$RUNNER_TEMP/ac11_venv" --ac13-report "$RUNNER_TEMP/ac07/ac13-report.json" --out "$RUNNER_TEMP/ac07/ac14-report.json" --freeze "$RUNNER_TEMP/ac07/ac14-freeze.txt"
+          python - "$RUNNER_TEMP/ac07/ac14-report.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac14.original-ogbench-compatibility.v1"
+          assert r["scope"]=="AUTHENTIC_SOURCE_PUBLIC_ENGINEERING_ONLY"
+          assert r["original_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["original_tree"]=="fd8d8a67c1fc7fa62274dc7e12fb1e77945632f0"
+          assert r["original_dtr_sha256"]=="e31eff82f862355057653d150967bb44a5ed57a6acaad57f7ecf2a551f6c6811"
+          assert r["pypi_version"]=="1.2.1"
+          assert r["expected_wheel_sha256"]=="597ac2207935e4edc46de5d5742e940a753f2329e18612e9cfe7f9e857435f83"
+          assert r["source_files_modified"] is False
+          assert r["original_source_birth_signed"] is False
+          assert r["reserved_fit_valid_dev_used"] is False
+          assert r["unknown_family_used"] is False
+          assert r["native_model_trained"] is False
+          assert r["native_model_changed"] is False
+          assert r["scientific_first_use"] is False
+          assert r["scientific_admission"] is False
+          assert r["controller_or_f139_queue_changed"] is False
+          assert r["accepted_science_updated"] is False
+          if r["wheel_verified"]:
+              assert r["official_wheel_metadata"]["sha256"]==r["downloaded_wheel_sha256"]
+              assert r["downloaded_wheel_bytes"]==8940331
+          if r["smoke_status"]=="REAL_SOURCE_PUBLIC_SMOKE_PASS":
+              assert r["source_owned_public_episodes"]==2
+              assert r["source_owned_public_actions"]==4
+              assert r["actual_public_smoke"]["learner_receives_unfiltered_info"] is False
+              assert r["actual_public_smoke"]["source_env_exposed_to_learner"] is False
+              print("AC14_ORIGINAL_PUBLIC_SOURCE=PASS")
+          else:
+              print("AC14_ORIGINAL_PUBLIC_SOURCE=BLOCKED")
+              print("AC14_NEXT_BLOCKER="+str(r["error_class"]))
+              if r["smoke_attempted"]:
+                  assert r["source_owned_public_episodes"] is None
+                  assert r["source_owned_public_actions"] is None
+              else:
+                  assert r["source_owned_public_episodes"]==0
+                  assert r["source_owned_public_actions"]==0
+          print("AC14_ENGINEERING_DIAGNOSTICS=PASS")
+          print("AC14_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Check out actual existing Yggdrasil causal-cell developer source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 992ef142aaa551156749a1de484a971b9a0c092f
+          path: ac15_ygg
+          persist-credentials: false
+          fetch-depth: 1
+      - name: AC-15 fit unchanged Ygg cells on authentic DTR FIT and test frozen DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac15_native_public_adapter.py --upstream "$AC10_UPSTREAM_ROOT" --ygg "$GITHUB_WORKSPACE/ac15_ygg" --venv "$RUNNER_TEMP/ac11_venv" --ac14-report "$RUNNER_TEMP/ac07/ac14-report.json" --out "$RUNNER_TEMP/ac07/ac15-report.json"
+          python - "$RUNNER_TEMP/ac07/ac15-report.json" <<'PY'
+          import json,pathlib,sys,hashlib
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding='utf-8'))
+          assert r["schema"]=="forge.ac15.original-dtr-ygg-public-causal-cells.v1"
+          assert r["scope"]=="AUTHENTIC_PUBLIC_DEVELOPMENT_LEARNER_CONTROL_ONLY"
+          assert r["upstream_sha"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["existing_ygg_commit"]=="992ef142aaa551156749a1de484a971b9a0c092f"
+          assert r["existing_ygg_git_blob"]=="f2fda603fbed965a3b4e7cc28844b2246bf8ac2b"
+          assert r["source_fit"]["source_owned_episodes"]==8
+          assert r["source_dev"]["source_owned_episodes"]==4
+          assert r["source_fit"]["source_owned_actions"]==16
+          assert r["source_dev"]["source_owned_actions"]==8
+          assert r["fit_observed_action_outcome_updates"]==16
+          assert r["retained_checkpoint_bytes"]==164
+          assert r["cold_restore_identical"] is True
+          assert r["fully_fitted_tabular_control_parity"] is True
+          assert r["dev_updates"]==0
+          assert len(r["dev_choices"])==8
+          assert r["candidate_beats_fully_fitted_control"] is False
+          assert r["candidate_realized_policy_value_measured"] is False
+          for k in ("scientific_first_use","protected_science_family_used",
+                    "native_wingless_or_yggdrasil_source_modified",
+                    "controller_or_queue_changed","accepted_science_changed",
+                    "independent_unfamiliar_family_transfer_tested",
+                    "reserved_public_valid_used"):
+              assert r[k] is False
+          print("AC15_ACTUAL_SOURCE_NATIVE_CONTROL_FIT_DEV=PASS")
+          print("AC15_ORIGINAL_CHECKPOINT_AND_TABULAR_PARITY=PASS")
+          print("AC15_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Check out the current active Yggdrasil native local NCA source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 92c421a5475a27015a390efb88c373eb5f15379d
+          path: ac16_ygg_active
+          persist-credentials: false
+          fetch-depth: 1
+      - name: AC-16 train original Ygg local updater on source-owned FIT and freeze DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            PYPATH="$RUNNER_TEMP/ac11_venv/Scripts/python.exe"
+          else
+            PYPATH="$RUNNER_TEMP/ac11_venv/bin/python"
+          fi
+          "$PYPATH" -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac16_*.py' -v
+          "$PYPATH" -B research/ac07_sourcefree/ac16_current_ygg_nca.py --ygg "$GITHUB_WORKSPACE/ac16_ygg_active" --ac15-report "$RUNNER_TEMP/ac07/ac15-report.json" --out "$RUNNER_TEMP/ac07/ac16-report.json"
+          "$PYPATH" - "$RUNNER_TEMP/ac07/ac16-report.json" <<'PY'
+          import json,sys,pathlib,hashlib,math
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding='utf-8'))
+          assert r["schema"]=="forge.ac16.actual-ygg-local-nca-public-development.v1"
+          assert r["scope"]=="EXTERNAL_SUPERVISED_ADAPTER_ON_UNCHANGED_NATIVE_NCA"
+          assert r["current_ygg_native_source_commit"]=="92c421a5475a27015a390efb88c373eb5f15379d"
+          assert r["current_ygg_nca_blob"]=="7b15017b7f5c6f9b507bcf43f4545a3c972f40d1"
+          assert r["original_source_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["actual_source_owned_new_episodes"]==0
+          assert r["fit_public_outcome_examples"]==16
+          assert r["dev_public_outcome_examples"]==8
+          assert r["native_trainable_parameter_count"]>0
+          assert r["model_training"]["initial_parameter_sha256"]!=r["model_training"]["trained_parameter_sha256"]
+          assert r["native_checkpoint_cold_restored"] is True
+          assert r["native_weight_sha256_before_dev"]==r["native_weight_sha256_after_dev"]
+          assert len(r["dev_model_probabilities"])==8
+          assert all(math.isfinite(x) and 0<=x<=1 for x in r["dev_model_probabilities"])
+          assert r["same_observations_and_fit_budget_for_conventional_controls"] is True
+          for k in ("trained_on_dev","native_model_training_objective_is_original_ygg_morphology_objective",
+                    "actual_distributed_action_policy_executed","action_policy_return_measured",
+                    "unfamiliar_family_transfer_measured","causal_credit_assignment_established",
+                    "native_repo_code_modified","original_source_code_modified",
+                    "scientific_first_use","scientific_admission","controller_or_queue_modified"):
+              assert r[k] is False,k
+          print("AC16_ACTUAL_NATIVE_LOCAL_UPDATER_FIT_AND_FROZEN_DEV=PASS")
+          print("AC16_SCIENTIFIC_SUPERIORITY=NOT_ESTABLISHED")
+          print("AC16_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: AC-17 diagnose genuine public source collisions and original local-NCA FIT CV
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            PYPATH="$RUNNER_TEMP/ac11_venv/Scripts/python.exe"
+          else
+            PYPATH="$RUNNER_TEMP/ac11_venv/bin/python"
+          fi
+          "$PYPATH" -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac17_*.py' -v
+          "$PYPATH" -B research/ac07_sourcefree/ac17_identifiability_diagnosis.py --ygg "$GITHUB_WORKSPACE/ac16_ygg_active" --ac15-report "$RUNNER_TEMP/ac07/ac15-report.json" --ac16-report "$RUNNER_TEMP/ac07/ac16-report.json" --out "$RUNNER_TEMP/ac07/ac17-report.json"
+          "$PYPATH" - "$RUNNER_TEMP/ac07/ac17-report.json" <<'PY'
+          import json,sys,pathlib,hashlib,math
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding='utf-8'))
+          assert r["schema"]=="forge.ac17.original-public-identifiability-locality.v1"
+          assert r["scope"]=="DIAGNOSE_EXISTING_NATIVE_NEGATIVE_PUBLIC_ONLY"
+          assert r["original_dtr_source_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["current_ygg_source_commit"]=="92c421a5475a27015a390efb88c373eb5f15379d"
+          assert r["source_fit_episodes_reused"]==8
+          assert r["source_dev_episodes_reused"]==4
+          assert r["fit_public_outcomes"]==16
+          assert r["dev_public_outcomes"]==8
+          assert r["new_source_episodes_executed"]==0
+          a=r["fit_public_context_identifiability"]
+          assert sum(x["negative"]+x["positive"] for x in a["train_context_outcome_counts"])==16
+          assert a["train_contexts_with_both_outcomes"]>=1
+          assert a["dev_unseen_context_action_count"]>=1
+          folds=r["leave_one_fit_episode_out_native_vs_controls"]
+          assert folds["fixed_fit_episodes"]==8
+          assert folds["total_native_gradient_steps"]==512
+          assert folds["dev_seen_in_cv"] is False
+          assert len(folds["folds"])==8
+          assert all(x["native_changed_parameters"] for x in folds["folds"])
+          assert len(r["model_public_feature_flip_sensitivity"])==3
+          assert r["frozen_model_sha256_before_sensitivity"]==r["frozen_model_sha256_after_sensitivity"]
+          assert r["dev_gradient_updates"]==0
+          for k in ("scientific_first_use","scientific_admission",
+                    "native_source_repos_modified","controller_or_queue_modified",
+                    "research_owner_manifest_modified",
+                    "unfamiliar_family_transfer_tested",
+                    "true_environment_action_counterfactual_performed",
+                    "causal_identifiability_proved"):
+              assert r[k] is False,k
+          print("AC17_GENUINE_PUBLIC_IDENTIFIABILITY_DIAGNOSTIC=PASS")
+          print("AC17_SOURCE_NATIVE_LEARNER_CV_AND_BASELINES=MEASURED")
+          print("AC17_SCIENTIFIC_PROMOTION=NO")
+          print("AC17_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Check out historical original eight-cell local-memory Yggdrasil development source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: a39171a76d0d7817e3563682bb139a9d7ecf37c4
+          path: ac18_ygg_historical
+          persist-credentials: false
+          fetch-depth: 1
+      - name: AC-18 test original ring locality and fit authentic DTR public rewards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac18_*.py' -v
+          (
+            cd ac18_ygg_historical
+            python -B -m unittest discover -s tests -p 'test_itd02_local_ring_memory_dev.py' -v
+          )
+          python -B research/ac07_sourcefree/ac18_original_ring_dtr.py --ygg "$GITHUB_WORKSPACE/ac18_ygg_historical" --ac15-report "$RUNNER_TEMP/ac07/ac15-report.json" --out "$RUNNER_TEMP/ac07/ac18-report.json"
+          python - "$RUNNER_TEMP/ac07/ac18-report.json" <<'PY'
+          import json,pathlib,sys,hashlib,math
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding='utf-8'))
+          assert r["schema"]=="forge.ac18.authentic-dtr-historical-eight-cell-dev.v1"
+          assert r["scope"]=="HISTORICAL_EIGHT_CELL_PUBLIC_DEV_ONLY"
+          assert r["upstream_original_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["historical_ygg_original_commit"]=="a39171a76d0d7817e3563682bb139a9d7ecf37c4"
+          assert r["historical_ring_original_git_blob"]=="1db0835d5c99456bcf99a013d4836f49314a9d39"
+          assert r["historical_native_bridge_original_git_blob"]=="b311ea7ea00c15d23e7bd43ff97bd10ce3d8b87c"
+          assert r["new_source_owned_episodes"]==0
+          assert r["public_original_fit_episodes_reused"]==8
+          assert r["public_original_dev_episodes_reused"]==4
+          assert r["original_fit_reward_updates"]==16
+          assert r["original_ring_parameter_sha_before"]!=r["original_ring_parameter_sha_after"]
+          assert r["cold_replay_byte_exact"] is True
+          assert r["ring_checkpoint_bytes"]<=8192
+          assert r["full_native_task_bridge_admission"]["full_native_runtime_admission"]=="NO_GO_PUBLIC_TYPE_MISMATCH"
+          assert r["full_native_task_bridge_admission"]["source_terminal_reward_one_accepted"] is False
+          assert r["full_native_task_bridge_admission"]["source_terminal_successor_none_accepted"] is False
+          assert r["return_a_frozen_q_identical"] is True
+          assert r["dev_fit_updates"]==0
+          for k in ("scientific_first_use","scientific_admission",
+                    "native_production_runtime_connected",
+                    "ygg_native_repo_edited","forge_controller_or_queue_modified",
+                    "true_source_counterfactual_policy_value_measured",
+                    "independent_cell_local_plasticity_proven",
+                    "return_a_intervening_learning_tested"):
+              assert r[k] is False,k
+          for name,score in r["fitted_conventional_controls"].items():
+              assert score["count"]==4 and math.isfinite(score["brier"])
+          assert r["original_native_dev_terminal_score"]["count"]==4
+          print("AC18_AUTHENTIC_EIGHT_CELL_MEMORY_FIT=PASS")
+          print("AC18_FULL_NATIVE_BRIDGE=NO_GO_SOURCE_TYPE_MISMATCH")
+          print("AC18_NO_SCIENTIFIC_PROMOTION=TRUE")
+          print("AC18_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: AC-19 fit original local runtime through lossless source-reward typed adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac19_*.py' -v
+          python -B research/ac07_sourcefree/ac19_typed_original_native_bridge.py --ygg "$GITHUB_WORKSPACE/ac18_ygg_historical" --ac15-report "$RUNNER_TEMP/ac07/ac15-report.json" --ac18-report "$RUNNER_TEMP/ac07/ac18-report.json" --out "$RUNNER_TEMP/ac07/ac19-report.json"
+          python - "$RUNNER_TEMP/ac07/ac19-report.json" <<'PY'
+          import hashlib,json,pathlib,sys,math
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac19.typed-public-terminal-native-local-control.v1"
+          assert r["scope"]=="EXTERNAL_TYPED_ADAPTER_HISTORICAL_NATIVE_DEVELOPMENT_ONLY"
+          assert r["upstream_original_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["historical_ygg_commit"]=="a39171a76d0d7817e3563682bb139a9d7ecf37c4"
+          assert r["original_local_task_runtime_blob"]=="68a1423e0bd7206af511212c14b6ce8534154cc2"
+          assert r["source_fit_episodes_reused"]==8
+          assert r["source_dev_episodes_reused"]==4
+          assert r["new_source_owned_episodes"]==0
+          assert r["lossless_public_binary_encoding"]["unique_input_vectors"]==8
+          assert r["lossless_public_binary_encoding"]["unique_output_vectors"]==6
+          assert r["terminal_null_encoded_without_forged_observation"] is True
+          assert r["original_reward_1_preserved"] is True
+          assert r["original_native_bridge_remains_incompatible"]["full_native_runtime_admission"]=="NO_GO_PUBLIC_TYPE_MISMATCH"
+          assert r["fit_public_stage_transitions"]==16
+          assert r["original_local_task_runtime_fitted_events"]==16
+          assert r["original_ring_memory_fitted_updates"]==16
+          assert r["native_original_parameter_sha_before_fit"]!=r["native_original_parameter_sha_after_fit"]
+          assert r["ring_original_parameter_sha_before_fit"]!=r["ring_original_parameter_sha_after_fit"]
+          assert r["original_native_and_ring_checkpoint_restored"] is True
+          assert len(r["dev_public_source_records"])==8
+          assert r["native_local_runtime_dev_terminal_metric"]["total"]==4
+          assert r["equal_information_original_local_count_control_metric"]["total"]==4
+          assert all(math.isfinite(x["brier"]) for x in
+                     [r["native_local_runtime_dev_terminal_metric"],
+                      r["equal_information_original_local_count_control_metric"],
+                      *r["additional_fitted_source_controls"].values()])
+          assert r["dev_native_optimizer_updates"]==0 and r["dev_ring_reward_updates"]==0
+          for k in ("true_on_policy_return_measured","live_native_actions_executed",
+                    "original_native_bridge_replaced_in_production",
+                    "current_ygg_native_branch_modified","historical_ygg_source_modified",
+                    "scientific_first_use","scientific_admission","controller_or_queue_modified"):
+              assert r[k] is False,k
+          print("AC19_ORIGINAL_NATIVE_TYPED_SOURCE_ENGINEERING=PASS")
+          print("AC19_ORIGINAL_HISTORICAL_BRIDGE_STILL_INCOMPATIBLE=TRUE")
+          print("AC19_SCIENCE_PROMOTION=NO")
+          print("AC19_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Retain source-free evidence per operating system
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-ac07-${{ matrix.os }}-sourcefree-restricted
+          path: |
+            ${{ runner.temp }}/ac07/report.json
+            ${{ runner.temp }}/ac07/portfolio.json
+            ${{ runner.temp }}/ac07/ac10-report.json
+            ${{ runner.temp }}/ac07/ac11-report.json
+            ${{ runner.temp }}/ac07/ac11-freeze.txt
+            ${{ runner.temp }}/ac07/ac12-report.json
+            ${{ runner.temp }}/ac07/ac12-freeze.txt
+            ${{ runner.temp }}/ac07/ac13-report.json
+            ${{ runner.temp }}/ac07/ac13-freeze.txt
+            ${{ runner.temp }}/ac07/ac14-report.json
+            ${{ runner.temp }}/ac07/ac14-freeze.txt
+            ${{ runner.temp }}/ac07/ac15-report.json
+            ${{ runner.temp }}/ac07/ac16-report.json
+            ${{ runner.temp }}/ac07/ac17-report.json
+            ${{ runner.temp }}/ac07/ac18-report.json
+            ${{ runner.temp }}/ac07/ac19-report.json
+          retention-days: 30
+          if-no-files-found: error

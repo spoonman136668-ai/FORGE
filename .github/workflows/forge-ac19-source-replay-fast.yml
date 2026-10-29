@@ -1,0 +1,121 @@
+name: AC19 authenticated source-public replay (fast)
+on:
+  push:
+    branches:
+      - research/ac07-remaining-originals-sourcefree-20261028
+    paths:
+      - research/ac07_sourcefree/ac19_*
+      - docs/research/AC-19-*
+      - .github/workflows/forge-ac19-source-replay-fast.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-native-fast-replay:
+    name: source-pinned Ygg DTR replay / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            ac15_sha256: 68508db981776033d403094f237c17dbbfbadf822ac9eca011feb05d50cba286
+            ac18_sha256: de74656aa8cbef76f995a22d1253804583ac18c03f9715efa740ca86cd08ef10
+          - os: windows-latest
+            ac15_sha256: 071512caf92b82d8b3ed619d79d7741447be72bde29ae9b1b64fd42de2e39077
+            ac18_sha256: 2cea6c95247e36daf2a944f965b39184031da2897259d211f556655864fd95a8
+    steps:
+      - name: Checkout exact FORGE candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout frozen historical Yggdrasil source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: a39171a76d0d7817e3563682bb139a9d7ecf37c4
+          path: ac19_ygg
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Python standard-library runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve only the previously successful original-source Linux/Windows receipt
+        uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 40797373953
+          github-token: ${{ github.token }}
+          name: forge-ac07-${{ matrix.os }}-sourcefree-restricted
+          path: frozen-public-source
+      - name: Verify certified cross-run source JSON bytes before any native model fit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "frozen-public-source/ac15-report.json" "frozen-public-source/ac18-report.json" "${{ matrix.ac15_sha256 }}" "${{ matrix.ac18_sha256 }}" <<'PY'
+          import hashlib,sys,json,pathlib
+          for path,expected in ((sys.argv[1],sys.argv[3]),(sys.argv[2],sys.argv[4])):
+              p=pathlib.Path(path)
+              assert p.is_file(),path
+              got=hashlib.sha256(p.read_bytes()).hexdigest()
+              assert got==expected,(path,got,expected)
+              j=json.loads(p.read_text(encoding="utf-8"))
+              assert j["scientific_first_use"] is False
+              print("AC19_AUTHENTIC_PARENT_SHA256_VERIFIED="+p.name+"="+got)
+          PY
+      - name: Test original source-bound typed public adapter and genuine original local runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac19_*.py' -v
+          (
+            cd ac19_ygg
+            python -B -m unittest discover -s tests -p 'test_itd02_local_ring_memory_dev.py' -v
+          )
+          python -B research/ac07_sourcefree/ac19_typed_original_native_bridge.py --ygg "$GITHUB_WORKSPACE/ac19_ygg" --ac15-report "$GITHUB_WORKSPACE/frozen-public-source/ac15-report.json" --ac18-report "$GITHUB_WORKSPACE/frozen-public-source/ac18-report.json" --out "$RUNNER_TEMP/ac19-report.json"
+          python - "$RUNNER_TEMP/ac19-report.json" <<'PY'
+          import sys,hashlib,pathlib,json,math
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac19.typed-public-terminal-native-local-control.v1"
+          assert r["source_fit_episodes_reused"]==8
+          assert r["source_dev_episodes_reused"]==4
+          assert r["new_source_owned_episodes"]==0
+          assert r["original_reward_1_preserved"] is True
+          assert r["terminal_null_encoded_without_forged_observation"] is True
+          assert r["lossless_public_binary_encoding"]["native_reward_cell_one_hop_distinguishable_public_inputs"]==8
+          assert r["fit_public_stage_transitions"]==16
+          assert r["original_local_task_runtime_fitted_events"]==16
+          assert r["original_ring_memory_fitted_updates"]==16
+          assert r["original_native_and_ring_checkpoint_restored"] is True
+          assert len(r["dev_public_source_records"])==8
+          assert r["native_local_runtime_dev_terminal_metric"]["total"]==4
+          assert r["equal_information_original_local_count_control_metric"]["total"]==4
+          assert r["dev_native_optimizer_updates"]==0
+          assert r["dev_ring_reward_updates"]==0
+          assert r["original_native_bridge_remains_incompatible"]["full_native_runtime_admission"]=="NO_GO_PUBLIC_TYPE_MISMATCH"
+          for k in ("live_native_actions_executed","true_on_policy_return_measured",
+                    "original_native_bridge_replaced_in_production",
+                    "current_ygg_native_branch_modified","historical_ygg_source_modified",
+                    "scientific_first_use","scientific_admission","controller_or_queue_modified"):
+              assert r[k] is False,k
+          assert all(math.isfinite(v["brier"]) for v in [
+              r["native_local_runtime_dev_terminal_metric"],
+              r["equal_information_original_local_count_control_metric"],
+              *r["additional_fitted_source_controls"].values()])
+          print("AC19_AUTHENTIC_TYPED_ENGINEERING=PASS")
+          print("AC19_REAL_NATIVE_BRIER="+str(r["native_local_runtime_dev_terminal_metric"]["brier"]))
+          print("AC19_NATIVE_ORIGINAL_COUNT_BRIER="+str(r["equal_information_original_local_count_control_metric"]["brier"]))
+          print("AC19_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Retain exact AC19 replay evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ac19-source-pinned-${{ matrix.os }}-evidence
+          path: |
+            ${{ runner.temp }}/ac19-report.json
+          if-no-files-found: ignore
+          retention-days: 30
