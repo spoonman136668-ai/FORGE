@@ -271,7 +271,7 @@ class ReversalGuardNavigation(EvidenceNavigation):
             # Keep reward tied only to selected empirical source consequences.
             if cell is not None:
                 score += 2.0 * cell["goals"] / (1 + cell["n"])
-            # MG43: only observed own pickup->drop reversals trigger a
+            # MG42: only observed own pickup->drop reversals trigger a
             # bounded local anti-reversal penalty. No hidden inventory or
             # mission-target identity is used by this action scorer.
             if (action == 4 and self.occupied_proxy
@@ -483,7 +483,7 @@ class TargetActionValueNavigation(ReversalGuardNavigation):
             # Keep reward tied only to selected empirical source consequences.
             if cell is not None:
                 score += 2.0 * cell["goals"] / (1 + cell["n"])
-            # MG43: only observed own pickup->drop reversals trigger a
+            # MG42: only observed own pickup->drop reversals trigger a
             # bounded local anti-reversal penalty. No hidden inventory or
             # mission-target identity is used by this action scorer.
             if (action == 4 and self.occupied_proxy
