@@ -52,7 +52,7 @@ jobs:
           $branch='review/mpai-usage-continuity-20261029'
           $url='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $pins=@{
-            'tools/mpai_reference_model_dev.py'='4c48213e3eca3f6bb00ce1eb95171cd167f17e01'
+            'tools/mpai_reference_model_dev.py'='7791038a133e103918092b67f41299076c4c1741'
             'tools/mpai05_recall_cli.py'='7da8b8364713ec0dd534b5e81533456862083d5d'
           }
           if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'MPAI_DEV_FORGE_HEAD_DRIFT'}
@@ -120,33 +120,11 @@ jobs:
               throw 'MPAI_DEV_AGGREGATE_RECEIPT_INVALID'
             }
             foreach($arm in @('baseline','candidate')){
-              if($report.stats.$arm.calls -ne 4){
-                throw 'MPAI_DEV_ARM_SAMPLE_COUNT_INVALID'
-              }
+              if($report.stats.$arm.calls -ne 4){throw 'MPAI_DEV_ARM_SAMPLE_COUNT_INVALID'}
             }
             foreach($line in ($raw -split [char]10)){
               $line=$line.Trim()
-              if($line -match '^MPAI_DEV_(BASELINE|CANDIDATE)_(CALLS|EXACT_ANSWER_AGREEMENT|ABSTENTIONS|UNSCORABLE|PROMPT_TOKENS|OUTPUT_TOKENS|INFERENCE_MS)=[0-9]+
-            foreach($file in $guard){
-              $after=(Get-FileHash -LiteralPath (Join-Path $original $file) -Algorithm SHA256).Hash
-              if($after -cne $before[$file]){throw 'MPAI_DEV_PROTECTED_MEMORY_CHANGED'}
-            }
-            if(@(git -C $original status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'MPAI_DEV_PRIVATE_SOURCE_DIRTY'}
-            if(@(git status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'MPAI_DEV_FORGE_SOURCE_DIRTY'}
-            Write-Output 'MPAI_DEV_MODEL_EXECUTION_AUTHENTIC=PASS'
-            Write-Output 'MPAI_DEV_NINE_PROTECTED_HASHES=PASS'
-            Write-Output 'MPAI_DEV_SOURCE_AND_SCOPE_PIN=PASS'
-            Write-Output 'MPAI_DEV_REAL_INDEPENDENT_AGENT_AUTHENTICATED=FALSE'
-            Write-Output 'MPAI_DEV_SCIENTIFIC_ACCEPTANCE=FALSE'
-            Write-Output 'MPAI_DEV_PRODUCTION_WRITES=0'
-          } finally {
-            Set-Location $env:RUNNER_TEMP
-            if(Test-Path -LiteralPath $scratch){
-              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
-            }
-            Write-Output ('MPAI_DEV_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
-          }
-){
+              if($line -match '^MPAI_DEV_(BASELINE|CANDIDATE)_(CALLS|EXACT_ANSWER_AGREEMENT|ABSTENTIONS|UNSCORABLE|PROMPT_TOKENS|OUTPUT_TOKENS|INFERENCE_MS)=[0-9]+$'){
                 Write-Output $line
               }
             }
