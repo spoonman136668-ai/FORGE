@@ -30,7 +30,15 @@ jobs:
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $privateRepo = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
           $expectedToolBlob = 'efee36f895d9163f68cd88b372b27897557a1e6f'
-          $expectedToolsTree = '0142060579dfd1c7c1b8f73678ec8afe903b3573'
+          # Exact transitional source identities from the already-qualified
+          # Mind-Palace PR #175 -> #176 -> #177 integration sequence.
+          # PR #176 is a collector batch, so it does not change tools/.
+          # Do not accept unknown trees or enable any write/agent authority.
+          $approvedToolsTrees = @(
+            '0142060579dfd1c7c1b8f73678ec8afe903b3573', # accepted main
+            'a081fa108b6f4652d76c2aa188a6e6808a5a55a9', # after MP #175
+            'e6e290d2fc77112769a0480d354a2c56be97c6d6'  # after MP #177
+          )
           $expectedSchemasTree = '3a88cdabbe11d4cd8f95a074860f08845b1cce4a'
           $expectedAliasPolicyBlob = 'a216e65d57061d57d07dc17fce45b9905234444e'
           $expectedManifestBlob = '37e0f5ffe301519e2ce7d564367cbfe9312017c1'
@@ -111,7 +119,9 @@ jobs:
             $tool = Join-Path $root 'tools/guarded-unattended-intake.ps1'
             $queue = Join-Path $root 'policies/guarded-chat-source-queue.json'
             Assert ((& git.exe -C $root hash-object -- $tool | Out-String).Trim() -ceq $expectedToolBlob) 'ENGINE_SOURCE_DRIFT_NOT_APPROVED'
-            Assert ((& git.exe -C $root rev-parse 'HEAD:tools' | Out-String).Trim() -ceq $expectedToolsTree) 'TOOLS_DEPENDENCY_TREE_DRIFT'
+            $actualToolsTree = (& git.exe -C $root rev-parse 'HEAD:tools' | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and
+              $approvedToolsTrees -ccontains $actualToolsTree) 'TOOLS_DEPENDENCY_TREE_DRIFT'
             Assert ((& git.exe -C $root rev-parse 'HEAD:schemas' | Out-String).Trim() -ceq $expectedSchemasTree) 'SCHEMA_DEPENDENCY_TREE_DRIFT'
             Assert ((& git.exe -C $root rev-parse 'HEAD:policies/chat-source-aliases.json' | Out-String).Trim() -ceq $expectedAliasPolicyBlob) 'SOURCE_ALIAS_POLICY_DRIFT'
             Assert ((& git.exe -C $root rev-parse 'HEAD:.ice/manifest.json' | Out-String).Trim() -ceq $expectedManifestBlob) 'MANIFEST_POLICY_DRIFT'
