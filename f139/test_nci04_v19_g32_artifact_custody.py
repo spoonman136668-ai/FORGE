@@ -165,5 +165,40 @@ class G32ArtifactTests(unittest.TestCase):
             run_sample(definitions, self.run, art, self.linux, replaced)
 
 
+    def test_exact_windows_crlf_serialization_without_broad_normalization(self):
+        raw = zip_of(g32.EXPECTED["windows"][2],
+                     g32.canonical(fixture("windows")).replace(b"\\n", b"\\r\\n"))
+        definitions = dict(self.defs)
+        ident, name, member, _ = definitions["windows"]
+        definitions["windows"] = (ident, name, member, g32.sha(raw))
+        art = copy.deepcopy(self.artifacts)
+        art["artifacts"][1]["digest"] = "sha256:" + g32.sha(raw)
+        art["artifacts"][1]["size_in_bytes"] = len(raw)
+        result = run_sample(definitions, self.run, art, self.linux, raw)
+        self.assertFalse(result["native_qualified"])
+        self.assertEqual(result["diagnostic"]["windows_historical_regression"],
+                         "NEGATIVE_RETAINED")
+
+        bad = zip_of(g32.EXPECTED["windows"][2],
+                     g32.canonical(fixture("windows")).replace(b"\\n", b"\\r\\r\\n"))
+        definitions["windows"] = (ident, name, member, g32.sha(bad))
+        art["artifacts"][1]["digest"] = "sha256:" + g32.sha(bad)
+        art["artifacts"][1]["size_in_bytes"] = len(bad)
+        with self.assertRaises(g32.G32Denied):
+            run_sample(definitions, self.run, art, self.linux, bad)
+
+    def test_linux_crlf_is_not_accepted_even_with_forged_matching_zip_digest(self):
+        raw = zip_of(g32.EXPECTED["linux"][2],
+                     g32.canonical(fixture("linux")).replace(b"\\n", b"\\r\\n"))
+        definitions = dict(self.defs)
+        ident, name, member, _ = definitions["linux"]
+        definitions["linux"] = (ident, name, member, g32.sha(raw))
+        art = copy.deepcopy(self.artifacts)
+        art["artifacts"][0]["digest"] = "sha256:" + g32.sha(raw)
+        art["artifacts"][0]["size_in_bytes"] = len(raw)
+        with self.assertRaises(g32.G32Denied):
+            run_sample(definitions, self.run, art, raw, self.windows)
+
+
 if __name__ == "__main__":
     unittest.main()
