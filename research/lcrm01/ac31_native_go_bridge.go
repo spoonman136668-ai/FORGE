@@ -104,13 +104,12 @@ func process(m **native.Actor,q Request)(Reply,bool){
   }
   if err==nil{r.State=base64.StdEncoding.EncodeToString(data)}
  case "load":
+  // ONLY a complete AC30 DK15 actor checkpoint. Never interpret the
+  // new actor as an old DK13 fit-only checkpoint merely because the
+  // receiving process was freshly constructed with Mode == "".
   var data []byte
   data,err=base64.StdEncoding.DecodeString(q.State)
-  if err==nil&&a.Mode==""{
-   var old *prior.Policy
-   old,err=prior.Restore(data)
-   if err==nil{n:=native.New();n.Original=old;*m=n;a=n}
-  }else if err==nil{
+  if err==nil{
    var next *native.Actor
    next,err=native.Restore(data)
    if err==nil{*m=next;a=next}
