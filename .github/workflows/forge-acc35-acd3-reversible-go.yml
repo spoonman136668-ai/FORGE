@@ -1,0 +1,124 @@
+name: ACC35 reversible native Go delayed-memory acceleration versus zlib
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc35_go_memory/**'
+      - 'research/acceleration/acc35_crossos.py'
+      - 'docs/research/ACC-35-*'
+      - '.github/workflows/forge-acc35-acd3-reversible-go.yml'
+permissions:
+  contents: read
+jobs:
+  independent-real-go-memory:
+    name: ACC35 native Go memory exact recall and full-cost / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen before native Go code, exact 36 IDs and original negative control
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 4830a6eb90eb643f710549b726b3c4bd151e31ae HEAD
+          test "$(git hash-object docs/research/ACC-35-ACD3-REVERSIBLE-NATIVE-GO-PREREG.md)" = c05b9568b0ca811be426066ce37ec8b5ab08be76
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/acceleration/acc35_go_memory/go.mod)" = 2b47fa9c379aede47a1fcb17ae2b00d8bd78a641
+          test "$(git hash-object research/acceleration/acc35_go_memory/main.go)" = 1fd2535292d7b2c927f9f19542e1d5062e935653
+          test "$(git hash-object research/acceleration/acc35_go_memory/main_test.go)" = e05401fdbb693183cc1295ed741928dd065c1425
+          test "$(git hash-object research/acceleration/acc35_crossos.py)" = 5b300cdb9eb6c81e964314ad3986a554fe21300f
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc35-original36.json"
+          python - "$RUNNER_TEMP/acc35-original36.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["total_registered_candidates"]==36
+          assert x["stage2_qualified_native_model_speedups"]==0
+          assert set(x["hardware_substitutes_not_physical_results"])=={"U03","U06"}
+          assert not x["scientific_first_use"] and not x["scientific_admission"]
+          print("ACC35_ORIGINAL_36_AND_NEGATIVES_PRESERVED=PASS")
+          PY
+      - name: Go six source-free unit tests, vet, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc35_go_memory
+          go test -count=1 -v ./...
+          go vet ./...
+          exe="$RUNNER_TEMP/acc35_go"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then exe="$exe.exe"; fi
+          go build -trimpath -o "$exe" .
+          "$exe" report > "$RUNNER_TEMP/acc35-report.json"
+          python - "$RUNNER_TEMP/acc35-report.json" <<'PY'
+          import json,math,sys
+          r=json.load(open(sys.argv[1]))
+          assert r["schema"]=="forge.acc35.acd3.native-go-reversible-history-sourcefree.v1"
+          assert r["candidate"]=="AC-D3" and r["total_portfolio"]==36
+          assert len(r["trials"])==24 and len(r["summaries"])==2
+          assert not r["scientific_first_use"] and not r["scientific_admission"]
+          assert all(s["exact_cold_restore"] for s in r["summaries"])
+          assert r["summaries"][1]["unsafe_wrong"]>=1 and r["summaries"][1]["late_contradictions"]>=1
+          for s in r["summaries"]:
+              assert all(math.isfinite(s[k]) and s[k]>0 for k in
+                  ("radix_cpu_over_raw","radix_bytes_over_raw","radix_bytes_over_zlib"))
+          print("ACC35_GO_MEMORY_FULL_COST_CLASSIFICATION="+r["classification"])
+          print("ACC35_GO_MEMORY_COMPARISONS="+json.dumps(r["summaries"],sort_keys=True))
+          print("ACC35_REAL_NATIVE_MODEL_SPEEDUP=NOT_ESTABLISHED")
+          PY
+      - name: Store complete measured original-source-free native Go memory data
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: acc35-go-memory-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc35-report.json
+          retention-days: 30
+          if-no-files-found: error
+
+  cross-host-36-candidate-audit:
+    name: ACC35 exact 36 accelerated candidates and cross-host negative audit
+    runs-on: ubuntu-latest
+    needs: independent-real-go-memory
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: acc35-go-memory-ubuntu-latest
+          path: acc35-ci/linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: acc35-go-memory-windows-latest
+          path: acc35-ci/windows
+      - name: Check source free exact recall, cold state, strong zlib and preserved 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/acceleration/acc35_crossos.py \
+            --linux acc35-ci/linux/acc35-report.json \
+            --windows acc35-ci/windows/acc35-report.json \
+            --output acc35-ci/acc35-crossos.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acc35-36-portfolio-crosshost-sourcefree-verification
+          path: acc35-ci/acc35-crossos.json
+          retention-days: 30
+          if-no-files-found: error
