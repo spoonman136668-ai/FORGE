@@ -31,18 +31,21 @@ def encode_before(stage,obs,action):
     stage=_bit(stage,"STAGE")
     obs=_bit(obs,"OBS")
     action=_bit(action,"ACTION")
+    # The genuine site-5 reward readout can see ONLY sites 4,5,6.
+    # Keep stage, observation and action directly inside its original
+    # one-hop neighborhood so no important context is unreachable.
     values=[0]*N
-    values[2*stage+obs]=1
-    values[4+action]=1
+    values[4]=stage
+    values[5]=obs
+    values[6]=action
     return values
 
 def decode_before(bits):
     if (type(bits) is not list or len(bits)!=N or
         any(type(x) is not int or x not in (0,1) for x in bits) or
-        sum(bits[:4])!=1 or sum(bits[4:6])!=1 or bits[6:]!=[0,0]):
+        bits[:4]!=[0,0,0,0] or bits[7]!=0):
         raise ValueError("AC19_INVALID_TYPED_BEFORE_BITS")
-    context=bits[:4].index(1)
-    return context//2,context%2,bits[4:6].index(1)
+    return bits[4],bits[5],bits[6]
 
 def encode_after(next_observation,terminated,reward):
     if type(terminated) is not bool:
@@ -123,21 +126,24 @@ def metrics(scores,labels):
 
 def ensure_exhaustive_roundtrips():
     all_before=set()
+    one_hop_contexts=set()
     for s in range(2):
         for o in range(2):
             for a in range(2):
                 b=encode_before(s,o,a)
                 assert decode_before(b)==(s,o,a)
                 all_before.add(tuple(b))
+                one_hop_contexts.add((b[4],b[5],b[6]))
     all_after=set()
     for successor,terminal in ((0,False),(1,False),(None,True)):
         for reward in (0,1):
             b=encode_after(successor,terminal,reward)
             assert decode_after(b)==(successor,terminal,reward)
             all_after.add(tuple(b))
-    if len(all_before)!=8 or len(all_after)!=6:
-        raise RuntimeError("AC19_TYPED_SOURCE_COLLISION")
+    if len(all_before)!=8 or len(all_after)!=6 or len(one_hop_contexts)!=8:
+        raise RuntimeError("AC19_TYPED_SOURCE_OR_NATIVE_ONE_HOP_COLLISION")
     return {"unique_input_vectors":8,"unique_output_vectors":6,
+            "native_reward_cell_one_hop_distinguishable_public_inputs":8,
             "terminal_none_representation_distinct":True,
             "actual_reward_1_representation_distinct":True}
 
