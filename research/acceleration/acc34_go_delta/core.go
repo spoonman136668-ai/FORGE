@@ -1,3 +1,5 @@
+//go:build acc34_archived_source_only
+
 // Package acc34 evaluates actual Go CPU lifecycle costs of delta recomputation.
 // This is not a language model or a source-qualified native intelligence model.
 package acc34
