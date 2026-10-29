@@ -42,7 +42,11 @@ func public(input json.RawMessage)(native.Public,error){
  var p native.Public
  if len(input)==0{return p,errors.New("DK8_PUBLIC_REQUIRED")}
  if e:=strict(input,&p);e!=nil{return p,e}
- return p,p.Valid()
+ if p.Mission!=native.DoorKey&&p.Mission!=native.GoalOnly{
+  return p,errors.New("MG15_BRIDGE_UNREGISTERED_REAL_ORIGINAL_MISSION")
+ }
+ checked:=p;checked.Mission=native.DoorKey
+ return p,checked.Valid()
 }
 func process(p **native.Policy,request Request)(Reply,bool){
  r:=Reply{};m:=*p
