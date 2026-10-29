@@ -1,0 +1,60 @@
+name: ITD-02 MG33-C source-only nondegenerate action-only control
+on:
+  push:
+    branches: [research/itd02-mg33c-action-only-control-preflight-20261029]
+permissions:
+  contents: read
+jobs:
+  source-only-control-cross-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Exact LF checkout settings
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout immutable MG33-C source head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Frozen prereg precedes executable; focused and affected-interface source-only tests
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 6fa4b538efa7bdf850a457467a48c82ced942517 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG33C_PREREG_NOT_FROZEN_BEFORE_EXECUTABLE' }
+          $changed = @(git diff --name-only 4ba7933b988860ac7f7dd53ec5506f80d0a43db1 $env:GITHUB_SHA)
+          $expected = @('research/lcrm01/mg33c_actiononly_control_prereg.json',
+                        'research/lcrm01/mg33c_actiononly_control.py',
+                        '.github/workflows/itd02-mg33c-actiononly-control.yml')
+          if (@(Compare-Object $changed $expected).Count -ne 0) { throw 'MG33C_OUTSIDE_ISOLATED_CONTROL_SCOPE' }
+          python -B research/lcrm01/mg31_original_public_exploration.py --preflight
+          if ($LASTEXITCODE -ne 0) { throw 'MG33C_INHERITED_MG31_PREFLIGHT_FAILED' }
+          python -B research/lcrm01/mg32_original_public_coverage.py --preflight
+          if ($LASTEXITCODE -ne 0) { throw 'MG33C_INHERITED_MG32_PREFLIGHT_FAILED' }
+          python -B research/lcrm01/mg33c_actiononly_control.py --preflight --report (Join-Path $env:RUNNER_TEMP 'mg33c-report.json')
+          if ($LASTEXITCODE -ne 0) { throw 'MG33C_CONTROL_FAILED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG33C_SOURCE_DIRTY' }
+          Write-Host 'MG33C_FROZEN_SOURCE_ONLY_NONDEGENERATE_CONTROL_PASS_NO_SCIENCE'
+      - name: Archive deterministic synthetic qualification receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg33c-source-control-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg33c-report.json
+          if-no-files-found: warn
+          retention-days: 30
