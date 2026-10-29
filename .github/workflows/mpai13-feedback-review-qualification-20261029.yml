@@ -116,6 +116,83 @@ jobs:
               foreach($m in [regex]::Matches($raw,'(?m)^(FAIL|ERROR): (test_[a-z0-9_]+)')){
                 Write-Output ('MPAI13_UNIT_FAILURE='+$m.Groups[2].Value)
               }
+              $classes=[regex]::Matches($raw,'(?m)^(?:[A-Za-z]+Error|AssertionError|RuntimeError|Exception): [^\r\n]{1,150}
+            }
+            Write-Output 'MPAI13_REVIEW_HANDOFF_UNIT_TESTS=7_PASS'
+            Remove-Item -LiteralPath $log -Force
+            & python -B -m unittest discover -s tests -p test_mpai_integrated_cycle.py -v *> $log
+            $rc=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($rc -ne 0 -or $raw -notmatch 'Ran 10 tests' -or
+               $raw -notmatch '(?m)^OK(?:\s|$)'){
+              foreach($m in [regex]::Matches($raw,'(?m)^(FAIL|ERROR): (test_[a-z0-9_]+)')){
+                Write-Output ('MPAI13_INTEGRATION_FAILURE='+$m.Groups[2].Value)
+              }
+              throw 'MPAI13_SOURCE_BACKED_MCP_FAILED_PRIVATE'
+            }
+            Write-Output 'MPAI13_EXISTING_HINDSIGHT_H2_INTEGRATED_TESTS=10_PASS'
+            Remove-Item -LiteralPath $log -Force
+            & python -B -m unittest discover -s tests -p test_mpn1_mcp.py -v *> $log
+            $rc=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($rc -ne 0 -or $raw -notmatch '(?m)^OK(?:\s|$)'){
+              throw 'MPAI13_LEGACY_MCP_REGRESSION_FAILED_PRIVATE'
+            }
+            Write-Output 'MPAI13_MCP_STDIO_AUTHENTICATED_LOOPBACK=PASS'
+            & git.exe -C $root switch --create mpai13-qual-only
+            if($LASTEXITCODE -ne 0 -or
+               (git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $mpSha){
+              throw 'MPAI13_LOCAL_FIXTURE_BRANCH_FAILURE'
+            }
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $root 'tests/Test-All.ps1') *> $log
+            $rc=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($rc -ne 0 -or -not $raw.Contains('Mind-Palace regression suite passed')){
+              $last='NONE'
+              foreach($line in ($raw -split [char]10)){
+                if($line.Trim().StartsWith('RUN Test-')){$last=$line.Trim().Substring(0,[Math]::Min(80,$line.Trim().Length))}
+              }
+              Write-Output ('MPAI13_FULL_LAST_TEST='+$last)
+              Write-Output ('MPAI13_FULL_EXIT_NONZERO='+[string]($rc -ne 0))
+              throw 'MPAI13_FULL_CANONICAL_WINDOWS_REGRESSION_FAILED_PRIVATE'
+            }
+            Write-Output 'MPAI13_CANONICAL_WINDOWS_TEST_ALL=PASS'
+            foreach($file in $protected){
+              $now=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+              if($now -cne $hashes[$file]){
+                throw 'MPAI13_PROTECTED_MEMORY_MUTATION'
+              }
+            }
+            $dirty=@(git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+              throw 'MPAI13_WORKTREE_MUTATED'
+            }
+            $remoteAgain=@(git.exe ls-remote --exit-code $repo ('refs/heads/'+$mpBranch))
+            if($LASTEXITCODE -ne 0 -or $remoteAgain.Count -ne 1 -or
+               -not ([string]$remoteAgain[0]).StartsWith($mpSha)){
+              throw 'MPAI13_REMOTE_COMMIT_CHANGED'
+            }
+            Write-Output 'MPAI13_SOURCE_PIN=PASS'
+            Write-Output 'MPAI13_PROTECTED_MEMORY_WRITES=0'
+            Write-Output 'MPAI13_COLLECTOR_AUTO_ADMISSION=FALSE'
+            Write-Output 'MPAI13_NEW_CONTROLLERS=0'
+            Write-Output 'MPAI13_REAL_EXTERNAL_AGENT_IDENTITY=NOT_ESTABLISHED'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI13_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
+)
+              foreach($failure in $classes | Select-Object -First 5){
+                $line=$failure.Value.Trim()
+                $type=($line -split ':')[0]
+                Write-Output ('MPAI13_UNIT_EXCEPTION_TYPE='+$type)
+                foreach($code in [regex]::Matches($line,'MPAI13_[A-Z_]{4,90}')){
+                  Write-Output ('MPAI13_UNIT_FAILURE_CODE='+$code.Value)
+                }
+              }
               throw 'MPAI13_UNIT_TEST_FAILED_PRIVATE'
             }
             Write-Output 'MPAI13_REVIEW_HANDOFF_UNIT_TESTS=7_PASS'
