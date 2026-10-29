@@ -65,7 +65,7 @@ python -B research/lcrm01/mg11_authentic_selected_novelty.py \
 }
 cat "$RUNNER_TEMP/mg11/first.log"
 python -B research/lcrm01/mg11_authentic_selected_novelty.py \
- --wingless-dk11 "$RUNNER_TEMP/mg11/dk11-go" \
+ --wingless-dk12 "$RUNNER_TEMP/mg11/dk12-go" --wingless-dk11 "$RUNNER_TEMP/mg11/dk11-go" \
  --output "$RUNNER_TEMP/mg11/second.json" > "$RUNNER_TEMP/mg11/second.log" 2>&1 || {
  cat "$RUNNER_TEMP/mg11/second.log"; exit 1;
 }
