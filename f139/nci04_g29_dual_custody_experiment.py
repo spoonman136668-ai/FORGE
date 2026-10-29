@@ -79,7 +79,7 @@ def git_bytes(root, object_name):
     p = subprocess.run(["git", "-C", str(root), "show", object_name],
                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE, check=False, timeout=30)
-    require(p.returncode == 0 and len(p.stdout) <= 32768, "BLOB_READ_FAILED")
+    require(p.returncode == 0 and len(p.stdout) <= 10_000_000, "BLOB_READ_FAILED")
     return p.stdout
 
 
