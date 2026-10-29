@@ -1,0 +1,181 @@
+name: ACC43 authentic original U13 fixed-KV sketch resource versus equal-budget exact indexing
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc43_go_u13/**'
+      - 'docs/research/ACC-43-*'
+      - '.github/workflows/forge-acc43-original-u13-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-u13-native:
+    name: ACC43 original U13 80 child workers / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Fail closed on authenticated original U10/U13 identity before any executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          source=Path('research/ac07_sourcefree/ac08_portfolio.py')
+          module=ast.parse(source.read_text(encoding='utf-8'))
+          original=next(node.value for node in module.body
+                        if isinstance(node, ast.Assign)
+                        and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in node.targets))
+          names=ast.literal_eval(original)
+          assert len(names)==30, 'original candidate inventory drift'
+          assert names[9]=='holographic associative memory', 'U10 misattributed'
+          assert names[12]=='fixed-size KV sketches', 'U13 misattributed'
+          print('ACC43_AUTHENTIC_ORIGINAL_U10_HOLOGRAPHIC_U13_FIXED_KV=PASS')
+          PY
+      - name: Freeze original U13 prereg before executable, verify source Git objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 9bb857d4e6ae803caf5f59f6cd2c1d9d4f80418a HEAD
+          test "$(git hash-object docs/research/ACC-43-ORIGINAL-U13-KV-SKETCH-PREREG.md)" = d0261ab66b24ea7f64542f246ab1f9eccf8d6199
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/ac06_sourcefree/restricted.py)" = 19c5ce8f485900f06adaffe97f998c83c78aab4c
+          test "$(git hash-object research/acceleration/acc43_go_u13/go.mod)" = a595ba90e27e5d00792c53884db994377ecbabce
+          test "$(git hash-object research/acceleration/acc43_go_u13/core.go)" = 819142559453bce18da629156c4afb7feeb5267d
+          test "$(git hash-object research/acceleration/acc43_go_u13/main.go)" = 33a25168ec56876c5faedf892ff358c1b7dbaafd
+          test "$(git hash-object research/acceleration/acc43_go_u13/core_test.go)" = dbca86c9cc6818d55b9487b9839ec1360afb2f05
+          test "$(git hash-object research/acceleration/acc43_go_u13/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc43_go_u13/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          test "$(git status --porcelain --untracked-files=all)" = ""
+          echo ACC43_ORIGINAL_U13_PREREG_FIRST_SOURCE_GIT_BLOBS=PASS
+      - name: Reproduce original 36 candidate source negative screening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc43-36.json"
+          python - "$RUNNER_TEMP/acc43-36.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding='utf-8'))
+          ids={r['claim_id'] for r in d['rows']}
+          assert ids==({f'U{i:02}' for i in range(1,31)}|{f'AC-D{i}' for i in range(1,7)})
+          assert d['scientific_first_use'] is False and d['scientific_admission'] is False
+          assert d['stage2_qualified_native_model_speedups']==0
+          print('ACC43_U13_ALL_ORIGINAL_36_REGRESSION=PASS')
+          PY
+      - name: Compiled native Go source-free test, vet, build, cold child resource trials
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc43_go_u13
+          go test -count=1 -v ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc43"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc43-report.json"
+      - name: Validate every native child original U13 input and accountable CPU and RSS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/acc43-report.json" <<'PY'
+          import json,sys,math
+          r=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert r['Schema']=='forge.acc43.original-u13-packed-kv-sketch.v1'
+          assert r['OS'] in ('linux','windows')
+          assert r['OriginalCount']==30 and r['AddedCount']==6
+          assert r['ScientificFirstUse']==False and r['NativeModelSpeedupProven']==False
+          assert r['NativeChildCount']==80 and len(r['Records'])==80
+          assert len(r['Comparisons'])==4
+          assert r['Classification'] in ('U13_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U13_RESTRICTED_GO_KV_ENGINEERING_POSITIVE_ONLY')
+          keys=set()
+          for row in r['Records']:
+            w=row['Worker']
+            k=(w['Mode'],w['Cohort'],w['Seed'])
+            assert k not in keys;k=tuple(k);keys.add(k)
+            assert w['Episodes']==32
+            assert w['InsertCount']==8192*32 and w['QueryCount']==16384*32
+            assert w['PresentCount']==w['AbsentCount']==8192*32
+            assert w['StateBytes'] in (-1,65536)
+            assert w['PeakRSSBytes']>0 and row['CPUSeconds']>0 and row['WallSeconds']>0
+            assert w['MemoryMetric']=='OS_PROCESS_PEAK_PHYSICAL_RSS_BYTES'
+            assert len(w['SourceDigest'])==len(w['OracleDigest'])==len(w['ResultDigest'])==64
+            assert math.isfinite(w['Recall']) and math.isfinite(w['FalsePositiveRate'])
+          assert len(keys)==80
+          for c in r['Comparisons']:
+            assert c['Cohort'] in ('HOT','WIDE','CHURN','COLLISION-ADVERSARY')
+            assert c['SpeedControl'] in ('EXACT_SINGLE','EXACT_TWO')
+            assert c['RecallControl'] in ('EXACT_SINGLE','EXACT_TWO')
+            assert all(math.isfinite(c[k]) for k in ('CPUratio','RSSratio','RecallGap'))
+          print('ACC43_ORIGINAL_U13_80_ACTUAL_CHILDS_AND_CPU_RSS=PASS')
+          print('ACC43_U13_ENGINEERING_CLASSIFICATION='+r['Classification'])
+          PY
+      - name: Preserve all raw receipts, even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc43-original-u13-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc43-report.json
+            ${{ runner.temp }}/acc43-36.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  independent-crossos:
+    name: ACC43 independently verify exact U13 source and truth identity across OS
+    runs-on: ubuntu-latest
+    needs: original-u13-native
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc43-original-u13-*
+          path: artifacts
+          merge-multiple: false
+      - name: Independent literal source and oracle parity and classifications
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('artifacts')
+          a=json.loads((root/'acc43-original-u13-ubuntu-latest'/'acc43-report.json').read_text())
+          b=json.loads((root/'acc43-original-u13-windows-latest'/'acc43-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          assert len(a['Records'])==len(b['Records'])==80
+          key=lambda row:(row['Worker']['Mode'],row['Worker']['Cohort'],row['Worker']['Seed'])
+          aa={key(row):row['Worker'] for row in a['Records']}
+          bb={key(row):row['Worker'] for row in b['Records']}
+          assert set(aa)==set(bb)
+          for k in aa:
+            for field in ('SourceDigest','OracleDigest','ResultDigest','CorrectPresent',
+                          'WrongPresentValue','FalsePositiveAbsent','StateBytes','OccupiedSlots','Evictions'):
+              assert aa[k][field]==bb[k][field],(k,field)
+          p=json.loads((root/'acc43-original-u13-ubuntu-latest'/'acc43-36.json').read_text())
+          q=json.loads((root/'acc43-original-u13-windows-latest'/'acc43-36.json').read_text())
+          assert p['rows']==q['rows'] and len(p['rows'])==36
+          print('ACC43_ORIGINAL_U13_CROSSOS_SOURCE_ORACLE_AND_RESULTS_80_OF_80_PASS')
+          print('ACC43_U13_LINUX='+a['Classification'])
+          print('ACC43_U13_WINDOWS='+b['Classification'])
+          passed=(a['Classification']=='U13_RESTRICTED_GO_KV_ENGINEERING_POSITIVE_ONLY' and
+                  b['Classification']=='U13_RESTRICTED_GO_KV_ENGINEERING_POSITIVE_ONLY')
+          print('ACC43_GENERAL_ORIGINAL_NATIVE_GO_RESOURCE_WIN='+('YES' if passed else 'NO'))
+          print('ACC43_LLM_AND_NATIVE_MODEL_INTEGRATION=UNVERIFIED')
+          PY
