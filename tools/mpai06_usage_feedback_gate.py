@@ -23,7 +23,12 @@ def process(cmd,cwd=None,timeout=160):
     check(p.returncode==0,"PRIVATE_SOURCE_COMMAND")
     return p.stdout.strip()
 def git(*args,cwd=None):
-    return process(["git",*args],cwd)
+    try:return process(["git",*args],cwd)
+    except RuntimeError:
+        op=args[0].upper().replace("-","_")
+        if op in ("CLONE","REV_PARSE","STATUS","LS_REMOTE"):
+            print("MPAI06_SAFE_GIT_OPERATION="+op,flush=True)
+        raise
 def authentic_runs():
     for run,sha in RUNS.items():
         url="https://api.github.com/repos/spoonman136668-ai/FORGE/actions/runs/"+run
