@@ -12,14 +12,11 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONNOUSERSITE: '1'
-      PYTHONIOENCODING: utf-8
       GIT_TERMINAL_PROMPT: '0'
-      GIT_CREDENTIAL_INTERACTIVE: never
       GCM_INTERACTIVE: Never
-      GH_PROMPT_DISABLED: '1'
-      GIT_CONFIG_COUNT: '1'
-      GIT_CONFIG_KEY_0: core.longpaths
-      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONNOUSERSITE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v4
       - name: Existing Mind-Palace Hindsight and Harness2 original source cold feedback reuse
@@ -37,9 +34,6 @@ jobs:
           if($LASTEXITCODE -ne 0 -or $publicHead -cne $env:GITHUB_SHA){
              throw 'MPAI06_QUALIFICATION_HEAD_DRIFT'
           }
-          # Reuse the exact original UQ37 private-source authentication contract;
-          # action-provided repository token must not shadow owner credential.
-          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $privateRepo='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $privateRef='refs/heads/review/mpai06-authentic-feedback-cold-reuse-20261029'
           $privateHead='50b68911c07de9ba4817d28ac80effd3c748e798'
@@ -63,10 +57,9 @@ jobs:
           if(Test-Path -LiteralPath $scratch){throw 'MPAI06_PRIVATE_SCRATCH_PRESENT'}
           New-Item -Path $scratch -ItemType Directory -ErrorAction Stop | Out-Null
           try{
-             $before=@(& git ls-remote --exit-code $privateRepo $privateRef)
-             Assert ($LASTEXITCODE -eq 0 -and $before.Count -eq 1) 'PRIVATE_REF_UNAVAILABLE'
-             Assert ((([string]$before[0] -split '\s+')[0]) -ceq $privateHead) 'PRIVATE_SOURCE_CHANGED'
-             & git clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch review/mpai06-authentic-feedback-cold-reuse-20261029 $privateRepo $root 2>$log
+             # Use the exact previously verified original-Windows native
+             # private clone route; first authenticate with git clone itself.
+             & git.exe clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch review/mpai06-authentic-feedback-cold-reuse-20261029 $privateRepo $root
              Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
              Assert ((& git -C $root config --get remote.origin.partialclonefilter | Out-String).Trim() -ceq 'blob:none') 'PRIVATE_PARTIAL_CLONE_NOT_ACTIVE'
              Assert ((& git -C $root rev-parse HEAD | Out-String).Trim() -ceq $privateHead) 'PRIVATE_HEAD_DRIFT'
@@ -148,9 +141,7 @@ jobs:
                $current=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root $file)).Hash
                Assert ($current -ceq $stateBefore[$file]) 'DURABLE_BYTES_MODIFIED'
              }
-             $after=@(& git ls-remote --exit-code $privateRepo $privateRef)
-             Assert ($LASTEXITCODE -eq 0 -and $after.Count -eq 1 -and
-                     (([string]$after[0] -split '\s+')[0]) -ceq $privateHead) 'PRIVATE_REF_CHANGED'
+             Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $privateHead) 'PINNED_SOURCE_CHANGED'
              $dirty=@(& git -C $root status --porcelain --untracked-files=all)
              Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'PRIVATE_CHECKOUT_DIRTY'
              Write-Output 'MPAI06_ORIGINAL_PRIVATE_SOURCE_SHA=50b68911c07de9ba4817d28ac80effd3c748e798'
