@@ -135,7 +135,7 @@ func scanStream(compressed []byte,truth [32]byte)(uint64,error){
   if err!=nil{_ =z.Close();return 0,err}
   if n==0{_ =z.Close();return 0,errors.New("ACC39_SOURCE_STALLED")}
  }
- if err=z.Close();err!=nil{return 0,err}
+ if closeErr:=z.Close();closeErr!=nil{return 0,closeErr}
  if f.Size!=RawBytes||!bytes.Equal(h.Sum(nil),truth[:]){
   return 0,errors.New("ACC39_STREAM_SOURCE_OR_LENGTH_MISMATCH")
  }
