@@ -95,14 +95,19 @@ def invoke(argv, root, *, module=None, expected_rejection=False, runner=None):
          "ARBITRARY_COMMAND_REJECTED")
     t0 = time.monotonic()
     if runner is None:
-        raw, exitcode, outcome = _bounded_capture(
-            argv,cwd=root,env=_env(),timeout_seconds=120)
+        from f139.nci04_v3_bounded_resource import bounded_sampled_process
+        measured=bounded_sampled_process(argv,cwd=root,env=_env())
+        raw,exitcode=measured["stdout"],measured["returncode"]
+        outcome="PASS" if exitcode==0 else "TEST_FAILURE"
     else:
         p=runner(list(argv),cwd=root,env=_env(),stdin=subprocess.DEVNULL,
                  stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=120,
                  check=False)
         raw,exitcode=p.stdout or b"",p.returncode
         outcome="PASS" if exitcode==0 else "TEST_FAILURE"
+        measured={"child_peak_rss_bytes":None,"child_cpu_ms":None,
+                  "resource_samples":0,"resource_accounting":"not-measured",
+                  "resource_budget_verified":False}
     need(type(raw) is bytes and len(raw) <= MAX_OUTPUT,
          "CHILD_OUTPUT_NOT_BOUNDED")
     count = None
@@ -126,9 +131,11 @@ def invoke(argv, root, *, module=None, expected_rejection=False, runner=None):
         "discovered_tests":count, "output_sha256":digest(raw),
         "output_bytes":len(raw),
         "elapsed_ms":int((time.monotonic()-t0)*1000),
-        "child_peak_rss_bytes":None,
-        "child_cpu_ms":None,
-        "resource_budget_verified":False,
+        "child_peak_rss_bytes":measured["child_peak_rss_bytes"],
+        "child_cpu_ms":measured["child_cpu_ms"],
+        "resource_samples":measured["resource_samples"],
+        "resource_accounting":measured["resource_accounting"],
+        "resource_budget_verified":measured["resource_budget_verified"],
     }
 
 
@@ -173,7 +180,13 @@ def run_v3(candidate, original, scratch, *, oslabel, runner=None):
     need(tuple(x[0] for x in positive)==tuple(x for x in modules if x!=ATLAS)
          and all(e["discovered_tests"]>0 and e["status"]=="PASS"
                  for _,e in positive), "BEHAVIOR_INVENTORY_INCOMPLETE")
-    # Never mark a resource-unverified native result as signed positive.
+    all_results=[pristine,full,g29,*dict(positive).values(),build]
+    budget_pass=all(row["resource_budget_verified"] is True
+                    and type(row["child_cpu_ms"]) is int
+                    and row["child_cpu_ms"]>0
+                    and type(row["child_peak_rss_bytes"]) is int
+                    and row["child_peak_rss_bytes"]>0
+                    for row in all_results)
     return {
         "schema":SCHEMA, "ticket_source_commit":candidate.target_commit,
         "target_tree_sha":candidate.target_tree_sha,
@@ -186,8 +199,10 @@ def run_v3(candidate, original, scratch, *, oslabel, runner=None):
         "candidate_nonatlas":dict(positive), "candidate_compile":build,
         "baseline_full_pass":True, "all_candidate_modules_pass":True,
         "g29_modified_source_expected_negative":True,
-        "source_split_pass":True, "child_cpu_rss_verified":False,
-        "native_qualified":False, "scientific_first_use":False,
+        "source_split_pass":True, "child_cpu_rss_verified":budget_pass,
+        "resource_accounting":"psutil-sampled-process-tree-v1" if budget_pass
+            else "not-qualified-synthetic-or-missing-sample",
+        "native_qualified":budget_pass, "scientific_first_use":False,
         "protected_holdouts_accessed":0,"accepted_ref_mutations":0,
         "paid_model_calls":0,
     }
@@ -202,9 +217,55 @@ def receipt_v3(admission:NativeAdmission, report:dict):
          and admission.intent.target_tree_sha==report.get("target_tree_sha")
          and admission.intent.intent_sha256==report.get("intent_sha256")
          and admission.intent.qualification_key==report.get("qualification_key")
-         and report.get("native_qualified") is False
-         and report.get("child_cpu_rss_verified") is False,
-         "V3_NOT_YET_SIGNABLE_POSITIVE")
+         and type(report.get("native_qualified")) is bool
+         and type(report.get("child_cpu_rss_verified")) is bool
+         and report["native_qualified"] is report["child_cpu_rss_verified"],
+         "V3_SIGNED_SOURCE_OR_RESOURCE_CLAIM_INVALID")
+    if report["native_qualified"]:
+        from f139.nci04_v3_bounded_resource import (
+            MAX_SAMPLED_RSS_BYTES, MAX_SAMPLED_CPU_MS)
+        inventory=report.get("source_module_inventory")
+        require(type(inventory) is list and len(inventory)>=5
+                and len(set(inventory))==len(inventory)
+                and ATLAS in inventory
+                and set(report.get("candidate_nonatlas",{}))==
+                    set(inventory)-{ATLAS}
+                and report.get("source_split_pass") is True
+                and report.get("baseline_full_pass") is True
+                and report.get("all_candidate_modules_pass") is True
+                and report.get("g29_modified_source_expected_negative") is True
+                and report.get("candidate_g29_negative",{}).get("status")==CLOSED
+                and report.get("resource_accounting")==
+                    "psutil-sampled-process-tree-v1",
+                "V3_PRODUCTION_TEST_INVENTORY_INCOMPLETE")
+        expected={
+            "baseline_g29":(unit(ATLAS),"PASS"),
+            "baseline_full":(COMMAND+("-p","test_*.py","-v"),"PASS"),
+            "candidate_g29_negative":(unit(ATLAS),CLOSED),
+            "candidate_compile":(BUILD,"PASS"),
+        }
+        entries=[(report[k],argv,state) for k,(argv,state) in expected.items()]
+        entries.extend((report["candidate_nonatlas"][name],unit(name),"PASS")
+                       for name in inventory if name!=ATLAS)
+        for row,argv,state in entries:
+            require(type(row) is dict and row.get("argv")==list(argv)
+                    and row.get("status")==state
+                    and type(row.get("returncode")) is int
+                    and ((state=="PASS" and row["returncode"]==0)
+                         or (state==CLOSED and row["returncode"]>0))
+                    and (argv==BUILD or
+                         (type(row.get("discovered_tests")) is int
+                          and row["discovered_tests"]>0))
+                    and row.get("resource_budget_verified") is True
+                    and type(row.get("resource_samples")) is int
+                    and row["resource_samples"]>0
+                    and type(row.get("child_peak_rss_bytes")) is int
+                    and 0<row["child_peak_rss_bytes"]<=MAX_SAMPLED_RSS_BYTES
+                    and type(row.get("child_cpu_ms")) is int
+                    and 0<row["child_cpu_ms"]<=MAX_SAMPLED_CPU_MS
+                    and row.get("resource_accounting")==
+                        "psutil-sampled-process-tree-v1",
+                    "V3_POSITIVE_TEST_OR_RESOURCE_FORGERY")
     return {
         "schema":RECEIPT,"ticket":admission.ticket,
         "source_sha":admission.source_sha,
@@ -213,7 +274,9 @@ def receipt_v3(admission:NativeAdmission, report:dict):
         "native_intent_sha256":admission.intent.intent_sha256,
         "qualification_key":admission.intent.qualification_key,
         "v3_report_sha256":digest(canonical(report)),
-        "native_qualified":False, "development_only":True,
+        "native_qualified":report["native_qualified"],
+        "resource_accounting":report.get("resource_accounting"),
+        "development_only":True,
         "scientific_first_use_authorized":False,
         "accepted_ref_mutations":0, "paid_model_calls":0,
     }
