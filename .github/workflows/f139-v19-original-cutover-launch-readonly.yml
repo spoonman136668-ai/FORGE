@@ -1,0 +1,159 @@
+name: F139 V19 original owner guarded cutover launch preflight READ ONLY
+on:
+  push:
+    branches: [qualification/f139-v19-cutover-launch-readonly-20261029]
+    paths: [.github/workflows/f139-v19-original-cutover-launch-readonly.yml]
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: f139-v19-launch-readonly-20261029
+  cancel-in-progress: false
+jobs:
+  inspect-launch-not-cutover:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-cutover-launch-readonly-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Check exact cutover authority prerequisites without changing task source database refs or policy
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $old='d8bccc604f8607bf10f9d8bc6aa568d1f98af559'
+          $candidate='ea2d1c99d7afc1e991510d51168dd010a0b56ec5'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-cutover-launch-readonly-20261029' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY) {
+            throw 'F139_V19_LAUNCH_RO_WRONG_OWNER_OR_PAID_API'
+          }
+          $parent=(& git rev-parse 'HEAD^' | Out-String).Trim()
+          $changes=@(& git diff --name-only 'HEAD^' 'HEAD')
+          $helper=(& git rev-parse 'HEAD:f139/nci04_v19_original_release_readonly_preflight.py' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or
+             $parent -cne '70640c92411980c6775389f4306c0e00dc32eddc' -or
+             $changes.Count -ne 1 -or
+             $changes[0] -cne '.github/workflows/f139-v19-original-cutover-launch-readonly.yml' -or
+             $helper -cne '5599b50fce67d24a13e2daedf0840f1ed15ec651') {
+            throw 'F139_V19_LAUNCH_RO_UNQUALIFIED_HELPER_OR_SCOPE'
+          }
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $elevated=[Security.Principal.WindowsPrincipal]::new($id).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+          $pwsh=Get-Command pwsh -ErrorAction SilentlyContinue
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready') -or
+             @($task.Actions).Count -ne 1 -or
+             @($task.Triggers).Count -ne 3 -or
+             [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ine 'powershell.exe' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {
+            throw 'F139_V19_LAUNCH_RO_ORIGINAL_TASK_DRIFT'
+          }
+          $owner=[string]$task.Principal.UserId
+          $sid=''
+          try {$sid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+             [Security.Principal.SecurityIdentifier]).Value} catch {}
+          if($owner -ine $id.Name -and $sid -cne $id.User.Value) {
+            throw 'F139_V19_LAUNCH_RO_TASK_SID_DRIFT'
+          }
+          function Field([string]$key) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success) {throw 'F139_V19_LAUNCH_RO_OWNER_ARG_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $db=Field 'Database'
+          $py=Field 'PythonExe'
+          if(-not(Test-Path -LiteralPath $db -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $py -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_V19_LAUNCH_RO_INSTALLED_V18_DRIFT'
+          }
+          $proofOutput=& $py -B -m f139.nci04_v19_original_owner_nowrite_probe --db $db
+          if($LASTEXITCODE -ne 0) {throw 'F139_V19_LAUNCH_RO_ORIGINAL_SQLITE_WITNESS_DENIED'}
+          $proof=$proofOutput | Out-String | ConvertFrom-Json
+          if($proof.read_only -ne $true -or
+             $proof.from_source_sha -cne $old -or
+             $proof.candidate_source_sha -cne $candidate -or
+             $proof.runtime_cutover_authorized -ne $false) {
+            throw 'F139_V19_LAUNCH_RO_SOURCE_OR_OWNER_MISMATCH'
+          }
+          $main=& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json
+          $policy=& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json
+          $pr=& gh api repos/spoonman136668-ai/FORGE/pulls/1052 | ConvertFrom-Json
+          $release=& gh api ("repos/spoonman136668-ai/FORGE/branches/f139-owner-release-"+$candidate) | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or
+             $main.protected -ne $true -or $main.commit.sha -cne $old -or
+             $pr.state -cne 'open' -or $pr.head.sha -cne $candidate -or
+             $pr.base.sha -cne $old -or
+             $release.protected -ne $true -or $release.commit.sha -cne $candidate) {
+            throw 'F139_V19_LAUNCH_RO_RELEASE_OR_MAIN_DRIFT'
+          }
+          $pol=$policy.body | ConvertFrom-Json
+          if($policy.state -cne 'open' -or $pol.enabled -ne $true -or
+             $pol.source_sha -cne $old -or $pol.scientific_first_use -ne $false -or
+             $pol.new_controller -ne $false -or $pol.new_scheduler -ne $false) {
+            throw 'F139_V19_LAUNCH_RO_POLICY_DRIFT'
+          }
+          $token=$env:GH_TOKEN
+          try {
+            Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+            $login=(& gh api user --jq .login | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $login -cne 'spoonman136668-ai') {
+              throw 'F139_V19_LAUNCH_RO_LOCAL_GH_OWNER_INVALID'
+            }
+            $rules=@(& gh api repos/spoonman136668-ai/FORGE/rulesets | ConvertFrom-Json)
+            $m=@($rules | Where-Object {$_.name -ceq 'FORGE F139 immutable owner release refs' -and $_.enforcement -ceq 'active'})
+            if($m.Count -ne 1) {throw 'F139_V19_LAUNCH_RO_RELEASE_RULE_NOT_UNIQUE'}
+            $detail=& gh api ("repos/spoonman136668-ai/FORGE/rulesets/"+$m[0].id) | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $detail.bypass_actors.Count -ne 0 -or
+               $detail.conditions.ref_name.include.Count -ne 1 -or
+               $detail.conditions.ref_name.include[0] -cne 'refs/heads/f139-owner-release-*') {
+              throw 'F139_V19_LAUNCH_RO_RELEASE_RULE_BYPASS_OR_SCOPE'
+            }
+            $k=@($detail.rules | ForEach-Object {$_.type} | Sort-Object)
+            if($k.Count -ne 2 -or $k[0] -cne 'deletion' -or $k[1] -cne 'update') {
+              throw 'F139_V19_LAUNCH_RO_IMMUTABLE_RULES_MISSING'
+            }
+          } finally {$env:GH_TOKEN=$token}
+          $receipt=@{
+            schema='forge.f139.v19.original-cutover-launch-readonly.v1'
+            owner_runner='FORGE-CODEX-REMOTE'
+            original_owner_task='PASS'
+            original_v18_source_checkout='PASS'
+            original_sqlite_readonly='PASS'
+            immutable_candidate_release='PASS'
+            issue_807_pinned_to_original_v18='PASS'
+            protected_main_source='V18'
+            existing_release_source='V19'
+            source_identity_alignment_for_cutover=$false
+            runner_administrator_elevated=$elevated
+            powershell_7_available=($null -ne $pwsh)
+            original_event_seq=$proof.original_head_seq
+            original_sqlite_writes=0
+            task_changes=0
+            github_writes=0
+            provider_calls=0
+            cutover_trigger_sent=$false
+          }
+          Write-Output ('F139_V19_LAUNCH_READONLY_RECEIPT='+($receipt | ConvertTo-Json -Compress -Depth 5))
+          if(-not $elevated) {throw 'F139_V19_LAUNCH_RO_ESCALATED_RUNNER_REQUIRED'}
+          if($null -eq $pwsh) {throw 'F139_V19_LAUNCH_RO_PWSH_MISSING'}
+          Write-Output 'F139_V19_ORIGINAL_ESCALATED_CUTOVER_LAUNCH_PREREQUISITES=PASS'
+          Write-Output 'F139_V19_MAIN_RELEASE_ATOMIC_SWITCH_STILL_REQUIRED=TRUE'
