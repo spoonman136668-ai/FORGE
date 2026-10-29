@@ -937,11 +937,12 @@ def synthetic_source_preflight():
         raise ValueError("MG44_EPISODE_RESET_DROPPED_RETAINED_SELECTED_HISTORY")
     off=PublicSlotRelease(release_enabled=False)
     old=OriginalMG43()
-    for obj in (off,old):
-        action=obj.choose(initial)
-        if obj is off and action!=old.pending[1]:
-            raise ValueError("MG44_RELEASE_OFF_NOT_IDENTICAL_MG43_SOURCE_POLICY")
-        obj.pending=None
+    disabled_choice=off.choose(initial)
+    original_choice=old.choose(initial)
+    if disabled_choice!=original_choice:
+        raise ValueError("MG44_RELEASE_OFF_NOT_IDENTICAL_MG43_SOURCE_POLICY")
+    off.pending=None
+    old.pending=None
     print("MG44_CROSS_OS_FROZEN_ORIGINAL_POLICY_IDENTITY_AND_PUBLIC_RELEASE_PREFLIGHT_PASS")
     return p
 
