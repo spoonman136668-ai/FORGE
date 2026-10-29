@@ -19,6 +19,7 @@ const (
  Nodes=32
  Rounds=96
  Events=4096
+ BatchSessions=32 // separately cold-initialized source-free sessions per metered child
 )
 const Schema="forge.acc34.acd1.real-go-kernel-resource.v1"
 type Bits [InputBits]uint8
@@ -146,6 +147,33 @@ func worker(mode,scenario string,eventCount int)(Worker,error){
  return Worker{Schema,mode,scenario,eventCount,probes,count,verifiedCalls,
   mismatch,discovered,fmt.Sprintf("%016x",sum),mem.TotalAlloc,mem.Sys},nil
 }
+// A longer *separately preregistered* whole-worker measurement. Each replica
+// starts cold and pays FIT/verification again; the original ACC-34 one-session
+// Linux negative and Windows CPU-meter failure remain immutable prior evidence.
+func workerBatch(mode,scenario string)(Worker,error){
+ var w Worker
+ combined:=uint64(0x243f6a8885a308d3)
+ for i:=0;i<BatchSessions;i++{
+  one,err:=worker(mode,scenario,Events)
+  if err!=nil{return Worker{},err}
+  v,err:=strconv.ParseUint(one.OutputDigest,16,64)
+  if err!=nil{return Worker{},err}
+  combined^=v+uint64(i+1)*0x9e3779b97f4a7c15+(combined<<6)+(combined>>2)
+  w.Events+=one.Events
+  w.FitInterventionProbes+=one.FitInterventionProbes
+  w.EvaluatedNodes+=one.EvaluatedNodes
+  w.VerificationFullNodeCalls+=one.VerificationFullNodeCalls
+  w.CorrectedCacheMismatches+=one.CorrectedCacheMismatches
+  w.ConjunctiveFITDiscovery=w.ConjunctiveFITDiscovery||one.ConjunctiveFITDiscovery
+ }
+ var m runtime.MemStats
+ runtime.ReadMemStats(&m)
+ w.Schema=Schema;w.Mode=mode;w.Scenario=scenario
+ w.OutputDigest=fmt.Sprintf("%016x",combined)
+ w.TotalGoAllocatedBytes=m.TotalAlloc
+ w.GoRuntimeSysBytes=m.Sys
+ return w,nil
+}
 type Trial struct{
  Mode string `json:"mode"`
  Scenario string `json:"scenario"`
@@ -156,14 +184,14 @@ type Trial struct{
 }
 func runChild(mode,scenario string,trial int)(Trial,error){
  started:=time.Now()
- command:=exec.Command(os.Args[0],"worker",mode,scenario,strconv.Itoa(Events))
+ command:=exec.Command(os.Args[0],"worker-batch",mode,scenario,strconv.Itoa(Events))
  command.Env=append(os.Environ(),"GOMAXPROCS=1")
  out,err:=command.Output()
  elapsed:=time.Since(started)
  if err!=nil{return Trial{},fmt.Errorf("ACC34_CHILD_FAILED_%s_%s: %w",mode,scenario,err)}
  var w Worker
  if err=json.Unmarshal(out,&w);err!=nil{return Trial{},err}
- if w.Schema!=Schema||w.Mode!=mode||w.Scenario!=scenario||w.Events!=Events{
+ if w.Schema!=Schema||w.Mode!=mode||w.Scenario!=scenario||w.Events!=Events*BatchSessions{
   return Trial{},errors.New("ACC34_CHILD_EVIDENCE_IDENTITY_DRIFT")
  }
  ps:=command.ProcessState
@@ -205,6 +233,7 @@ type Report struct{
  GoVersion string `json:"go_version"`
  GoOS string `json:"go_os"`
  TrialsPerScenarioMode int `json:"trials_per_scenario_mode"`
+ BatchedColdSessionsPerWorker int `json:"batched_cold_sessions_per_worker"`
  OriginalSourceEpisodes int `json:"original_source_episodes"`
  ModelNativeIntegration bool `json:"model_native_integration"`
  ScientificFirstUse bool `json:"scientific_first_use"`
@@ -238,7 +267,7 @@ func report(reps int)(Report,error){
   for _,arm:=range [][]Trial{baselines,candidate,unsafe,oracle}{
    if len(arm)!=reps{return Report{},errors.New("ACC34_MISSING_PAIRED_WORKER")}
    for _,t:=range arm{
-    if t.Worker.FitInterventionProbes!=func()int{if t.Mode=="verified"||t.Mode=="unverified"{return InputBits};return 0}(){
+    if t.Worker.FitInterventionProbes!=func()int{if t.Mode=="verified"||t.Mode=="unverified"{return InputBits*BatchSessions};return 0}(){
      return Report{},errors.New("ACC34_UNCHARGED_FIT_DISCOVERY")
     }
    }
@@ -269,11 +298,23 @@ func report(reps int)(Report,error){
  for _,s:=range sums{if s.VerifiedCPUOverFull>0.90||s.VerifiedRuntimeSysOverFull>1.10{positive=false}}
  result:="ACC34_ACD1_NO_TOTAL_VERIFIED_NATIVE_GO_CPU_WIN"
  if positive{result="ACC34_ACD1_BOUNDED_GO_KERNEL_CPU_POSITIVE_NO_SCIENCE"}
- return Report{Schema,"SOURCE_FREE_NATIVE_GO_COMPUTE_MICROKERNEL","AC-D1",
-   runtime.Version(),runtime.GOOS,reps,0,false,false,safe,hiddenUnsafe,result,sums,trials},nil
+ return Report{Schema:Schema,Category:"SOURCE_FREE_NATIVE_GO_COMPUTE_MICROKERNEL",Candidate:"AC-D1",
+   GoVersion:runtime.Version(),GoOS:runtime.GOOS,TrialsPerScenarioMode:reps,
+   BatchedColdSessionsPerWorker:BatchSessions,OriginalSourceEpisodes:0,
+   ModelNativeIntegration:false,ScientificFirstUse:false,GuardedOutputExact:safe,
+   UnsafeHiddenInteractionDetected:hiddenUnsafe,Output:result,Summaries:sums,Trials:trials},nil
 }
 func main(){
  if len(os.Args)<2{fmt.Fprintln(os.Stderr,"ACC34_MODE_REQUIRED");os.Exit(2)}
+ if os.Args[1]=="worker-batch"{
+  if len(os.Args)!=5{os.Exit(2)}
+  steps,err:=strconv.Atoi(os.Args[4])
+  if err!=nil||steps!=Events{os.Exit(2)}
+  x,err:=workerBatch(os.Args[2],os.Args[3])
+  if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
+  if err=json.NewEncoder(os.Stdout).Encode(x);err!=nil{os.Exit(2)}
+  return
+ }
  if os.Args[1]=="worker"{
   if len(os.Args)!=5{os.Exit(2)}
   steps,err:=strconv.Atoi(os.Args[4])
