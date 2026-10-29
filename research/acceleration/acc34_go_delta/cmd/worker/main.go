@@ -1,5 +1,5 @@
 package main
-import("encoding/json";"flag";"fmt";"os";a "example.org/acc34delta")
+import("encoding/json";"flag";"fmt";"os";a "example.org/acc34delta/isolated_core")
 func main(){
  mode:=flag.String("mode","","mode")
  scenario:=flag.String("scenario","","scenario")
