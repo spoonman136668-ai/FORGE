@@ -1,12 +1,13 @@
 import unittest
 from f139.v19_origin_release_admission import (
-    V19_ORIGIN, ReleaseAdmissionDenied, assess_v19_origin,
+    ReleaseAdmissionDenied, assess_v19_origin,
 )
+ORIGIN = "db7a1d0f324478183c54df417624053448d6b08b"
 TARGET = "a" * 40
 
 def good():
-    return dict(installed_source=V19_ORIGIN, policy_source=V19_ORIGIN,
-                ledger_source=V19_ORIGIN, main_source=TARGET,
+    return dict(attested_origin_source=ORIGIN, installed_source=ORIGIN, policy_source=ORIGIN,
+                ledger_source=ORIGIN, main_source=TARGET,
                 checkout_source=TARGET, release_source=TARGET,
                 immutable_rule_verified=True, original_owner_verified=True,
                 no_inflight=True, cold_restore_verified=True,
@@ -19,7 +20,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertFalse(result["execute_authorized"])
 
     def test_every_sha_identity_fails_closed(self):
-        for key in ("installed_source", "policy_source", "ledger_source",
+        for key in ("attested_origin_source", "installed_source", "policy_source", "ledger_source",
                     "main_source", "checkout_source", "release_source"):
             with self.subTest(key=key):
                 bad=good();bad[key]="b"*40
@@ -42,7 +43,12 @@ class AdmissionTests(unittest.TestCase):
                 assess_v19_origin(**bad)
         bad=good()
         for key in ("main_source","checkout_source","release_source"):
-            bad[key]=V19_ORIGIN
+            bad[key]=ORIGIN
+        with self.assertRaises(ReleaseAdmissionDenied):
+            assess_v19_origin(**bad)
+
+    def test_old_origin_source_mismatch_denied(self):
+        bad=good();bad["attested_origin_source"]="0743ca22b76ebd943a66f05a36ea919301676be0"
         with self.assertRaises(ReleaseAdmissionDenied):
             assess_v19_origin(**bad)
 
