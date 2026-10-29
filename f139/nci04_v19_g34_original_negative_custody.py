@@ -74,6 +74,12 @@ def json_obj(raw, name):
             raise
         raise G34Denied("F139_V19_G34_" + name + "_JSON") from exc
     require(type(o) is dict, name + "_OBJECT")
+    try:
+        # JSON escapes can conceal isolated UTF-16 surrogate code points.
+        # They must never be accepted as canonical owner/provider identity.
+        json.dumps(o, ensure_ascii=False).encode("utf-8", "strict")
+    except UnicodeError as exc:
+        raise G34Denied("F139_V19_G34_" + name + "_INVALID_UNICODE") from exc
     return o
 
 
