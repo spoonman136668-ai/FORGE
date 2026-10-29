@@ -487,11 +487,11 @@ def run(binary,p):
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument("--native-go-dk11",type=Path,required=True)
+    p.add_argument("--native-go-dk13",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True)
     a=p.parse_args()
     start=time.perf_counter();cpu=time.process_time()
-    try:report=run(a.native_go_dk11,freeze())
+    try:report=run(a.native_go_dk13,freeze())
     except Exception as exc:
         report={"schema":SCHEMA,"classification":BLOCK,"scientific_first_use":False,
                 "error_type":type(exc).__name__,"error":str(exc),
