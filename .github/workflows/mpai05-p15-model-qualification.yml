@@ -1,0 +1,126 @@
+name: MP-AI05 P15 stronger non-Qwen original Windows model and fresh cohort
+on:
+  push:
+    branches: [proposal/mpai05-p15-model-qualification-20261029]
+    paths: ['.github/workflows/mpai05-p15-model-qualification.yml']
+permissions:
+  contents: read
+jobs:
+  original-p15-public-qualification:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Original Windows local strong-model preflight and disjoint cohort freeze
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI05_P15_ORIGINAL_RUNNER_ONLY'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P15_PAID_API_DENIED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P15_NO_REPLAY'}
+          $head=(git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA){
+             throw 'MPAI05_P15_SOURCE_HEAD_DRIFT'
+          }
+          $blobs=@{
+             'tools/mpai05_p9_dataset_freeze.py'='2c2100c53c001d28843bc2da664c3e92d413e2e6'
+             'tools/mpai05_p15_model_qualification.py'='aa36ca7bab95c42bed2167db645b277847c6f2f5'
+             'tests/test_mpai05_p15_model_qualification.py'='2689da844b584c9df792583693dae4e2442c83d2'
+          }
+          foreach($key in $blobs.Keys){
+             $actual=(git rev-parse ('HEAD:'+$key)).Trim()
+             if($LASTEXITCODE -ne 0 -or $actual -cne $blobs[$key]){
+               throw 'MPAI05_P15_BLOB_PIN_DRIFT'
+             }
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-p15-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $env:RUNNER_TEMP ('mpai05-p15-private-'+$env:GITHUB_RUN_ID+'.log')
+          $env:MPAI05_P15_SCRATCH=$root
+          try {
+            if((Test-Path -LiteralPath $root) -or (Test-Path -LiteralPath $private)){
+               throw 'MPAI05_P15_SCRATCH_COLLISION'
+            }
+            & python -B -m unittest discover -s tests -p test_mpai05_p15_model_qualification.py -v *> $private
+            $code=$LASTEXITCODE
+            $log=Get-Content -LiteralPath $private -Raw -ErrorAction Stop
+            if($code -ne 0 -or $log -notmatch 'Ran 10 tests' -or
+               $log -notmatch '(?m)^OK(?:\s|$)'){
+               foreach($m in [regex]::Matches($log,'(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                 Write-Output ('MPAI05_P15_TEST_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+               }
+               foreach($k in @('SyntaxError','AssertionError','TypeError','ModuleNotFoundError')){
+                 if($log.Contains($k)){Write-Output ('MPAI05_P15_TEST_EXCEPTION='+$k);break}
+               }
+               throw 'MPAI05_P15_FOCUSED_TESTS_PRIVATE_FAILURE'
+            }
+            Write-Output 'MPAI05_P15_FOCUSED_TESTS=10_PASS'
+            Remove-Item -LiteralPath $private -Force
+            & python -B tools/mpai05_p15_model_qualification.py *> $private
+            $code=$LASTEXITCODE
+            $log=Get-Content -LiteralPath $private -Raw -ErrorAction Stop
+            if($code -ne 0){
+               $match=[regex]::Match($log,'MPAI05_P15_SAFE_FAILURE=(MPAI05_P15_[A-Z0-9_]+|PRIVATE_EXCEPTION)')
+               if($match.Success){Write-Output ('MPAI05_P15_FAILURE_CLASS='+$match.Groups[1].Value)}
+               $step=[regex]::Match($log,'MPAI05_P15_SAFE_STAGE=([A-Z_]+)')
+               if($step.Success){Write-Output ('MPAI05_P15_FAILURE_STAGE='+$step.Groups[1].Value)}
+               $cls=[regex]::Match($log,'MPAI05_P15_SAFE_EXCEPTION=([A-Za-z]{3,40})')
+               if($cls.Success){Write-Output ('MPAI05_P15_FAILURE_TYPE='+$cls.Groups[1].Value)}
+               throw 'MPAI05_P15_QUALIFICATION_PRIVATE_FAILURE'
+            }
+            foreach($expected in @(
+              'MPAI05_P15_PUBLIC_DATA_SHA256=PASS',
+              'MPAI05_P15_PRIOR_COHORT_EXCLUDED=16',
+              'MPAI05_P15_NEW_COHORT_CASES=16',
+              'MPAI05_P15_WEB=8',
+              'MPAI05_P15_ENTERPRISE=8',
+              'MPAI05_P15_COHORT_OVERLAP=0',
+              'MPAI05_P15_MODEL_FULL_SHA256=PASS',
+              'MPAI05_P15_MODEL_BYTES=1055609824',
+              'MPAI05_P15_MODEL_ORIGINAL_COMMIT=72da00985aa7cb57cd436a6172be99c3bd906d9c',
+              'MPAI05_P15_PUBLIC_SMOKE_CALLS=1',
+              'MPAI05_P15_LOCAL_RUNTIME=PASS',
+              'MPAI05_P15_PUBLIC_DEVELOPMENT_ONLY=TRUE',
+              'MPAI05_P15_FIRST_USE_HOLDOUT=FALSE',
+              'MPAI05_P15_SCIENTIFIC_ACCEPTANCE=FALSE',
+              'MPAI05_P15_PRODUCTION_MEMORY_WRITES=0',
+              'MPAI05_P15_MODEL_PROMOTION=FALSE')){
+               if(-not $log.Contains($expected)){throw 'MPAI05_P15_INCOMPLETE_SOURCE_AND_MODEL_RECEIPT'}
+            }
+            $hash=[regex]::Match($log,'MPAI05_P15_NEW_COHORT_SHA256=([0-9a-f]{64})')
+            if(-not $hash.Success){throw 'MPAI05_P15_COHORT_HASH_NOT_RECORDED'}
+            foreach($line in ($log -split [char]10)){
+               $line=$line.Trim()
+               if($line -match '^MPAI05_P15_(PUBLIC_DATA_SHA256|PRIOR_COHORT_EXCLUDED|NEW_COHORT_SHA256|NEW_COHORT_CASES|WEB|ENTERPRISE|COHORT_OVERLAP|NEW_FAMILIES|MODEL_FULL_SHA256|MODEL_BYTES|MODEL_ORIGINAL_COMMIT|PUBLIC_SMOKE_CALLS|LOCAL_RUNTIME|LOAD_MS|INFERENCE_MS|PROMPT_TOKENS|COMPLETION_TOKENS|PEAK_WORKING_SET_BYTES|PUBLIC_ANSWER_NONEMPTY|PUBLIC_DEVELOPMENT_ONLY|FIRST_USE_HOLDOUT|SCIENTIFIC_ACCEPTANCE|PRODUCTION_MEMORY_WRITES|MODEL_PROMOTION)=(PASS|TRUE|FALSE|[0-9]+|[a-f0-9]{40,64})$'){
+                 Write-Output $line
+               }
+            }
+            $dirty=@(git status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+               throw 'MPAI05_P15_SOURCE_CHECKOUT_CHANGED'
+            }
+            Write-Output 'MPAI05_P15_SOURCE_CUSTODY=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI05_P15_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $private){
+               Remove-Item -LiteralPath $private -Force -ErrorAction Stop
+            }
+            if(Test-Path -LiteralPath $root){
+               Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI05_P15_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
