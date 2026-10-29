@@ -1,0 +1,139 @@
+name: MP-AI05 P16 original Windows two-model memory ablation
+on:
+  push:
+    branches: [proposal/mpai05-p16-capacity-vs-memory-20261029]
+    paths: ['.github/workflows/mpai05-p16-capacity-vs-memory.yml']
+permissions:
+  contents: read
+jobs:
+  p16-capacity-original:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 28
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: P16 original Windows 96-call exact non-Qwen small/strong matched development comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+             throw 'MPAI05_P16_ORIGINAL_WINDOWS_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P16_PAID_API_FORBIDDEN'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P16_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+             throw 'MPAI05_P16_CHECKOUT_HEAD_DRIFT'
+          }
+          $pins=@{
+            'tools/mpai05_p9_dataset_freeze.py'='2c2100c53c001d28843bc2da664c3e92d413e2e6'
+            'tools/mpai05_p10_public_development.py'='7bd698e3265cc41ee4d286461980d7586a25ac99'
+            'tools/mpai05_p12_evidence_selection.py'='de13820b5598e2cabf8432481b9a34abfd6e461b'
+            'tools/mpai05_p15_model_qualification.py'='aa36ca7bab95c42bed2167db645b277847c6f2f5'
+            'tools/mpai05_p16_capacity_vs_memory.py'='6fcd49f219d186367d76f70e2ca78edcf83856e3'
+            'tests/test_mpai05_p16_capacity_vs_memory.py'='a9e3e9fefe05163aced40fe26f512d99dfa109ee'
+          }
+          foreach($path in $pins.Keys){
+             $actual=(git rev-parse ('HEAD:'+$path)).Trim()
+             if($LASTEXITCODE -ne 0 -or $actual -cne $pins[$path]){
+               throw 'MPAI05_P16_SOURCE_BLOB_DRIFT'
+             }
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-p16-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $env:RUNNER_TEMP ('mpai05-p16-private-'+$env:GITHUB_RUN_ID+'.txt')
+          $env:MPAI05_P16_SCRATCH=$scratch
+          try{
+             if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $private)){
+               throw 'MPAI05_P16_SCRATCH_COLLISION'
+             }
+             & python -B -m unittest discover -s tests -p test_mpai05_p16_capacity_vs_memory.py -v *> $private
+             $testExit=$LASTEXITCODE
+             $log=Get-Content -LiteralPath $private -Raw
+             if($testExit -ne 0 -or $log -notmatch 'Ran 9 tests' -or
+                $log -notmatch '(?m)^OK(?:\s|$)'){
+               foreach($m in [regex]::Matches($log,'(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                 Write-Output ('MPAI05_P16_TEST_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+               }
+               throw 'MPAI05_P16_FOCUSED_TEST_FAILURE_PRIVATE_LOG'
+             }
+             Write-Output 'MPAI05_P16_FOCUSED_TESTS=9_PASS'
+             Remove-Item -LiteralPath $private -Force
+             & python -B tools/mpai05_p16_capacity_vs_memory.py *> $private
+             $exit=$LASTEXITCODE
+             $log=Get-Content -LiteralPath $private -Raw
+             if($exit -ne 0){
+               $reason=[regex]::Match($log,'MPAI05_P16_SAFE_FAILURE=(MPAI05_P16_[A-Z0-9_]+|PRIVATE_EXCEPTION)')
+               if($reason.Success){Write-Output ('MPAI05_P16_FAILURE_CLASS='+$reason.Groups[1].Value)}
+               $phase=[regex]::Match($log,'MPAI05_P16_SAFE_STAGE=([A-Z_]+)')
+               if($phase.Success){Write-Output ('MPAI05_P16_FAILURE_STAGE='+$phase.Groups[1].Value)}
+               $kind=[regex]::Match($log,'MPAI05_P16_SAFE_ERROR_TYPE=([A-Za-z]{3,40})')
+               if($kind.Success){Write-Output ('MPAI05_P16_FAILURE_TYPE='+$kind.Groups[1].Value)}
+               throw 'MPAI05_P16_DEVELOPMENT_FAILURE_PRIVATE_LOG'
+             }
+             foreach($m in @(
+               'MPAI05_P16_ACTUAL_LOCAL_MODEL_CALLS=96',
+               'MPAI05_P16_FROZEN_COHORT_SHA256=81be63f61ee45231985c9341419a3abb1f42f40930a95be8337d16375ba1b696',
+               'MPAI05_P16_OFFICIAL_PUBLISHED_DATA=PASS',
+               'MPAI05_P16_OFFICIAL_SCORER=PASS',
+               'MPAI05_P16_VERIFIED_MODEL_SHA256=2_PASS',
+               'MPAI05_P16_FINISHED_SMOLLM2_360M=PASS',
+               'MPAI05_P16_FINISHED_SMOLLM2_1P7B=PASS',
+               'MPAI05_P16_PREVIOUS_PUBLIC_CASES_EXCLUDED=TRUE',
+               'MPAI05_P16_PUBLIC_DEVELOPMENT_ONLY=TRUE',
+               'MPAI05_P16_INDEPENDENT_FIRST_USE=FALSE',
+               'MPAI05_P16_SCIENTIFIC_ACCEPTANCE=FALSE',
+               'MPAI05_P16_PRODUCTION_WRITES=0')){
+               if(-not $log.Contains($m)){throw 'MPAI05_P16_RECEIPT_INCOMPLETE'}
+             }
+             $names=@('SMOLLM2_360M','SMOLLM2_1P7B')
+             $arms=@('NO_MEMORY','LEXICAL_MEMORY','IDF_DIVERSE_MEMORY')
+             $seen=@{}
+             foreach($line in ($log -split [char]10)){
+               $line=$line.Trim()
+               if($line -match '^MPAI05_P16_ARM_(SMOLLM2_360M|SMOLLM2_1P7B)_(NO_MEMORY|LEXICAL_MEMORY|IDF_DIVERSE_MEMORY)=(\{.*\})$'){
+                 $name=$Matches[1];$arm=$Matches[2]
+                 $result=$Matches[3]|ConvertFrom-Json
+                 if($result.calls -ne 16 -or
+                    $result.graded+$result.unscorable -ne 16 -or
+                    $result.correct -gt $result.graded){
+                    throw 'MPAI05_P16_SCORING_DENOMINATOR'
+                 }
+                 $key=$name+'_'+$arm
+                 if($seen.ContainsKey($key)){throw 'MPAI05_P16_DUPLICATE_MODEL_ARM'}
+                 $seen[$key]=$true
+                 foreach($metric in @('graded','unscorable','correct','tokens',
+                                        'inference_ms','retrieval_cpu_ns',
+                                        'output_cap_hits','context_chars')){
+                   Write-Output ('MPAI05_P16_'+$key+'_'+$metric.ToUpper()+'='+$result.$metric)
+                 }
+               }
+               elseif($line -match '^MPAI05_P16_(SMOLLM2_360M|SMOLLM2_1P7B)_(LOAD_MS|PEAK_BYTES)=([0-9]+)$'){
+                 Write-Output $line
+               }
+               elseif($line -match '^MPAI05_P16_(ACTUAL_LOCAL_MODEL_CALLS|FROZEN_COHORT_SHA256|OFFICIAL_PUBLISHED_DATA|OFFICIAL_SCORER|VERIFIED_MODEL_SHA256|PREVIOUS_PUBLIC_CASES_EXCLUDED|PUBLIC_DEVELOPMENT_ONLY|INDEPENDENT_FIRST_USE|INDEPENDENT_SEMANTIC_GRADING|SCIENTIFIC_ACCEPTANCE|PRODUCTION_WRITES)=(PASS|2_PASS|TRUE|FALSE|[0-9]+|[a-f0-9]{64})$'){
+                 Write-Output $line
+               }
+             }
+             if($seen.Count -ne 6){throw 'MPAI05_P16_INCOMPLETE_SIX_ARM_SUMMARY'}
+             $dirty=@(git status --porcelain --untracked-files=all)
+             if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+               throw 'MPAI05_P16_REPO_CHECKOUT_MUTATED'
+             }
+             Write-Output 'MPAI05_P16_REPO_SOURCE_CUSTODY=PASS'
+          } finally {
+             Set-Location $env:RUNNER_TEMP
+             Remove-Item Env:MPAI05_P16_SCRATCH -ErrorAction SilentlyContinue
+             if(Test-Path -LiteralPath $private){Remove-Item -LiteralPath $private -Force -ErrorAction Stop}
+             if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+             Write-Output ('MPAI05_P16_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
