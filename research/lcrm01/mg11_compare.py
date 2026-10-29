@@ -24,9 +24,9 @@ def verify(r):
     rows=e["native_and_conventional_public_source_records"]
     check(len(rows)==12 and
           {(r["role"],r["seed_evaluator_only"]) for r in rows}==
-          {(role,seed) for role in ROLES for seed in (70301,70303,70307)},"MATRIX")
+          {(role,seed) for role in ROLES for seed in (71301,71303,71307)},"MATRIX")
     summary=e["per_role_original_source_metrics"]
-    for seed in (70301,70303,70307):
+    for seed in (71301,71303,71307):
         subset=[row for row in rows if row["seed_evaluator_only"]==seed]
         check(len({row["original_start_public_sha256"] for row in subset})==1,"EQUAL_SOURCE_RESETS")
         for row in subset:
