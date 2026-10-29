@@ -1,0 +1,158 @@
+{
+  "schema": "itd02.mg52.original-source-public-goal-effect-eligibility-memory.dev.v1",
+  "phase": "PROSPECTIVE_PROTOCOL_FROZEN_BEFORE_EXECUTABLE_AND_ANY_NEW_ORIGINAL_WORLD_ACTION",
+  "parent": {
+    "mg51_head": "a058d8f59555c2bac0121613dc14b5bd758ddf1f",
+    "mg51_pr": 1215,
+    "mg51_science": "MG51_MG50_ORIGINAL_SOURCE_GOAL_RELEVANCE_DIAGNOSTIC_PASS_NO_SCIENCE",
+    "mg50_science": "MG50_EMPIRICAL_PUBLIC_TRANSITION_UNCERTAINTY_DEV_NOT_SUPPORTED_NO_SCIENCE"
+  },
+  "source": {
+    "original_farama": "7f5853792ea7f04f75614661006d87fcf949f26d",
+    "farama_registry_blob": "41b4a731255d19bdf61072b7100e752a759a3ae4",
+    "original_mg44_policy_git_blob": "2f93b9b5227d97d318cf5c05544f85c303496da7",
+    "native_wingless_mg19": "ebbadd157cc1df6eabfa5a550c8876ca87dc91e9",
+    "native_yggdrasil_mg19": "f0dd99d59ce00da7ad17ff49900a1af6d2322a77",
+    "corrected_mg33c": "f6a0363fd0c0c1ae0f312a4de9062b9395e70aac",
+    "corrected_mg33c_blob": "082ef861258476703a0590a4092add1ce0ab57c5"
+  },
+  "cohort": {
+    "families": [
+      {
+        "id": "MiniGrid-KeyCorridorS3R2-v0",
+        "entry": "minigrid.envs:KeyCorridorEnv"
+      },
+      {
+        "id": "MiniGrid-KeyCorridorS4R3-v0",
+        "entry": "minigrid.envs:KeyCorridorEnv"
+      },
+      {
+        "id": "MiniGrid-ObstructedMaze-1Dl-v0",
+        "entry": "minigrid.envs:ObstructedMaze_1Dlhb"
+      }
+    ],
+    "fresh_dev_seeds": [
+      [
+        1081101,
+        1081103,
+        1081107
+      ],
+      [
+        1081201,
+        1081203,
+        1081207
+      ],
+      [
+        1081301,
+        1081303,
+        1081307
+      ]
+    ],
+    "roles": [
+      "wingless_mg19_unchanged",
+      "yggdrasil_mg19_unchanged",
+      "mg33_public_history_frontier_unchanged",
+      "mg34_graph_lookahead_unchanged",
+      "mg33c_actiononly_ucb_exact_source",
+      "mg33c_actiononly_round_robin_exact_source",
+      "mg38_generic_affordance_prior_enabled_exact_source",
+      "mg39b_generic_affordance_prior_removed",
+      "mg40_precondition_memory_enabled_unchanged",
+      "mg40_precondition_memory_ablated_unchanged",
+      "mg42_observed_reversal_guard_unchanged",
+      "mg43_engineered_target_matcher_plus_learned_action_value_unchanged",
+      "mg43_engineered_target_matcher_no_action_value_ablation_unchanged",
+      "mg44_public_precondition_release_enabled_UNMODIFIED",
+      "mg44_public_precondition_release_disabled_UNMODIFIED",
+      "mg47_door_action_effect_memory_enabled_unchanged",
+      "mg47_door_action_effect_memory_disabled_unchanged",
+      "mg50_empirical_public_transition_uncertainty_enabled_UNMODIFIED",
+      "mg50_empirical_public_transition_uncertainty_disabled_UNMODIFIED",
+      "mg52_original_goal_relevant_eligibility_enabled",
+      "mg52_original_goal_relevant_eligibility_disabled",
+      "seeded_uniform_random"
+    ],
+    "episodes": 198,
+    "original_actions_cap_each": 192,
+    "independent_full_source_processes": 2,
+    "memory": "cold per family and per role, maintain learned source-selected context/value across exactly 3 original seeds; no source model shared across arms",
+    "scientific_sealed": false
+  },
+  "mechanism": {
+    "name": "Hand-engineered public mission-action consequence eligibility learning, not independently discovered semantics",
+    "base": "Import original MG47 DoorMemoryNavigation and original MG50 PublicTransitionPredictor from exact unchanged ancestor. Candidate/ablation use untouched MG47 door memory and MG44 release/target FSM, no MG50 view-change steering.",
+    "public_context": "Mission literal target color/type, front-source object type and state and heading, plus a boolean for exact mission-target visible anywhere in 7x7 public image. Form compact string; does not include privileged map/inventory/position.",
+    "source_events": "Only own selected original Farama action and next observation, source public exact new target visibility, source locked-door state 2 to 0 observed effect, selected mission-target pickup disappearance, and positive original terminal goal reward. These public event definitions and weights are explicit manually designed features, not causal discovery.",
+    "eligibility": "Each genuine own-selected source action increments (context,action) sample count. Retain 8 most recent within-episode selected context-action keys, reset recent trace on episode reset; preserve aggregated sample and positive credit across 3 seeds within family. On any engineered goal-relevance event, add positive event credit to each of last 8 trace entries weighted geometrically (newest 1, preceding 1/2, 1/4 ...). An event is credited at most once per source step; if multiple, add weights. Does not use unseen future action feedback to select its earlier action.",
+    "choice": "Original MG47 choose first. Override only in phase seek, original selected action is 0,1,or2, no exact source mission target in front, and candidate has >=2 prior own-selected samples of (public abstraction,action). Choose action with highest empirically accumulated discounted goal-relevance credit divided by (sample count+2), only if it exceeds parent-score value by >=0.5. Skip forward if front wall or non-open door or portable object. Tie original then lowest action. No override of pickup, drop, door toggle, release/retry or visible target.",
+    "bounded_memory": "At most 2048 context-action keys within a family; ignore new keys once full, preserve existing prior evidence. Do not share across role/family. Cold checkpoint exact schema verifies all counts and credits.",
+    "coefficients": {
+      "trace_window": 8,
+      "discount_ratio": "1/2",
+      "context_action_cap": 2048,
+      "minimum_context_action_samples": 2,
+      "minimum_mean_credit_advantage": "1/2",
+      "credit_first_new_target_visible": 2,
+      "credit_true_locked_door_opening": 3,
+      "credit_selected_target_pickup_effect": 6,
+      "credit_positive_terminal_goal": 10,
+      "steering_actions": [
+        0,
+        1,
+        2
+      ]
+    },
+    "known_limits": "Public first-sighting and public goal semantics engineered; eligibility correlation not proof that preceding selected action caused later reward; early successes/target encounters may be too sparse for value steering."
+  },
+  "metrics": {
+    "primary": "genuine original mission-target first visible frames and positive reward/terminated goals in larger KeyCorridors; true positive ObstructedMaze goals",
+    "secondary": "actual source mission-target selected pickups, actual locked-door openings, action budget, number of true own-selected value overrides and public goal-relevant credit events, cold-checkpoint retention, source action histograms",
+    "comparisons": [
+      "identical eligibility learning with steering disabled",
+      "untouched MG47 door-memory source",
+      "untouched MG44 release candidate",
+      "unchanged original MG50 prediction enabled/disabled",
+      "unchanged MG34 graph lookahead, exact MG33C action-only UCB/RR",
+      "original native Wingless/Yggdrasil MG19"
+    ],
+    "computational": "episode original source actions and wall/Python/child CPU deltas; NOT full matched Go CPU/RSS/energy"
+  },
+  "frozen_dev_filter": {
+    "candidate": "mg52_original_goal_relevant_eligibility_enabled",
+    "comparators": [
+      "mg52_original_goal_relevant_eligibility_disabled",
+      "mg47_door_action_effect_memory_enabled_unchanged",
+      "mg44_public_precondition_release_enabled_UNMODIFIED",
+      "mg50_empirical_public_transition_uncertainty_enabled_UNMODIFIED",
+      "mg50_empirical_public_transition_uncertainty_disabled_UNMODIFIED",
+      "mg34_graph_lookahead_unchanged"
+    ],
+    "requirements": [
+      "candidate obtains at least one actual authentic original mission-target-visible observation in a larger KeyCorridor",
+      "candidate at least one authentic positive goal episode in a larger KeyCorridor",
+      "candidate at least one authentic positive goal episode in ObstructedMaze",
+      "candidate total positive original goals strictly greater than every preregistered comparator, including matched eligibility-steering disabled arm",
+      "candidate makes >=1 own selected contextual credit-supported action override",
+      "Windows and Ubuntu source-only preflight before any original world actions, pinned original sources and two complete identical original source processes"
+    ],
+    "pass": "MG52_GOAL_RELEVANT_ELIGIBILITY_ORIGINAL_DEV_SIGNAL_ONLY_NO_SCIENCE",
+    "fail": "MG52_GOAL_RELEVANT_ELIGIBILITY_DEV_TASK_BENEFIT_NOT_SUPPORTED_NO_SCIENCE",
+    "blocked": "MG52_SOURCE_OR_PROSPECTIVE_CUSTODY_BLOCKED_NO_SCIENCE"
+  },
+  "prohibitions": {
+    "no_original_world_actions_before_both_OS_preflight": true,
+    "no_changed_native_Wingless_Yggdrasil_models": true,
+    "no_accepted_main_merge": true,
+    "no_F139_autonomy_controller_queue_mutation": true,
+    "no_CKB_plane": true,
+    "no_paid_API": true,
+    "no_live_trading": true,
+    "no_MG28_rollout": true,
+    "no_privileged_source_pose_inventory_or_map": true,
+    "no_hand_scripted_family_goal_path": true,
+    "no_posthoc_coefficient_seed_or_threshold_changes": true,
+    "no_claim_independently_sealed_scientific_firstuse": true,
+    "no_claim_native_CPU_RSS_energy_parity": true,
+    "no_forge_model_selection_promotion": true
+  }
+}
