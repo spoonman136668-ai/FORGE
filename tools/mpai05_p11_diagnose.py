@@ -71,9 +71,9 @@ def inspect_states(file:Path,wanted:dict[str,str]):
                     if key in KEYS and type(value) is str and value.strip():
                         metrics["supported_nonempty_fields"]+=1
                         support.append(value[:1200])
-                    elif key not in KEYS and key not in ("screenshot","image",
-                                                          "image_path","url") and
-                         type(value) is str and value.strip():
+                    elif (key not in KEYS and
+                          key not in ("screenshot","image","image_path","url") and
+                          type(value) is str and value.strip()):
                         unsupported_strings[key]+=1
             if support:
                 metrics["trajectories_with_supported_text"]+=1
