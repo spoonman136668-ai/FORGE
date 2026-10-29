@@ -15,10 +15,10 @@ from f139.nci04_autonomy_feed import inspect_policy
 
 SCHEMA = "forge.f139.v19.original-owner-release-readiness-nowrite.v1"
 SOURCE = "d8bccc604f8607bf10f9d8bc6aa568d1f98af559"
-TARGET = "6710968e719e0685fe3aa40c5c6a93944c0e6417"
+TARGET = "ea2d1c99d7afc1e991510d51168dd010a0b56ec5"
 FORGE = "spoonman136668-ai/FORGE"
 PR = 1052
-REQUIRED_RUNS = (40765270063, 40765270101, 40765270190)
+REQUIRED_RUNS = (40845080882, 40845080869, 40845080913)
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 
 
