@@ -1,0 +1,99 @@
+name: ACC37 original U11 ternary and U15 operator fusion actual native Go resources
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc37_go/**'
+      - 'docs/research/ACC-37-*'
+      - '.github/workflows/forge-acc37-u11-u15-go.yml'
+permissions:
+  contents: read
+jobs:
+  actual-sourcefree-native-go-comparison:
+    name: ACC37 exact U11 U15 original CPU and quality / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout exact original acceleration prereg and candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Go native kernel compiler
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Original 36-idea portfolio validator
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check immutable source Git blobs, 36-ID negative baseline and no native promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object docs/research/ACC-37-U11-U15-GO-TERNARY-FUSION-PREREG.md)" = 4b0a956f754222de22aef3218620f6ae3b70990e
+          test "$(git hash-object research/acceleration/acc37_go/go.mod)" = fb9f6740dcb54fb58637d3e01a9da903f7bf344a
+          test "$(git hash-object research/acceleration/acc37_go/main.go)" = 434a0c9bd4d7d9ffe863c6607aea18ce882592f4
+          test "$(git hash-object research/acceleration/acc37_go/main_test.go)" = bda89da4df162dbede393db42173e75bcfc92007
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python -B research/ac07_sourcefree/ac08_portfolio.py > "$RUNNER_TEMP/acc37-original-36.json"
+          python - "$RUNNER_TEMP/acc37-original-36.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert r["unique_claim_count"]==36 and r["original_count"]==30 and r["native_hypothesis_count"]==6
+          assert len(r["portfolio_rows"])==36 and r["negative_evidence_preserved"] is True
+          assert r["physical_substitute_only_ids"]==["U03","U06"]
+          assert r["scientific_admission_authorized"] is False
+          print("ACC37_ALL_ORIGINAL_36_AND_NEGATIVES_RETAINED=PASS")
+          PY
+      - name: Five native-Go exact output and negative tests, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc37_go
+          go test -count=1 -v ./...
+          go vet ./...
+          mkdir -p "$RUNNER_TEMP/acc37"
+          EXE="$RUNNER_TEMP/acc37/acc37"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then EXE="$EXE.exe"; fi
+          go build -trimpath -o "$EXE" .
+          "$EXE" report > "$RUNNER_TEMP/acc37/report.json"
+          python - "$RUNNER_TEMP/acc37/report.json" <<'PY'
+          import json,sys,math,hashlib,pathlib
+          raw=pathlib.Path(sys.argv[1]).read_bytes()
+          r=json.loads(raw)
+          assert r["Schema"]=="forge.acc37.u11-u15.actual-go-kernel.v1"
+          assert set(r["CandidateIDs"])=={"U11","U15"}
+          assert r["OriginalSourceEpisodes"]==0
+          assert r["ScientificFirstUse"] is False and r["NativeModelIntegrated"] is False
+          assert len(r["Summaries"])==2 and len(r["Trials"])==40
+          assert {x["Scene"] for x in r["Summaries"]}=={"dense","sparse"}
+          for s in r["Summaries"]:
+              assert s["Exact"] is True
+              for k in ("TernaryCPUOverBase","FusedCPUOverBase","BothCPUOverBase",
+                        "TernarySysOverBase","FusedSysOverBase","BothSysOverBase"):
+                  assert math.isfinite(s[k]) and s[k]>0
+          for t in r["Trials"]:
+              assert t["Rec"]["Rows"]==128*64*8
+              assert t["ProcessCPUNanoseconds"]>0 and t["Rec"]["GoRuntimeSysBytes"]>0
+              assert len(t["Rec"]["SHA256"])==64
+          for s in r["Summaries"]:
+              print("ACC37_NATIVE_GO_CPU_RATIOS="+json.dumps(s,sort_keys=True))
+          print("ACC37_U11_U15_QUALIFIED_KERNAL_CLASSIFICATION="+json.dumps(r["Classification"],sort_keys=True))
+          print("ACC37_REPORT_SHA256="+hashlib.sha256(raw).hexdigest())
+          print("ACC37_ACTUAL_NATIVE_MODEL_SPEEDUP_OR_FIRST_USE=NOT_PROVEN")
+          PY
+      - name: Archive native-Go real process CPU and complete unadmitted candidate report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc37-original-u11-u15-native-go-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc37-original-36.json
+            ${{ runner.temp }}/acc37/report.json
+          retention-days: 30
+          if-no-files-found: error
