@@ -123,6 +123,7 @@ class ReferenceResolutionTests(unittest.TestCase):
             self.defect = defect
             self.copies = copies
             self.get_calls = []
+            self.records_sha256 = "0" * 64 if defect == "wrong_snapshot" else "f" * 64
             self.statement = ("The original experiment was development only; "
                               "accuracy is unproven. Do not promote as a win.")
             self.refs = [{"type": "acceptance",
