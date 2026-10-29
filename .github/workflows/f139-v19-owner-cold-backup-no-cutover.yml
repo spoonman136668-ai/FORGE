@@ -42,7 +42,7 @@ jobs:
           $parent=(& git rev-parse 'HEAD^' | Out-String).Trim()
           $changed=@(& git diff --name-only 'HEAD^' 'HEAD')
           if ($LASTEXITCODE -ne 0 -or
-              $parent -cne '694588b693ed91187f1a15eacd842c1adc798b61' -or
+              $parent -cne '97e7363e1553172da770926f30a91ec155e98649' -or
               $changed.Count -ne 1 -or
               $changed[0] -cne '.github/workflows/f139-v19-owner-cold-backup-no-cutover.yml') {
             throw 'F139_BACKUP_SOURCE_SCOPE_NOT_VERIFIED'
@@ -137,8 +137,12 @@ jobs:
               rel=pathlib.Path('native-negative')/ticket/str(run)/'ubuntu-latest.zip'
               copy(owner/rel,rel,expected)
           with tempfile.TemporaryDirectory(prefix='v19-cold-restore-',dir=target.parent) as tmp:
-              restored=pathlib.Path(tmp)/'state.sqlite'
-              shutil.copyfile(snapshot,restored)
+              restored_root=pathlib.Path(tmp)/'restored'
+              shutil.copytree(target,restored_root,symlinks=False)
+              for rel,h in data['sha256'].items():
+                  with (restored_root/rel).open('rb') as f:
+                      assert hashlib.file_digest(f,'sha256').hexdigest()==h,'BACKUP_ISOLATED_RESTORE_COPY_DRIFT'
+              restored=restored_root/'state.sqlite'
               cold=Database.open_readonly(restored)
               try:
                   cold.verify()
