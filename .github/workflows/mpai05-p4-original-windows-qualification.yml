@@ -1,0 +1,126 @@
+name: MP-AI05 P4 exact-source original Windows qualification
+on:
+  push:
+    branches: [proposal/mpai05-p4-original-windows-qual-20261029]
+    paths: ['.github/workflows/mpai05-p4-original-windows-qualification.yml']
+permissions:
+  contents: read
+jobs:
+  p4-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    env:
+      MP_HEAD_SHA: a1ca7a83fa831fff2e0f935a567fa0716ee08053
+      MP_MAIN_SHA: fd9d1d5cec917063a0a9d2d263affe7f0cce3f12
+      MP_RECORDS_SHA256: fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742
+      MP_BRANCH: proposal/mpai05-p4-fourarm-source-20261029
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+    steps:
+      - name: Verify original Windows identity and qualify private exact source (no model call or writes)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI05_P4_UNAUTHORIZED_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P4_PAID_API_PROHIBITED'}
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-p4-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          $src=Join-Path $root 'mp'
+          $focusedLog=Join-Path $root 'focused-private.log'
+          $nativeLog=Join-Path $root 'native-private.log'
+          try {
+            if(Test-Path -LiteralPath $root){throw 'MPAI05_P4_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch $env:MP_BRANCH https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $root 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_P4_PRIVATE_SOURCE_CLONE_FAILED'}
+            & git -C $src config core.longpaths true
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_P4_LONGPATH_SETUP'}
+            $head=(& git -C $src rev-parse HEAD).Trim()
+            if($LASTEXITCODE -ne 0 -or $head -cne $env:MP_HEAD_SHA){throw 'MPAI05_P4_SOURCE_HEAD_DRIFT'}
+            & git -C $src merge-base --is-ancestor $env:MP_MAIN_SHA HEAD
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_P4_BASE_ANCESTRY'}
+            $want=[ordered]@{
+              'experiments/mpai05_p4/README.md'='726d6f60a089018ee270e12277391b0b36f10334'
+              'experiments/mpai05_p4/mpai05_dev_ablation_gate.py'='201305566eca47d1ba3512b89c519e2ae3c0142e'
+              'experiments/mpai05_p4/mpai05_dev_ablation_manifest.template.json'='a3472840659c7157e548418f32abfadafa5b105a'
+              'experiments/mpai05_p4/mpai05_local_model_preflight.py'='3c5575d8ef32352ce881fd8c3fc1f707b681227f'
+              'experiments/mpai05_p4/test_mpai05_dev_ablation_gate.py'='55c1ccce762436bf6c82cace459460e9fc5ef9a3'
+              'experiments/mpai05_p4/test_mpai05_preflight_identity_p3.py'='a7e57018a82c1202b8cddd42f5eb3375a2077692'
+              'experiments/mpai05_p4/test_mpai05_preflight_v2.py'='ce160aca5260e4934393bf402cac053429faa3c1'
+            }
+            $diff=@(& git -C $src diff --name-only $env:MP_MAIN_SHA HEAD)
+            if($LASTEXITCODE -ne 0 -or $diff.Count -ne 7){throw 'MPAI05_P4_SCOPE_FILE_COUNT'}
+            foreach($p in $diff){if(-not $want.Contains($p)){throw 'MPAI05_P4_SCOPE_UNEXPECTED_PATH'}}
+            foreach($p in $want.Keys){
+              $blob=(& git -C $src rev-parse "HEAD:$p").Trim()
+              if($LASTEXITCODE -ne 0 -or $blob -cne $want[$p]){throw 'MPAI05_P4_SOURCE_BLOB_DRIFT'}
+            }
+            $iceBase=(& git -C $src rev-parse "$($env:MP_MAIN_SHA):.ice").Trim()
+            $iceHead=(& git -C $src rev-parse 'HEAD:.ice').Trim()
+            if($LASTEXITCODE -ne 0 -or $iceBase -cne $iceHead){throw 'MPAI05_P4_ACCEPTED_ICE_CHANGED'}
+            $boot=Get-Content -LiteralPath (Join-Path $src '.ice/remote-bootstrap.json') -Raw | ConvertFrom-Json
+            $cat=Get-Content -LiteralPath (Join-Path $src '.ice/remote-catalog.json') -Raw | ConvertFrom-Json
+            if($boot.source.records_sha256 -cne $env:MP_RECORDS_SHA256 -or $cat.source.records_sha256 -cne $env:MP_RECORDS_SHA256){throw 'MPAI05_P4_RECORDS_DIGEST_DRIFT'}
+            Write-Output 'MPAI05_P4_ORIGINAL_RUNNER=PASS'
+            Write-Output ('MPAI05_P4_SOURCE_SHA='+$head)
+            Write-Output 'MPAI05_P4_SEVEN_BLOBS=PASS'
+            Write-Output 'MPAI05_P4_ACCEPTED_ICE=UNCHANGED'
+            $py=Get-Command python -ErrorAction Stop
+            $p4=Join-Path $src 'experiments/mpai05_p4'
+            Push-Location $p4
+            try {
+              & $py.Source -B -m unittest -v test_mpai05_dev_ablation_gate.py test_mpai05_preflight_v2.py test_mpai05_preflight_identity_p3.py *> $focusedLog
+              $focusedExit=$LASTEXITCODE
+            } finally {Pop-Location}
+            $focused=Get-Content -LiteralPath $focusedLog -Raw -ErrorAction Stop
+            if($focusedExit -ne 0 -or $focused -notmatch 'Ran 34 tests' -or $focused -notmatch '(?m)^OK(?:\s|$)'){
+              throw 'MPAI05_P4_FOCUSED_TEST_FAILURE_PRIVATE_LOG'
+            }
+            $skips=0
+            if($focused -match 'skipped=(\d+)'){$skips=[int]$Matches[1]}
+            if($skips -gt 1){throw 'MPAI05_P4_UNEXPECTED_SKIPPED_TESTS'}
+            Write-Output 'MPAI05_P4_FOCUSED_PASS=34'
+            Write-Output ('MPAI05_P4_FOCUSED_SKIPS='+$skips)
+            $suite=Join-Path $src 'tests/Test-All.ps1'
+            & pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File $suite *> $nativeLog
+            $nativeExit=$LASTEXITCODE
+            $native=Get-Content -LiteralPath $nativeLog -Raw -ErrorAction Stop
+            $nativeCount=([regex]::Matches($native,'(?m)^RUN Test-[\w-]+[.]ps1')).Count
+            if($nativeExit -ne 0 -or $native -notmatch 'Mind-Palace regression suite passed'){
+              Write-Output ('MPAI05_P4_NATIVE_TESTS_STARTED='+$nativeCount)
+              throw 'MPAI05_P4_ORIGINAL_NATIVE_FAILURE_PRIVATE_LOG'
+            }
+            Write-Output ('MPAI05_P4_NATIVE_TESTS_PASSED='+$nativeCount)
+            Write-Output 'MPAI05_P4_ORIGINAL_WINDOWS_FULL_REGRESSION=PASS'
+            $dirty=@(& git -C $src status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_P4_SOURCE_DIRTY_AFTER_QUALIFICATION'}
+            Write-Output 'MPAI05_P4_SOURCE_CUSTODY_AFTER=PASS'
+            # A model file and its independent published SHA must be deliberately provisioned
+            # on the original host. Environment variables are never printed.
+            $modelFile=[Environment]::GetEnvironmentVariable('MPAI05_MODEL_FILE')
+            $modelSHA=[Environment]::GetEnvironmentVariable('MPAI05_MODEL_SHA256')
+            $modelAuthorized=[Environment]::GetEnvironmentVariable('MPAI05_MODEL_AUTHORIZED')
+            if([string]::IsNullOrWhiteSpace($modelFile) -or [string]::IsNullOrWhiteSpace($modelSHA) -or $modelAuthorized -cne 'TRUE'){
+              Write-Output 'MPAI05_P4_MODEL_PREFLIGHT=BLOCKED_NOT_PROVISIONED_OR_NOT_AUTHORIZED'
+            } else {
+              $modelLog=Join-Path $root 'model-private.log'
+              & $py.Source -B (Join-Path $p4 'mpai05_local_model_preflight.py') --model-file $modelFile --expected-sha256 $modelSHA *> $modelLog
+              $modelExit=$LASTEXITCODE
+              if($modelExit -ne 0){throw 'MPAI05_P4_MODEL_PREFLIGHT_FAILURE_PRIVATE_LOG'}
+              $model=Get-Content -Raw -LiteralPath $modelLog | ConvertFrom-Json
+              if($model.status -cne 'MODEL_FILE_BYTES_PINNED_RUNTIME_NOT_AUTHENTICATED'){throw 'MPAI05_P4_MODEL_PREFLIGHT_UNEXPECTED_RESULT'}
+              Write-Output 'MPAI05_P4_MODEL_BYTES_PINNED=PASS'
+              Write-Output 'MPAI05_P4_MODEL_RUNTIME_AUTHENTICATED=FALSE'
+            }
+            Write-Output 'MPAI05_P4_MODEL_CALLS=0'
+            Write-Output 'MPAI05_P4_SCIENTIFIC_ACCEPTANCE=FALSE'
+            Write-Output 'MPAI05_P4_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_P4_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
