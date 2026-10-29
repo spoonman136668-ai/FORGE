@@ -50,17 +50,27 @@ jobs:
           try {
             & git.exe clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch review/mpai05-usage-feedback-20261029 $repo $root
             Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE'
-            Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'PINNED_MAIN_SHA'
+            Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'PINNED_BATCH_BRANCH_SHA'
             $patterns=@('/.ice/*','/tools/*','/policies/*','/schemas/*',
-              '/agentic/*','/tests/*','/archive/index.json','/'+$file)
+              '/agentic/*','/tests/*','/archive/index.json','/pilots/*')
             & git.exe -C $root sparse-checkout set --no-cone @patterns
             Assert ($LASTEXITCODE -eq 0) 'SOURCE_SPARSE'
             & git.exe -C $root checkout --force $source
-            Assert ($LASTEXITCODE -eq 0) 'PINNED_CHECKOUT'
+            Assert ($LASTEXITCODE -eq 0) 'PINNED_BATCH_BRANCH'
             Assert ((& git.exe -C $root rev-parse ('HEAD:'+$file)|Out-String).Trim() -ceq $blob) 'BATCH_BLOB_ID'
+            # Copy from the exact immutable proposal into EXTERNAL temporary
+            # scratch; never contaminate accepted main with an untracked batch.
+            $batch=Join-Path $scratch 'usage-feedback.batch.json'
+            Copy-Item -LiteralPath (Join-Path $root $file) -Destination $batch
+            & git.exe -C $root fetch --quiet origin refs/heads/main:refs/remotes/origin/main
+            Assert ($LASTEXITCODE -eq 0) 'MAIN_FETCH'
+            $mainBase=(& git.exe -C $root rev-parse refs/remotes/origin/main|Out-String).Trim()
+            Assert ($mainBase -ceq 'f31e4203892730ddbe24d44ce5674f5678d498aa') 'ACCEPTED_MAIN_HEAD_DRIFT'
+            & git.exe -C $root checkout -q -B main refs/remotes/origin/main
+            Assert ($LASTEXITCODE -eq 0) 'EXACT_ACCEPTED_MAIN_CHECKOUT'
+            Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $mainBase) 'ORIGINAL_MAIN_PIN'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/collect.ps1'|Out-String).Trim() -ceq '057feea4d3cecf0d57b7be498c58d8466fc20ff2') 'COLLECTOR_SHA'
             Assert ((& git.exe -C $root rev-parse 'HEAD:tools/mind.ps1'|Out-String).Trim() -ceq 'bb8c46f3c22f689e5f44dbe06ccc286014bd9130') 'CANONICAL_MEMORY_WRITER_SHA'
-            $batch=Join-Path $root $file
             $original=Join-Path $root '.ice/records.json'
             $data=Get-Content -LiteralPath $original -Raw|ConvertFrom-Json
             $beforeCount=@($data).Count
@@ -93,7 +103,7 @@ jobs:
             'print("MPAI05_FB_COLD_SNAPSHOT_SHA_VERIFIED=PASS")'
           ) -join [Environment]::NewLine
             $baseline=Join-Path $private 'baseline.log'
-            & python -B -c $rehearsalQuery $root $source no *> $baseline
+            & python -B -c $rehearsalQuery $root $mainBase no *> $baseline
             Assert ($LASTEXITCODE -eq 0) 'ORIGINAL_BASELINE_COLD_READ'
             Write-Output 'MPAI05_FB_COLD_ORIGINAL_BASELINE_ABSENCE=PASS'
             Push-Location $root
@@ -139,7 +149,30 @@ jobs:
             & git.exe -C $root -c user.name=Disposable-MP-Validation -c user.email=noreply@example.invalid commit -q -m 'SCRATCH-ONLY: verify real-source feedback cold recall, never push'
             Assert ($LASTEXITCODE -eq 0) 'DISPOSABLE_LOCAL_COMMIT'
             $coldSha=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
-            Assert ($coldSha -cne $source -and $coldSha -match '^[a-f0-9]{40}$') 'COLD_SOURCE_SHA'
+            Assert ($coldSha -cne $mainBase -and $coldSha -match '^[a-f0-9]{40}
+            $coldLog=Join-Path $private 'cold.log'
+            & python -B -c $rehearsalQuery $root $coldSha yes *> $coldLog
+            Assert ($LASTEXITCODE -eq 0) 'COLD_PROCESS_RECALL'
+            $result=Get-Content -LiteralPath $coldLog -Raw
+            Assert ($result.Contains('MPAI05_FB_COLD_BOTH_RECORDS_FOUND=TRUE') -and
+                    $result.Contains('MPAI05_FB_COLD_SNAPSHOT_SHA_VERIFIED=PASS')) 'COLD_READ_RECEIPT'
+            Write-Output 'MPAI05_FB_COLD_ORIGINAL_CANONICAL_COLLECTOR_STAGE=2_PASS'
+            Write-Output 'MPAI05_FB_COLD_EXISTING_CHECKPOINT_AND_LEDGER=PASS'
+            Write-Output 'MPAI05_FB_COLD_CANONICAL_REMOTE_SNAPSHOT=PASS'
+            Write-Output 'MPAI05_FB_COLD_ORIGINAL_FULL_CHECKPOINT_VALIDATION=PASS'
+            Write-Output 'MPAI05_FB_COLD_SEPARATE_PROCESS_RECALL=2_PASS'
+            Write-Output 'MPAI05_FB_COLD_SOURCE_AND_PROVENANCE_VERIFIED=PASS'
+            Write-Output 'MPAI05_FB_COLD_PRODUCTION_MEMORY_WRITES=0'
+            Write-Output 'MPAI05_FB_COLD_UPSTREAM_PUSHES=0'
+            Write-Output 'MPAI05_FB_COLD_LIVE_CROSS_AGENT_LEARNING=NOT_DEMONSTRATED'
+          } finally{
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI05_FB_COLD_PRIVATE_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
+) 'COLD_SOURCE_SHA'
             $coldLog=Join-Path $private 'cold.log'
             & python -B -c $rehearsalQuery $root $coldSha yes *> $coldLog
             Assert ($LASTEXITCODE -eq 0) 'COLD_PROCESS_RECALL'
