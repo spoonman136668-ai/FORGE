@@ -1,0 +1,135 @@
+name: F139 V19 independent live autonomy observation READ ONLY
+on:
+  push:
+    branches: [qualification/f139-v19-live-autonomy-observation-20261029]
+    paths: [.github/workflows/f139-v19-live-autonomy-observation-ro.yml]
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: f139-v19-autonomy-observe-20261029
+  cancel-in-progress: false
+jobs:
+  inspect-original-ledger:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-live-autonomy-observation-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Observe original owner task and immutable ledger after activation without writes
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $ownerSource='0743ca22b76ebd943a66f05a36ea919301676be0'
+          $observedMain='503a55be9eaa34ade818f3a47ca530e67f26ba8f'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-live-autonomy-observation-20261029' -or
+             $env:OPENAI_API_KEY){
+            throw 'F139_V19_LIVE_OBSERVE_OWNER_AUTHORITY_DRIFT'
+          }
+          $parent=(& git rev-parse HEAD^ | Out-String).Trim()
+          $changed=@(& git diff --name-only HEAD^ HEAD)
+          if($LASTEXITCODE -ne 0 -or $parent -cne $observedMain -or
+             $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/f139-v19-live-autonomy-observation-ro.yml'){
+            throw 'F139_V19_LIVE_OBSERVE_SOURCE_SCOPE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+             [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ine 'powershell.exe'){
+            throw 'F139_V19_LIVE_OBSERVE_TASK_TOPOLOGY_DRIFT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          $who=[string]$task.Principal.UserId
+          try{$sid=(New-Object Security.Principal.NTAccount($who)).Translate(
+             [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($who -ine $identity.Name -and $sid -cne $identity.User.Value){
+            throw 'F139_V19_LIVE_OBSERVE_OWNER_SID_DRIFT'
+          }
+          $argsText=[string]$task.Actions[0].Arguments
+          function Field([string]$name){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_V19_LIVE_OBSERVE_OWNER_ARG_MISSING'}
+            return [string]$m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $db=Field 'Database'
+          $python=Field 'PythonExe'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $ownerSource -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_V19_LIVE_OBSERVE_INSTALLED_OWNER_DRIFT'
+          }
+          $policy=& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json
+          $current=& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json
+          $p=$policy.body | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $p.enabled -ne $true -or
+             $p.source_sha -cne $ownerSource -or $p.scientific_first_use -ne $false -or
+             $p.paid_model_calls -ne 0 -or $current.protected -ne $true){
+            throw 'F139_V19_LIVE_OBSERVE_REMOTE_AUTHORITY_DRIFT'
+          }
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+             Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+               $_.CommandLine.Contains($db)})
+          Set-Location -LiteralPath $root
+          @'
+          import json,pathlib,sys
+          from f139.local_controller import Database
+          db=Database.open_readonly(pathlib.Path(sys.argv[1]))
+          try:
+              db.verify()
+              assert db.conn.execute('PRAGMA query_only').fetchone()[0]==1,'READONLY_REQUIRED'
+              meta=db.meta()
+              assert meta['source_sha']=='0743ca22b76ebd943a66f05a36ea919301676be0','SOURCE_DRIFT'
+              assert meta['enabled']==1 and meta['legacy_suspended']==1,'ORIGINAL_NATIVE_NOT_ACTIVE'
+              assert meta['head_seq']>=316,'LEDGER_BEFORE_RESTART'
+              events=[{'seq':r['seq'],'kind':r['kind'],'sha':r['sha']} for r in db.conn.execute(
+                  'SELECT seq,kind,sha FROM events WHERE seq>316 ORDER BY seq DESC LIMIT 20')]
+              statuses={row['stage']:row['n'] for row in db.conn.execute(
+                  'SELECT stage,COUNT(*) AS n FROM tasks GROUP BY stage')}
+              recent=[{'ticket':r['ticket'],'stage':r['stage'],'run_id':r['run_id']} for r in db.conn.execute(
+                  'SELECT ticket,stage,run_id FROM tasks ORDER BY rowid DESC LIMIT 12')]
+              result={'schema':'forge.f139.v19.original-autonomy-observation-readonly.v1',
+                 'source_sha':meta['source_sha'],'head_seq':meta['head_seq'],'head_sha256':meta['head_hash'],
+                 'post_activation_event_count':meta['head_seq']-316,
+                 'recent_events':events,'task_stages':statuses,'recent_tasks':recent,
+                 'original_sqlite_writes':0,'scientific_first_use':False}
+              print('F139_V19_LIVE_ORIGINAL_LEDGER_READONLY=PASS')
+              print('F139_V19_LIVE_AUTONOMY_LEDGER_RECEIPT='+json.dumps(result,sort_keys=True))
+          finally:db.close()
+          '@ | & $python -B - $db
+          if($LASTEXITCODE -ne 0){throw 'F139_V19_LIVE_OBSERVE_COLD_LEDGER_FAILED'}
+          $taskState=[string]$task.State
+          $mainSha=[string]$current.commit.sha
+          $receipt=@{
+            task_state=$taskState
+            task_last_result=[string]$info.LastTaskResult
+            expected_v19_owner_source=$ownerSource
+            protected_main_sha=$mainSha
+            protected_main_matches_owner=($mainSha -ceq $ownerSource)
+            original_owner_python_processes=$processes.Count
+            task_edit_count=0
+            original_db_writes=0
+            github_writes=0
+          }
+          Write-Output ('F139_V19_LIVE_AUTONOMY_TASK_RECEIPT='+($receipt | ConvertTo-Json -Compress))
+          Write-Output 'F139_V19_LIVE_AUTONOMY_ORIGINAL_OWNER_READONLY=PASS'
