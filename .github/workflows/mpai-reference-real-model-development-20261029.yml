@@ -37,7 +37,17 @@ jobs:
             throw 'MPAI_DEV_ORIGINAL_WINDOWS_RUNNER_REQUIRED'
           }
           if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI_DEV_NO_REPLAY'}
-          if($env:OPENAI_API_KEY -or $env:OPENROUTER_API_KEY){throw 'MPAI_DEV_PAID_API_NOT_AUTHORIZED'}
+          # This is an explicitly offline/local-model run. Owner runner may
+          # have inherited unrelated credentials; remove them from this step's
+          # child process environment, without reading or displaying values.
+          foreach($name in @('OPENAI_API_KEY','OPENROUTER_API_KEY',
+                              'ANTHROPIC_API_KEY','HUGGING_FACE_HUB_TOKEN',
+                              'HF_TOKEN')){
+            Remove-Item ('Env:'+$name) -ErrorAction SilentlyContinue
+          }
+          if($env:OPENAI_API_KEY -or $env:OPENROUTER_API_KEY -or $env:ANTHROPIC_API_KEY){
+            throw 'MPAI_DEV_LOCAL_MODEL_SANITIZATION_FAILED'
+          }
           $sourceHead='638bc9b2883c6b01f81383a5c4afa87738641047'
           $branch='review/mpai-usage-continuity-20261029'
           $url='https://github.com/spoonman136668-ai/Mind-Palace.git'
