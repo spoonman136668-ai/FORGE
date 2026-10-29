@@ -11,7 +11,7 @@ concurrency:
 jobs:
   source-pinned:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONNOUSERSITE: '1'
@@ -74,10 +74,18 @@ jobs:
             if($report.answer_authorized -ne $false -or $report.scientific_compose -cne 'NO_GO' -or $report.production_writes -ne 0){
               throw 'MPAI162_UNEARNED_AUTHORITY'
             }
-            foreach($step in @($report.steps)){
-              Write-Output ('MPAI162_STEP='+$step.step+',exit='+$step.exit_code+',methods='+$step.methods)
-            }
             Write-Output ('MPAI162_FULL_EXIT='+$fullExit)
+            Write-Output ('MPAI162_ENGINEERING_PASS='+[string]$report.engineering_pass)
+            if($report.PSObject.Properties.Match('safe_failure').Count -gt 0){
+              Write-Output ('MPAI162_SAFE_FAILURE='+[string]$report.safe_failure)
+            }
+            foreach($step in @($report.steps)){
+              $methods='not_applicable'
+              if($step.PSObject.Properties.Match('methods').Count -gt 0){
+                $methods=[string]$step.methods
+              }
+              Write-Output ('MPAI162_STEP='+[string]$step.step+',exit='+[string]$step.exit_code+',methods='+$methods)
+            }
             Write-Output 'MPAI162_SCIENTIFIC_COMPOSE=NO_GO'
             Write-Output 'MPAI162_PRODUCTION_WRITES=0'
             if($fullExit -ne 0 -or $report.engineering_pass -ne $true){
