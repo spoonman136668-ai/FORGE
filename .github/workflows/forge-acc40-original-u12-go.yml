@@ -1,0 +1,163 @@
+name: ACC40 U12 original out-of-core Go compiled source and native resource controls
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc40_go_u12/**'
+      - 'docs/research/ACC-40-*'
+      - '.github/workflows/forge-acc40-original-u12-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-u12-native-go:
+    name: ACC40 native U12 5-arm cross-OS / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen prereg first, exact Go blobs and original 36-case custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 58992c7b5d8d1e8bd13dbd0d96cd6e1ce1ffd5ef HEAD
+          test "$(git hash-object docs/research/ACC-40-U12-OUT-OF-CORE-GO-PREREG.md)" = 99982bf6a4a6c10a72139997ca2c1e1e32c31ea9
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/acceleration/acc40_go_u12/go.mod)" = 543107843db0bdaae0be051bb5921f69500c9a4d
+          test "$(git hash-object research/acceleration/acc40_go_u12/core.go)" = b2c963357a31f7f44fa53b1389d50174677009ad
+          test "$(git hash-object research/acceleration/acc40_go_u12/main.go)" = 8e9789a5eab85f1c8a416865a8ad4feef357f4dd
+          test "$(git hash-object research/acceleration/acc40_go_u12/mmap_linux.go)" = 2d80b8bc817c8dbfbda1d6cbe022ab73d3007917
+          test "$(git hash-object research/acceleration/acc40_go_u12/mmap_windows.go)" = b577b441c74339f90f64f52d77a44b70e9f7335b
+          test "$(git hash-object research/acceleration/acc40_go_u12/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc40_go_u12/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          test "$(git hash-object research/acceleration/acc40_go_u12/core_test.go)" = f66901ed634c6ad04fbea5f3b98f5e0a9ec53ea3
+          test "$(git status --porcelain --untracked-files=all)" = ""
+          echo ACC40_U12_PREREG_FIRST_AND_ALL_ORIGINAL_SOURCE_BLOBS=PASS
+      - name: Preserve full original 36-ID negative evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc40-original-36.json"
+          python - "$RUNNER_TEMP/acc40-original-36.json" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1],encoding='utf-8'))
+          expected={f"U{i:02d}" for i in range(1,31)} | {f"AC-D{i}" for i in range(1,7)}
+          assert len(p["rows"])==36 and {x["claim_id"] for x in p["rows"]}==expected
+          assert not p["scientific_admission"] and not p["scientific_first_use"]
+          assert p["hardware_substitutes_not_physical_results"]==["U03","U06"]
+          print("ACC40_U12_ALL_ORIGINAL_36_PRESERVED=PASS")
+          PY
+      - name: Focused original U12 Go tests, vet and deterministic build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc40_go_u12
+          go test -count=1 -v ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc40"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc40-report.json"
+      - name: Audit native worker completeness and provisional engineering classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/acc40-report.json" <<'PY'
+          import json,sys,math
+          p=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert p['schema']=='forge.acc40.original-u12-native-go-outofcore.v1'
+          assert p['os'] in ('linux','windows')
+          assert p['portfolio_original_count']==30 and p['portfolio_additional_count']==6
+          assert not p['scientific_first_use'] and not p['native_model_acceleration_proven']
+          assert len(p['records'])==150 and len(p['comparisons'])==6
+          assert p['dataset_setup_seconds']>0
+          assert p['classification'] in ('U12_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U12_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY')
+          seen=set()
+          for r in p['records']:
+             w=r['worker']
+             key=(w['source_bytes'],w['schedule'],w['seed'],w['mode'])
+             assert key not in seen;seen.add(key)
+             assert w['source_bytes'] in (24*2**20,192*2**20)
+             assert w['requested_bytes']==2*w['source_bytes']
+             assert w['peak_rss_bytes']>0 and r['cpu_seconds']>0 and r['wall_seconds']>0
+             assert r['exit_code']==0 and r['pair_order'] in ('AB','BA')
+             assert w['memory_metric']=='OS_PROCESS_PEAK_PHYSICAL_RSS_BYTES'
+          assert len(seen)==150
+          for c in p['comparisons']:
+             assert c['trace_equal'] and c['selected_control'] in ('SYNC','MMAP','STATIC')
+             for k in ('wall_ratio','cpu_ratio','rss_ratio','predictive_median_rss_bytes'):
+                assert math.isfinite(c[k]) and c[k]>0
+          print("ACC40_ORIGINAL_NATIVE_U12_150_CHILDS_AND_SIX_CELLS_SOURCE_VALID=PASS")
+          print("ACC40_ENGINEERING_CLASSIFICATION="+p['classification'])
+          PY
+      - name: Preserve measured raw resource receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc40-original-u12-raw-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc40-report.json
+            ${{ runner.temp }}/acc40-original-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  independent-source-reconciliation:
+    name: ACC40 audit equal source and traces, no cross-OS latency pooling
+    runs-on: ubuntu-latest
+    needs: original-u12-native-go
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc40-original-u12-raw-*
+          path: receipts
+          merge-multiple: false
+      - name: Exact cross-OS input/output custody and independent classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          d=pathlib.Path('receipts')
+          a=json.loads((d/'acc40-original-u12-raw-ubuntu-latest'/'acc40-report.json').read_text())
+          b=json.loads((d/'acc40-original-u12-raw-windows-latest'/'acc40-report.json').read_text())
+          assert {a['os'],b['os']}=={'linux','windows'}
+          assert len(a['records'])==len(b['records'])==150
+          for source in (a,b):
+             assert len(source['comparisons'])==6
+             assert all(c['trace_equal'] for c in source['comparisons'])
+          key=lambda r:(r['worker']['source_bytes'],r['worker']['schedule'],r['worker']['seed'],r['worker']['mode'])
+          xa={key(r):r['worker'] for r in a['records']}
+          xb={key(r):r['worker'] for r in b['records']}
+          assert set(xa)==set(xb)
+          for k in xa:
+             for field in ('requested_bytes','trace_digest','arithmetic_checksum','source_bytes','mode','schedule','seed'):
+                assert xa[k][field]==xb[k][field],(k,field)
+          ca={(x['file_bytes'],x['schedule']):x for x in a['comparisons']}
+          cb={(x['file_bytes'],x['schedule']):x for x in b['comparisons']}
+          assert set(ca)==set(cb)
+          assert all(ca[k]['source_sha256']==cb[k]['source_sha256'] for k in ca)
+          p=json.loads((d/'acc40-original-u12-raw-ubuntu-latest'/'acc40-original-36.json').read_text())
+          q=json.loads((d/'acc40-original-u12-raw-windows-latest'/'acc40-original-36.json').read_text())
+          assert p['rows']==q['rows'] and len(p['rows'])==36
+          print('ACC40_ORIGINAL_U12_CROSS_OS_EXACT_INPUT_OUTPUT_PARITY=150_OF_150_PASS')
+          print('ACC40_LINUX='+a['classification'])
+          print('ACC40_WINDOWS='+b['classification'])
+          globalpass=(a['classification']=='U12_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY' and b['classification']=='U12_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY')
+          print('ACC40_GLOBAL_RESTRICTED_NATIVE_GO_WIN='+('PASS' if globalpass else 'NO'))
+          print('ACC40_ORIGINAL_NATIVE_MODEL_SPEEDUP=UNVERIFIED')
+          PY
