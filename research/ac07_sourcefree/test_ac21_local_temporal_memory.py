@@ -30,6 +30,28 @@ class AC21TemporalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"AC21_INVALID_PUBLIC_REWARD"):
             m.TemporalRingDev().observe((1,0,0,1),True)
 
+    def test_actual_staged_replay_fail_closed_without_initial_public_event(self):
+        e=m.LocalPublicEpisode({3:0.,4:0.})
+        with self.assertRaisesRegex(RuntimeError,"AC21_PUBLIC_STAGE_ORDER_INVALID"):
+            e.stage1(0,1)
+        e.stage0(1,1)
+        with self.assertRaisesRegex(RuntimeError,"AC21_STAGE0_ALREADY_OBSERVED"):
+            e.stage0(1,1)
+        # After only one neighbor hop, initial s1 cannot reach terminal site5.
+        short=m.LocalPublicEpisode({3:0.,4:0.})
+        short.stage0(1,1)
+        p1,_,_,_=short.stage1(0,1,rounds=1)
+        self.assertNotIn("s1",p1)
+        full=m.LocalPublicEpisode({3:0.,4:0.})
+        full.stage0(1,1)
+        p2,_,s2,x2=full.stage1(0,1,rounds=2)
+        self.assertEqual((s2,x2),(0,1))
+        self.assertEqual(set(p2),{"s1","x1"})
+        with self.assertRaisesRegex(RuntimeError,"AC21_PUBLIC_STAGE_ORDER_INVALID"):
+            full.stage1(0,1)
+        with self.assertRaises(TypeError):
+            m.LocalPublicEpisode({3:0.,4:0.}).stage0(1,0,u=0.5)
+
     def test_train_actual_temporal_parameters_fit_budget(self):
         rows=[((1,1,0,1),1),((0,1,1,0),0),((1,0,0,1),1),((0,0,1,1),0)]
         obj=m.fit(m.TemporalRingDev(),rows)
