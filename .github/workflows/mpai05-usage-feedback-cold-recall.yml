@@ -51,7 +51,7 @@ jobs:
             & git.exe clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch review/mpai05-usage-feedback-20261029 $repo $root
             Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE'
             Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'PINNED_BATCH_BRANCH_SHA'
-            $patterns=@('/.ice/*','/tools/*','/policies/*','/schemas/*',
+            $patterns=@('/.gitignore','/.ice/*','/tools/*','/policies/*','/schemas/*',
               '/agentic/*','/tests/*','/archive/index.json','/pilots/*')
             & git.exe -C $root sparse-checkout set --no-cone @patterns
             Assert ($LASTEXITCODE -eq 0) 'SOURCE_SPARSE'
@@ -127,6 +127,13 @@ jobs:
               Assert ($LASTEXITCODE -eq 0) 'DISPOSABLE_LEDGER'
               & $pwsh -NoProfile -NonInteractive -File tools/remote-snapshot.ps1 *> $snapshot
               Assert ($LASTEXITCODE -eq 0) 'DISPOSABLE_REMOTE_SNAPSHOT'
+              # Canonical intake leaves transient collector buffers. Only
+              # source-ledger and checkpoint outputs are required for the
+              # immutable cold-process snapshot, not ignored scratch buffers.
+              $tmpRuntime=Join-Path $root '.mind-runtime'
+              if(Test-Path -LiteralPath $tmpRuntime){
+                Remove-Item -LiteralPath $tmpRuntime -Recurse -Force -ErrorAction Stop
+              }
               & $pwsh -NoProfile -NonInteractive -File tools/update-checkpoint.ps1 validate *> $validation
               if($LASTEXITCODE -ne 0){
                 $privateValidation=Get-Content -LiteralPath $validation -Raw -ErrorAction SilentlyContinue
@@ -151,6 +158,22 @@ jobs:
                   if($privateValidation -like ('*'+$categories[$name]+'*')){
                     Write-Output ('MPAI05_FB_COLD_SAFE_FAILURE_CLASS='+$name)
                     $found=$true
+                  }
+                }
+                if($privateValidation -match 'outside allowed durable surfaces:\s*([^\s\r\n]+)'){
+                  $badPath=[string]$Matches[1]
+                  if($badPath.StartsWith('.mind-runtime/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=TEMP_RUNTIME'
+                  } elseif($badPath.StartsWith('pilots/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=PILOT_SOURCE'
+                  } elseif($badPath.StartsWith('tools/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=TOOLS_SOURCE'
+                  } elseif($badPath.StartsWith('tests/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=TEST_SOURCE'
+                  } elseif($badPath.StartsWith('.ice/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=PROTECTED_ICE'
+                  } else {
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=OTHER_PRIVATE'
                   }
                 }
                 if(-not $found){
