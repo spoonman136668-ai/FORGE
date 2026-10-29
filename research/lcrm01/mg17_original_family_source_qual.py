@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import operator
 import random
 import subprocess
 from pathlib import Path
@@ -84,8 +85,11 @@ def public(obs):
             any(type(v) is not int or v < 0 or v > 255 for v in cell)
             for row in img for cell in row)):
         raise ValueError("MG17_NOT_ORIGINAL_7X7X3_PUBLIC_IMAGE")
-    direction = obs["direction"]
-    if type(direction) is not int or direction not in range(4):
+    try:
+        direction = operator.index(obs["direction"])  # preserves source numpy integer
+    except TypeError as e:
+        raise ValueError("MG17_NONINTEGRAL_ORIGINAL_PUBLIC_DIRECTION") from e
+    if direction not in range(4):
         raise ValueError("MG17_INVALID_ORIGINAL_PUBLIC_DIRECTION")
     mission = obs["mission"]
     if type(mission) is not str or not mission.strip():
