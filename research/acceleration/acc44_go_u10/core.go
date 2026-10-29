@@ -13,7 +13,7 @@ const (
  schema="forge.acc44.original-u10-holographic-associative-go.v1"
  dimensions=64
  classes=16
- episodes=32
+ episodes=256
  queries=256
  logicalBudget=512
 )
