@@ -1,0 +1,130 @@
+name: ACC51 U15 native operator fusion research
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc51_go_u15/**'
+      - 'docs/research/ACC-51-*'
+      - '.github/workflows/forge-acc51-u15-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check authentic original U15 and prereg-before-code
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 1af12051bbc2793f24b849895132ca9cdc84de5f HEAD
+          test "$(git hash-object docs/research/ACC-51-U15-OPERATOR-FUSION-PREREG.md)" = c8afda4e8acd6d354dbc37f05f7d9e63dc57c2e5
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/acceleration/acc51_go_u15/go.mod)" = e90a1f9aefa42aa1b0f3b2b850be419db77bb786
+          test "$(git hash-object research/acceleration/acc51_go_u15/main.go)" = 92f0ff2535436e21d8da3daf1883d51275550efa
+          test "$(git hash-object research/acceleration/acc51_go_u15/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc51_go_u15/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          python - <<'PY'
+          import ast,pathlib
+          a=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          n=ast.literal_eval(next(v.value for v in a.body if isinstance(v,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in v.targets)))
+          assert len(n)==30 and n[14]=='operator fusion'
+          print('ACC51_AUTHENTIC_ORIGINAL_U15=PASS')
+          PY
+      - name: Preserve original 36 research negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc51-36.json"
+      - name: Qualify 80 native real-CPU cold workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc51_go_u15
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc51"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc51-report.json"
+      - name: Verify original U15 worker accuracy and physical resources
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP/acc51-report.json" <<'PY'
+          import json,sys,math
+          d=json.load(open(sys.argv[1]))
+          assert d['Schema']=='forge.acc51.original-u15.nativego.v1'
+          assert len(d['Records'])==d['NativeChildCount']==80 and len(d['Comparisons'])==4
+          assert not d['NativeModelAcceleration'] and not d['ScientificFirstUse']
+          pairs={};keys=set()
+          for row in d['Records']:
+            w=row['Worker'];k=(w['Arm'],w['Regime'],w['Seed'])
+            assert k not in keys;keys.add(k)
+            assert w['Episodes']==48 and w['Elements']==48*65536
+            assert w['PeakRSSBytes']>0 and w['PeakScratchBytes']>0
+            assert row['CPUSeconds']>0 and row['WallSeconds']>0
+            assert w['TruthSHA256']==w['OutputSHA256'] and len(w['InputSHA256'])==64
+            pair=(w['Regime'],w['Seed'])
+            sig=(w['InputSHA256'],w['TruthSHA256'])
+            assert pair not in pairs or pairs[pair]==sig
+            pairs[pair]=sig
+          assert len(pairs)==20 and len(keys)==80
+          assert all(math.isfinite(c['CPURatio']) and math.isfinite(c['RSSRatio']) for c in d['Comparisons'])
+          print('ACC51_U15_80_NATIVE_CPU_RSS_WORKERS=PASS')
+          print('ACC51_U15_CLASSIFICATION='+d['Classification'])
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc51-u15-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc51-report.json
+            ${{ runner.temp }}/acc51-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc51-u15-*
+          path: artifacts
+      - name: Independent Windows Linux 80 worker source/output audit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib,json
+          root=pathlib.Path('artifacts')
+          a=json.loads((root/'acc51-u15-ubuntu-latest'/'acc51-report.json').read_text())
+          b=json.loads((root/'acc51-u15-windows-latest'/'acc51-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda t:(t['Worker']['Arm'],t['Worker']['Regime'],t['Worker']['Seed'])
+          aa={key(t):t['Worker'] for t in a['Records']}
+          bb={key(t):t['Worker'] for t in b['Records']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for k in aa:
+            for f in ('InputSHA256','TruthSHA256','OutputSHA256','Elements','PeakScratchBytes'):
+              assert aa[k][f]==bb[k][f],(k,f)
+          print('ACC51_U15_CROSSOS_80_OF_80_EXACT_OUTPUT=PASS')
+          print('ACC51_LINUX='+a['Classification'])
+          print('ACC51_WINDOWS='+b['Classification'])
+          print('ACC51_NATIVE_MODEL_ACCELERATION=UNVERIFIED')
+          PY
