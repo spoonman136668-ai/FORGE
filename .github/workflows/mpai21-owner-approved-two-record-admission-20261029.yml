@@ -51,7 +51,7 @@ jobs:
           New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
           New-Item -ItemType Directory -Path $private -ErrorAction Stop|Out-Null
           try {
-            & git.exe clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch main $repo $root
+            & git.exe clone --quiet --no-checkout --single-branch --branch main $repo $root
             Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE'
             Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'PINNED_BATCH_BRANCH_SHA'
             $patterns=@('/.gitignore','/.ice/*','/tools/*','/policies/*','/schemas/*',
@@ -79,7 +79,7 @@ jobs:
             # Full regression's UQ51/UQ53/UQ55 fixture reconstructs frozen
             # history commit 90d2dc1e..., which a depth-one clone omits.
             # Restore real original ancestry, without changing frozen tests.
-            & git.exe -C $root fetch --quiet --unshallow origin refs/heads/main:refs/remotes/origin/main
+            & git.exe -C $root fetch --quiet origin refs/heads/main:refs/remotes/origin/main
             Assert ($LASTEXITCODE -eq 0) 'FULL_REGRESSION_SOURCE_HISTORY_FETCH'
             & git.exe -C $root cat-file -e '90d2dc1e79f0fcdcf49fba7680e29b5760e80d6b^{commit}'
             Assert ($LASTEXITCODE -eq 0) 'FROZEN_UQ51_COMMIT_PRESENT'
@@ -99,6 +99,20 @@ jobs:
                 $focusLines=@(Get-Content -LiteralPath $focus -ErrorAction SilentlyContinue)
                 $safeCodes=@($focusLines | Select-String -Pattern 'UQ51_[A-Z0-9_]+' -AllMatches |
                     ForEach-Object { $_.Matches | ForEach-Object { $_.Value } } | Select-Object -Unique)
+                $safeText=$focusLines -join [Environment]::NewLine
+                if($safeText -match 'not a git repository|does not appear to be a git repository'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=INVALID_REPOSITORY'
+                }elseif($safeText -match 'shallow|missing.*object|bad object|invalid object|promisor|reference is not a tree'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=MISSING_GIT_OBJECT'
+                }elseif($safeText -match 'Permission denied|Access is denied|not allowed|safe.directory|unsafe repository'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=GIT_PERMISSION'
+                }elseif($safeText -match 'Authentication|credentials|could not read Username|HTTP 40[13]'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=AUTHENTICATION'
+                }elseif($safeText -match 'fatal:|Git failed'){
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=GIT_OTHER'
+                }else{
+                  Write-Output 'MPAI21_BASELINE_GIT_ERROR=UNCLASSIFIED'
+                }
                 if($safeCodes.Count -gt 0){
                   Write-Output ('MPAI21_BASELINE_UQ51_CODES='+($safeCodes -join ','))
                 }else{
