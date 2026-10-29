@@ -1,0 +1,94 @@
+name: MP-AI06 exact staged real usage feedback canonical classification
+on:
+  push:
+    branches: [proposal/mpai06-usage-feedback-loop-20261029]
+    paths: ['.github/workflows/mpai06-staged-feedback-qualification.yml']
+permissions:
+  contents: read
+jobs:
+  original-windows-classifier:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 13
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+    steps:
+      - uses: actions/checkout@v4
+      - name: Original source-pinned Mind-Palace candidate classification, absolutely no writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+             throw 'MPAI06_BATCH_WRONG_RUNNER'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-batch-'+$env:GITHUB_RUN_ID)
+          $checkout=Join-Path $scratch 'mind-palace'
+          $log=Join-Path $scratch 'private-classifier.log'
+          try{
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI06_BATCH_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch | Out-Null
+            & git clone --quiet --filter=blob:none --depth 1 --single-branch --branch review/mpai06-verified-usage-feedback-20261029 https://github.com/spoonman136668-ai/Mind-Palace.git $checkout 2> (Join-Path $scratch 'private-git.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI06_BATCH_ORIGINAL_PRIVATE_CLONE_FAILED'}
+            $head=(git -C $checkout rev-parse HEAD).Trim()
+            if($head -cne 'afc4b2e97a68430917d19beaeb0e1fa303a2b123'){
+              throw 'MPAI06_BATCH_EXACT_SOURCE_COMMIT_DRIFT'
+            }
+            $path='pilots/mixed-source/2026-10-29-mpai06-verified-usage-feedback.batch.json'
+            if((git -C $checkout rev-parse ('HEAD:'+$path)).Trim() -cne '459f1ffecd5edbb95ff9372b90c3cc863e78f30c'){
+              throw 'MPAI06_BATCH_BLOB_DRIFT'
+            }
+            $input=Join-Path $checkout $path
+            $payload=Get-Content -LiteralPath $input -Raw -ErrorAction Stop|ConvertFrom-Json
+            if($payload.schema -cne 'mind-palace.collector-batch.v1' -or
+               @($payload.candidates).Count -ne 1 -or
+               @($payload.sources).Count -ne 3 -or
+               $payload.candidates[0].details.scientific_acceptance -ne $false -or
+               $payload.candidates[0].project -cne 'Mind-Palace' -or
+               $payload.candidates[0].key -cne 'mpai06-p16-memory-efficacy-public-development-no-go-20261029'){
+               throw 'MPAI06_BATCH_CONTENT_NOT_AUTHORIZED'
+            }
+            $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+              '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+              '.ice/remote-index.ndjson','.ice/chat-delta-state.json',
+              '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $orig=@{}
+            foreach($p in $guard){$orig[$p]=(git -C $checkout rev-parse ('HEAD:'+$p)).Trim()}
+            $collector=Join-Path $checkout 'tools/collect.ps1'
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $collector classify -InputPath $input *> $log
+            $code=$LASTEXITCODE
+            if($code -ne 0){throw 'MPAI06_BATCH_CANONICAL_CLASSIFIER_PRIVATE_FAILURE'}
+            $result=Get-Content -LiteralPath $log -Raw -ErrorAction Stop | ConvertFrom-Json
+            if($result.schema -cne 'mind-palace.collector-result.v1' -or
+               $result.candidate_count -ne 1 -or $result.primary_source_count -ne 1 -or
+               $result.result.command -cne 'classify' -or
+               $result.result.candidate_count -ne 1 -or
+               $result.result.results[0].candidate_id -cne 'lesson/mpai06-p16-memory-efficacy-public-development-no-go-20261029'){
+               throw 'MPAI06_BATCH_COLLECTOR_CONTRACT_DRIFT'
+            }
+            if([string]$result.result.results[0].action -cne 'new'){
+              throw 'MPAI06_BATCH_NOT_NEW_OR_COLLISION'
+            }
+            foreach($p in $guard){
+              if((git -C $checkout rev-parse ('HEAD:'+$p)).Trim() -cne $orig[$p]){
+                throw 'MPAI06_BATCH_DURABLE_SOURCE_DRIFT'
+              }
+            }
+            if(@(git -C $checkout status --porcelain --untracked-files=all).Count -ne 0){
+              throw 'MPAI06_BATCH_PRIVATE_CHECKOUT_DIRTY'
+            }
+            Write-Output 'MPAI06_BATCH_ORIGINAL_WINDOWS=PASS'
+            Write-Output 'MPAI06_BATCH_SOURCE_PIN=PASS'
+            Write-Output 'MPAI06_BATCH_CANONICAL_CLASSIFIER=NEW'
+            Write-Output 'MPAI06_BATCH_NINE_PROTECTED_FILES=PASS'
+            Write-Output 'MPAI06_BATCH_ACCEPTED_MEMORY_WRITES=0'
+            Write-Output 'MPAI06_BATCH_INDEPENDENT_SCIENCE=FALSE'
+            Write-Output 'MPAI06_BATCH_REVIEW_AND_EXISTING_WRITER_REQUIRED=TRUE'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI06_BATCH_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
