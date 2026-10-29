@@ -6,11 +6,39 @@ Counterfactual *proposal* outcomes remain unknown. The strong MG28 prior
 (action-only beats context+action for next-visible-change prediction) remains.
 """
 from __future__ import annotations
-import argparse,base64,collections,hashlib,json,math,resource,time
+import argparse,base64,collections,hashlib,json,subprocess,math,resource,time
 from pathlib import Path
 
 from mg25_original_policy_activation_audit import get_source,inspect,ROLES,SEEDS,FAMILIES,digest
-from mg18_native_mission_boundary_audit import WingBridge
+
+class WingBridge:
+    """Pure read-only source-replay native JSONL process; never imports Farama."""
+    def __init__(self, executable):
+        self.proc=subprocess.Popen([str(executable)],stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
+            text=True,encoding="utf-8",bufsize=1)
+    def request(self, op, **parts):
+        if self.proc.poll() is not None:
+            raise ValueError("MG29_GO_NATIVE_PROCESS_NOT_ALIVE")
+        payload=json.dumps({"op":op,**parts},sort_keys=True,separators=(",",":"),ensure_ascii=True)
+        self.proc.stdin.write(payload+"\\n")
+        self.proc.stdin.flush()
+        line=self.proc.stdout.readline()
+        if not line:
+            raise ValueError("MG29_GO_NATIVE_ORIGINAL_SOURCE_REPLY_MISSING")
+        reply=json.loads(line)
+        if reply.get("ok") is not True:
+            raise ValueError("MG29_GO_SOURCE_SELECT_OR_FEEDBACK_REJECTED:"+str(reply.get("error")))
+        return reply
+    def snapshot(self):
+        return base64.b64decode(self.request("snapshot")["state"],validate=True)
+    def close(self):
+        if self.proc.poll() is None:
+            try:self.request("quit")
+            except (OSError,ValueError):pass
+            self.proc.stdin.close()
+            self.proc.stdout.close()
+            self.proc.wait(timeout=10)
 
 HERE=Path(__file__).resolve().parent
 PREREG=HERE/"mg29_native_original_prefix_prereg.json"
