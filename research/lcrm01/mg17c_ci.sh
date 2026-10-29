@@ -51,7 +51,7 @@ test "$(git -C "$RUNNER_TEMP/mg17c/wingless-new" hash-object research/native/itd
 test "$(git -C "$RUNNER_TEMP/mg17c/wingless-new" hash-object research/native/itd02/dk14/mission.go)" = 229600d22c36c3fc8a8abdf2eca555f9fe43ba1f
 (cd "$RUNNER_TEMP/mg17c/wingless-new" &&
  go test -count=1 ./research/native/itd02/dk16/... &&
- go build -trimpath -o "$RUNNER_TEMP/mg17c/native-dk16-source" "$GITHUB_WORKSPACE/research/lcrm01/mg17c_go_bridge.go")
+ go build -trimpath -o "$RUNNER_TEMP/mg17c/native-dk16-source" "$GITHUB_WORKSPACE/research/lcrm01/mg16_go_bridge.go")
 echo MG17C_NATIVE_DK16_SOURCE_QUALIFIED
 git init -q "$RUNNER_TEMP/mg17c/wingless-candidate"
 git -C "$RUNNER_TEMP/mg17c/wingless-candidate" remote add origin https://github.com/spoonman136668-ai/Wingless.git
