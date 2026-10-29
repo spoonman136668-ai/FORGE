@@ -129,7 +129,7 @@ class OriginalOwnerV20ReadOnlyTests(unittest.TestCase):
         # The successor may now exist, but the read-only proof itself must
         # never authorize a cutover or a model request.
         self.assertIn("transition-qualified-native-v20",src)
-        self.assertIn("verify_v20_readonly_preflight(validator_db,approval)",src)
+        self.assertIn("verify_v20_readonly_preflight(validator,approval)",src)
         self.assertIn("with SingleOwner(args.db.with_suffix(\".lock\")):",src)
         self.assertIn("V20_PROTECTED_MAIN_SHA_DRIFT",src)
         self.assertIn("allow_v20=True",src)
