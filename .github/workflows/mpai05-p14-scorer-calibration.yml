@@ -1,0 +1,115 @@
+name: MP-AI05 P14 official scorer positive-control qualification
+on:
+  push:
+    branches: [proposal/mpai05-p14-scorer-calibration-20261029]
+    paths: ['.github/workflows/mpai05-p14-scorer-calibration.yml']
+permissions:
+  contents: read
+jobs:
+  original-windows-scorer:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Original source frozen official scorer control (no inference)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+             throw 'MPAI05_P14_WRONG_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P14_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P14_NO_REPLAY'}
+          $head=(git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA){
+             throw 'MPAI05_P14_ORIGINAL_HEAD_DRIFT'
+          }
+          $blobs=@{
+             'tools/mpai05_p9_dataset_freeze.py'='2c2100c53c001d28843bc2da664c3e92d413e2e6'
+             'tools/mpai05_p10_public_development.py'='7bd698e3265cc41ee4d286461980d7586a25ac99'
+             'tools/mpai05_p14_scorer_calibration.py'='85cc9664166a5f7bbca21877cbcb6fa8d14281b9'
+             'tests/test_mpai05_p14_scorer_calibration.py'='45db03ab318033641fc55c56bde9a466f3e96017'
+          }
+          foreach($file in $blobs.Keys){
+             $blob=(git rev-parse ('HEAD:'+$file)).Trim()
+             if($LASTEXITCODE -ne 0 -or $blob -cne $blobs[$file]){
+                throw 'MPAI05_P14_SOURCE_BLOB_DRIFT'
+             }
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-p14-'+$env:GITHUB_RUN_ID)
+          $log=Join-Path $env:RUNNER_TEMP ('mpai05-p14-private-'+$env:GITHUB_RUN_ID+'.txt')
+          $env:MPAI05_P14_SCRATCH=$scratch
+          try {
+             if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $log)){
+                throw 'MPAI05_P14_SCRATCH_COLLISION'
+             }
+             & python -B -m unittest discover -s tests -p test_mpai05_p14_scorer_calibration.py -v *> $log
+             $testExit=$LASTEXITCODE
+             $txt=Get-Content -LiteralPath $log -Raw -ErrorAction Stop
+             if($testExit -ne 0 -or $txt -notmatch 'Ran 8 tests' -or
+                $txt -notmatch '(?m)^OK(?:\s|$)'){
+                foreach($m in [regex]::Matches($txt,'(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                   Write-Output ('MPAI05_P14_TEST_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+                }
+                throw 'MPAI05_P14_FOCUSED_TEST_FAILED_PRIVATE_LOG'
+             }
+             Write-Output 'MPAI05_P14_SYNTHETIC_TESTS=8_PASS'
+             Remove-Item -LiteralPath $log -Force
+             & python -B tools/mpai05_p14_scorer_calibration.py *> $log
+             $exit=$LASTEXITCODE
+             $txt=Get-Content -LiteralPath $log -Raw -ErrorAction Stop
+             foreach($line in ($txt -split [char]10)){
+                $line=$line.Trim()
+                if($line -match '^MPAI05_P14_(OFFICIAL_SOURCE_PIN|PUBLIC_DATA_PIN|FROZEN_COHORT_SHA256|CASES|OFFICIAL_PURE_CASES|INTENTIONALLY_UNSCORABLE|REFERENCE_BOX_PARSE_IDENTITY|KNOWN_CORRECT_ACCEPTED|OBVIOUSLY_WRONG_REJECTED|POSITIVE_CONTROL_FAILURES|NEGATIVE_CONTROL_FAILURES|REFERENCE_USED_ONLY_AS_CONTROL|PREVIOUS_MODEL_SCORES_UNCHANGED|FIRST_USE|MODEL_CALLS|SCIENTIFIC_ACCEPTANCE|PRODUCTION_WRITES|OFFICIAL_FUNCTION_[A-Z_]+)=(PASS|TRUE|FALSE|[0-9]+|[a-f0-9]{64})$'){
+                   Write-Output $line
+                }
+             }
+             if($exit -ne 0){
+                $reason=[regex]::Match($txt,'MPAI05_P14_SAFE_FAILURE=(MPAI05_P14_[A-Z0-9_]+|PRIVATE_EXCEPTION)')
+                if($reason.Success){Write-Output ('MPAI05_P14_FAILURE_CLASS='+$reason.Groups[1].Value)}
+                $phase=[regex]::Match($txt,'MPAI05_P14_SAFE_PHASE=([A-Z_]+)')
+                if($phase.Success){Write-Output ('MPAI05_P14_FAILURE_STAGE='+$phase.Groups[1].Value)}
+                throw 'MPAI05_P14_OFFICIAL_SCORER_FAILURE_PRIVATE_LOG'
+             }
+             foreach($m in @(
+              'MPAI05_P14_OFFICIAL_SOURCE_PIN=PASS',
+              'MPAI05_P14_PUBLIC_DATA_PIN=PASS',
+              'MPAI05_P14_OFFICIAL_PURE_CASES=11',
+              'MPAI05_P14_INTENTIONALLY_UNSCORABLE=5',
+              'MPAI05_P14_REFERENCE_BOX_PARSE_IDENTITY=11',
+              'MPAI05_P14_KNOWN_CORRECT_ACCEPTED=11',
+              'MPAI05_P14_OBVIOUSLY_WRONG_REJECTED=11',
+              'MPAI05_P14_MODEL_CALLS=0',
+              'MPAI05_P14_SCIENTIFIC_ACCEPTANCE=FALSE',
+              'MPAI05_P14_PRODUCTION_WRITES=0')){
+                if(-not $txt.Contains($m)){
+                   throw 'MPAI05_P14_INCOMPLETE_POSITIVE_NEGATIVE_RECEIPT'
+                }
+             }
+             $dirty=@(git status --porcelain --untracked-files=all)
+             if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+                throw 'MPAI05_P14_REPO_SOURCE_DIRTY'
+             }
+             Write-Output 'MPAI05_P14_REPO_SOURCE_CUSTODY=PASS'
+          } finally {
+             Set-Location $env:RUNNER_TEMP
+             Remove-Item Env:MPAI05_P14_SCRATCH -ErrorAction SilentlyContinue
+             if(Test-Path -LiteralPath $log){
+                Remove-Item -LiteralPath $log -Force -ErrorAction Stop
+             }
+             if(Test-Path -LiteralPath $scratch){
+                Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+             }
+             Write-Output ('MPAI05_P14_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
