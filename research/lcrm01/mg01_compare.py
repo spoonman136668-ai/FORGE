@@ -24,8 +24,8 @@ def compare(a,b):
             or r.get("two_independent_native_fit_feedback_counts",0)<500):
             raise ValueError("MG01_PROCESS_NOT_ORIGINAL_NATIVE_EVIDENCE_"+name)
         canonical=r.get("canonical_full_science")
-        if type(canonical) is not dict or
-            len(canonical.get("paired_live_original_world_episodes",[]))!=8:
+        if (type(canonical) is not dict or
+            len(canonical.get("paired_live_original_world_episodes",[]))!=8):
             raise ValueError("MG01_ORIGINAL_FAMILY_EVIDENCE_MISSING_"+name)
         if sha(canon(canonical).encode())!=r.get("canonical_public_episode_and_model_custody_sha256"):
             raise ValueError("MG01_PUBLIC_CUSTODY_HASH_MISMATCH_"+name)
