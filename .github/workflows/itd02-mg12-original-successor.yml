@@ -1,0 +1,52 @@
+name: ITD-02 MG12 authentic DoorKey native successor persistence versus conventional
+on:
+  push:
+    branches: [research/itd02-mg12-original-world-successor-20261029]
+permissions:
+  contents: read
+jobs:
+  two-process-original-selected-successor-learning:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Original source LF
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Exact source checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - name: Source Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Native Go 1.25.5
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Reproduce original Farama source with two independent exact four-arm experiments
+        shell: bash
+        run: bash research/lcrm01/mg12_ci.sh
+      - name: Retain all source events and failed reproduction receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: itd02-mg12-original-doorkey-native-successor-four-arm-evidence
+          path: |
+            ${{ runner.temp }}/mg12/first.json
+            ${{ runner.temp }}/mg12/second.json
+            ${{ runner.temp }}/mg12/comparison.json
+            ${{ runner.temp }}/mg12/first.log
+            ${{ runner.temp }}/mg12/second.log
+          retention-days: 30
+          if-no-files-found: warn
