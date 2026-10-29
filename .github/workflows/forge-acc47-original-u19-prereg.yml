@@ -1,0 +1,51 @@
+name: ACC47 original U19 source identity and prereg qualification
+on:
+  pull_request:
+    paths:
+      - 'docs/research/ACC-47-*'
+      - 'research/acceleration/acc47_go_u19/**'
+      - '.github/workflows/forge-acc47-original-u19-prereg.yml'
+permissions:
+  contents: read
+jobs:
+  provenance:
+    name: ACC47 original U19 prereg-only authenticity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 50
+          persist-credentials: false
+      - name: Authenticate original one-based U19 and frozen pre-code protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 6bc06aea109c6125a49040f7ab4cc124081ab350 HEAD
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object docs/research/ACC-47-U19-TSETLIN-PREREG.md)" = 3e1241c504e2f8e20a6e5f7a774e94fdd8c3421f
+          python3 - <<'PY'
+          import ast,pathlib
+          tree=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          original=ast.literal_eval(next(n.value for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in n.targets)))
+          assert len(original)==30 and original[18]=='finite-state/Tsetlin learning'
+          assert original[23]=='cellular-automata local learning'
+          assert original[21]=='low-rank/tensor-train factorization'
+          print('ACC47_ORIGINAL_U19_FINITE_STATE_TSETLIN_SOURCE_IDENTITY=PASS')
+          PY
+      - name: Complete original 36 hypothesis negative registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python3 -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc47-36.json"
+          python3 - "$RUNNER_TEMP/acc47-36.json" <<'PY'
+          import json,sys
+          j=json.load(open(sys.argv[1]))
+          assert {z['claim_id'] for z in j['rows']}==({f'U{i:02}' for i in range(1,31)}|{f'AC-D{i}' for i in range(1,7)})
+          assert j['stage2_qualified_native_model_speedups']==0
+          assert not j['scientific_admission'] and not j['scientific_first_use']
+          print('ACC47_UNCHANGED_ORIGINAL_36_CANDIDATE_NEGATIVE_EVIDENCE=PASS')
+          print('ACC47_U19_NATIVE_PERFORMANCE=NOT_TESTED')
+          PY
