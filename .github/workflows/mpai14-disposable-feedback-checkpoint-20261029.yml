@@ -1,0 +1,191 @@
+name: MP-AI14 disposable existing-collector checkpoint and cold recall
+on:
+  push:
+    branches: [proposal/mpai13-feedback-qualification-20261029]
+    paths:
+      - .github/workflows/mpai14-disposable-feedback-checkpoint-20261029.yml
+permissions:
+  contents: read
+jobs:
+  original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 21
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test original collector stage, isolated local checkpoint, and fresh-process lookup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'MPAI14_ORIGINAL_RUNNER_OR_REPLAY_DENIED'
+          }
+          if((git rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI14_QUALIFIER_SOURCE_DRIFT'
+          }
+          $mpSource='f15810a16b3b31d72f0f9639f167c854ea6de52f'
+          $mpBranch='review/mpai05-usage-feedback-20261029'
+          $url='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $batchRel='pilots/mixed-source/2026-10-29-mpai05-authenticated-usage-feedback.batch.json'
+          $batchBlob='6048ca181c66afcce179ec07af3d7f4e6d20b896'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai14-isolated-checkpoint-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $classification=Join-Path $scratch 'private-classification.json'
+          $logs=Join-Path $scratch 'private-scratch-step.log'
+          $changedAllowed=@('.ice/records.json','.ice/source-ledger.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson','.ice/project-state-capsules.json',
+            '.ice/project-dependency-graph.json')
+          foreach($name in @('OPENAI_API_KEY','ANTHROPIC_API_KEY','OPENROUTER_API_KEY','HF_TOKEN')){
+            Remove-Item ('Env:'+$name) -ErrorAction SilentlyContinue
+          }
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI14_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $remote=@(git ls-remote --exit-code $url ('refs/heads/'+$mpBranch))
+            if($LASTEXITCODE -ne 0 -or $remote.Count -ne 1 -or
+               -not ([string]$remote[0]).StartsWith($mpSource)){
+              throw 'MPAI14_SOURCE_BRANCH_DRIFT'
+            }
+            & git clone --quiet --depth 1 --single-branch --branch $mpBranch $url $root
+            if($LASTEXITCODE -ne 0 -or (git -C $root rev-parse HEAD | Out-String).Trim() -cne $mpSource){
+              throw 'MPAI14_CLONE_HEAD_MISMATCH'
+            }
+            if((git -C $root rev-parse ('HEAD:'+$batchRel) | Out-String).Trim() -cne $batchBlob){
+              throw 'MPAI14_AUTHENTIC_BATCH_BLOB_MISMATCH'
+            }
+            if((git -C $root rev-parse 'HEAD:.ice' | Out-String).Trim() -cne '842b8c1318db3b826bdb7243b0cdf0d5d8efedc2'){
+              throw 'MPAI14_INITIAL_MEMORY_TREE_MISMATCH'
+            }
+            & git -C $root remote remove origin
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_DETACH_REMOTE_FAILED'}
+            $remotes=@(git -C $root remote)
+            if($LASTEXITCODE -ne 0 -or $remotes.Count -ne 0){
+              throw 'MPAI14_SCRATCH_NOT_AIRGAPPED_FROM_GIT_ORIGIN'
+            }
+            & git -C $root switch -c mpai14-checkpoint-fixture
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_LOCAL_BRANCH_FAILURE'}
+            $batch=Join-Path $root $batchRel
+            $baseline=Get-Content -LiteralPath (Join-Path $root '.ice/records.json') -Raw | ConvertFrom-Json
+            $originalIds=@($baseline | ForEach-Object {[string]$_.id})
+            if(@($originalIds).Count -lt 10){throw 'MPAI14_ORIGINAL_RECORDS_UNEXPECTEDLY_SMALL'}
+            $validation=& pwsh -NoProfile -NonInteractive -File (Join-Path $root 'tools/collect.ps1') validate -InputPath $batch | Out-String
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_COLLECT_VALIDATE_FAILED'}
+            $v=$validation.Trim() | ConvertFrom-Json
+            if(-not [bool]$v.result.valid -or [int]$v.candidate_count -ne 2){
+              throw 'MPAI14_COLLECT_VALIDATION_CONTRACT'
+            }
+            $raw=& pwsh -NoProfile -NonInteractive -File (Join-Path $root 'tools/collect.ps1') classify -InputPath $batch | Out-String
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_COLLECT_CLASSIFY_FAILED'}
+            [IO.File]::WriteAllText($classification,$raw,[Text.UTF8Encoding]::new($false))
+            $class=$raw.Trim() | ConvertFrom-Json
+            if($class.schema -cne 'mind-palace.collector-result.v1' -or
+               [int]$class.result.counts.new -ne 2 -or
+               [int]$class.result.counts.review -ne 0 -or
+               [int]$class.result.counts.merge -ne 0 -or
+               [int]$class.result.counts.ignore -ne 0){
+              throw 'MPAI14_TWO_UNCONFLICTED_NEW_LESSONS_REQUIRED'
+            }
+            Write-Output 'MPAI14_CANONICAL_CLASSIFICATION=2_NEW_0_REVIEW'
+            $staged=& pwsh -NoProfile -NonInteractive -File (Join-Path $root 'tools/collect.ps1') stage -InputPath $batch | Out-String
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_COLLECT_STAGE_FAILED'}
+            $stage=$staged.Trim() | ConvertFrom-Json
+            if($stage.schema -cne 'mind-palace.collector-result.v1' -or
+               [int]$stage.result.counts.new -ne 2){
+              throw 'MPAI14_STAGE_RESULT_NOT_TWO'
+            }
+            Write-Output 'MPAI14_EXISTING_COLLECTOR_STAGE=PASS'
+            $checkOut=& pwsh -NoProfile -NonInteractive -File (Join-Path $root 'tools/mind.ps1') checkpoint | Out-String
+            if($LASTEXITCODE -ne 0 -or $checkOut -notmatch 'promoted=2' -or
+               $checkOut -notmatch 'retired=0'){
+              throw 'MPAI14_LOCAL_CHECKPOINT_COUNT_MISMATCH'
+            }
+            $after=Get-Content -LiteralPath (Join-Path $root '.ice/records.json') -Raw | ConvertFrom-Json
+            if(@($after).Count -ne @($baseline).Count+2){throw 'MPAI14_OLD_RECORDS_NOT_PRESERVED'}
+            foreach($id in $originalIds){
+              if(@($after | Where-Object {$_.id -ceq $id}).Count -ne 1){
+                throw 'MPAI14_OLD_RECORD_REMOVED'
+              }
+            }
+            foreach($key in @(
+              'lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029',
+              'lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029')){
+              $rows=@($after | Where-Object {$_.id -ceq $key})
+              if($rows.Count -ne 1 -or [string]$rows[0].status -cne 'observed' -or
+                 [string]$rows[0].project -cne 'Mind-Palace'){
+                throw 'MPAI14_LOCAL_DURABLE_RECORD_INTEGRITY'
+              }
+            }
+            Write-Output 'MPAI14_DISPOSABLE_LOCAL_CHECKPOINT=2_OBSERVED'
+            $ledger=& pwsh -NoProfile -NonInteractive -File (Join-Path $root 'tools/source-ledger.ps1') record -BatchPath $batch -ClassificationPath $classification | Out-String
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_SCRATCH_LEDGER_FAILED'}
+            $lr=$ledger.Trim() | ConvertFrom-Json
+            if([int]$lr.entries_added -ne 2){throw 'MPAI14_SOURCE_LEDGER_DUPLICATE_OR_UNKNOWN'}
+            Write-Output 'MPAI14_SCRATCH_SOURCE_LEDGER=2_PRIMARY_SOURCES'
+            & pwsh -NoProfile -NonInteractive -File (Join-Path $root 'tools/remote-snapshot.ps1') *> $logs
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_LOCAL_REMOTE_SNAPSHOT_GENERATION_FAILED'}
+            & git -C $root add -- @changedAllowed
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_LOCAL_STAGE_FAILED'}
+            $changed=@(git -C $root diff --cached --name-only)
+            if($LASTEXITCODE -ne 0 -or $changed.Count -lt 4 -or
+               @($changed | Where-Object {$changedAllowed -cnotcontains $_}).Count -ne 0){
+              throw 'MPAI14_NON_DURABLE_SOURCE_CHANGE'
+            }
+            & git -C $root -c user.name=MPAI14-Fixture -c user.email=mpai14@invalid.example -c core.hooksPath=NUL commit --quiet -m 'fixture: scratch-only feedback checkpoint readback'
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_LOCAL_COMMIT_FAILED'}
+            $localSha=(git -C $root rev-parse HEAD | Out-String).Trim()
+            $env:MPAI14_ROOT=$root
+            $env:MPAI14_SHA=$localSha
+            @'
+import os,sys
+from pathlib import Path
+root=Path(os.environ["MPAI14_ROOT"])
+sys.path.insert(0,str(root/"tools"))
+from mindpalace_readonly import MemorySnapshot
+snap=MemorySnapshot(root,os.environ["MPAI14_SHA"],["Mind-Palace"])
+for id in (
+"lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029",
+"lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029",
+):
+    item=snap.get_record(os.environ["MPAI14_SHA"],id,["Mind-Palace"])
+    assert item["found"] and item["record"]["status"]=="observed"
+    assert len(item["record"]["source_refs"])>=2
+print("MPAI14_COLD_PROCESS_PINNED_GET_RECORD=2_PASS")
+'@ | & python -B - *> $logs
+            if($LASTEXITCODE -ne 0){throw 'MPAI14_FRESH_PROCESS_RECORD_READBACK_FAILED'}
+            $privateLog=Get-Content -LiteralPath $logs -Raw
+            if(-not $privateLog.Contains('MPAI14_COLD_PROCESS_PINNED_GET_RECORD=2_PASS')){
+              throw 'MPAI14_COLD_READBACK_RECEIPT_MISSING'
+            }
+            Write-Output 'MPAI14_COLD_PROCESS_PINNED_GET_RECORD=2_PASS'
+            if(@(git -C $root remote).Count -ne 0){throw 'MPAI14_REMOTE_REATTACHED'}
+            if(@(git -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){
+              throw 'MPAI14_SCRATCH_WORKTREE_DIRTY'
+            }
+            Write-Output 'MPAI14_GIT_REMOTE_COUNT=0'
+            Write-Output 'MPAI14_MAIN_OR_PRODUCTION_WRITES=0'
+            Write-Output 'MPAI14_REVIEWER_APPROVAL=FALSE'
+            Write-Output 'MPAI14_REAL_ACCEPTED_MEMORY_CHANGED=FALSE'
+            Write-Output 'MPAI14_SCIENTIFIC_IMPROVEMENT=NOT_PROVEN'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI14_ROOT -ErrorAction SilentlyContinue
+            Remove-Item Env:MPAI14_SHA -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI14_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
