@@ -128,24 +128,8 @@ def adjacent(anchors,memory):
             out.append((ident,near,memory[ident][near][:1150]))
     return out
 
-def generate(question,index,df,memory):
-    """All methods are question+source only; never given gold or scorer."""
-    original=p10.retrieve(question,list(memory.keys()),memory)
-    anchors=score_anchors(question,index,df)
-    result={
-      "p10_lexical":original,
-      "idf_diverse":pack(diverse(question,anchors)),
-      "idf_neighbor":pack(adjacent(anchors,memory)),
-    }
-    require(set(result)==set(METHODS),"METHOD_MISSING")
-    require(all(type(v) is str for v in result.values()),"CONTEXT_TYPE")
-    require(all(len(v)<=MAX_CONTEXT+10 for v in result.values()),
-            "CONTEXT_BOUND_EXCEEDED")
-    return result
-
 def compare(questions,selected,haystacks,memory):
     by_id={q["id"]:q for q in questions}
-    index,df=build_index(memory)
     metrics={m:Counter() for m in METHODS}
     examples=[]
     for case in selected:
@@ -153,21 +137,28 @@ def compare(questions,selected,haystacks,memory):
         row=by_id[qid]
         question=row["question"]
         require(type(question) is str,"QUESTION_TYPE")
-        # Freeze actual retrieval contexts and their hashes BEFORE looking at gold.
+        # Restrict BOTH new methods to exactly this case's original
+        # 100-trajectory P10 haystack. No cross-question retrieval.
+        ids=haystacks[qid]
+        require(type(ids) is list and len(ids)==100,"CASE_HAYSTACK_DRIFT")
+        require(all(ident in memory for ident in ids),"CASE_HAYSTACK_MISSING")
+        case_memory={ident:memory[ident] for ident in ids}
+        # Freeze actual retrieval contexts and their hashes BEFORE gold access.
         timings={}
         contexts={}
-        for method in METHODS:
-            before=time.process_time_ns()
-            if method=="p10_lexical":
-                text=p10.retrieve(question,haystacks[qid],memory)
-            else:
-                anchors=score_anchors(question,index,df)
-                if method=="idf_diverse":
-                    text=pack(diverse(question,anchors))
-                else:
-                    text=pack(adjacent(anchors,memory))
-            timings[method]=max(1,time.process_time_ns()-before)
-            contexts[method]=text
+        before=time.process_time_ns()
+        contexts["p10_lexical"]=p10.retrieve(question,ids,memory)
+        timings["p10_lexical"]=max(1,time.process_time_ns()-before)
+        before=time.process_time_ns()
+        index,df=build_index(case_memory)
+        anchors=score_anchors(question,index,df)
+        setup_ns=max(1,time.process_time_ns()-before)
+        before=time.process_time_ns()
+        contexts["idf_diverse"]=pack(diverse(question,anchors))
+        timings["idf_diverse"]=max(1,time.process_time_ns()-before)+setup_ns
+        before=time.process_time_ns()
+        contexts["idf_neighbor"]=pack(adjacent(anchors,case_memory))
+        timings["idf_neighbor"]=max(1,time.process_time_ns()-before)+setup_ns
         require(all(len(t)<=MAX_CONTEXT+10 for t in contexts.values()),
                 "CONTEXT_LENGTH_OVER")
         hashes={m:fingerprint(contexts[m]) for m in METHODS}
