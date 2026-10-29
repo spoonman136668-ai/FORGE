@@ -112,6 +112,7 @@ def fixed_run(root, args, *, expect_atlas_negative=False, max_seconds=210):
     return {"argv": args[1:], "exit_code": p.returncode, "test_count": count,
             "elapsed_ms": int((time.monotonic() - t) * 1000),
             "output_sha256": sha(output), "output_bytes": len(output),
+            "output_tail": output[-2500:].decode("utf-8", errors="replace"),
             "status": ("EXPECTED_FROZEN_ATLAS_REJECTION" if negative and expect_atlas_negative
                        else "PASS" if passed else "FAIL"),
             "peak_rss_bytes": None, "pass": passed}
