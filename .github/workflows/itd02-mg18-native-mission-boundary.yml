@@ -1,0 +1,129 @@
+name: ITD-02 MG18 native original mission admission boundary
+on:
+  push:
+    branches: [research/itd02-mg18-native-mission-boundary-20261029]
+permissions:
+  contents: read
+jobs:
+  native-candidate-mission-interface-source-audit:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    timeout-minutes: 50
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Original LF source
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Exact bounded research branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - name: Frozen before source and no other scope
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 9aaa71e902c478da70e1d0b905cc95134c3e2cae $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG18_MG17_QUALIFIED_PARENT_MISSING' }
+          git merge-base --is-ancestor ae0d0cdac82e1f25987153208e33f9b0bc84522b $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG18_PROSPECTIVE_PREREG_MISSING' }
+          $wanted = @(
+            '.github/workflows/itd02-mg18-native-mission-boundary.yml'
+            'research/lcrm01/mg18_go_dk16_mission_boundary.go'
+            'research/lcrm01/mg18_native_mission_admission_prereg.json'
+            'research/lcrm01/mg18_native_mission_boundary_audit.py'
+          )
+          $actual = @(git diff --name-only 9aaa71e902c478da70e1d0b905cc95134c3e2cae $env:GITHUB_SHA)
+          if (@(Compare-Object $wanted $actual).Count -ne 0) { throw 'MG18_UNEXPECTED_SCOPE' }
+          $pins = @{
+            'research/lcrm01/mg18_native_mission_admission_prereg.json'='bea8d033ec42ef71ba6c76e28bda07be4d01b428'
+            'research/lcrm01/mg18_go_dk16_mission_boundary.go'='d14ca0a1194f7dfd45c8ff783c5fb7100f66c456'
+            'research/lcrm01/mg18_native_mission_boundary_audit.py'='22482919c913e9da68df0be81ad3dce0fe1a3fba'
+          }
+          foreach ($p in $pins.Keys) {
+            if ((git hash-object $p).Trim() -ne $pins[$p]) { throw "MG18_FROZEN_BLOB_DRIFT:$p" }
+          }
+          if ((git status --porcelain --untracked-files=all)) { throw 'MG18_UNCLEAN_SOURCE' }
+          Write-Host 'MG18_PREREG_PRECEDES_SOURCE_AND_IDENTITY_PASS'
+      - name: Frozen Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Native Go 1.25.5
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Original source and native immutable checkouts plus paired source receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'mg18'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          function Checkout-Exact([string]$dest,[string]$remote,[string]$revision) {
+            git init -q $dest
+            if ($LASTEXITCODE -ne 0) { throw 'MG18_GIT_INIT_FAILURE' }
+            git -C $dest remote add origin $remote
+            if ($LASTEXITCODE -ne 0) { throw 'MG18_REMOTE_FAILURE' }
+            git -C $dest fetch --no-tags --depth 1 origin $revision
+            if ($LASTEXITCODE -ne 0) { throw 'MG18_PIN_FETCH_FAILURE' }
+            git -C $dest checkout --detach -q $revision
+            if ($LASTEXITCODE -ne 0) { throw 'MG18_CHECKOUT_FAILURE' }
+            if ((git -C $dest rev-parse HEAD).Trim() -ne $revision) { throw 'MG18_SOURCE_IDENTITY_DRIFT' }
+          }
+          $src = Join-Path $root 'minigrid'
+          $wing = Join-Path $root 'wingless'
+          $ygg = Join-Path $root 'yggdrasil'
+          Checkout-Exact $src 'https://github.com/Farama-Foundation/Minigrid.git' '7f5853792ea7f04f75614661006d87fcf949f26d'
+          Checkout-Exact $wing 'https://github.com/spoonman136668-ai/Wingless.git' 'e2ff8bcd4b9e84f4284e07a44034777238abcc9e'
+          Checkout-Exact $ygg 'https://github.com/spoonman136668-ai/Yggdrasil.git' 'a9942978f92e762e404fe50ce29445ea4639b4c2'
+          if ((git -C $wing hash-object research/native/itd02/dk16/state_credit.go).Trim() -ne '4b1c7ce2ceb0f33580a014c33657f9f7a84e5d7b') { throw 'MG18_GO_DK16_IDENTITY_DRIFT' }
+          if ((git -C $ygg hash-object research/native/itd02/r20/state_credit_cells.py).Trim() -ne 'b81af09e879ddab30955bd5debc2a89ce5266ae3') { throw 'MG18_YGG_R20_IDENTITY_DRIFT' }
+          python -m pip install 'pip==24.0' 'setuptools==69.5.1' 'wheel==0.43.0'
+          if ($LASTEXITCODE -ne 0) { throw 'MG18_PYTHON_SETUP_FAILED' }
+          python -m pip install 'numpy==1.26.4' 'gymnasium==1.1.1' 'pygame-ce==2.5.3'
+          if ($LASTEXITCODE -ne 0) { throw 'MG18_SOURCE_DEPS_FAILED' }
+          python -m pip install --no-deps -e $src
+          if ($LASTEXITCODE -ne 0) { throw 'MG18_PINNED_ORIGINAL_MINIGRID_INSTALL_FAILED' }
+          Push-Location $wing
+          try {
+            go test -count=1 ./research/native/itd02/dk16/...
+            if ($LASTEXITCODE -ne 0) { throw 'MG18_GO_DK16_SOURCE_TEST_FAIL' }
+            $binary = Join-Path $root 'native-dk16-mg18'
+            if ($IsWindows) { $binary = "$binary.exe" }
+            go build -trimpath -o $binary "$env:GITHUB_WORKSPACE/research/lcrm01/mg18_go_dk16_mission_boundary.go"
+            if ($LASTEXITCODE -ne 0) { throw 'MG18_GO_BRIDGE_BUILD_FAIL' }
+          } finally { Pop-Location }
+          $env:PYTHONPATH = "$ygg$([IO.Path]::PathSeparator)$(Join-Path $env:GITHUB_WORKSPACE 'research/lcrm01')"
+          python -B -m unittest -q research.native.itd02.r20.test_state_credit_cells
+          if ($LASTEXITCODE -ne 0) { throw 'MG18_YGG_R20_SOURCE_TEST_FAIL' }
+          $program = 'research/lcrm01/mg18_native_mission_boundary_audit.py'
+          $first = Join-Path $root 'first.json'
+          $second = Join-Path $root 'second.json'
+          python -B $program --source-root $src --native-go $binary --output $first
+          if ($LASTEXITCODE -ne 0) { throw 'MG18_FIRST_ACTOR_BOUNDARY_SOURCE_FAILURE' }
+          python -B $program --source-root $src --native-go $binary --output $second
+          if ($LASTEXITCODE -ne 0) { throw 'MG18_SECOND_ACTOR_BOUNDARY_SOURCE_FAILURE' }
+          python -B $program --compare $first $second
+          if ($LASTEXITCODE -ne 0) { throw 'MG18_ACTOR_BOUNDARY_REPLAY_DRIFT' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG18_WORKTREE_DIRTY' }
+          Write-Host 'MG18_AUTHENTIC_NATIVE_MISSION_BOUNDARY_QUALIFIED_BLOCKED_NO_NEW_MISSION_TRAINING_NO_SCIENCE'
+      - name: Retain original selected/blocked source receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg18-original-native-mission-source-audit-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg18/*.json
+          retention-days: 30
+          if-no-files-found: warn
