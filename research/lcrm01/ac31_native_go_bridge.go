@@ -97,12 +97,20 @@ func process(m **native.Actor,q Request)(Reply,bool){
   if err==nil{err=a.Feedback(q.Action,b,q.Reward,q.Terminal,q.Truncated)}
  case "snapshot":
   var data []byte
-  data,err=a.Snapshot()
+  if a.Mode==""{
+   data,err=a.Original.Snapshot() // historical FIT-only bridge compatibility
+  }else{
+   data,err=a.Snapshot()
+  }
   if err==nil{r.State=base64.StdEncoding.EncodeToString(data)}
  case "load":
   var data []byte
   data,err=base64.StdEncoding.DecodeString(q.State)
-  if err==nil{
+  if err==nil&&a.Mode==""{
+   var old *prior.Policy
+   old,err=prior.Restore(data)
+   if err==nil{n:=native.New();n.Original=old;*m=n;a=n}
+  }else if err==nil{
    var next *native.Actor
    next,err=native.Restore(data)
    if err==nil{*m=next;a=next}
