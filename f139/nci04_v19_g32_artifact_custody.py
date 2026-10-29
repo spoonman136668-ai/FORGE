@@ -61,7 +61,14 @@ def json_object(raw, label, *, strict=False):
         raise G32Denied("F139_V19_G32_" + label + "_JSON_INVALID") from exc
     require(type(value) is dict, label + "_NOT_OBJECT")
     if strict:
-        require(canonical(value) == raw, label + "_NONCANONICAL")
+        standard = canonical(value)
+        # Only the independently digest-pinned ORIGINAL Windows ZIP may carry
+        # CRLF for its terminal newline (Python text-mode output). No broad
+        # newline rewrite, whitespace normalization, or fallback source.
+        allowed = (standard == raw or
+                   (label == "WINDOWS_G29" and
+                    standard.replace(b"\\n", b"\\r\\n") == raw))
+        require(allowed, label + "_NONCANONICAL")
     return value
 
 
@@ -164,7 +171,7 @@ def verify(run_data, artifact_data, linux_zip, windows_zip):
             platform: EXPECTED[platform][0] for platform in EXPECTED},
         "original_zip_sha256": {
             platform: EXPECTED[platform][3] for platform in EXPECTED},
-        "report_sha256": {
+        "normalized_report_sha256": {
             "linux": sha(canonical(linux)), "windows": sha(canonical(windows))},
         "diagnostic": diagnostic,
         "provider_receipt_signed": False,
