@@ -1,0 +1,112 @@
+name: ITD-02 MG28 action-conditioned source signal versus strong matched controls
+on:
+  push:
+    branches: [research/itd02-mg28-action-conditioned-signal-control-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  exact-authentic-strong-control:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+      PYTHONPATH: research/lcrm01
+    steps:
+      - name: Original Git source LF
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Source-only exact frozen research branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Original Python 3.11 dependency-free source audit
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Precommitted strong baseline and exact-historical-source fence
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 4134f8fb268d78fdd527a1c67f1974ae77977252 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG28_MG27_AUTHENTIC_ORIGINAL_SOURCE_PARENT_MISSING' }
+          git merge-base --is-ancestor 97a70870633bae917bda42765c394ce16b940b36 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG28_RETROSPECTIVE_ANALYSIS_NOT_PRECOMMITTED' }
+          $expected=@(
+            '.github/workflows/itd02-mg28-strong-action-context-falsification.yml'
+            'research/lcrm01/mg28_matched_signal_falsification_prereg.json'
+            'research/lcrm01/mg28_strong_context_action_controls.py'
+            'research/lcrm01/test_mg28_strong_context_action_controls.py'
+          )
+          $actual=@(git diff --name-only 4134f8fb268d78fdd527a1c67f1974ae77977252 $env:GITHUB_SHA)
+          if (@(Compare-Object $expected $actual).Count -ne 0) { throw 'MG28_OUTSIDE_FROZEN_RESEARCH_SCOPE' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG28_DIRTY_SOURCE_TREE' }
+      - name: Falsify synthetic action-only context-only support and future leakage before original source
+        shell: pwsh
+        run: |
+          python -B -m unittest -v test_mg28_strong_context_action_controls
+          if ($LASTEXITCODE -ne 0) { throw 'MG28_TEMPORAL_NEGATIVE_UNIT_CONTROLS_FAILED' }
+      - name: Read two immutable original Farama processes and independently evaluate stronger matched baselines
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'mg28'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          gh run download 40874118161 --repo spoonman136668-ai/FORGE --name mg24-original-selected-dev-nine-arm-ubuntu-24.04 --dir $root
+          if ($LASTEXITCODE -ne 0) { throw 'MG28_ORIGINAL_SOURCE_ARTIFACT_MISSING' }
+          $first=Join-Path $root 'mg24-real-dev/first.json'
+          $second=Join-Path $root 'mg24-real-dev/second.json'
+          if (!(Test-Path $first) -or !(Test-Path $second)) { throw 'MG28_TWO_AUTHENTIC_ORIGINAL_SOURCE_PROCESSES_MISSING' }
+          python -B research/lcrm01/mg28_strong_context_action_controls.py --first $first --second $second --output (Join-Path $root 'receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'MG28_STRONG_ORIGINAL_SOURCE_NEGATIVE_CONTROL_EVALUATION_FAILED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG28_RESEARCH_SOURCE_MUTATED' }
+          Write-Host 'MG28_ACTUAL_SELECTED_ORIGINAL_NEXT_OUTCOME_ACTION_PLUS_CONTEXT_STRONG_CONTROLS_QUALIFIED_NO_SCIENCE'
+      - name: Preserve falsification including negative source results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg28-real-selected-action-strong-context-control-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg28/receipt.json
+          retention-days: 30
+          if-no-files-found: warn
+  exact-source-cross-host-comparison:
+    needs: exact-authentic-strong-control
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: mg28-real-selected-action-strong-context-control-*
+          path: original-receipts
+      - name: Independently require Windows Linux same source and strongest controls
+        run: |
+          python - <<'PY'
+          import json,hashlib,pathlib
+          files=sorted(pathlib.Path("original-receipts").rglob("receipt.json"))
+          if len(files)!=2:raise SystemExit("MG28_MISSING_TWO_HOST_RECEIPTS")
+          a,b=(json.loads(x.read_text()) for x in files)
+          if a!=b:raise SystemExit("MG28_WINDOWS_LINUX_STRONG_ORIGINAL_CONTROL_MISMATCH")
+          if (a.get("original_public_source_sha256")!="e2dda4721d6d96ffd083faac5960013380b29c3325f560defa989c4eef0852a9"
+              or a.get("original_selected_actions_authenticated")!=9186
+              or a.get("original_episodes_authenticated")!=72
+              or a.get("new_original_env_steps")!=0
+              or a.get("first_use_science") is not False):
+              raise SystemExit("MG28_NOT_AUTHENTICATED_ORIGINAL_SOURCE_OR_SCIENCE_FENCE")
+          obj={k:v for k,v in a.items() if k!="sha256"}
+          digest=hashlib.sha256(json.dumps(obj,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode()).hexdigest()
+          if digest!=a.get("sha256"):raise SystemExit("MG28_CANONICAL_SOURCE_RECEIPT_BAD")
+          print("MG28_INDEPENDENT_TWO_HOST_ORIGINAL_SOURCE_STRONG_CONTROLS_PASS",a["sha256"])
+          print("MG28_NATIVE_OPT_IN_WARRANTED",a["native_opt_in_warranted_by_precommitted_rule"])
+          print("MG28_NATIVE_POOLED",json.dumps(a["native_pooled"],sort_keys=True))
+          PY
