@@ -1,0 +1,163 @@
+name: MP-AI06 original Windows accepted feedback to cold recall
+on:
+  push:
+    branches: [qualification/mpai06-accepted-feedback-cold-reuse-20261029]
+    paths: ['.github/workflows/mpai06-accepted-feedback-cold-reuse.yml']
+permissions:
+  contents: read
+jobs:
+  mpai06-original-owner-neutral:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Existing Mind-Palace Hindsight and Harness2 original source cold feedback reuse
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+             throw 'MPAI06_WRONG_ORIGINAL_WINDOWS_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI06_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI06_REPLAY_PROHIBITED'}
+          $publicHead=(git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $publicHead -cne $env:GITHUB_SHA){
+             throw 'MPAI06_QUALIFICATION_HEAD_DRIFT'
+          }
+          $privateRepo='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $privateRef='refs/heads/review/mpai06-authentic-feedback-cold-reuse-20261029'
+          $privateHead='50b68911c07de9ba4817d28ac80effd3c748e798'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-private-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $log=Join-Path $scratch 'private-results.txt'
+          $guard=@{
+            '.ice/records.json'='248653ca00fa9286db7c8d0321cccf37a26046b6'
+            '.ice/source-ledger.json'='3e2c5c5d82e0bb2fcf89570d060c1c5d8ee42fde'
+            'archive/index.json'='4ce089b79bcc01659435ae67bc5498cf4608928a'
+            '.ice/remote-bootstrap.json'='5025dadc70b3f9231bae84431e1a45140ff008e4'
+            '.ice/remote-catalog.json'='9e88a8c78c0c77c0404a763e7c940c02ea4a2435'
+            '.ice/remote-index.ndjson'='63ccfc8c63eecb2e119ba2cffba7c032d2a16526'
+            '.ice/chat-delta-state.json'='e7d63cbcc67146397a85c2a490e8c37e8d0c1950'
+            '.ice/project-state-capsules.json'='07b125f2f2ffc86e0c167d76af7af06e7814923c'
+            '.ice/project-dependency-graph.json'='89400ecf9e422b9b6ceb3107cdd7469e2b8e5b94'
+          }
+          function Assert([bool]$cond,[string]$reason){
+             if(-not $cond){throw ('MPAI06_'+$reason)}
+          }
+          if(Test-Path -LiteralPath $scratch){throw 'MPAI06_PRIVATE_SCRATCH_PRESENT'}
+          New-Item -Path $scratch -ItemType Directory -ErrorAction Stop | Out-Null
+          try{
+             $before=@(& git ls-remote --exit-code $privateRepo $privateRef)
+             Assert ($LASTEXITCODE -eq 0 -and $before.Count -eq 1) 'PRIVATE_REF_UNAVAILABLE'
+             Assert ((([string]$before[0] -split '\s+')[0]) -ceq $privateHead) 'PRIVATE_SOURCE_CHANGED'
+             & git clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch review/mpai06-authentic-feedback-cold-reuse-20261029 $privateRepo $root 2>$log
+             Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
+             Assert ((& git -C $root config --get remote.origin.partialclonefilter | Out-String).Trim() -ceq 'blob:none') 'PRIVATE_PARTIAL_CLONE_NOT_ACTIVE'
+             Assert ((& git -C $root rev-parse HEAD | Out-String).Trim() -ceq $privateHead) 'PRIVATE_HEAD_DRIFT'
+             $needed=@($guard.Keys) + @(
+                 'agentic/mpai01_reflect.py',
+                 'agentic/mpai01_probe.py',
+                 'tools/mindpalace_mcp.py',
+                 'tools/mindpalace_readonly.py',
+                 'tools/mpai06_accepted_feedback_reuse.py',
+                 'tests/test_mpai06_accepted_feedback_reuse.py'
+             )
+             $patterns=@($needed | ForEach-Object {'/'+$_.Replace('\','/')})
+             & git -C $root sparse-checkout set --no-cone @patterns *> $log
+             Assert ($LASTEXITCODE -eq 0) 'SPARSE_SELECTION_FAILED'
+             & git -C $root checkout --force $privateHead *> $log
+             Assert ($LASTEXITCODE -eq 0) 'EXACT_SOURCE_CHECKOUT_FAILED'
+             foreach($file in $guard.Keys){
+               $blob=(& git -C $root rev-parse ('HEAD:'+$file) | Out-String).Trim()
+               Assert ($blob -ceq $guard[$file]) 'NINE_PROTECTED_ACCEPTED_SOURCE_PINS_DRIFT'
+             }
+             $testScriptBlob=(& git -C $root rev-parse 'HEAD:tools/mpai06_accepted_feedback_reuse.py' | Out-String).Trim()
+             $testSpecBlob=(& git -C $root rev-parse 'HEAD:tests/test_mpai06_accepted_feedback_reuse.py' | Out-String).Trim()
+             Assert ($testScriptBlob -match '^[0-9a-f]{40}$' -and
+                     $testSpecBlob -match '^[0-9a-f]{40}$') 'TEST_SOURCE_INTEGRITY'
+             $stateBefore=@{}
+             foreach($file in $guard.Keys){
+               $stateBefore[$file]=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root $file)).Hash
+             }
+             Push-Location $root
+             try {
+               & python -B -m unittest discover -s tests -p test_mpai06_accepted_feedback_reuse.py -v *> $log
+               $code=$LASTEXITCODE
+               $testOutput=Get-Content -LiteralPath $log -Raw -ErrorAction Stop
+               if($code -ne 0 -or $testOutput -notmatch 'Ran 9 tests' -or
+                  $testOutput -notmatch '(?m)^OK(?:\s|$)'){
+                  foreach($item in [regex]::Matches($testOutput,'(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                    Write-Output ('MPAI06_TEST_'+$item.Groups[1].Value+'='+$item.Groups[2].Value)
+                  }
+                  throw 'MPAI06_FOCUSED_TEST_FAILURE_PRIVATE_LOG'
+               }
+               Write-Output 'MPAI06_REAL_SOURCE_REGRESSIONS=9_PASS'
+               Remove-Item -LiteralPath $log -Force
+               & python -B tools/mpai06_accepted_feedback_reuse.py --mode reflect --source-sha $privateHead *> $log
+               Assert ($LASTEXITCODE -eq 0) 'AUTHENTIC_OBSERVED_FEEDBACK_REFLECTION_FAILED'
+               $reflect=Get-Content -LiteralPath $log -Raw -ErrorAction Stop
+               foreach($marker in @(
+                  'MPAI06_REAL_ACCEPTED_CHAT_FEEDBACK=2',
+                  'MPAI06_REAL_SOURCE_REFS=2',
+                  'MPAI06_UNQUALIFIED_RECURRENT_PROPOSAL=1',
+                  'MPAI06_NINE_PROTECTED_HASHES_UNCHANGED=PASS',
+                  'MPAI06_LEARNING_EFFECT_PROVEN=FALSE',
+                  'MPAI06_PRODUCTION_WRITES=0')){
+                 Assert ($reflect.Contains($marker)) 'REFLECTION_RECEIPT_INCOMPLETE'
+               }
+               $proposal=[regex]::Match($reflect,'(?m)^MPAI06_REFLECTION_ID_SHA256=([a-f0-9]{64})$')
+               Assert $proposal.Success 'PROPOSAL_ID_UNAVAILABLE'
+               Write-Output 'MPAI06_TWO_AUTHENTIC_ACCEPTED_LESSONS_TO_UNQUALIFIED_PROPOSAL=PASS'
+               Write-Output ('MPAI06_PROPOSAL_ID_SHA256='+$proposal.Groups[1].Value)
+               Remove-Item -LiteralPath $log -Force
+               & python -B tools/mpai06_accepted_feedback_reuse.py --mode cold-consumer --source-sha $privateHead *> $log
+               Assert ($LASTEXITCODE -eq 0) 'COLD_SECOND_CONSUMER_PROCESS_FAILED'
+               $cold=Get-Content -LiteralPath $log -Raw -ErrorAction Stop
+               foreach($marker in @(
+                 'MPAI06_COLD_SEPARATE_PROCESS_RECALL=PASS',
+                 'MPAI06_ACCEPTED_LESSONS_REUSED=3',
+                 'MPAI06_NEW_CROSS_PROJECT_RESEARCH_NEGATIVE_SOURCE=PASS',
+                 'MPAI06_NINE_PROTECTED_HASHES_UNCHANGED=PASS',
+                 'MPAI06_INDEPENDENT_AGENT_AUTHENTICATED=FALSE',
+                 'MPAI06_LEARNING_EFFECT_PROVEN=FALSE',
+                 'MPAI06_PRODUCTION_WRITES=0')){
+                 Assert ($cold.Contains($marker)) 'COLD_PROCESS_RECEIPT_INCOMPLETE'
+               }
+               $records=[regex]::Match($cold,'(?m)^MPAI06_ACCEPTED_RECORDS_SHA256=([a-f0-9]{64})$')
+               Assert $records.Success 'ACCEPTED_RECORD_DIGEST_MISSING'
+               Write-Output 'MPAI06_ACCEPTED_REUSE_COLD_SECOND_PROCESS=PASS'
+               Write-Output ('MPAI06_ACCEPTED_RECORDS_SHA256='+$records.Groups[1].Value)
+             } finally {Pop-Location}
+             foreach($file in $guard.Keys){
+               $current=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root $file)).Hash
+               Assert ($current -ceq $stateBefore[$file]) 'DURABLE_BYTES_MODIFIED'
+             }
+             $after=@(& git ls-remote --exit-code $privateRepo $privateRef)
+             Assert ($LASTEXITCODE -eq 0 -and $after.Count -eq 1 -and
+                     (([string]$after[0] -split '\s+')[0]) -ceq $privateHead) 'PRIVATE_REF_CHANGED'
+             $dirty=@(& git -C $root status --porcelain --untracked-files=all)
+             Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'PRIVATE_CHECKOUT_DIRTY'
+             Write-Output 'MPAI06_ORIGINAL_PRIVATE_SOURCE_SHA=50b68911c07de9ba4817d28ac80effd3c748e798'
+             Write-Output 'MPAI06_NINE_ACCEPTED_MEMORY_BLOBS_UNMODIFIED=PASS'
+             Write-Output 'MPAI06_ORIGINAL_WINDOWS_READONLY=PASS'
+             Write-Output 'MPAI06_NO_WRITER_NO_SECOND_CONTROLLER_NO_PAID_MODEL=PASS'
+             Write-Output 'MPAI06_SCIENTIFIC_IMPROVEMENT_PROVEN=FALSE'
+          } finally {
+             Set-Location $env:RUNNER_TEMP
+             if(Test-Path -LiteralPath $scratch){
+               Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+             }
+             Assert (-not (Test-Path -LiteralPath $scratch)) 'PRIVATE_SCRATCH_CLEANUP_FAILED'
+             Write-Output 'MPAI06_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
