@@ -236,6 +236,7 @@ class ObservableFrontier(DoorMemoryNavigation):
             raise ValueError("MG48_PENDING_SOURCE_ACTION_CANNOT_COLD_RESTORE")
         parent=json.loads(DoorMemoryNavigation.checkpoint(self))
         parent["schema"]=DoorMemoryNavigation.SCHEMA
+        parent["base"]["schema"]=PublicSlotRelease.SCHEMA
         return json.dumps({
             "schema":self.SCHEMA,"parent":parent,
             "topology_enabled":self.topology_enabled,
