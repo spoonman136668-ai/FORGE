@@ -1,0 +1,130 @@
+name: ACC53 original U13 fixed-size KV sketches native Go
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc53_go_u13/**'
+      - 'docs/research/ACC-53-*'
+      - '.github/workflows/forge-acc53-u13-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    name: ACC53 original U13 80 cold workers / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original U13 identity, precode freeze and source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 45552b4aba76815474330a4b839ccf8245337484 HEAD
+          test "$(git hash-object docs/research/ACC-53-U13-KV-SKETCH-PREREG.md)" = 3c2f48016423c475eed41ef76d26d0869d4421db
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python - <<'PY'
+          import ast,pathlib
+          a=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          n=ast.literal_eval(next(v.value for v in a.body if isinstance(v,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in v.targets)))
+          assert len(n)==30 and n[12]=='fixed-size KV sketches'
+          print('ACC53_ORIGINAL_U13_SOURCE_AND_PREREG=PASS')
+          PY
+          test "$(git hash-object research/acceleration/acc53_go_u13/go.mod)" = e1399e31fc43128e2d1e1184010ef7e58dda2474
+          test "$(git hash-object research/acceleration/acc53_go_u13/main.go)" = ccd258c5a3bef8beef2732e6166737342e3a2d07
+          test "$(git hash-object research/acceleration/acc53_go_u13/core_test.go)" = 095d34f0edd08c87805c86d7c15bd7c5ded96849
+          test "$(git hash-object research/acceleration/acc53_go_u13/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc53_go_u13/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+      - name: Recheck original 36 candidate negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc53-36.json"
+      - name: Test vet build and 80 actual native workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc53_go_u13
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc53"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc53-report.json"
+      - name: Audit exact-when-found and full-process resources
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP/acc53-report.json" <<'PY'
+          import json,sys,math
+          a=json.load(open(sys.argv[1]))
+          assert a['Schema']=='forge.acc53.original-u13.nativego.v1'
+          assert a['NativeChildCount']==len(a['Trials'])==80 and len(a['Cohorts'])==4
+          assert not a['NativeModelSpeedup'] and not a['ScientificFirstUse']
+          seen=set();paired={}
+          for row in a['Trials']:
+            w=row['Worker'];k=(w['Arm'],w['Workload'],w['Seed'])
+            assert k not in seen;seen.add(k)
+            assert w['Episodes']==32 and w['Insertions']==32*8192 and w['Queries']==32*8192
+            assert w['PeakRSSBytes']>0 and row['CPUSeconds']>0 and row['WallSeconds']>0
+            assert w['FalsePositives']==0 and 0<=w['FoundCorrect']<=w['PresentQueries']<=w['Queries']
+            assert math.isfinite(w['SuccessfulRetrieval']) and len(w['SourceSHA256'])==64
+            pair=(w['Workload'],w['Seed']);v=(w['SourceSHA256'],w['TruthSHA256'])
+            assert pair not in paired or paired[pair]==v
+            paired[pair]=v
+          assert len(seen)==80 and len(paired)==20
+          assert a['Classification'] in ('U13_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U13_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY')
+          print('ACC53_U13_80_REAL_CPU_RSS_WORKERS_PASS')
+          print('ACC53_U13_CLASSIFICATION='+a['Classification'])
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc53-u13-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc53-report.json
+            ${{ runner.temp }}/acc53-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc53-u13-*
+          path: artifacts
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib,json
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc53-u13-ubuntu-latest'/'acc53-report.json').read_text())
+          b=json.loads((p/'acc53-u13-windows-latest'/'acc53-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda r:(r['Worker']['Arm'],r['Worker']['Workload'],r['Worker']['Seed'])
+          aa={key(r):r['Worker'] for r in a['Trials']}
+          bb={key(r):r['Worker'] for r in b['Trials']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for k in aa:
+            for f in ('SourceSHA256','TruthSHA256','OutputSHA256','Insertions','Queries','PresentQueries','FoundCorrect','FalsePositives','LogicalBytes'):
+              assert aa[k][f]==bb[k][f],(k,f)
+          print('ACC53_ORIGINAL_U13_CROSSOS_80_OF_80_PASS')
+          print('ACC53_LINUX='+a['Classification'])
+          print('ACC53_WINDOWS='+b['Classification'])
+          print('ACC53_ACTUAL_NATIVE_MODEL_SPEEDUP=UNVERIFIED')
+          PY
