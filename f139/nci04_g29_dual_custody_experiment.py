@@ -157,18 +157,33 @@ def run_gate(base, head, output):
         "production_v19_worker_unchanged": True, "signed_provider_success": False,
         "scientific_first_use": False, "paid_api_calls": 0, "github_writes": 0,
         "worker_replay": False, "results": {}, "negative_controls": {},
+        "inherited_platform_negatives": [], "platform": sys.platform,
         "resource_accounting": "timing_only; peak RSS unavailable"
     }
-    def apply(label, command, cwd, *, negative=False):
+    def apply(label, command, cwd, *, negative=False,
+              known_windows_resource_import=False):
         result = fixed_run(cwd, command, expect_atlas_negative=negative)
         report["results"][label] = result
+        if known_windows_resource_import:
+            # The historical unchanged baseline *itself* fails on Windows:
+            # POSIX-only resource module is imported at module load time.
+            # This must NOT count as a passing test, ignored error or waiver.
+            require(sys.platform == "win32" and not result["pass"]
+                    and result["exit_code"] != 0 and result["test_count"] >= 1
+                    and "ModuleNotFoundError: No module named 'resource'"
+                    in result["output_tail"],
+                    "INHERITED_WINDOWS_RESOURCE_NEGATIVE_NOT_EXACT")
+            result["status"] = "EXPECTED_INHERITED_WINDOWS_RESOURCE_NEGATIVE"
+            report["inherited_platform_negatives"].append(label)
+            return
         require(result["pass"], label.upper() + "_FAILED")
     try:
         # Frozen atlas retains its exact historical source/tree and must pass.
         apply("baseline_g29", [sys.executable, "-B", "-m", "unittest", "discover",
                                "-s", "tests", "-p", ATLAS, "-v"], base)
         apply("baseline_full", [sys.executable, "-B", "-m", "unittest", "discover",
-                                "-s", "tests", "-p", "test_*.py", "-v"], base)
+                                "-s", "tests", "-p", "test_*.py", "-v"], base,
+              known_windows_resource_import=(sys.platform == "win32"))
         with tempfile.TemporaryDirectory(prefix="f139-g29-dualcustody-") as tmp:
             clone = Path(tmp) / "checkout"
             c = subprocess.run(["git", "clone", "--no-local", "--no-checkout", "--quiet",
@@ -221,16 +236,31 @@ def run_gate(base, head, output):
                     continue
                 apply("candidate_" + filename,
                       [sys.executable, "-B", "-m", "unittest", "discover",
-                       "-s", "tests", "-p", filename, "-v"], clone)
+                       "-s", "tests", "-p", filename, "-v"], clone,
+                      known_windows_resource_import=(sys.platform == "win32" and
+                                                    filename == "test_free_fanout_sidecar.py"))
             apply("candidate_compile", [sys.executable, "-B", "-m", "compileall",
                                         "-q", "yggdrasil", "scripts"], clone)
             candidate_only_delta(clone, sha(before), sha(after))
         report["baseline_g29_pass"] = True
-        report["baseline_full_unmodified_regression_pass"] = True
-        report["candidate_changed_source_applicable_tests_pass"] = True
+        report["baseline_full_unmodified_regression_pass"] = (sys.platform != "win32")
+        report["candidate_changed_source_applicable_tests_pass"] = (sys.platform != "win32")
         report["historical_modified_source_g29_negative"] = True
         report["experimental_split_complete"] = True
-        print("F139_V19_G29_DUAL_CUSTODY_EXPERIMENT=PASS")
+        report["original_full_regression_qualified"] = (sys.platform != "win32")
+        report["cross_platform_worker_qualified"] = False
+        if sys.platform == "win32":
+            require(report["inherited_platform_negatives"] ==
+                    ["baseline_full", "candidate_test_free_fanout_sidecar.py"],
+                    "WINDOWS_INHERITED_NEGATIVE_SET_DRIFT")
+            print("F139_V19_G29_WINDOWS_INHERITED_RESOURCE_FAILURE=CONFIRMED")
+            print("F139_V19_G29_WINDOWS_FULL_SOURCE_REGRESSION=NEGATIVE")
+        else:
+            require(not report["inherited_platform_negatives"],
+                    "POSIX_UNEXPECTED_INHERITED_NEGATIVES")
+            print("F139_V19_G29_LINUX_FULL_SOURCE_REGRESSION=PASS")
+        print("F139_V19_G29_DIAGNOSTIC_INVENTORY=COMPLETE")
+        print("F139_V19_G29_SIGNED_WORKER_QUALIFICATION=NOT_GRANTED")
     finally:
         output.parent.mkdir(parents=True, exist_ok=True)
         with output.open("x", encoding="utf-8") as f:

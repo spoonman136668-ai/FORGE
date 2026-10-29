@@ -1,0 +1,124 @@
+name: F139 V19 G29 cross-platform inherited-negative exact inventory SOURCE ONLY
+on:
+  push:
+    branches: [research/f139-v19-g29-inherited-negative-inventory-20261029]
+    paths: [.github/workflows/f139-v19-g29-inherited-negative-inventory.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-v19-g29-inherited-negative-inventory-20261029
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/research/f139-v19-g29-inherited-negative-inventory-20261029' &&
+      github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          path: forge
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 021423311027517c9096c76bed7d35ac53c4a229
+          persist-credentials: false
+          fetch-depth: 2
+          path: native-baseline
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 339276862e42a067344990dc20d907f203009b90
+          persist-credentials: false
+          fetch-depth: 2
+          path: native-candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify experiment source custody and unchanged upstream baselines
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent=(& git -C forge rev-parse HEAD^ | Out-String).Trim()
+          $changed=@(& git -C forge diff --name-only HEAD^ HEAD)
+          $script=(& git -C forge rev-parse 'HEAD:f139/nci04_g29_dual_custody_experiment.py' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or
+             $parent -cne '760d8119359eab0c723f4e60075d969f8ba0cd45' -or
+             $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/f139-v19-g29-inherited-negative-inventory.yml' -or
+             $script -cne '43784cfe1122ffc25e5d03ebcd6736b78c06b286' -or
+             $env:OPENAI_API_KEY -or $env:GH_TOKEN){
+            throw 'F139_G29_NEGATIVE_INVENTORY_ORIGIN_OR_CREDENTIAL_DRIFT'
+          }
+          if((& git -C native-baseline rev-parse HEAD | Out-String).Trim() -cne
+             '021423311027517c9096c76bed7d35ac53c4a229' -or
+             (& git -C native-candidate rev-parse HEAD | Out-String).Trim() -cne
+             '339276862e42a067344990dc20d907f203009b90'){
+            throw 'F139_G29_NEGATIVE_INVENTORY_UPSTREAM_SOURCE_DRIFT'
+          }
+          Write-Output 'F139_G29_NEGATIVE_INVENTORY_SOURCE_CUSTODY=PASS'
+      - name: Run full exact inventory with Windows inherited resource negative left negative
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP ('f139-g29-inherited-'+$env:RUNNER_OS+'.json')
+          & python -B forge/f139/nci04_g29_dual_custody_experiment.py --baseline native-baseline --candidate native-candidate --output $out
+          if($LASTEXITCODE -ne 0){throw 'F139_G29_NEGATIVE_INVENTORY_TEST_OR_CUSTODY_FAILED'}
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($r.experimental_split_complete -ne $true -or
+             $r.baseline_g29_pass -ne $true -or
+             $r.historical_modified_source_g29_negative -ne $true -or
+             $r.modified_candidate_full_regression_pass -ne $false -or
+             $r.cross_platform_worker_qualified -ne $false -or
+             $r.signed_provider_success -ne $false -or
+             $r.production_v19_worker_unchanged -ne $true -or
+             $r.scientific_first_use -ne $false -or
+             $r.worker_replay -ne $false -or
+             $r.github_writes -ne 0 -or
+             $r.negative_controls.second_source_delta_rejected -ne $true -or
+             $r.negative_controls.bad_candidate_digest_rejected -ne $true){
+            throw 'F139_G29_NEGATIVE_INVENTORY_FALSE_QUALIFICATION_CLAIM'
+          }
+          if($env:RUNNER_OS -eq 'Windows'){
+            $actual=@($r.inherited_platform_negatives)
+            if($r.baseline_full_unmodified_regression_pass -ne $false -or
+               $r.candidate_changed_source_applicable_tests_pass -ne $false -or
+               $r.original_full_regression_qualified -ne $false -or
+               $actual.Count -ne 2 -or
+               $actual[0] -cne 'baseline_full' -or
+               $actual[1] -cne 'candidate_test_free_fanout_sidecar.py' -or
+               $r.results.baseline_full.status -cne 'EXPECTED_INHERITED_WINDOWS_RESOURCE_NEGATIVE' -or
+               $r.results.'candidate_test_free_fanout_sidecar.py'.status -cne 'EXPECTED_INHERITED_WINDOWS_RESOURCE_NEGATIVE'){
+              throw 'F139_G29_WINDOWS_EXPECTED_INHERITED_FAILURES_NOT_PRESERVED'
+            }
+            Write-Output 'F139_G29_WINDOWS_FULL_REGRESSION=NEGATIVE_RETAINED'
+            Write-Output 'F139_G29_WINDOWS_INHERITED_FAILURE_COUNT=2'
+          } else {
+            if($r.inherited_platform_negatives.Count -ne 0 -or
+               $r.baseline_full_unmodified_regression_pass -ne $true -or
+               $r.candidate_changed_source_applicable_tests_pass -ne $true -or
+               $r.original_full_regression_qualified -ne $true){
+              throw 'F139_G29_LINUX_FULL_REGRESSION_NOT_POSITIVE'
+            }
+            Write-Output 'F139_G29_LINUX_BASELINE_AND_APPLICABLE_CANDIDATE=PASS'
+          }
+          Write-Output 'F139_G29_CROSS_PLATFORM_DIAGNOSTIC_COMPLETE=PASS'
+          Write-Output 'F139_G29_SIGNED_NATIVE_WORKER_QUALIFICATION=NOT_GRANTED'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f139-g29-inherited-negative-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-g29-inherited-${{ runner.os }}.json
+          if-no-files-found: warn
+          retention-days: 90
