@@ -241,9 +241,9 @@ func runDriver()(Report,error) {
   if !transcriptOK||!charged {return out,errors.New("ACC38_SOURCE_FIDELITY_OR_VERIFICATION_FAILED")}
   if r.VerifiedOverFullCPU>0.90||r.VerifiedOverFullGoSys>1.10 {allOK=false}
  }
- if zeroCPU{out.Status="ACC38_PROTOCOL_OR_METER_BLOCKED"}
- else if allOK {out.Status="ACC38_U02_SCALAR_VERIFIED_GO_CPU_WIN_ENGINEERING_ONLY"}
- else {out.Status="ACC38_U02_NO_VERIFIED_SCALAR_CPU_GAIN"}
+ if zeroCPU {out.Status="ACC38_PROTOCOL_OR_METER_BLOCKED"} else if allOK {
+  out.Status="ACC38_U02_SCALAR_VERIFIED_GO_CPU_WIN_ENGINEERING_ONLY"
+ } else {out.Status="ACC38_U02_NO_VERIFIED_SCALAR_CPU_GAIN"}
  return out,nil
 }
 func main() {
