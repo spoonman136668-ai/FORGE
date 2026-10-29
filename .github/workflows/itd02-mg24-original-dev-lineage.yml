@@ -1,0 +1,76 @@
+name: ITD-02 MG24 independent original-source seed lineage custody
+on:
+  push:
+    branches: [research/itd02-mg24-fresh-original-dev-lineage-20261029]
+permissions:
+  contents: read
+jobs:
+  source-only-fresh-dev-lineage:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Force reproducible original Git LF source
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Exact-source checkout of research-only ancestry
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify prospective frozen-before-code custody and exact research-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 46d32c4c4b9c0093367719f91aa1785b9f423034 "$GITHUB_SHA"
+          git merge-base --is-ancestor 3b822b0200ed107fa70225adf3396d6d9d9d07bf "$GITHUB_SHA"
+          test "$(git hash-object research/lcrm01/mg24_fresh_development_prereg.json)" = fe72030398c8e4b9e8ed7e34eec84f8924973a76
+          test "$(git hash-object research/lcrm01/mg24_source_lineage_audit.py)" = 3e23871236e2aa7e28b0b3885be7504fb3781760
+          diff -u <(printf '%s\n' .github/workflows/itd02-mg24-original-dev-lineage.yml research/lcrm01/mg24_fresh_development_prereg.json research/lcrm01/mg24_source_lineage_audit.py | sort) <(git diff --name-only 46d32c4c4b9c0093367719f91aa1785b9f423034 "$GITHUB_SHA" | sort)
+          python -B - <<'PY'
+          import ast,pathlib
+          f=pathlib.Path("research/lcrm01/mg24_source_lineage_audit.py")
+          tree=ast.parse(f.read_text(encoding="utf-8"))
+          imported={alias.name for n in ast.walk(tree) if isinstance(n,(ast.Import,ast.ImportFrom)) for alias in (n.names if isinstance(n,ast.Import) else [ast.alias(name=n.module or "")])}
+          assert not ({"gymnasium","minigrid","gym"} & imported), "MG24_SOURCE_WORLD_EVALUATION_NOT_PERMITTED"
+          print("MG24_ONLY_READS_PRIOR_GIT_SOURCES_NO_ORIGINAL_WORLD")
+          PY
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Python exact source audit runtime
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Independently validate fifteen historical immutable original-source contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/mg24_source_lineage_audit.py --output "$RUNNER_TEMP/mg24-first.json"
+          python -B research/lcrm01/mg24_source_lineage_audit.py --output "$RUNNER_TEMP/mg24-second.json"
+          python -B - "$RUNNER_TEMP/mg24-first.json" "$RUNNER_TEMP/mg24-second.json" <<'PY'
+          import json,sys
+          x,y=(json.load(open(p,encoding="utf-8")) for p in sys.argv[1:3])
+          assert x==y and len(x["historical_contract_readbacks"])==15
+          assert x["new_original_world_actions"]==0 and not x["scientific_first_use"]
+          assert x["verified_overlap"]==0
+          print("MG24_INDEPENDENT_HISTORICAL_15_SOURCE_REPLAY_PASS "+x["canonical_receipt_sha256"])
+          PY
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo MG24_SOURCE_ONLY_DEVELOPMENT_LINEAGE_QUALIFIED_NO_WORLD_ACTIONS
+      - name: Preserve preregistry source custody for later experiment gate
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg24-frozen-original-dev-lineage-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg24-*.json
+          if-no-files-found: warn
+          retention-days: 30
