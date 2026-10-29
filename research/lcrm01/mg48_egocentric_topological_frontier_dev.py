@@ -66,7 +66,7 @@ def frozen():
     c=p["cohort"];m=p["mechanism"]
     if (p["schema"]!="itd02.mg48.public-egocentric-action-conditioned-topology-frontier.original-dev.v1"
         or p["phase"]!="FROZEN_PROSPECTIVE_BEFORE_MG48_EXECUTABLE_OR_FIRST_NEW_ORIGINAL_ACTION"
-        or p["parent"]["mg48_sha"]!=PARENT
+        or p["parent"]["mg47_sha"]!=PARENT
         or p["sources"]["farama_original"]!=UPSTREAM
         or p["sources"]["farama_registry_sha1"]!=REGISTER_BLOB
         or tuple((q["id"],q["entry"]) for q in c["families"])!=tuple(zip(FAMILIES,ENTRIES))
