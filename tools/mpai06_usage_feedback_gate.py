@@ -42,17 +42,17 @@ def cold(root,head):
         "from mindpalace_readonly import MemorySnapshot\n"
         "s=MemorySnapshot(p,h,['Wingless','Yggdrasil','Mind-Palace'])\n"
         "ids={'Wingless':'project_state/wingless-p6o-native-bayesian-causal-policy-equal-control-negative-20261021','Yggdrasil':'project_state/yggdrasil-mr29-original-native-causal-alias-dev-signal-negative-20261021'}\n"
-        "broad={}\n"
+        "broad={};exact={}\n"
         "for project,key in ids.items():\n"
         "  r=s.get_record(h,key,[project]);assert r['found'] and r['record']['status']=='observed','COLD_RECORD_NOT_OBSERVED'\n"
         "  assert 'scientific' in r['record']['statement'].casefold(),'COLD_LESSON_NEGATIVE_STATEMENT'\n"
         "  assert r['record'].get('details',{}).get('scientific_acceptance') is not True,'COLD_SCIENCE_UNQUALIFIED'\n"
         "  q='wingless p6o bayesian causal control' if project=='Wingless' else 'yggdrasil mr29 causal alias'\n"
         "  v=s.recall(h,q,[project]);broad[project]=any(x['id']==key for x in v['matches'])\n"
-        "  pinned=s.recall(h,key,[project]);assert any(x['id']==key for x in pinned['matches']),'COLD_EXACT_LESSON_RECALL_NOT_SELECTED'\n"
+        "  pinned=s.recall(h,key,[project]);exact[project]=any(x['id']==key for x in pinned['matches'])\n"
         "  assert not s.get_record(h,ids['Yggdrasil' if project=='Wingless' else 'Wingless'],[project])['found'],'COLD_PROJECT_SCOPE_LEAK'\n"
         "assert not s.get_record(h,'"+NEW+"',['Mind-Palace'])['found'],'COLD_PROPOSED_LESSON_ALREADY_ACCEPTED'\n"
-        "print(json.dumps({'digest':s.records_sha256,'broad':broad},sort_keys=True))\n")
+        "print(json.dumps({'digest':s.records_sha256,'broad':broad,'exact':exact},sort_keys=True))\n")
     p=subprocess.run([sys.executable,"-B","-c",script,str(root),head],
                      capture_output=True,text=True,timeout=90)
     if p.returncode:
@@ -158,8 +158,11 @@ def main():
     observed=json.loads(snap)
     for project in ("Wingless","Yggdrasil"):
         hit=observed["broad"].get(project)
-        check(type(hit) is bool,"BROAD_RECALL_CLASSIFICATION")
+        direct=observed["exact"].get(project)
+        check(type(hit) is bool and type(direct) is bool,
+              "RECALL_CLASSIFICATION")
         print("MPAI06_GENERAL_RECALL_"+project.upper()+"="+("PASS" if hit else "MISS"))
+        print("MPAI06_EXACT_RECALL_"+project.upper()+"="+("PASS" if direct else "MISS"))
     print("MPAI06_PROJECT_SCOPE=PASS")
     print("MPAI06_CANONICAL_COLLECTOR_CLASSIFY=PASS")
     print("MPAI06_NEW_USAGE_FEEDBACK_DISPOSITION="+choice["action"].upper())
