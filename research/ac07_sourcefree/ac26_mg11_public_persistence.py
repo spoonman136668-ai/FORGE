@@ -167,6 +167,9 @@ def verify_two_processes(first,second,comparison):
         first.get("scientific_first_use") is not False or second.get("scientific_first_use") is not False or
         first.get("accepted_native_model_promoted") is not False):
         raise RuntimeError("AC26_ORIGINAL_MG11_PARENT_NEGATIVE_NOT_QUALIFIED")
+    if ("canonical_original_source_evidence" not in first or
+        "canonical_original_source_evidence" not in second):
+        raise RuntimeError("AC26_TWO_PROCESS_CANONICAL_SOURCE_CUSTODY_FAILED")
     a=first["canonical_original_source_evidence"]
     b=second["canonical_original_source_evidence"]
     if (sha(canonical(a))!=CANON_SHA or sha(canonical(b))!=CANON_SHA or
