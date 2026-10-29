@@ -9,7 +9,7 @@ import mpai05_p8_external_source_intake as p8
 
 README = ("LongMemEval-V2 contains 451 manually curated questions for both "
           "web and enterprise environments using memory_modules/ and evaluation/ "
-          "with memory_context query.")
+          "with --memory-context-max-tokens query.")
 
 class TestP8ExternalSource(unittest.TestCase):
     def good(self):
