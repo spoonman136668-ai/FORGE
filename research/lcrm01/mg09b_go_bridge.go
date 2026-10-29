@@ -44,7 +44,7 @@ func public(input json.RawMessage)(native.Public,error){
  if e:=strict(input,&p);e!=nil{return p,e}
  return p,p.Valid()
 }
-func process(p **native.Policy,request Request)(Reply,bool){
+func process(p **native.Agent,request Request)(Reply,bool){
  r:=Reply{};m:=*p
  var err error
  switch request.Op{
@@ -73,7 +73,7 @@ func process(p **native.Policy,request Request)(Reply,bool){
  case "load":
   var data []byte;data,err=base64.StdEncoding.DecodeString(request.State)
   if err==nil{
-   var next *native.Policy
+   var next *native.Agent
    next,err=native.Restore(data)
    if err==nil{*p=next;m=next}
   }
