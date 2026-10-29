@@ -1,0 +1,130 @@
+name: ITD-02 MG20 original-world native selected action engineering
+on:
+  push:
+    branches: [research/itd02-mg20-original-selected-source-admission-20261029]
+permissions:
+  contents: read
+jobs:
+  authentic-original-native-actions:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Original source LF
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Frozen prospective before original execution and exact 5-file scope
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 9715598cd35001a184f8ef12d0f0360fa933313f $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG20_PARENT_RESEARCH_GATE_MISSING' }
+          git merge-base --is-ancestor b1646b6b91b908cf509086d443041caa98bcc56f $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG20_PROSPECTIVE_SOURCE_PREREG_NOT_OLDER_THAN_EXECUTABLE' }
+          $files = @(
+            '.github/workflows/itd02-mg20-original-native-source.yml'
+            'research/lcrm01/mg20_original_native_selected_source_prereg.json'
+            'research/lcrm01/mg20_wingless_original_source_bridge.go'
+            'research/lcrm01/mg20_native_original_episode.py'
+            'research/lcrm01/mg20_original_native_source_engineering.py'
+          )
+          $changes = @(git diff --name-only 9715598cd35001a184f8ef12d0f0360fa933313f $env:GITHUB_SHA)
+          if (@(Compare-Object $files $changes).Count -ne 0) { throw 'MG20_OUTSIDE_RESEARCH_ONLY_SCOPE' }
+          $pins = @{
+            'research/lcrm01/mg20_original_native_selected_source_prereg.json'='921c021f3e5547d639b3b931be7e92aaa6623882'
+            'research/lcrm01/mg20_wingless_original_source_bridge.go'='1f10746add5a11bb37584e9a32eba597df8ad3ba'
+            'research/lcrm01/mg20_native_original_episode.py'='a164c567db59858a557f9478ba35c539651e8496'
+            'research/lcrm01/mg20_original_native_source_engineering.py'='3420863c7ac638c7c8e185dddb98e22ae724f039'
+          }
+          foreach ($p in $pins.Keys) {
+            if ((git hash-object $p).Trim() -ne $pins[$p]) { throw "MG20_SOURCE_BLOB_IDENTITY_DRIFT:$p" }
+          }
+          if (git status --porcelain --untracked-files=all) { throw 'MG20_DIRTY_RESEARCH_SOURCE' }
+          Write-Host 'MG20_PROSPECTIVE_SOURCE_ONLY_PROTOCOL_AND_PIN_PASS'
+      - name: Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Go 1.25.5
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Pin original Farama and independent native candidates; replay twice
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'mg20'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          function Fetch-Pin([string]$dest,[string]$remote,[string]$revision) {
+            git init -q $dest
+            if ($LASTEXITCODE -ne 0) { throw 'MG20_SOURCE_INIT_FAILED' }
+            git -C $dest remote add origin $remote
+            if ($LASTEXITCODE -ne 0) { throw 'MG20_REMOTE_FAILED' }
+            git -C $dest fetch --no-tags --depth 1 origin $revision
+            if ($LASTEXITCODE -ne 0) { throw 'MG20_SOURCE_FETCH_FAILED' }
+            git -C $dest checkout --detach -q $revision
+            if ($LASTEXITCODE -ne 0) { throw 'MG20_SOURCE_CHECKOUT_FAILED' }
+            if ((git -C $dest rev-parse HEAD).Trim() -ne $revision) { throw 'MG20_SOURCE_COMMIT_MISMATCH' }
+          }
+          $src=Join-Path $root 'minigrid'
+          $wing=Join-Path $root 'wingless'
+          $ygg=Join-Path $root 'yggdrasil'
+          Fetch-Pin $src 'https://github.com/Farama-Foundation/Minigrid.git' '7f5853792ea7f04f75614661006d87fcf949f26d'
+          Fetch-Pin $wing 'https://github.com/spoonman136668-ai/Wingless.git' 'ebbadd157cc1df6eabfa5a550c8876ca87dc91e9'
+          Fetch-Pin $ygg 'https://github.com/spoonman136668-ai/Yggdrasil.git' 'f0dd99d59ce00da7ad17ff49900a1af6d2322a77'
+          if ((git -C $wing hash-object research/native/itd02/mg19/genuine_mission.go).Trim() -ne 'df6111abd421f601b976273abf61aaad6d0bf61a') { throw 'MG20_GO_MG19_CHANGED' }
+          if ((git -C $ygg hash-object research/native/itd02/mg19/genuine_mission_cells.py).Trim() -ne '6a2a60eb9c9b77436421aa7ccbe785d29a163280') { throw 'MG20_YGG_MG19_CHANGED' }
+          python -m pip install 'pip==24.0' 'setuptools==69.5.1' 'wheel==0.43.0'
+          if ($LASTEXITCODE -ne 0) { throw 'MG20_PYTHON_TOOLCHAIN' }
+          python -m pip install 'numpy==1.26.4' 'gymnasium==1.1.1' 'pygame-ce==2.5.3'
+          if ($LASTEXITCODE -ne 0) { throw 'MG20_REAL_WORLD_DEPENDENCIES' }
+          python -m pip install --no-deps -e $src
+          if ($LASTEXITCODE -ne 0) { throw 'MG20_FARAMA_ORIGINAL_INSTALL_FAILED' }
+          Push-Location $wing
+          try {
+            go test -count=1 ./research/native/itd02/mg19/... ./research/native/itd02/dk16/...
+            if ($LASTEXITCODE -ne 0) { throw 'MG20_NATIVE_GO_REGRESSION' }
+            $exe=Join-Path $root 'native-mg19'
+            if ($IsWindows) { $exe="$exe.exe" }
+            go build -trimpath -o $exe "$env:GITHUB_WORKSPACE/research/lcrm01/mg20_wingless_original_source_bridge.go"
+            if ($LASTEXITCODE -ne 0) { throw 'MG20_ORIGINAL_GO_ACTOR_BUILD' }
+          } finally { Pop-Location }
+          $env:PYTHONPATH="$ygg$([IO.Path]::PathSeparator)$(Join-Path $env:GITHUB_WORKSPACE 'research/lcrm01')"
+          python -B -m unittest -q research.native.itd02.mg19.test_genuine_mission_cells
+          if ($LASTEXITCODE -ne 0) { throw 'MG20_NATIVE_YGG_REGRESSION' }
+          $program='research/lcrm01/mg20_original_native_source_engineering.py'
+          $first=Join-Path $root 'first.json'
+          $second=Join-Path $root 'second.json'
+          python -B $program --source-root $src --native-go $exe --output $first
+          if ($LASTEXITCODE -ne 0) { throw 'MG20_REAL_ORIGINAL_FIRST_SOURCE_RUN_FAIL' }
+          python -B $program --source-root $src --native-go $exe --output $second
+          if ($LASTEXITCODE -ne 0) { throw 'MG20_REAL_ORIGINAL_SECOND_SOURCE_RUN_FAIL' }
+          python -B $program --compare $first $second
+          if ($LASTEXITCODE -ne 0) { throw 'MG20_REAL_SOURCE_NONDETERMINISTIC' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG20_WORKTREE_DIRTY' }
+          Write-Host 'MG20_ORIGINAL_SELECTED_ACTION_SOURCE_ENGINEERING_QUALIFIED_NOT_SCIENCE'
+      - name: Retain original source full receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg20-quarantined-original-native-source-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg20/*.json
+          retention-days: 30
+          if-no-files-found: warn
