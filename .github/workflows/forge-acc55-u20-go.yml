@@ -1,0 +1,134 @@
+name: ACC55 authentic original U20 MDL native Go learning qualification
+on:
+  pull_request:
+    paths:
+      - 'docs/research/ACC-55-*'
+      - 'research/acceleration/acc55_go_u20/**'
+      - '.github/workflows/forge-acc55-u20-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    name: ACC55 U20 native heldout 80 workers / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate original U20 register and prereg-first executable custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 039132f2d4d2477afb323c429bee61c05649e9ff HEAD
+          git merge-base --is-ancestor 3d6d53ab1392a1f1e09e474b6f4a8efb2f23aa10 HEAD
+          test "$(git hash-object docs/research/ACC-55-U20-STAGE-B-CPU-MEASUREMENT-PREREG.md)" = 3cfe36355eb27f964184a5b894a63b2ff3da5b6b
+          test "$(git hash-object docs/research/ACC-55-U20-MDL-PROGRAM-PREREG.md)" = 639b6db22ee94e5cb9f3929f1847eef48035b2d3
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python - <<'PY'
+          import ast,pathlib
+          t=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          a=ast.literal_eval(next(v.value for v in t.body if isinstance(v,ast.Assign) and any(isinstance(x,ast.Name) and x.id=='ORIGINAL_NAMES' for x in v.targets)))
+          assert len(a)==30 and a[19]=='minimum-description-length program search'
+          print('ACC55_ORIGINAL_U20_SOURCE_PREREG_FIRST=PASS')
+          PY
+          test "$(git hash-object research/acceleration/acc55_go_u20/go.mod)" = 4e913ff9cb981d7f345d202d1099134608ab064c
+          test "$(git hash-object research/acceleration/acc55_go_u20/main.go)" = bcda823db0ad69bbafcb4de8eef6be42ac4d0005
+          test "$(git hash-object research/acceleration/acc55_go_u20/core_test.go)" = 9817125ea131a69f4f61810bb8a4976c2135466e
+          test "$(git hash-object research/acceleration/acc55_go_u20/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc55_go_u20/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+      - name: Preserve original 36 historical source screens
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc55-36.json"
+      - name: Go tests vet build and 80 independent cold learning workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc55_go_u20
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc55"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc55-report.json"
+      - name: Audit matched training and heldout independent outputs
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP/acc55-report.json" <<'PY'
+          import json,math,sys
+          a=json.load(open(sys.argv[1]))
+          assert a['Schema']=='forge.acc55.u20.stageb.go.v1'
+          assert a['NativeChildCount']==len(a['Trials'])==80 and len(a['Cohorts'])==4
+          assert not a['ScientificFirstUse'] and not a['NativeModelAcceleration']
+          paired={};seen=set()
+          for t in a['Trials']:
+            w=t['Worker'];k=(w['Family'],w['Mode'],w['Seed'])
+            assert k not in seen;seen.add(k)
+            assert w['Tasks']==64 and w['TrainPoints']==768 and w['TestPoints']==2048
+            assert w['Candidates']==169 and w['Evaluations']==169*768*64 and w['EvaluationReplications']==64
+            assert 0<=w['CorrectHeldout']<=2048 and 0<=w['CorrectTrain']<=768
+            assert math.isfinite(w['HeldoutAccuracy'])
+            assert t['CPUSeconds']>0 and t['WallSeconds']>0 and w['PeakRSSBytes']>0
+            assert all(len(w[k])==64 for k in ('InputSHA256','TruthSHA256','PredictionSHA256','SelectedSHA256'))
+            pair=(w['Family'],w['Seed']);val=(w['InputSHA256'],w['TruthSHA256'])
+            assert pair not in paired or paired[pair]==val
+            paired[pair]=val
+          assert len(paired)==20 and len(seen)==80
+          assert a['Classification'] in ('U20_NO_GENERAL_VERIFIED_NATIVE_GO_LEARNING_WIN','U20_RESTRICTED_SYNTHETIC_GO_LEARNING_POSITIVE_ONLY')
+          print('ACC55_U20_80_REAL_CPU_RSS_HELDOUT_WORKERS_PASS')
+          print('ACC55_U20_CLASSIFICATION='+a['Classification'])
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc55-u20-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc55-report.json
+            ${{ runner.temp }}/acc55-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc55-u20-*
+          path: artifacts
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib,json
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc55-u20-ubuntu-latest'/'acc55-report.json').read_text())
+          b=json.loads((p/'acc55-u20-windows-latest'/'acc55-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda t:(t['Worker']['Family'],t['Worker']['Mode'],t['Worker']['Seed'])
+          aa={key(t):t['Worker'] for t in a['Trials']}
+          bb={key(t):t['Worker'] for t in b['Trials']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for k in aa:
+            for field in ('InputSHA256','TruthSHA256','PredictionSHA256','SelectedSHA256','Tasks','Candidates','Evaluations','EvaluationReplications','CorrectHeldout','CorrectTrain'):
+              assert aa[k][field]==bb[k][field],(k,field)
+          print('ACC55_U20_CROSSOS_80_OF_80_HELDOUT_PARITY_PASS')
+          print('ACC55_LINUX='+a['Classification'])
+          print('ACC55_WINDOWS='+b['Classification'])
+          print('ACC55_NATIVE_MODEL_GENERALIZATION=UNVERIFIED')
+          PY
