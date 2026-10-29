@@ -1,0 +1,74 @@
+name: F139 V19 original Windows owner STRICT READ-ONLY witness
+on:
+  push:
+    branches:
+      - qualification/f139-v19-original-owner-nowrite-20261028
+    paths:
+      - '.github/workflows/qualify-f139-v19-original-owner-nowrite-20261028.yml'
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: f139-original-owner-v19-nowrite-exact-20261028
+  cancel-in-progress: false
+jobs:
+  witness-original-v18:
+    name: Original Windows owner mode=ro witness (NO CUTOVER)
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Stabilize Git line ending policy
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - name: Checkout exact six-check-qualified V19 inspection source (not deployed)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 79d115e5a903edfd3a45cb0a2a9ba99381b837fc
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authenticate original runner, original interpreter, source and read-only-only boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1') {throw 'F139_V19_NOT_ORIGINAL_WINDOWS_OWNER'}
+          $src=(& git rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $src -cne '79d115e5a903edfd3a45cb0a2a9ba99381b837fc') {
+            throw 'F139_V19_UNQUALIFIED_READONLY_PROBE_SOURCE'
+          }
+          if(-not(Get-Command gh.exe -ErrorAction SilentlyContinue)) {
+            throw 'F139_V19_NO_EXISTING_GITHUB_READONLY_CLIENT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1) {throw 'F139_V19_ORIGINAL_ACTION_COUNT_DRIFT'}
+          $arguments=[string]$task.Actions[0].Arguments
+          $match=[regex]::Match($arguments,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if(-not $match.Success) {throw 'F139_V19_ORIGINAL_INTERPRETER_UNAVAILABLE'}
+          $python=$match.Groups[1].Value
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){
+            throw 'F139_V19_ORIGINAL_INTERPRETER_NOT_INSTALLED'
+          }
+          if([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)){
+            throw 'F139_V19_ORIGINAL_LOCAL_PROFILE_UNAVAILABLE'
+          }
+          $db=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if(-not(Test-Path -LiteralPath $db -PathType Leaf)){
+            throw 'F139_V19_ORIGINAL_LEDGER_MISSING'
+          }
+          Write-Host 'F139_V19_ORIGINAL_OWNER_READ_ONLY_PROBE_BEGIN'
+          & $python -B -m f139.nci04_v19_original_owner_nowrite_probe --db $db
+          if($LASTEXITCODE -ne 0){throw 'F139_V19_READ_ONLY_PROBE_DENIED'}
+          Write-Host 'F139_V19_ORIGINAL_OWNER_READ_ONLY_PROBE=PASS'
+          Write-Host 'F139_V19_NO_ORIGINAL_TASK_MUTATION=TRUE'
+          Write-Host 'F139_V19_NO_ORIGINAL_DB_SQL_WRITES=TRUE'
+          Write-Host 'F139_V19_NO_CUTOVER_OR_SOURCE_PROMOTION=TRUE'
