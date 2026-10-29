@@ -62,7 +62,11 @@ jobs:
           git -C "$ROOT/yggdrasil" checkout --detach -q f0dd99d59ce00da7ad17ff49900a1af6d2322a77
           test "$(git -C "$ROOT/yggdrasil" hash-object research/native/itd02/mg19/genuine_mission_cells.py)" = 6a2a60eb9c9b77436421aa7ccbe785d29a163280
           (cd "$ROOT/wingless" && go build -trimpath -o "$ROOT/mg20-probe.exe" "$GITHUB_WORKSPACE/research/lcrm01/mg20_original_mission_readonly_go.go")
-          export PYTHONPATH="$ROOT/yggdrasil:$GITHUB_WORKSPACE/research/lcrm01"
+          if [ "$RUNNER_OS" = Windows ]; then
+            export PYTHONPATH="$(cygpath -w "$ROOT/yggdrasil");$GITHUB_WORKSPACE"
+          else
+            export PYTHONPATH="$ROOT/yggdrasil:$GITHUB_WORKSPACE"
+          fi
           python -B research/lcrm01/mg20_original_mission_readonly.py \
             --first "$ROOT/source/first.json" \
             --second "$ROOT/source/second.json" \
