@@ -61,7 +61,6 @@ def propose(before,actual,history):
     return best,True,support,best!=actual
 
 def inspect(s):
-    attest_mg25(s)
     rows=s["full_original_selected_source_72_episodes"]
     lookup={(row["family"],row["dev_seed_exposed"],row["role"]):row for row in rows}
     results={}
@@ -112,6 +111,7 @@ def execute(a,b):
     second=get_source(Path(b))
     if first["source"]!=second["source"]:
         raise ValueError("MG26_SOURCE_PROCESS_MISMATCH")
+    attest_mg25(first)
     report=inspect(first["source"])
     report["canonical_sha256"]=digest(report)
     return report
