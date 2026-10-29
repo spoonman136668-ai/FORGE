@@ -3223,31 +3223,39 @@ class GitHub:
         v2_keys = ("v2_original_event_seq","v2_original_event_sha256",
                    "v2_claim_event_seq","v2_claim_event_sha256",
                    "v2_owner_signature")
-        v2 = signed_fields.get("native_protocol") == "v2"
-        require(set(signed_fields) == set(("ticket","lane","source_sha",
+        protocol=signed_fields.get("native_protocol")
+        require(protocol in (None,"v2","v3"),"NATIVE_VERSION_NOT_RECOGNIZED")
+        v2=protocol=="v2"
+        v3=protocol=="v3"
+        v3_keys=("v3_original_event_seq","v3_original_event_sha256",
+                 "v3_claim_event_seq","v3_claim_event_sha256",
+                 "v3_owner_signature")
+        new_keys=v2_keys if v2 else (v3_keys if v3 else ())
+        require(set(signed_fields)==set(("ticket","lane","source_sha",
                       "epoch","signature","intent_sha256",*base_keys,
-                      *(("native_protocol",*v2_keys) if v2 else ())))
-                and signed_fields["intent_sha256"] ==
-                    issue.candidate.intent_sha256
-                and (not v2 or (issue.lane == "Yggdrasil"
-                       and issue.candidate.target_commit == V2_SOURCE_SHA
-                       and issue.candidate.target_tree_sha == V2_SOURCE_TREE
-                       and issue.candidate.path ==
-                           "yggdrasil/public_causal_cells.py")),
+                      *(("native_protocol",*new_keys) if protocol else ())))
+                and signed_fields["intent_sha256"]==issue.candidate.intent_sha256
+                and (not v2 or (issue.lane=="Yggdrasil"
+                       and issue.candidate.target_commit==V2_SOURCE_SHA
+                       and issue.candidate.target_tree_sha==V2_SOURCE_TREE
+                       and issue.candidate.path=="yggdrasil/public_causal_cells.py"))
+                and (not v3 or (issue.lane=="Yggdrasil"
+                       and issue.number>1138
+                       and issue.source_sha!="0743ca22b76ebd943a66f05a36ea919301676be0"
+                       and issue.candidate.path=="yggdrasil/public_causal_cells.py")),
                 "NATIVE_DISPATCH_VERSION_OR_IDENTITY_DRIFT")
-        bundle = {key:signed_fields[key] for key in base_keys}
-        if v2:
-            for key in v2_keys:
+        bundle={key:signed_fields[key] for key in base_keys}
+        if protocol:
+            for key in new_keys:
                 value=signed_fields[key]
                 require(isinstance(value,str)
                         and re.fullmatch(
-                          r"[1-9][0-9]*" if key.endswith("_seq")
-                          else r"[a-f0-9]{64}",value) is not None,
-                        "NATIVE_V2_OWNER_CLAIM_FIELD_INVALID")
+                            r"[1-9][0-9]*" if key.endswith("_seq")
+                            else r"[a-f0-9]{64}",value) is not None,
+                        "NATIVE_VERSIONED_OWNER_CLAIM_FIELD_INVALID")
                 bundle[key]=value
-            # Reuse an existing D2K input key only on native tickets.
-            # GitHub allows at most TEN workflow_dispatch inputs.
-            payload.extend(["-f","inputs[target_package]=f139-nci04-v2"])
+            # Same ten workflow_dispatch inputs, old original endpoint only.
+            payload.extend(["-f","inputs[target_package]=f139-nci04-"+protocol])
         bundle["intent_base64"] = base64.b64encode(issue.intent_raw).decode("ascii")
         encoded=base64.b64encode(canonical(bundle)).decode("ascii")
         require(0<len(encoded)<=60000,"NATIVE_DISPATCH_INTENT_TOO_LARGE")
@@ -4014,6 +4022,49 @@ def original_owner_v2_fields_canonical(db, db_path: Path, ticket: str,
         canonical_db.close()
 
 
+def original_owner_v3_fields_canonical(db, db_path: Path, ticket: str,
+                                       *, owner_hmac_key: str):
+    """Read the actual original SQLite under its pre-existing SingleOwner lock.
+
+    V3's HMAC signer uses the canonical imported Database type, even under -m.
+    It cannot invent an admission, and never writes a second owner ledger.
+    """
+    from f139.local_controller import Database as CanonicalDatabase
+    from f139.nci04_owner_v3_dispatch import original_owner_v3_fields
+    path=Path(db.filename).resolve(strict=True)
+    require(path==Path(db_path).resolve(strict=True)
+            and SingleOwner.held(path.with_suffix(".lock")),
+            "V3_ORIGINAL_SQLITE_AND_SINGLE_OWNER_LOCK_REQUIRED")
+    before=db.meta()
+    canonical_db=CanonicalDatabase(path)
+    try:
+        canonical_db.verify()
+        now=canonical_db.meta()
+        require(all(now[key]==before[key] for key in (
+                    "source_sha","head_seq","head_hash","epoch")),
+                "V3_ORIGINAL_ADMISSION_HEAD_DRIFT")
+        return original_owner_v3_fields(
+            canonical_db,ticket,owner_hmac_key=owner_hmac_key)
+    finally:
+        canonical_db.close()
+
+
+def original_owner_v3_eligible(db, db_path: Path, source_sha: str) -> bool:
+    """V3 only after actual source cutover, activation and available consumer."""
+    if not (isinstance(source_sha,str) and SHA.fullmatch(source_sha)
+            and source_sha!="0743ca22b76ebd943a66f05a36ea919301676be0"
+            and Path(db.filename).resolve()==Path(db_path).resolve()
+            and SingleOwner.held(Path(db_path).with_suffix(".lock"))):
+        return False
+    from f139.nci04_owner_ledger import verify_native_activation
+    try:
+        db.verify()
+        return (db.meta()["source_sha"]==source_sha
+                and verify_native_activation(db))
+    except (F139Error,ValueError,OSError):
+        return False
+
+
 def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
@@ -4327,11 +4378,21 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                      proposed.candidate.target_commit==V2_SHA and
                      proposed.candidate.target_tree_sha==V2_TREE and
                      proposed.candidate.path=="yggdrasil/public_causal_cells.py")
+        v3_original=(proposed.lane=="Yggdrasil"
+                     and proposed.candidate.path=="yggdrasil/public_causal_cells.py"
+                     and not v2_original
+                     and proposed.number>1138
+                     and proposed.source_sha!="0743ca22b76ebd943a66f05a36ea919301676be0")
         if v2_original and not original_owner_v2_guard_canonical(
                 db, db_path, meta["source_sha"]):
             return {"disposition":"V2_TERMINAL_CUSTODY_NOT_AUTHORIZED",
                     "ticket":task["ticket"],"claimed":False,
                     "live_v2_dispatched":False,"science_authorized":False}
+        if v3_original and not original_owner_v3_eligible(
+                db,db_path,meta["source_sha"]):
+            return {"disposition":"V3_ORIGINAL_OWNER_OR_SOURCE_NOT_ACTIVATED",
+                    "ticket":task["ticket"],"claimed":False,
+                    "live_v3_dispatched":False,"science_authorized":False}
     db.claim(task["ticket"],timestamp)
     from f139.verify_ticket import signature as sign_worker_ticket
     d2k=db.d2k_fields(task["ticket"])
@@ -4342,13 +4403,15 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         from f139.nci04_owner_issue import make_signed_dispatch_inputs
         issue = frozen_native_issue(db, task["ticket"])
         if v2_original:
-            # Under this same ORIGINAL SingleOwner + START_RISK transaction
-            # chain, produce a fresh V2 claim; never use a V1 fallback.
-            fields = original_owner_v2_fields_canonical(
-                db, db_path, task["ticket"], owner_hmac_key=hmac_key)
+            fields=original_owner_v2_fields_canonical(
+                db,db_path,task["ticket"],owner_hmac_key=hmac_key)
+        elif v3_original:
+            # A new original once-only claim, not V2 or an unverified V1 fallback.
+            fields=original_owner_v3_fields_canonical(
+                db,db_path,task["ticket"],owner_hmac_key=hmac_key)
         else:
-            fields = make_signed_dispatch_inputs(
-                issue, owner_hmac_key=hmac_key, epoch=meta["epoch"])
+            fields=make_signed_dispatch_inputs(
+                issue,owner_hmac_key=hmac_key,epoch=meta["epoch"])
         api.dispatch_native(fields, issue)
     else:
         signature=sign_worker_ticket(hmac_key,task["ticket"],task["lane"],
