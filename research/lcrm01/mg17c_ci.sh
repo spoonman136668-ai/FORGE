@@ -9,7 +9,7 @@ git merge-base --is-ancestor 3b0bf79200b4086482180aaf5791c0e2d6e73270 "$GITHUB_S
 test "$(git hash-object research/lcrm01/mg17c_original_local_effect_prereg.json)" = 801b6147e766be064d61b8cf544f0ab1bfd3b353
 test "$(git hash-object research/lcrm01/mg15_go_bridge.go)" = ae07ee16827828f1f022359f3709ee1ac2a0441d
 test "$(git hash-object research/lcrm01/mg17c_original_local_effect.py)" = d4fd0e15c8289eb63813d7315cda465b846683bc
-test "$(git hash-object research/lcrm01/mg17c_compare.py)" = 96d70d1afb8c45c61356c211a8023b2b978007a3
+test "$(git hash-object research/lcrm01/mg17c_compare.py)" = 047a9988fc13591419c61fe6e15a93aab46006f9
 test "$(git hash-object research/lcrm01/mg17c_go_bridge.go)" = 92e5000505c83115f74c6afeb4a86ff556d75818
 test "$(git hash-object research/lcrm01/mg15_original_mission.py)" = d79de5e517ec4a555a2c92af84cd962a0f4a3443
 test "$(git hash-object research/lcrm01/mg16_original_state_credit.py)" = e02f4bf6594e5745ac8f9eebc753a40c53d5e11f
