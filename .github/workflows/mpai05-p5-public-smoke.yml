@@ -66,11 +66,13 @@ jobs:
           try:
               m=Llama(model_path=str(model),n_ctx=1024,n_threads=4,n_gpu_layers=0,
                   n_batch=128,seed=137,verbose=False)
-              r=m.create_completion(prompt="Question: What is 2 plus 2? Answer with a number.\nAnswer:",
-                 temperature=0,max_tokens=16,top_p=1)
+              r=m.create_chat_completion(
+                  messages=[{"role":"system","content":"Answer simple arithmetic with one short numeral."},
+                            {"role":"user","content":"What is 2 plus 2?"}],
+                  temperature=0,max_tokens=32,top_p=1)
           except (RuntimeError,ValueError,OSError):
               fail("LOCAL_PUBLIC_INFERENCE_FAILED")
-          answer=r.get("choices",[{}])[0].get("text","")
+          answer=r.get("choices",[{}])[0].get("message",{}).get("content","")
           usage=r.get("usage",{})
           if not isinstance(answer,str) or not answer.strip() or not isinstance(usage,dict) or int(usage.get("completion_tokens",0))<1:fail("PUBLIC_SMOKE_RECEIPT_INVALID")
           print("MPAI05_P5_NON_QWEN_LOCAL_RUNTIME=PASS",flush=True)
