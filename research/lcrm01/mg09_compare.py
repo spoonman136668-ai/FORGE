@@ -39,7 +39,7 @@ def verify(r):
                                                x.get("seed_evaluator_only"))==seed]
         if len(subset)!=7 or {x["role"] for x in subset}!=set(ROLES):
             raise ValueError("MG09_UNFAIR_SOURCE_ROLE_EXPOSURE")
-        if len({x["original_public_start_sha"] for x in subset})!=1:
+        if len({x.get("original_public_start_sha",x.get("original_public_start_sha256")) for x in subset})!=1:
             raise ValueError("MG09_DIFFERENT_PUBLIC_ORIGINAL_RESET")
     for original,measured in zip(records,audits):
         role=original["role"]
