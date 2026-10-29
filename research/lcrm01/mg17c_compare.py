@@ -179,8 +179,8 @@ def main():
             "complete_independent_source_processes":2,
             "same_canonical_original_selected_source":True,
             "canonical_original_source_sha256":first["canonical_original_source_sha256"],
-            "per_role":e["per_role_original_source_metrics"],
-            "per_layout":e["per_layout_original_source_metrics"],
+            "per_role":e["per_role"],
+            "per_layout":e["per_layout"],
             "scientific_first_use":False}
     a.output.write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
     print("MG17C_TWO_PROCESS_CLASSIFICATION",report["classification"])
