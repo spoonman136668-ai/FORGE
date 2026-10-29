@@ -198,7 +198,7 @@ def qualified_original_github_run(api,run_id,ticket,source,started_at,admissions
 def settle_original_v3(db,api,db_path,*,ticket,run_id,started_at,owner_key):
     """One ORIGINAL SQLite positive terminal; no source/worker/queue creation."""
     need(type(db) is Database and type(api) is GitHub
-         and type(db_path) is Path and type(run_id) is int and run_id>0
+         and isinstance(db_path, Path) and type(run_id) is int and run_id>0
          and SingleOwner.held(db_path.with_suffix(".lock")),
          "SINGLE_ORIGINAL_OWNER_ONLY")
     db.verify()
