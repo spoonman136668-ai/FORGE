@@ -185,7 +185,7 @@ def from_files(folder: Path):
             and all((folder / name).is_file()
                     and not (folder / name).is_symlink() for name in inputs),
             "INPUT_FILES_INVALID")
-    return verify(*(folder / x).read_bytes() for x in inputs)
+    return verify(*((folder / x).read_bytes() for x in inputs))
 
 
 def main():
