@@ -130,11 +130,8 @@ def actual_inference(model,questions,selected,haystacks,memory,scorer,root):
         scoring=q["eval_function"]
         answer=q["answer"]
         require(type(scoring) is str and type(answer) is str,"SCORER_AND_GOLD_FORMAT")
-        expected_name=scorer.eval_name(scoring)
-        require(expected_name in p10.SCORER_ALLOWED or
-                expected_name in p10.JUDGE_REQUIRED or
-                expected_name not in p10.SCORER_ALLOWED,
-                "SCORER_CLASSIFICATION")
+        # Official scoring is restricted inside p10.official_grade.
+        # Unknown or judge-required scoring stays explicitly unscorable.
         rotated=ARMS[i%len(ARMS):]+ARMS[:i%len(ARMS)]
         for arm in rotated:
             messages=[
