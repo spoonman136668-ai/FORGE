@@ -17,7 +17,7 @@ import traceback
 from pathlib import Path
 from k4r_minigrid_source import canon,sha
 from k4u_native_minigrid import WingBridge
-import mg11_original_motion as source
+import mg03_equal_public_doorkey_live as source
 import mg14_original_successor as parent
 from mg14_original_successor import ConventionalSuccessor
 
