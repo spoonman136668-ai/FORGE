@@ -1,0 +1,99 @@
+name: AC25 exact-source cross-family transfer no-go preflight
+on:
+  pull_request:
+    paths:
+      - 'research/ac07_sourcefree/ac25_*'
+      - 'research/ac07_sourcefree/test_ac25_*'
+      - 'docs/research/AC-25-*'
+      - '.github/workflows/forge-ac25-crossfamily-transfer-custody.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  crossfamily-source-custody:
+    name: AC25 original DTR vs independent MiniGrid custody / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Read-only checkout of unmerged AC25 research adapter
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Original Wingless native public-world contract, unchanged
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: e1048a870785724ab01897c445f04c4c3d9640b1
+          path: ac25_wing
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Original Yggdrasil independent public-world contract, unchanged
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 851ac5866c0ebb4739272443afa9717f188fb5ef
+          path: ac25_ygg
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Existing MG11 native/Farama source-anchored prospective contract only
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 79a494a30dd54bd0dd1211b41d215ebf05cc29e8
+          path: ac25_mg11
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Standard-library Python, no original source environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve exact qualified original AC24 public development receipt only
+        uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 40839040448
+          github-token: ${{ github.token }}
+          name: ac24-authentic-original-development-${{ matrix.os }}
+          path: ac25_parent
+      - name: Reject forged native/action interfaces and unauthorized source admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac25_*.py' -v
+          python -B research/ac07_sourcefree/ac25_crossfamily_admissibility.py --ac24-report "$GITHUB_WORKSPACE/ac25_parent/ac24-report.json" --os "${{ matrix.os }}" --wing "$GITHUB_WORKSPACE/ac25_wing" --ygg "$GITHUB_WORKSPACE/ac25_ygg" --mg11 "$GITHUB_WORKSPACE/ac25_mg11" --out "$RUNNER_TEMP/ac25-report.json"
+          python - "$RUNNER_TEMP/ac25-report.json" <<'PY'
+          import json,hashlib,pathlib,sys
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac25.direct-crossfamily-transfer-admissibility-v1"
+          assert r["classification"]=="AC25_DIRECT_DTR_TO_MINIGRID_TRANSFER_NOT_ADMISSIBLE"
+          assert r["wingless_ygg_contract_bytes_identical"] is True
+          assert (r["dtr_action_count"],r["paired_empty5_public_action_count"],
+                  r["mg11_original_doorkey_public_action_count"])==(2,3,7)
+          assert r["ac24_original_development"]["fit_episode_count"]==64
+          assert r["ac24_original_development"]["dev_episode_count"]==32
+          assert r["paired_q1_q2_q3_sealed"] is True
+          for key in ("valid_native_learned_encoder_for_image_direction_mission",
+                 "same_original_learning_and_action_interface",
+                 "valid_cross_family_action_mapping_frozen_before_test",
+                 "scientific_transfer_established","scientific_first_use","scientific_admission",
+                 "native_training_or_transfer_run","old_models_or_original_source_modified",
+                 "protected_family_holdout_read","controller_queue_authority_modified"):
+              assert r[key] is False,key
+          assert r["new_original_minigrid_episodes_executed"]==0
+          assert r["new_original_dtr_episodes_executed"]==0
+          print("AC25_READONLY_SOURCE_CUSTODY=PASS")
+          print("AC25_NATIVE_MINIGRID_DIRECT_TRANSFER=NO_GO")
+          print("AC25_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Archive only negative public-source admission evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ac25-crossfamily-admissibility-${{ matrix.os }}
+          path: ${{ runner.temp }}/ac25-report.json
+          retention-days: 30
+          if-no-files-found: error
