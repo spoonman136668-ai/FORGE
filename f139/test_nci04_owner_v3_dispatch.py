@@ -67,5 +67,21 @@ class VersionDistinctNativeOwnerTests(unittest.TestCase):
             v3.signature(self.key,modified,9,323,"1"*64,324,"2"*64)
 
 
+    def test_v1_v2_v3_original_workflow_routes_are_exclusive(self):
+        from pathlib import Path
+        workflow=(Path(__file__).resolve().parents[1]/
+                  ".github/workflows/forge-f139-development-worker.yml").read_text("utf-8")
+        self.assertEqual(workflow.count("inputs.target_package != 'f139-nci04-v2' && inputs.target_package != 'f139-nci04-v3'"),2)
+        self.assertIn("native-authorize-v3:",workflow)
+        self.assertIn("native-execute-v3:",workflow)
+        self.assertIn("nci04_owner_v3_dispatch authorize-v3",workflow)
+        self.assertIn("nci04_owner_v3_dispatch execute-v3",workflow)
+        self.assertIn("F139_NATIVE_PROTOCOL: v3",workflow)
+        self.assertIn("needs: native-authorize-v3",workflow)
+        self.assertIn("F139_WORKER_HMAC_KEY: ${{ secrets.F139_WORKER_HMAC_KEY }}",workflow)
+        self.assertEqual(workflow.count("name: forge-f139-v2-native-receipt-"),1)
+        self.assertEqual(workflow.count("name: forge-f139-v3-native-receipt-"),1)
+
+
 if __name__=="__main__":
     unittest.main()
