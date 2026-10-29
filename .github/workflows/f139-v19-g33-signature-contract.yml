@@ -1,0 +1,126 @@
+name: F139 V19 G33 inert owner-provider signature and real G32 source custody
+on:
+  push:
+    branches: [research/f139-v19-g33-owner-provider-signature-contract-20261029]
+    paths:
+      - f139/nci04_v19_g33_signature_contract.py
+      - f139/test_nci04_v19_g33_signature_contract.py
+      - .github/workflows/f139-v19-g33-signature-contract.yml
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f139-v19-g33-contract-test-only
+  cancel-in-progress: false
+jobs:
+  verify-readonly:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/research/f139-v19-g33-owner-provider-signature-contract-20261029' &&
+      github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze exact three-file change scope with no run authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='3ed0efefc1986e247154c90fe0f5cb9d42c66277'
+          $sha=(& git rev-parse HEAD | Out-String).Trim()
+          if($sha -cne $env:GITHUB_SHA){throw 'F139_G33_SOURCE_SHA_DRIFT'}
+          & git merge-base --is-ancestor $base HEAD
+          if($LASTEXITCODE -ne 0){throw 'F139_G33_BASELINE_NOT_ANCESTOR'}
+          $changed=@(& git diff --name-only $base HEAD | Sort-Object)
+          $allowed=@(
+            '.github/workflows/f139-v19-g33-signature-contract.yml',
+            'f139/nci04_v19_g33_signature_contract.py',
+            'f139/test_nci04_v19_g33_signature_contract.py'
+          ) | Sort-Object
+          if(($changed -join '|') -cne ($allowed -join '|')){
+            throw ('F139_G33_SCOPE_INVALID='+($changed -join ','))
+          }
+          if(@(& git status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G33_DIRTY_CHECKOUT'
+          }
+          Write-Output 'F139_G33_EXACT_THREE_PATHS=PASS'
+      - name: Test isolated key binding and no replay with synthetic keys only
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GH_TOKEN -or $env:F139_WORKER_HMAC_KEY -or $env:OPENAI_API_KEY){
+            throw 'F139_G33_UNEXPECTED_SIGNER_SECRETS'
+          }
+          & python -B -m unittest f139.test_nci04_v19_g33_signature_contract -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G33_CONTRACT_TESTS_NEGATIVE'}
+          & python -B -c "import ast,pathlib; [ast.parse(pathlib.Path(p).read_text('utf-8')) for p in ['f139/nci04_v19_g33_signature_contract.py','f139/test_nci04_v19_g33_signature_contract.py']]"
+          if($LASTEXITCODE -ne 0){throw 'F139_G33_SOURCE_SYNTAX_FAILURE'}
+          Write-Output 'F139_G33_SYNTHETIC_SIGNED_CONTRACT_TESTS=PASS'
+          Write-Output 'F139_G33_ACTUAL_PROVIDER_KEYS=NOT_PROVISIONED'
+      - name: Authenticate immutable G32 run and fetch its two original reports
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'g33-readonly-input'
+          New-Item -Path $root -ItemType Directory -ErrorAction Stop | Out-Null
+          $curl=if($IsWindows){'curl.exe'}else{'curl'}
+          $base='https://api.github.com/repos/spoonman136668-ai/FORGE'
+          $urls=@{
+            'run.json'=($base+'/actions/runs/40947362897')
+            'artifacts.json'=($base+'/actions/runs/40947362897/artifacts?per_page=100')
+            'linux.zip'=($base+'/actions/artifacts/12929263863/zip')
+            'windows.zip'=($base+'/actions/artifacts/12929448135/zip')
+          }
+          foreach($name in @('run.json','artifacts.json','linux.zip','windows.zip')){
+            & $curl --fail --silent --show-error --location --max-time 75 --retry 0 -H "Authorization: Bearer $env:GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' $urls[$name] --output (Join-Path $root $name)
+            if($LASTEXITCODE -ne 0){throw ('F139_G33_ACTIONS_READ_FAILURE_'+$name)}
+          }
+          $expected=@{
+            'linux.zip'='20c141f6b2f78e7b7c86217a98cb6923bceeab043d1db74c620707ce246b45cf'
+            'windows.zip'='226beb6a21ecb95ee053b9770a21fac284b74b79b7d3acb7ba4ceebe7f7feb1d'
+          }
+          foreach($name in $expected.Keys){
+            if((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root $name)).Hash.ToLowerInvariant() -cne $expected[$name]){
+              throw ('F139_G33_G32_IMMUTABLE_ZIP_MISMATCH_'+$name)
+            }
+          }
+          Write-Output 'F139_G33_AUTHENTIC_G32_ZIP_DIGESTS=PASS'
+      - name: Read original G32 reports without signer credentials
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GH_TOKEN -or $env:F139_WORKER_HMAC_KEY -or $env:OPENAI_API_KEY){
+            throw 'F139_G33_VERIFIER_CREDENTIAL_INHERITANCE'
+          }
+          $root=Join-Path $env:RUNNER_TEMP 'g33-readonly-input'
+          $output=Join-Path $env:RUNNER_TEMP 'f139-v19-g33-readonly-custody.json'
+          & python -B -m f139.nci04_v19_g33_real_g32_readonly --input $root --output $output
+          if($LASTEXITCODE -ne 0){throw 'F139_G33_REAL_G32_REPORTS_UNQUALIFIED'}
+          Write-Output 'F139_G33_VERIFIED_REAL_G32_DIAGNOSTICS=PASS'
+          Write-Output 'F139_G33_PRODUCTION_V3_PROVIDER_SIGNATURES=NOT_QUALIFIED'
+          Write-Output 'F139_G33_ORIGINAL_WINDOWS_OWNER_CONSUMPTION=NOT_QUALIFIED'
+          Write-Output 'F139_G33_PRODUCTION_RELEASE=HOLD'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: f139-v19-g33-readonly-signature-contract-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-v19-g33-readonly-custody.json
+          if-no-files-found: error
+          retention-days: 90
