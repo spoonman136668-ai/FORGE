@@ -29,3 +29,30 @@ def probe(gym,family,role,seed,cap,model,adapter,fit_count):
    else:action,status=model.randrange(7),"UNASSISTED_ORIGINAL_RANDOM"
    if type(action)is not int or action not in range(7) or not status:
     raise ValueError("MG21_UNSELECTED_ORIGINAL_ACTION")
+   if role.startswith("go_"):
+    model.request("commit",before=before,action=action)
+   elif role.startswith("ygg_") and adapter.submit(action)!=action:
+    raise ValueError("MG21_NATIVE_ACTION_REMAP")
+   raw_next,reward,term,trunc,_=env.step(action)
+   after=public(raw_next);reward=float(reward)
+   if after["mission"]!=first["mission"]:
+    raise ValueError("MG21_ORIGINAL_SOURCE_MISSION_DRIFT")
+   done=bool(term or trunc)
+   if role.startswith("go_"):
+    ack=model.request("feedback",before=before,action=action,
+         after=after,reward=reward,terminal=done)
+    count=ack.get("updates",0)
+   elif role.startswith("ygg_"):
+    adapter.complete(after,reward,bool(term),bool(trunc))
+    model.learn_selected(adapter,before,after);count=model.samples
+   elif role.startswith("tabular_"):
+    model.learn(before,action,after,reward,done);count=model.samples
+   else:count=None
+   if role!="random" and count!=fit_count+index:
+    raise ValueError("MG21_SELECTED_SOURCE_COUNT_DRIFT")
+   events.append({"index":index,"before":before,"action":action,
+         "status":status,"after":after,"reward":reward,
+         "terminated":bool(term),"truncated":bool(trunc),
+         "native_updates":count})
+   before=after
+   if done:break
