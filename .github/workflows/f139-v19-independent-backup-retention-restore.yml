@@ -1,0 +1,168 @@
+name: FORGE V19 independent original-backup retention and restore audit
+# Audit only. Never edit original task, original DB, release, or owner policy.
+on:
+  push:
+    branches: [qualification/f139-v19-independent-restore-audit-20261029]
+    paths: [.github/workflows/f139-v19-independent-backup-retention-restore.yml]
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: read
+concurrency:
+  group: f139-v19-independent-restoration-20261029
+  cancel-in-progress: false
+jobs:
+  audit-original-backup:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-independent-restore-audit-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Read-only original-owner check and independent sealed-bundle restore rehearsal
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-independent-restore-audit-20261029' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $env:OPENAI_API_KEY) {
+            throw 'F139_V19_INDEPENDENT_RESTORE_WRONG_OWNER_OR_PAID_API'
+          }
+          $parent=(& git rev-parse 'HEAD^' | Out-String).Trim()
+          $changes=@(& git diff --name-only 'HEAD^' 'HEAD')
+          if ($LASTEXITCODE -ne 0 -or
+              $parent -cne '8b896a5753470884812712fda6d644c0349cfd9b' -or
+              $changes.Count -ne 1 -or
+              $changes[0] -cne '.github/workflows/f139-v19-independent-backup-retention-restore.yml') {
+            throw 'F139_V19_INDEPENDENT_RESTORE_SOURCE_SCOPE_DRIFT'
+          }
+          $source=(& git rev-parse 'HEAD:f139/nci04_v19_original_release_readonly_preflight.py' | Out-String).Trim()
+          if ($source -cne '5599b50fce67d24a13e2daedf0840f1ed15ec651') {
+            throw 'F139_V19_INDEPENDENT_RESTORE_QUALIFIED_WITNESS_SOURCE_MISSING'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ([string]$task.State -cnotin @('Running','Ready') -or
+              @($task.Actions).Count -ne 1 -or
+              @($task.Triggers).Count -ne 3 -or
+              [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ine 'powershell.exe') {
+            throw 'F139_V19_INDEPENDENT_RESTORE_ORIGINAL_TASK_DRIFT'
+          }
+          $args=[string]$task.Actions[0].Arguments
+          $dbMatch=[regex]::Match($args,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          $pyMatch=[regex]::Match($args,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if (-not $dbMatch.Success -or -not $pyMatch.Success) {
+            throw 'F139_V19_INDEPENDENT_RESTORE_TASK_ARGS_DRIFT'
+          }
+          $db=[string]$dbMatch.Groups[1].Value
+          $py=[string]$pyMatch.Groups[1].Value
+          $expected=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if ([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expected) -or
+              -not(Test-Path -LiteralPath $py -PathType Leaf)) {
+            throw 'F139_V19_INDEPENDENT_RESTORE_ORIGINAL_PATH_DRIFT'
+          }
+          $before=& $py -B -m f139.nci04_v19_original_owner_nowrite_probe --db $db
+          if ($LASTEXITCODE -ne 0) { throw 'F139_V19_INDEPENDENT_RESTORE_OWNER_PREWITNESS_DENIED' }
+          $pre=($before | Out-String | ConvertFrom-Json)
+          if ($pre.read_only -ne $true -or
+              $pre.candidate_source_sha -cne 'ea2d1c99d7afc1e991510d51168dd010a0b56ec5' -or
+              $pre.runtime_cutover_authorized -ne $false) {
+            throw 'F139_V19_INDEPENDENT_RESTORE_ORIGINAL_WITNESS_DRIFT'
+          }
+          $backup=Join-Path (Split-Path -Parent $db) 'v19-custody-backups\v19-cold-40850279901'
+          $acls=Get-Acl -LiteralPath $backup -ErrorAction Stop
+          if ([string]$acls.Owner -eq '') { throw 'F139_V19_INDEPENDENT_RESTORE_ACL_OWNER_MISSING' }
+          @'
+          import hashlib, json, os, pathlib, shutil, sys, tempfile, stat
+          from f139.local_controller import Database
+          source=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          bundle=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          owner=source.parent
+          assert bundle==owner/'v19-custody-backups'/'v19-cold-40850279901', 'RESTORE_ORIGINAL_BACKUP_ID_DRIFT'
+          assert bundle.is_dir() and not bundle.is_symlink(), 'RESTORE_BUNDLE_SYMLINK_OR_MISSING'
+          manifest=bundle/'manifest.json'
+          assert manifest.is_file() and not manifest.is_symlink(), 'RESTORE_MANIFEST_MISSING'
+          manifestbytes=manifest.read_bytes()
+          mh=hashlib.sha256(manifestbytes).hexdigest()
+          assert mh=='175f858f39d73d535c9bd0d73bd787f72211f2f1a4a389fc228c8f175a05970c', 'RESTORE_MANIFEST_PIN_MISMATCH'
+          data=json.loads(manifestbytes)
+          assert data['schema']=='forge.f139.v19.owner-cold-archive.v1', 'RESTORE_SCHEMA_DRIFT'
+          assert str(data['run'])=='40850279901' and data['release_sha']=='ea2d1c99d7afc1e991510d51168dd010a0b56ec5', 'RESTORE_RUN_OR_RELEASE_DRIFT'
+          assert data['head_seq']==314 and data['head_sha256']=='0621785f8d47a9b0fb568d4b236e6164bf45436c108d985852068894db875c4f', 'RESTORE_ORIGINAL_HEAD_DRIFT'
+          filehashes=data['sha256']
+          assert isinstance(filehashes,dict) and len(filehashes)==82, 'RESTORE_FILE_COUNT_DRIFT'
+          assert filehashes['state.sqlite']=='e8ce72e3378901df857491cedf267c3c1cdee88008e2070153764afbf57567df', 'RESTORE_SQLITE_SHA_DRIFT'
+          assert 'worker-hmac.dpapi.xml' in filehashes and len(filehashes['worker-hmac.dpapi.xml'])==64, 'RESTORE_CIPHERED_OWNER_KEY_MISSING'
+          actual=set()
+          for p in bundle.rglob('*'):
+              assert not p.is_symlink(), 'RESTORE_BUNDLE_SYMLINK'
+              if p.is_file():actual.add(p.relative_to(bundle).as_posix())
+              else:assert p.is_dir(),'RESTORE_BUNDLE_NONREGULAR_OBJECT'
+          assert actual==set(filehashes)|{'manifest.json'}, 'RESTORE_BUNDLE_MEMBER_SET_DRIFT'
+          count=0
+          size=0
+          for relative,digest in filehashes.items():
+              rel=pathlib.PurePosixPath(relative)
+              assert not rel.is_absolute() and '..' not in rel.parts, 'RESTORE_MEMBER_PATH_TRAVERSAL'
+              item=bundle/pathlib.Path(*rel.parts)
+              assert item.is_file() and not item.is_symlink(), 'RESTORE_MEMBER_NOT_REGULAR'
+              with item.open('rb') as f:h=hashlib.file_digest(f,'sha256').hexdigest()
+              assert h==digest, 'RESTORE_HASH_MISMATCH'
+              count+=1;size+=item.stat().st_size
+          assert count==82 and size==697402,'RESTORE_SIZE_OR_COUNT_MISMATCH'
+          # This is a separate temporary restore tree. No original SQLite or task is touched.
+          with tempfile.TemporaryDirectory(prefix='f139-independent-restore-',dir=os.environ['RUNNER_TEMP']) as t:
+              temp=pathlib.Path(t)
+              clone=temp/'bundle'
+              shutil.copytree(bundle,clone,symlinks=False)
+              for relative,digest in filehashes.items():
+                  item=clone/pathlib.Path(*pathlib.PurePosixPath(relative).parts)
+                  with item.open('rb') as f:h=hashlib.file_digest(f,'sha256').hexdigest()
+                  assert h==digest,'RESTORE_INDEPENDENT_COPY_HASH_MISMATCH'
+              db=Database.open_readonly(clone/'state.sqlite')
+              try:
+                  db.verify()
+                  meta=db.meta()
+                  assert meta['head_seq']==314 and meta['head_hash']==data['head_sha256'],'RESTORE_COLD_LEDGER_IDENTITY_DRIFT'
+                  assert meta['source_sha']=='d8bccc604f8607bf10f9d8bc6aa568d1f98af559','RESTORE_V18_SOURCE_DRIFT'
+                  assert db.conn.execute('PRAGMA integrity_check').fetchone()[0]=='ok','RESTORE_SQLITE_INTEGRITY_FAIL'
+                  assert db.conn.execute('SELECT COUNT(*) FROM events').fetchone()[0]==314,'RESTORE_EVENT_COUNT_DRIFT'
+              finally:db.close()
+          # Copies are deleted by TemporaryDirectory, durable backup remains unchanged.
+          assert hashlib.sha256(manifest.read_bytes()).hexdigest()==mh, 'RESTORE_MANIFEST_CHANGED'
+          print('F139_V19_INDEPENDENT_RETENTION_AND_RESTORE=PASS')
+          print('F139_V19_RETENTION_RECEIPT='+json.dumps({'manifest_sha256':mh,'database_sha256':filehashes['state.sqlite'],
+            'archived_seq':314,'archived_head_sha256':data['head_sha256'],'files':count,'bytes':size,
+            'restore_tree_separate':True,'sqlite_cold_verified':True,'same_owner_host':True,
+            'offhost_or_immutable_retention_verified':False,'dpapi_offhost_recovery_verified':False,
+            'original_sqlite_writes':0,'original_task_edits':0,'provider_calls':0},sort_keys=True))
+          '@ | & $py -B - $db $backup
+          if ($LASTEXITCODE -ne 0) {
+            throw 'F139_V19_INDEPENDENT_RETENTION_OR_RESTORE_DENIED'
+          }
+          $after=& $py -B -m f139.nci04_v19_original_owner_nowrite_probe --db $db
+          if ($LASTEXITCODE -ne 0) { throw 'F139_V19_INDEPENDENT_RESTORE_POSTWITNESS_DENIED' }
+          $post=($after | Out-String | ConvertFrom-Json)
+          if ($post.runtime_cutover_authorized -ne $false -or
+              $post.read_only -ne $true -or
+              $post.from_source_sha -cne $pre.from_source_sha) {
+            throw 'F139_V19_INDEPENDENT_RESTORE_OWNER_CHANGED'
+          }
+          $taskFinal=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ([string]$taskFinal.State -cnotin @('Running','Ready')) {
+            throw 'F139_V19_INDEPENDENT_RESTORE_TASK_NOT_PRESERVED'
+          }
+          Write-Output 'F139_V19_INDEPENDENT_OWNER_TASK_UNINTERRUPTED=PASS'
+          Write-Output 'F139_V19_OFFHOST_DISASTER_RECOVERY=NOT_VERIFIED'
