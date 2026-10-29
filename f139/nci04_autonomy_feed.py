@@ -283,7 +283,8 @@ def _candidate_from_pr(get: Callable[[str], object], *, lane: str,
 
 def prepare_feed(get: Callable[[str], object], *, source_sha: str,
                  existing_candidate_identities: set[str],
-                 steering_get: Callable[[str], object] | None = None) -> dict:
+                 steering_get: Callable[[str], object] | None = None,
+                 evidence_get: Callable[[str], object] | None = None) -> dict:
     """Prepare eligible development issue drafts; optional source-pinned steering.
 
     Steering can reorder only *new* fully authenticated PRs at this planning
@@ -380,9 +381,25 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
             "scientific_first_use": False,
             "dispatch_authorized": False,
         }
-        return {"enabled": True, "candidates": selected,
-                "rejected": rejected,
-                "steering": {**steering, "selection_witness": selection}}
+        # Observability ONLY. Negative evidence is not in the approved
+        # four-blob steering manifest: no admission, rank or dispatch change.
+        observed = None
+        if evidence_get is not None:
+            from f139.itd02_negative_evidence_auth import (
+                EvidenceDenied, authenticate,
+            )
+            try:
+                observed = authenticate(evidence_get)
+            except (EvidenceDenied, RuntimeError):
+                observed = {"status": "UNAVAILABLE_OR_DENIED_UNADMITTED",
+                            "steering_manifest_admitted": False,
+                            "candidate_selection_authorized": False}
+        response = {"enabled": True, "candidates": selected,
+                    "rejected": rejected,
+                    "steering": {**steering, "selection_witness": selection}}
+        if observed is not None:
+            response["negative_evidence_observation"] = observed
+        return response
     report = {"enabled": True, "candidates": candidates, "rejected": rejected}
     if steering_unavailable:
         report["steering"] = {
