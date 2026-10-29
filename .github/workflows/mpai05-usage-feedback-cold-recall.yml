@@ -69,29 +69,29 @@ jobs:
             foreach($id in $ids){
               Assert (@($data|Where-Object {$_.id -ceq $id}).Count -eq 0) 'EXISTING_RECORD_CONFLICT'
             }
-            $rehearsalQuery=@'
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(sys.argv[1]) / "tools"))
-from mindpalace_readonly import MemorySnapshot
-root=Path(sys.argv[1])
-sha=sys.argv[2]
-expect=sys.argv[3]=="yes"
-ids=("lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029",
-     "lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029")
-s=MemorySnapshot(root,sha,["Mind-Palace"])
-for key in ids:
-    r=s.get_record(sha,key,["Mind-Palace"])
-    if r.get("found") is not expect: raise RuntimeError("COLD_READBACK_MISMATCH")
-    if expect:
-        rec=r["record"]
-        if rec.get("id")!=key or rec.get("status") not in ("observed","confirmed","current"):
-            raise RuntimeError("COLD_RECALL_MISSING_ACCEPTED_SHAPE")
-        if not rec.get("source_refs"):
-            raise RuntimeError("COLD_RECALL_MISSING_PROVENANCE")
-print("MPAI05_FB_COLD_BOTH_RECORDS_FOUND="+str(expect).upper())
-print("MPAI05_FB_COLD_SNAPSHOT_SHA_VERIFIED=PASS")
-'@
+            $rehearsalQuery=@(
+            'import sys'
+            'from pathlib import Path'
+            'sys.path.insert(0, str(Path(sys.argv[1]) / "tools"))'
+            'from mindpalace_readonly import MemorySnapshot'
+            'root=Path(sys.argv[1])'
+            'sha=sys.argv[2]'
+            'expect=sys.argv[3]=="yes"'
+            'ids=("lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029",'
+            '     "lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029")'
+            's=MemorySnapshot(root,sha,["Mind-Palace"])'
+            'for key in ids:'
+            '    r=s.get_record(sha,key,["Mind-Palace"])'
+            '    if r.get("found") is not expect: raise RuntimeError("COLD_READBACK_MISMATCH")'
+            '    if expect:'
+            '        rec=r["record"]'
+            '        if rec.get("id")!=key or rec.get("status") not in ("observed","confirmed","current"):'
+            '            raise RuntimeError("COLD_RECALL_MISSING_ACCEPTED_SHAPE")'
+            '        if not rec.get("source_refs"):'
+            '            raise RuntimeError("COLD_RECALL_MISSING_PROVENANCE")'
+            'print("MPAI05_FB_COLD_BOTH_RECORDS_FOUND="+str(expect).upper())'
+            'print("MPAI05_FB_COLD_SNAPSHOT_SHA_VERIFIED=PASS")'
+          ) -join [Environment]::NewLine
             $baseline=Join-Path $private 'baseline.log'
             & python -B -c $rehearsalQuery $root $source no *> $baseline
             Assert ($LASTEXITCODE -eq 0) 'ORIGINAL_BASELINE_COLD_READ'
