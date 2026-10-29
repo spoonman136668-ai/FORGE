@@ -1,0 +1,117 @@
+name: F139 V19 original owner postrestart persistent status READ ONLY
+on:
+  push:
+    branches: [qualification/f139-v19-postrestart-owner-ro-20261029]
+    paths: [.github/workflows/f139-v19-postrestart-original-owner-readonly.yml]
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: forge-f139-v19-owner-postrestart-readonly-20261029
+  cancel-in-progress: false
+jobs:
+  read-original-owner-status:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-postrestart-owner-ro-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify original task, protected source, policy and native ledger after restart with no writes
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $target='0743ca22b76ebd943a66f05a36ea919301676be0'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-postrestart-owner-ro-20261029' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY){
+            throw 'F139_V19_POSTRESTART_UNQUALIFIED_RUNNER'
+          }
+          $parent=(& git rev-parse HEAD^ | Out-String).Trim()
+          $changed=@(& git diff --name-only HEAD^ HEAD)
+          if($LASTEXITCODE -ne 0 -or $parent -cne $target -or
+             $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/f139-v19-postrestart-original-owner-readonly.yml'){
+            throw 'F139_V19_POSTRESTART_SOURCE_SCOPE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){
+            throw 'F139_V19_POSTRESTART_ORIGINAL_TASK_NOT_ENABLED'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner=[string]$task.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($owner -ine $identity.Name -and $sid -cne $identity.User.Value){
+            throw 'F139_V19_POSTRESTART_OWNER_SID_DRIFT'
+          }
+          $argsText=[string]$task.Actions[0].Arguments
+          function Arg([string]$key){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_V19_POSTRESTART_ORIGINAL_ACTION_ARG_MISSING'}
+            return [string]$m.Groups[1].Value
+          }
+          $root=Arg 'RepositoryRoot'
+          $db=Arg 'Database'
+          $python=Arg 'PythonExe'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $target -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_V19_POSTRESTART_INSTALLED_SOURCE_OR_PROFILE_DRIFT'
+          }
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          $policy=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+          $p=[string]$policy.body | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $main.commit.sha -cne $target -or $main.protected -ne $true -or
+             $p.source_sha -cne $target -or $p.enabled -ne $true -or
+             $p.scientific_first_use -ne $false -or $p.paid_model_calls -ne 0 -or
+             $p.new_controller -ne $false -or $p.new_scheduler -ne $false){
+            throw 'F139_V19_POSTRESTART_REMOTE_SOURCE_POLICY_DRIFT'
+          }
+          @'
+          import json,pathlib,sys
+          from f139.local_controller import Database
+          db=Database.open_readonly(pathlib.Path(sys.argv[1]))
+          try:
+              meta=db.meta()
+              assert meta['source_sha']=='0743ca22b76ebd943a66f05a36ea919301676be0','POSTRESTART_NATIVE_SOURCE_DRIFT'
+              assert meta['enabled']==1 and meta['legacy_suspended']==1,'POSTRESTART_NATIVE_NOT_ENABLED'
+              assert meta['head_seq']>=316,'POSTRESTART_EVENT_HEAD_REGRESSED'
+              rows=list(db.conn.execute("SELECT seq,kind,payload FROM events WHERE seq IN (315,316) ORDER BY seq"))
+              assert len(rows)==2 and rows[0]['kind']=='SOURCE_TRANSITION_ADMITTED' and rows[1]['kind']=='NATIVE_DEVELOPMENT_ACTIVATED','POSTRESTART_TRANSITION_ACTIVATION_CHAIN_MISSING'
+              transition=json.loads(rows[0]['payload'])
+              activation=json.loads(rows[1]['payload'])
+              assert transition['to_source_sha']==meta['source_sha'],'POSTRESTART_TRANSITION_TARGET_DRIFT'
+              assert activation['source_sha']==meta['source_sha'] and activation['scientific_first_use'] is False,'POSTRESTART_ACTIVATION_AUTHORITY_DRIFT'
+              status={'event_seq':meta['head_seq'],'event_head_sha256':meta['head_hash'],
+                      'source_sha':meta['source_sha'],'native_enabled':True,'legacy_suspended':True,
+                      'new_events_after_activation':meta['head_seq']-316,
+                      'task_count':db.conn.execute('SELECT COUNT(*) FROM tasks').fetchone()[0],
+                      'original_db_writes':0,'provider_calls':0,'new_controller':False,
+                      'scientific_first_use':False}
+              print('F139_V19_POSTRESTART_ORIGINAL_SQLITE_COLD_VERIFY=PASS')
+              print('F139_V19_POSTRESTART_ORIGINAL_LEDGER_RECEIPT='+json.dumps(status,sort_keys=True))
+          finally:db.close()
+          '@ | & $python -B - $db
+          if($LASTEXITCODE -ne 0){throw 'F139_V19_POSTRESTART_NATIVE_LEDGER_VERIFY_FAILED'}
+          $info=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Write-Output ('F139_V19_POSTRESTART_TASK_STATE='+[string]$task.State)
+          Write-Output ('F139_V19_POSTRESTART_TASK_LAST_RESULT='+[string]$info.LastTaskResult)
+          Write-Output 'F139_V19_ORIGINAL_OWNER_READONLY_POSTRESTART=PASS'
