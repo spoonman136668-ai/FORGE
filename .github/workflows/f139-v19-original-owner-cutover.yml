@@ -197,20 +197,26 @@ jobs:
               throw 'F139_V19_INSTALL_CHECKOUT_DRIFT'
             }
             Set-Location -LiteralPath $root
-            $backup=Join-Path (Split-Path $dbPath -Parent) (
-               'f139-v19-before-'+$env:GITHUB_RUN_ID+'.sqlite')
-            # The owner may never attempt a transition without a cold-
-            # restorable sqlite backup and a SHA-256 sidecar.
-            if(Test-Path -LiteralPath $backup) {
+            $backupDir=Join-Path (Split-Path $dbPath -Parent) (
+               'f139-v19-before-'+$env:GITHUB_RUN_ID)
+            $backup=Join-Path $backupDir 'state.sqlite'
+            # A SQLite file alone is NOT a self-contained cold backup:
+            # owner verification requires the two original negative ZIPs.
+            if(Test-Path -LiteralPath $backupDir) {
               throw 'F139_V19_PRETRANSITION_BACKUP_COLLISION'
             }
+            New-Item -ItemType Directory -Path $backupDir -ErrorAction Stop | Out-Null
             @'
-          import hashlib, pathlib, sqlite3, sys
+          import hashlib, pathlib, shutil, sqlite3, sys
           from f139.local_controller import Database, SingleOwner, v17_original_model_history_valid
           from f139.nci04_native_contract import canonical
           from f139.nci04_v19_owner_readonly_preflight import build_v19_readonly_preflight
+          from f139.nci04_negative_owner_store import (
+              TICKET as FIRST_TICKET, RUN_ID as FIRST_RUN, ARTIFACT_SHA as FIRST_SHA)
+          from f139.nci04_split_negative_custody import (
+              TICKET as SECOND_TICKET, RUN_ID as SECOND_RUN, ARTIFACT_SHA256 as SECOND_SHA)
           path, backup = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-          assert not backup.exists(), "F139_V19_BACKUP_ALREADY_EXISTS"
+          assert not backup.exists() and backup.parent.is_dir(), "F139_V19_BACKUP_ALREADY_EXISTS"
           db=Database(path)
           try:
               with SingleOwner(path.with_suffix(".lock")):
@@ -234,9 +240,36 @@ jobs:
                   proof=build_v19_readonly_preflight(
                       db,sys.argv[3],int(sys.argv[4]))
                   original=db.meta().copy()
+                  # Copy the historical provider bytes to the NEW backup root;
+                  # an on-host SQLite-only clone can accidentally pass by
+                  # resolving original archives outside its own backup.
+                  custody_manifest={}
+                  for ticket, run_id, expected_sha in (
+                          (FIRST_TICKET,FIRST_RUN,FIRST_SHA),
+                          (SECOND_TICKET,SECOND_RUN,SECOND_SHA)):
+                      relative=pathlib.Path("native-negative") / ticket / str(run_id) / "ubuntu-latest.zip"
+                      source=path.parent / relative
+                      current=path.parent
+                      for component in relative.parts[:-1]:
+                          current=current / component
+                          assert current.is_dir() and not current.is_symlink(), "F139_V19_ORIGINAL_CUSTODY_PATH_UNSAFE"
+                      assert source.is_file() and not source.is_symlink(), "F139_V19_ORIGINAL_CUSTODY_ARCHIVE_MISSING"
+                      assert source.stat().st_size <= 2_000_000, "F139_V19_ORIGINAL_CUSTODY_ARCHIVE_OVERSIZED"
+                      assert hashlib.sha256(source.read_bytes()).hexdigest()==expected_sha, "F139_V19_ORIGINAL_CUSTODY_HASH_DRIFT"
+                      copied=backup.parent / relative
+                      copied.parent.mkdir(parents=True,exist_ok=True)
+                      assert copied.parent.is_dir() and not copied.parent.is_symlink(), "F139_V19_BACKUP_CUSTODY_PATH_UNSAFE"
+                      assert not copied.exists() and not copied.is_symlink(), "F139_V19_BACKUP_CUSTODY_ARCHIVE_COLLISION"
+                      shutil.copyfile(source,copied)
+                      assert hashlib.sha256(copied.read_bytes()).hexdigest()==expected_sha, "F139_V19_BACKUP_CUSTODY_COPY_HASH_DRIFT"
+                      custody_manifest[relative.as_posix()]=expected_sha
                   with sqlite3.connect(str(backup)) as out:
                       db.conn.backup(out)
-                  cold=Database(backup)
+                  custody_manifest["state.sqlite"]=hashlib.sha256(backup.read_bytes()).hexdigest()
+                  (backup.parent / "manifest.sha256.json").write_bytes(canonical(custody_manifest))
+                  # Verification occurs against a fully isolated backup root,
+                  # not the original database's sibling evidence files.
+                  cold=Database.open_readonly(backup)
                   try:
                       cold.verify()
                       assert cold.meta() == original, "F139_V19_COLD_BACKUP_HEAD_DRIFT"
@@ -249,7 +282,7 @@ jobs:
                   pathlib.Path(str(backup)+".sha256").write_text(
                       hashlib.sha256(backup.read_bytes()).hexdigest()+"\n")
                   print("F139_V19_ORIGINAL_G54_G3_MODEL_CUSTODY=PASS")
-                  print("F139_V19_ORIGINAL_COLD_SQLITE_BACKUP=PASS")
+                  print("F139_V19_ORIGINAL_COLD_CUSTODY_BUNDLE=PASS")
           finally:
               db.close()
           '@ | & $python -B - $dbPath $backup $target ([string]$event.comment.id) $approval
