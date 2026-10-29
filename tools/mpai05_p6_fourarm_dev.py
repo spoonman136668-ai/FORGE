@@ -276,6 +276,27 @@ def main():
     try:
         receipt=weights.preflight(model,MODEL_SHA)
     except weights.PreflightError as exc:
+        if str(exc)=="MODEL_CHANGED_DURING_PREFLIGHT":
+            # Do not weaken P4's identity check. Determine whether a just-
+            # closed Windows download has settled, then retry exact verifier
+            # only once. A persistent identity discrepancy remains a failure.
+            with model.open("rb") as f:
+                before=os.fstat(f.fileno())
+                time.sleep(0.35)
+                after=os.fstat(f.fileno())
+                current=model.stat()
+            names=("st_dev","st_ino","st_size","st_mtime_ns","st_ctime_ns")
+            changed=[name.upper().replace("ST_","") for name in names
+                if not (getattr(before,name)==getattr(after,name)==getattr(current,name))]
+            if changed:
+                raise RuntimeError("MPAI05_P6_GGUF_CHANGED_"+changed[0]) from None
+            try:
+                receipt=weights.preflight(model,MODEL_SHA)
+                print("MPAI05_P6_WEIGHT_PREFLIGHT_SINGLE_RETRY=1",flush=True)
+            except weights.PreflightError as newer:
+                raise RuntimeError("MPAI05_P6_GGUF_RETRY_"+str(newer)) from None
+        else:
+            raise
         allowed={"NOT_GGUF","UNSUPPORTED_GGUF_VERSION","OVERSIZE_KV_COUNT",
                  "TRUNCATED_METADATA","DUPLICATE_METADATA_KEY",
                  "NESTED_METADATA_ARRAY","UNKNOWN_METADATA_ARRAY_TYPE",
