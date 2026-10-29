@@ -4,7 +4,7 @@ import ast,json,pathlib,re,unittest
 HERE=pathlib.Path(__file__).resolve().parent
 DATA=json.loads((HERE/"ac32_frozen_original_worlds.json").read_text(encoding="utf-8"))
 SOURCE=(HERE/"ac32_original_multifamily.py").read_text(encoding="utf-8")
-BRIDGE=(HERE/"ac32_native_go_bridge.go").read_text(encoding="utf-8")
+BRIDGE=(HERE/"ac31_native_go_bridge.go").read_text(encoding="utf-8")
 COMP=(HERE/"ac32_original_compare.py").read_text(encoding="utf-8")
 
 class AC32PreExecutionContract(unittest.TestCase):
