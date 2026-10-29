@@ -107,7 +107,7 @@ func compare(rows []record,cohort string)(comparison,error){
 }
 func drive(out string)error{
  exe,err:=os.Executable();if err!=nil{return err}
- r:=report{Schema:schema,OS:runtime.GOOS,GoVersion:runtime.Version(),RunnerName:os.Getenv("RUNNER_NAME"),OriginalCount:30,AddedCount:6,Records:make([]record,0,60)}
+ r:=report{Schema:schema,OS:runtime.GOOS,GoVersion:runtime.Version(),RunnerName:os.Getenv("RUNNER_NAME"),OriginalCount:30,AddedCount:6,Records:make([]record,0,80)}
  for _,cohort:=range cohorts{
   for trial,seed:=range seeds{
    order:=[]string{"FULL_MAP","EXACT_SINGLE","EXACT_TWO","SKETCH_TWO"};label:="AB"
@@ -121,20 +121,20 @@ func drive(out string)error{
   r.Comparisons=append(r.Comparisons,c)
  }
  r.NativeChildCount=len(r.Records)
- if r.NativeChildCount!=60||len(r.Comparisons)!=3{return errors.New("incomplete native workers")}
- r.Classification="U10_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN"
+ if r.NativeChildCount!=80||len(r.Comparisons)!=4{return errors.New("incomplete native workers")}
+ r.Classification="U13_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN"
  passed:=true;for _,c:=range r.Comparisons{passed=passed&&c.Pass}
- if passed{r.Classification="U10_RESTRICTED_GO_KV_ENGINEERING_POSITIVE_ONLY"}
+ if passed{r.Classification="U13_RESTRICTED_GO_KV_ENGINEERING_POSITIVE_ONLY"}
  b,e:=json.MarshalIndent(r,"","  ");if e!=nil{return e}
  if e=os.WriteFile(out,append(b,byte(10)),0644);e!=nil{return e}
- fmt.Printf("ACC42_NATIVE_60_COMPLETE=PASS; CLASSIFICATION=%s\n",r.Classification)
+ fmt.Printf("ACC43_NATIVE_80_COMPLETE=PASS; CLASSIFICATION=%s\n",r.Classification)
  return nil
 }
 func main(){
  worker:=flag.Bool("worker",false,"run one native child")
  mode:=flag.String("mode","SKETCH_TWO","which arm")
  cohort:=flag.String("cohort","HOT","which workload")
- seed:=flag.Uint64("seed",84101,"source seed")
+ seed:=flag.Uint64("seed",86101,"source seed")
  output:=flag.String("out","acc42-report.json","output report")
  flag.Parse()
  var err error
@@ -142,5 +142,5 @@ func main(){
   var r workerResult;r,err=work(*mode,*cohort,*seed)
   if err==nil{err=json.NewEncoder(os.Stdout).Encode(r)}
  }else{err=drive(*output)}
- if err!=nil{fmt.Fprintln(os.Stderr,"ACC42_U10_BLOCKED:",err);os.Exit(1)}
+ if err!=nil{fmt.Fprintln(os.Stderr,"ACC43_U13_BLOCKED:",err);os.Exit(1)}
 }
