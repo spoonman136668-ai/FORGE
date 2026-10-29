@@ -11,15 +11,15 @@ import (
 )
 
 const (
- schema="forge.acc42.original-u10-packed-kv-sketch.v1"
+ schema="forge.acc43.original-u13-packed-kv-sketch.v1"
  logicalBudget=65536
  writes=8192
  queries=16384
- episodes=16
+ episodes=32
 )
-var cohorts=[]string{"HOT","WIDE","CHURN"}
+var cohorts=[]string{"HOT","WIDE","CHURN","COLLISION-ADVERSARY"}
 var modes=[]string{"FULL_MAP","EXACT_SINGLE","EXACT_TWO","SKETCH_TWO"}
-var seeds=[]uint64{84101,84103,84107,84109,84111}
+var seeds=[]uint64{86101,86103,86107,86109,86111}
 type exactSlot struct{Key uint64;Value uint32;Age uint32}
 func split(x uint64)uint64{
  x+=0x9e3779b97f4a7c15
@@ -28,7 +28,7 @@ func split(x uint64)uint64{
  return x^(x>>31)
 }
 func cohortDomain(c string)(uint64,error){
- switch c{case "HOT":return 2048,nil;case "WIDE":return 8192,nil;case "CHURN":return 16384,nil}
+ switch c{case "HOT":return 2048,nil;case "WIDE":return 8192,nil;case "CHURN":return 16384,nil;case "COLLISION-ADVERSARY":return 32768,nil}
  return 0,fmt.Errorf("invalid cohort %s",c)
 }
 func keyFor(base uint64,i int,domain uint64)uint64{
@@ -40,20 +40,40 @@ type insert struct{Key uint64;Value uint32}
 type episodeData struct{Inserts []insert;Queries []request}
 func makeEpisode(c string,seed uint64,session int)(episodeData,error){
  d,e:=cohortDomain(c);if e!=nil{return episodeData{},e}
- base:=split(seed^uint64(session)*0x9e3779b97f4a7c15^0xcaffeebad)
+ base:=split(seed^uint64(session)*0x9e3779b97f4a7c15^0x5617c9e13a0f248d)
  in:=make([]insert,writes)
  for i:=range in{
   k:=keyFor(base,i,d)
+  if c=="COLLISION-ADVERSARY"{k=split(base^uint64(i)*0x27bb2ee687b0b0fd^0x81ee7c3a942ead11)&(^uint64(0)>>1)}
   in[i]=insert{Key:k,Value:valueFor(k,i)}
+ }
+ // Adversarial queries share a real tag and a primary bucket with inserted keys.
+ // All arms pay for this bounded deterministic public challenge during each child.
+ var collisions []uint64
+ if c=="COLLISION-ADVERSARY"{
+  tags:=make(map[uint32]bool,len(in))
+  for _,entry:=range in{
+   signature:=(uint32(b1(entry.Key,2048))<<16)|uint32(fp(entry.Key))
+   tags[signature]=true
+  }
+  used:=map[uint64]bool{}
+  for i:=uint64(0);i<2000000&&len(collisions)<4;i++{
+   candidate:=(uint64(1)<<63)|split(base^0xc319f6245b836a1e^i*0x94d049bb133111eb)
+   signature:=(uint32(b1(candidate,2048))<<16)|uint32(fp(candidate))
+   if tags[signature]&&!used[candidate]{collisions=append(collisions,candidate);used[candidate]=true}
+  }
+  if len(collisions)!=4{return episodeData{},fmt.Errorf("source challenge underfilled: %d",len(collisions))}
  }
  out:=make([]request,queries)
  for i:=range out{
   if i%2==0{
    ix:=int(split(base^0x8a5cd789^uint64(i)*0xd6e8feb86659fd93)%writes)
    out[i]=request{Key:in[ix].Key}
+  }else if c=="COLLISION-ADVERSARY"{
+   out[i]=request{Key:collisions[(i/2)%len(collisions)]}
   }else{
    // Top-bit is disjoint from every genuine inserted key.
-   out[i]=request{Key:(uint64(1)<<63)|split(base^0xfedcba1012345678^uint64(i)*0x94d049bb133111eb)}
+   out[i]=request{Key:(uint64(1)<<63)|split(base^0x7814a9e1c62d730f^uint64(i)*0x94d049bb133111eb)}
   }
  }
  return episodeData{Inserts:in,Queries:out},nil
