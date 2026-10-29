@@ -1,0 +1,120 @@
+name: MP-AI06 exact accepted-lesson MCP and bounded recall integration
+on:
+  push:
+    branches: [proposal/mpai06-accepted-recall-full-20261029]
+    paths: ['.github/workflows/mpai06-recall-mcp-focused.yml']
+permissions:
+  contents: read
+jobs:
+  original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Qualify original real accepted recall plus all Hindsight/Harness2 MCP transports
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI06_MCP_ORIGINAL_RUNNER_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI06_MCP_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI06_MCP_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI06_MCP_FORGE_SOURCE_DRIFT'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-mcp-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $scratch 'mind-palace'
+          $log=Join-Path $scratch 'private-test.log'
+          $origin='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $accepted='f31e4203892730ddbe24d44ce5674f5678d498aa'
+          $source='ff3568a09b8bca29cba4616dacbc0e657a38a5ac'
+          try{
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI06_MCP_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            & git clone --quiet --depth 1 --filter=blob:none --single-branch --branch review/mpai06-recall-excerpt-fix-20261029 $origin $private *> $log
+            if($LASTEXITCODE -ne 0){throw 'MPAI06_MCP_PRIVATE_ORIGINAL_CLONE_FAILED'}
+            if((git -C $private rev-parse HEAD).Trim() -cne $source){
+              throw 'MPAI06_MCP_PRIVATE_SOURCE_HEAD_DRIFT'
+            }
+            $remote=(git -C $private ls-remote origin refs/heads/main)
+            if($LASTEXITCODE -ne 0 -or (([string]$remote -split '\s+')[0]) -cne $accepted){
+              throw 'MPAI06_MCP_ACCEPTED_MAIN_MOVED'
+            }
+            $pins=@{
+              'tools/mindpalace_readonly.py'='d79045628567648a1945779dfb303644dfc15b46'
+              'tools/mindpalace_mcp.py'='9d1d27c7c95f311beab707d53251353b9e5b5311'
+              'tests/test_mpai06_recall_excerpts.py'='0da88fad7d8fb768bd4dc2af7cd98dfdf8e1872b'
+              'tests/test_mpn1_mcp.py'='338fa9c2275a1ae0a942485bce0518898bf5fb57'
+              'tests/test_mpai_integrated_cycle.py'='8b23ba85b8cba42222859ba1883ecbbfa1f10c43'
+            }
+            foreach($f in $pins.Keys){
+              if((git -C $private rev-parse ('HEAD:'+$f)).Trim() -cne $pins[$f]){
+                throw 'MPAI06_MCP_SOURCE_OR_TEST_BLOB_DRIFT'
+              }
+            }
+            $protected=@('.ice/records.json','.ice/source-ledger.json',
+               'archive/index.json','.ice/remote-bootstrap.json',
+               '.ice/remote-catalog.json','.ice/remote-index.ndjson',
+               '.ice/chat-delta-state.json','.ice/project-state-capsules.json',
+               '.ice/project-dependency-graph.json')
+            $before=@{}
+            foreach($f in $protected){
+              $before[$f]=(git -C $private rev-parse ('HEAD:'+$f)).Trim()
+            }
+            Push-Location $private
+            try{
+              $patterns=@('test_mpai06_recall_excerpts.py','test_mpn1_mcp.py',
+                'test_mpai_integrated_cycle.py','test_mpai01_reflect.py',
+                'test_mpai01_probe.py','test_mpai01_mcp_adapter.py',
+                'test_mpai02_probe_mcp.py')
+              foreach($p in $patterns){
+                if(-not (Test-Path -LiteralPath (Join-Path $private ('tests/'+$p)))){
+                  throw 'MPAI06_MCP_REQUIRED_ORIGINAL_TEST_MISSING'
+                }
+                & python -B -m unittest discover -s tests -p $p -v *> $log
+                $rc=$LASTEXITCODE
+                $raw=Get-Content -LiteralPath $log -Raw
+                if($rc -ne 0 -or $raw -notmatch '(?m)^OK(?:\s|$)'){
+                  foreach($m in [regex]::Matches($raw,
+                    '(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                    Write-Output ('MPAI06_MCP_FAILED_TEST='+$m.Groups[2].Value)
+                  }
+                  throw 'MPAI06_MCP_INTEGRATION_TEST_FAILURE_PRIVATE_LOG'
+                }
+                Write-Output ('MPAI06_MCP_'+$p.Replace('.py','').ToUpper()+'=PASS')
+              }
+              Write-Output 'MPAI06_MCP_READONLY_REFLECT_PROPOSE_PROBE=PASS'
+              Write-Output 'MPAI06_MCP_STDIO_AND_LOOPBACK_TESTS=PASS'
+              Write-Output 'MPAI06_MCP_REAL_EXTERNAL_CONSUMERS_AUTHENTICATED=FALSE'
+            }finally{Pop-Location}
+            foreach($f in $protected){
+              if((git -C $private rev-parse ('HEAD:'+$f)).Trim() -cne $before[$f]){
+                throw 'MPAI06_MCP_PROTECTED_SOURCE_DRIFT'
+              }
+            }
+            if(@(git -C $private status --porcelain --untracked-files=all).Count -ne 0){
+              throw 'MPAI06_MCP_PRIVATE_CHECKOUT_DIRTY'
+            }
+            Write-Output 'MPAI06_MCP_NINE_PROTECTED_BLOBS=PASS'
+            Write-Output 'MPAI06_MCP_PRODUCTION_WRITES=0'
+            Write-Output 'MPAI06_MCP_NO_AUTOMATED_INGESTION_ACTIVATED=TRUE'
+            Write-Output 'MPAI06_MCP_SCIENTIFIC_ACCEPTANCE=FALSE'
+          }finally{
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI06_MCP_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
