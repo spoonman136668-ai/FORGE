@@ -76,3 +76,20 @@ def execute(source_root,go_binary):
     group.append(record)
    finally:
     if role.startswith("go_"):actor.close()
+  if (len(group)!=7 or len({r["start_sha256"] for r in group})!=1 or
+      any(r["probe_steps"] not in range(1,25) for r in group) or
+      any(r["source_fit_sha256"]!=digest(fit)
+          for r in group if r["fit_samples"])):
+   raise ValueError("MG21_ORIGINAL_PARITY_OR_SHARED_FIT_DRIFT")
+  all_rows.extend(group)
+ if len(all_rows)!=28 or len(fit_receipts)!=4:
+  raise ValueError("MG21_MISSING_ORIGINAL_WORLD_ARM")
+ return {"schema":"itd02.mg21.shared-real-original-fit-retention.v1",
+         "classification":"LONG_SOURCE_ENGINEERING_NO_LEARNING_SUCCESS_CLAIM",
+         "original_source":SOURCE,
+         "native_sources":{"wingless":p["parent"]["Wingless_MG19"],
+                           "yggdrasil":p["parent"]["Yggdrasil_MG19"]},
+         "quarantined_fit_seed":918301,"quarantined_probe_seed":918303,
+         "source_fit_receipts":fit_receipts,
+         "original_native_probe_records":all_rows,
+         "canonical_sha256":digest({"fits":fit_receipts,"probes":all_rows})}
