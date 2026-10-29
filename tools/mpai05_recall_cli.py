@@ -135,9 +135,14 @@ def resolve_reference_records(snapshot, source_sha: str, projects: list[str],
                 or opened.get("source_sha") != source_sha
                 or type(opened.get("record")) is not dict):
             raise RuntimeError("referenced full record unavailable")
+        # The accepted get_record contract returns no digest of its own.
+        # Bind both calls to the same already-validated live snapshot digest.
         if ("records_sha256" in result and
-                opened.get("records_sha256") != result["records_sha256"]):
+                getattr(snapshot, "records_sha256", None) != result["records_sha256"]):
             raise RuntimeError("reference snapshot digest drift")
+        if ("records_sha256" in opened and
+                opened["records_sha256"] != result.get("records_sha256")):
+            raise RuntimeError("reference full-record digest drift")
         full = opened["record"]
         statement = full.get("statement")
         if (full.get("id") != record_id
