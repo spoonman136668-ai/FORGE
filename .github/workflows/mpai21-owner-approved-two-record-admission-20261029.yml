@@ -1,0 +1,270 @@
+name: MP-AI21 owner-approved original Windows two-record canonical memory admission
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai21-owner-approved-two-record-admission-20261029.yml']
+permissions:
+  contents: read
+jobs:
+  disposable-cold-recall:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      PYTHONNOUSERSITE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact-source owner-approved canonical checkpoint, full regression and cold readback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI05_FB_COLD_WRONG_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI21_PAID_API_DENIED'}
+          if($env:GITHUB_ACTOR -cne 'spoonman136668-ai'){throw 'MPAI21_ORIGINAL_OWNER_REQUIRED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_FB_COLD_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI05_FB_COLD_WORKFLOW_SHA_DRIFT'
+          }
+          $source='999d69977bb4c6830c666d880199c88460f8f746'
+          $repo='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $file='pilots/mixed-source/2026-10-29-mpai05-authenticated-usage-feedback.batch.json'
+          $blob='6048ca181c66afcce179ec07af3d7f4e6d20b896'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-feedback-cold-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $private=Join-Path $scratch 'private'
+          $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          $env:PSModulePath=$native+[IO.Path]::PathSeparator+$env:PSModulePath
+          $ps=(Get-Command powershell.exe -ErrorAction Stop).Source
+          $pwsh=(Get-Command pwsh.exe -ErrorAction Stop).Source
+          function Assert([bool]$good,[string]$reason){
+            if(-not $good){throw ('MPAI05_FB_COLD_'+$reason)}
+          }
+          if(Test-Path -LiteralPath $scratch){throw 'MPAI05_FB_COLD_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+          New-Item -ItemType Directory -Path $private -ErrorAction Stop|Out-Null
+          try {
+            & git.exe clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch main $repo $root
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE'
+            Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'PINNED_BATCH_BRANCH_SHA'
+            $patterns=@('/.gitignore','/.ice/*','/tools/*','/policies/*','/schemas/*',
+              '/agentic/*','/tests/*','/archive/index.json','/pilots/*')
+            & git.exe -C $root sparse-checkout set --no-cone @patterns
+            Assert ($LASTEXITCODE -eq 0) 'SOURCE_SPARSE'
+            & git.exe -C $root checkout --force $source
+            Assert ($LASTEXITCODE -eq 0) 'PINNED_BATCH_BRANCH'
+            Assert ((& git.exe -C $root rev-parse ('HEAD:'+$file)|Out-String).Trim() -ceq $blob) 'BATCH_BLOB_ID'
+            # Copy from the exact immutable proposal into EXTERNAL temporary
+            # scratch; never contaminate accepted main with an untracked batch.
+            $batch=Join-Path $scratch 'usage-feedback.batch.json'
+            Copy-Item -LiteralPath (Join-Path $root $file) -Destination $batch
+            & git.exe -C $root fetch --quiet origin refs/heads/main:refs/remotes/origin/main
+            Assert ($LASTEXITCODE -eq 0) 'MAIN_FETCH'
+            $mainBase=(& git.exe -C $root rev-parse refs/remotes/origin/main|Out-String).Trim()
+            Assert ($mainBase -ceq '999d69977bb4c6830c666d880199c88460f8f746') 'ACCEPTED_MAIN_HEAD_DRIFT'
+            & git.exe -C $root checkout -q -B main refs/remotes/origin/main
+            Assert ($LASTEXITCODE -eq 0) 'EXACT_ACCEPTED_MAIN_CHECKOUT'
+            Assert ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $mainBase) 'ORIGINAL_MAIN_PIN'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:tools/collect.ps1'|Out-String).Trim() -ceq '057feea4d3cecf0d57b7be498c58d8466fc20ff2') 'COLLECTOR_SHA'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:tools/mind.ps1'|Out-String).Trim() -ceq 'bb8c46f3c22f689e5f44dbe06ccc286014bd9130') 'CANONICAL_MEMORY_WRITER_SHA'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:tools/update-checkpoint.ps1'|Out-String).Trim() -ceq 'feb1b8573763ae2ed2e6150020742f4d7ed2c919') 'COMMIT_WRITER_SHA'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:tools/source-ledger.ps1'|Out-String).Trim() -ceq 'f8b494ffee6fe3d79032a52d311d231617b368c8') 'SOURCE_LEDGER_WRITER_SHA'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:tests/Test-All.ps1'|Out-String).Trim() -ceq '439797231d3a093628f95f783f5f30dbf93fe5bf') 'MANDATORY_REGRESSION_SHA'
+            $original=Join-Path $root '.ice/records.json'
+            $data=Get-Content -LiteralPath $original -Raw|ConvertFrom-Json
+            $beforeCount=@($data).Count
+            $ids=@('lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029',
+              'lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029')
+            foreach($id in $ids){
+              Assert (@($data|Where-Object {$_.id -ceq $id}).Count -eq 0) 'EXISTING_RECORD_CONFLICT'
+            }
+            $rehearsalQuery=@(
+            'import sys'
+            'from pathlib import Path'
+            'sys.path.insert(0, str(Path(sys.argv[1]) / "tools"))'
+            'from mindpalace_readonly import MemorySnapshot'
+            'root=Path(sys.argv[1])'
+            'sha=sys.argv[2]'
+            'expect=sys.argv[3]=="yes"'
+            'ids=("lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029",'
+            '     "lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029")'
+            's=MemorySnapshot(root,sha,["Mind-Palace"])'
+            'for key in ids:'
+            '    r=s.get_record(sha,key,["Mind-Palace"])'
+            '    if r.get("found") is not expect: raise RuntimeError("COLD_READBACK_MISMATCH")'
+            '    if expect:'
+            '        rec=r["record"]'
+            '        if rec.get("id")!=key or rec.get("status") not in ("observed","confirmed","current"):'
+            '            raise RuntimeError("COLD_RECALL_MISSING_ACCEPTED_SHAPE")'
+            '        if not rec.get("source_refs"):'
+            '            raise RuntimeError("COLD_RECALL_MISSING_PROVENANCE")'
+            'print("MPAI05_FB_COLD_BOTH_RECORDS_FOUND="+str(expect).upper())'
+            'print("MPAI05_FB_COLD_SNAPSHOT_SHA_VERIFIED=PASS")'
+          ) -join [Environment]::NewLine
+            $baseline=Join-Path $private 'baseline.log'
+            & python -B -c $rehearsalQuery $root $mainBase no *> $baseline
+            Assert ($LASTEXITCODE -eq 0) 'ORIGINAL_BASELINE_COLD_READ'
+            Write-Output 'MPAI05_FB_COLD_ORIGINAL_BASELINE_ABSENCE=PASS'
+            Push-Location $root
+            try {
+              $classification=Join-Path $private 'classification.json'
+              $stage=Join-Path $private 'stage.json'
+              $checkpoint=Join-Path $private 'checkpoint.log'
+              $ledger=Join-Path $private 'ledger.json'
+              $snapshot=Join-Path $private 'snapshot.log'
+              $validation=Join-Path $private 'validation.log'
+              & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/collect.ps1 classify -InputPath $batch *> $classification
+              Assert ($LASTEXITCODE -eq 0) 'CLASSIFY'
+              $c=Get-Content -LiteralPath $classification -Raw|ConvertFrom-Json
+              Assert ([string]$c.schema -ceq 'mind-palace.collector-result.v1' -and
+                [int]$c.result.counts.new -eq 2 -and [int]$c.result.counts.review -eq 0) 'EXPECTED_TWO_NEW'
+              & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/collect.ps1 stage -InputPath $batch *> $stage
+              Assert ($LASTEXITCODE -eq 0) 'STAGE'
+              & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/mind.ps1 checkpoint *> $checkpoint
+              Assert ($LASTEXITCODE -eq 0) 'DISPOSABLE_CHECKPOINT'
+              & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/source-ledger.ps1 record -BatchPath $batch -ClassificationPath $classification *> $ledger
+              Assert ($LASTEXITCODE -eq 0) 'DISPOSABLE_LEDGER'
+              & $pwsh -NoProfile -NonInteractive -File tools/remote-snapshot.ps1 *> $snapshot
+              Assert ($LASTEXITCODE -eq 0) 'DISPOSABLE_REMOTE_SNAPSHOT'
+              # Canonical intake leaves transient collector buffers. Only
+              # source-ledger and checkpoint outputs are required for the
+              # immutable cold-process snapshot, not ignored scratch buffers.
+              $tmpRuntime=Join-Path $root '.mind-runtime'
+              if(Test-Path -LiteralPath $tmpRuntime){
+                Remove-Item -LiteralPath $tmpRuntime -Recurse -Force -ErrorAction Stop
+              }
+              & $pwsh -NoProfile -NonInteractive -File tools/update-checkpoint.ps1 validate *> $validation
+              if($LASTEXITCODE -ne 0){
+                $privateValidation=Get-Content -LiteralPath $validation -Raw -ErrorAction SilentlyContinue
+                $categories=@{
+                  'CHECKOUT_NOT_MAIN'='update checkpoint requires branch main'
+                  'HEAD_NOT_ORIGIN'='requires local HEAD == origin/main'
+                  'OUTSIDE_ALLOWED_PATHS'='outside allowed durable surfaces'
+                  'REQUIRED_FILE_MISSING'='update checkpoint missing required path'
+                  'CHAT_DELTA_SOURCE_MISSING'='chat delta extraction file missing'
+                  'CHAT_DELTA_MANIFEST_MISSING'='chat delta source manifest missing'
+                  'RENDERER_FAIL'='canonical snapshot renderer failed'
+                  'RENDERER_MISMATCH'='remote snapshot mismatch'
+                  'REGRESSION_OUTPUT_EMPTY'='quality regression returned no output'
+                  'MIND_VALIDATION'='Mind-Palace validation did not pass'
+                  'ARCHIVE_VALIDATION'='archive validation failed'
+                  'REVIEW_SOURCE_DATA'='source ledger'
+                  'REMOTE_FETCH'='git fetch origin main failed'
+                  'UNSTAGED_REQUIRED'='requires an unstaged working tree'
+                }
+                $found=$false
+                foreach($name in ($categories.Keys|Sort-Object)){
+                  if($privateValidation -like ('*'+$categories[$name]+'*')){
+                    Write-Output ('MPAI05_FB_COLD_SAFE_FAILURE_CLASS='+$name)
+                    $found=$true
+                  }
+                }
+                if($privateValidation -match 'outside allowed durable surfaces:\s*([^\s\r\n]+)'){
+                  $badPath=[string]$Matches[1]
+                  if($badPath.StartsWith('.mind-runtime/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=TEMP_RUNTIME'
+                  } elseif($badPath.StartsWith('pilots/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=PILOT_SOURCE'
+                  } elseif($badPath.StartsWith('tools/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=TOOLS_SOURCE'
+                  } elseif($badPath.StartsWith('tests/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=TEST_SOURCE'
+                  } elseif($badPath.StartsWith('.ice/')){
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=PROTECTED_ICE'
+                  } else {
+                    Write-Output 'MPAI05_FB_COLD_SAFE_UNEXPECTED_PATH=OTHER_PRIVATE'
+                  }
+                }
+                if(-not $found){
+                  foreach($type in @('InvalidOperation','ParserError','PropertyNotFoundException',
+                    'CommandNotFoundException','FileNotFoundException','ArgumentException')){
+                    if($privateValidation.Contains($type)){
+                      Write-Output ('MPAI05_FB_COLD_SAFE_EXCEPTION_TYPE='+$type)
+                      break
+                    }
+                  }
+                  Write-Output 'MPAI05_FB_COLD_SAFE_FAILURE_CLASS=OTHER_PRIVATE'
+                }
+                Assert $false 'DISPOSABLE_FULL_CHECKPOINT_VALIDATION'
+              }
+            } finally { Pop-Location }
+            $newData=Get-Content -LiteralPath $original -Raw|ConvertFrom-Json
+            Assert (@($newData).Count -eq $beforeCount+2) 'DISPOSABLE_RECORD_DELTA'
+            foreach($id in $ids){
+              $row=@($newData|Where-Object {$_.id -ceq $id})
+              Assert ($row.Count -eq 1 -and [string]$row[0].status -ceq 'observed') 'DISPOSABLE_LESSON_SHAPE'
+            }
+            $allowed=@('.ice/records.json','.ice/source-ledger.json','.ice/remote-bootstrap.json',
+              '.ice/remote-catalog.json','.ice/remote-index.ndjson',
+              '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $changed=@(& git.exe -C $root diff --name-only)
+            Assert ($LASTEXITCODE -eq 0 -and $changed.Count -gt 0) 'NO_DISPOSABLE_CHANGE'
+            foreach($path in $changed){
+              Assert ($allowed -ccontains [string]$path) 'OUTSIDE_CANONICAL_DURABLE_PATHS'
+            }
+            # Enforce preservation of ALL original record bodies, not just the delta count.
+            foreach($before in @($data)){
+              $match=@($newData|Where-Object { $_.id -ceq $before.id })
+              Assert ($match.Count -eq 1) 'ORIGINAL_RECORD_MISSING'
+              $oldJson=$before|ConvertTo-Json -Depth 100 -Compress
+              $newJson=$match[0]|ConvertTo-Json -Depth 100 -Compress
+              Assert ($oldJson -ceq $newJson) 'ORIGINAL_RECORD_CHANGED'
+            }
+            # Original full regression is mandatory even when earlier tests are cache-reusable.
+            Push-Location $root
+            try {
+              $fullRegression=Join-Path $private 'mandatory-full-regression.log'
+              & $pwsh -NoProfile -NonInteractive -File tests/Test-All.ps1 *> $fullRegression
+              Assert ($LASTEXITCODE -eq 0) 'FINAL_FULL_REGRESSION'
+              Write-Output 'MPAI21_FINAL_FULL_REGRESSION=PASS'
+              # The canonical writer owns Git staging, validation, commit, push,
+              # remote concurrency check and remote main verification. No direct push.
+              & git.exe -C $root config user.name 'spoonman136668-ai'
+              Assert ($LASTEXITCODE -eq 0) 'LOCAL_COMMIT_IDENTITY_NAME'
+              & git.exe -C $root config user.email 'spoonman136668-ai@users.noreply.github.com'
+              Assert ($LASTEXITCODE -eq 0) 'LOCAL_COMMIT_IDENTITY_EMAIL'
+              $commitReceipt=Join-Path $private 'canonical-commit.json'
+              & $pwsh -NoProfile -NonInteractive -File tools/update-checkpoint.ps1 commit -Message 'memory: admit two verified MP-AI05 usage lessons' -ConfirmCheckpoint *> $commitReceipt
+              Assert ($LASTEXITCODE -eq 0) 'CANONICAL_COMMIT'
+            } finally { Pop-Location }
+            $acceptedSha=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+            Assert ($acceptedSha -cne $mainBase -and $acceptedSha -match '^[a-f0-9]{40}$') 'ACCEPTED_REMOTE_SHA'
+            & git.exe -C $root fetch --quiet origin refs/heads/main:refs/remotes/origin/main
+            Assert ($LASTEXITCODE -eq 0) 'POSTCOMMIT_REMOTE_FETCH'
+            Assert ((& git.exe -C $root rev-parse refs/remotes/origin/main|Out-String).Trim() -ceq $acceptedSha) 'REMOTE_SHA_NOT_ACCEPTED'
+            $changedAfter=@(& git.exe -C $root diff $mainBase $acceptedSha --name-only)
+            Assert ($LASTEXITCODE -eq 0 -and $changedAfter.Count -gt 0) 'COMMITTED_DIFF_INVALID'
+            foreach($path in $changedAfter){
+              Assert ($allowed -ccontains [string]$path) 'OUTSIDE_COMMITTED_DURABLE_PATHS'
+            }
+            $dirty=@(& git.exe -C $root status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'POSTCOMMIT_DIRTY'
+            $coldLog=Join-Path $private 'postproduction-cold.log'
+            & python -B -c $rehearsalQuery $root $acceptedSha yes *> $coldLog
+            Assert ($LASTEXITCODE -eq 0) 'POSTPRODUCTION_COLD_PROCESS'
+            $result=Get-Content -LiteralPath $coldLog -Raw
+            Assert ($result.Contains('MPAI05_FB_COLD_BOTH_RECORDS_FOUND=TRUE') -and
+                    $result.Contains('MPAI05_FB_COLD_SNAPSHOT_SHA_VERIFIED=PASS')) 'POSTPRODUCTION_COLD_RECEIPT'
+            Write-Output 'MPAI21_CANONICAL_COLLECTOR_STAGE=2_PASS'
+            Write-Output 'MPAI21_LEDGER_AND_CANONICAL_SNAPSHOT=PASS'
+            Write-Output 'MPAI21_FULL_CHECKPOINT_VALIDATION=PASS'
+            Write-Output 'MPAI21_POSTPRODUCTION_COLD_RECALL=2_PASS'
+            Write-Output 'MPAI21_ORIGINAL_RECORDS_UNCHANGED=PASS'
+            Write-Output 'MPAI21_REMOTE_MAIN_SHA_VERIFIED=PASS'
+            Write-Output ('MPAI21_REMOTE_ACCEPTED_SHA='+$acceptedSha)
+            Write-Output 'MPAI21_AUTONOMOUS_LEARNING=NOT_DEMONSTRATED'
+            Write-Output 'MPAI21_CROSS_AGENT_SCIENCE=NOT_PROVEN'
+          } finally{
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI05_FB_COLD_PRIVATE_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
