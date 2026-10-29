@@ -1,0 +1,149 @@
+name: ACC35 batched exact 36-proposal native Go verified resource and fidelity
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc34_go_delta/cmd/batchworker/**'
+      - 'research/acceleration/acc34_go_delta/cmd/batchdriver/**'
+      - 'research/acceleration/test_acc35_batched_contract.py'
+      - 'docs/research/ACC-35-*'
+      - '.github/workflows/forge-acc35-batched-delta-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  batched-original-go-resource:
+    name: ACC35 32-session verified native-Go CPU / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen immutable original 36-registry and unchanged source-free Go kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:research/acceleration/acc34_portfolio_index.json)" = 29f50adda221c757af629ac093ea59cf2902523d
+          test "$(git rev-parse HEAD:research/acceleration/acc34_go_delta/isolated_core/core.go)" = a59fe7266f9968733011b58d6eba29ae286dcff9
+          test "$(git rev-parse HEAD:research/acceleration/acc34_go_delta/isolated_core/core_test.go)" = c89544fa761fc02d4034e13df2578947f2cccb82
+          test "$(git rev-parse HEAD:research/acceleration/acc34_go_delta/cmd/batchworker/main.go)" = 95c43a31b7ac63811a64c3905b6b1a273b46188d
+          test "$(git rev-parse HEAD:research/acceleration/acc34_go_delta/cmd/batchdriver/main.go)" = cae4d3fb47c96af1aa5f71506d6dff2606e77915
+          test "$(git rev-parse HEAD:research/acceleration/test_acc35_batched_contract.py)" = 91e5c1735e9aaacc1fae8f55b3f3afae1c27fdcd
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_portfolio.py' -v
+          python -B -m unittest discover -s research/acceleration -p 'test_acc35_batched_contract.py' -v
+          python -B research/ac07_sourcefree/ac08_portfolio.py > "$RUNNER_TEMP/acc35-portfolio.json"
+          python - "$RUNNER_TEMP/acc35-portfolio.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert r["unique_claim_count"]==36 and r["original_count"]==30
+          assert r["native_hypothesis_count"]==6
+          assert r["physical_substitute_only_ids"]==["U03","U06"]
+          assert r["scientific_first_use_authorized"] is False
+          assert r["controller_or_queue_changed"] is False
+          print("ACC35_ORIGINAL_36_REGISTER_PRESERVED=PASS")
+          PY
+      - name: Exact old tests and new batched-Go 32-session source-only correctness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac05_sourcefree -p 'test_*.py' -v
+          python -B -m unittest discover -s research/ac06_sourcefree -p 'test_*.py' -v
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_remaining.py' -v
+          cd research/acceleration/acc34_go_delta
+          go test -count=1 ./...
+          go vet ./...
+          echo ACC35_UNCHANGED_CAUSAL_KERNEL_REGRESSION=PASS
+      - name: Actual 40 matched 32-session Go whole-child CPU measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc34_go_delta
+          ext=""
+          if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; fi
+          go build -trimpath -o "$RUNNER_TEMP/acc35worker$ext" ./cmd/batchworker
+          go build -trimpath -o "$RUNNER_TEMP/acc35driver$ext" ./cmd/batchdriver
+          "$RUNNER_TEMP/acc35driver$ext" -worker "$RUNNER_TEMP/acc35worker$ext" -out "$RUNNER_TEMP/acc35-report.json"
+          python - "$RUNNER_TEMP/acc35-report.json" <<'PY'
+          import json,sys,math
+          r=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert r["schema"]=="forge.acc35.paired-batched-acd1-sourcefree-native-go-development.v1"
+          assert r["worker_source_class"]=="REAL_GO_1_25_32_SESSION_BATCHED_LIFECYCLE"
+          assert r["registered_candidate_count"]==36
+          assert len(r["all_measured_worker_samples"])==40
+          assert len(r["by_scenario"])==2
+          assert r["original_source_episodes"]==0
+          assert r["scientific_first_use"] is False
+          assert r["native_models_changed"] is False
+          assert r["process_cpu_includes_fit_and_verification"] is True
+          assert r["go_runtime_sys_is_not_os_peak_rss"] is True
+          assert r["classification"] in ("ACC35_NO_TOTAL_VERIFIED_BULK_GO_CPU_WIN__NO_SCIENCE","ACC35_VERIFIED_TOTAL_BATCHED_GO_CPU_RESOURCE_POSITIVE__ENGINEERING_ONLY")
+          for s in r["by_scenario"]:
+              assert len(s["pairs"])==5 and s["verified_output_exact"] is True
+              assert math.isfinite(s["median_verified_over_full_cpu"])
+              assert s["median_verified_over_full_cpu"]>0
+              assert s["median_verified_over_full_runtime_sys"]>0
+              for p in s["pairs"]:
+                  assert p["verified_child_cpu_ns"]>0 and p["full_child_cpu_ns"]>0
+                  assert p["unavailable_oracle_matches_full"] is True
+                  assert p["unverified_diverged_from_full"] is (s["scenario"]=="hidden_interaction")
+          for row in r["all_measured_worker_samples"]:
+              w=row["worker"]
+              assert len(w["session_checksums"])==32
+              assert len(w["per_session_repairs"])==32
+              assert w["events"]==131072
+          print("ACC35_BOTH_CLOCKS_AND_ALL_1280_SESSION_FIDELITY=PASS")
+          print("ACC35_CPU_RESOURCE_RESULT="+r["classification"])
+          PY
+      - name: Archive every raw batch source-free worker and CPU receipt
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc35-batched-sourcefree-go-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc35-report.json
+            ${{ runner.temp }}/acc35-portfolio.json
+          retention-days: 30
+          if-no-files-found: error
+  cross-os-batch:
+    name: ACC35 independently cross-OS selected-public worker source fidelity
+    needs: batched-original-go-resource
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc35-batched-sourcefree-go-*
+          path: acc35-proofs
+      - name: Verify all 1,280 measured session transcripts/host agree semantically
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib,json
+          p=sorted(pathlib.Path("acc35-proofs").glob("*/acc35-report.json"))
+          assert len(p)==2,[str(x) for x in p]
+          a,b=[json.loads(x.read_text(encoding="utf-8")) for x in p]
+          assert {a["runner_goos"],b["runner_goos"]}=={"linux","windows"}
+          assert len(a["all_measured_worker_samples"])==len(b["all_measured_worker_samples"])==40
+          for n,(x,y) in enumerate(zip(a["all_measured_worker_samples"],b["all_measured_worker_samples"])):
+              assert (x["mode"],x["scenario"],x["seed"])==(y["mode"],y["scenario"],y["seed"]),n
+              for z in ("session_checksums","per_session_repairs","fit_evaluations","action_evaluations","verification_evaluations","verification_repairs","events"):
+                  assert x["worker"][z]==y["worker"][z],(n,z)
+          for arow,brow in zip(a["by_scenario"],b["by_scenario"]):
+              assert arow["scenario"]==brow["scenario"]
+              assert arow["verified_output_exact"] is brow["verified_output_exact"] is True
+              assert arow["undercovered_fit_hidden_interaction_observed"]==brow["undercovered_fit_hidden_interaction_observed"]
+          print("ACC35_CROSS_OS_ALL_1280_PUBLIC_SESSION_OUTPUTS_AND_FIT_MISSES=PASS")
+          print("ACC35_LINUX_CLASSIFICATION="+(a if a["runner_goos"]=="linux" else b)["classification"])
+          print("ACC35_WINDOWS_CLASSIFICATION="+(a if a["runner_goos"]=="windows" else b)["classification"])
+          PY
