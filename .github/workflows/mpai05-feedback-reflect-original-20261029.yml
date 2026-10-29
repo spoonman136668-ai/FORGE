@@ -1,0 +1,171 @@
+name: MP-AI05 original outcome Hindsight reflection proposal gate
+on:
+  push:
+    branches: [qualification/mpai05-feedback-reflect-original-20261029]
+    paths: ['.github/workflows/mpai05-feedback-reflect-original-20261029.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-original-reflection-one-shot
+  cancel-in-progress: false
+jobs:
+  real-feedback-reflection:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      MP_SOURCE_SHA: 'b59e9b55a1d7cf3cf3f415317048d2f95b0539dc'
+      MP_RECORDS_DIGEST: 'fecf51aa59bd24bfac0c852d53f88c88e6d7c9c1de6848e6c1bab5f45a3c9742'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+    steps:
+      - name: Source-pinned real negative-feedback recall and reflection, no model or writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPL_FEEDBACK_RUNNER_IDENTITY'}
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-reflect-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          try {
+           if(Test-Path -LiteralPath $root){throw 'MPL_FEEDBACK_SCRATCH_COLLISION'}
+           New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+           & git clone --quiet --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $root 'clone-private.log')
+           if($LASTEXITCODE -ne 0){throw 'MPL_FEEDBACK_CLONE_FAILED'}
+           & git -C $src checkout -q --detach $env:MP_SOURCE_SHA
+           if($LASTEXITCODE -ne 0 -or (& git -C $src rev-parse HEAD).Trim() -cne $env:MP_SOURCE_SHA){throw 'MPL_FEEDBACK_SOURCE_MISMATCH'}
+           $env:MP_SOURCE_ROOT=$src
+           $program=@'
+          import copy,json,os,pathlib,subprocess,sys
+          src=pathlib.Path(os.environ["MP_SOURCE_ROOT"])
+          sha=os.environ["MP_SOURCE_SHA"]
+          digest=os.environ["MP_RECORDS_DIGEST"]
+          job="https://github.com/spoonman136668-ai/FORGE/actions/runs/40802018105/job/123213123185"
+          observations=[
+           {"event_id":"observed-run40802018105-B-input_pct-output-cap",
+            "agent_class":"independent-agent","task_id":"input_pct",
+            "failure_code":"output_cap_hit","source_ref":job+"#case-input_pct-arm-B",
+            "source_sha":sha,"result":"failure"},
+           {"event_id":"observed-run40802018105-B-latency_pct-output-cap",
+            "agent_class":"independent-agent","task_id":"latency_pct",
+            "failure_code":"output_cap_hit","source_ref":job+"#case-latency_pct-arm-B",
+            "source_sha":sha,"result":"failure"}
+          ]
+          experience={"schema":"mind-palace.mpai01-observations.v1","source_sha":sha,
+                      "observations":observations}
+          args={"source_sha":sha,"project":"Mind-Palace",
+                "task":"Hindsight Harness2 development context efficiency Qwen 96-token output-cap failure",
+                "experience":experience}
+          def rpc(i,name,arguments):
+           return {"jsonrpc":"2.0","id":i,"method":"tools/call",
+                   "params":{"name":name,"arguments":arguments}}
+          bad=copy.deepcopy(args)
+          bad["experience"]["observations"][0]["agent_class"]="fabricated_authenticated_provider"
+          wrong=copy.deepcopy(args)
+          wrong["experience"]["source_sha"]="0"*40
+          requests=[
+           {"jsonrpc":"2.0","id":1,"method":"initialize",
+            "params":{"protocolVersion":"2025-06-18","capabilities":{},
+                      "clientInfo":{"name":"original-run-negative-feedback","version":"1"}}},
+           rpc(2,"mindpalace_bootstrap",{"source_sha":sha}),
+           rpc(3,"mindpalace_get_record",{"source_sha":sha,
+             "record_id":"lesson/mpai-hindsight-h2-development-context-efficiency-20261028",
+             "projects":["Mind-Palace"]}),
+           rpc(4,"mindpalace_improvement_cycle",args),
+           rpc(5,"mindpalace_improvement_cycle",bad),
+           rpc(6,"mindpalace_improvement_cycle",wrong),
+           rpc(7,"mindpalace_improvement_cycle",{**args,"project":"Wingless"})
+          ]
+          p=subprocess.run([sys.executable,"-B",str(src/"tools"/"mindpalace_mcp.py"),
+           "--root",str(src),"--source",sha,"--project","Mind-Palace",
+           "--transport","stdio"],input="".join(json.dumps(x,separators=(",",":"))+"\n" for x in requests),
+           text=True,capture_output=True,encoding="utf-8",errors="replace",
+           cwd=src,timeout=50)
+          if p.returncode:raise RuntimeError("MPL_FEEDBACK_ORIGINAL_MCP_FAILED")
+          answers=[json.loads(x) for x in p.stdout.splitlines()]
+          if len(answers)!=7 or [a.get("id") for a in answers]!=list(range(1,8)):
+           raise RuntimeError("MPL_FEEDBACK_RPC_ENVELOPE")
+          def tool(i):
+           d=answers[i-1].get("result")
+           if not isinstance(d,dict) or d.get("isError") is not False:
+            raise RuntimeError("MPL_FEEDBACK_TOOL_INVALID")
+           contents=d.get("content",[])
+           if len(contents)!=1 or contents[0].get("type")!="text":
+            raise RuntimeError("MPL_FEEDBACK_CONTENT_INVALID")
+           return json.loads(contents[0]["text"])
+          boot=tool(2);lesson=tool(3);cycle=tool(4)
+          if (boot.get("source_sha")!=sha or boot.get("records_sha256")!=digest or
+              boot.get("permitted_projects")!=["Mind-Palace"] or boot.get("read_only") is not True):
+           raise RuntimeError("MPL_FEEDBACK_SOURCE_DRIFT")
+          rec=lesson.get("record",{})
+          if (lesson.get("found") is not True or
+              rec.get("id")!="lesson/mpai-hindsight-h2-development-context-efficiency-20261028" or
+              "no independent factual accuracy grades" not in rec.get("statement","")):
+           raise RuntimeError("MPL_FEEDBACK_LESSON_NOT_FOUND")
+          if (cycle.get("schema")!="mind-palace.mpai-integrated-cycle.v1" or
+              cycle.get("phase")!="PROPOSE_ONLY" or
+              cycle.get("source_sha")!=sha or cycle.get("records_sha256")!=digest or
+              cycle.get("production_writes")!=0 or cycle.get("model_calls")!=0 or
+              cycle.get("deployment_authorized") is not False or
+              cycle.get("consumer_identity_authenticated") is not False or
+              cycle.get("holdout_first_use_verified") is not False or
+              cycle.get("independent_qualification_passed") is not False):
+           raise RuntimeError("MPL_FEEDBACK_CYCLE_POLICY_DRIFT")
+          feedback=cycle.get("feedback",{})
+          if (feedback.get("status")!="REVIEW_ONLY_NOT_RETAINED" or
+              feedback.get("durable_memory_write") is not False or
+              feedback.get("compose_or_deploy_authorized") is not False or
+              cycle.get("probe") is not None):
+           raise RuntimeError("MPL_FEEDBACK_WRITE_OR_DEPLOY_POLICY")
+          reflection=cycle.get("reflection",{})
+          proposals=reflection.get("proposals",[])
+          if len(proposals)!=1 or proposals[0].get("failure_code")!="output_cap_hit" or proposals[0].get("distinct_tasks")!=2 or len(proposals[0].get("evidence_refs",[]))!=2:
+           raise RuntimeError("MPL_FEEDBACK_REFLECTION_MISSING")
+          prop=proposals[0]
+          if (not isinstance(prop.get("proposal_id"),str) or not prop["proposal_id"].startswith("reflection/") or
+              prop.get("scope")!="Mind-Palace" or prop.get("status")!="proposal_only" or
+              prop.get("requires_frozen_baseline") is not True or
+              prop.get("requires_independent_holdout") is not True or
+              reflection.get("evidence_authenticity_verified") is not False or
+              reflection.get("consumer_identity_verified") is not False or
+              reflection.get("production_write_performed") is not False or
+              reflection.get("model_inference_performed") is not False or
+              reflection.get("improvement_qualified") is not False):
+           raise RuntimeError("MPL_FEEDBACK_UNQUALIFIED_PROPOSAL")
+          if "lesson/mpai-hindsight-h2-development-context-efficiency-20261028" not in prop.get("recalled_record_ids",[]):
+           raise RuntimeError("MPL_FEEDBACK_OLD_LESSON_NOT_RECALLED")
+          for x in answers[4:]:
+           if x.get("error",{}).get("code")!=-32602:
+            raise RuntimeError("MPL_FEEDBACK_SCOPE_OR_ROLE_BYPASS")
+          # No fabricated second provider authentication: claimed class is explicitly not proof.
+          print("MPL_FEEDBACK_SOURCE="+sha)
+          print("MPL_FEEDBACK_RECORDS_DIGEST="+digest)
+          print("MPL_FEEDBACK_ORIGINAL_RUN=40802018105")
+          print("MPL_FEEDBACK_MATCHED_LESSON=PASS")
+          print("MPL_FEEDBACK_REAL_MCP_CYCLE=PASS")
+          print("MPL_FEEDBACK_RECURRENT_FAILURE=output_cap_hit")
+          print("MPL_FEEDBACK_DISTINCT_TASKS="+str(prop["distinct_tasks"]))
+          print("MPL_FEEDBACK_PROPOSAL_ID="+prop["proposal_id"])
+          print("MPL_FEEDBACK_NEGATIVE_CONTROLS=3_OF_3")
+          print("MPL_FEEDBACK_PHASE="+cycle["phase"])
+          print("MPL_FEEDBACK_AUTHENTICITY_VERIFIED=FALSE")
+          print("MPL_FEEDBACK_DEPLOYMENT_AUTHORIZED=FALSE")
+          print("MPL_FEEDBACK_WRITES=0")
+          
+          '@
+           $program | & python -B -c "import sys;exec(sys.stdin.read())" *> (Join-Path $root 'private-reflection.log')
+           if($LASTEXITCODE -ne 0){throw 'MPL_FEEDBACK_ORIGINAL_REFLECTION_FAILED_PRIVATE_LOG'}
+           $private=Get-Content -LiteralPath (Join-Path $root 'private-reflection.log') -ErrorAction Stop
+           foreach($line in $private){
+            if($line -cmatch '^MPL_FEEDBACK_(SOURCE|RECORDS_DIGEST|ORIGINAL_RUN|MATCHED_LESSON|REAL_MCP_CYCLE|RECURRENT_FAILURE|DISTINCT_TASKS|PROPOSAL_ID|NEGATIVE_CONTROLS|PHASE|AUTHENTICITY_VERIFIED|DEPLOYMENT_AUTHORIZED|WRITES)=([A-Za-z0-9_\-/.]+)$'){
+             Write-Output $line
+            }
+           }
+           $dirty=@(& git -C $src status --porcelain --untracked-files=all)
+           if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPL_FEEDBACK_ACCEPTED_SOURCE_DIRTY'}
+          } finally {
+           Set-Location $env:RUNNER_TEMP
+           if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+           Write-Output ('MPL_FEEDBACK_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
