@@ -52,6 +52,47 @@ def encode_features(a,b,s2,x2):
 def dot(weights,features):
     return sum(w*x for w,x in zip(weights,features))
 
+class LocalPublicEpisode:
+    """Actual two-event replay surface. No full-history input is accepted.
+
+    Initial public s1/x1 enter only local source cells 3/4; terminal s2/x2
+    arrive separately and receive only neighbor-forwarded stored signals.
+    """
+    def __init__(self,gates):
+        self.gates=dict(gates)
+        self.packets=[{} for _ in range(N)]
+        self.begun=False
+        self.finished=False
+
+    def stage0(self,s1,x1):
+        if self.begun:
+            raise RuntimeError("AC21_STAGE0_ALREADY_OBSERVED")
+        s1=bit(s1,"S1");x1=bit(x1,"X1")
+        self.packets[3]["s1"]=s1*sig(self.gates[3])
+        self.packets[4]["x1"]=x1*sig(self.gates[4])
+        self.begun=True
+
+    def stage1(self,s2,x2,rounds=2):
+        if not self.begun or self.finished:
+            raise RuntimeError("AC21_PUBLIC_STAGE_ORDER_INVALID")
+        s2=bit(s2,"S2");x2=bit(x2,"X2")
+        if type(rounds) is not int or rounds not in (0,1,2):
+            raise ValueError("AC21_UNAUTHORIZED_TRANSPORT_DEPTH")
+        packets=[dict(p) for p in self.packets]
+        deliveries=0
+        for _ in range(rounds):
+            nxt=[dict(p) for p in packets]
+            for i in range(N):
+                for n in NEIGHBORS[i]:
+                    for name,value in packets[i].items():
+                        if name in nxt[n] and nxt[n][name]!=value:
+                            raise RuntimeError("AC21_CONFLICTING_PUBLIC_LOCAL_SIGNAL")
+                        nxt[n][name]=value
+                        deliveries+=1
+            packets=nxt
+        self.finished=True
+        return packets[5].copy(),deliveries,s2,x2
+
 class TemporalRingDev:
     """Two learnable source-cell retention gates and local terminal readout.
 
@@ -66,27 +107,15 @@ class TemporalRingDev:
         self.last_transport_hops=0
 
     def transport(self,h,rounds=2):
-        s1,x1,s2,x2=h
-        for name,v in zip(("S1","X1","S2","X2"),h):bit(v,name)
-        if type(rounds) is not int or rounds not in (0,1,2):
-            raise ValueError("AC21_UNAUTHORIZED_TRANSPORT_DEPTH")
-        # Only two source cells retain public bits between source stages.
-        packets=[{} for _ in range(N)]
-        packets[3]["s1"]=s1*sig(self.gates[3])
-        packets[4]["x1"]=x1*sig(self.gates[4])
-        deliveries=0
-        for _ in range(rounds):
-            old=packets
-            new=[dict(v) for v in old]
-            for i in range(N):
-                for n in NEIGHBORS[i]:
-                    for name,value in old[i].items():
-                        if name in new[n] and new[n][name]!=value:
-                            raise RuntimeError("AC21_CONFLICTING_PUBLIC_LOCAL_SIGNAL")
-                        new[n][name]=value
-                        deliveries+=1
-            packets=new
-        return packets[5].copy(),deliveries
+        if type(h) not in (tuple,list) or len(h)!=4:
+            raise ValueError("AC21_PUBLIC_EVENT_SEQUENCE_REQUIRED")
+        # An adapter replays *two distinct public events*, never supplying
+        # prior state to stage1 directly. The earlier bits are accessible
+        # only as temporal cell state carried over one/two neighbor hops.
+        replay=LocalPublicEpisode(self.gates)
+        replay.stage0(h[0],h[1])
+        msgs,deliveries,_,_=replay.stage1(h[2],h[3],rounds=rounds)
+        return msgs,deliveries
 
     def local_features(self,h):
         msgs,work=self.transport(h,2)
