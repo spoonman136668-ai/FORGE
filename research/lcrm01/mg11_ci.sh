@@ -7,7 +7,7 @@ export PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 PIP_DISABLE_PIP_VERSION_CHECK=
 git merge-base --is-ancestor 58a5b03050857fa45828773b0001a39a932da7db "$GITHUB_SHA"
 git merge-base --is-ancestor d3a686f0a40204943e6ea7dbf097b035c2ddb1f4 "$GITHUB_SHA"
 test "$(git hash-object research/lcrm01/mg11_original_world_run_prereg.json)" = 7d186c0fec81de9d62ef4a70e6430b202a6b688c
-test "$(git hash-object research/lcrm01/mg11_go_bridge.go)" = 6a439bb317189ca15c8fb741c5fa9f8937757793
+test "$(git hash-object research/lcrm01/mg11_go_bridge.go)" = 2f9dc9cc63b6ec91beb277755bd725b9e8273db8
 test "$(git hash-object research/lcrm01/mg11_original_motion.py)" = 96000d69d1f98593bea13feb7dd1e88e6e48ce89
 test "$(git hash-object research/lcrm01/mg11_compare.py)" = 6a3e418ccc2ec83259e6f4a82e7d9800fcfafb97
 test -z "$(git status --porcelain --untracked-files=all)"
