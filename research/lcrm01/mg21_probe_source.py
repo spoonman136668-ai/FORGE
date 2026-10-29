@@ -56,3 +56,13 @@ def probe(gym,family,role,seed,cap,model,adapter,fit_count):
          "native_updates":count})
    before=after
    if done:break
+  return {"family":family,"role":role,"seed":seed,
+          "mission":first["mission"],"start_sha256":digest(first),
+          "fit_samples":fit_count,"probe_steps":len(events),
+          "positive_rewards":sum(e["reward"]>0 for e in events),
+          "terminated":events[-1]["terminated"],
+          "truncated":events[-1]["truncated"],
+          "distinct_public":len({digest(first)}|{digest(e["after"]) for e in events}),
+          "events":events,"trace_sha256":digest(events)}
+ finally:
+  env.close()
