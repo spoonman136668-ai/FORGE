@@ -99,11 +99,20 @@ jobs:
            raise RuntimeError("CROSSAGENT_BOOTSTRAP_MISMATCH")
           if not record.get("found") or not record.get("advisory") or record.get("source_sha")!=commit:
            raise RuntimeError("CROSSAGENT_RECORD_MISSING")
-          rec=record["record"];details=rec.get("details",{})
+          rec=record["record"];statement=rec.get("statement","")
+          # MCP returns the indexed advisory projection, not raw record.details.
+          # Assert the public provenance and explicit scientific limitations.
+          refs=rec.get("source_refs")
           if (rec.get("id")!=lesson_id or rec.get("project")!="Mind-Palace" or rec.get("status")!="observed"
-           or details.get("model_calls")!=16 or details.get("improvement_quality_proven") is not False
-           or details.get("holdout_first_use_authenticated") is not False
-           or "52.6%" not in rec.get("statement","") or "22.7%" not in rec.get("statement","")):
+           or not isinstance(statement,str) or
+           "16 genuine local CPU GGUF inference calls" not in statement or
+           "52.6%" not in statement or "22.7%" not in statement or
+           "no independent factual accuracy grades" not in statement or
+           "authenticated first-use holdout" not in statement or
+           "no scientific improvement claim" not in statement or
+           not isinstance(refs,list) or not any(isinstance(x,dict) and
+            x.get("type")=="acceptance" and
+            x.get("ref")=="https://github.com/spoonman136668-ai/FORGE/actions/runs/40606525917" for x in refs)):
            raise RuntimeError("CROSSAGENT_RECORD_DRIFT")
           if reply[3].get("error",{}).get("code")!=-32602:raise RuntimeError("CROSSAGENT_SCOPE_BYPASS")
           print("CROSSAGENT_STAGE=MCP_LESSON_VERIFIED",file=sys.stderr,flush=True)
