@@ -1,0 +1,136 @@
+name: MP-AI read-only FORGE consumer follows full accepted memory
+on:
+  push:
+    branches: [review/mpai-reference-resolving-consumer-20261029]
+    paths:
+      - tools/mpai05_recall_cli.py
+      - tests/test_mpai05_recall_cli.py
+      - .github/workflows/mpai-reference-consumer-acceptance-20261029.yml
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Focused reference-resolution and existing mode regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q tools/mpai05_recall_cli.py
+          python3 -m unittest discover -s tests -p 'test_mpai05_recall_cli.py' -v
+          python3 -m unittest discover -s tests -p 'test_mpai05_optin_consumer.py' -v
+          echo MPAI_REAL_CONSUMER_FOCUSED=PASS
+  original-windows-private:
+    needs: focused
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Original Windows opt-in versus default full-record retrieval
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONNOUSERSITE: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI_CONSUMER_WRONG_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI_CONSUMER_PAID_API_FORBIDDEN'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI_CONSUMER_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI_CONSUMER_FORGE_SOURCE_DRIFT'
+          }
+          $privateRepo='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $privateBranch='review/mpai-usage-continuity-20261029'
+          $privateSha='638bc9b2883c6b01f81383a5c4afa87738641047'
+          $recordId='lesson/mpai-hindsight-h2-development-context-efficiency-20261028'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai-consumer-real-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $scratch 'private-source'
+          $offPath=Join-Path $scratch 'off.json'
+          $onPath=Join-Path $scratch 'resolved.json'
+          if(Test-Path -LiteralPath $scratch){throw 'MPAI_CONSUMER_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          try {
+            $remote=@(git.exe ls-remote --exit-code $privateRepo ('refs/heads/'+$privateBranch))
+            if($LASTEXITCODE -ne 0 -or $remote.Count -ne 1 -or
+               -not ([string]$remote[0]).StartsWith($privateSha)){
+              throw 'MPAI_CONSUMER_REMOTE_SOURCE_DRIFT'
+            }
+            & git.exe clone --quiet --depth 1 --single-branch --branch $privateBranch $privateRepo $source
+            if($LASTEXITCODE -ne 0){throw 'MPAI_CONSUMER_PRIVATE_CLONE_FAILED'}
+            if((git.exe -C $source rev-parse HEAD | Out-String).Trim() -cne $privateSha){
+              throw 'MPAI_CONSUMER_PRIVATE_SHA_DRIFT'
+            }
+            $tree=(git.exe -C $source rev-parse 'HEAD:.ice' | Out-String).Trim()
+            if($tree -cne '842b8c1318db3b826bdb7243b0cdf0d5d8efedc2'){
+              throw 'MPAI_CONSUMER_ACCEPTED_ICE_TREE_DRIFT'
+            }
+            $protect=@(
+              '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+              '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+              '.ice/remote-index.ndjson','.ice/chat-delta-state.json',
+              '.ice/project-state-capsules.json','.ice/project-dependency-graph.json'
+            )
+            $hash=@{}
+            foreach($path in $protect){
+              $hash[$path]=(Get-FileHash -LiteralPath (Join-Path $source $path) -Algorithm SHA256).Hash
+            }
+            $query='Hindsight Harness2 development context efficiency accuracy unproven'
+            $args=@('tools/mpai05_recall_cli.py','--source-root',$source,
+                    '--source-sha',$privateSha,'--private-result',$offPath,'--mode','off')
+            $query | & python -B @args *> $null
+            if($LASTEXITCODE -ne 0){throw 'MPAI_CONSUMER_BASELINE_FAILED'}
+            $query | & python -B @($args[0..($args.Count-3)]) '--private-result' $onPath '--mode' 'off' '--resolve-reference-only' *> $null
+            if($LASTEXITCODE -ne 0){throw 'MPAI_CONSUMER_FULL_FOLLOWUP_FAILED'}
+            $baseline=Get-Content -LiteralPath $offPath -Raw | ConvertFrom-Json
+            $candidate=Get-Content -LiteralPath $onPath -Raw | ConvertFrom-Json
+            if($baseline.result.source_sha -cne $privateSha -or
+               $candidate.result.source_sha -cne $privateSha){
+              throw 'MPAI_CONSUMER_RESULT_SOURCE_DRIFT'
+            }
+            if($baseline.receipt.reference_followup -cne 'disabled' -or
+               $candidate.receipt.reference_followup -cne 'enabled'){
+              throw 'MPAI_CONSUMER_MODE_DRIFT'
+            }
+            if($baseline.result.PSObject.Properties.Name -contains 'resolved_reference_records'){
+              throw 'MPAI_CONSUMER_BASELINE_NOT_UNCHANGED'
+            }
+            $pointer=@($candidate.result.matches | Where-Object {$_.id -ceq $recordId})
+            $full=@($candidate.result.resolved_reference_records | Where-Object {$_.id -ceq $recordId})
+            if($pointer.Count -ne 1 -or $full.Count -ne 1 -or
+               $pointer[0].retrieval_preview_kind -cne 'reference_only' -or
+               $pointer[0].full_record_required -cne $true -or
+               $candidate.receipt.resolved_reference_count -lt 1){
+              throw 'MPAI_CONSUMER_REQUIRED_RECORD_UNRESOLVED'
+            }
+            if($full[0].statement -notmatch 'no independent factual accuracy grades' -or
+               $full[0].statement -notmatch 'do not promote'){
+              throw 'MPAI_CONSUMER_FULL_EVIDENCE_LIMITS_NOT_PRESERVED'
+            }
+            foreach($path in $protect){
+              $now=(Get-FileHash -LiteralPath (Join-Path $source $path) -Algorithm SHA256).Hash
+              if($hash[$path] -cne $now){throw 'MPAI_CONSUMER_PROTECTED_BYTES_MUTATED'}
+            }
+            Write-Output 'MPAI_CONSUMER_AUTHENTIC_PRIVATE_SOURCE=PASS'
+            Write-Output 'MPAI_CONSUMER_BASELINE_REFERENCE_ONLY=PASS'
+            Write-Output 'MPAI_CONSUMER_OPTIN_FULL_REFERENCE_RESOLUTION=PASS'
+            Write-Output 'MPAI_CONSUMER_PROTECTED_MEMORY_INTEGRITY=PASS'
+            Write-Output 'MPAI_CONSUMER_INDEPENDENT_AGENT_MODEL_PROVEN=FALSE'
+            Write-Output 'MPAI_CONSUMER_BEHAVIORAL_IMPROVEMENT_PROVEN=FALSE'
+            Write-Output 'MPAI_CONSUMER_PRODUCTION_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI_CONSUMER_PRIVATE_SCRATCH_CLEAN='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
