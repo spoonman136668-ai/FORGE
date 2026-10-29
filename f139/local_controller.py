@@ -2768,7 +2768,8 @@ class GitHub:
         return prepare_feed(
             self.native_repo_get, source_sha=source_sha,
             existing_candidate_identities=existing_candidate_identities,
-            steering_get=self.native_repo_get)
+            steering_get=self.native_repo_get,
+            evidence_get=self.native_repo_get)
 
     def create_native_feed_issue(self, *, title: str, body: str):
         """Create an ordinary existing-schema owner issue; never dispatch here."""
@@ -4214,6 +4215,13 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # Feeder authenticated all source-bound candidates before
             # producing this read-only selection telemetry.
             steering_selection = feed.get("steering")
+            negative_observation = feed.get("negative_evidence_observation")
+            if negative_observation is not None and steering_selection is not None:
+                # Unadmitted provenance, never an intake or ranking authority.
+                steering_selection = dict(
+                    steering_selection,
+                    negative_evidence_observation=negative_observation)
+
             created_numbers = []
             for candidate in feed["candidates"]:
                 created = api.create_native_feed_issue(
