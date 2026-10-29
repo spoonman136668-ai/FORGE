@@ -6,12 +6,25 @@ import (
 )
 func TestSourceDisjointAndDeterministic(t *testing.T){
  for _,c:=range cohorts{
-  a,e:=makeEpisode(c,84101,3);if e!=nil{t.Fatal(e)}
-  b,e:=makeEpisode(c,84101,3);if e!=nil{t.Fatal(e)}
+  a,e:=makeEpisode(c,86101,3);if e!=nil{t.Fatal(e)}
+  b,e:=makeEpisode(c,86101,3);if e!=nil{t.Fatal(e)}
   if len(a.Inserts)!=writes||len(a.Queries)!=queries{t.Fatal("incomplete data")}
   for i:=range a.Inserts{if a.Inserts[i]!=b.Inserts[i]||a.Inserts[i].Key>>63!=0{t.Fatal("source or top bit drift")}}
   for i:=range a.Queries{if a.Queries[i]!=b.Queries[i]{t.Fatal("nondeterministic query")};if i%2==1&&a.Queries[i].Key>>63!=1{t.Fatal("absent key domain violated")}}
+  if c=="COLLISION-ADVERSARY"{
+   for i:=1;i<=7;i+=2{
+    q:=a.Queries[i].Key;ok:=false
+    for _,entry:=range a.Inserts{if fp(entry.Key)==fp(q)&&b1(entry.Key,2048)==b1(q,2048){ok=true;break}}
+    if !ok{t.Fatal("adversarial unknown key lacks tag-and-bucket match")}
+   }
+  }
  }
+}
+func TestNeverReuseMisidentifiedACC42Source(t *testing.T){
+ oldBase:=split(uint64(86101)^uint64(3)*0x9e3779b97f4a7c15^0xcaffeebad)
+ oldKey:=keyFor(oldBase,0,2048)
+ fresh,e:=makeEpisode("HOT",86101,3);if e!=nil{t.Fatal(e)}
+ if fresh.Inserts[0].Key==oldKey{t.Fatal("ACC42 source namespace accidentally reused")}
 }
 func TestPackedBudgetAndTagZero(t *testing.T){
  if unsafe.Sizeof(exactSlot{})!=16{t.Fatal("unexpected exact slot layout")}
@@ -51,7 +64,7 @@ func TestEveryArmSameInputAndAudit(t *testing.T){
  for _,c:=range cohorts{
   var prev workerResult
   for i,m:=range modes{
-   r,e:=work(m,c,84101);if e!=nil{t.Fatal(c,m,e)}
+   r,e:=work(m,c,86101);if e!=nil{t.Fatal(c,m,e)}
    if r.PresentCount!=queries*episodes/2||r.AbsentCount!=queries*episodes/2||r.PeakRSSBytes==0{t.Fatal("broken audit")}
    if m=="FULL_MAP"&&(r.Recall!=1||r.FalsePositiveAbsent!=0||r.WrongPresentValue!=0){t.Fatal("oracle diagnostic not exact")}
    if i>0&&(r.SourceDigest!=prev.SourceDigest||r.OracleDigest!=prev.OracleDigest){t.Fatal("source or oracle split")}
