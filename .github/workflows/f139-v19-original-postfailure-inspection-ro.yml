@@ -1,0 +1,125 @@
+name: F139 V19 original post-failed-cutover custody inspection READ ONLY
+on:
+  push:
+    branches: [qualification/f139-v19-original-postfailed-inspection-20261029]
+    paths: [.github/workflows/f139-v19-original-postfailure-inspection-ro.yml]
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: f139-v19-postfailed-ro-20261029
+  cancel-in-progress: false
+jobs:
+  inspect-original:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-original-postfailed-inspection-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Read-only original task and source, lock identity, SQLite and failed-cutover backup
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $target='0743ca22b76ebd943a66f05a36ea919301676be0'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-original-postfailed-inspection-20261029' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:OPENAI_API_KEY) {throw 'F139_V19_RECOVERY_WRONG_OWNER_OR_USAGE'}
+          $parent=(& git rev-parse HEAD^ | Out-String).Trim()
+          $changes=@(& git diff --name-only 'HEAD^' 'HEAD')
+          if ($parent -cne $target -or $changes.Count -ne 1 -or
+              $changes[0] -cne '.github/workflows/f139-v19-original-postfailure-inspection-ro.yml') {
+            throw 'F139_V19_RECOVERY_SOURCE_SCOPE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ([string]$task.State -cne 'Disabled' -or @($task.Actions).Count -ne 1 -or
+              @($task.Triggers).Count -ne 3) {throw 'F139_V19_RECOVERY_TASK_NOT_HELD_DISABLED'}
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($principal)).Translate(
+             [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if ($principal -ine $who.Name -and $sid -cne $who.User.Value) {
+            throw 'F139_V19_RECOVERY_TASK_OWNER_SID_MISMATCH'
+          }
+          $argsText=[string]$task.Actions[0].Arguments
+          function Arg([string]$key) {
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if (-not $m.Success) {throw 'F139_V19_RECOVERY_TASK_ARGUMENT_MISSING'}
+            return [string]$m.Groups[1].Value
+          }
+          $root=Arg 'RepositoryRoot'
+          $db=Arg 'Database'
+          $py=Arg 'PythonExe'
+          if ([IO.Path]::GetFullPath($db) -ine
+              [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+              -not(Test-Path -LiteralPath $py -PathType Leaf) -or
+              (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $target -or
+              @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_V19_RECOVERY_INSTALLED_V19_SOURCE_DRIFT'
+          }
+          $running=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+             Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          if ($running.Count -gt 0) {throw 'F139_V19_RECOVERY_ORIGINAL_OWNER_PROCESS_ACTIVE'}
+          $main=& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json
+          $policy=& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json
+          $p=$policy.body | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $main.commit.sha -cne $target -or
+              $main.protected -ne $true -or
+              $p.source_sha -cne 'd8bccc604f8607bf10f9d8bc6aa568d1f98af559' -or
+              $p.enabled -ne $true -or $p.scientific_first_use -ne $false) {
+            throw 'F139_V19_RECOVERY_REMOTE_AUTHORITY_DRIFT'
+          }
+          $backup=Join-Path (Split-Path $db -Parent) 'f139-v19-before-40854201178'
+          if (-not(Test-Path -LiteralPath (Join-Path $backup 'manifest.sha256.json') -PathType Leaf) -or
+              -not(Test-Path -LiteralPath (Join-Path $backup 'state.sqlite') -PathType Leaf)) {
+            throw 'F139_V19_RECOVERY_FAILED_CUTOVER_BACKUP_MISSING'
+          }
+          @'
+          import hashlib, json, pathlib, sys
+          import f139.local_controller as lc
+          import f139.nci04_v19_owner_readonly_preflight as pf
+          db=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          back=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          assert pf._original_state.__globals__['SingleOwner'] is lc.SingleOwner if 'SingleOwner' in pf._original_state.__globals__ else True
+          assert pf._original_state.__globals__['need'] is pf.need
+          with lc.SingleOwner(db.with_suffix('.lock')):
+              assert lc.SingleOwner.held(db.with_suffix('.lock')), 'RECOVERY_CANONICAL_MUTEX_MISSING'
+              live=lc.Database.open_readonly(db)
+              try:
+                  live.verify()
+                  meta=live.meta()
+                  assert meta['source_sha']=='d8bccc604f8607bf10f9d8bc6aa568d1f98af559', 'RECOVERY_ORIGINAL_SQLITE_SOURCE_CHANGED'
+                  assert meta['head_seq']==314 and meta['head_hash']=='0621785f8d47a9b0fb568d4b236e6164bf45436c108d985852068894db875c4f','RECOVERY_ORIGINAL_EVENT_HEAD_CHANGED'
+                  assert live.ready() is None and not live.actives(),'RECOVERY_ORIGINAL_INFLIGHT_WORK'
+                  # This calls the real qualified validator under the SAME canonical in-process lock.
+                  approval=pf.build_v19_readonly_preflight(live,'0743ca22b76ebd943a66f05a36ea919301676be0',6493676421)
+                  assert approval['event_seq']==314 and approval['to_source_sha']=='0743ca22b76ebd943a66f05a36ea919301676be0','RECOVERY_APPROVAL_MISMATCH'
+              finally:live.close()
+              copied=lc.Database.open_readonly(back/'state.sqlite')
+              try:
+                  copied.verify()
+                  assert copied.meta()==meta,'RECOVERY_TRANSITION_BACKUP_META_MISMATCH'
+              finally:copied.close()
+          print('F139_V19_RECOVERY_ORIGINAL_LEDGER_INTACT=PASS')
+          print('F139_V19_RECOVERY_CANONICAL_MODULE_MUTEX=PASS')
+          print('F139_V19_RECOVERY_FAILED_CUTOVER_BACKUP_COLD=PASS')
+          print('F139_V19_RECOVERY_AUTHORIZED_APPROVAL_READONLY=PASS')
+          print('F139_V19_RECOVERY_ORIGINAL_EVENT_SEQ=314')
+          '@ | & $py -B - $db $backup
+          if ($LASTEXITCODE -ne 0) {throw 'F139_V19_RECOVERY_READONLY_VALIDATION_FAILED'}
+          Write-Output 'F139_V19_RECOVERY_TASK_PRESERVED_DISABLED=PASS'
