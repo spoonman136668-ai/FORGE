@@ -1,0 +1,133 @@
+name: FORGE V19 original-owner recovery destination and DPAPI posture no export
+on:
+  push:
+    branches: [qualification/f139-v19-recovery-posture-no-export-20261029]
+    paths: [.github/workflows/f139-v19-owner-recovery-posture-no-export.yml]
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: f139-v19-recovery-posture-20261029
+  cancel-in-progress: false
+jobs:
+  read-only-recovery-posture:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-recovery-posture-no-export-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Inspect only original owner local backup and synthetic DPAPI recovery capabilities
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-recovery-posture-no-export-20261029' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY) {
+            throw 'F139_V19_RECOVERY_POSTURE_OWNER_INVALID'
+          }
+          $parent=(& git rev-parse 'HEAD^' | Out-String).Trim()
+          $changed=@(& git diff --name-only 'HEAD^' 'HEAD')
+          if ($LASTEXITCODE -ne 0 -or
+              $parent -cne '84b5e896d6f82cd83144056a643216614a6e60bd' -or
+              $changed.Count -ne 1 -or
+              $changed[0] -cne '.github/workflows/f139-v19-owner-recovery-posture-no-export.yml') {
+            throw 'F139_V19_RECOVERY_POSTURE_SCOPE_DRIFT'
+          }
+          $root=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $db=Join-Path $root 'state.sqlite'
+          $backup=Join-Path $root 'v19-custody-backups\v19-cold-40850279901'
+          $key=Join-Path $root 'worker-hmac.dpapi.xml'
+          $python=[regex]::Match([string](Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop).Actions[0].Arguments,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if (-not $python.Success -or
+              -not(Test-Path -LiteralPath $python.Groups[1].Value -PathType Leaf)) {
+            throw 'F139_V19_RECOVERY_POSTURE_ORIGINAL_PYTHON_MISSING'
+          }
+          $original=& $python.Groups[1].Value -B -m f139.nci04_v19_original_owner_nowrite_probe --db $db
+          if ($LASTEXITCODE -ne 0) { throw 'F139_V19_RECOVERY_POSTURE_OWNER_NOT_COLD_VERIFIED' }
+          $proof=($original | Out-String | ConvertFrom-Json)
+          if ($proof.read_only -ne $true -or
+              $proof.original_head_seq -ne 314 -or
+              $proof.original_head_sha256 -cne '0621785f8d47a9b0fb568d4b236e6164bf45436c108d985852068894db875c4f' -or
+              $proof.candidate_source_sha -cne 'ea2d1c99d7afc1e991510d51168dd010a0b56ec5') {
+            throw 'F139_V19_RECOVERY_POSTURE_ORIGINAL_HEAD_DRIFT'
+          }
+          $manifest=Join-Path $backup 'manifest.json'
+          if (-not(Test-Path -LiteralPath $manifest -PathType Leaf) -or
+              -not(Test-Path -LiteralPath $key -PathType Leaf)) {
+            throw 'F139_V19_RECOVERY_POSTURE_BACKUP_OR_OWNER_KEY_MISSING'
+          }
+          $manifestHash=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($manifestHash -cne '175f858f39d73d535c9bd0d73bd787f72211f2f1a4a389fc228c8f175a05970c') {
+            throw 'F139_V19_RECOVERY_POSTURE_BACKUP_MANIFEST_DRIFT'
+          }
+          $sourceDrive=[IO.Path]::GetPathRoot((Resolve-Path -LiteralPath $db).Path)
+          $backupDrive=[IO.Path]::GetPathRoot((Resolve-Path -LiteralPath $backup).Path)
+          $sameDrive=($sourceDrive -ieq $backupDrive)
+          # Inspect filesystem ACL classes only; never print account SIDs or personal paths.
+          $acl=Get-Acl -LiteralPath $backup -ErrorAction Stop
+          $ownerSet=([string]$acl.Owner).Length -gt 0
+          $broadWrite=$false
+          foreach($rule in @($acl.Access)) {
+            $identity=[string]$rule.IdentityReference
+            if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+                $identity -match '(?i)(^|\\)Everyone$|(^|\\)Users$|(^|\\)Authenticated Users$' -and
+                (($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write) -ne 0 -or
+                 ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -ne 0 -or
+                 ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -ne 0)) {
+              $broadWrite=$true
+            }
+          }
+          # DPAPI CurrentUser test uses only a new ephemeral random sample, NEVER the real encrypted key.
+          Add-Type -AssemblyName System.Security
+          $random=New-Object 'byte[]' 32
+          [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($random)
+          $sealed=[Security.Cryptography.ProtectedData]::Protect($random,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+          $opened=[Security.Cryptography.ProtectedData]::Unprotect($sealed,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+          $roundtrip=([Convert]::ToBase64String($random) -ceq [Convert]::ToBase64String($opened))
+          [Array]::Clear($random,0,$random.Length)
+          [Array]::Clear($opened,0,$opened.Length)
+          [Array]::Clear($sealed,0,$sealed.Length)
+          if (-not $roundtrip) { throw 'F139_V19_SYNTHETIC_CURRENT_USER_DPAPI_FAILED' }
+          # Only count potential mount types, never probe/write to external target.
+          $disks=@(Get-CimInstance Win32_LogicalDisk -ErrorAction Stop)
+          $networkMounts=@($disks | Where-Object { $_.DriveType -eq 4 }).Count
+          $removableMounts=@($disks | Where-Object { $_.DriveType -eq 2 }).Count
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ([string]$task.State -cnotin @('Ready','Running')) {
+            throw 'F139_V19_RECOVERY_POSTURE_OWNER_TASK_NOT_PRESERVED'
+          }
+          $receipt=@{
+            schema='forge.f139.v19.recovery-posture-no-export.v1'
+            original_readonly_witness='PASS'
+            retained_backup_manifest='PASS'
+            backup_owner_acl_present=$ownerSet
+            backup_acl_broad_write_observed=$broadWrite
+            original_and_backup_same_drive=$sameDrive
+            mounted_network_drives_count=$networkMounts
+            mounted_removable_drives_count=$removableMounts
+            current_user_synthetic_dpapi_roundtrip=$roundtrip
+            dpapi_real_key_ever_decrypted=$false
+            offhost_key_recovery_verified=$false
+            independently_retained_encrypted_archive_verified=$false
+            offhost_restoration_verified=$false
+            original_sqlite_writes=0
+            original_task_edits=0
+            provider_calls=0
+            cutover_authorized=$false
+          }
+          Write-Output ('F139_V19_RECOVERY_POSTURE_RECEIPT='+($receipt | ConvertTo-Json -Compress -Depth 4))
+          Write-Output 'F139_V19_ORIGINAL_OWNER_RECOVERY_METADATA_ONLY=PASS'
