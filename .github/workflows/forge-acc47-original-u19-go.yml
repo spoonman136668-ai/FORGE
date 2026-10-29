@@ -1,0 +1,156 @@
+name: ACC47 authenticated original U19 native Go Tsetlin qualification
+on:
+  pull_request:
+    paths:
+      - 'docs/research/ACC-47-*'
+      - 'research/acceleration/acc47_go_u19/**'
+      - '.github/workflows/forge-acc47-original-u19-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-u19:
+    name: Original U19 80 real workers / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 50
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original proposal name and first-prereg source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 6bc06aea109c6125a49040f7ab4cc124081ab350 HEAD
+          git merge-base --is-ancestor 5775573bb1233746bb5232525ea4494770497418 HEAD
+          git merge-base --is-ancestor 61f532faf7d798661796f1bdfc400073462e8acc HEAD
+          test "$(git hash-object docs/research/ACC-47B-U19-WINDOWS-CPU-PREREG.md)" = ce0c425c2ca5d08e98bbf0819cd5dc1624a7f2f4
+          echo ACC47B_PROSPECTIVE_2048_SESSION_PROTOCOL=PASS
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object docs/research/ACC-47-U19-TSETLIN-PREREG.md)" = 3e1241c504e2f8e20a6e5f7a774e94fdd8c3421f
+          test "$(git hash-object docs/research/ACC-47-U19-DETERMINISM-PRECODE.md)" = 9207f2dcb27e5bee9a3d7a10ccef7e95e4044bd7
+          python - <<'PY'
+          import ast,pathlib
+          m=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          names=ast.literal_eval(next(n.value for n in m.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in n.targets)))
+          assert len(names)==30 and names[18]=='finite-state/Tsetlin learning'
+          assert names[23]=='cellular-automata local learning'
+          print('ACC47_AUTHENTIC_U19_ORIGINAL_SOURCE=PASS')
+          PY
+          test "$(git hash-object research/acceleration/acc47_go_u19/go.mod)" = e4e5e9c764f249419053d32da9e3dd1bc27f1f9a
+          test "$(git hash-object research/acceleration/acc47_go_u19/core.go)" = 655ae7a7059c557a0a4f55f16ed940a196365374
+          test "$(git hash-object research/acceleration/acc47_go_u19/main.go)" = 9f74666dbd83c7e3d346f3b471ed5043fad2418b
+          test "$(git hash-object research/acceleration/acc47_go_u19/core_test.go)" = f3191e39ca75081fc382311b26c241aacc24d7be
+          test "$(git hash-object research/acceleration/acc47_go_u19/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc47_go_u19/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          echo ACC47_PREREG_BEFORE_EXECUTABLE_AND_GO_HASHES=PASS
+      - name: Retain all 36 original negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc47-36.json"
+          python - "$RUNNER_TEMP/acc47-36.json" <<'PY'
+          import json,sys
+          a=json.load(open(sys.argv[1]))
+          assert len(a['rows'])==36 and a['stage2_qualified_native_model_speedups']==0
+          assert not a['scientific_admission'] and not a['scientific_first_use']
+          print('ACC47_ORIGINAL_36_SCREENING=PASS')
+          PY
+      - name: Native Go tests, vet, build and 80 child processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc47_go_u19
+          go test -count=1 -v ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc47"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc47-report.json"
+      - name: Validate metering, 80 worker source custody and decisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/acc47-report.json" <<'PY'
+          import json,sys,math
+          a=json.load(open(sys.argv[1]))
+          assert a['Schema']=='forge.acc47.original-u19.nativego.v1'
+          assert a['OS'] in ('linux','windows')
+          assert a['NativeChildCount']==len(a['Trials'])==80 and len(a['Cohorts'])==4
+          assert not a['ScientificFirstUse'] and not a['NativeModelSpeedup']
+          assert a['Classification'] in ('U19_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U19_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY')
+          paired={};seen=set()
+          for r in a['Trials']:
+            w=r['Worker'];k=(w['Arm'],w['World'],w['Seed'])
+            assert k not in seen;seen.add(k)
+            assert w['Episodes']==2048 and w['FitRows']==2097152 and w['HeldoutRows']==2097152
+            assert r['CPUSeconds']>0 and r['WallSeconds']>0 and w['PeakRSSBytes']>0
+            assert 0<=w['Correct']<=2097152 and math.isfinite(w['HeldoutError'])
+            assert len(w['SourceSHA256'])==len(w['FitSHA256'])==len(w['TruthSHA256'])==len(w['PredictionSHA256'])==64
+            key=(w['World'],w['Seed'])
+            v=(w['SourceSHA256'],w['FitSHA256'],w['TruthSHA256'])
+            assert key not in paired or paired[key]==v
+            paired[key]=v
+          assert len(paired)==20 and len(seen)==80
+          for c in a['Cohorts']:
+            assert c['Fastest'] in ('FREQ16','PERCEPTRON','LUT4')
+            assert c['BestError'] in ('FREQ16','PERCEPTRON','LUT4')
+            assert math.isfinite(c['ErrorGap']) and math.isfinite(c['CPURatio']) and math.isfinite(c['RSSRatio'])
+          print('ACC47_ORIGINAL_U19_80_NATIVE_CPU_RSS_WORKERS=PASS')
+          print('ACC47_U19_ENGINEERING='+a['Classification'])
+          PY
+      - name: Retain exact native receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc47-u19-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc47-report.json
+            ${{ runner.temp }}/acc47-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    name: ACC47 independent 80-worker input truth prediction cross-OS audit
+    needs: native-u19
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc47-u19-*
+          path: artifacts
+      - name: Reconcile source, exact truth, and predictions across all 80 workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc47-u19-ubuntu-latest'/'acc47-report.json').read_text())
+          b=json.loads((p/'acc47-u19-windows-latest'/'acc47-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda x:(x['Worker']['Arm'],x['Worker']['World'],x['Worker']['Seed'])
+          aa={key(x):x['Worker'] for x in a['Trials']}
+          bb={key(x):x['Worker'] for x in b['Trials']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for k in aa:
+            for f in ('SourceSHA256','FitSHA256','TruthSHA256','PredictionSHA256','Correct','StateBytes'):
+              assert aa[k][f]==bb[k][f],(k,f)
+          print('ACC47_ORIGINAL_U19_CROSSOS_80_OF_80_INPUT_TRUTH_PREDICTION_PASS')
+          print('ACC47_LINUX='+a['Classification'])
+          print('ACC47_WINDOWS='+b['Classification'])
+          print('ACC47_NATIVE_MODEL_SPEEDUP=UNVERIFIED')
+          PY
