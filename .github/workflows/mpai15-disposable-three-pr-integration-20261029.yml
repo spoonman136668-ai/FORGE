@@ -1,0 +1,44 @@
+name: MP-AI15 three Mind-Palace PRs isolated feedback and cold-recall integration
+on:
+  push:
+    branches: [proposal/mpai13-feedback-qualification-20261029]
+    paths:
+      - tools/mpai15_disposable_three_pr_integration.py
+      - .github/workflows/mpai15-disposable-three-pr-integration-20261029.yml
+permissions:
+  contents: read
+jobs:
+  original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 27
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-pinned three-PR compatibility, scratch-only checkpoint and new consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $sha=(git rev-parse 'HEAD:tools/mpai15_disposable_three_pr_integration.py' | Out-String).Trim()
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $sha -cne '5ff969cb5f30122b9052e5b5a3bcf5cfb2a9d027'){
+            throw 'MPAI15_EXACT_PROGRAM_OR_OWNER_RUNNER_DRIFT'
+          }
+          foreach($key in @('OPENAI_API_KEY','ANTHROPIC_API_KEY',
+                             'OPENROUTER_API_KEY','HF_TOKEN','HUGGING_FACE_HUB_TOKEN')){
+            Remove-Item ('Env:'+$key) -ErrorAction SilentlyContinue
+          }
+          & python -B tools/mpai15_disposable_three_pr_integration.py
+          if($LASTEXITCODE -ne 0){throw 'MPAI15_DISCONNECTED_QUALIFICATION_FAILED'}
