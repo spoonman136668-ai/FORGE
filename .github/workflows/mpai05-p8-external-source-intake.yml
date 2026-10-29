@@ -48,7 +48,15 @@ jobs:
               throw 'MPAI05_P8_UPSTREAM_REVISION_NOT_PINNED'
             }
             & python -B tools/mpai05_p8_external_source_intake.py $src *> (Join-Path $root 'private-result.json')
-            if($LASTEXITCODE -ne 0){throw 'MPAI05_P8_UPSTREAM_SOURCE_PIN_FAILED'}
+            if($LASTEXITCODE -ne 0){
+              $privateError=Get-Content -Raw -LiteralPath (Join-Path $root 'private-result.json') -ErrorAction SilentlyContinue
+              foreach($k in @('UPSTREAM_SHA_SYNTAX','UPSTREAM_COMMIT_DRIFT','BLOB_SET_DRIFT',
+                'UPSTREAM_SOURCE_BLOB_DRIFT','UPSTREAM_INTERFACE_DRIFT','UPSTREAM_REPO_MISSING',
+                'UPSTREAM_GIT_READ_FAILURE','UPSTREAM_CHECKOUT_DIRTY','UPSTREAM_CHECKOUT_MUTATED')){
+                if($privateError -match [regex]::Escape($k)){Write-Output ('MPAI05_P8_SAFE_FAILURE='+$k);break}
+              }
+              throw 'MPAI05_P8_UPSTREAM_SOURCE_PIN_FAILED'
+            }
             $report=Get-Content -Raw -LiteralPath (Join-Path $root 'private-result.json') | ConvertFrom-Json
             if($report.schema -cne 'mind-palace.mpai05.p8.external-source-intake.v1' -or
                $report.upstream_sha -cne '2cc8c540bdb87fe6761629b585e727e1c4704520' -or
