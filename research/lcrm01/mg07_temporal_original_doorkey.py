@@ -242,7 +242,7 @@ def episode(role,seed,trained,binary_new,binary_old,p):
                 raise ValueError("MG07_CONVENTIONAL_COLD_SOURCE_LOSS")
             if ring.steps!=len(observed):
                 raise ValueError("MG07_CONVENTIONAL_TEMPORAL_SOURCE_LOSS")
-            ring_sha=sha(ring.checkpoint())
+            ring_sha=sha(ring.checkpoint().encode())
         return {"role":role,"evaluator_seed_only":seed,
             "original_public_start_sha256":first_hash,
             "original_real_selected_steps":len(observed),
