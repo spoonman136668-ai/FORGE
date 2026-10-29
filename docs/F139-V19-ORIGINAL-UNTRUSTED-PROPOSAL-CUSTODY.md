@@ -1,0 +1,24 @@
+# F139 V19 — original-owner data-only candidate validation custody
+
+**Draft, unmerged, not deployed.** Stacked on exact [#1048](https://github.com/spoonman136668-ai/FORGE/pull/1048) at `bf6a7491d5eb2e9bd53e42ffb9f6f5c4735516b5`. This is a *post-send* data validation gate, not another model call, provider retry or model publisher.
+
+## Why this gate exists
+
+#1048 can commit an original SHA-chain `NATIVE_RENEWAL_SEND_ATTEMPTED` and return a bounded free provider's response as **untrusted bytes**. A provider returning a plausible answer is not evidence of usable learning, safe native code, authority to publish a draft, or permission to mutate Wingless/Yggdrasil. This gate forces a separate original-source-bound validation before a model reply may even become a development candidate.
+
+`f139/nci04_v19_original_proposal_validation_custody.py` exposes `validate_original_response_without_publication` and a final read-only original `Database.verify()` audit:
+
+1. Hold the existing original `SingleOwner`, confirm owner witness, full original SHA history and the **exact current-head** `NATIVE_RENEWAL_SEND_ATTEMPTED` sequence and SHA. On head movement, no validation replay or external read.
+2. Require an **untrusted** response from #1048's one model-send receipt, exactly one provider call already spent, fixed free-model identifier, no paid usage, no publication/science permission and exact response SHA256.
+3. Bind the exact public-source packet and built request digest to the earlier original `NATIVE_RENEWAL_POST_ATTEMPTED` and send event: lane, SHA-pinned public commit/tree, one approved path, source-before SHA and recorded learning history. The original public-source authenticity was already verified before #1048's send; no additional GitHub or provider request occurs here.
+4. Invoke existing independent `nci04_model_proposal.validate` on the actual reply bytes. It rejects response schema, target, path, history drift, duplicate JSON, malformed/oversized code, no-op code, non-novel candidate source hash, invalid native Python syntax for Yggdrasil, and invalid control/hypothesis/question. Also include candidates and original-model draft publication hashes already spent in the original SQLite.
+5. Under **one existing original `Database.transaction()` / `BEGIN IMMEDIATE`**, re-verify source, head, lock, owner quiescence, native evidence and uniqueness. Append **one** source-bound `NATIVE_RENEWAL_PROPOSAL_VALIDATED` with original send event SHA, terminal ticket, lane/scope/commit/path, source before/after SHA, candidate identity, response SHA, validation-record SHA and bounded experimental question/hypothesis/control. Call full `Database.verify()` before COMMIT; rollback original head and record on fault or owner revocation.
+6. Cold reopen and verify strict adjacency to the original send event, public handoff exact digests, candidate identity from source-after hash, and byte-canonical validation record hash. Reject forged science/dispatch/publication authority, same-send or same-code replay. The event does **not** contain source code, provider token or private training/owner context.
+
+All outputs have `publication_authorized=false`, `worker_dispatched=false`, `scientific_first_use=false`, `paid_model_calls=0`, `provider_requests=0`, `accepted_ref_mutations=0`. Returning the already independently validated candidate bytes to a *trusted next owner operation* is only data preparation, never a publication instruction. Replaying the original send to obtain a second response remains impossible even if this validation fails, the response is lost or the controller restarts.
+
+## Qualification / deployment boundary
+
+Test in isolated original SQLite fixture using fake public Git and injected fake one-shot model transport only. Negative paths cover wrong response SHA/model/payment and response target, altered public packet, missing owner mutex/witness, power loss/late owner revoke, original cold reopen and forged second event. Run exact-head F139 Linux+Windows native source, full Windows+Linux public qualification and hosted F139-D both platforms. Keep draft stacked on #1048, no production merge.
+
+No changes to original Windows scheduled task, controller 300-second tick, authentic GitHub release ref, running research experiments, accepted scientific state, model weights or project branches. The next required engineering gate is an independent **original-owner publication preflight** that turns this validated candidate into one source-only draft on the proper Wingless/Yggdrasil repository under the original writer's no-retry publication custody, followed by real qualification and scientific controls. V18 protected-main source being present does not imply the original Windows owner has finished its separate cutover; check that independently before any V19 activation.
