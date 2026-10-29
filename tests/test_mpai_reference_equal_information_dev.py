@@ -14,7 +14,9 @@ SHA = "a" * 40
 STATEMENT = (
     "In an eight-question development-only comparison using 16 genuine "
     "local CPU calls, input tokens fell from 3,513 to 1,665, "
-    "but there were no independent factual accuracy grades."
+    "with the same 96-token output cap in both arms; "
+    "but there were no independent factual accuracy grades "
+    "or scientific improvement claim exist in this accepted lesson."
 )
 REFS = [{"type": "acceptance", "ref": "source"}]
 
