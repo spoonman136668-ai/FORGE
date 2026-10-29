@@ -243,75 +243,82 @@ def modules():
 
 
 def fit(binary,p):
-    gym,owner,collector,SuccessorCells=modules()
+    gym,owner,collector,MissionCells,OriginalMissionAdapter=modules()
     go=WingBridge(binary)
-    ygg=SuccessorCells()
-    control=ConventionalSuccessor()
-    origin=hashlib.sha256()
+    ygg=MissionCells()
+    conditioned=ConventionalMission()
+    blind=ConventionalSuccessor()
+    digest_stream=hashlib.sha256()
     count=0;action_counts={str(i):0 for i in range(7)}
-    key_pickups=door_opens=0
+    pickups=doors=0
     try:
         for index,seed in enumerate(p["FIT"]["seeds"]):
             env=gym.make("MiniGrid-DoorKey-8x8-v0")
-            adapter=owner.DoorKeyPublicAdapter()
+            adapter=OriginalMissionAdapter()
             rng=random.Random(93617+7919*index)
             try:
                 raw,_=env.reset(seed=seed)
-                adapter.reset_public(collector.normalized_original_public(raw))
-                ygg.start_session(adapter,"mg15-original-fit-"+str(seed),live=False)
+                before=authentic_public(raw,collector,owner,
+                    "use the key to open the door and then get to the goal")
+                adapter.reset_public(before)
+                ygg.start_session(adapter,"mg15-original-FIT-"+str(seed),live=False)
                 for step in range(p["FIT"]["cap_per_seed"]):
-                    before=source.normalize(collector,owner,raw)
-                    public_cues=owner.public_cues(before)
-                    chosen=collector.policy({"image":before["image"],"cues":public_cues},
+                    before=authentic_public(raw,collector,owner,
+                        "use the key to open the door and then get to the goal")
+                    public_cues=owner.public_cues(legacy_public(before))
+                    action=collector.policy({"image":before["image"],"cues":public_cues},
                                             rng,step,{})
-                    if type(chosen)is not int or chosen not in range(7):
-                        raise ValueError("MG15_FIT_ACTION_UNTRUSTED")
-                    if adapter.submit(chosen)!=chosen:
-                        raise ValueError("MG15_FIT_ACTION_REMAP")
-                    after_raw,reward,terminated,truncated,_=env.step(chosen)
-                    after=source.normalize(collector,owner,after_raw)
+                    if type(action)is not int or action not in range(7):
+                        raise ValueError("MG15_INVALID_ORIGINAL_FIT_SELECTED_ACTION")
+                    if adapter.submit(action)!=action:
+                        raise ValueError("MG15_FIT_REMAP")
+                    raw_after,reward,terminated,truncated,_=env.step(action)
+                    after=authentic_public(raw_after,collector,owner,
+                        "use the key to open the door and then get to the goal")
                     event=adapter.complete(after,float(reward),bool(terminated),bool(truncated))
                     receipt=ygg.learn_selected(adapter,before,after)
-                    control.learn(before,chosen,after)
-                    ack=go.request("learn",before=before,action=chosen,after=after,
-                                   reward=float(reward),terminal=bool(terminated or truncated))
+                    blind.learn(legacy_public(before),action,legacy_public(after))
+                    conditioned.learn(before,action,after,float(reward))
+                    go_ack=go.request("learn",before=before,action=action,after=after,
+                        reward=float(reward),terminal=bool(terminated or truncated))
                     count+=1
-                    if (receipt["sample_index"]!=count or ygg.samples!=count or
-                        ygg.parent.local.samples!=count or control.samples!=count or
-                        ack.get("updates")!=count or ack.get("live",0)!=0):
-                        raise ValueError("MG15_UNEQUAL_ORIGINAL_SOURCE_FIT")
-                    origin.update((canon({"before":before,"action":chosen,"after":after,
-                        "reward":float(reward),"terminal":bool(terminated or truncated)})+"\n").encode())
-                    action_counts[str(chosen)]+=1
-                    key_pickups+=int(event["visible_key_pickup"])
-                    door_opens+=int(event["visible_door_opened"])
-                    raw=after_raw
+                    if (receipt["sample_index"]!=count or ygg.samples!=count
+                        or ygg.parent.samples!=count or
+                        blind.samples!=count or conditioned.samples!=count
+                        or go_ack.get("updates")!=count or go_ack.get("live",0)!=0):
+                        raise ValueError("MG15_UNEQUAL_ORIGINAL_FIT_SELECTED_SAMPLES")
+                    digest_stream.update((canon({"before":before,"action":action,
+                        "after":after,"reward":float(reward),
+                        "terminal":bool(terminated or truncated)})+"\\n").encode())
+                    action_counts[str(action)]+=1
+                    pickups+=int(event["visible_key_pickup"])
+                    doors+=int(event["visible_door_opened"])
+                    raw=raw_after
                     if terminated or truncated:break
             finally:env.close()
-        src_sha=origin.hexdigest()
-        if (count!=1664 or src_sha!=p["FIT"]["require_canonical_history_sha256"] or
-            not all(action_counts.values()) or key_pickups==0 or door_opens==0):
-            raise ValueError("MG15_UNMATCHED_ORIGINAL_1664_FIT_SOURCE")
-        go_checkpoint=go.snapshot()
-        yg_checkpoint=ygg.checkpoint()
-        conventional_checkpoint=control.checkpoint()
+        src=digest_stream.hexdigest()
+        if (count!=1664 or src!=p["FIT"]["require_canonical_history_sha256"]
+            or not all(action_counts.values()) or pickups==0 or doors==0):
+            raise ValueError("MG15_FIT_AUTHENTIC_SOURCE_DIGEST_OR_INDEPENDENT_INPUT_FAIL")
+        snapshots={"go":go.snapshot(),"ygg":ygg.checkpoint(),
+                   "conditioned":conditioned.checkpoint(),"blind":blind.checkpoint()}
     finally:go.close()
-    # Cold independent restores of all source-trained learners.
     cold=WingBridge(binary)
     try:
-        ack=cold.request("load",state=base64.b64encode(go_checkpoint).decode())
-        if ack.get("updates")!=1664 or cold.snapshot()!=go_checkpoint:
-            raise ValueError("MG15_GO_FIT_COLD_CUSTODY")
+        ack=cold.request("load",state=base64.b64encode(snapshots["go"]).decode())
+        if ack.get("updates")!=1664 or cold.snapshot()!=snapshots["go"]:
+            raise ValueError("MG15_GO_COLD_FIT_SOURCE_CUSTODY")
     finally:cold.close()
-    if (SuccessorCells.restore(yg_checkpoint).checkpoint()!=yg_checkpoint or
-        ConventionalSuccessor.restore(conventional_checkpoint).checkpoint()!=conventional_checkpoint):
-        raise ValueError("MG15_YGG_AND_CONVENTIONAL_COLD_CUSTODY")
-    return {"samples":count,"selected_history_sha256":src_sha,
-            "go":go_checkpoint,"ygg":yg_checkpoint,"conventional":conventional_checkpoint,
-            "original_fit_source_action_counts":action_counts,"source_fit_key_pickups":key_pickups,
-            "source_fit_visible_door_openings":door_opens,
-            "checkpoints_sha":{"go":sha(go_checkpoint),"ygg":sha(yg_checkpoint),
-                               "conventional":sha(conventional_checkpoint)}}
+    if (MissionCells.restore(snapshots["ygg"]).checkpoint()!=snapshots["ygg"]
+        or ConventionalMission.restore(snapshots["conditioned"]).checkpoint()!=snapshots["conditioned"]
+        or ConventionalSuccessor.restore(snapshots["blind"]).checkpoint()!=snapshots["blind"]):
+        raise ValueError("MG15_INDEPENDENT_FIT_COLD_CUSTODY")
+    return {"samples":count,"selected_history_sha256":src,
+            **snapshots,"checkpoints_sha":{k:sha(v) for k,v in snapshots.items()},
+            "original_fit_source_action_counts":action_counts,
+            "source_fit_key_pickups":pickups,
+            "source_fit_visible_door_openings":doors}
+
 
 
 def episode(role,seed,environment,trained,binary,p):
