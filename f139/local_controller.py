@@ -204,6 +204,36 @@ class Database:
         self.verify()
 
     @classmethod
+    def open_readonly(cls, filename: Path):
+        """Cold-verify the original ledger without the writer constructor.
+
+        The normal constructor sets journal_mode=WAL and must not be used by
+        an owner readiness witness claiming zero SQLite source mutations.
+        Explicit mode=ro prevents CREATE/UPDATE/PRAGMA journal_mode changes;
+        query_only adds another fail-closed boundary. The original owner mutex
+        is checked by the caller, not obtained by this helper.
+        """
+        filename = Path(filename).resolve()
+        require(filename.is_file(), "READONLY_DATABASE_MISSING")
+        conn = sqlite3.connect(filename.as_uri() + "?mode=ro",
+                               uri=True, isolation_level=None, timeout=10)
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only=ON")
+            conn.execute("PRAGMA busy_timeout=10000")
+            require(conn.execute("PRAGMA query_only").fetchone()[0] == 1,
+                    "READONLY_QUERY_ONLY_REQUIRED")
+            db = object.__new__(cls)
+            db.filename = filename
+            db.conn = conn
+            db._readonly_opened = True
+            db.verify()
+            return db
+        except BaseException:
+            conn.close()
+            raise
+
+    @classmethod
     def initialize(cls, filename: Path, source_sha: str):
         require(isinstance(source_sha, str) and SHA.fullmatch(source_sha), "SOURCE_SHA_INVALID")
         filename = Path(filename)
