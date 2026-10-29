@@ -1,0 +1,131 @@
+name: ACC54 original U12 out of core native Go
+on:
+  pull_request:
+    paths:
+      - 'docs/research/ACC-54-*'
+      - 'research/acceleration/acc54_go_u12/**'
+      - '.github/workflows/forge-acc54-u12-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    name: U12 80 native cold workers / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original U12 authentic source frozen before execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor fb8e900945b98370fbb8421e32eecadd6ae471cb HEAD
+          test "$(git hash-object docs/research/ACC-54-U12-STREAMING-PREREG.md)" = f4d4d443f785451f3f2b16ff556507e1567b96e0
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python - <<'PY'
+          import ast,pathlib
+          a=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          n=ast.literal_eval(next(v.value for v in a.body if isinstance(v,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in v.targets)))
+          assert len(n)==30 and n[11]=='out-of-core parameter streaming'
+          print('ACC54_ORIGINAL_U12_SOURCE_PREREG_PASS')
+          PY
+          test "$(git hash-object research/acceleration/acc54_go_u12/go.mod)" = 5a8dc48548d02e1506e9e41c102247b9a7393434
+          test "$(git hash-object research/acceleration/acc54_go_u12/main.go)" = a0cd1065c5d1894c0a40a30a3c259ce754a208dc
+          test "$(git hash-object research/acceleration/acc54_go_u12/core_test.go)" = 49235d016a617888e0aba17b007277398cfdae9e
+          test "$(git hash-object research/acceleration/acc54_go_u12/mmap_linux.go)" = d85d0373165df9ef971e4e0a670c6e5bea66e721
+          test "$(git hash-object research/acceleration/acc54_go_u12/mmap_windows.go)" = 69763a7c6b74fd1822a200adc4a7e2c96c7bad8c
+          test "$(git hash-object research/acceleration/acc54_go_u12/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc54_go_u12/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+      - name: Preserve original 36 portfolio negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc54-36.json"
+      - name: Native Go test vet build and real streaming trial
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc54_go_u12
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc54"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc54-report.json"
+      - name: Qualify 80 true cold worker source CPU physical RSS
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP/acc54-report.json" <<'PY'
+          import sys,json,math
+          r=json.load(open(sys.argv[1]))
+          assert r['Schema']=='forge.acc54.u12.go.v1'
+          assert r['NativeChildCount']==len(r['Trials'])==80 and len(r['Cohorts'])==4
+          assert not r['ScientificFirstUse'] and not r['NativeModelSpeedup']
+          paired={};seen=set()
+          for t in r['Trials']:
+            w=t['Worker'];key=(w['Mode'],w['World'],w['Seed'])
+            assert key not in seen;seen.add(key)
+            assert w['Requests']==131072 and w['WriteBytes']==67108864
+            assert t['CPUSeconds']>0 and t['WallSeconds']>0 and w['PeakRSSBytes']>0
+            assert all(len(w[k])==64 for k in ('SourceSHA256','AccessSHA256','OutputSHA256'))
+            pair=(w['World'],w['Seed']);v=(w['SourceSHA256'],w['AccessSHA256'],w['OutputSHA256'])
+            assert pair not in paired or paired[pair]==v
+            paired[pair]=v
+          assert len(paired)==20 and len(seen)==80
+          assert r['Classification'] in ('U12_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U12_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY')
+          print('ACC54_U12_80_NATIVE_CPU_RSS_EXACT_WORKERS_PASS')
+          print('ACC54_CLASSIFICATION='+r['Classification'])
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc54-u12-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc54-report.json
+            ${{ runner.temp }}/acc54-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc54-u12-*
+          path: artifacts
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib,json
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc54-u12-ubuntu-latest'/'acc54-report.json').read_text())
+          b=json.loads((p/'acc54-u12-windows-latest'/'acc54-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          k=lambda x:(x['Worker']['Mode'],x['Worker']['World'],x['Worker']['Seed'])
+          aa={k(x):x['Worker'] for x in a['Trials']}
+          bb={k(x):x['Worker'] for x in b['Trials']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for key in aa:
+            for f in ('SourceSHA256','AccessSHA256','OutputSHA256','Requests','LogicalStateBytes','WriteBytes'):
+              assert aa[key][f]==bb[key][f],(key,f)
+          print('ACC54_U12_CROSSOS_80_OF_80_EXACT_PASS')
+          print('ACC54_LINUX='+a['Classification'])
+          print('ACC54_WINDOWS='+b['Classification'])
+          print('ACC54_ACTUAL_MODEL_SPEEDUP_UNVERIFIED')
+          PY
