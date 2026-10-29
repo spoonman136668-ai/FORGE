@@ -116,7 +116,11 @@ jobs:
               foreach($m in [regex]::Matches($raw,'(?m)^(FAIL|ERROR): (test_[a-z0-9_]+)')){
                 Write-Output ('MPAI13_UNIT_FAILURE='+$m.Groups[2].Value)
               }
-              $classes=[regex]::Matches($raw,'(?m)^([A-Za-z]+Error|AssertionError|RuntimeError|Exception): ([^\r\n]{1,150})$')
+              $classes=[regex]::Matches($raw,'([A-Za-z]+Error|AssertionError|RuntimeError|Exception): ([^\r\n]{1,150})')
+              $codes=[regex]::Matches($raw,'MPAI13_[A-Z_]{4,90}')
+              foreach($c in @($codes | Select-Object -Unique -First 5)){
+                Write-Output ('MPAI13_UNIT_FAILURE_CLASS='+$c.Value)
+              }
               foreach($failure in $classes | Select-Object -First 4){
                 $type=$failure.Groups[1].Value
                 Write-Output ('MPAI13_UNIT_EXCEPTION_TYPE='+$type)
