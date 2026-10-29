@@ -149,30 +149,7 @@ jobs:
             & git.exe -C $root -c user.name=Disposable-MP-Validation -c user.email=noreply@example.invalid commit -q -m 'SCRATCH-ONLY: verify real-source feedback cold recall, never push'
             Assert ($LASTEXITCODE -eq 0) 'DISPOSABLE_LOCAL_COMMIT'
             $coldSha=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
-            Assert ($coldSha -cne $mainBase -and $coldSha -match '^[a-f0-9]{40}
-            $coldLog=Join-Path $private 'cold.log'
-            & python -B -c $rehearsalQuery $root $coldSha yes *> $coldLog
-            Assert ($LASTEXITCODE -eq 0) 'COLD_PROCESS_RECALL'
-            $result=Get-Content -LiteralPath $coldLog -Raw
-            Assert ($result.Contains('MPAI05_FB_COLD_BOTH_RECORDS_FOUND=TRUE') -and
-                    $result.Contains('MPAI05_FB_COLD_SNAPSHOT_SHA_VERIFIED=PASS')) 'COLD_READ_RECEIPT'
-            Write-Output 'MPAI05_FB_COLD_ORIGINAL_CANONICAL_COLLECTOR_STAGE=2_PASS'
-            Write-Output 'MPAI05_FB_COLD_EXISTING_CHECKPOINT_AND_LEDGER=PASS'
-            Write-Output 'MPAI05_FB_COLD_CANONICAL_REMOTE_SNAPSHOT=PASS'
-            Write-Output 'MPAI05_FB_COLD_ORIGINAL_FULL_CHECKPOINT_VALIDATION=PASS'
-            Write-Output 'MPAI05_FB_COLD_SEPARATE_PROCESS_RECALL=2_PASS'
-            Write-Output 'MPAI05_FB_COLD_SOURCE_AND_PROVENANCE_VERIFIED=PASS'
-            Write-Output 'MPAI05_FB_COLD_PRODUCTION_MEMORY_WRITES=0'
-            Write-Output 'MPAI05_FB_COLD_UPSTREAM_PUSHES=0'
-            Write-Output 'MPAI05_FB_COLD_LIVE_CROSS_AGENT_LEARNING=NOT_DEMONSTRATED'
-          } finally{
-            Set-Location $env:RUNNER_TEMP
-            if(Test-Path -LiteralPath $scratch){
-              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
-            }
-            Write-Output ('MPAI05_FB_COLD_PRIVATE_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
-          }
-) 'COLD_SOURCE_SHA'
+            Assert ($coldSha -cne $mainBase -and $coldSha -match '^[a-f0-9]{40}$') 'COLD_SOURCE_SHA'
             $coldLog=Join-Path $private 'cold.log'
             & python -B -c $rehearsalQuery $root $coldSha yes *> $coldLog
             Assert ($LASTEXITCODE -eq 0) 'COLD_PROCESS_RECALL'
