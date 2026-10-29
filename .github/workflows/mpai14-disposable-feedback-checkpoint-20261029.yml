@@ -149,22 +149,23 @@ jobs:
             $localSha=(git -C $root rev-parse HEAD | Out-String).Trim()
             $env:MPAI14_ROOT=$root
             $env:MPAI14_SHA=$localSha
-            @'
-import os,sys
-from pathlib import Path
-root=Path(os.environ["MPAI14_ROOT"])
-sys.path.insert(0,str(root/"tools"))
-from mindpalace_readonly import MemorySnapshot
-snap=MemorySnapshot(root,os.environ["MPAI14_SHA"],["Mind-Palace"])
-for id in (
-"lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029",
-"lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029",
-):
-    item=snap.get_record(os.environ["MPAI14_SHA"],id,["Mind-Palace"])
-    assert item["found"] and item["record"]["status"]=="observed"
-    assert len(item["record"]["source_refs"])>=2
-print("MPAI14_COLD_PROCESS_PINNED_GET_RECORD=2_PASS")
-'@ | & python -B - *> $logs
+            $pythonLines=@(
+              'import os,sys',
+              'from pathlib import Path',
+              'root=Path(os.environ["MPAI14_ROOT"])',
+              'sys.path.insert(0,str(root/"tools"))',
+              'from mindpalace_readonly import MemorySnapshot',
+              'snap=MemorySnapshot(root,os.environ["MPAI14_SHA"],["Mind-Palace"])',
+              'ids=("lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029",',
+              '     "lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029")',
+              'for record_id in ids:',
+              '    item=snap.get_record(os.environ["MPAI14_SHA"],record_id,["Mind-Palace"])',
+              '    assert item["found"] and item["record"]["status"]=="observed"',
+              '    assert len(item["record"]["source_refs"])>=2',
+              'print("MPAI14_COLD_PROCESS_PINNED_GET_RECORD=2_PASS")'
+            )
+            $pythonScript=$pythonLines -join [Environment]::NewLine
+            & python -B -c $pythonScript *> $logs
             if($LASTEXITCODE -ne 0){throw 'MPAI14_FRESH_PROCESS_RECORD_READBACK_FAILED'}
             $privateLog=Get-Content -LiteralPath $logs -Raw
             if(-not $privateLog.Contains('MPAI14_COLD_PROCESS_PINNED_GET_RECORD=2_PASS')){
