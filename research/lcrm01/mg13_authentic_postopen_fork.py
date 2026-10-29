@@ -22,7 +22,9 @@ SCHEMA="itd02.mg13.authenticated-original-open-door-public-fork.v1"
 BLOCKED="MG13_AUTHENTIC_ORIGINAL_SOURCE_FORK_INTEGRITY_BLOCKED__NO_SCIENCE"
 NEGATIVE="MG13_POSTOPEN_NATIVE_GOAL_NOT_ESTABLISHED__NO_SCIENCE"
 POSITIVE="MG13_BOTH_NATIVE_POSTOPEN_GOAL_ENGINEERING_POSITIVE__NO_SCIENCE"
-ROLES=prior.ROLES+("conventional_two_step_public_model",)
+ROLES=("wingless_go_dk12","wingless_go_dk11","yggdrasil_r16",
+       "yggdrasil_r15","conventional_public_novelty",
+       "conventional_two_step_public_model","conventional_seeded_random","frozen_ygg_r16")
 NATIVE=("wingless_go_dk12","yggdrasil_r16")
 PREREG=Path(__file__).with_name("mg13_postopen_source_prereg.json")
 
