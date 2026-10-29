@@ -56,6 +56,16 @@ jobs:
             $testExit=$LASTEXITCODE
             $raw=Get-Content -Raw -LiteralPath $private
             if($testExit -ne 0 -or $raw -notmatch 'Ran 8 tests' -or $raw -notmatch '(?m)^OK(?:\s|$)'){
+              # The focused tests have synthetic fixtures only, but still
+              # expose no traceback/source payload from private log.
+              foreach($m in [regex]::Matches($raw,
+                     '(?m)^(FAIL|ERROR): (test_[a-z_]{3,65}) \(')){
+                Write-Output ('MPAI05_P11_TEST_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+              }
+              foreach($reason in @('AssertionError','SyntaxError','TypeError',
+                                    'ModuleNotFoundError','ImportError','ValueError')){
+                if($raw.Contains($reason)){Write-Output ('MPAI05_P11_TEST_EXCEPTION='+$reason);break}
+              }
               throw 'MPAI05_P11_FOCUSED_FAIL_PRIVATE_LOG'
             }
             Write-Output 'MPAI05_P11_FOCUSED_TESTS=8_PASS'
