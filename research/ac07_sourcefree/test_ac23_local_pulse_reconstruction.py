@@ -71,7 +71,7 @@ class TestLocalPulseReconstruction(unittest.TestCase):
         self.assertEqual(result["local_pulse_reconstruction_calls_total"],8*2*7*24)
         for receipt in result["folds"]:
             self.assertEqual(receipt["fit_reward_head_updates"],168)
-            self.assertEqual(receipt["local_pulse_update_calls"],{"3":168,"4":168} if False else {3:168,4:168})
+            self.assertEqual(receipt["local_pulse_update_calls"],{3:168,4:168})
             self.assertGreater(receipt["checkpoint_bytes"],0)
             self.assertEqual(len(receipt["checkpoint_sha256"]),64)
         self.assertTrue(math.isfinite(result["metric"]["brier"]))
