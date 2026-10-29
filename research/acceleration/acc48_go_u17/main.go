@@ -31,18 +31,24 @@ func serialize(kind string,data []byte)([]byte,int,error){
  if kind!="FIXED"&&kind!="GRAMMAR"{return nil,0,errors.New("unknown arm")}
  dict:=make(map[[16]byte]uint16);rules:=make([][16]byte,0,256)
  tokens:=make([]uint16,0,len(data)/16)
+ escapes:=make([][16]byte,0)
  for i:=0;i<len(data);i+=16{
   var phrase [16]byte;copy(phrase[:],data[i:i+16])
   index,ok:=dict[phrase]
-  if !ok&&len(rules)<256{index=uint16(len(rules));rules=append(rules,phrase);dict[phrase]=index;ok=true}
-  if !ok{return nil,0,errors.New("dictionary exceeded 256 rules: original frozen bounded grammar")}
-  tokens=append(tokens,index)
+  if !ok&&len(rules)<255{index=uint16(len(rules));rules=append(rules,phrase);dict[phrase]=index;ok=true}
+  if !ok{tokens=append(tokens,65535);escapes=append(escapes,phrase)}else{tokens=append(tokens,index)}
  }
  var output bytes.Buffer
  var header [2]byte;binary.LittleEndian.PutUint16(header[:],uint16(len(rules)));output.Write(header[:])
  for _,rule:=range rules{output.Write(rule[:])}
+ escapeIndex:=0
  for _,index:=range tokens{
-  if kind=="GRAMMAR"{output.WriteByte(byte(index))}else{binary.LittleEndian.PutUint16(header[:],index);output.Write(header[:])}
+  if kind=="GRAMMAR"{
+   if index==65535{output.WriteByte(255);output.Write(escapes[escapeIndex][:]);escapeIndex++}else{output.WriteByte(byte(index))}
+  }else{
+   binary.LittleEndian.PutUint16(header[:],index);output.Write(header[:])
+   if index==65535{output.Write(escapes[escapeIndex][:]);escapeIndex++}
+  }
  }
  return output.Bytes(),len(rules),nil
 }
@@ -54,12 +60,17 @@ func restore(kind string,encoded []byte)([]byte,error){
  n:=int(binary.LittleEndian.Uint16(encoded[:2]));if n>256||len(encoded)<2+n*16{return nil,errors.New("rule table invalid")}
  rules:=make([][16]byte,n);for i:=0;i<n;i++{copy(rules[i][:],encoded[2+i*16:2+(i+1)*16])}
  tokens:=encoded[2+n*16:];width:=1;if kind=="FIXED"{width=2}
- if len(tokens)%width!=0{return nil,errors.New("misaligned token stream")}
- out:=make([]byte,0,len(tokens)/width*16)
- for i:=0;i<len(tokens);i+=width{
-  index:=int(tokens[i]);if width==2{index=int(binary.LittleEndian.Uint16(tokens[i:i+2]))}
-  if index>=n{return nil,errors.New("undefined grammar reference")}
-  out=append(out,rules[index][:]...)
+ out:=make([]byte,0,historySize)
+ for i:=0;i<len(tokens);{
+  if len(tokens)-i<width{return nil,errors.New("truncated token")}
+  index:=int(tokens[i]);if width==2{index=int(binary.LittleEndian.Uint16(tokens[i:i+2]))};i+=width
+  if index==255&&width==1||index==65535&&width==2{
+   if len(tokens)-i<16{return nil,errors.New("truncated escape")}
+   out=append(out,tokens[i:i+16]...);i+=16
+  }else{
+   if index>=n{return nil,errors.New("undefined grammar reference")}
+   out=append(out,rules[index][:]...)
+  }
  }
  return out,nil
 }
