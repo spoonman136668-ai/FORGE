@@ -1,5 +1,5 @@
 package main
-import("bytes";"crypto/sha256";"encoding/binary";"encoding/hex";"encoding/json";"errors";"flag";"fmt";"math";"os";"os/exec";"runtime";"sort";"time")
+import("bytes";"crypto/sha256";"encoding/binary";"encoding/hex";"encoding/json";"errors";"flag";"fmt";"os";"os/exec";"runtime";"sort";"time")
 const(schema="forge.acc53.original-u13.nativego.v1";episodes=32;inserts=8192;queries=8192)
 var seeds=[]uint64{103101,103103,103107,103109,103111}
 var workloads=[]string{"REPEAT","UNIFORM","SHIFT","COLLISION"}
