@@ -6,7 +6,7 @@ import minigrid
 from mg17_original_family_source_qual import attest_source,frozen,digest
 from mg18_native_mission_boundary_audit import WingBridge
 from mg21_native_retention_actors import family_fit,prepare,ROLES
-from mg21_native_original_probe import probe
+from mg21_probe_source import probe
 from mg21_original_tabular_control import Tabular
 from research.native.itd02.mg19.genuine_mission_cells import MissionCells
 
