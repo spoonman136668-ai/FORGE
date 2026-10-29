@@ -1,0 +1,146 @@
+name: ACC48 original U17 lossless grammar-history native-Go qualification
+on:
+  pull_request:
+    paths:
+      - 'docs/research/ACC-48-*'
+      - 'research/acceleration/acc48_go_u17/**'
+      - '.github/workflows/forge-acc48-original-u17-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    name: Original U17 actual Go 60 workers / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Authenticate original U17 before executing
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor f22ced057ad766a22fa549a6a96fda2f9a9ef35a HEAD
+          test "$(git hash-object docs/research/ACC-48-U17-GRAMMAR-HISTORY-PREREG.md)" = 575363c1028faf87140ea2ee431cc4259ac012fe
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python - <<'PY'
+          import ast,pathlib
+          a=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          names=ast.literal_eval(next(v.value for v in a.body if isinstance(v,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ORIGINAL_NAMES' for t in v.targets)))
+          assert len(names)==30 and names[16]=='lossless grammar-history collapse'
+          assert names[18]=='finite-state/Tsetlin learning'
+          print('ACC48_U17_ORIGINAL_IDENTITY_AND_FROZEN_SOURCE=PASS')
+          PY
+          test "$(git hash-object research/acceleration/acc48_go_u17/go.mod)" = c25c5953e5100a84a43af510f971a9509441d0e7
+          test "$(git hash-object research/acceleration/acc48_go_u17/main.go)" = 5b0ed331cf3cda4bc7ec18b87818c7b2e1e2b042
+          test "$(git hash-object research/acceleration/acc48_go_u17/core_test.go)" = 500c1fae11eba1c968718c5ed23b293811db2f2d
+          test "$(git hash-object research/acceleration/acc48_go_u17/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc48_go_u17/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+          echo ACC48_U17_GO_EXACT_BLOBS=PASS
+      - name: Recheck original 36 hypotheses and historical negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc48-36.json"
+          python - "$RUNNER_TEMP/acc48-36.json" <<'PY'
+          import json,sys
+          j=json.load(open(sys.argv[1]))
+          assert len(j['rows'])==36
+          assert not j['scientific_admission'] and not j['scientific_first_use']
+          assert j['stage2_qualified_native_model_speedups']==0
+          print('ACC48_ORIGINAL_36_NEGATIVES=PASS')
+          PY
+      - name: Actual native Go tests vet build and 60 child workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc48_go_u17
+          go test -count=1 -v ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc48"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc48-report.json"
+      - name: Verify complete exact source and process CPU/RSS data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/acc48-report.json" <<'PY'
+          import json,math,sys
+          j=json.load(open(sys.argv[1]))
+          assert j['Schema']=='forge.acc48.original-u17.nativego.v1'
+          assert j['NativeChildCount']==len(j['Trials'])==60 and len(j['Cohorts'])==3
+          assert not j['ScientificFirstUse'] and not j['NativeModelSpeedup']
+          assert j['Classification'] in ('U17_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN','U17_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY')
+          seen=set();source={}
+          for row in j['Trials']:
+            w=row['Worker'];key=(w['Mode'],w['Cohort'],w['Seed'])
+            assert key not in seen;seen.add(key)
+            assert w['Sessions']==32 and w['OriginalBytes']==32*262144
+            assert row['CPUSeconds']>0 and row['WallSeconds']>0 and w['PeakRSSBytes']>0
+            assert w['EncodedBytes']>0 and w['SourceSHA256']==w['OutputSHA256']
+            assert len(w['SourceSHA256'])==64
+            pair=(w['Cohort'],w['Seed'])
+            assert pair not in source or source[pair]==w['SourceSHA256']
+            source[pair]=w['SourceSHA256']
+          assert len(source)==15 and len(seen)==60
+          for c in j['Cohorts']:
+            assert c['Fastest'] in ('RAW','ZLIB','FIXED')
+            assert all(math.isfinite(c[k]) for k in ('CPURatio','RSSRatio','RawBytesRatio','ZlibBytesRatio','FixedBytesRatio'))
+          print('ACC48_U17_60_TRUE_COLD_CHILDREN_AND_LOSSLESS_CPU_RSS=PASS')
+          print('ACC48_U17_CLASSIFICATION='+j['Classification'])
+          PY
+      - name: Preserve raw JSON evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc48-u17-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc48-report.json
+            ${{ runner.temp }}/acc48-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    name: ACC48 independent 60/60 original U17 exact source/outputs
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc48-u17-*
+          path: artifacts
+      - name: Compare all 60 exact input, output and resource boundaries
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib,json
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc48-u17-ubuntu-latest'/'acc48-report.json').read_text())
+          b=json.loads((p/'acc48-u17-windows-latest'/'acc48-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda r:(r['Worker']['Mode'],r['Worker']['Cohort'],r['Worker']['Seed'])
+          aa={key(r):r['Worker'] for r in a['Trials']};bb={key(r):r['Worker'] for r in b['Trials']}
+          assert len(aa)==len(bb)==60 and set(aa)==set(bb)
+          for k in aa:
+            for f in ('SourceSHA256','OutputSHA256','EncodedBytes','OriginalBytes','LastRuleCount','Sessions'):
+              assert aa[k][f]==bb[k][f],(k,f)
+          print('ACC48_U17_60_OF_60_CROSSOS_TRUE_EXACT_HISTORY_PASS')
+          print('ACC48_LINUX='+a['Classification'])
+          print('ACC48_WINDOWS='+b['Classification'])
+          print('ACC48_ACTUAL_NATIVE_MODEL_ACCELERATION=UNVERIFIED')
+          PY
