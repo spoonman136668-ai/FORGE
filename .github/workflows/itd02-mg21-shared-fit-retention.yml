@@ -122,6 +122,32 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'MG21_REAL_ORIGINAL_SECOND_SOURCE_RUN_FAIL' }
           python -B $program --compare $first $second
           if ($LASTEXITCODE -ne 0) { throw 'MG21_REAL_SOURCE_NONDETERMINISTIC' }
+          # Read-only engineering interpretation of quarantined original-source receipts.
+          # This is descriptive, not a success threshold or scientific test.
+          $summary = @'
+import json,sys
+r=json.load(open(sys.argv[1],encoding="utf-8"))
+totals={}
+for row in r["original_native_probe_records"]:
+    role=row["role"]
+    item=totals.setdefault(role,dict(positive_rewards=0,terminated=0,
+        truncated=0,steps=0,distinct_public=0,episodes=0))
+    item["positive_rewards"]+=row["positive_rewards"]
+    item["terminated"]+=int(row["terminated"])
+    item["truncated"]+=int(row["truncated"])
+    item["steps"]+=row["probe_steps"]
+    item["distinct_public"]+=row["distinct_public"]
+    item["episodes"]+=1
+assert len(r["source_fit_receipts"])==4 and len(r["original_native_probe_records"])==28
+assert set(totals)=={"go_fit","go_fresh","ygg_fit","ygg_fresh",
+                    "tabular_fit","tabular_fresh","random"}
+print("MG21_FROZEN_ORIGINAL_SOURCE_FIT_STEPS "+
+    json.dumps({x["family"]:x["shared_original_fit_count"] for x in r["source_fit_receipts"]},sort_keys=True))
+print("MG21_OBSERVED_ARM_METRICS_ENGINEERING_ONLY "+
+    json.dumps(totals,sort_keys=True,separators=(",",":")))
+'@
+          $summary | python -B - $first
+          if ($LASTEXITCODE -ne 0) { throw 'MG21_SOURCE_RECEIPT_METRICS_FAILED' }
           if (git status --porcelain --untracked-files=all) { throw 'MG21_WORKTREE_DIRTY' }
           Write-Host 'MG21_ORIGINAL_SELECTED_ACTION_SOURCE_ENGINEERING_QUALIFIED_NOT_SCIENCE'
       - name: Retain original source full receipts
