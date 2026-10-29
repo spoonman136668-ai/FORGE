@@ -1,0 +1,30 @@
+# ACC-38: original U02 verified nonparametric speculation — Go CPU experiment (preregistered)
+
+**Original U02 scope, not MiniGrid, not an LLM throughput claim.** Original 30 U01–U30 and six AC-D1…AC-D6 retain independent statuses in unchanged AC-08 registry at blob `5126c860771fb024ccfc14c3f7ee8925edf29787`; physical U03/U06 are still software substitutes, not proof. This branch is stacked on existing ACC-34 PR #1131 at exact head `45b5d8173538a566bf0f63a8e2ade2dedb6e6166`. Prior ACC-34/35/36/37 results stay intact. **This document is committed before any ACC-38 source code or source execution.**
+
+## Hypothesis and resource-falsifiable limits
+
+Original U02 proposes speculative next-output generation using a nonparametric draft while the exact target verifies, potentially speeding inference through cheap batch verification. This experiment **does not have an LLM or a batched transformer target**, and cannot prove a real LLM latency improvement. It measures the more restrictive case in which each target verification is actually scalar and must be paid at full cost. A fast unsafe, oracle-informed or unverified proposal never counts as a win. This is a realistic *negative-control boundary* and may be a measured negative.
+
+Two distinct synthetic public target transition regimes, identical output alphabet 0…31:
+- **REPEATABLE:** target transition `(5*s+1) % 32`; the 32 public states are discoverable from FIT.
+- **SHIFTED:** FIT has the same transition, but post-FIT selected target transitions become `(7*s+3) % 32` without notifying the draft. This is an unannounced transition-law change, intentionally hostile to a stale memory.
+Each real target call executes the same deterministic 192-round nontrivial integer mixing workload (results retained in a work checksum). It is an *illustrative scalar target proxy*, not actual LLM inference, trained language, reusable attention, or a real batched verifier.
+
+Four fixed arms on identical source-free seeds and output lengths:
+1. `FULL`: emit all outputs from exact target calls. Strong scalar target baseline.
+2. `VERIFIED`: learn a 32-state next-symbol table with **128 charged exact-target FIT calls** per cold session, draft up to eight lookahead states from this table, but verify **every** emitted output against the exact target call, updating actual state from the true target on a mismatch. All draft, allocation, training, mismatch, verification, and hash costs charged.
+3. `UNVERIFIED`: same FIT and draft but omit target calls on evaluation; intentionally unsafe negative falsifier and **never eligible** even if fast.
+4. `ORACLE`: read target rule directly to emit without scalar target compute; privileged upper bound and **never eligible**.
+
+Each process performs **64 separately reinitialized sessions**, 2,048 post-FIT outputs/session, 128 FIT target calls/session for draft arms, fixed trial seed group 11,29,47,61,79 (five trials per scenario), 4 arms × 2 regimes = 40 measured child processes **per OS** plus optional preflight. All intended output sequences are determined by the true source transition rule; exact FULL/VERIFIED/ORACLE output SHA256 must match for every trial; UNVERIFIED must exhibit actual errors in SHIFTED measured from output comparison, never a hardcoded error count. Every verified session must report `target_eval_calls==2048`; no invalid rollback can skip a true target transition. Fit counts and costs belong to the process and can't be excluded. No external models, user data, paid API, protected scientific first use, or code in original native Wingless/Yggdrasil production.
+
+## Acceptance, measurement, and safe interpretation
+
+GitHub-hosted Ubuntu and Windows Go1.25; single Go command supports a `worker` child and a `driver` parent. Parent measures the **actual child process** `UserTime+SystemTime` after exit (not wall pretending to be CPU), parent elapsed wall separately, captures Go `runtime.MemStats.Sys` / `TotalAlloc` *not physical RSS*. All 40 children × 64 cold sessions are included. Fixed five measured trials, no after-results selection. If Windows child CPU rounds to zero, record `BLOCKED_CPU_CLOCK_RESOLUTION` and do not claim a CPU ratio. Holdout here is synthetic public development, not scientific first-use or an unfamiliar family.
+
+A **U02 SCALAR VERIFIED ENGINEERING WIN** requires BOTH OS and BOTH regimes: verified exact output digest = FULL; zero emitted errors; full verification count = all outputs; median VERIFIED/FULL whole-worker child CPU <= **0.90** and median Go Sys <= **1.10**. Otherwise `ACC38_U02_NO_VERIFIED_SCALAR_CPU_GAIN` when all source and CPU accounting are valid, or `ACC38_PROTOCOL_OR_METER_BLOCKED` if not. No claim of tensor batching or genuine transformer acceleration is licensed even by a positive result. Original initial restricted AC-07 speculation had 94–99 mismatched draft transitions of 127; that remains a separate small toy result and is not replaced with this test.
+
+Six or more focused Go tests assert lossless verification/rollback, correct mismatch measurement and oracle disqualification; exact unchanged AC-08 36-ID inventory audit runs before any measured worker. Git source identity and both OS test/vet/build required; every run saves complete metric rows, output hashes, acceptance checks, and genuine negatives. Zero full-size benchmark runs before preflight and code identity passes. All PRs draft/unmerged; no F139/CKB-plane controller, queue, protected main, native model/source training, owner release, G29/Atlas registry, or science acceptance mutation.
+
+**Following Stage-2 original U-family gates:** U12 actual file-streaming with warm/cold cache separately labeled; U01 decompression including random/incompressible weights and actual access timing; U05 activation retrieval with collision/lookup costs; U10/U13 safe sketch with true abstention/quality cost; U08/U22/U24 native predictive/structured controllers. AC-D5 stays conditional on original Ygg local feature-collision negative. Keep all 36 as distinct tracked candidates.

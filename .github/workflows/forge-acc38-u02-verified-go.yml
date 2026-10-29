@@ -1,0 +1,91 @@
+name: ACC38 original U02 verified native-Go scalar speculation
+on:
+  pull_request:
+    paths:
+      - 'docs/research/ACC-38-*'
+      - 'research/acceleration/acc38_go_spec/**'
+      - 'research/acceleration/test_acc38_portfolio.py'
+      - '.github/workflows/forge-acc38-u02-verified-go.yml'
+permissions:
+  contents: read
+jobs:
+  actual-verified-u02:
+    name: ACC38 true scalar verified speculation, complete child CPU / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Stdlib Python screening and negative controls
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compiled Go 1.25 source-only worker
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Pin preregistered code and source-only 36-ID portfolio before CPU test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object docs/research/ACC-38-U02-GO-SCALAR-SPECULATION-PREREG.md)" = c918e9d35d72523be5573c69b0b2e4caf6ba8e2a
+          test "$(git hash-object research/acceleration/acc38_go_spec/main.go)" = 41935be7040a67ac56ee44b6475fe068717102e5
+          test "$(git hash-object research/acceleration/acc38_go_spec/main_test.go)" = d543439910a5d6c8f920dc35b0b91d60de1042d5
+          test "$(git hash-object research/acceleration/acc38_go_spec/go.mod)" = 9d0d616d3c558cce86122890cb45d96d9f8733a4
+          test "$(git hash-object research/acceleration/test_acc38_portfolio.py)" = 2a4c9420395b86fd2e2c6894a3b394bed6bac930
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python -B -m unittest discover -s research/acceleration -p 'test_acc38_portfolio.py' -v
+          mkdir -p "$RUNNER_TEMP/acc38"
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc38/36-portfolio.json"
+          echo ACC38_ALL_36_ORIGINAL_ACCELERATION_IDENTITY_AND_NEGATIVES=PASS
+      - name: Native verified source worker tests and vet/build before any metering
+        shell: bash
+        working-directory: research/acceleration/acc38_go_spec
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./...
+          go vet ./...
+          ext=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then ext=".exe"; fi
+          go build -trimpath -o "$RUNNER_TEMP/acc38/native-u02$ext" .
+          echo ACC38_GENUINE_SCALAR_TARGET_PARITY_AND_UNSAFE_NEGATIVES=PASS
+      - name: Measure 40 original native Go cold child-process CPU trials
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then ext=".exe"; fi
+          "$RUNNER_TEMP/acc38/native-u02$ext" -run=driver -output="$RUNNER_TEMP/acc38/acc38-report.json"
+          python - "$RUNNER_TEMP/acc38/acc38-report.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert x["schema"]=="forge.acc38.u02.scalar-go.crossos.v1"
+          assert len(x["runs"])==40
+          assert x["all_36_original_portfolio_retained"] is True
+          assert x["original_external_environment_called"] is False
+          assert x["native_model_inference_improvement_proven"] is False
+          assert x["status"] in ("ACC38_U02_NO_VERIFIED_SCALAR_CPU_GAIN",
+                                "ACC38_PROTOCOL_OR_METER_BLOCKED",
+                                "ACC38_U02_SCALAR_VERIFIED_GO_CPU_WIN_ENGINEERING_ONLY")
+          for r in x["ratios"]:
+              assert r["full_verified_oracle_transcripts_match"] is True
+              assert r["full_scalar_verification_charged"] is True
+          print("ACC38_FULL_SCALAR_VERIFICATION_AND_NEGATIVE_PRESERVATION=PASS")
+          print("ACC38_MEASURED_STATUS="+x["status"])
+          PY
+      - name: Preserve exact source-free raw children, no original model
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc38-u02-native-go-verified-scalar-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc38/*.json
+          retention-days: 30
+          if-no-files-found: warn
