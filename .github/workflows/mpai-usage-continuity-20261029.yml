@@ -18,6 +18,9 @@ jobs:
         env:
           GIT_TERMINAL_PROMPT: '0'
           GCM_INTERACTIVE: 'Never'
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
           GH_PROMPT_DISABLED: '1'
           PYTHONDONTWRITEBYTECODE: '1'
           PYTHONNOUSERSITE: '1'
@@ -67,6 +70,8 @@ jobs:
               throw 'MPAI_USAGE_COMPLETE_HISTORY_REQUIRED'
             }
             Write-Output 'MPAI_USAGE_FULL_HISTORY_NO_PROMISOR_REQUIRED=PASS'
+            & git.exe -C $root config --get core.longpaths | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'MPAI_USAGE_LONGPATHS_GIT_CONFIG_UNAVAILABLE'}
             $patterns=@($need|ForEach-Object{'/'+$_})
             & git.exe -C $root sparse-checkout set --no-cone @patterns
             if($LASTEXITCODE -ne 0){throw 'MPAI_USAGE_SPARSE_CONTRACT_FAILED'}
@@ -192,7 +197,7 @@ jobs:
               $failCodes=[regex]::Matches($report,'UQ51_[A-Z0-9_]+')
               $uniqueCodes=@($failCodes | ForEach-Object { $_.Value } | Select-Object -Unique -First 5)
               foreach($code in $uniqueCodes){ Write-Output ('MPAI_USAGE_FULL_UQ51_FAILURE_CODE='+$code) }
-              foreach($className in @('fatal:','shallow','promisor','missing blob','missing object','not a valid object','unable to read','source refspec','reference is not a tree')){
+              foreach($className in @('fatal:','shallow','promisor','missing blob','missing object','not a valid object','unable to read','source refspec','reference is not a tree','filename too long','path too long')){
                 if($report.Contains($className)){
                   Write-Output ('MPAI_USAGE_FULL_GIT_DIAGNOSTIC_MATCH='+$className.Replace(' ','_').Replace(':',''))
                 }
