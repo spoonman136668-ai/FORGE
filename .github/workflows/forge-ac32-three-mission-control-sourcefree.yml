@@ -1,0 +1,37 @@
+name: AC32 source-free original three-mission conventional failure isolation
+on:
+  pull_request:
+    paths:
+      - 'research/lcrm01/ac32_three_mission_conventional.py'
+      - 'research/lcrm01/test_ac32_three_mission_conventional.py'
+      - '.github/workflows/forge-ac32-three-mission-control-sourcefree.yml'
+permissions:
+  contents: read
+jobs:
+  three-genuine-original-mission-conventional:
+    name: AC32 three true missions and old original control parity / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify source-free original mission extension and negative custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/lcrm01/ac32_three_mission_conventional.py)" = 19bb174cb2269cb58d000c87831da58898f0f3fd
+          test "$(git hash-object research/lcrm01/test_ac32_three_mission_conventional.py)" = 827732d6b23371fd467d6be4fd852e92b85ba707
+          python -B -m unittest discover -s research/lcrm01 -p 'test_ac32_three_mission_conventional.py' -v
+          echo AC32_TRUE_ORIGINAL_UNLOCK_CONVENTIONAL_INPUT_SOURCEONLY=PASS
+          echo AC32_PREVIOUS_EXPOSED_SOURCE_COHORT_NEVER_REPLAYED=PASS
+          echo AC32_AUTHENTIC_ORIGINAL_NEW_ACTIONS=ZERO
+          echo AC32_NATIVE_SUPERIORITY_OR_FIRST_USE=NOT_TESTED
