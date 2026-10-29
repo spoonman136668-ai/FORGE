@@ -215,7 +215,7 @@ def diagnostic(original_record,sourcekind):
         raise ValueError("MG09_PUBLIC_SELECTED_CONSEQUENCE_TALLY_CHANGED")
     return {"role":original_record["role"],
         "evaluator_seed_only":original_record.get("evaluator_seed_only",original_record.get("seed_evaluator_only")),
-        "original_public_start_sha":original_record["original_public_start_sha"],
+        "original_public_start_sha":original_record.get("original_public_start_sha",original_record.get("original_public_start_sha256")),
         "source_role_kind":sourcekind,
         "source_only_counts":c,
         "source_selected_action_counts":chosen,
@@ -247,7 +247,7 @@ def run(new_go,old_go,p):
             batch.append(episode)
             all_original.append(episode)
             all_diag.append(diagnostic(episode,kind))
-        if len({e["original_public_start_sha"] for e in batch})!=1:
+        if len({e.get("original_public_start_sha",e.get("original_public_start_sha256")) for e in batch})!=1:
             raise ValueError("MG09_SOURCE_PUBLIC_START_NOT_EQUAL")
     if len(all_original)!=21 or any(
         c["source_only_counts"]["original_selected_action_count"]!=192
