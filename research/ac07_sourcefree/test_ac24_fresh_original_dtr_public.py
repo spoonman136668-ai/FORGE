@@ -53,7 +53,7 @@ class AC24SourceContractTests(unittest.TestCase):
             a.validate_source(x,"FIT")
 
     def test_dev_source_not_relabelled_as_fit(self):
-        with self.assertRaisesRegex(RuntimeError,"AC24_SOURCE_SEED_OR_EPISODE_DRIFT"):
+        with self.assertRaisesRegex(RuntimeError,"AC24_ORIGINAL_SOURCE_CONTRACT_DRIFT"):
             a.validate_source(fixture("DEV"),"FIT")
         x=fixture("DEV");x["episodes"][0]["seed"]=a.FIT[0]
         with self.assertRaisesRegex(RuntimeError,"AC24_SOURCE_SEED_OR_EPISODE_DRIFT"):
