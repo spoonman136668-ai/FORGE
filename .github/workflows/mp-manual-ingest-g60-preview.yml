@@ -114,6 +114,67 @@ jobs:
               Write-Host 'G60_CANONICAL_SNAPSHOT_AND_CHECKPOINT_VALIDATE=PASS'
               Write-Host 'G60_PRODUCTION_ICE_UNCHANGED=PASS'
               Write-Host 'G60_SCIENCE_ACCEPTANCE=NOT_GRANTED'
+              # One required uncached original Windows regression before any private PR branch write.
+              if($env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+                $env:GITHUB_REF -cne 'refs/heads/review/mp-manual-ingest-g60-20261029') {
+                throw 'G60_OWNER_BRANCH_IDENTITY_MISMATCH'
+              }
+              $tempShort=Join-Path $env:SystemDrive ('m60-'+$env:GITHUB_RUN_ID)
+              $savedTemp=$env:TEMP; $savedTmp=$env:TMP
+              $savedCount=$env:GIT_CONFIG_COUNT; $savedKey=$env:GIT_CONFIG_KEY_0; $savedValue=$env:GIT_CONFIG_VALUE_0
+              if($savedCount -or $savedKey -or $savedValue){throw 'G60_GIT_ENV_IN_USE'}
+              if(Test-Path -LiteralPath $tempShort){throw 'G60_SHORT_TMP_COLLISION'}
+              New-Item -ItemType Directory -Path $tempShort -Force | Out-Null
+              try {
+                $env:TEMP=$tempShort; $env:TMP=$tempShort
+                $env:GIT_CONFIG_COUNT='1'; $env:GIT_CONFIG_KEY_0='core.longpaths'; $env:GIT_CONFIG_VALUE_0='true'
+                $fullLog=Join-Path $root 'full-regression.log'
+                & pwsh.exe -NoProfile -NonInteractive -File 'tests/Test-All.ps1' *> $fullLog
+                if($LASTEXITCODE -ne 0){
+                  $privateText=Get-Content -LiteralPath $fullLog -Raw
+                  $lastTest=@([regex]::Matches($privateText,'(?m)^RUN Test-[A-Za-z0-9_.-]+[.]ps1$') | ForEach-Object {$_.Value}) | Select-Object -Last 1
+                  if($lastTest){Write-Host ('G60_FAILED_LAST_NATIVE_TEST='+$lastTest)}
+                  throw 'G60_FULL_REGRESSION_FAILED_PRIVATE_LOG_WITHHELD'
+                }
+                Write-Host 'G60_UNCACHED_FULL_WINDOWS_REGRESSION=PASS'
+              } finally {
+                $env:TEMP=$savedTemp; $env:TMP=$savedTmp
+                $env:GIT_CONFIG_COUNT=$savedCount; $env:GIT_CONFIG_KEY_0=$savedKey; $env:GIT_CONFIG_VALUE_0=$savedValue
+                if(Test-Path -LiteralPath $tempShort){Remove-Item -LiteralPath $tempShort -Recurse -Force}
+              }
+              # Preserve the existing checkpoint authority: never push directly to main.
+              $reviewBranch='ingest/nci04-mr29-p6o-observed-20261029'
+              $remoteMain=@(& git ls-remote --exit-code origin refs/heads/main)
+              if($LASTEXITCODE -ne 0 -or $remoteMain.Count -ne 1 -or
+                (([string]$remoteMain[0] -split '\s+')[0]) -cne $env:EXPECTED_MP_SOURCE){throw 'G60_MAIN_MOVED_ABORT'}
+              $remoteReview=@(& git ls-remote --exit-code origin ('refs/heads/'+$reviewBranch))
+              if($LASTEXITCODE -ne 0 -or $remoteReview.Count -ne 1 -or
+                (([string]$remoteReview[0] -split '\s+')[0]) -cne $env:EXPECTED_MP_SOURCE){throw 'G60_REVIEW_BRANCH_MOVED_ABORT'}
+              & git checkout -q -b $reviewBranch
+              if($LASTEXITCODE -ne 0){throw 'G60_REVIEW_BRANCH_CHECKOUT_FAILED'}
+              & git add -- @($permitted)
+              if($LASTEXITCODE -ne 0){throw 'G60_EXACT_DURABLE_STAGE_FAILED'}
+              $stagedNames=@(& git diff --cached --name-only)
+              if($stagedNames -notcontains '.ice/records.json' -or
+                $stagedNames -notcontains '.ice/source-ledger.json' -or
+                @($stagedNames | Where-Object {$permitted -cnotcontains $_}).Count -ne 0) {
+                throw 'G60_STAGED_CHANGESET_NOT_ACCEPTABLE'
+              }
+              $commitLog=Join-Path $root 'commit-private.log'
+              & git -c 'user.name=spoonman136668-ai' -c 'user.email=253477821+spoonman136668-ai@users.noreply.github.com' commit -m 'memory: record original-source MR29 and P6O development negatives (review only)' *> $commitLog
+              if($LASTEXITCODE -ne 0){throw 'G60_PRIVATE_COMMIT_FAILED_PRIVATE_OUTPUT_WITHHELD'}
+              $newHead=(& git rev-parse HEAD).Trim()
+              $parent=(& git rev-parse HEAD^).Trim()
+              if($parent -cne $env:EXPECTED_MP_SOURCE){throw 'G60_COMMIT_PARENT_MISMATCH'}
+              $pushLog=Join-Path $root 'push-private.log'
+              & git push --quiet origin ('HEAD:refs/heads/'+$reviewBranch) *> $pushLog
+              if($LASTEXITCODE -ne 0){throw 'G60_PRIVATE_REVIEW_PUSH_UNAVAILABLE'}
+              $published=@(& git ls-remote --exit-code origin ('refs/heads/'+$reviewBranch))
+              if($LASTEXITCODE -ne 0 -or $published.Count -ne 1 -or
+                (([string]$published[0] -split '\s+')[0]) -cne $newHead){throw 'G60_PUBLISHED_REVIEW_SHA_MISMATCH'}
+              Write-Host ('G60_PRIVATE_REVIEW_BRANCH_HEAD='+$newHead)
+              Write-Host 'G60_REVIEW_ONLY_NO_MAIN_PUSH=PASS'
+              Write-Host 'G60_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED'
             } finally { Pop-Location }
           } finally {
             if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
