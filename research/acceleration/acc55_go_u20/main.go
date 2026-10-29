@@ -75,7 +75,7 @@ func compare(all []trial,family string)(cohort,error){
  for _,m:=range modes{rr:=groups[m];if len(rr)!=5{return c,errors.New("missing mode")};var ac,cp,rss []float64;for _,r:=range rr{ac=append(ac,r.Worker.HeldoutAccuracy);cp=append(cp,r.CPUSeconds);rss=append(rss,float64(r.Worker.PeakRSSBytes))};c.Accuracy[m]=median(ac);c.CPU[m]=median(cp);c.RSS[m]=median(rss)}
  c.Fastest="ENUM";bestAccuracy:=c.Accuracy["ENUM"]
  for _,m:=range []string{"COMPLEXITY","FIT_FIRST"}{if c.CPU[m]<c.CPU[c.Fastest]{c.Fastest=m};if c.Accuracy[m]>bestAccuracy{bestAccuracy=c.Accuracy[m]}}
- c.AccuracyGain=c.Accuracy["MDL"]-bestAccuracy;c.CPURatio=c.CPU["MDL"]/c.CPU[c.Fastest];c.RSSRatio=c.RSS["MDL"]/c.RSS[c.Fastest];c.Improved=c.AccuracyGain>=.05;c.Regressed=c.AccuracyGain<-.02
+ c.AccuracyGain=c.Accuracy["MDL"]-bestAccuracy;c.CPURatio=c.CPU["MDL"]/c.CPU[c.Fastest];c.RSSRatio=c.RSS["MDL"]/c.RSS[c.Fastest];c.Improved=c.AccuracyGain>=.05;c.Regressed=c.AccuracyGain < -0.02
  return c,nil}
 func drive(path string)error{
  exe,e:=os.Executable();if e!=nil{return e};r:=report{Schema:schema,OS:runtime.GOOS,Trials:make([]trial,0,80)}
