@@ -1,0 +1,125 @@
+name: ITD-02 MG27 original selected action/outcome signal falsification
+on:
+  push:
+    branches:
+      - research/itd02-mg27-public-action-outcome-signal-falsification-20261029
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-real-selected-source-audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+      PYTHONPATH: research/lcrm01
+    steps:
+      - name: Require byte-identical original source newline contract
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout frozen original source audit descendant
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Python 3.11 for standard-library-only exact receipts
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Check frozen prospective analytic test scope before original evidence read
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor a807a916c30d698f091eab40a3071df4348b022f $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG27_ORIGINAL_MG26_PARENT_NOT_ANCESTOR' }
+          git merge-base --is-ancestor 942fbe241a48949284bba975a76d931f979d95e0 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG27_RETROSPECTIVE_ANALYSIS_NOT_FROZEN_PRE_EXECUTABLE' }
+          $expected=@(
+            '.github/workflows/itd02-mg27-original-action-outcome-falsification.yml'
+            'research/lcrm01/mg27_action_outcome_falsification_prereg.json'
+            'research/lcrm01/mg27_original_action_outcome_falsification.py'
+            'research/lcrm01/test_mg27_action_outcome_falsification.py'
+          )
+          $actual=@(git diff --name-only a807a916c30d698f091eab40a3071df4348b022f $env:GITHUB_SHA)
+          if (@(Compare-Object $expected $actual).Count -ne 0) { throw 'MG27_OUTSIDE_FROZEN_RESEARCH_SCOPE' }
+          $pins=@{
+            'research/lcrm01/mg27_action_outcome_falsification_prereg.json'='0359faf5ee625b3aef6813fe95b07a7938d5995e'
+            'research/lcrm01/mg27_original_action_outcome_falsification.py'='ddd2e161c3172e32a15567426df3ca33ccc8897e'
+            'research/lcrm01/test_mg27_action_outcome_falsification.py'='ff1736c1a08da2553223d8ade45a76dcd0e7de66'
+          }
+          foreach($path in $pins.Keys) {
+            if ((git hash-object $path).Trim() -ne $pins[$path]) { throw "MG27_IMMUTABLE_ANALYTIC_BLOB_DRIFT:$path" }
+          }
+          if (git status --porcelain --untracked-files=all) { throw 'MG27_ACCEPTED_RESEARCH_TREE_DIRTY' }
+          Write-Host 'MG27_PROSPECTIVE_ANALYTIC_FROZEN_BEFORE_EXECUTABLE_SCOPE_PASS'
+      - name: Reject time leakage, tampering and false negative controls before source replay
+        shell: pwsh
+        run: |
+          python -B -m unittest -q test_mg27_action_outcome_falsification
+          if ($LASTEXITCODE -ne 0) { throw 'MG27_NEGATIVE_CONTROL_OR_SOURCE_PREFIX_TEST_FAIL' }
+      - name: Authenticate original two-process public actions and score negative controls
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'mg27'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          gh run download 40874118161 --repo spoonman136668-ai/FORGE --name mg24-original-selected-dev-nine-arm-ubuntu-24.04 --dir $root
+          if ($LASTEXITCODE -ne 0) { throw 'MG27_MISSING_AUTHENTIC_ORIGINAL_SOURCE_ARTIFACT' }
+          $first=Join-Path $root 'mg24-real-dev/first.json'
+          $second=Join-Path $root 'mg24-real-dev/second.json'
+          if (!(Test-Path $first) -or !(Test-Path $second)) { throw 'MG27_TWO_ORIGINAL_COMPLETE_REPLAYS_MISSING' }
+          python -B research/lcrm01/mg27_original_action_outcome_falsification.py --first $first --second $second --output (Join-Path $root 'receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'MG27_ORIGINAL_ACTION_CONSEQUENCE_FALSIFICATION_FAILED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG27_RESEARCH_TREE_MUTATED' }
+      - name: Preserve complete negative or positive information receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg27-original-action-outcome-falsification-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg27/receipt.json
+          retention-days: 30
+          if-no-files-found: warn
+  verify-independent-cross-host:
+    needs: independent-real-selected-source-audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: mg27-original-action-outcome-falsification-*
+          path: evidence
+      - name: Fail closed unless authentic complete source and both OS agree
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,pathlib,hashlib
+          files=sorted(pathlib.Path("evidence").rglob("receipt.json"))
+          if len(files)!=2:
+              raise SystemExit("MG27_INDEPENDENT_WINDOWS_LINUX_WITNESS_MISSING")
+          a,b=(json.loads(f.read_text(encoding="utf-8")) for f in files)
+          if a!=b:
+              raise SystemExit("MG27_CROSS_PLATFORM_SAME_SOURCE_DIVERGENCE")
+          if (a.get("original_source_SHA256")!="e2dda4721d6d96ffd083faac5960013380b29c3325f560defa989c4eef0852a9" or
+              a.get("source_original_episodes_authenticated")!=72 or
+              a.get("original_source_total_steps_authenticated")!=9186 or
+              len(a.get("per_role",{}))!=3 or
+              a.get("new_original_world_source_steps")!=0 or
+              a.get("scientific_first_use") is not False):
+              raise SystemExit("MG27_UNGROUNDED_ORIGINAL_SOURCE_INFORMATION_CLAIM")
+          original={k:v for k,v in a.items() if k!="sha256"}
+          canonical=json.dumps(original,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode("ascii")
+          if hashlib.sha256(canonical).hexdigest()!=a.get("sha256"):
+              raise SystemExit("MG27_ORIGINAL_ANALYTIC_RECEIPT_HASH_MISMATCH")
+          print("MG27_ORIGINAL_EVIDENCE_CROSS_OS_FALSIFICATION_PASS_NOT_SCIENCE",a["sha256"])
+          print("MG27_ACTUAL_PREDECLARED_NATIVE_MECHANISM_FOLLOWUP_THRESHOLD",a["predeclared_signal_pass_for_native_opt_in_followup"])
+          PY
