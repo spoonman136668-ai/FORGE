@@ -44,6 +44,10 @@ jobs:
                 $m=[regex]::Match($raw,'MPAI05_P6_SAFE_FAILURE=(MPAI05_P6_[A-Z0-9_]{3,80})')
                 if($m.Success){Write-Output ('MPAI05_P6_FAILURE_CLASS='+$m.Groups[1].Value)}
                 else {Write-Output 'MPAI05_P6_FAILURE_CLASS=PRIVATE_EXCEPTION'}
+                $phase=[regex]::Match($raw,'MPAI05_P6_SAFE_PHASE=(INITIAL|SCRATCH|CLONE|SOURCE_IDENTITY|ACCEPTED_CHECKOUT|WEIGHTS|WEIGHT_PREFLIGHT|MCP|INFERENCE|FINAL_SOURCE_CUSTODY)')
+                if($phase.Success){Write-Output ('MPAI05_P6_FAILURE_STAGE='+$phase.Groups[1].Value)}
+                $exc=[regex]::Match($raw,'MPAI05_P6_SAFE_EXCEPTION=(RuntimeError|OSError|FileNotFoundError|PermissionError|ValueError|TypeError|KeyError|ModuleNotFoundError|ImportError|HTTPError|URLError|TimeoutError|AssertionError|AttributeError|CalledProcessError)')
+                if($exc.Success){Write-Output ('MPAI05_P6_FAILURE_TYPE='+$exc.Groups[1].Value)}
                 throw 'MPAI05_P6_PRIVATE_RUN_FAILED'
               }
               if($raw -notmatch 'MPAI05_P6_LOCAL_MODEL_CALLS=32' -or
