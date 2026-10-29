@@ -92,7 +92,7 @@ def episode(role,boundary,fit,new_go,old_go,p):
     go=None;y=None;ordinary=None;control=None;episode_memory=None;two=None
     rng=random.Random(97011+seed)
     try:
-        raw,receipt=replay_verified(env,boundary,owner,collector)
+        raw,replay_receipt=replay_verified(env,boundary,owner,collector)
         first=source.normalize(collector,owner,raw)
         first_sha=owner.digest(first)
         adapter.reset_public(first)
@@ -209,7 +209,7 @@ def episode(role,boundary,fit,new_go,old_go,p):
         return {"role":role,"evaluator_seed_only":seed,
              "source_replay_boundary_id":boundary['id'],
              "source_replay_prefix_length":len(boundary['replay_selected_actions']),
-             "source_replay_prefix_sha":receipt['prefix_sha'],
+             "source_replay_prefix_sha":replay_receipt['prefix_sha'],
              "original_public_start_sha":first_sha,
              "real_original_source_actions":len(events),
              "distinct_original_selected_actions":len(seen_actions),
