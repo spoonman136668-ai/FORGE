@@ -1,0 +1,145 @@
+name: F139 V19 production worker V3 candidate source regression
+on:
+  push:
+    branches: [release/f139-v19-native-worker-v3-bridge-20261029]
+permissions:
+  contents: read
+concurrency:
+  group: f139-v19-original-worker-v3-bridge
+  cancel-in-progress: false
+jobs:
+  original-worker-regression:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.ref == 'refs/heads/release/f139-v19-native-worker-v3-bridge-20261029' && github.run_attempt == 1
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    timeout-minutes: 18
+    steps:
+      - shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact V20 controller+worker release source scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $baseline='503a55be9eaa34ade818f3a47ca530e67f26ba8f'
+          if((git rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA){throw 'V3_PRODUCTION_SOURCE_DRIFT'}
+          & git merge-base --is-ancestor $baseline HEAD
+          if($LASTEXITCODE -ne 0){throw 'V3_PRODUCTION_MAIN_PARENT_DRIFT'}
+          $got=@(& git diff --name-only $baseline HEAD | Sort-Object)
+          $want=@('.github/workflows/f139-v19-worker-v3-release-qualification.yml',
+                  '.github/workflows/forge-f139-development-worker.yml',
+                  'f139/nci04_worker_entry.py',
+                  'f139/nci04_owner_v3_dispatch.py',
+                  'f139/test_nci04_owner_v3_dispatch.py',
+                  'f139/nci04_worker_v3.py',
+                  'f139/nci04_v3_bounded_resource.py',
+                  'f139/local_controller.py',
+                  'f139/nci04_owner_ledger.py',
+                  'f139/nci04_owner_lock_state.py',
+                  'f139/test_nci04_owner_lock_state.py',
+                  'f139/nci04_v20_owner_readonly_preflight.py',
+                  'f139/test_nci04_v20_owner_readonly_preflight.py',
+                  '.github/workflows/f139-v20-original-owner-cutover.yml',
+                  'f139/nci04_original_v3_terminal.py',
+                  'f139/test_nci04_original_v3_terminal.py',
+                  'f139/test_nci04_worker_v3.py')|Sort-Object
+          if(($got -join '|') -cne ($want -join '|')){throw ('V3_PRODUCTION_DIFF_SCOPE_DRIFT='+($got -join ','))}
+          if(@(& git status --porcelain --untracked-files=all).Count -ne 0){throw 'V3_PRODUCTION_DIRTY'}
+          Write-Output 'F139_V19_PRODUCTION_WORKER_SOURCE_SCOPE=PASS'
+      - name: Test production V3 worker deny-positive contract
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GH_TOKEN -or $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY){throw 'V3_UNEXPECTED_SECRETS'}
+          & python -B -m unittest f139.test_nci04_worker_v3 f139.test_nci04_owner_v3_dispatch f139.test_nci04_original_v3_terminal f139.test_nci04_v20_owner_readonly_preflight f139.test_nci04_owner_lock_state -v
+          if($LASTEXITCODE -ne 0){throw 'V3_PRODUCTION_WORKER_UNIT_FAILURE'}
+          & python -B -c "import ast,pathlib; [ast.parse(pathlib.Path(x).read_text('utf-8')) for x in ['f139/nci04_worker_v3.py','f139/nci04_worker_entry.py','f139/test_nci04_worker_v3.py','f139/nci04_owner_v3_dispatch.py','f139/test_nci04_owner_v3_dispatch.py','f139/nci04_original_v3_terminal.py','f139/test_nci04_original_v3_terminal.py','f139/local_controller.py','f139/nci04_v3_bounded_resource.py','f139/nci04_owner_ledger.py','f139/nci04_owner_lock_state.py','f139/test_nci04_owner_lock_state.py','f139/nci04_v20_owner_readonly_preflight.py','f139/test_nci04_v20_owner_readonly_preflight.py']]"
+          if($LASTEXITCODE -ne 0){throw 'V3_PRODUCTION_SOURCE_SYNTAX_FAILURE'}
+          Write-Output 'F139_V19_V3_WORKER_PRODUCTION_MODULE_TESTS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: fc5d28a836f33caad3a576e0a6d4a1bf211cd857
+          path: v3-verified-original
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 339276862e42a067344990dc20d907f203009b90
+          path: v3-original-candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned cross-OS native process sampler
+        shell: pwsh
+        run: |
+          & python -B -m pip install --disable-pip-version-check --no-input 'psutil==6.1.1'
+          if($LASTEXITCODE -ne 0){throw 'F139_V3_REQUIRED_CPU_RSS_SAMPLER_UNAVAILABLE'}
+      - name: Invoke actual production V3 module with genuine source and one changed file
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $snippet=@'
+          import json,os,pathlib,sys,tempfile
+          from f139.nci04_native_contract import Candidate,digest,canonical
+          from f139.nci04_signed_native import NativeAdmission
+          from f139.nci04_worker_v3 import TARGET,run_v3,receipt_v3,SCHEMA,RECEIPT
+          base=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          head=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          root=pathlib.Path(sys.argv[3]).resolve(strict=True)
+          before=(base/TARGET).read_bytes()
+          after=(head/TARGET).read_bytes()
+          assert before!=after
+          bsha='fc5d28a836f33caad3a576e0a6d4a1bf211cd857'
+          tree='4cab523b03f7316b2470eddb93c479ec9e8cbab4'
+          c=Candidate('a'*64,'b'*64,bsha,tree,TARGET,digest(before),digest(after),after,'Yggdrasil')
+          label='windows-latest' if os.name=='nt' else 'ubuntu-latest'
+          with tempfile.TemporaryDirectory(prefix='f139-v3-real-stage-') as scratch:
+              report=run_v3(c,base,scratch,oslabel=label)
+          a=NativeAdmission('f139-nci04-i2000-aaaaaaaaaaaa-aaaaaaaa',
+                            'Yggdrasil','a'*40,99999880000,label,2000,20001,c,'c'*64)
+          receipt=receipt_v3(a,report)
+          assert report['baseline_g29']['status']=='PASS'
+          assert report['baseline_full']['status']=='PASS'
+          assert report['baseline_full']['discovered_tests']>0
+          assert report['candidate_g29_negative']['status']=='G29_CHANGED_SOURCE_EXPECTED_REJECTION'
+          assert len(report['candidate_nonatlas'])>=4
+          assert all(x['status']=='PASS' and x['discovered_tests']>0 for x in report['candidate_nonatlas'].values())
+          assert report['candidate_compile']['status']=='PASS'
+          assert report['native_qualified'] is True and report['child_cpu_rss_verified'] is True and report['resource_accounting']=='psutil-sampled-process-tree-v1'
+          assert receipt['schema']==RECEIPT and receipt['native_qualified'] is True and receipt['development_only'] is True and receipt['scientific_first_use_authorized'] is False
+          out=root/'f139-v3-real-source-only-report.json'
+          assert not out.exists()
+          out.write_bytes(canonical(report))
+          print('F139_V19_V3_REAL_REPAIRED_SOURCE_AND_CHANGED_CANDIDATE=PASS')
+          print('F139_V19_V3_NATIVE_DEV_RECEIPT=POSITIVE_SOURCE_ONLY_NOT_OWNER_CONSUMED')
+          print('F139_V19_V3_SAMPLED_CHILD_CPU_RSS_BUDGET=PASS_NOT_KERNEL_HARD_LIMIT')
+          print('F139_V19_V3_ORIGINAL_OWNER_LEDGER=UNTOUCHED')
+          '@
+          $script=Join-Path $env:RUNNER_TEMP 'f139-v3-real-source-check.py'
+          [IO.File]::WriteAllText($script,$snippet,[Text.UTF8Encoding]::new($false))
+          & python -B $script (Join-Path $env:GITHUB_WORKSPACE 'v3-verified-original') (Join-Path $env:GITHUB_WORKSPACE 'v3-original-candidate') $env:RUNNER_TEMP
+          if($LASTEXITCODE -ne 0){throw 'V3_REAL_PRODUCTION_WORKER_SOURCE_FAILURE'}
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: f139-v3-worker-release-source-qualification-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-v3-real-source-only-report.json
+          if-no-files-found: error
+          retention-days: 90
