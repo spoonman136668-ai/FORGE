@@ -1,0 +1,120 @@
+name: AC21 sequential historical native FIT and cold DEV
+on:
+  pull_request:
+    paths:
+      - 'research/ac07_sourcefree/ac21_*'
+      - 'research/ac07_sourcefree/test_ac21_*'
+      - 'docs/research/AC-21-*'
+      - '.github/workflows/forge-ac21-sequential-local-native.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  historical-native:
+    name: AC21 authentic frozen-public FIT / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            ac15_sha256: 68508db981776033d403094f237c17dbbfbadf822ac9eca011feb05d50cba286
+            ac18_sha256: de74656aa8cbef76f995a22d1253804583ac18c03f9715efa740ca86cd08ef10
+          - os: windows-latest
+            ac15_sha256: 071512caf92b82d8b3ed619d79d7741447be72bde29ae9b1b64fd42de2e39077
+            ac18_sha256: 2cea6c95247e36daf2a944f965b39184031da2897259d211f556655864fd95a8
+    steps:
+      - name: Checkout research branch without persistent token
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout immutable original historical native source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: a39171a76d0d7817e3563682bb139a9d7ecf37c4
+          path: ac21_ygg
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout original upstream for Git source identity only
+        uses: actions/checkout@v4
+        with:
+          repository: CausalAILab/Causal-Gymnasium
+          ref: c94e9a4cd3641588b6b8507e71ccee5c27032bdf
+          path: ac21_dtr
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Standard library Python only
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve certified original public records, without executing source
+        uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 40797373953
+          github-token: ${{ github.token }}
+          name: forge-ac07-${{ matrix.os }}-sourcefree-restricted
+          path: frozen-public-source
+      - name: Byte-authenticate real source FIT and untouched DEV receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "frozen-public-source/ac15-report.json" "frozen-public-source/ac18-report.json" "${{ matrix.ac15_sha256 }}" "${{ matrix.ac18_sha256 }}" <<'PY'
+          import hashlib,json,pathlib,sys
+          for path,expected in ((sys.argv[1],sys.argv[3]),(sys.argv[2],sys.argv[4])):
+              p=pathlib.Path(path)
+              assert p.is_file(),path
+              got=hashlib.sha256(p.read_bytes()).hexdigest()
+              assert got==expected,(p,got,expected)
+              doc=json.loads(p.read_text(encoding="utf-8"))
+              assert doc["scientific_first_use"] is False
+              print("AC21_FROZEN_SOURCE_RECEIPT_SHA256="+p.name+"="+got)
+          PY
+      - name: Focused source-public ordering and forbidden-data regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac21_*.py' -v
+      - name: Execute eight FIT only and four DEV original native comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac21_sequential_local_native.py --native "$GITHUB_WORKSPACE/ac21_ygg" --source "$GITHUB_WORKSPACE/ac21_dtr" --ac15-report "$GITHUB_WORKSPACE/frozen-public-source/ac15-report.json" --ac18-report "$GITHUB_WORKSPACE/frozen-public-source/ac18-report.json" --out "$RUNNER_TEMP/ac21-native-report.json"
+          python - "$RUNNER_TEMP/ac21-native-report.json" <<'PY'
+          import hashlib,json,pathlib,sys,math
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac21.sequential-public-history-original-native-fit.v1"
+          assert r["fit_episodes_replayed"]==8 and r["dev_episodes_replayed"]==4
+          assert r["new_source_owned_episodes"]==0
+          assert r["fit_native_terminal_label_updates"]==8
+          assert r["fit_local_write_count"]==32 and r["dev_local_write_count"]==16
+          assert r["original_native_changed_during_fit"] is True
+          assert r["native_cold_restore_predictions_match"] is True
+          assert r["dev_updates"]==0
+          assert len(r["dev_public_records"])==4 and len(r["dev_scoring"])==10
+          assert all(v["n"]==4 and math.isfinite(v["brier"]) for v in r["dev_scoring"].values())
+          assert r["per_site_temporal_latch_is_fixed_not_learned"] is True
+          assert r["external_two_site_prediction_fusion"] is True
+          for key in ("source_private_latent_or_model_oracle_used","source_module_imported",
+                      "on_policy_source_actions_executed","true_on_policy_return_measured",
+                      "learned_distributed_temporal_memory_demonstrated",
+                      "superiority_over_all_fully_informed_controls_proven",
+                      "scientific_first_use","scientific_admission",
+                      "active_native_or_forge_controller_modified"):
+              assert r[key] is False,key
+          print("AC21_ORIGINAL_FIT_DEV_ENGINEERING=PASS")
+          print("AC21_NATIVE_DEV_BRIER="+str(r["dev_scoring"]["native_two_local_cells"]["brier"]))
+          print("AC21_MATCHED_COUNT_DEV_BRIER="+str(r["dev_scoring"]["original_local_count_two_cells"]["brier"]))
+          print("AC21_FULL_HISTORY_TABULAR_DEV_BRIER="+str(r["dev_scoring"]["full_history_laplace"]["brier"]))
+          print("AC21_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Preserve qualified and negative engineering measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ac21-historical-native-${{ matrix.os }}
+          path: ${{ runner.temp }}/ac21-native-report.json
+          retention-days: 30
+          if-no-files-found: ignore
