@@ -1,0 +1,88 @@
+name: AC28 original public mission incompatibility custody (source-free)
+on:
+  pull_request:
+    paths:
+      - 'research/lcrm01/ac28_source_mission_blocker.py'
+      - 'research/lcrm01/test_ac28_source_mission_blocker.py'
+      - 'docs/research/AC-28-ORIGINAL-MISSION-BOUNDARY-NEGATIVE.md'
+      - '.github/workflows/forge-ac28-mission-boundary.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-mission-source-identity:
+    name: AC28 original Unlock and Ygg mission blocker / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout source-free retrospective negative audit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout unchanged exact original Farama public mission
+        uses: actions/checkout@v4
+        with:
+          repository: Farama-Foundation/Minigrid
+          ref: 7f5853792ea7f04f75614661006d87fcf949f26d
+          fetch-depth: 1
+          path: original-farama
+          persist-credentials: false
+      - name: Checkout unchanged exact original Yggdrasil R10 adapter
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 770244b04d011466458b2335d3951daf7653dc8f
+          fetch-depth: 1
+          path: original-ygg
+          persist-credentials: false
+      - name: Set Python stdlib only
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download sole failed authentic AC28 source attempt, never re-run it
+        uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 40844398914
+          github-token: ${{ github.token }}
+          name: ac28-original-unlock-public-transfer-four-arm-evidence
+          path: original-blocked-evidence
+      - name: Test that original public mission mismatch and forgery refusal are reproducible
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/lcrm01 -p 'test_ac28_source_mission_blocker.py' -v
+          python -B research/lcrm01/ac28_source_mission_blocker.py --unlockroot "$GITHUB_WORKSPACE/original-farama" --yggroot "$GITHUB_WORKSPACE/original-ygg" --source-file "$GITHUB_WORKSPACE/original-blocked-evidence/first.json" --out "$RUNNER_TEMP/ac28-original-mission-blocker.json"
+          python - "$RUNNER_TEMP/ac28-original-mission-blocker.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac28.original-cross-family-public-mission-boundary.v1"
+          assert r["classification"]=="AC28_PUBLIC_MISSION_INCOMPATIBLE__TARGET_TRANSFER_NOT_TESTED"
+          assert r["original_target_env"]=="MiniGrid-Unlock-v0"
+          assert r["original_target_mission"]=="open the door"
+          assert r["original_r10_required_mission"]=="use the key to open the door and then get to the goal"
+          assert r["archived_blocked_original_trial_run"]==40844398914
+          assert r["original_source_first_new_episode_actions"]=="NOT_ATTESTED_FROM_BLOCKED_PROCESS"
+          assert r["native_transfer_score"]=="NOT_EVALUABLE"
+          assert r["original_target_episodes_newly_executed_by_audit"]==0
+          for k in ("original_target_env_imported_or_reset_by_audit","source_public_mission_rewritten",
+                    "original_native_models_edited","native_model_or_classical_goal_superiority",
+                    "hidden_objective_or_pose_used","scientific_first_use","scientific_admission",
+                    "controller_protected_main_or_queue_changed"):
+              assert r[k] is False,k
+          print("AC28_ORIGINAL_PUBLIC_MISSION_BOUNDARY_AUTHENTICATED=PASS")
+          print("AC28_TARGET_TRANSFER_OUTCOME=NOT_EVALUABLE")
+          print("AC28_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Archive exact original negative blocker receipt, no environment calls
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ac28-sourcefree-mission-blocker-${{ matrix.os }}
+          path: ${{ runner.temp }}/ac28-original-mission-blocker.json
+          retention-days: 30
+          if-no-files-found: error
