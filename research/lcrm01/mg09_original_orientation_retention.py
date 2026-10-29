@@ -237,7 +237,7 @@ def run(new_go,old_go,p):
         for role in ROLES:
             if role in parent.ROLES:
                 episode=parent.episode(role,seed,original_fit,new_go,old_go,
-                                       {"live_action_cap":192})
+                                       {"max_original_steps":192})
                 kind="mg07"
             else:
                 original_frozen=dict(original_fit,native_go=original_fit["parent_go"])
