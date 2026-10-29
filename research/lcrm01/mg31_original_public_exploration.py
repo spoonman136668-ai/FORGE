@@ -306,9 +306,10 @@ def main():
             "trace_tail":traceback.format_exc().splitlines()[-12:]}
     result["host_wall_time_outside_canonical_source_seconds"]=round(time.perf_counter()-started,6)
     opt.output.write_text(json.dumps(result,sort_keys=True,indent=2)+"\n")
-    print("MG31_ORIGINAL_WORLD_CLASSIFICATION",result["classification"])
-    if "BLOCKED" in result["classification"]:
-        raise ValueError(result["error"])
+    classification=result.get("classification",result.get("source",{}).get("classification","MG31_MISSING_ORIGINAL_CLASSIFICATION_BLOCKED"))
+    print("MG31_ORIGINAL_WORLD_CLASSIFICATION",classification)
+    if "BLOCKED" in classification:
+        raise ValueError(result.get("error","MG31_MISSING_SOURCE_CLASSIFICATION"))
     print("MG31_ORIGINAL_WORLD_SOURCE_SHA",result["canonical_source_sha256"])
 if __name__=="__main__":
     main()
