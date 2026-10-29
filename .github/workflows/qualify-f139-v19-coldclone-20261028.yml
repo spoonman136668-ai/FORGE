@@ -97,6 +97,32 @@ jobs:
                       finally:
                           destination.close()
                       backup_hash = hashlib.sha256(backup.read_bytes()).hexdigest()
+                      # The V18 event-chain verifier intentionally binds two
+                      # negative provider ZIPs to DB.filename.parent. A bare
+                      # SQLite file is NOT a restorable owner proof. Preserve
+                      # these original byte-verified custody files in the
+                      # temporary clone's own root, not via source-path links.
+                      from f139.nci04_negative_owner_store import (
+                          TICKET as NEG_A, RUN_ID as RUN_A, ARTIFACT_SHA as SHA_A)
+                      from f139.nci04_split_negative_custody import (
+                          TICKET as NEG_B, RUN_ID as RUN_B,
+                          ARTIFACT_SHA256 as SHA_B)
+                      for ticket, run_id, expected_sha in (
+                              (NEG_A, RUN_A, SHA_A),
+                              (NEG_B, RUN_B, SHA_B)):
+                          rel = pathlib.Path("native-negative") / ticket / str(run_id) / "ubuntu-latest.zip"
+                          source_archive = original.parent / rel
+                          parent = original.parent
+                          for part in rel.parts[:-1]:
+                              parent = parent / part
+                              assert parent.is_dir() and not parent.is_symlink(), "F139_V19_ORIGINAL_CUSTODY_PARENT_INVALID"
+                          assert source_archive.is_file() and not source_archive.is_symlink(), "F139_V19_ORIGINAL_CUSTODY_FILE_MISSING"
+                          assert source_archive.stat().st_size <= 2_000_000, "F139_V19_CUSTODY_FILE_SIZE_UNBOUNDED"
+                          assert hashlib.sha256(source_archive.read_bytes()).hexdigest() == expected_sha, "F139_V19_ORIGINAL_CUSTODY_FILE_HASH_MISMATCH"
+                          cloned_archive = tmp / rel
+                          cloned_archive.parent.mkdir(parents=True, exist_ok=True)
+                          shutil.copyfile(source_archive, cloned_archive)
+                          assert hashlib.sha256(cloned_archive.read_bytes()).hexdigest() == expected_sha, "F139_V19_CUSTODY_BUNDLE_COPY_MISMATCH"
                       cold = Database.open_readonly(backup)
                       try:
                           cold.verify()
