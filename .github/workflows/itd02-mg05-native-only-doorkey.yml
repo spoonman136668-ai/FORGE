@@ -1,0 +1,53 @@
+name: ITD-02 MG05 authentic DoorKey native-only actions and uniform control
+on:
+  push:
+    branches:
+      - research/itd02-mg05-native-only-seven-action-original-20261028
+permissions:
+  contents: read
+jobs:
+  source-exact-native-only-actors:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Original source Unix Git eol policy
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Source-exact checkout without saved credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - name: Original Python 3.11 source
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Native Wingless Go 1.25.5
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Source-exact original Farama native-only twice and matched random control
+        shell: bash
+        run: bash research/lcrm01/mg05_ci.sh
+      - name: Preserve BOTH original selected-action traces and failed receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: itd02-mg05-original-doorkey-native-only-separate-control
+          path: |
+            ${{ runner.temp }}/mg05/first.json
+            ${{ runner.temp }}/mg05/second.json
+            ${{ runner.temp }}/mg05/comparison.json
+            ${{ runner.temp }}/mg05/first.log
+            ${{ runner.temp }}/mg05/second.log
+          if-no-files-found: warn
+          retention-days: 30
