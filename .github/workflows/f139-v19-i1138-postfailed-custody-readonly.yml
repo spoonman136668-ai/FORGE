@@ -1,0 +1,146 @@
+name: F139 V19 original issue1138 after-failure custody READ ONLY
+on:
+  push:
+    branches: [qualification/f139-v19-i1138-postfailed-custody-ro-20261029]
+    paths: [.github/workflows/f139-v19-i1138-postfailed-custody-readonly.yml]
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: f139-v19-1138-postfailed-custody-20261029
+  cancel-in-progress: false
+jobs:
+  inspect-original:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-i1138-postfailed-custody-ro-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Independently check the original F139 no-replay ledger and failed provider custody
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $ownerSource='0743ca22b76ebd943a66f05a36ea919301676be0'
+          $mainSource='503a55be9eaa34ade818f3a47ca530e67f26ba8f'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-i1138-postfailed-custody-ro-20261029' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY){
+            throw 'F139_I1138_NOT_ORIGINAL_OWNER_OR_PAID_API'
+          }
+          $parent=(& git rev-parse HEAD^ | Out-String).Trim()
+          $files=@(& git diff --name-only HEAD^ HEAD)
+          if($LASTEXITCODE -ne 0 -or $parent -cne $mainSource -or
+             $files.Count -ne 1 -or
+             $files[0] -cne '.github/workflows/f139-v19-i1138-postfailed-custody-readonly.yml'){
+            throw 'F139_I1138_READONLY_SOURCE_SCOPE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){
+            throw 'F139_I1138_READONLY_ORIGINAL_TASK_DRIFT'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($principal)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($principal -ine $who.Name -and $sid -cne $who.User.Value){
+            throw 'F139_I1138_READONLY_ORIGINAL_OWNER_SID_DRIFT'
+          }
+          $argsText=[string]$task.Actions[0].Arguments
+          function Field([string]$key){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_I1138_READONLY_ORIGINAL_TASK_ARG_MISSING'}
+            return [string]$m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $db=Field 'Database'
+          $python=Field 'PythonExe'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $ownerSource -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_I1138_READONLY_INSTALLED_V19_OWNER_DRIFT'
+          }
+          $running=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+             Where-Object { $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) })
+          $m=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          $issue=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+          $p=[string]$issue.body | ConvertFrom-Json
+          $run=(& gh api repos/spoonman136668-ai/FORGE/actions/runs/40861987373 | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $m.protected -ne $true -or
+             $m.commit.sha -cne $mainSource -or
+             $p.source_sha -cne $ownerSource -or $p.enabled -ne $true -or
+             $p.scientific_first_use -ne $false -or
+             $run.status -cne 'completed' -or $run.conclusion -cne 'failure' -or
+             $run.run_attempt -ne 1 -or $run.head_sha -cne $ownerSource -or
+             $run.head_branch -cne ('f139-owner-release-'+$ownerSource)){
+            throw 'F139_I1138_READONLY_REMOTE_OWNER_OR_WORKER_DRIFT'
+          }
+          Set-Location -LiteralPath $root
+          @'
+          import json,pathlib,sys
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import native_events,verify_native_activation
+          source='0743ca22b76ebd943a66f05a36ea919301676be0'
+          db=Database.open_readonly(pathlib.Path(sys.argv[1]))
+          try:
+              db.conn.execute('BEGIN')
+              db.verify()
+              meta=db.meta()
+              assert meta['source_sha']==source and verify_native_activation(db),'OWNER_SOURCE_OR_ACTIVATION_DRIFT'
+              native=native_events(db)
+              found=[x for x in native if x['issue_number']==1138]
+              assert len(found)==1,'I1138_NOT_ONCE_ONLY'
+              rows=list(db.conn.execute(
+                  "SELECT ticket,stage,run_id,quarantine_reason FROM tasks WHERE ticket LIKE 'f139-nci04-i1138-%'"))
+              assert len(rows)==1 and rows[0]['ticket']==found[0]['ticket'],'I1138_TASK_IDENTITY_DRIFT'
+              task=rows[0]
+              kinds=[{'seq':x['seq'],'kind':x['kind']} for x in db.conn.execute(
+                  'SELECT seq,kind FROM events WHERE seq>=317 ORDER BY seq DESC LIMIT 30')]
+              data={'schema':'forge.f139.v19.i1138.postfailed-custody.readonly.v1',
+                    'source_sha':meta['source_sha'],'head_seq':meta['head_seq'],
+                    'head_sha256':meta['head_hash'],'issue':1138,'original_run':40861987373,
+                    'ticket':task['ticket'],'stage':task['stage'],
+                    'run_id':task['run_id'],'quarantine_reason':task['quarantine_reason'],
+                    'recent_events':kinds,'native_event_count':len(native),
+                    'native_inflight':db.conn.execute(
+                      "SELECT COUNT(*) FROM tasks WHERE stage IN ('WAIT_PROVIDER','READY','START_RISK')").fetchone()[0],
+                    'original_sqlite_writes':0,'github_writes':0,
+                    'manual_dispatch':False,'scientific_first_use':False}
+              print('F139_I1138_ORIGINAL_OWNER_POSTFAIL_CUSTODY='+json.dumps(data,sort_keys=True))
+              db.conn.execute('ROLLBACK')
+          finally: db.close()
+          '@ | & $python -B - $db
+          if($LASTEXITCODE -ne 0){throw 'F139_I1138_ORIGINAL_READONLY_LEDGER_CUSTODY_FAILED'}
+          $meta=@{
+            task_state=[string]$task.State
+            task_last_result=[string]$info.LastTaskResult
+            task_last_run_utc=$info.LastRunTime.ToUniversalTime().ToString('o')
+            python_processes=$running.Count
+            same_original_task=$true
+            worker_run_completed_failure=$true
+            original_sqlite_writes=0
+            task_changes=0
+            github_writes=0
+          }
+          Write-Output ('F139_I1138_ORIGINAL_OWNER_TASK_READONLY='+($meta | ConvertTo-Json -Compress))
+          Write-Output 'F139_I1138_ORIGINAL_OWNER_POSTFAIL_READONLY=PASS'
