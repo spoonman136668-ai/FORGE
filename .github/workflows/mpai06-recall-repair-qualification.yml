@@ -67,27 +67,27 @@ jobs:
             }
             Write-Output 'MPAI06_RECALL_FOCUSED_TESTS=9_PASS'
             $script=@'
-import json,pathlib,sys
-root=pathlib.Path(sys.argv[1])
-head=sys.argv[2]
-sys.path.insert(0,str(root/"tools"))
-from mindpalace_readonly import MemorySnapshot
-snapshot=MemorySnapshot(root,head,["Wingless","Yggdrasil"])
-rows={"Wingless":"project_state/wingless-p6o-native-bayesian-causal-policy-equal-control-negative-20261021",
-"Yggdrasil":"project_state/yggdrasil-mr29-original-native-causal-alias-dev-signal-negative-20261021"}
-out={}
-for project,identity in rows.items():
-    record=snapshot.get_record(head,identity,[project])
-    assert record["found"] and record["record"]["status"]=="observed"
-    recalled=snapshot.recall(head,identity,[project],profile="continuation")
-    hits=[x for x in recalled["matches"] if x["id"]==identity]
-    assert len(hits)==1
-    assert recalled["estimated_text_tokens"]<=snapshot.profiles["continuation"]["primary_token_budget"]
-    assert hits[0]["source_refs"]==record["record"]["source_refs"]
-    assert snapshot.get_record(head,rows["Yggdrasil" if project=="Wingless" else "Wingless"],[project])["found"] is False
-    out[project]={"exact":True,"excerpt":bool(hits[0].get("excerpt_only",False))}
-print(json.dumps(out,sort_keys=True))
-'@
+            import json,pathlib,sys
+            root=pathlib.Path(sys.argv[1])
+            head=sys.argv[2]
+            sys.path.insert(0,str(root/"tools"))
+            from mindpalace_readonly import MemorySnapshot
+            snapshot=MemorySnapshot(root,head,["Wingless","Yggdrasil"])
+            rows={"Wingless":"project_state/wingless-p6o-native-bayesian-causal-policy-equal-control-negative-20261021",
+            "Yggdrasil":"project_state/yggdrasil-mr29-original-native-causal-alias-dev-signal-negative-20261021"}
+            out={}
+            for project,identity in rows.items():
+                record=snapshot.get_record(head,identity,[project])
+                assert record["found"] and record["record"]["status"]=="observed"
+                recalled=snapshot.recall(head,identity,[project],profile="continuation")
+                hits=[x for x in recalled["matches"] if x["id"]==identity]
+                assert len(hits)==1
+                assert recalled["estimated_text_tokens"]<=snapshot.profiles["continuation"]["primary_token_budget"]
+                assert hits[0]["source_refs"]==record["record"]["source_refs"]
+                assert snapshot.get_record(head,rows["Yggdrasil" if project=="Wingless" else "Wingless"],[project])["found"] is False
+                out[project]={"exact":True,"excerpt":bool(hits[0].get("excerpt_only",False))}
+            print(json.dumps(out,sort_keys=True))
+            '@
             & python -B -c $script $checkout $sha *> $log
             $rc=$LASTEXITCODE
             $raw=Get-Content -LiteralPath $log -Raw
