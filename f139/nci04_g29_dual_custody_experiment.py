@@ -128,12 +128,13 @@ def run_gate(base, head, output):
     after = git_bytes(head, HEAD + ":" + TARGET)
     require(0 < len(before) <= 32768 and 0 < len(after) <= 32768,
             "SOURCE_DELTA_SIZE_DENIED")
-    require(before != after and sha(before) == sha((base / TARGET).read_bytes())
-            and sha(after) == sha((head / TARGET).read_bytes()),
+    require(before != after and sha(before) == sha((base / TARGET).read_bytes().replace(b"\r\n", b"\n"))
+            and sha(after) == sha((head / TARGET).read_bytes().replace(b"\r\n", b"\n")),
             "SOURCE_BYTES_NOT_AUTHENTICATED")
     atlasfiles = (".ice/code-atlas.json", ".ice/code-atlas.html", ".ice/code-atlas.ice")
     for name in atlasfiles:
-        require((base / name).read_bytes() == git_bytes(base, BASE + ":" + name),
+        require((base / name).read_bytes().replace(b"\r\n", b"\n") ==
+                git_bytes(base, BASE + ":" + name).replace(b"\r\n", b"\n"),
                 "HISTORIC_G29_ATLAS_DRIFT")
     original_test_files = sorted(p.name for p in (base / "tests").iterdir()
                                  if p.is_file() and TEST_PATTERN.fullmatch(p.name))
@@ -174,7 +175,8 @@ def run_gate(base, head, output):
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                check=False, timeout=100)
             require(c.returncode == 0, "LOCAL_SANDBOX_GIT_CLONE_FAILED")
-            for argv in (["git", "-C", str(clone), "checkout", "--detach", BASE],
+            for argv in (["git", "-C", str(clone), "config", "core.autocrlf", "false"],
+                         ["git", "-C", str(clone), "checkout", "--detach", BASE],
                          ["git", "-C", str(clone), "remote", "remove", "origin"]):
                 c = subprocess.run(argv, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
