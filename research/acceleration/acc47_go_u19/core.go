@@ -1,6 +1,6 @@
 package main
 import("crypto/sha256";"encoding/binary";"encoding/hex";"errors";"math";"math/bits")
-const(schema="forge.acc47.original-u19.nativego.v1";episodes=32;fitN=1024;testN=1024)
+const(schema="forge.acc47.original-u19.nativego.v1";episodes=2048;fitN=1024;testN=1024)
 var seeds=[]uint64{97101,97103,97107,97109,97111}
 var worlds=[]string{"SPARSE_OR","CONJUNCTION","DRIFT","PARITY"}
 var arms=[]string{"FREQ16","PERCEPTRON","LUT4","TSETLIN16"}
