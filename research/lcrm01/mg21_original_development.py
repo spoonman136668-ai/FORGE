@@ -50,7 +50,11 @@ class Conventional:
             score=100*cell["success"]//(cell["count"]+1)-cell["count"]
             scores.append(score)
         top=max(scores)
-        return next(a for step in range(7) if scores[a:=(start+step)%7]==top)
+        for step in range(7):
+            action=(start+step)%7
+            if scores[action]==top:
+                return action
+        raise ValueError("MG21_CONTROL_NO_VALID_CHOICE")
     def observe(self,before,action,after,reward,terminated):
         if type(action) is not int or action not in range(7):
             raise ValueError("MG21_CONTROL_INVALID_SELECTED_SOURCE")
