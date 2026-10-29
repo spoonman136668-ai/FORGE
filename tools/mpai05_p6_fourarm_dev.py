@@ -86,9 +86,18 @@ def mcp_read(src):
               "experience":experience})
     ]
     payload="".join(json.dumps(x,separators=(",",":"))+"\n" for x in requests)
-    replies=run([sys.executable,"-B",str(src/"tools/mindpalace_mcp.py"),
-       "--root",str(src),"--source",SOURCE,"--project","Mind-Palace","--transport","stdio"],
-       cwd=src,input_text=payload,timeout=100)
+    # Preserve MCP JSON-RPC stdout in private, disposable scratch rather
+    # than relying on a shell/Windows pipe-decoding return value.
+    mcp_out=src.parent/"private-mcp-response.jsonl"
+    with mcp_out.open("wb") as stream:
+        proc=subprocess.run(
+           [sys.executable,"-B",str(src/"tools/mindpalace_mcp.py"),
+            "--root",str(src),"--source",SOURCE,"--project","Mind-Palace","--transport","stdio"],
+           cwd=src,input=payload.encode("utf-8"),
+           stdout=stream,stderr=subprocess.PIPE,timeout=100)
+    require(proc.returncode==0,"MPAI05_P6_MCP_SUBPROCESS")
+    replies=mcp_out.read_text(encoding="utf-8")
+    require(isinstance(replies,str) and bool(replies.strip()),"MPAI05_P6_MCP_EMPTY")
     responses=[json.loads(x) for x in replies.splitlines()]
     require([r.get("id") for r in responses]==[1,2,3,4],"MPAI05_P6_MCP_ENVELOPE")
     def get_result(index):
