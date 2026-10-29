@@ -94,7 +94,8 @@ def mcp_read(src):
            [sys.executable,"-B",str(src/"tools/mindpalace_mcp.py"),
             "--root",str(src),"--source",SOURCE,"--project","Mind-Palace","--transport","stdio"],
            cwd=src,input=payload.encode("utf-8"),
-           stdout=stream,stderr=subprocess.PIPE,timeout=100)
+           stdout=stream,stderr=subprocess.PIPE,timeout=100,
+           env={**os.environ,"PYTHONIOENCODING":"utf-8"})
     require(proc.returncode==0,"MPAI05_P6_MCP_SUBPROCESS")
     replies=mcp_out.read_text(encoding="utf-8")
     require(isinstance(replies,str) and bool(replies.strip()),"MPAI05_P6_MCP_EMPTY")
