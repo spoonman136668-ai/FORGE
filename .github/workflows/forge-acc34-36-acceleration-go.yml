@@ -1,17 +1,17 @@
-name: ACC34 36 acceleration proposals and actual Go delta compute
+name: ACC34M 36-idea acceleration plus separately preregistered batched Go CPU metering
 on:
   pull_request:
     paths:
       - 'research/acceleration/acc34_go_delta/**'
       - 'research/acceleration/acc34_scoreboard.py'
       - 'research/acceleration/test_acc34_scoreboard.py'
-      - 'docs/research/ACC-34-*'
+      - 'docs/research/ACC-34*'
       - '.github/workflows/forge-acc34-36-acceleration-go.yml'
 permissions:
   contents: read
 jobs:
   stage2-causal-delta-native-go-sourcefree:
-    name: ACC34 original 36 register + source-free Go whole-worker CPU / ${{ matrix.os }}
+    name: ACC34M original 36 register + 32-session Go whole-worker CPU / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -38,9 +38,10 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git hash-object docs/research/ACC-34-REALIGN-36-AND-ACD1-GO-PREREG.md)" = d39eccb869aa996c902e6ddd9495ce305e630358
+          test "$(git hash-object docs/research/ACC-34M-CROSSOS-CPU-METER-REPAIR-PREREG.md)" = 59b6f517e8917db2d4c9e85d77b8d20a96428427
           test "$(git hash-object research/acceleration/acc34_go_delta/go.mod)" = 973ad217354d16b49e791eed9c10450ed2801b66
-          test "$(git hash-object research/acceleration/acc34_go_delta/main.go)" = 9a4b8716036b16c95bc08afb94998d2b7fbec8b2
-          test "$(git hash-object research/acceleration/acc34_go_delta/main_test.go)" = b882b2971d36acf7febc0834547ea256f0dfc2a3
+          test "$(git hash-object research/acceleration/acc34_go_delta/main.go)" = 2293ae3fdcc043d9d621d58df671c15b733fe3fe
+          test "$(git hash-object research/acceleration/acc34_go_delta/main_test.go)" = 7bf89508b4c425a96dd5d21c5318583f35dcc70c
           test "$(git hash-object research/acceleration/acc34_scoreboard.py)" = 9f85860fc63cbe091180001a04f9bbe6f441af0e
           test "$(git hash-object research/acceleration/test_acc34_scoreboard.py)" = 746b2e5d9baa1594259f1a7d6c1a3ea20977fa11
           python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
@@ -73,7 +74,13 @@ jobs:
           assert result["category"]=="SOURCE_FREE_NATIVE_GO_COMPUTE_MICROKERNEL"
           assert result["candidate"]=="AC-D1"
           assert result["trials_per_scenario_mode"]==5
+          assert result["batched_cold_sessions_per_worker"]==32
           assert len(result["trials"])==40 and len(result["summaries"])==2
+          assert all(t["worker"]["events"]==4096*32 for t in result["trials"])
+          assert all(t["worker"]["fit_intervention_probes"]==(24*32 if t["mode"] in ("verified","unverified") else 0)
+                     for t in result["trials"])
+          assert all(t["worker"]["verification_full_node_calls"]==(4096*32*32 if t["mode"]=="verified" else 0)
+                     for t in result["trials"])
           assert result["original_source_episodes"]==0
           assert result["model_native_integration"] is False
           assert result["scientific_first_use"] is False
@@ -101,7 +108,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: acc34-original-36-and-go-resource-${{ matrix.os }}
+          name: acc34m-original-36-and-batched-go-resource-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/acc34-scoreboard.json
             ${{ runner.temp }}/acc34-native-go-report.json
