@@ -60,7 +60,8 @@ def authentic_public(raw,collector,owner,expected_mission):
     projected=owner.public_observation({
         "image":original["image"],"direction":original["direction"],
         "mission":owner.MISSION})
-    if original["image"]!=projected["image"] or original["direction"]!=projected["direction"]:
+    original_image=original["image"].tolist() if hasattr(original["image"],"tolist") else original["image"]
+    if original_image!=projected["image"] or int(original["direction"])!=projected["direction"]:
         raise ValueError("MG15_SOURCE_PUBLIC_IMAGE_CHANGED")
     return {"image":projected["image"],"direction":projected["direction"],
             "mission":original["mission"]}
