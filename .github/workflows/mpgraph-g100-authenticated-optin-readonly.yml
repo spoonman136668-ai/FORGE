@@ -1,0 +1,202 @@
+name: Mind-Palace G100 proposed FORGE opt-in authenticated consumer witness
+on:
+  push:
+    branches: [qualification/mpgraph-g100-advisory-optin-20261028]
+    paths:
+      - '.github/workflows/mpgraph-g100-authenticated-optin-readonly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpgraph-g100-proposed-optin-one-shot
+  cancel-in-progress: false
+
+jobs:
+  read-only-witness:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    steps:
+      - name: Source-pinned private candidate review without admission
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          PYTHONDONTWRITEBYTECODE: '1'
+          EXPECTED_MP_SHA: '5cc587c74a6069b141aa4b01153475d642f8f380'
+          EXPECTED_FORGE_SHA: 'd8bccc604f8607bf10f9d8bc6aa568d1f98af559'
+          EXPECTED_KNOWLEDGE_MAIN_SHA: '0ae4a2dacf4af5a1920d4c090fb1082bba3624d7'
+          EXPECTED_KNOWLEDGE_BUILD_SHA: '3eaa9f770de2aef93efbefc6e4ea24a492c87570'
+          EXPECTED_GRAPH_SHA256: 'b94fc532ed96dea7531cabcc974f99bb25e67e73f286924dcc9fab96fe41778e'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:RUNNER_ENVIRONMENT -cne 'self-hosted') {
+            throw 'MPGRAPHG100_UNAUTHORIZED_QUALIFICATION_SURFACE'
+          }
+          $root = Join-Path $env:RUNNER_TEMP ('mpgraph-g100-' + $env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $root) { throw 'MPGRAPHG100_TEMP_COLLISION' }
+          $privateLog = Join-Path $root 'private-review.log'
+          $mp = Join-Path $root 'mp'
+          $kn = Join-Path $root 'kn'
+          $forge = Join-Path $root 'forge'
+          try {
+            New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+            & git clone --quiet --depth 1 --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $mp *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPHG100_PRIVATE_MIND_PALACE_ACCESS_UNAVAILABLE' }
+            if ((& git -C $mp rev-parse HEAD).Trim() -cne $env:EXPECTED_MP_SHA) {
+              throw 'MPGRAPHG100_REGISTRY_SOURCE_DRIFT'
+            }
+            Write-Host 'MPGRAPHG100_AUTHENTICATED_MIND_PALACE_SOURCE=PASS'
+            & git clone --quiet --depth 1 --branch main https://github.com/spoonman136668-ai/forge-knowledge.git $kn *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPHG100_PRIVATE_KNOWLEDGE_ACCESS_UNAVAILABLE' }
+            if ((& git -C $kn rev-parse HEAD).Trim() -cne $env:EXPECTED_KNOWLEDGE_MAIN_SHA) {
+              throw 'MPGRAPHG100_KNOWLEDGE_MAIN_DRIFT'
+            }
+            & git -C $kn fetch --quiet --unshallow origin *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPHG100_PINNED_KNOWLEDGE_ANCESTRY_UNAVAILABLE' }
+            & git -C $kn merge-base --is-ancestor $env:EXPECTED_KNOWLEDGE_BUILD_SHA HEAD *> $privateLog
+            if ($LASTEXITCODE -ne 0) { throw 'MPGRAPHG100_PINNED_KNOWLEDGE_BUILD_NOT_ANCESTOR' }
+            & git -C $kn checkout --detach --quiet $env:EXPECTED_KNOWLEDGE_BUILD_SHA *> $privateLog
+            if ($LASTEXITCODE -ne 0 -or (& git -C $kn rev-parse HEAD).Trim() -cne $env:EXPECTED_KNOWLEDGE_BUILD_SHA) {
+              throw 'MPGRAPHG100_PINNED_KNOWLEDGE_CHECKOUT_FAILED'
+            }
+            Write-Host 'MPGRAPHG100_AUTHENTICATED_IMMUTABLE_PRIVATE_KNOWLEDGE=PASS'
+            & git clone --quiet --depth 1 --branch main https://github.com/spoonman136668-ai/FORGE.git $forge *> $privateLog
+            if ($LASTEXITCODE -ne 0 -or (& git -C $forge rev-parse HEAD).Trim() -cne $env:EXPECTED_FORGE_SHA) {
+              throw 'MPGRAPHG100_ORIGINAL_FORGE_SOURCE_DRIFT'
+            }
+            Write-Host 'MPGRAPHG100_PINNED_ORIGINAL_FORGE_SOURCE=PASS'
+            $manifestPath = Join-Path $kn 'Graphify/Source/LAST-BUILD.json'
+            $graphPath = Join-Path $kn 'Graphify/Source/graph.json'
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            if ($manifest.source_repo -cne 'spoonman136668-ai/FORGE' -or
+                $manifest.source_commit -cne $env:EXPECTED_FORGE_SHA -or
+                $manifest.graph_sha256 -cne $env:EXPECTED_GRAPH_SHA256 -or
+                $manifest.mode -cne 'code-only' -or
+                $manifest.graphify_version -cne '0.9.53' -or
+                $manifest.model_calls -ne 0 -or
+                $manifest.scientific_authority -ne $false -or
+                $manifest.promotion_authorized -ne $false) {
+              throw 'MPGRAPHG100_PRIVATE_BUILD_MANIFEST_INVALID'
+            }
+            Write-Host 'MPGRAPHG100_PINNED_CANDIDATE_MANIFEST=PASS'
+            $actualDigest = (Get-FileHash -LiteralPath $graphPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualDigest -cne $env:EXPECTED_GRAPH_SHA256) {
+              throw 'MPGRAPHG100_AUTHENTIC_GRAPH_DIGEST_MISMATCH'
+            }
+            Write-Host 'MPGRAPHG100_INDEPENDENT_FULL_PRIVATE_GRAPH_SHA256=PASS'
+            $env:MPGRAPH100_ROOT = $mp
+            $env:MPGRAPH100_SOURCE_SHA = $env:EXPECTED_FORGE_SHA
+            $env:MPGRAPH100_KNOWLEDGE_BUILD_SHA = $env:EXPECTED_KNOWLEDGE_BUILD_SHA
+            $env:MPGRAPH100_CALCULATED_GRAPH_SHA256 = $actualDigest
+            $env:MPGRAPH100_MANIFEST_PATH = $manifestPath
+            $py = @'
+          import json
+          import os
+          import pathlib
+          import sys
+          root = pathlib.Path(os.environ["MPGRAPH100_ROOT"])
+          sys.path.insert(0, str(root / "tools"))
+          from advisory_graphify_selector import select_advisory, SelectionDenied
+          registry = json.loads((root / "docs" / "ADVISORY_GRAPHIFY_SNAPSHOTS.json").read_text(encoding="utf-8"))
+          manifest = json.loads(pathlib.Path(os.environ["MPGRAPH100_MANIFEST_PATH"]).read_text(encoding="utf-8"))
+          assert len(registry["snapshots"]) == 3 and len(registry["candidate_snapshots"]) == 1
+          assert len(registry["advisory_opt_in_admissions"]) == 1
+          a = registry["advisory_opt_in_admissions"][0]
+          assert a["contract_version"] == "mind-palace.advisory-selector.v1"
+          assert a["project"] == "FORGE" and a["scope"] == "PRIVATE_READ_ONLY_CODE_NAVIGATION"
+          assert a["source_commit"] == os.environ["MPGRAPH100_SOURCE_SHA"]
+          assert a["knowledge_commit"] == os.environ["MPGRAPH100_KNOWLEDGE_BUILD_SHA"]
+          assert a["graph_sha256"] == os.environ["MPGRAPH100_CALCULATED_GRAPH_SHA256"]
+          assert a["review_url"] == "https://github.com/spoonman136668-ai/Mind-Palace/pull/170"
+          assert a["review_commit"] == "9776bf36185ea32dea927d5f12aab5a7f8ad84d3"
+          assert a["default"] is False
+          hist = select_advisory(registry,
+              registry_commit=os.environ["EXPECTED_MP_SHA"], project="FORGE",
+              authorized_projects=("FORGE",), current_source_commit=os.environ["MPGRAPH100_SOURCE_SHA"])
+          assert hist.class_name == "HISTORICAL_ACCEPTED"
+          assert hist.knowledge_commit == "068b99f8891a839c6c014bb77da778641a3a9540"
+          assert hist.freshness == "HISTORICAL_STALE"
+          preview = select_advisory(registry,
+              registry_commit=os.environ["EXPECTED_MP_SHA"], project="FORGE",
+              authorized_projects=("FORGE",), mode="preview",
+              current_source_commit=os.environ["MPGRAPH100_SOURCE_SHA"])
+          assert preview.class_name == "REVIEW_CANDIDATE_PREVIEW"
+          assert preview.knowledge_commit is None and preview.graph_sha256 is None
+          def must_deny(expected, **overrides):
+              args = dict(registry_commit=os.environ["EXPECTED_MP_SHA"],
+                  project="FORGE", authorized_projects=("FORGE",),
+                  mode="opt_in", explicit_opt_in=True,
+                  current_source_commit=os.environ["MPGRAPH100_SOURCE_SHA"],
+                  pinned_candidate_manifest=manifest,
+                  independently_verified_graph_sha256=os.environ["MPGRAPH100_CALCULATED_GRAPH_SHA256"])
+              args.update(overrides)
+              try:
+                  select_advisory(registry, **args)
+              except SelectionDenied as exc:
+                  assert str(exc) == "ADVISORY_SELECTOR_DENIED_" + expected
+              else:
+                  raise AssertionError("Unauthorized candidate was selected")
+          must_deny("EXPLICIT_OPT_IN_REQUIRED", explicit_opt_in=False)
+          must_deny("ACCESS_NOT_VERIFIED", authorized_projects=("Yggdrasil",))
+          must_deny("GRAPH_DIGEST_UNVERIFIED",
+              independently_verified_graph_sha256="0" * 64)
+          accepted = select_advisory(registry,
+              registry_commit=os.environ["EXPECTED_MP_SHA"], project="FORGE",
+              authorized_projects=("FORGE",), mode="opt_in", explicit_opt_in=True,
+              current_source_commit=os.environ["MPGRAPH100_SOURCE_SHA"],
+              pinned_candidate_manifest=manifest,
+              independently_verified_graph_sha256=os.environ["MPGRAPH100_CALCULATED_GRAPH_SHA256"])
+          assert accepted.class_name == "ADMITTED_OPT_IN_ADVISORY"
+          assert accepted.source_commit == os.environ["MPGRAPH100_SOURCE_SHA"]
+          assert accepted.knowledge_commit == os.environ["MPGRAPH100_KNOWLEDGE_BUILD_SHA"]
+          assert accepted.graph_sha256 == os.environ["MPGRAPH100_CALCULATED_GRAPH_SHA256"]
+          assert accepted.freshness == "CURRENT_AT_READ"
+          assert accepted.advisory_only is True
+          assert accepted.private_note_access_granted is False
+          assert accepted.scientific_authority is False
+          assert accepted.memory_promotion_authorized is False
+          assert accepted.executable_authority is False
+          print("MPGRAPHG100_CANONICAL_HISTORICAL_FALLBACK=PASS")
+          print("MPGRAPHG100_PREVIEW_NO_PRIVATE_TARGET=PASS")
+          print("MPGRAPHG100_UNAUTHORIZED_OPT_IN_DENIED=PASS")
+          print("MPGRAPHG100_EXACT_PROPOSED_OPT_IN_METADATA_SELECTED=PASS")
+          '@
+            $py | & python -B - *> $privateLog
+            if ($LASTEXITCODE -ne 0) {
+              throw 'MPGRAPHG100_REAL_REGISTRY_SELECTOR_CONTRACT_FAILED_PRIVATE_LOG_WITHHELD'
+            }
+            Write-Host 'MPGRAPHG100_AUTHENTICATED_ISOLATED_OPT_IN_CONSUMER=PASS'
+            # After explicit opt-in handle, the runner has separately proved private
+            # provider authentication, exact immutable commits and full digest.
+            # Read a single note as the minimal real consumer source witness.
+            # The handle itself does not grant provider access; never print content.
+            $notePath = Join-Path $kn 'Graphify/Obsidian/mpai05_recall_cli.py.md'
+            $note = Get-Content -LiteralPath $notePath -Raw
+            $sourcePath = Join-Path $forge 'tools/mpai05_recall_cli.py'
+            if ($note -cnotmatch 'source_file:\s*"tools/mpai05_recall_cli.py"' -or
+                $note -cnotmatch '(?m)^# mpai05_recall_cli.py' -or
+                -not (Test-Path -LiteralPath $sourcePath) -or
+                -not ((Get-Content -LiteralPath $sourcePath -Raw).Contains('One-shot, private, read-only Mind-Palace query consumer'))) {
+              throw 'MPGRAPHG100_CANDIDATE_NOTE_SOURCE_MISMATCH'
+            }
+            Write-Host 'MPGRAPHG100_AUTHENTIC_OPT_IN_NOTE_TO_SOURCE_CONSUMER=PASS'
+            foreach ($p in @($mp,$kn,$forge)) {
+              $dirty = @(& git -C $p status --porcelain=v1 --untracked-files=no)
+              if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
+                throw 'MPGRAPHG100_CHECKOUT_WAS_MUTATED'
+              }
+            }
+            Write-Host 'MPGRAPHG100_SOURCE_AND_PRIVATE_KNOWLEDGE_UNCHANGED=PASS'
+            Write-Host 'MPGRAPHG100_ADMISSION=PROPOSED_ISOLATED_BRANCH_ONLY'
+            Write-Host 'MPGRAPHG100_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED'
+            Write-Host 'MPGRAPHG100_PRODUCTION_MEMORY_PROMOTION=NOT_AUTHORIZED'
+          } finally {
+            if (Test-Path -LiteralPath $root) {
+              Remove-Item -LiteralPath $root -Force -Recurse -ErrorAction Stop
+            }
+          }
