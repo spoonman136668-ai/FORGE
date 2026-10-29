@@ -1,0 +1,100 @@
+name: MP-AI05 P5 public non-Qwen local runtime qualification
+on:
+  push:
+    branches: [proposal/mpai05-p5-nonqwen-public-model-20261029]
+    paths: ['.github/workflows/mpai05-p5-public-smoke.yml']
+permissions:
+  contents: read
+jobs:
+  p5-public-nonqwen:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Verify public Apache-2.0 GGUF identity and one local public-only smoke inference
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPAI05_P5_WRONG_RUNNER'}
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P5_PAID_API_PROHIBITED'}
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-p5-'+$env:GITHUB_RUN_ID)
+          try {
+            if(Test-Path -LiteralPath $root){throw 'MPAI05_P5_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+            $env:MPAI05_P5_SCRATCH=$root
+            $src=@'
+          import hashlib,os,pathlib,shutil,socket,sys,time,urllib.request
+          root=pathlib.Path(os.environ["MPAI05_P5_SCRATCH"])
+          model=root/"SmolLM2-360M-Instruct-Q4_K_M.gguf"
+          url=("https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/"
+            "ab928a97ee49f3a015f35194879f68211291d6ca/SmolLM2-360M-Instruct-Q4_K_M.gguf?download=true")
+          expected="2fa3f013dcdd7b99f9b237717fa0b12d75bbb89984cc1274be1471a465bac9c2"
+          size_expected=270590880
+          def fail(code):
+              print("MPAI05_P5_FAILSAFE="+code,flush=True)
+              sys.exit(2)
+          if shutil.disk_usage(str(root)).free<750000000:fail("NOT_ENOUGH_DISK")
+          start=time.monotonic();h=hashlib.sha256();n=0
+          try:
+              req=urllib.request.Request(url,headers={"User-Agent":"MindPalace-P5-public-model-check/1"})
+              with urllib.request.urlopen(req,timeout=50) as inp,model.open("xb") as out:
+                  while True:
+                      ch=inp.read(4*1024*1024)
+                      if not ch:break
+                      n+=len(ch)
+                      if n>size_expected or time.monotonic()-start>600:fail("MODEL_DOWNLOAD_BOUND")
+                      h.update(ch);out.write(ch)
+          except (OSError,ValueError,TimeoutError):
+              fail("PUBLIC_MODEL_DOWNLOAD_FAILURE")
+          if n!=size_expected or h.hexdigest()!=expected:fail("MODEL_BYTES_DRIFT")
+          with model.open("rb") as f:
+              if f.read(4)!=b"GGUF":fail("NOT_GGUF")
+          print("MPAI05_P5_PUBLIC_WEIGHTS_SHA256=PASS",flush=True)
+          print("MPAI05_P5_PUBLIC_WEIGHTS_BYTES="+str(n),flush=True)
+          os.environ["HF_HUB_OFFLINE"]="1"
+          def network_denied(*a,**kw):raise RuntimeError("NETWORK_AFTER_DOWNLOAD_DENIED")
+          socket.socket=network_denied
+          try:
+              from llama_cpp import Llama
+          except (ImportError,OSError):
+              fail("LOCAL_RUNTIME_UNAVAILABLE")
+          try:
+              m=Llama(model_path=str(model),n_ctx=1024,n_threads=4,n_gpu_layers=0,
+                  n_batch=128,seed=137,verbose=False)
+              r=m.create_completion(prompt="Question: What is 2 plus 2? Answer with a number.\nAnswer:",
+                 temperature=0,max_tokens=16,top_p=1)
+          except (RuntimeError,ValueError,OSError):
+              fail("LOCAL_PUBLIC_INFERENCE_FAILED")
+          answer=r.get("choices",[{}])[0].get("text","")
+          usage=r.get("usage",{})
+          if not isinstance(answer,str) or not answer.strip() or not isinstance(usage,dict) or int(usage.get("completion_tokens",0))<1:fail("PUBLIC_SMOKE_RECEIPT_INVALID")
+          print("MPAI05_P5_NON_QWEN_LOCAL_RUNTIME=PASS",flush=True)
+          print("MPAI05_P5_LOCAL_PUBLIC_SMOKE_CALLS=1",flush=True)
+          print("MPAI05_P5_PRIVATE_MEMORY_READS=0",flush=True)
+          print("MPAI05_P5_SCIENTIFIC_ADMISSION=FALSE",flush=True)
+          print("MPAI05_P5_ACCEPTED_WRITES=0",flush=True)
+          '@
+            $private=Join-Path $root 'private-smoke.log'
+            $src | & python -B -c "import sys;exec(sys.stdin.read())" *> $private
+            $code=$LASTEXITCODE
+            $txt=Get-Content -LiteralPath $private -Raw -ErrorAction Stop
+            $allowed=@('NOT_ENOUGH_DISK','MODEL_DOWNLOAD_BOUND','PUBLIC_MODEL_DOWNLOAD_FAILURE','MODEL_BYTES_DRIFT','NOT_GGUF','LOCAL_RUNTIME_UNAVAILABLE','LOCAL_PUBLIC_INFERENCE_FAILED','PUBLIC_SMOKE_RECEIPT_INVALID')
+            if($code -ne 0) {
+              foreach($reason in $allowed) {if($txt.Contains('MPAI05_P5_FAILSAFE='+$reason)){Write-Output ('MPAI05_P5_FAILURE_CLASS='+$reason);break}}
+              throw 'MPAI05_P5_FAILED_PRIVATE_LOG'
+            }
+            if($txt -notmatch 'MPAI05_P5_PUBLIC_WEIGHTS_SHA256=PASS' -or $txt -notmatch 'MPAI05_P5_NON_QWEN_LOCAL_RUNTIME=PASS' -or $txt -notmatch 'MPAI05_P5_LOCAL_PUBLIC_SMOKE_CALLS=1'){throw 'MPAI05_P5_EXPECTED_MARKERS_MISSING'}
+            foreach($line in $txt.Split([Environment]::NewLine)){
+              if($line -match '^MPAI05_P5_[A-Z_]+=(?:PASS|FALSE|0|1|270590880)$'){Write-Output $line}
+            }
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI05_P5_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_P5_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
