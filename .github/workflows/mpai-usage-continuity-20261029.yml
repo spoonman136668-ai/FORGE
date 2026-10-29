@@ -60,11 +60,13 @@ jobs:
                -not ([string]$remote[0]).StartsWith($mpSource)){
               throw 'MPAI_USAGE_MP_SOURCE_REF_DRIFT'
             }
-            & git.exe clone --quiet --filter=blob:none --no-checkout --single-branch --branch $mpBranch $privateRepo $root
+            & git.exe clone --quiet --no-checkout --single-branch --branch $mpBranch $privateRepo $root
             if($LASTEXITCODE -ne 0){throw 'MPAI_USAGE_PRIVATE_SOURCE_CLONE_DENIED'}
-            if((git.exe -C $root config --get remote.origin.partialclonefilter | Out-String).Trim() -cne 'blob:none'){
-              throw 'MPAI_USAGE_PRIVATE_BLOB_FILTER_MISSING'
+            $shallow=(git.exe -C $root rev-parse --is-shallow-repository | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $shallow -cne 'false'){
+              throw 'MPAI_USAGE_COMPLETE_HISTORY_REQUIRED'
             }
+            Write-Output 'MPAI_USAGE_FULL_HISTORY_NO_PROMISOR_REQUIRED=PASS'
             $patterns=@($need|ForEach-Object{'/'+$_})
             & git.exe -C $root sparse-checkout set --no-cone @patterns
             if($LASTEXITCODE -ne 0){throw 'MPAI_USAGE_SPARSE_CONTRACT_FAILED'}
@@ -80,7 +82,9 @@ jobs:
             $frozenFixture='90d2dc1e79f0fcdcf49fba7680e29b5760e80d6b'
             & git.exe -C $root merge-base --is-ancestor $frozenFixture $mpSource
             if($LASTEXITCODE -ne 0){throw 'MPAI_USAGE_FROZEN_FIXTURE_HISTORY_UNAVAILABLE'}
-            Write-Output 'MPAI_USAGE_ORIGINAL_FROZEN_FIXTURE_HISTORY=PASS'
+            & git.exe -C $root cat-file -e ($frozenFixture+':.ice/records.json')
+            if($LASTEXITCODE -ne 0){throw 'MPAI_USAGE_FROZEN_FIXTURE_BLOB_UNAVAILABLE'}
+            Write-Output 'MPAI_USAGE_ORIGINAL_FROZEN_FIXTURE_HISTORY_AND_BLOB=PASS'
             # The accepted records source identity is pinned independently;
             # a shallow clone cannot be used to infer branch ancestry.
             $acceptedIceTree='842b8c1318db3b826bdb7243b0cdf0d5d8efedc2'
