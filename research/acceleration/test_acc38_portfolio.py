@@ -45,7 +45,7 @@ class ACC38PortfolioContract(unittest.TestCase):
         self.assertIn("targetStep(state,shift,&r)",s)
         self.assertIn("r.VerificationCalls++",s)
         self.assertIn("child_user_system_cpu_ns",s)
-        self.assertIn("GO_SYS",s.upper())
+        self.assertIn("GoSysBytes",s)
         self.assertNotIn("env.unwrapped",s)
         self.assertNotIn("original_external_source",s)
         self.assertTrue(TEST.read_text().count("func Test")>=8)
