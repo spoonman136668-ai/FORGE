@@ -46,7 +46,7 @@ git -C "$RUNNER_TEMP/ac31/yggdrasil" fetch --no-tags --depth 1 origin 2225c19a8a
 git -C "$RUNNER_TEMP/ac31/yggdrasil" checkout --detach -q 2225c19a8a6c55bfdf6785ffc1a26b450fc6f24e
 test "$(git -C "$RUNNER_TEMP/ac31/yggdrasil" hash-object research/native/itd02/r19/mission_actor.py)" = 0f8ac093fb0cab7388c8af869c5e40f6edc9f5cb
 test "$(git -C "$RUNNER_TEMP/ac31/yggdrasil" hash-object research/native/itd02/r17/successor_cells.py)" = 9354a1f0b732100ab943a5caee80b3849e3c1ea0
-test "$(git -C "$RUNNER_TEMP/ac31/yggdrasil" hash-object research/native/itd02/r18/public_boundary.py)" = 0f8ac093fb0cab7388c8af869c5e40f6edc9f5cb
+test "$(git -C "$RUNNER_TEMP/ac31/yggdrasil" hash-object research/native/itd02/r18/public_boundary.py)" = 49477595ebe3f07eb9a2ec7a1d85c5bd1972de84
 echo AC31_QUALIFIED_ORIGINAL_YGG_R19_SOURCE=PASS
 
 git init -q "$RUNNER_TEMP/ac31/collector"
