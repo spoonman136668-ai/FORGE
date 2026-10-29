@@ -172,7 +172,7 @@ jobs:
 
   native-authorize:
     # Existing single F139 workflow endpoint. Secret never enters native code.
-    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' }}
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' && inputs.target_package != 'f139-nci04-v3' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -261,7 +261,7 @@ jobs:
   native-execute:
     # Different ephemeral GitHub-hosted OS jobs; NO F139 signing key.
     needs: native-authorize
-    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' && needs.native-authorize.result == 'success' }}
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' && inputs.target_package != 'f139-nci04-v3' && needs.native-authorize.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -585,6 +585,248 @@ jobs:
         with:
           name: forge-f139-v2-native-receipt-${{ matrix.os }}
           path: ${{ runner.temp }}/f139-native-v2-output/f139-v2-development-provider.zip
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 0
+
+
+  # V3 is a version-distinct route on the ORIGINAL endpoint only. No original
+  # Windows owner can dispatch it until source-transition + signer integration.
+
+  native-authorize-v3:
+    # Existing single F139 workflow endpoint. Secret never enters native code.
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package == 'f139-nci04-v3' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      authorization: ${{ steps.admit.outputs.authorization }}
+      v3_claim: ${{ steps.admit.outputs.v3_claim }}
+    env:
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_EPOCH: ${{ inputs.epoch }}
+      F139_SIGNATURE: ${{ inputs.signature }}
+      F139_RUNNER_OS: ubuntu-latest
+      F139_NATIVE_BUNDLE: ${{ inputs.native_bundle }}
+      F139_NATIVE_PROTOCOL: v3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Decode strict native inputs without running native candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:F139_NATIVE_BUNDLE.Length -gt 60000 -or $env:F139_NATIVE_BUNDLE -cnotmatch '^[A-Za-z0-9+/]+={0,2}$') { throw 'NCI04_UNTRUSTED_BUNDLE' }
+          $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:F139_NATIVE_BUNDLE))
+          $doc = $json | ConvertFrom-Json -ErrorAction Stop
+          $names = @($doc.PSObject.Properties.Name | Sort-Object)
+          $expected = @('native_signature','issue_number','issue_id','body_sha256','qualification_key','target_commit','target_tree_sha','intent_base64','v3_original_event_seq','v3_original_event_sha256','v3_claim_event_seq','v3_claim_event_sha256','v3_owner_signature' | Sort-Object)
+          if((Compare-Object $names $expected).Count -ne 0) { throw 'NCI04_UNTRUSTED_BUNDLE_FIELDS' }
+          $limits = @{
+            native_signature='^[a-f0-9]{64}$'
+            issue_number='^[1-9][0-9]*$'
+            issue_id='^[1-9][0-9]*$'
+            body_sha256='^[a-f0-9]{64}$'
+            qualification_key='^[a-f0-9]{64}$'
+            target_commit='^[a-f0-9]{40}$'
+            target_tree_sha='^[a-f0-9]{40}$'
+            intent_base64='^[A-Za-z0-9+/]+={0,2}$'
+            v3_original_event_seq='^[1-9][0-9]*$'
+            v3_original_event_sha256='^[a-f0-9]{64}$'
+            v3_claim_event_seq='^[1-9][0-9]*$'
+            v3_claim_event_sha256='^[a-f0-9]{64}$'
+            v3_owner_signature='^[a-f0-9]{64}$'
+          }
+          $toEnv = @{
+            F139_NATIVE_SIGNATURE='native_signature'
+            F139_ISSUE_NUMBER='issue_number'
+            F139_ISSUE_ID='issue_id'
+            F139_BODY_SHA256='body_sha256'
+            F139_QUALIFICATION_KEY='qualification_key'
+            F139_TARGET_COMMIT='target_commit'
+            F139_TARGET_TREE_SHA='target_tree_sha'
+            F139_INTENT_BASE64='intent_base64'
+            F139_V3_ORIGINAL_EVENT_SEQ='v3_original_event_seq'
+            F139_V3_ORIGINAL_EVENT_SHA256='v3_original_event_sha256'
+            F139_V3_CLAIM_EVENT_SEQ='v3_claim_event_seq'
+            F139_V3_CLAIM_EVENT_SHA256='v3_claim_event_sha256'
+            F139_V3_OWNER_SIGNATURE='v3_owner_signature'
+          }
+          foreach($entry in $toEnv.GetEnumerator()){
+            $value = [string]$doc.($entry.Value)
+            if($value.Length -gt 59000 -or $value -cnotmatch $limits[$entry.Value]) { throw 'NCI04_UNTRUSTED_FIELD' }
+            "$($entry.Key)=$value" >> $env:GITHUB_ENV
+          }
+      - name: Independently authenticate exact native Git commit and tree
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:F139_LANE -cnotin @('Wingless','Yggdrasil')) { throw 'NCI04_NATIVE_LANE_FORBIDDEN' }
+          $url = "repos/spoonman136668-ai/$($env:F139_LANE)/git/commits/$($env:F139_TARGET_COMMIT)"
+          $commit = & gh api $url | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $commit.sha -cne $env:F139_TARGET_COMMIT -or $commit.tree.sha -cne $env:F139_TARGET_TREE_SHA) { throw 'NCI04_NATIVE_PROVIDER_SOURCE_DRIFT' }
+          "F139_AUTHENTICATED_TARGET_TREE=$($commit.tree.sha)" >> $env:GITHUB_ENV
+      - name: Verify both old HMACs plus NEW original owner V3 claim
+        id: admit
+        shell: pwsh
+        env:
+          F139_WORKER_HMAC_KEY: ${{ secrets.F139_WORKER_HMAC_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $raw = & python -B -m f139.nci04_owner_v3_dispatch authorize-v3
+          if($LASTEXITCODE -ne 0) { throw 'NCI04_V3_OWNER_HMAC_OR_ISSUE_AUTH_FAILED' }
+          $proof = ($raw -join "`n") | ConvertFrom-Json -ErrorAction Stop
+          if($proof.schema -cne 'forge.f139.nci04.v3-authorized-job.v1' -or
+             $proof.source_sha -cne $env:F139_SOURCE_SHA -or
+             $proof.ticket -cne $env:F139_TICKET -or
+             $proof.scientific_first_use -or
+             $proof.authorization_sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+             $proof.v3_owner_claim_sha256 -cnotmatch '^[a-f0-9]{64}$') {
+            throw 'NCI04_V3_CLAIM_OR_SOURCE_MISMATCH'
+          }
+          "authorization=$($proof.authorization_sha256)" >> $env:GITHUB_OUTPUT
+          "v3_claim=$($proof.v3_owner_claim_sha256)" >> $env:GITHUB_OUTPUT
+          Write-Host 'F139_NCI04_EXPLICIT_OWNER_V3_HMAC=VERIFIED'
+          Write-Host 'F139_V1_SIGNATURE_ALONE_NOT_V3_AUTHORITY=TRUE'
+
+  native-execute-v3:
+    # Different ephemeral GitHub-hosted OS jobs; NO F139 signing key.
+    needs: native-authorize-v3
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package == 'f139-nci04-v3' && needs.native-authorize-v3.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_SIGNATURE: ${{ inputs.signature }}
+      F139_RUNNER_OS: ${{ matrix.os }}
+      F139_NATIVE_BUNDLE: ${{ inputs.native_bundle }}
+      F139_NATIVE_AUTHENTICATION_PASSED: 'true'
+      F139_NATIVE_AUTHORIZATION_SHA256: ${{ needs.native-authorize-v3.outputs.authorization }}
+      F139_NATIVE_PROTOCOL: v3
+      F139_EPOCH: ${{ inputs.epoch }}
+      F139_V3_OWNER_CLAIM_SHA256: ${{ needs.native-authorize-v3.outputs.v3_claim }}
+      F139_NATIVE_V3_AUTHORIZATION_PASSED: 'true'
+    steps:
+      - name: Preserve literal pinned Git source bytes on both runner OSes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global core.autocrlf false
+          git config --global core.safecrlf true
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Decode fixed signed native target fields
+        id: pin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:F139_NATIVE_BUNDLE.Length -gt 60000 -or $env:F139_NATIVE_BUNDLE -cnotmatch '^[A-Za-z0-9+/]+={0,2}$') { throw 'NCI04_UNTRUSTED_BUNDLE' }
+          $doc = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:F139_NATIVE_BUNDLE)) | ConvertFrom-Json -ErrorAction Stop
+          if($doc.target_commit -cnotmatch '^[a-f0-9]{40}$' -or $doc.target_tree_sha -cnotmatch '^[a-f0-9]{40}$' -or $doc.qualification_key -cnotmatch '^[a-f0-9]{64}$') { throw 'NCI04_TARGET_UNQUALIFIED' }
+          "native_ref=$($doc.target_commit)" >> $env:GITHUB_OUTPUT
+          foreach($field in @('native_signature','issue_number','issue_id','body_sha256','qualification_key','target_commit','target_tree_sha','intent_base64')){
+            $value = [string]$doc.$field
+            if($value.Contains("`n") -or $value.Contains("`r")) { throw 'NCI04_ENV_INJECTION' }
+          }
+          "F139_TARGET_COMMIT=$($doc.target_commit)" >> $env:GITHUB_ENV
+          "F139_TARGET_TREE_SHA=$($doc.target_tree_sha)" >> $env:GITHUB_ENV
+          "F139_QUALIFICATION_KEY=$($doc.qualification_key)" >> $env:GITHUB_ENV
+          "F139_ISSUE_NUMBER=$($doc.issue_number)" >> $env:GITHUB_ENV
+          "F139_ISSUE_ID=$($doc.issue_id)" >> $env:GITHUB_ENV
+          "F139_BODY_SHA256=$($doc.body_sha256)" >> $env:GITHUB_ENV
+          "F139_INTENT_BASE64=$($doc.intent_base64)" >> $env:GITHUB_ENV
+          $required = @('native_signature','issue_number','issue_id','body_sha256','qualification_key','target_commit','target_tree_sha','intent_base64','v3_original_event_seq','v3_original_event_sha256','v3_claim_event_seq','v3_claim_event_sha256','v3_owner_signature')
+          if(@($doc.PSObject.Properties.Name).Count -ne $required.Count -or
+             @(Compare-Object @($doc.PSObject.Properties.Name | Sort-Object) @($required | Sort-Object)).Count -ne 0) {
+            throw 'NCI04_V3_SIGNED_BUNDLE_INVENTORY_DRIFT'
+          }
+          foreach($f in @('v3_original_event_seq','v3_claim_event_seq')){
+            if([string]$doc.$f -cnotmatch '^[1-9][0-9]*$'){throw 'NCI04_V3_ORIGINAL_EVENT_SEQUENCE_INVALID'}
+          }
+          foreach($f in @('v3_original_event_sha256','v3_claim_event_sha256','v3_owner_signature')){
+            if([string]$doc.$f -cnotmatch '^[a-f0-9]{64}$'){throw 'NCI04_V3_ORIGINAL_SIGNED_FIELD_INVALID'}
+          }
+          "F139_V3_ORIGINAL_EVENT_SEQ=$($doc.v3_original_event_seq)" >> $env:GITHUB_ENV
+          "F139_V3_ORIGINAL_EVENT_SHA256=$($doc.v3_original_event_sha256)" >> $env:GITHUB_ENV
+          "F139_V3_CLAIM_EVENT_SEQ=$($doc.v3_claim_event_seq)" >> $env:GITHUB_ENV
+          "F139_V3_CLAIM_EVENT_SHA256=$($doc.v3_claim_event_sha256)" >> $env:GITHUB_ENV
+      - uses: actions/checkout@v4
+        if: ${{ inputs.lane == 'Wingless' }}
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: ${{ steps.pin.outputs.native_ref }}
+          path: native
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        if: ${{ inputs.lane == 'Yggdrasil' }}
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: ${{ steps.pin.outputs.native_ref }}
+          path: native
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned cross-OS resource sampler for V3 only
+        shell: pwsh
+        run: |
+          & python -B -m pip install --disable-pip-version-check --no-input 'psutil==6.1.1'
+          if($LASTEXITCODE -ne 0){throw 'F139_V3_OS_RESOURCE_SAMPLER_UNAVAILABLE'}
+      - name: Run original native V3 full-history qualification without secrets
+        shell: pwsh
+        env:
+          GOMAXPROCS: '2'
+          GOFLAGS: '-p=2'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:F139_NATIVE_PROTOCOL -cne 'v3' -or
+             $env:F139_LANE -cne 'Yggdrasil' -or
+             $env:F139_NATIVE_V3_AUTHORIZATION_PASSED -cne 'true' -or
+             $env:F139_NATIVE_AUTHORIZATION_SHA256 -cnotmatch '^[a-f0-9]{64}$' -or
+             $env:F139_V3_OWNER_CLAIM_SHA256 -cnotmatch '^[a-f0-9]{64}$' -or
+             $env:F139_WORKER_HMAC_KEY -or $env:GH_TOKEN -or
+             $env:GITHUB_TOKEN -or $env:OPENAI_API_KEY) {
+            throw 'F139_V3_CREDENTIALLESS_JOB_FENCE'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP 'f139-native-v3-scratch'
+          $out=Join-Path $env:RUNNER_TEMP 'f139-native-v3-output'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          New-Item -ItemType Directory -Path $out -ErrorAction Stop | Out-Null
+          python -B -m f139.nci04_owner_v3_dispatch execute-v3 --native-root (Join-Path $env:GITHUB_WORKSPACE 'native') --scratch $scratch --output $out
+          if($LASTEXITCODE -ne 0) { throw 'F139_NATIVE_V3_NEGATIVE_OR_INCOMPLETE_NO_REPLAY' }
+          Write-Host 'F139_NATIVE_V3_AUTHENTICATED_DEVELOPMENT=PASS'
+          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f139-v3-native-receipt-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f139-native-v3-output/f139-v3-native-report.json
+            ${{ runner.temp }}/f139-native-v3-output/f139-v3-native-receipt.json
           if-no-files-found: warn
           retention-days: 90
           compression-level: 0
