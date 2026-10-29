@@ -1,0 +1,116 @@
+name: ACC34M 36-idea acceleration plus separately preregistered batched Go CPU metering
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc34_go_delta/**'
+      - 'research/acceleration/acc34_scoreboard.py'
+      - 'research/acceleration/test_acc34_scoreboard.py'
+      - 'docs/research/ACC-34*'
+      - '.github/workflows/forge-acc34-36-acceleration-go.yml'
+permissions:
+  contents: read
+jobs:
+  stage2-causal-delta-native-go-sourcefree:
+    name: ACC34M original 36 register + 32-session Go whole-worker CPU / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Read exact original acceleration draft stack
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Python original 36-ID evidence validation
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Go native commodity CPU kernel
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Immutable source-prereg and full 36 original evidence tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object docs/research/ACC-34-REALIGN-36-AND-ACD1-GO-PREREG.md)" = d39eccb869aa996c902e6ddd9495ce305e630358
+          test "$(git hash-object docs/research/ACC-34M-CROSSOS-CPU-METER-REPAIR-PREREG.md)" = 59b6f517e8917db2d4c9e85d77b8d20a96428427
+          test "$(git hash-object research/acceleration/acc34_go_delta/go.mod)" = 973ad217354d16b49e791eed9c10450ed2801b66
+          test "$(git hash-object research/acceleration/acc34_go_delta/main.go)" = 2293ae3fdcc043d9d621d58df671c15b733fe3fe
+          test "$(git hash-object research/acceleration/acc34_go_delta/main_test.go)" = 7bf89508b4c425a96dd5d21c5318583f35dcc70c
+          test "$(git hash-object research/acceleration/acc34_scoreboard.py)" = 9f85860fc63cbe091180001a04f9bbe6f441af0e
+          test "$(git hash-object research/acceleration/test_acc34_scoreboard.py)" = 746b2e5d9baa1594259f1a7d6c1a3ea20977fa11
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc34-scoreboard.json"
+          echo ACC34_ORIGINAL_30_PLUS_SIX_SOURCE_NEGATIVES_PRESERVED=PASS
+      - name: Exact real native Go CPU kernel correctness/falsification
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd research/acceleration/acc34_go_delta && go test -count=1 -v ./... && go vet ./...)
+          echo ACC34_NATIVE_GO_HIDDEN_CAUSAL_COUNTEREXAMPLE_RETAINED=PASS
+      - name: Whole-worker cold Go CPU and allocator trials with paid FIT and guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="$RUNNER_TEMP/acc34_probe"
+          if [ "$RUNNER_OS" = Windows ]; then binary="$RUNNER_TEMP/acc34_probe.exe"; fi
+          (cd research/acceleration/acc34_go_delta && go build -trimpath -o "$binary" .)
+          "$binary" report 5 > "$RUNNER_TEMP/acc34-native-go-report.json"
+          python - "$RUNNER_TEMP/acc34-native-go-report.json" "$RUNNER_TEMP/acc34-scoreboard.json" <<'PY'
+          import json,math,pathlib,sys,hashlib
+          raw=pathlib.Path(sys.argv[1]).read_bytes()
+          result=json.loads(raw)
+          ledger=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+          assert ledger["total_registered_candidates"]==36
+          assert ledger["stage2_qualified_native_model_speedups"]==0
+          assert {x["claim_id"] for x in ledger["rows"]}=={
+               *(f"U{i:02d}" for i in range(1,31)),*(f"AC-D{i}" for i in range(1,7))}
+          assert result["schema"]=="forge.acc34.acd1.real-go-kernel-resource.v1"
+          assert result["category"]=="SOURCE_FREE_NATIVE_GO_COMPUTE_MICROKERNEL"
+          assert result["candidate"]=="AC-D1"
+          assert result["trials_per_scenario_mode"]==5
+          assert result["batched_cold_sessions_per_worker"]==32
+          assert len(result["trials"])==40 and len(result["summaries"])==2
+          assert all(t["worker"]["events"]==4096*32 for t in result["trials"])
+          assert all(t["worker"]["fit_intervention_probes"]==(24*32 if t["mode"] in ("verified","unverified") else 0)
+                     for t in result["trials"])
+          assert all(t["worker"]["verification_full_node_calls"]==(4096*32*32 if t["mode"]=="verified" else 0)
+                     for t in result["trials"])
+          assert result["original_source_episodes"]==0
+          assert result["model_native_integration"] is False
+          assert result["scientific_first_use"] is False
+          assert result["guarded_output_exact"] is True
+          assert result["unsafe_hidden_interaction_detected"] is True
+          assert result["classification"] in (
+              "ACC34_ACD1_NO_TOTAL_VERIFIED_NATIVE_GO_CPU_WIN",
+              "ACC34_ACD1_BOUNDED_GO_KERNEL_CPU_POSITIVE_NO_SCIENCE")
+          for x in result["summaries"]:
+              assert x["scenario"] in ("benign","hidden")
+              assert x["verified_trace_matches_full"] and x["oracle_trace_matches_full"]
+              assert all(math.isfinite(x[k]) and x[k]>0 for k in (
+                  "verified_cpu_over_full","verified_runtime_sys_over_full",
+                  "unsafe_cpu_over_full","oracle_cpu_over_full"))
+          if result["classification"]=="ACC34_ACD1_BOUNDED_GO_KERNEL_CPU_POSITIVE_NO_SCIENCE":
+              assert all(x["verified_cpu_over_full"]<=0.90 and
+                         x["verified_runtime_sys_over_full"]<=1.10 for x in result["summaries"])
+          print("ACC34_VERIFIED_GO_NATIVE_KERNEL_CLASSIFICATION="+result["classification"])
+          print("ACC34_REAL_GO_RESOURCES="+json.dumps(result["summaries"],sort_keys=True))
+          print("ACC34_36_REGISTER=PASS")
+          print("ACC34_GO_REPORT_SHA256="+hashlib.sha256(raw).hexdigest())
+          print("ACC34_ACTUAL_NATIVE_MODEL_ACCELERATION=NOT_ESTABLISHED")
+          PY
+      - name: Archive complete original 36-ledger and measured Go worker resources
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc34m-original-36-and-batched-go-resource-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc34-scoreboard.json
+            ${{ runner.temp }}/acc34-native-go-report.json
+          retention-days: 30
+          if-no-files-found: error

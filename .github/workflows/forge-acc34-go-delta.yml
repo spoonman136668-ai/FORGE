@@ -1,0 +1,134 @@
+name: ACC34 native Go verified causal-delta acceleration (36-proposal portfolio)
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc34_go_delta/**'
+      - 'research/acceleration/acc34_crossos_portfolio.py'
+      - 'docs/research/ACC-34-*'
+      - '.github/workflows/forge-acc34-go-delta.yml'
+permissions:
+  contents: read
+jobs:
+  native-go-resource-comparison:
+    name: ACC34 native Go full-vs-verified delta / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout frozen ACC34 acceleration candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 30
+          persist-credentials: false
+      - name: Go exact native kernel compiler
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Source-only portfolio accountant
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Preexecution original 36 portfolio and immutable new Go source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor b9bb49eea09e830c02eea6214416f8681e1651b0 HEAD
+          test "$(git hash-object docs/research/ACC-34-REALIGN-36-AND-ACD1-GO-PREREG.md)" = d39eccb869aa996c902e6ddd9495ce305e630358
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/acceleration/acc34_go_delta/go.mod)" = 973ad217354d16b49e791eed9c10450ed2801b66
+          test "$(git hash-object research/acceleration/acc34_go_delta/cmd/acc34/main.go)" = 9afe88127b9f8cbb3d1d53d681619f2fe81a14b6
+          test "$(git hash-object research/acceleration/acc34_go_delta/cmd/acc34/main_test.go)" = 184e57a4ff5bfdaa1bfccf3d3a0f325d729d8bea
+          test "$(git hash-object research/acceleration/acc34_crossos_portfolio.py)" = 6837ff3b6e550845313fb46a80af7c69b02af57b
+          python -B research/ac07_sourcefree/ac08_portfolio.py > "$RUNNER_TEMP/acc34-original-36-sourcefree.json"
+          python - "$RUNNER_TEMP/acc34-original-36-sourcefree.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert r["original_count"]==30 and r["native_hypothesis_count"]==6 and r["unique_claim_count"]==36
+          assert len(r["portfolio_rows"])==36
+          assert r["physical_substitute_only_ids"]==["U03","U06"]
+          assert r["negative_evidence_preserved"] and not r["scientific_admission_authorized"]
+          print("ACC34_ALL_36_ORIGINAL_PROPOSALS_RETAINED=PASS")
+          PY
+          echo ACC34_PREEXECUTION_SOURCE_AND_PREREG_PINNED=PASS
+      - name: Six focused Go native tests, vet, build and full worker CPU trial
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc34_go_delta
+          go test -count=1 -v ./...
+          go vet ./...
+          mkdir -p "$RUNNER_TEMP/acc34"
+          EXE="$RUNNER_TEMP/acc34/acc34"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then EXE="$EXE.exe"; fi
+          go build -trimpath -o "$EXE" ./cmd/acc34
+          "$EXE" > "$RUNNER_TEMP/acc34/acc34-worker-report.json"
+          python - "$RUNNER_TEMP/acc34/acc34-worker-report.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert len(r["scenarios"])==2 and r["portfolio_total"]==36
+          assert r["cpu_includes_fit_and_verification"] is True
+          assert r["true_os_peak_rss_measured"] is False
+          assert all(s["verified_exact_output_equal"] and s["oracle_exact_output_equal"]
+                     and len(s["five_paired_verified_full_cpu_ratios"])==5 for s in r["scenarios"])
+          print("ACC34_NATIVE_GO_CORRECTNESS_AND_FULL_CPU_ACCOUNTING=PASS")
+          for s in r["scenarios"]:
+              print("ACC34_SCENARIO",s["scenario"],"MEDIAN_CPU_RATIO",
+                    s["median_verified_full_cpu_ratio"],"SYS_RATIO",
+                    s["median_verified_full_sys_ratio"],"UNSAFE_WRONG_EVENTS",
+                    s["unverified_mismatched_events"],"VERIFIED_REPAIRS",
+                    s["verified_repairs_total"])
+          print("ACC34_HOST_ENGINEERING_CLASSIFICATION",r["classification"])
+          print("ACC34_NATIVE_MODEL_SCIENTIFIC_ADMISSION=NO")
+          PY
+      - name: Retain actual independently measured source-native Go worker results
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc34-native-go-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc34/acc34-worker-report.json
+          retention-days: 30
+          if-no-files-found: error
+
+  reconcile-original-36-and-cross-host-evidence:
+    name: ACC34 exact 36 acceleration portfolio + measured Linux/Windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: native-go-resource-comparison
+    steps:
+      - name: Checkout exact immutable research candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: acc34-native-go-ubuntu-latest
+          path: acc34-ci/linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: acc34-native-go-windows-latest
+          path: acc34-ci/windows
+      - name: Cross-OS preserve all 36 and independently audit measured resource claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/acceleration/acc34_crossos_portfolio.py \
+            --linux acc34-ci/linux/acc34-worker-report.json \
+            --windows acc34-ci/windows/acc34-worker-report.json \
+            --output acc34-ci/acc34-36-portfolio-crossos-report.json
+          echo ACC34_STAGE2_ACTUAL_COMPILLED_GO_ENGINEERING_DONE__NO_MODEL_ADMISSION
+      - name: Archive independent cross-OS complete 36-candidate ledger
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc34-original-36-portfolio-crossos-verification
+          path: acc34-ci/acc34-36-portfolio-crossos-report.json
+          retention-days: 30
+          if-no-files-found: error
