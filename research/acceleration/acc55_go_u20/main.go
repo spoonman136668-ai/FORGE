@@ -43,7 +43,7 @@ func work(mode,family string,seed uint64)(worker,error){
    mismatch:=0;for j,x:=range xs{evaluations++;if eval(p,x)!=ys[j]{mismatch++}}
    primary,secondary:=mismatch,len(p.Text)
    switch mode{
-   case "ENUM":if mismatch==0{primary=0}else{primary=1};secondary=i
+   case "ENUM":if mismatch==0{primary=0}else{primary=1+mismatch};secondary=i
    case "COMPLEXITY":primary=p.Ops;secondary=i
    case "FIT_FIRST":primary=mismatch;secondary=i
    case "MDL":primary=len(p.Text)+8*mismatch;secondary=i
