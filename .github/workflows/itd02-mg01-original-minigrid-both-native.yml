@@ -1,0 +1,55 @@
+name: ITD-02 MG01 one original MiniGrid source with independent Wingless Go and Yggdrasil cells
+on:
+  push:
+    branches:
+      - research/itd02-mg01-paired-live-minigrid-20261028
+permissions:
+  contents: read
+jobs:
+  original-source-two-independent-native-live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Exact Git newline policy
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Exact clean source with no persisted credential
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - name: Pinned Python 3.11 runtime
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Native Go 1.25.5 compiler
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Run pinned original Farama and both untouched native policies live
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash research/lcrm01/mg01_ci.sh
+      - name: Preserve both process originals and fail-closed errors
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: itd02-mg01-original-farama-both-live-native
+          path: |
+            ${{ runner.temp }}/mg01/first.json
+            ${{ runner.temp }}/mg01/second.json
+            ${{ runner.temp }}/mg01/comparison.json
+            ${{ runner.temp }}/mg01/first.log
+            ${{ runner.temp }}/mg01/second.log
+          retention-days: 30
+          if-no-files-found: warn
