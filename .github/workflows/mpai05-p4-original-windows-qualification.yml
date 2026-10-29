@@ -18,6 +18,9 @@ jobs:
       PYTHONNOUSERSITE: '1'
       GIT_TERMINAL_PROMPT: '0'
       GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
     steps:
       - name: Verify original Windows identity and qualify private exact source (no model call or writes)
         shell: pwsh
@@ -92,6 +95,11 @@ jobs:
             $nativeCount=([regex]::Matches($native,'(?m)^RUN Test-[\w-]+[.]ps1')).Count
             if($nativeExit -ne 0 -or $native -notmatch 'Mind-Palace regression suite passed'){
               Write-Output ('MPAI05_P4_NATIVE_TESTS_STARTED='+$nativeCount)
+              if($native -match '(?i)(Filename too long|PathTooLongException|Filename exceeds)'){Write-Output 'MPAI05_P4_NATIVE_FAILURE_CLASS=WINDOWS_PATH_LENGTH'}
+              elseif($native -match 'UQ51_TEST_GIT_FAILED'){Write-Output 'MPAI05_P4_NATIVE_FAILURE_CLASS=UQ51_NESTED_GIT'}
+              elseif($native -match 'UQ51_BASELINE_CHANGED'){Write-Output 'MPAI05_P4_NATIVE_FAILURE_CLASS=UQ51_BASELINE'}
+              elseif($native -match 'UQ51_'){Write-Output 'MPAI05_P4_NATIVE_FAILURE_CLASS=UQ51_GUARDED_ASSERTION'}
+              else {Write-Output 'MPAI05_P4_NATIVE_FAILURE_CLASS=UNCLASSIFIED_PRIVATE_LOG'}
               throw 'MPAI05_P4_ORIGINAL_NATIVE_FAILURE_PRIVATE_LOG'
             }
             Write-Output ('MPAI05_P4_NATIVE_TESTS_PASSED='+$nativeCount)
