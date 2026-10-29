@@ -93,3 +93,37 @@ def execute(source_root,go_binary):
          "source_fit_receipts":fit_receipts,
          "original_native_probe_records":all_rows,
          "canonical_sha256":digest({"fits":fit_receipts,"probes":all_rows})}
+
+def compare(first,second):
+ a=json.loads(Path(first).read_text(encoding="utf-8"))
+ b=json.loads(Path(second).read_text(encoding="utf-8"))
+ if (a!=b or a["schema"]!="itd02.mg21.shared-real-original-fit-retention.v1"
+     or len(a["original_native_probe_records"])!=28
+     or a["canonical_sha256"]!=digest({"fits":a["source_fit_receipts"],
+                                       "probes":a["original_native_probe_records"]})
+     or any(r["trace_sha256"]!=digest(r["events"])
+            for r in a["original_native_probe_records"])):
+  raise ValueError("MG21_TRUE_ORIGINAL_LONG_SOURCE_REPLAY_MISMATCH")
+ print("MG21_INDEPENDENT_SOURCE_SHARED_FIT_RETENTION_REPLAY_PASS_NO_SCIENCE "+
+       a["canonical_sha256"])
+
+def main():
+ parser=argparse.ArgumentParser()
+ parser.add_argument("--source-root",type=Path)
+ parser.add_argument("--native-go",type=Path)
+ parser.add_argument("--output",type=Path)
+ parser.add_argument("--compare",nargs=2)
+ args=parser.parse_args()
+ if args.compare:
+  compare(*args.compare);return
+ if not (args.source_root and args.native_go and args.output):
+  parser.error("required source-root native-go output")
+ report=execute(args.source_root,args.native_go)
+ args.output.parent.mkdir(parents=True,exist_ok=True)
+ args.output.write_text(json.dumps(report,sort_keys=True,indent=2)+"\n",
+                        encoding="utf-8")
+ print("MG21_ORIGINAL_SHARED_FIT_AND_COLD_PROBE_ENGINEERING_PASS_NO_SCIENCE "+
+       report["canonical_sha256"])
+
+if __name__=="__main__":
+ main()
