@@ -120,6 +120,22 @@ class SteeringIntakeTests(unittest.TestCase):
             [c["issue_body"] for c in snapshots[0]["candidates"]],
             [c["issue_body"] for c in snapshots[1]["candidates"]])
 
+    def test_owner_feed_passes_same_read_only_provider_for_evidence(self):
+        from f139.local_controller import GitHub
+        with patch("f139.nci04_autonomy_feed.prepare_feed",
+                   return_value={"enabled": True, "candidates": [],
+                                 "rejected": [],
+                                 "negative_evidence_observation": {
+                                     "status": "AUTHENTICATED_UNADMITTED"}}) as run:
+            owner = object.__new__(GitHub)
+            owner.native_repo_get = lambda route: {"route": route}
+            result = owner.prepare_native_feed("a" * 40, set())
+        self.assertEqual(result["negative_evidence_observation"]["status"],
+                         "AUTHENTICATED_UNADMITTED")
+        passed = run.call_args.kwargs
+        self.assertIs(passed["steering_get"], owner.native_repo_get)
+        self.assertIs(passed["evidence_get"], owner.native_repo_get)
+
     def test_negative_evidence_observation_never_changes_selected_candidates(self):
         p = self.fixture()
         baseline = prepare_feed(
