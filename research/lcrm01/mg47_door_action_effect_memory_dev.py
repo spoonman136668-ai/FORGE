@@ -161,6 +161,9 @@ class DoorMemoryNavigation(PublicSlotRelease):
 
     def checkpoint(self):
         base=json.loads(PublicSlotRelease.checkpoint(self))
+        # The inherited method uses self.SCHEMA; serialize nested parent
+        # payload under the exact parent schema before parent-only restore.
+        base["schema"]=PublicSlotRelease.SCHEMA
         return json.dumps({"schema":self.SCHEMA,"base":base,
             "evidence_enabled":self.evidence_enabled,
             "door_open_observed":self.door_open_observed,
