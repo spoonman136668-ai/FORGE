@@ -1,0 +1,171 @@
+name: F139 V19 original owner AUTHENTIC cold clone transition rehearsal (NO DEPLOY)
+on:
+  push:
+    branches:
+      - qualification/f139-v19-authentic-coldclone-transition-20261028
+    paths:
+      - '.github/workflows/qualify-f139-v19-coldclone-20261028.yml'
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: f139-v19-original-owner-coldclone-20261028
+  cancel-in-progress: false
+jobs:
+  coldclone-owner:
+    name: Authentic V18 ledger clone / V19 transition / cold restore (NO original write)
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Freeze checkout Git newline conversion
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - name: Checkout exact six-check-qualified V19 source, not production source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 79d115e5a903edfd3a45cb0a2a9ba99381b837fc
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bounded owner-only cold backup, isolated clone transition, restore witness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1') {
+            throw 'F139_V19_NOT_ORIGINAL_WINDOWS_OWNER'
+          }
+          if((& git rev-parse HEAD | Out-String).Trim() -cne '79d115e5a903edfd3a45cb0a2a9ba99381b837fc' -or
+             @(& git status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_V19_COLDCLONE_EXACT_SOURCE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1) {throw 'F139_V19_ORIGINAL_TASK_ACTION_DRIFT'}
+          $argsText=[string]$task.Actions[0].Arguments
+          $m=[regex]::Match($argsText,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if(-not $m.Success) {throw 'F139_V19_ORIGINAL_PYTHON_PATH_UNKNOWN'}
+          $python=$m.Groups[1].Value
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            throw 'F139_V19_ORIGINAL_PYTHON_OR_PROFILE_MISSING'
+          }
+          $original=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if(-not(Test-Path -LiteralPath $original -PathType Leaf)) {
+            throw 'F139_V19_ORIGINAL_SQLITE_MISSING'
+          }
+          @'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+          import sqlite3
+          import sys
+          import tempfile
+          from f139.local_controller import Database, SingleOwner
+          from f139.nci04_v19_original_owner_nowrite_probe import owner_witness
+          from f139.nci04_v19_owner_readonly_preflight import build_v19_readonly_preflight, verify_v19_readonly_preflight
+
+          original = pathlib.Path(sys.argv[1]).resolve()
+          target = sys.argv[2]
+          v18 = "d8bccc604f8607bf10f9d8bc6aa568d1f98af559"
+          assert target == "79d115e5a903edfd3a45cb0a2a9ba99381b837fc", "F139_V19_CLONE_TARGET_UNQUALIFIED"
+          owner_witness(original)
+          with SingleOwner(original.with_suffix(".lock")):
+              before_primary_hash = hashlib.sha256(original.read_bytes()).hexdigest()
+              src = Database.open_readonly(original)
+              try:
+                  before = dict(src.meta())
+                  src.verify()
+                  assert before["source_sha"] == v18 and before["enabled"] == 1 and before["legacy_suspended"] == 1, "F139_V19_AUTHENTIC_V18_NOT_ACTIVE"
+                  assert src.ready() is None and not src.actives(), "F139_V19_AUTHENTIC_ORIGINAL_BUSY"
+                  with tempfile.TemporaryDirectory(prefix="f139-v19-original-coldclone-", dir=os.environ.get("RUNNER_TEMP")) as td:
+                      tmp = pathlib.Path(td)
+                      backup = tmp / "cold-original.sqlite"
+                      destination = sqlite3.connect(str(backup), isolation_level=None)
+                      try:
+                          src.conn.backup(destination)
+                      finally:
+                          destination.close()
+                      backup_hash = hashlib.sha256(backup.read_bytes()).hexdigest()
+                      cold = Database.open_readonly(backup)
+                      try:
+                          cold.verify()
+                          assert dict(cold.meta()) == before, "F139_V19_COLD_BACKUP_ORIGINAL_META_MISMATCH"
+                          assert cold.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == before["head_seq"], "F139_V19_COLD_BACKUP_EVENT_COUNT_DRIFT"
+                      finally:
+                          cold.close()
+                      rehearsal = tmp / "rehearsal.sqlite"
+                      shutil.copyfile(backup, rehearsal)
+                      assert hashlib.sha256(rehearsal.read_bytes()).hexdigest() == backup_hash, "F139_V19_REHEARSAL_COPY_MISMATCH"
+                      with SingleOwner(rehearsal.with_suffix(".lock")):
+                          clone = Database(rehearsal)
+                          try:
+                              preflight = build_v19_readonly_preflight(clone, target, 1)
+                              witness = verify_v19_readonly_preflight(clone, preflight)
+                              assert witness["runtime_cutover_authorized"] is False
+                              clone.transition_source(target, allow_certified_negative=True, allow_v19=True)
+                              clone.verify()
+                              after = dict(clone.meta())
+                              assert after["source_sha"] == target and after["head_seq"] == before["head_seq"] + 1, "F139_V19_REHEARSAL_NOT_ATOMIC"
+                              assert after["enabled"] == before["enabled"] and after["legacy_suspended"] == before["legacy_suspended"], "F139_V19_REHEARSAL_RUNTIME_AUTH_DRIFT"
+                              assert clone.ready() is None and not clone.actives()
+                          finally:
+                              clone.close()
+                      verified_rehearsal = Database.open_readonly(rehearsal)
+                      try:
+                          verified_rehearsal.verify()
+                          assert dict(verified_rehearsal.meta()) == after, "F139_V19_COLD_POSTTRANSITION_INTEGRITY_FAILED"
+                      finally:
+                          verified_rehearsal.close()
+                      restored = tmp / "rollback-from-backup.sqlite"
+                      shutil.copyfile(backup, restored)
+                      assert hashlib.sha256(restored.read_bytes()).hexdigest() == backup_hash, "F139_V19_ROLLBACK_BACKUP_HASH_MISMATCH"
+                      rollback = Database.open_readonly(restored)
+                      try:
+                          rollback.verify()
+                          assert dict(rollback.meta()) == before, "F139_V19_ROLLBACK_ORIGINAL_HEAD_DRIFT"
+                          assert rollback.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == before["head_seq"], "F139_V19_ROLLBACK_EVENT_COUNT_DRIFT"
+                      finally:
+                          rollback.close()
+                      # Re-read the untouched original under the same kernel owner mutex.
+                      src.verify()
+                      assert dict(src.meta()) == before, "F139_V19_ORIGINAL_HEAD_CHANGED_DURING_REHEARSAL"
+                      assert hashlib.sha256(original.read_bytes()).hexdigest() == before_primary_hash, "F139_V19_ORIGINAL_PRIMARY_BYTES_CHANGED"
+                      owner_witness(original)
+                      print(json.dumps({
+                          "schema": "forge.f139.v19.authentic-coldclone-rehearsal.v1",
+                          "original_v18_source": v18,
+                          "candidate_v19_source": target,
+                          "original_event_seq": before["head_seq"],
+                          "original_head_sha256": before["head_hash"],
+                          "actual_original_read_only": True,
+                          "authentic_sqlite_backup_restorable": True,
+                          "offline_clone_v19_transition_atomic": True,
+                          "offline_clone_cold_post_transition_integrity": True,
+                          "offline_clone_backup_rollback_restored": True,
+                          "original_primary_sha256_unchanged": True,
+                          "original_sqlite_sql_writes": 0,
+                          "original_task_mutations": 0,
+                          "github_writes": 0,
+                          "provider_requests": 0,
+                          "production_cutover_authorized": False,
+                          "live_disaster_recovery_proven": False
+                      },sort_keys=True),flush=True)
+              finally:
+                  src.close()
+          '@ | & $python -B - $original '79d115e5a903edfd3a45cb0a2a9ba99381b837fc'
+          if($LASTEXITCODE -ne 0) {throw 'F139_V19_AUTHENTIC_COLDCLONE_REHEARSAL_FAILED'}
+          Write-Host 'F139_V19_AUTHENTIC_ORIGINAL_COLD_BACKUP_CLONE=PASS'
+          Write-Host 'F139_V19_OFFLINE_CLONE_TRANSITION_AND_RESTORE=PASS'
+          Write-Host 'F139_V19_ORIGINAL_TASK_DB_AND_PROTECTED_MAIN_UNCHANGED=TRUE'
+          Write-Host 'F139_V19_PRODUCTION_CUTOVER_AUTHORIZED=FALSE'
