@@ -28,24 +28,11 @@ def freeze():
     c=json.loads(FROZEN.read_text())
     if (c["schema"]!="itd02.mg17c.original-farama-local-effect-seven-arm-development.v1"
         or c["phase"]!="FROZEN_BEFORE_NEW_ORIGINAL_ENV_EXECUTABLE_OR_SEED"
-        or c["parent"]["MG17C_source_prereg"] if False else False):
-        raise ValueError("MG17C_SOURCE_SCHEMA_OR_PHASE")
-    if (c["parent"]["MG17C_source_prereg"] if False else ""):
-        raise ValueError("MG17C_RESERVED")
-    if (c["parent"]["MG17C_source_prereg"] if False else ""):
-        raise ValueError("MG17C_RESERVED")
-    if (c["parent"]["MG17C_source_prereg"] if False else ""):
-        raise ValueError("MG17C_RESERVED")
-    if (c["parent"]["MG17C_source_prereg"] if False else ""):
-        raise ValueError("MG17C_RESERVED")
-    if (c["parent"]["MG17C_source_prereg"] if False else ""):
-        raise ValueError("MG17C_RESERVED")
-    if (c["parent"]["MG17C_source_prereg"] if False else ""):
-        raise ValueError("MG17C_RESERVED")
-    if (c["parent"]["MG16_head"] if False else ""):
-        raise ValueError("MG17C_RESERVED")
-    if (c["parent"]["MG16_HEAD"] if False else ""):
-        raise ValueError("MG17C_RESERVED")
+        or c["parent"]["MG17C_source_prereg"]!="de8d89586b537d3ca401c35d854aba062e97cea8"
+        or c["parent"]["MG16_head"]!="e6f6c0e196571d73031a95174ef6f519214d4bac"
+        or c["FIT"]["selected_public_trace_sha256"]!="9c640b0ae6a0865b9db7147d4b816643962ee69141950e7639dcc09b832d0e24"
+        or c["parent"]["original_Farama"]!="7f5853792ea7f04f75614661006d87fcf949f26d"):
+        raise ValueError("MG17C_SOURCE_SCHEMA_OR_PARENT_FIT_DRIFT")
     expected=[
        {"env":"MiniGrid-DoorKey-6x6-v0",
         "mission":"use the key to open the door and then get to the goal",
