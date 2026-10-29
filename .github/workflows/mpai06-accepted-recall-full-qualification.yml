@@ -1,0 +1,166 @@
+name: MP-AI06 complete original Windows recall + integration qualification
+on:
+  push:
+    branches: [proposal/mpai06-accepted-recall-full-20261029]
+    paths: ['.github/workflows/mpai06-accepted-recall-full-qualification.yml']
+permissions:
+  contents: read
+jobs:
+  original-windows-readonly-acceptance:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 32
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+    steps:
+      - uses: actions/checkout@v4
+      - name: Qualify exact authentic accepted-memory recall repair against full original suite and MCP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI06_FULL_ORIGINAL_RUNNER_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI06_FULL_PAID_API_FORBIDDEN'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI06_FULL_NO_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI06_FULL_FORGE_HEAD_DRIFT'
+          }
+          $source='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $accepted='f31e4203892730ddbe24d44ce5674f5678d498aa'
+          $candidate='ff3568a09b8bca29cba4616dacbc0e657a38a5ac'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-full-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'private'
+          $log=Join-Path $scratch 'private-tests.log'
+          $gitlog=Join-Path $scratch 'private-git.log'
+          try{
+            if(Test-Path -LiteralPath $scratch){
+              throw 'MPAI06_FULL_SCRATCH_COLLISION'
+            }
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+            & git clone --quiet --filter=blob:none --depth 1 --single-branch --branch review/mpai06-recall-excerpt-fix-20261029 $source $root 2> $gitlog
+            if($LASTEXITCODE -ne 0){throw 'MPAI06_FULL_PRIVATE_CLONE_FAILED'}
+            $head=(git -C $root rev-parse HEAD).Trim()
+            if($head -cne $candidate){throw 'MPAI06_FULL_PRIVATE_HEAD_DRIFT'}
+            $published=(git -C $root ls-remote origin refs/heads/main)
+            if($LASTEXITCODE -ne 0 -or @($published).Count -ne 1 -or
+               (([string]$published -split '\s+')[0]) -cne $accepted){
+              throw 'MPAI06_FULL_ACCEPTED_MAIN_MOVED_REQUALIFY'
+            }
+            $sourceBlobs=@{
+              'tools/mindpalace_readonly.py'='d79045628567648a1945779dfb303644dfc15b46'
+              'tests/test_mpai06_recall_excerpts.py'='0da88fad7d8fb768bd4dc2af7cd98dfdf8e1872b'
+              'tests/Test-All.ps1'='439797231d3a093628f95f783f5f30dbf93fe5bf'
+              'tests/test_mpn1_mcp.py'='338fa9c2275a1ae0a942485bce0518898bf5fb57'
+              'tests/test_mpai_integrated_cycle.py'='8b23ba85b8cba42222859ba1883ecbbfa1f10c43'
+            }
+            foreach($file in $sourceBlobs.Keys){
+              $blob=(git -C $root rev-parse ('HEAD:'+$file)).Trim()
+              if($LASTEXITCODE -ne 0 -or $blob -cne $sourceBlobs[$file]){
+                throw 'MPAI06_FULL_SOURCE_DEPENDENCY_BLOB_DRIFT'
+              }
+            }
+            $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+              '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+              '.ice/remote-index.ndjson','.ice/chat-delta-state.json',
+              '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $before=@{}
+            foreach($file in $protected){
+              $before[$file]=(git -C $root rev-parse ('HEAD:'+$file)).Trim()
+            }
+            Push-Location $root
+            try{
+              $ps=(Get-Command powershell.exe -ErrorAction Stop).Source
+              & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root 'tests/Test-All.ps1') *> $log
+              $rc=$LASTEXITCODE
+              if($rc -ne 0){
+                $tail=Get-Content -LiteralPath $log -Tail 120
+                $test=$tail|Where-Object{$_ -match '^(RUN Test-[A-Za-z0-9-]+\.ps1)$'}|Select-Object -Last 1
+                if($test){Write-Output ('MPAI06_FULL_LAST_TEST='+$test)}
+                throw 'MPAI06_FULL_CANONICAL_SUITE_FAILURE_PRIVATE_LOG'
+              }
+              $raw=Get-Content -LiteralPath $log -Raw
+              if(-not $raw.Contains('Mind-Palace regression suite passed')){
+                throw 'MPAI06_FULL_REGRESSION_FINAL_RECEIPT_MISSING'
+              }
+              Write-Output 'MPAI06_FULL_ORIGINAL_WINDOWS_TEST_ALL=PASS'
+              $patterns=@('test_mpai06_recall_excerpts.py','test_mpn1_mcp.py',
+                 'test_mpai_integrated_cycle.py','test_mpai01_reflect.py',
+                 'test_mpai01_probe.py','test_mpai01_mcp_adapter.py',
+                 'test_mpai02_probe_mcp.py')
+              foreach($pattern in $patterns){
+                if(-not (Test-Path -LiteralPath (Join-Path $root ('tests/'+$pattern)))){
+                  throw 'MPAI06_FULL_REQUIRED_INTEGRATION_TEST_MISSING'
+                }
+                & python -B -m unittest discover -s tests -p $pattern -v *> $log
+                $rc=$LASTEXITCODE
+                $out=Get-Content -LiteralPath $log -Raw
+                if($rc -ne 0 -or $out -notmatch '(?m)^OK(?:\s|$)'){
+                  foreach($m in [regex]::Matches($out,
+                      '(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                    Write-Output ('MPAI06_FULL_FAILED_TEST='+$m.Groups[2].Value)
+                  }
+                  throw 'MPAI06_FULL_REAL_MCP_REGRESSION_FAILURE_PRIVATE_LOG'
+                }
+                Write-Output ('MPAI06_FULL_INTEGRATION_'+$pattern.Replace('.py','').ToUpper()+'=PASS')
+              }
+              $script=@'
+          import json,pathlib,sys
+          root=pathlib.Path(sys.argv[1]);head=sys.argv[2]
+          sys.path.insert(0,str(root/"tools"))
+          from mindpalace_readonly import MemorySnapshot
+          projects={
+            "Wingless":"project_state/wingless-p6o-native-bayesian-causal-policy-equal-control-negative-20261021",
+            "Yggdrasil":"project_state/yggdrasil-mr29-original-native-causal-alias-dev-signal-negative-20261021"}
+          result={}
+          for project,identity in projects.items():
+              r=MemorySnapshot(root,head,[project])
+              direct=r.get_record(head,identity,[project])
+              assert direct["found"] and direct["record"]["status"]=="observed"
+              hits=[x for x in r.recall(head,identity,[project],profile="continuation")["matches"]
+                    if x["id"]==identity]
+              assert len(hits)==1 and hits[0]["source_refs"]==direct["record"]["source_refs"]
+              assert hits[0].get("excerpt_only") is True
+              assert hits[0]["complete_record_id"]==identity
+              assert r.get_record(head,projects["Yggdrasil" if project=="Wingless" else "Wingless"],
+                     [project])["found"] is False
+              result[project]="PASS"
+          print(json.dumps(result,sort_keys=True))
+          '@
+              & python -B -c $script $root $head *> $log
+              if($LASTEXITCODE -ne 0){throw 'MPAI06_FULL_SEPARATE_PROCESS_ACCEPTED_RECALL_FAILED'}
+              $proof=(Get-Content -LiteralPath $log -Raw)|ConvertFrom-Json
+              if($proof.Wingless -cne 'PASS' -or $proof.Yggdrasil -cne 'PASS'){
+                throw 'MPAI06_FULL_SCOPE_COLD_READBACK_FAILED'
+              }
+              Write-Output 'MPAI06_FULL_ORIGINAL_ACCEPTED_COLD_RECALL=2_PASS'
+              Write-Output 'MPAI06_FULL_PROJECT_SCOPE_AND_SOURCE_REFS=PASS'
+            }finally{
+              Pop-Location
+            }
+            foreach($file in $protected){
+              $now=(git -C $root rev-parse ('HEAD:'+$file)).Trim()
+              if($now -cne $before[$file]){
+                throw 'MPAI06_FULL_PROTECTED_SOURCE_DRIFT'
+              }
+            }
+            if(@(git -C $root status --porcelain --untracked-files=all).Count -ne 0){
+              throw 'MPAI06_FULL_PRIVATE_SOURCE_DIRTY'
+            }
+            Write-Output 'MPAI06_FULL_NINE_PROTECTED_BLOBS=PASS'
+            Write-Output 'MPAI06_FULL_ACCEPTED_MAIN_PIN=PASS'
+            Write-Output 'MPAI06_FULL_PRODUCTION_WRITES=0'
+            Write-Output 'MPAI06_FULL_SCIENTIFIC_ADMISSION=FALSE'
+            Write-Output 'MPAI06_FULL_NO_AUTOMATED_INGESTION_ACTIVATED=TRUE'
+          }finally{
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI06_FULL_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
