@@ -1,12 +1,19 @@
 """V19 original-ledger read-only witness: authentic source-only fixture."""
 from __future__ import annotations
 
+import base64
+import json
 import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from f139.local_controller import Database, SingleOwner
+from f139.nci04_native_contract import R7_TEST_PATHS, canonical
+from f139.nci04_owner_issue import inspect_owner_issue
+from test_nci04_owner_issue import (
+    MAIN, TARGET, TREE, candidate as make_candidate, issue as make_issue,
+)
 from f139.nci04_v19_original_terminal_witness import (
     ShadowDenied, project_original_native_terminal,
 )
@@ -142,6 +149,51 @@ class OriginalWitnessTests(unittest.TestCase):
         with SingleOwner(self.lockfile):
             with self.assertRaises(Exception):
                 self.read(lane=self.fixture.native.lane)
+
+    def test_genuine_historical_r7_terminal_does_not_block_new_model_terminal(self):
+        raw = make_issue()
+        raw["number"] = 703
+        raw["id"] = 5951234568
+        owner_doc = json.loads(raw["body"])
+        intent = make_candidate()
+        intent["path"] = sorted(R7_TEST_PATHS["Wingless"])[0]
+        owner_doc["intent_base64"] = base64.b64encode(canonical(intent)).decode("ascii")
+        raw["body"] = json.dumps(owner_doc, sort_keys=True)
+        historical = inspect_owner_issue(
+            raw, protected_main=MAIN,
+            authenticated_target_commit=TARGET,
+            authenticated_target_tree=TREE)
+
+        activate_native(self.db, self.fixture.approval())
+        self.assertTrue(admit_native_issue(
+            self.db, historical, "2026-10-28T09:00:00Z"))
+        self.db.claim(historical.ticket, "2026-10-28T09:01:00Z")
+        self.db.dispatch_observed(historical.ticket)
+        self.db.terminal(historical.ticket, 98012345671,
+                         "/tmp/f139-r7-negative-fixture", "e" * 64)
+        with SingleOwner(self.lockfile):
+            self.db.verify()
+            result = self.read()
+            self.assertEqual(result["disposition"],
+                             "BLOCKED_NO_AUTHENTIC_NATIVE_TERMINAL")
+            self.assertEqual(result["provider_requests"], 0)
+
+        self.assertTrue(admit_native_issue(
+            self.db, self.fixture.native, "2026-10-28T09:15:00Z"))
+        self.db.claim(self.fixture.native.ticket, "2026-10-28T09:16:00Z")
+        self.db.dispatch_observed(self.fixture.native.ticket)
+        self.db.terminal(self.fixture.native.ticket, 98012345672,
+                         "/tmp/f139-model-positive-fixture", "f" * 64)
+        with SingleOwner(self.lockfile):
+            before = self.db.meta().copy()
+            result = self.read()
+            self.assertEqual(result["disposition"],
+                             "AUTHENTIC_FRESH_TERMINAL_SHADOW_ONLY_NOT_AUTHORIZED")
+            self.assertEqual(result["shadow"]["disposition"],
+                             "ELIGIBLE_SHADOW_ONLY_NOT_AUTHORIZED")
+            self.assertFalse(result["owner_request_authorized"])
+            self.assertEqual(result["provider_requests"], 0)
+            self.assertEqual(self.db.meta(), before)
 
     def test_no_write_no_provider_network_even_if_shadow_says_eligible(self):
         activate_native(self.db, self.fixture.approval())

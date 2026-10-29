@@ -227,6 +227,42 @@ class OriginalOneShotSendTests(unittest.TestCase):
             self.assertEqual(self.count(), 0)
         self.assertEqual(self.calls, [])
 
+    def test_revocation_after_public_reads_consumes_handoff_without_transport(self):
+        handoff = self.prepare()
+        witnesses, reads = [], []
+        actual_reader = self.source.reader_fixture.public_reader
+
+        def witness():
+            witnesses.append(True)
+            # Original admission, transaction and precommit gates all pass.
+            # A later fourth check at the credential transport must fail.
+            return len(witnesses) <= 3
+
+        def public_reader(route):
+            reads.append(route)
+            return actual_reader(route)
+
+        with SingleOwner(self.mutex):
+            before = self.db.meta().copy()
+            result = self.send(handoff, witness=witness, reader=public_reader)
+            self.assertEqual(result["disposition"],
+                             "MODEL_SEND_FAILED_OR_AMBIGUOUS_NO_RETRY")
+            self.assertEqual(result["provider_calls_in_this_invocation"], 0)
+            self.assertTrue(result["provider_attempt_history_spent"])
+            self.assertEqual(self.count(), 1)
+            self.assertEqual(self.db.meta()["head_seq"], before["head_seq"] + 1)
+            self.assertGreater(len(reads), 2)
+            self.assertEqual(len(witnesses), 4)
+            self.assertEqual(self.calls, [])
+            self.db.verify()
+            # Re-open the authorization gate only to verify that the
+            # already-spent handoff still blocks any later replay.
+            again = self.send(handoff, witness=lambda: True, reader=public_reader)
+            self.assertEqual(again["disposition"],
+                             "BLOCKED_HANDOFF_ALREADY_SPENT_OR_HEAD_MOVED")
+            self.assertEqual(again["provider_calls_in_this_invocation"], 0)
+            self.assertEqual(self.count(), 1)
+
     def test_forged_second_sha_chained_send_event_rejected_cold(self):
         handoff = self.prepare()
         with SingleOwner(self.mutex):

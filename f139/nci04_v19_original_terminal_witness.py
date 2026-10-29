@@ -12,7 +12,7 @@ import json
 import re
 
 from f139.local_controller import Database, SingleOwner
-from f139.nci04_native_contract import model_source_path_allowed
+from f139.nci04_native_contract import R7_TEST_PATHS, model_source_path_allowed
 from f139.nci04_v19_research_renewal_shadow import (
     ShadowDenied, LANES, is_sha40, is_sha64, shadow_decision,
 )
@@ -130,9 +130,15 @@ def project_original_native_terminal(db: Database, *, lane: str, utc_day: str,
             deny("NATIVE_TERMINAL_CUSTODY_DRIFT")
         target_commit = admission.get("native_target_commit")
         native_path = admission.get("native_path")
-        if not (is_sha40(target_commit)
-                and model_source_path_allowed(lane, native_path)):
+        if not is_sha40(target_commit) or type(native_path) is not str:
             deny("NATIVE_SOURCE_NOT_MODEL_AUTHORABLE")
+        if not model_source_path_allowed(lane, native_path):
+            # Genuine R7 test-path admissions are permitted native history,
+            # but must not be considered renewable model-authorable terminals.
+            # All event/task custody was verified above; reject unknown paths.
+            if native_path not in R7_TEST_PATHS[lane]:
+                deny("NATIVE_SOURCE_NOT_MODEL_AUTHORABLE")
+            continue
         candidates.append((terminal_event["seq"], task, target_commit, native_path))
 
     if not candidates:
