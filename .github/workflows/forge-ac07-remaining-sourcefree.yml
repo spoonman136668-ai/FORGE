@@ -15,6 +15,7 @@ on:
       - 'docs/research/AC-16-REAL-DTR-NATIVE-YGG-NCA-PREREGISTRATION.md'
       - 'docs/research/AC-17-NATIVE-IDENTIFIABILITY-DIAGNOSTIC-PREREGISTRATION.md'
       - 'docs/research/AC-18-ORIGINAL-EIGHT-CELL-DTR-RETENTION-PREREGISTRATION.md'
+      - 'docs/research/AC-19-TYPED-REAL-DTR-EIGHT-CELL-PREREGISTRATION.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
   pull_request:
     branches:
@@ -31,6 +32,7 @@ on:
       - 'docs/research/AC-16-REAL-DTR-NATIVE-YGG-NCA-PREREGISTRATION.md'
       - 'docs/research/AC-17-NATIVE-IDENTIFIABILITY-DIAGNOSTIC-PREREGISTRATION.md'
       - 'docs/research/AC-18-ORIGINAL-EIGHT-CELL-DTR-RETENTION-PREREGISTRATION.md'
+      - 'docs/research/AC-19-TYPED-REAL-DTR-EIGHT-CELL-PREREGISTRATION.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
 permissions:
   contents: read
@@ -511,6 +513,52 @@ jobs:
           print("AC18_NO_SCIENTIFIC_PROMOTION=TRUE")
           print("AC18_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
           PY
+      - name: AC-19 fit original local runtime through lossless source-reward typed adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac19_*.py' -v
+          python -B research/ac07_sourcefree/ac19_typed_original_native_bridge.py --ygg "$GITHUB_WORKSPACE/ac18_ygg_historical" --ac15-report "$RUNNER_TEMP/ac07/ac15-report.json" --ac18-report "$RUNNER_TEMP/ac07/ac18-report.json" --out "$RUNNER_TEMP/ac07/ac19-report.json"
+          python - "$RUNNER_TEMP/ac07/ac19-report.json" <<'PY'
+          import hashlib,json,pathlib,sys,math
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac19.typed-public-terminal-native-local-control.v1"
+          assert r["scope"]=="EXTERNAL_TYPED_ADAPTER_HISTORICAL_NATIVE_DEVELOPMENT_ONLY"
+          assert r["upstream_original_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["historical_ygg_commit"]=="a39171a76d0d7817e3563682bb139a9d7ecf37c4"
+          assert r["original_local_task_runtime_blob"]=="68a1423e0bd7206af511212c14b6ce8534154cc2"
+          assert r["source_fit_episodes_reused"]==8
+          assert r["source_dev_episodes_reused"]==4
+          assert r["new_source_owned_episodes"]==0
+          assert r["lossless_public_binary_encoding"]["unique_input_vectors"]==8
+          assert r["lossless_public_binary_encoding"]["unique_output_vectors"]==6
+          assert r["terminal_null_encoded_without_forged_observation"] is True
+          assert r["original_reward_1_preserved"] is True
+          assert r["original_native_bridge_remains_incompatible"]["full_native_runtime_admission"]=="NO_GO_PUBLIC_TYPE_MISMATCH"
+          assert r["fit_public_stage_transitions"]==16
+          assert r["original_local_task_runtime_fitted_events"]==16
+          assert r["original_ring_memory_fitted_updates"]==16
+          assert r["native_original_parameter_sha_before_fit"]!=r["native_original_parameter_sha_after_fit"]
+          assert r["ring_original_parameter_sha_before_fit"]!=r["ring_original_parameter_sha_after_fit"]
+          assert r["original_native_and_ring_checkpoint_restored"] is True
+          assert len(r["dev_public_source_records"])==8
+          assert r["native_local_runtime_dev_terminal_metric"]["total"]==4
+          assert r["equal_information_original_local_count_control_metric"]["total"]==4
+          assert all(math.isfinite(x["brier"]) for x in
+                     [r["native_local_runtime_dev_terminal_metric"],
+                      r["equal_information_original_local_count_control_metric"],
+                      *r["additional_fitted_source_controls"].values()])
+          assert r["dev_native_optimizer_updates"]==0 and r["dev_ring_reward_updates"]==0
+          for k in ("true_on_policy_return_measured","live_native_actions_executed",
+                    "original_native_bridge_replaced_in_production",
+                    "current_ygg_native_branch_modified","historical_ygg_source_modified",
+                    "scientific_first_use","scientific_admission","controller_or_queue_modified"):
+              assert r[k] is False,k
+          print("AC19_ORIGINAL_NATIVE_TYPED_SOURCE_ENGINEERING=PASS")
+          print("AC19_ORIGINAL_HISTORICAL_BRIDGE_STILL_INCOMPATIBLE=TRUE")
+          print("AC19_SCIENCE_PROMOTION=NO")
+          print("AC19_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
       - name: Retain source-free evidence per operating system
         if: success()
         uses: actions/upload-artifact@v4
@@ -532,5 +580,6 @@ jobs:
             ${{ runner.temp }}/ac07/ac16-report.json
             ${{ runner.temp }}/ac07/ac17-report.json
             ${{ runner.temp }}/ac07/ac18-report.json
+            ${{ runner.temp }}/ac07/ac19-report.json
           retention-days: 30
           if-no-files-found: error
