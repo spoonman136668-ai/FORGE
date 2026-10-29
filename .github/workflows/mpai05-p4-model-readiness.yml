@@ -1,0 +1,75 @@
+name: MP-AI05 P4 original Windows local model readiness
+on:
+  push:
+    branches: [proposal/mpai05-p4-model-readiness-20261029]
+    paths: ['.github/workflows/mpai05-p4-model-readiness.yml']
+permissions:
+  contents: read
+jobs:
+  original-model-readiness:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    env:
+      MP_SOURCE_HEAD: a1ca7a83fa831fff2e0f935a567fa0716ee08053
+      MP_SOURCE_BRANCH: proposal/mpai05-p4-fourarm-source-20261029
+      MP_PREFLIGHT_BLOB: 3c5575d8ef32352ce881fd8c3fc1f707b681227f
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Read-only existing non-Qwen model provision check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI05_P4_UNAUTHORIZED_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P4_PAID_API_PROHIBITED'}
+          Write-Output 'MPAI05_MODEL_PRECHECK_ORIGINAL_RUNNER=PASS'
+          $file=[Environment]::GetEnvironmentVariable('MPAI05_MODEL_FILE')
+          $digest=[Environment]::GetEnvironmentVariable('MPAI05_MODEL_SHA256')
+          $authorized=[Environment]::GetEnvironmentVariable('MPAI05_MODEL_AUTHORIZED')
+          # These environment values are never echoed and their paths are not enumerated.
+          if([string]::IsNullOrWhiteSpace($file) -or [string]::IsNullOrWhiteSpace($digest) -or $authorized -cne 'TRUE'){
+            Write-Output 'MPAI05_MODEL_PRECHECK=BLOCKED_NOT_PROVISIONED_OR_NOT_AUTHORIZED'
+            Write-Output 'MPAI05_MODEL_CALLS=0'
+            Write-Output 'MPAI05_PRIVATE_SOURCE_READS=0'
+            Write-Output 'MPAI05_ACCEPTED_MEMORY_WRITES=0'
+            exit 0
+          }
+          if($digest -cnotmatch '^[0-9a-f]{64}$'){throw 'MPAI05_MODEL_DIGEST_FORMAT_INVALID'}
+          if(-not (Test-Path -LiteralPath $file -PathType Leaf)){
+            Write-Output 'MPAI05_MODEL_PRECHECK=BLOCKED_CONFIGURED_MODEL_NOT_FOUND'
+            Write-Output 'MPAI05_MODEL_CALLS=0'
+            exit 0
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-p4-model-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $root 'source'
+          try{
+            if(Test-Path -LiteralPath $root){throw 'MPAI05_MODEL_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $root | Out-Null
+            & git clone --quiet --single-branch --branch $env:MP_SOURCE_BRANCH https://github.com/spoonman136668-ai/Mind-Palace.git $source *> (Join-Path $root 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_MODEL_PRIVATE_CLONE_FAILURE'}
+            $head=(& git -C $source rev-parse HEAD).Trim()
+            if($LASTEXITCODE -ne 0 -or $head -cne $env:MP_SOURCE_HEAD){throw 'MPAI05_MODEL_SOURCE_HEAD_DRIFT'}
+            $blob=(& git -C $source rev-parse 'HEAD:experiments/mpai05_p4/mpai05_local_model_preflight.py').Trim()
+            if($LASTEXITCODE -ne 0 -or $blob -cne $env:MP_PREFLIGHT_BLOB){throw 'MPAI05_MODEL_PREFLIGHT_BLOB_DRIFT'}
+            $private=Join-Path $root 'private-result.json'
+            & python -B (Join-Path $source 'experiments/mpai05_p4/mpai05_local_model_preflight.py') --model-file $file --expected-sha256 $digest *> $private
+            $exitCode=$LASTEXITCODE
+            if($exitCode -ne 0){
+              Write-Output 'MPAI05_MODEL_PRECHECK=BLOCKED_PREFLIGHT_INVALID_OR_DRIFT'
+            } else {
+              $receipt=Get-Content -Raw -LiteralPath $private | ConvertFrom-Json
+              if($receipt.status -cne 'MODEL_FILE_BYTES_PINNED_RUNTIME_NOT_AUTHENTICATED'){throw 'MPAI05_MODEL_PRECHECK_RECEIPT_INVALID'}
+              Write-Output 'MPAI05_MODEL_PRECHECK=MODEL_BYTES_PINNED'
+              Write-Output 'MPAI05_MODEL_RUNTIME_AUTHENTICATED=FALSE'
+            }
+            Write-Output 'MPAI05_MODEL_CALLS=0'
+            Write-Output 'MPAI05_ACCEPTED_MEMORY_WRITES=0'
+          } finally{
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_MODEL_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
