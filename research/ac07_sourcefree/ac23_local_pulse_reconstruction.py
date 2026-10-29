@@ -29,6 +29,7 @@ class LocalPulseReconstruction(ac22.CountingTemporal):
         super().__init__()
         self.local_pulse_update_calls={3:0,4:0}
         self.local_nonzero_pulses={3:0,4:0}
+        self._episode=None
 
     def local_self_reconstruct(self,site,pulse):
         """Reward-blind learning at exactly one original public source site."""
@@ -44,20 +45,45 @@ class LocalPulseReconstruction(ac22.CountingTemporal):
         self.local_nonzero_pulses[site]+=int(pulse==1)
         return delta
 
-    def observe(self,h,y):
+    def begin_public_episode(self,s1,x1):
+        """Only two stage0 public values reach their original source cells."""
+        if self._episode is not None:
+            raise RuntimeError("AC23_PUBLIC_EPISODE_ALREADY_STARTED")
+        s1=ac21.bit(s1,"S1")
+        x1=ac21.bit(x1,"X1")
+        self._episode=ac21.LocalPublicEpisode(self.gates)
+        # The episode stores the previously gated public pulses at sites 3/4
+        # before the local, reward-blind self-reconstruction update; the new
+        # retention gates affect later episodes, not retroactively this pulse.
+        self._episode.stage0(s1,x1)
+        self.local_self_reconstruct(3,s1)
+        self.local_self_reconstruct(4,x1)
+
+    def finish_public_episode(self,s2,x2,y):
+        """Stage1 terminal head sees *only* two-hop delivered local packets."""
+        if self._episode is None:
+            raise RuntimeError("AC23_PUBLIC_STAGE1_BEFORE_STAGE0")
         ac21.bit(y,"TERMINAL_REWARD")
-        if type(h) not in (list,tuple) or len(h)!=4:
-            raise ValueError("AC23_PUBLIC_TWO_STAGE_HISTORY_INVALID")
-        features=self.local_features(h)
+        msgs,work,s2,x2=self._episode.stage1(s2,x2,rounds=2)
+        if set(msgs)!={"s1","x1"}:
+            raise RuntimeError("AC23_NONLOCAL_HISTORY_NOT_DELIVERED")
+        features=ac21.encode_features(msgs["s1"],msgs["x1"],s2,x2)
         p=ac21.sig(ac21.dot(self.weights,features))
         err=y-p
         self.weights=[max(-6.,min(6.,w+ac21.ETA*err*z))
                       for w,z in zip(self.weights,features)]
-        # Only stage0 public pulses. Neither reward nor prediction/error
-        # is passed to either source-cell local gate learning function.
-        self.local_self_reconstruct(3,h[0])
-        self.local_self_reconstruct(4,h[1])
+        self.messages_delivered+=work
+        self.calls_to_two_hop_transport+=1
+        self.last_transport_hops=work
+        self._episode=None
         self.updates+=1
+
+    def observe(self,h,y):
+        if type(h) not in (list,tuple) or len(h)!=4:
+            raise ValueError("AC23_PUBLIC_TWO_STAGE_HISTORY_INVALID")
+        ac21.bit(y,"TERMINAL_REWARD")
+        self.begin_public_episode(h[0],h[1])
+        self.finish_public_episode(h[2],h[3],y)
 
 def fit_only_diagnostic(rows):
     if type(rows) is not list or len(rows)!=FIT_FOLDS or (
