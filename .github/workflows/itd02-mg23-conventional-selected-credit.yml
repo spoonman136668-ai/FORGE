@@ -1,0 +1,50 @@
+name: ITD-02 MG23 independently coded selected public target and delayed conventional control
+on:
+  push:
+    branches: [research/itd02-mg23-preregistered-semantic-delayed-credit-20261029]
+permissions:
+  contents: read
+jobs:
+  equal-observation-conventional-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Exact original Git SHA canonical LF before checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Verify frozen prereg first and unchanged MG22 source
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 6a667dd74bc7c2c03228b26d6ee7104c477f35c4 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG23_RESEARCH_PARENT_CUSTODY_MISSING' }
+          git merge-base --is-ancestor 8d49604b25c46708162e50076974878a64561446 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG23_PREIMPLEMENTATION_SOURCE_FREEZE_MISSING' }
+          $change=@(git diff --name-only 6a667dd74bc7c2c03228b26d6ee7104c477f35c4 $env:GITHUB_SHA)
+          $allowed=@('research/lcrm01/mg23_native_target_delayed_credit_prereg.json','research/lcrm01/mg23_conventional_selected_credit.py','research/lcrm01/test_mg23_conventional_selected_credit.py','.github/workflows/itd02-mg23-conventional-selected-credit.yml')
+          if (@($change | Where-Object {$_ -notin $allowed}).Count -ne 0) { throw 'MG23_UNAUTHORIZED_SOURCE_OR_CONTROLLER_CHANGE' }
+      - name: Independently test conventional selected source and bounded memory
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH=Join-Path $env:GITHUB_WORKSPACE 'research/lcrm01'
+          python -B -m unittest -v test_mg23_conventional_selected_credit
+          if ($LASTEXITCODE -ne 0) { throw 'MG23_CONVENTIONAL_SOURCE_EFFECT_CREDIT_FAILED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG23_CONVENTIONAL_GIT_DIRTY' }
+          Write-Host 'MG23_SOURCE_ONLY_CONVENTIONAL_IDENTICAL_OBSERVATION_CREDIT_PASS_NOT_SCIENCE'
