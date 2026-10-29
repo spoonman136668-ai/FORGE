@@ -128,7 +128,43 @@ jobs:
               & $pwsh -NoProfile -NonInteractive -File tools/remote-snapshot.ps1 *> $snapshot
               Assert ($LASTEXITCODE -eq 0) 'DISPOSABLE_REMOTE_SNAPSHOT'
               & $pwsh -NoProfile -NonInteractive -File tools/update-checkpoint.ps1 validate *> $validation
-              Assert ($LASTEXITCODE -eq 0) 'DISPOSABLE_FULL_CHECKPOINT_VALIDATION'
+              if($LASTEXITCODE -ne 0){
+                $privateValidation=Get-Content -LiteralPath $validation -Raw -ErrorAction SilentlyContinue
+                $categories=@{
+                  'CHECKOUT_NOT_MAIN'='update checkpoint requires branch main'
+                  'HEAD_NOT_ORIGIN'='requires local HEAD == origin/main'
+                  'OUTSIDE_ALLOWED_PATHS'='outside allowed durable surfaces'
+                  'REQUIRED_FILE_MISSING'='update checkpoint missing required path'
+                  'CHAT_DELTA_SOURCE_MISSING'='chat delta extraction file missing'
+                  'CHAT_DELTA_MANIFEST_MISSING'='chat delta source manifest missing'
+                  'RENDERER_FAIL'='canonical snapshot renderer failed'
+                  'RENDERER_MISMATCH'='remote snapshot mismatch'
+                  'REGRESSION_OUTPUT_EMPTY'='quality regression returned no output'
+                  'MIND_VALIDATION'='Mind-Palace validation did not pass'
+                  'ARCHIVE_VALIDATION'='archive validation failed'
+                  'REVIEW_SOURCE_DATA'='source ledger'
+                  'REMOTE_FETCH'='git fetch origin main failed'
+                  'UNSTAGED_REQUIRED'='requires an unstaged working tree'
+                }
+                $found=$false
+                foreach($name in ($categories.Keys|Sort-Object)){
+                  if($privateValidation -like ('*'+$categories[$name]+'*')){
+                    Write-Output ('MPAI05_FB_COLD_SAFE_FAILURE_CLASS='+$name)
+                    $found=$true
+                  }
+                }
+                if(-not $found){
+                  foreach($type in @('InvalidOperation','ParserError','PropertyNotFoundException',
+                    'CommandNotFoundException','FileNotFoundException','ArgumentException')){
+                    if($privateValidation.Contains($type)){
+                      Write-Output ('MPAI05_FB_COLD_SAFE_EXCEPTION_TYPE='+$type)
+                      break
+                    }
+                  }
+                  Write-Output 'MPAI05_FB_COLD_SAFE_FAILURE_CLASS=OTHER_PRIVATE'
+                }
+                Assert $false 'DISPOSABLE_FULL_CHECKPOINT_VALIDATION'
+              }
             } finally { Pop-Location }
             $newData=Get-Content -LiteralPath $original -Raw|ConvertFrom-Json
             Assert (@($newData).Count -eq $beforeCount+2) 'DISPOSABLE_RECORD_DELTA'
