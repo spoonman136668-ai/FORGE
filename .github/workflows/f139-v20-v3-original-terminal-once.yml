@@ -178,6 +178,11 @@ jobs:
             if($stopped) {
               Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
               Start-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+              $state=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              if([string]$state.State -cnotin @('Ready','Running') -or
+                 $state.Settings.Enabled -ne $true) {
+                throw 'F139_V20_TERMINAL_ORIGINAL_TASK_RESUME_READBACK_FAILED'
+              }
               $resumed=$true
               Write-Host 'F139_V20_TERMINAL_EXISTING_TASK_RESUMED=PASS'
             }
