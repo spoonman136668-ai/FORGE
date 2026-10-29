@@ -1,0 +1,63 @@
+name: MP-AI05 P7 compact reflection development comparison
+on:
+  push:
+    branches: [proposal/mpai05-p7-compact-reflection-20261029]
+    paths: ['.github/workflows/mpai05-p7-compact-reflection.yml']
+permissions:
+  contents: read
+jobs:
+  p7-compact-policy:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fixed 32-call baseline vs compact reflection local experiment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'MPAI05_P7_WRONG_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P7_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P7_NO_REPLAY'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-p7-'+$env:GITHUB_RUN_ID)
+          $env:MPAI05_P6_SCRATCH=$scratch
+          $private=Join-Path $env:RUNNER_TEMP ('mpai05-p7-private-'+$env:GITHUB_RUN_ID+'.txt')
+          try{
+            if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $private)){throw 'MPAI05_P7_SCRATCH_COLLISION'}
+            & python -B tools/mpai05_p7_compact_reflection.py *> $private
+            $code=$LASTEXITCODE
+            $s=Get-Content -Raw -LiteralPath $private -ErrorAction Stop
+            if($code -ne 0){throw 'MPAI05_P7_PRIVATE_DEVELOPMENT_FAILED'}
+            foreach($marker in @('MPAI05_P7_MODEL_CALLS=32',
+             'MPAI05_P7_MODEL_HASH_VERIFIED=PASS',
+             'MPAI05_P7_REAL_PRIVATE_MCP=PASS',
+             'MPAI05_P7_PRODUCTION_WRITES=0',
+             'MPAI05_P7_SCIENTIFIC_ACCEPTANCE=FALSE',
+             'MPAI05_P7_BUDGET_ELIGIBLE=FALSE')){
+              if(-not $s.Contains($marker)){throw 'MPAI05_P7_INCOMPLETE_RECEIPT'}
+            }
+            foreach($line in ($s -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI05_P7_[A-Z0-9_]+=(?:[0-9]+|PASS|FALSE|TRUE|PROPOSE_ONLY)$'){
+                Write-Output $line
+              }
+            }
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI05_P6_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $private){Remove-Item -LiteralPath $private -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_P7_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
