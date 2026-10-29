@@ -1,0 +1,94 @@
+name: F139 Yggdrasil recency candidate 693 independent DEV qualification
+on:
+  push:
+    branches: [qualification/f139-yggdrasil-recency-pr693-dev-only-20261029]
+    paths: [.github/workflows/f139-yggdrasil-recency-pr693-dev-only.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-recency-pr693-dev-only-20261029
+  cancel-in-progress: false
+jobs:
+  exact-source-native:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-yggdrasil-recency-pr693-dev-only-20261029' &&
+      github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 339276862e42a067344990dc20d907f203009b90
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact native candidate source and existing regression suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $sha=(& git rev-parse HEAD | Out-String).Trim()
+          if ($sha -cne '339276862e42a067344990dc20d907f203009b90') {
+            throw 'F139_NATIVE_CANDIDATE_SOURCE_DRIFT'
+          }
+          & python -B -m unittest discover -s tests -p 'test_native_cells*.py' -v
+          if ($LASTEXITCODE -ne 0) {throw 'F139_NATIVE_CELLS_EXISTING_REGRESSION_FAILED'}
+          Write-Output 'F139_NATIVE_CELLS_EXISTING_REGRESSION=PASS'
+      - name: Independent opt-in reversible public-outcome learning controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          from yggdrasil.public_causal_cells import PublicCausalCells
+          c=PublicCausalCells()
+          a=PublicCausalCells()
+          assert c.choose(0) is None and a.choose(0) is None
+          for _ in range(800):
+              c.observe(0,0,1)
+              c.observe(0,1,0)
+              a.observe_recency(0,0,1)
+              a.observe_recency(0,1,0)
+          assert c.choose(0)==0 and a.choose(0)==0
+          before=a.snapshot()
+          assert len(before)==164 and a.LEARNED_BYTES==128
+          copy=PublicCausalCells.restore(before)
+          assert copy.snapshot()==before
+          for _ in range(350):
+              c.observe(0,0,0)
+              c.observe(0,1,1)
+              a.observe_recency(0,0,0)
+              a.observe_recency(0,1,1)
+              copy.observe_recency(0,0,0)
+              copy.observe_recency(0,1,1)
+          assert c.choose(0)==0, 'CONTROL_SHOULD_RETAIN_OLD_EFFECT'
+          assert a.choose(0)==1, 'ADAPTIVE_SHOULD_LEARN_REVERSED_EFFECT'
+          assert copy.snapshot()==a.snapshot(), 'CHECKPOINT_REPLAY_CHANGED'
+          assert a.choose(0,retained=True) is None, 'UNTRAINED_RETAINED_CELL_LEAKED'
+          assert a.choose(1) is None, 'UNTRAINED_ACTIVE_CELL_LEAKED'
+          snap=a.snapshot()
+          for kwargs in (dict(address=True,action=0,public_outcome=1),
+                         dict(address=0,action=2,public_outcome=1),
+                         dict(address=0,action=0,public_outcome=True),
+                         dict(address=9,action=0,public_outcome=1,retained=True)):
+              try:
+                  a.observe_recency(**kwargs)
+              except ValueError:
+                  pass
+              else:
+                  raise AssertionError('INVALID_OBSERVATION_WAS_ACCEPTED')
+          assert a.snapshot()==snap, 'INVALID_OBSERVATION_MUTATED_MEMORY'
+          assert all(0<=value<=65535 for cell in a._counts for arm in cell for value in arm)
+          assert len(a.snapshot())==164
+          print('F139_RECENCY_REVERSAL_VS_CUMULATIVE_CONTROL=PASS')
+          print('F139_RECENCY_CHECKPOINT_AND_ISOLATION=PASS')
+          print('F139_RECENCY_INVALID_INPUT_NO_MUTATION=PASS')
+          print('F139_RECENCY_SCIENTIFIC_FIRST_USE=FALSE')
+          '@ | & python -B -
+          if ($LASTEXITCODE -ne 0) {throw 'F139_RECENCY_BOUNDED_CONTROL_FAILED'}
