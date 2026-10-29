@@ -39,7 +39,7 @@ def gate_record(upstream_sha: str, actual: dict[str,str], readme: str) -> dict:
     require(type(readme) is str and all(t in readme for t in (
         "LongMemEval-V2", "451 manually curated questions",
         "web and enterprise", "memory_modules/", "evaluation/",
-        "memory_context", "query",
+        "--memory-context-max-tokens", "query",
     )), "UPSTREAM_INTERFACE_DRIFT")
     # Only pin public methodology identity; never parse questions, gold answers,
     # trajectories, answer ids, screenshots or any prospective hidden cohort.
