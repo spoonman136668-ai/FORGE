@@ -21,7 +21,7 @@ POS="MG11_BOTH_NATIVE_DOORKEY_GOALS__ENGINEERING_ONLY"
 NEG="MG11_ORIGINAL_NATIVE_GOALS_NOT_BOTH_ESTABLISHED__NO_SCIENCE"
 BLOCK="MG11_ORIGINAL_SOURCE_OR_PARITY_BLOCKED__NO_SCIENCE"
 ROLES=("wingless_go_dk12","yggdrasil_r16",
-       "conventional_regularized_public_effect","conventional_seeded_uniform_random")
+       "conventional_regularized_public_effect","conventional_seeded_random")
 
 def freeze():
     record=json.loads(FROZEN.read_text(encoding="utf-8"))
