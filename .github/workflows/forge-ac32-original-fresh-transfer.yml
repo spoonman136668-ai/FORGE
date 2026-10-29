@@ -1,0 +1,93 @@
+name: AC32 fresh authentic Farama DK15 R19 selected-source transfer
+on:
+  pull_request:
+    paths:
+      - 'research/lcrm01/ac32_*'
+      - 'research/lcrm01/test_ac32_*'
+      - 'docs/research/AC-32-*'
+      - '.github/workflows/forge-ac32-original-fresh-transfer.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  frozen-new-source-preflight:
+    name: AC32 source-only frozen protocol + exact DK15 bridge / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Read-only original-world prereg and source-free checkpoint typing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/lcrm01/ac32_ci.sh)" = 3f1eb684dc4ecb3ed95d16b2c4a7ce71233fc530
+          test "$(git hash-object research/lcrm01/ac32_frozen_original_worlds.json)" = 1c6faa55677e1227a70b85345a0bd1ed7ecdba90
+          test "$(git hash-object research/lcrm01/ac32_original_multifamily.py)" = c91b372ac4acbaed879ef9d9606684b7ab81e411
+          test "$(git hash-object research/lcrm01/ac32_original_compare.py)" = 0d10b413cea1ecb203f72b4f3c63c56ef987b2f0
+          test "$(git hash-object research/lcrm01/test_ac32_frozen_preflight.py)" = fc3e492204f42a1d09f9d94fd9f475031a60b4ff
+          test "$(git hash-object research/lcrm01/ac31_native_go_bridge.go)" = 7b42d310ffe2cc6573d1ed085c0cbae2dce3ca6d
+          test "$(git hash-object research/lcrm01/ac31_bridge_loader_test.go)" = eb61ec7cea3d7cb8b3c324fedfdbba0bf72d5393
+          python -B -m unittest discover -s research/lcrm01 -p 'test_ac32_frozen_preflight.py' -v
+          mkdir -p "$RUNNER_TEMP/ac32-preflight/wingless"
+          git init -q "$RUNNER_TEMP/ac32-preflight/wingless"
+          git -C "$RUNNER_TEMP/ac32-preflight/wingless" remote add origin https://github.com/spoonman136668-ai/Wingless.git
+          git -C "$RUNNER_TEMP/ac32-preflight/wingless" fetch --no-tags --depth 1 origin 9a712f574e48a3d47f2d986d8be3d0eda2b3b9bd
+          git -C "$RUNNER_TEMP/ac32-preflight/wingless" checkout --detach -q 9a712f574e48a3d47f2d986d8be3d0eda2b3b9bd
+          test "$(git -C "$RUNNER_TEMP/ac32-preflight/wingless" hash-object research/native/itd02/dk15/mission_actor.go)" = 104e039c5c172a1bd60f03efb49ac0a877ff86fc
+          (cd "$RUNNER_TEMP/ac32-preflight/wingless" &&
+            go test -count=1 -v "$GITHUB_WORKSPACE/research/lcrm01/ac31_native_go_bridge.go" "$GITHUB_WORKSPACE/research/lcrm01/ac31_bridge_loader_test.go" &&
+            go test -count=1 ./research/native/itd02/dk15/... ./research/native/itd02/dk13/...)
+          echo AC32_NEW_COHORT_FROZEN_AND_DK15_BRIDGE_BOTH_OS=PASS
+          echo AC32_SOURCE_FIRST_USE=NOT_STARTED_BY_PREFLIGHT
+
+  fresh-original-two-processes:
+    name: AC32 two independent genuine-original Farama three-family processes
+    runs-on: ubuntu-latest
+    needs: frozen-new-source-preflight
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Pinned original Farama real source selected-action comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/lcrm01/ac32_ci.sh)" = 3f1eb684dc4ecb3ed95d16b2c4a7ce71233fc530
+          bash research/lcrm01/ac32_ci.sh
+      - name: Preserve original success and blocked negative source records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ac32-authentic-original-fresh-three-family-five-arm-evidence
+          path: |
+            ${{ runner.temp }}/ac32/first.json
+            ${{ runner.temp }}/ac32/first.log
+            ${{ runner.temp }}/ac32/second.json
+            ${{ runner.temp }}/ac32/second.log
+            ${{ runner.temp }}/ac32/comparison.json
+          retention-days: 30
+          if-no-files-found: warn
