@@ -185,6 +185,14 @@ jobs:
                 }
               }
               Write-Output ('MPAI_USAGE_FULL_LAST_TEST='+$lastTest)
+              $failCodes=[regex]::Matches($report,'UQ51_[A-Z0-9_]+')
+              $uniqueCodes=@($failCodes | ForEach-Object { $_.Value } | Select-Object -Unique -First 5)
+              foreach($code in $uniqueCodes){ Write-Output ('MPAI_USAGE_FULL_UQ51_FAILURE_CODE='+$code) }
+              foreach($className in @('fatal:','shallow','promisor','missing blob','missing object','not a valid object','unable to read','source refspec','reference is not a tree')){
+                if($report.Contains($className)){
+                  Write-Output ('MPAI_USAGE_FULL_GIT_DIAGNOSTIC_MATCH='+$className.Replace(' ','_').Replace(':',''))
+                }
+              }
               foreach($errorKind in @('CommandNotFoundException','UnauthorizedAccessException','NativeCommandError','ParameterBindingException','PSSecurityException','RuntimeException','MethodException','FileNotFoundException','DirectoryNotFoundException','InvalidOperationException','ParserError')){
                 if($report.Contains($errorKind)){
                   Write-Output ('MPAI_USAGE_FULL_ERROR_KIND='+$errorKind)
