@@ -1,0 +1,183 @@
+name: MP-AI11 external ARC unfamiliar task-family development stress test
+on:
+  push:
+    branches: [review/mpai-reference-resolving-consumer-20261029]
+    paths:
+      - tools/mpai11_external_family_transfer.py
+      - tests/test_mpai11_external_family_transfer.py
+      - .github/workflows/mpai11-external-family-development-20261029.yml
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-private-development-local-model
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove matched-info task and provenance negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q tools/mpai11_external_family_transfer.py
+          python3 -m unittest discover -s tests -p 'test_mpai11_external_family_transfer.py' -v
+          echo MPAI11_FOCUSED_CONTROLS=PASS
+  original-windows-local-model:
+    needs: focused
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-pinned SmolLM2-1.7B external ARC science-family transfer evaluation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI_DEV_ORIGINAL_WINDOWS_RUNNER_REQUIRED'
+          }
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI_DEV_NO_REPLAY'}
+          # This is an explicitly offline/local-model run. Owner runner may
+          # have inherited unrelated credentials; remove them from this step's
+          # child process environment, without reading or displaying values.
+          foreach($name in @('OPENAI_API_KEY','OPENROUTER_API_KEY',
+                              'ANTHROPIC_API_KEY','HUGGING_FACE_HUB_TOKEN',
+                              'HF_TOKEN')){
+            Remove-Item ('Env:'+$name) -ErrorAction SilentlyContinue
+          }
+          if($env:OPENAI_API_KEY -or $env:OPENROUTER_API_KEY -or $env:ANTHROPIC_API_KEY){
+            throw 'MPAI_DEV_LOCAL_MODEL_SANITIZATION_FAILED'
+          }
+          $sourceHead='638bc9b2883c6b01f81383a5c4afa87738641047'
+          $branch='review/mpai-usage-continuity-20261029'
+          $url='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $pins=@{
+            'tools/mpai11_external_family_transfer.py'='c02090b98317f48344fe0b1dc68c840500e4bfdd'
+            'tests/test_mpai11_external_family_transfer.py'='fb96fe14c9fe2255fc93f5e96417c815a7e15e04'
+            'tools/mpai_reference_stronger_model_dev.py'='b763d6ac47a342d79bc66e12f083d4aa2f601116'
+            'tools/mpai_reference_model_dev.py'='4c48213e3eca3f6bb00ce1eb95171cd167f17e01'
+            'tools/mpai05_recall_cli.py'='7da8b8364713ec0dd534b5e81533456862083d5d'
+          }
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'MPAI_DEV_FORGE_HEAD_DRIFT'}
+          foreach($file in $pins.Keys){
+            $actual=(git rev-parse ('HEAD:'+$file)).Trim()
+            if($actual -cne $pins[$file]){throw 'MPAI_DEV_SOURCE_BLOB_DRIFT'}
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai-real-model-dev-'+$env:GITHUB_RUN_ID)
+          $original=Join-Path $scratch 'private-source'
+          $off=Join-Path $scratch 'baseline.json'
+          $on=Join-Path $scratch 'candidate.json'
+          $privateLog=Join-Path $scratch 'model-private.log'
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI_DEV_SCRATCH_COLLISION'}
+            New-Item -Path $scratch -ItemType Directory -ErrorAction Stop | Out-Null
+            $remote=@(git ls-remote --exit-code $url ('refs/heads/'+$branch))
+            if($LASTEXITCODE -ne 0 -or $remote.Count -ne 1 -or -not ([string]$remote[0]).StartsWith($sourceHead)){
+              throw 'MPAI_DEV_PRIVATE_SOURCE_REF_DRIFT'
+            }
+            & git clone --quiet --depth 1 --single-branch --branch $branch $url $original
+            if($LASTEXITCODE -ne 0 -or (git -C $original rev-parse HEAD).Trim() -cne $sourceHead){
+              throw 'MPAI_DEV_PRIVATE_SOURCE_CLONE_FAILED'
+            }
+            if((git -C $original rev-parse 'HEAD:.ice').Trim() -cne '842b8c1318db3b826bdb7243b0cdf0d5d8efedc2'){
+              throw 'MPAI_DEV_ACCEPTED_MEMORY_TREE_DRIFT'
+            }
+            $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+              '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+              '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $before=@{}
+            foreach($file in $guard){
+              $before[$file]=(Get-FileHash -LiteralPath (Join-Path $original $file) -Algorithm SHA256).Hash
+            }
+            $query='Hindsight Harness2 development context efficiency accuracy unproven'
+            $args=@('tools/mpai05_recall_cli.py','--source-root',$original,'--source-sha',$sourceHead,'--mode','off')
+            $query | & python -B @args --private-result $off *> $null
+            if($LASTEXITCODE -ne 0){throw 'MPAI_DEV_BASELINE_RETRIEVAL_FAILED'}
+            $query | & python -B @args --private-result $on --resolve-reference-only *> $null
+            if($LASTEXITCODE -ne 0){throw 'MPAI_DEV_CANDIDATE_RETRIEVAL_FAILED'}
+            $arguments=@('tools/mpai11_external_family_transfer.py','--source',$sourceHead,
+                         '--baseline',$off,'--candidate',$on,'--scratch',$scratch)
+            & python -B @arguments *> $privateLog
+            $exit=$LASTEXITCODE
+            if($exit -ne 0){
+              $log=Get-Content -LiteralPath $privateLog -Raw
+              $reason=[regex]::Match($log,'MPAI_DEV_[A-Z_]{4,90}')
+              if($reason.Success){Write-Output ('MPAI_DEV_FAIL_CLASS='+$reason.Value)}
+              throw 'MPAI11_MODEL_PRIVATE_FAILURE'
+            }
+            $raw=Get-Content -LiteralPath $privateLog -Raw
+            foreach($marker in @('MPAI11_PUBLIC_SOURCE_GIT_BLOB=PASS','MPAI11_MODEL_SHA256=PASS',
+              'MPAI11_ACTUAL_MODEL_CALLS=48','MPAI11_EQUAL_TASKS_EVIDENCE_MODEL=TRUE',
+              'MPAI11_PUBLIC_NOT_SEALED=TRUE','MPAI11_INDEPENDENT_BLIND_REVIEW=FALSE',
+              'MPAI11_SCIENTIFIC_QUALIFICATION=FALSE','MPAI11_PRODUCTION_WRITES=0')){
+              if(-not $raw.Contains($marker)){throw 'MPAI_DEV_RESULT_RECEIPT_MISSING'}
+            }
+            $report=Get-Content -LiteralPath (Join-Path $scratch 'mpai11-private-results.json') -Raw | ConvertFrom-Json
+            if($report.schema -cne 'forge.mpai11.public-external-family-development.v1' -or
+               $report.source_sha -cne $sourceHead -or
+               $report.model_sha256 -cne '77665ea4815999596525c636fbeb56ba8b080b46ae85efef4f0d986a139834d7' -or
+               $report.real_local_model_calls -ne 48 -or
+               $report.sealed_first_use -ne $false -or
+               $report.science_qualified -ne $false -or
+               $report.same_tasks_model_and_evidence_both_arms -ne $true -or
+               $report.external_gold_from_public_dataset -ne $true -or
+               @($report.private_decisions).Count -ne 48){
+              throw 'MPAI_DEV_AGGREGATE_RECEIPT_INVALID'
+            }
+            foreach($arm in @('direct','reflect')){
+              if($report.stats.$arm.calls -ne 24){throw 'MPAI_DEV_ARM_SAMPLE_COUNT_INVALID'}
+            }
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI11_(DIRECT|REFLECT)_(CALLS|CORRECT_OFFICIAL_GOLD|WRONG_LABELED|UNKNOWN|UNSCORABLE|PROMPT_TOKENS|OUTPUT_TOKENS|INFERENCE_MS)=[0-9]+$'){
+                Write-Output $line
+              }
+            }
+            if($report.benchmark -cne 'AI2-ARC-Challenge-Dev' -or
+               $report.mirror_git_blob_sha1 -cne '907d3294123dbe34929e1fb802c2504d698f7dbd' -or
+               @($report.paired.PSObject.Properties).Count -ne 4 -or
+               @($report.stats.PSObject.Properties).Count -ne 2){
+              throw 'MPAI11_EXTERNAL_SOURCE_OR_DENOMINATOR_DRIFT'
+            }
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI11_PAIRED_(REFLECT_WINS_DIRECT_WRONG|DIRECT_WINS_REFLECT_WRONG|BOTH_CORRECT|BOTH_NOT_CORRECT)=[0-9]+$'){
+                Write-Output $line
+              }
+              if($line -match '^MPAI11_(PUBLIC_SOURCE_SHA256|COHORT_SHA256)=[0-9a-f]{64}$'){
+                Write-Output $line
+              }
+            }
+            foreach($file in $guard){
+              $after=(Get-FileHash -LiteralPath (Join-Path $original $file) -Algorithm SHA256).Hash
+              if($after -cne $before[$file]){throw 'MPAI_DEV_PROTECTED_MEMORY_CHANGED'}
+            }
+            if(@(git -C $original status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'MPAI_DEV_PRIVATE_SOURCE_DIRTY'}
+            if(@(git status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'MPAI_DEV_FORGE_SOURCE_DIRTY'}
+            Write-Output 'MPAI11_MODEL_EXECUTION_AUTHENTIC=PASS'
+            Write-Output 'MPAI11_NINE_PROTECTED_HASHES=PASS'
+            Write-Output 'MPAI11_SOURCE_AND_SCOPE_PIN=PASS'
+            Write-Output 'MPAI11_REAL_INDEPENDENT_AGENT_AUTHENTICATED=FALSE'
+            Write-Output 'MPAI11_SCIENTIFIC_QUALIFICATION=FALSE'
+            Write-Output 'MPAI11_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI11_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
