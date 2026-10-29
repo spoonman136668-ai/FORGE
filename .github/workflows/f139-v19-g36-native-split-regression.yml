@@ -1,0 +1,107 @@
+name: F139 V19 G36 real dual-OS native split regression
+on:
+  push:
+    branches: [research/f139-v19-g36-dual-custody-native-runner-20261029]
+permissions:
+  contents: read
+concurrency:
+  group: f139-v19-g36-real-split-source-only
+  cancel-in-progress: false
+jobs:
+  source-only-dual-OS:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.ref == 'refs/heads/research/f139-v19-g36-dual-custody-native-runner-20261029' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Forbid checkout line-ending transforms
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact G34 ancestry and three source-only files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='c4cb2e604d6a3f1a1aa99773883d4df654614607'
+          if((git rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA){throw 'F139_G36_SOURCE_SHA_DRIFT'}
+          & git merge-base --is-ancestor $parent HEAD
+          if($LASTEXITCODE -ne 0){throw 'F139_G36_PARENT_DRIFT'}
+          $got=@(& git diff --name-only $parent HEAD | Sort-Object)
+          $want=@('.github/workflows/f139-v19-g36-native-split-regression.yml',
+                  'f139/nci04_v19_g36_source_only_native_runner.py',
+                  'f139/test_nci04_v19_g36_source_only_native_runner.py') | Sort-Object
+          if(($got -join '|') -cne ($want -join '|')){throw 'F139_G36_SCOPE_DRIFT'}
+          if(@(& git status --porcelain --untracked-files=all).Count -ne 0){throw 'F139_G36_DIRTY_REPOSITORY'}
+          Write-Output 'F139_G36_EXACT_SOURCE_SCOPE=PASS'
+      - name: Inert worker false-success negative controls
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GH_TOKEN -or $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY){throw 'F139_G36_UNEXPECTED_SECRET'}
+          & python -B -m unittest f139.test_nci04_v19_g36_source_only_native_runner -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G36_NEGATIVE_TEST_FAILED'}
+          Write-Output 'F139_G36_WORKER_NEGATIVE_CONTROLS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: fc5d28a836f33caad3a576e0a6d4a1bf211cd857
+          path: f139-g36-baseline
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 339276862e42a067344990dc20d907f203009b90
+          path: f139-g36-original-candidate
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify authenticated Git source SHAs and trees
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $a=Join-Path $env:GITHUB_WORKSPACE 'f139-g36-baseline'
+          $b=Join-Path $env:GITHUB_WORKSPACE 'f139-g36-original-candidate'
+          if((git -C $a rev-parse HEAD | Out-String).Trim() -cne 'fc5d28a836f33caad3a576e0a6d4a1bf211cd857' -or
+             (git -C $a rev-parse 'HEAD^{tree}' | Out-String).Trim() -cne '4cab523b03f7316b2470eddb93c479ec9e8cbab4' -or
+             (git -C $b rev-parse HEAD | Out-String).Trim() -cne '339276862e42a067344990dc20d907f203009b90' -or
+             (git -C $b rev-parse 'HEAD^{tree}' | Out-String).Trim() -cne 'de431210951f1f0e79e447a532914cdfa431d25f'){
+            throw 'F139_G36_SOURCE_SHA_OR_TREE_MISMATCH'
+          }
+          Write-Output 'F139_G36_REPAIRED_BASELINE_AND_ORIGINAL_CANDIDATE=SOURCE_PINNED'
+      - name: Run genuine G35 baseline and staged candidate full split
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GH_TOKEN -or $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY){throw 'F139_G36_RUNNER_CREDENTIAL_EXPOSURE'}
+          $report=Join-Path $env:RUNNER_TEMP 'f139-v19-g36-split-report.json'
+          & python -B -m f139.nci04_v19_g36_source_only_native_runner --baseline (Join-Path $env:GITHUB_WORKSPACE 'f139-g36-baseline') --candidate (Join-Path $env:GITHUB_WORKSPACE 'f139-g36-original-candidate') --output $report
+          if($LASTEXITCODE -ne 0){throw 'F139_G36_REAL_SPLIT_REGRESSION_FAILED'}
+          & python -B -c "import json,sys; r=json.load(open(sys.argv[1])); d=r['results']; f=r['test_inventory']; assert r['schema']=='forge.f139.v19.g36.source-only-split-regression.v1'; assert r['baseline_g29_pass'] and r['baseline_full_unmodified_regression_pass'] and r['candidate_changed_source_applicable_tests_pass']; assert r['native_qualified'] is False and r['signed_provider_success'] is False and r['real_child_cpu_rss_accounted'] is False and r['scientific_first_use'] is False; assert d['baseline_g29']['status']=='PASS' and d['baseline_full']['status']=='PASS' and d['candidate_g29_negative']['status']=='EXPECTED_FROZEN_ATLAS_REJECTION' and d['candidate_g29_negative']['exit_code']!=0 and d['candidate_compile']['status']=='PASS'; assert set(d)=={'baseline_g29','baseline_full','candidate_g29_negative','candidate_compile'}|{'candidate_'+x for x in f if x!='test_code_atlas.py'}; assert all(d['candidate_'+x]['status']=='PASS' and d['candidate_'+x]['test_count']>0 for x in f if x!='test_code_atlas.py'); assert r['inherited_platform_negatives']==[]; print('F139_G36_ALL_MODULES_POSITIVE_NO_SKIPS=PASS')" $report
+          if($LASTEXITCODE -ne 0){throw 'F139_G36_FALSE_SUCCESS_OR_MISSING_MODULE'}
+          Write-Output 'F139_G36_GENUINE_REPAIRED_G29_SPLIT=PASS'
+          Write-Output 'F139_G36_SIGNED_NATIVE_PROVIDER=NOT_QUALIFIED'
+          Write-Output 'F139_G36_REAL_CHILD_CPU_RSS=NOT_QUALIFIED'
+          Write-Output 'F139_G36_ORIGINAL_OWNER_CONSUMPTION=NOT_QUALIFIED'
+          Write-Output 'F139_G36_PRODUCTION_RELEASE=HOLD'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: f139-v19-g36-real-split-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-v19-g36-split-report.json
+          if-no-files-found: error
+          retention-days: 90
