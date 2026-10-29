@@ -237,25 +237,33 @@ def evaluate(root, statement, proposal_id, model, audit):
     print("MPAI05_P6_SCIENTIFIC_ACCEPTANCE=FALSE",flush=True)
     print("MPAI05_P6_PRODUCTION_WRITES=0",flush=True)
 
+PHASE = "INITIAL"
+
 def main():
+    global PHASE
     root=pathlib.Path(os.environ["MPAI05_P6_SCRATCH"])
     src=root/"mind-palace";evaldir=root/"evaluation"
+    PHASE="SCRATCH"
     root.mkdir(parents=True,exist_ok=False)
     require(shutil.disk_usage(str(root)).free>900000000,"MPAI05_P6_SCRATCH_CAPACITY")
     # The proposal checkout hosts P4 audit code, while accepted memory is
     # read only from the exact previously merged main ancestor.
+    PHASE="CLONE"
     run(["git","clone","--quiet","--single-branch","--branch",
          "proposal/mpai05-p4-fourarm-source-20261029",
          "https://github.com/spoonman136668-ai/Mind-Palace.git",str(src)],timeout=75)
+    PHASE="SOURCE_IDENTITY"
     require(get(src,"rev-parse","HEAD")==P4,"MPAI05_P6_P4_HEAD_DRIFT")
     evaldir.mkdir()
     for fn in ("mpai05_dev_ablation_gate.py","mpai05_local_model_preflight.py"):
         prefix=pathlib.Path("experiments/mpai05_p4")
         target=evaldir/fn
         shutil.copyfile(src/prefix/fn,target)
+    PHASE="ACCEPTED_CHECKOUT"
     run(["git","-C",str(src),"checkout","-q","--detach",SOURCE],timeout=75)
     require(get(src,"rev-parse","HEAD")==SOURCE,"MPAI05_P6_ACCEPTED_SOURCE_DRIFT")
     require(not get(src,"status","--porcelain","--untracked-files=all"),"MPAI05_P6_SOURCE_DIRTY")
+    PHASE="WEIGHTS"
     model=get_model(root)
     # Public model bytes are verified BEFORE any private lesson is accessed.
     os.environ["HF_HUB_OFFLINE"]="1"
@@ -264,12 +272,16 @@ def main():
     sys.path.insert(0,str(evaldir))
     import mpai05_dev_ablation_gate as audit
     import mpai05_local_model_preflight as weights
+    PHASE="WEIGHT_PREFLIGHT"
     receipt=weights.preflight(model,MODEL_SHA)
     require(receipt.get("status")=="MODEL_FILE_BYTES_PINNED_RUNTIME_NOT_AUTHENTICATED" and
             receipt.get("gguf",{}).get("architecture")!="qwen2",
             "MPAI05_P6_CHECKPOINT_PREFLIGHT")
+    PHASE="MCP"
     statement,proposal=mcp_read(src)
+    PHASE="INFERENCE"
     evaluate(root,statement,proposal,model,audit)
+    PHASE="FINAL_SOURCE_CUSTODY"
     require(not get(src,"status","--porcelain","--untracked-files=all"),"MPAI05_P6_SOURCE_MUTATED")
 
 if __name__=="__main__":
@@ -280,4 +292,6 @@ if __name__=="__main__":
         code=(msg if msg.startswith("MPAI05_P6_") and re.fullmatch(r"MPAI05_P6_[A-Z0-9_]{3,80}",msg)
               else "MPAI05_P6_PRIVATE_RUN_FAILED")
         print("MPAI05_P6_SAFE_FAILURE="+code,flush=True)
+        print("MPAI05_P6_SAFE_PHASE="+PHASE,flush=True)
+        print("MPAI05_P6_SAFE_EXCEPTION="+type(e).__name__,flush=True)
         sys.exit(2)
