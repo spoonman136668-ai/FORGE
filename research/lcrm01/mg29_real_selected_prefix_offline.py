@@ -21,7 +21,7 @@ class WingBridge:
         if self.proc.poll() is not None:
             raise ValueError("MG29_GO_NATIVE_PROCESS_NOT_ALIVE")
         payload=json.dumps({"op":op,**parts},sort_keys=True,separators=(",",":"),ensure_ascii=True)
-        self.proc.stdin.write(payload+"\\n")
+        self.proc.stdin.write(payload+"\n")
         self.proc.stdin.flush()
         line=self.proc.stdout.readline()
         if not line:
