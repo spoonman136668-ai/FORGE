@@ -870,7 +870,7 @@ def execute(root,native_go,control_root,p):
                and effects[candidate]>effects[ROLES[12]])
     label=p["frozen_dev_filter"]
     source={"schema":"itd02.mg43.original-public-engineered-target-empirical-action-value.dev-source.v1",
-        "classification":label["pass"] if success else label["fail"],
+        "classification":label["pass"] if supported else label["fail"],
         "original_168_episodes":result,"original_selected_action_count":
             sum(x["original_source_actions"] for x in result),
         "per_family_per_role":table,
@@ -880,7 +880,7 @@ def execute(root,native_go,control_root,p):
             "candidate_positive_unfamiliar_families":positive_families,
             "candidate_positive_target_effects":effects[candidate],
             "candidate_positive_unlock_or_blocked":difficult,
-            "filter_supported":success},
+            "filter_supported":supported},
         "source_parent":PARENT,"farama_source":UPSTREAM,
         "exposed_dev_seeds":[list(x) for x in SEEDS],
         "scientific_first_use":False,"zero_external_actions":True,
