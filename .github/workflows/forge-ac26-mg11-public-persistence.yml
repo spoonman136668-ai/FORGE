@@ -1,0 +1,86 @@
+name: AC26 authentic MG11 public transition persistence replay
+on:
+  pull_request:
+    paths:
+      - 'research/ac07_sourcefree/ac26_*'
+      - 'research/ac07_sourcefree/test_ac26_*'
+      - 'docs/research/AC-26-*'
+      - '.github/workflows/forge-ac26-mg11-public-persistence.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-owned-public-replay:
+    name: AC26 source-owned visual reversals / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout isolated research replay, no models or env changes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python standard library
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve original previously qualified two-process MiniGrid public traces
+        uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 40839970597
+          github-token: ${{ github.token }}
+          name: itd02-mg11-original-door-key-motion-source-evidence
+          path: mg11-source
+      - name: Enforce no privileged state and genuine online public graph accounting
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac26_*.py' -v
+      - name: Independently reproduce original Farama native/control source-reversal metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac26_mg11_public_persistence.py --first "$GITHUB_WORKSPACE/mg11-source/first.json" --second "$GITHUB_WORKSPACE/mg11-source/second.json" --comparison "$GITHUB_WORKSPACE/mg11-source/comparison.json" --out "$RUNNER_TEMP/ac26-public-persistence.json"
+          python - "$RUNNER_TEMP/ac26-public-persistence.json" <<'PY'
+          import json,pathlib,hashlib,sys
+          p=pathlib.Path(sys.argv[1])
+          r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac26.original-mg11-public-persistence-audit.v1"
+          assert r["classification"]=="AC26_PUBLIC_REVERSAL_AND_NONPERSISTENT_PROGRESS_OBSERVED__NO_SCIENCE"
+          assert r["parent_exact_head"]=="933703862228eb7b6b4c72dbb6ab9b2f297e1fdb"
+          assert r["source_original_farama"]=="7f5853792ea7f04f75614661006d87fcf949f26d"
+          assert r["canonical_independent_original_source_sha256"]=="84e93a1cc86addfc27622ea860eac9ea7c6d4b3cfec02ec3e01e04d56b475ba2"
+          assert r["source_original_processes"]==2
+          assert r["source_owned_original_development_episodes_replayed"]==12
+          assert r["source_owned_original_selected_steps_replayed"]==2304
+          assert len(r["source_role_seed_metrics"])==12
+          assert all(row["real_original_source_selected_actions"]==192 for row in r["source_role_seed_metrics"])
+          for key in ("policy_training_or_selection","native_wingless_or_ygg_source_modified",
+                  "original_environment_imported_or_reset","controller_or_accepted_science_changed",
+                  "scientific_first_use","scientific_admission"):
+              assert r[key] is False,key
+          assert r["new_source_episodes_or_actions"]==0
+          assert all(r["role_summary"][name]["original_source_goal_rewards"]==0 for name in
+               ("wingless_go_dk12","yggdrasil_r16","conventional_regularized_public_effect","conventional_seeded_random"))
+          for role in ("wingless_go_dk12","yggdrasil_r16","conventional_regularized_public_effect"):
+              seed=next(z for z in r["source_role_seed_metrics"] if z["role"]==role and z["seed"]==71303)
+              assert seed["public_changed"]==70
+              assert seed["changed_successor_already_seen"]==66
+              assert seed["immediate_two_step_reversal"]==66
+              assert seed["source_visible_door_openings_retrospective_only"]==34
+          print("AC26_ORIGINAL_SOURCE_PERSISTENCE_AUDIT=PASS")
+          print("AC26_NATIVE_SOURCE_GOAL=ZERO")
+          print("AC26_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Archive bounded source-owned replay diagnosis only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ac26-original-mg11-persistence-${{ matrix.os }}
+          path: ${{ runner.temp }}/ac26-public-persistence.json
+          retention-days: 30
+          if-no-files-found: error
