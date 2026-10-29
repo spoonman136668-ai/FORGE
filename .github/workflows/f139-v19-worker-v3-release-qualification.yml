@@ -46,6 +46,8 @@ jobs:
                   'f139/nci04_v3_bounded_resource.py',
                   'f139/local_controller.py',
                   'f139/nci04_owner_ledger.py',
+                  'f139/nci04_owner_lock_state.py',
+                  'f139/test_nci04_owner_lock_state.py',
                   'f139/nci04_v20_owner_readonly_preflight.py',
                   'f139/test_nci04_v20_owner_readonly_preflight.py',
                   '.github/workflows/f139-v20-original-owner-cutover.yml',
@@ -62,9 +64,9 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if($env:GH_TOKEN -or $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY){throw 'V3_UNEXPECTED_SECRETS'}
-          & python -B -m unittest f139.test_nci04_worker_v3 f139.test_nci04_owner_v3_dispatch f139.test_nci04_original_v3_terminal f139.test_nci04_v20_owner_readonly_preflight -v
+          & python -B -m unittest f139.test_nci04_worker_v3 f139.test_nci04_owner_v3_dispatch f139.test_nci04_original_v3_terminal f139.test_nci04_v20_owner_readonly_preflight f139.test_nci04_owner_lock_state -v
           if($LASTEXITCODE -ne 0){throw 'V3_PRODUCTION_WORKER_UNIT_FAILURE'}
-          & python -B -c "import ast,pathlib; [ast.parse(pathlib.Path(x).read_text('utf-8')) for x in ['f139/nci04_worker_v3.py','f139/nci04_worker_entry.py','f139/test_nci04_worker_v3.py','f139/nci04_owner_v3_dispatch.py','f139/test_nci04_owner_v3_dispatch.py','f139/nci04_original_v3_terminal.py','f139/test_nci04_original_v3_terminal.py','f139/local_controller.py','f139/nci04_v3_bounded_resource.py','f139/nci04_owner_ledger.py','f139/nci04_v20_owner_readonly_preflight.py','f139/test_nci04_v20_owner_readonly_preflight.py']]"
+          & python -B -c "import ast,pathlib; [ast.parse(pathlib.Path(x).read_text('utf-8')) for x in ['f139/nci04_worker_v3.py','f139/nci04_worker_entry.py','f139/test_nci04_worker_v3.py','f139/nci04_owner_v3_dispatch.py','f139/test_nci04_owner_v3_dispatch.py','f139/nci04_original_v3_terminal.py','f139/test_nci04_original_v3_terminal.py','f139/local_controller.py','f139/nci04_v3_bounded_resource.py','f139/nci04_owner_ledger.py','f139/nci04_owner_lock_state.py','f139/test_nci04_owner_lock_state.py','f139/nci04_v20_owner_readonly_preflight.py','f139/test_nci04_v20_owner_readonly_preflight.py']]"
           if($LASTEXITCODE -ne 0){throw 'V3_PRODUCTION_SOURCE_SYNTAX_FAILURE'}
           Write-Output 'F139_V19_V3_WORKER_PRODUCTION_MODULE_TESTS=PASS'
       - uses: actions/checkout@v4
