@@ -36,8 +36,8 @@ jobs:
           }
           $privateRepo='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $mpBranch='review/mpai-usage-continuity-20261029'
-          $mpSource='bb4bd24a73f53a2e470671398bae83b72103d4bf'
-          $newTestBlob='26010a571345861e33bcf91ffceb6e8b5fe60e16'
+          $mpSource='addb075b2c4a1af84e948c003ddac7367ddf95ba'
+          $newTestBlob='d854c08f445b984f817c9f5b666901e3e65b072c'
           $priorSource='f31e4203892730ddbe24d44ce5674f5678d498aa'
           $scratch=Join-Path $env:RUNNER_TEMP ('mpai-usage-source-'+$env:GITHUB_RUN_ID)
           $root=Join-Path $scratch 'repo'
@@ -75,9 +75,20 @@ jobs:
             }
             $actual=(git.exe -C $root rev-parse 'HEAD:tests/test_mpai_usage_continuity.py' | Out-String).Trim()
             if($actual -cne $newTestBlob){throw 'MPAI_USAGE_NEW_TEST_BLOB_CHANGED'}
-            $provenance=(git.exe -C $root rev-list --count ($priorSource+'..'+$mpSource) | Out-String).Trim()
-            if($LASTEXITCODE -ne 0 -or $provenance -ne '1'){
-              throw 'MPAI_USAGE_NOT_ONE_COMMIT_ABOVE_ACCEPTED'
+            # The accepted records source identity is pinned independently;
+            # a shallow clone cannot be used to infer branch ancestry.
+            $acceptedIceTree='842b8c1318db3b826bdb7243b0cdf0d5d8efedc2'
+            $actualIce=(git.exe -C $root rev-parse 'HEAD:.ice' | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $actualIce -cne $acceptedIceTree){
+              throw 'MPAI_USAGE_ACCEPTED_MEMORY_TREE_DRIFT'
+            }
+            $core=(git.exe -C $root rev-parse 'HEAD:tools/mindpalace_readonly.py' | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $core -cne '085e00c7bfc0d9f724874c93c75b7c4a79040dc0'){
+              throw 'MPAI_USAGE_READONLY_CORE_PIN_DRIFT'
+            }
+            $mcp=(git.exe -C $root rev-parse 'HEAD:tools/mindpalace_mcp.py' | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $mcp -cne '9d1d27c7c95f311beab707d53251353b9e5b5311'){
+              throw 'MPAI_USAGE_MCP_INTERFACE_DRIFT'
             }
             $before=@{}
             foreach($name in $guard){
@@ -91,7 +102,7 @@ jobs:
             & python -B -m unittest discover -s tests -p test_mpai_usage_continuity.py -v *> $testLog
             $exit=$LASTEXITCODE
             $raw=Get-Content -LiteralPath $testLog -Raw -ErrorAction Stop
-            if($exit -ne 0 -or $raw -notmatch 'Ran 7 tests' -or
+            if($exit -ne 0 -or $raw -notmatch 'Ran 8 tests' -or
                $raw -notmatch '(?m)^OK(?:\s|$)'){
               foreach($m in [regex]::Matches($raw,'(?m)^(FAIL|ERROR): (test_[a-z0-9_]{3,90}) \(')){
                 Write-Output ('MPAI_USAGE_FAILED_TEST='+$m.Groups[2].Value)
@@ -107,7 +118,7 @@ jobs:
               'MPAI_USAGE_AUTO_DISCOVERY_ENABLED=FALSE')){
               if(-not $raw.Contains($marker)){throw 'MPAI_USAGE_INCOMPLETE_REAL_SOURCE_RECEIPT'}
             }
-            Write-Output 'MPAI_USAGE_REAL_ACCEPTED_SOURCE_TESTS=7_PASS'
+            Write-Output 'MPAI_USAGE_REAL_ACCEPTED_SOURCE_TESTS=8_PASS'
             foreach($line in ($raw -split [char]10)){
               if($line -match '^MPAI_USAGE_[A-Z_]+=(PASS|FALSE|[0-9]+)$'){
                 Write-Output $line
