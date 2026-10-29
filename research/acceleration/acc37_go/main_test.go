@@ -12,7 +12,7 @@ func TestACC37FrozenDimensionsAndSourceOnlyWorkload(t *testing.T){
   b:=data(scene,0,0)
   zero,nonzero:=0,0
   for n:=0;n<N;n++{for k:=0;k<K;k++{
-   if b.W[n][k]<-1||b.W[n][k]>1{t.Fatal("non-ternary source weight")}
+   if b.W[n][k] < -1||b.W[n][k]>1{t.Fatal("non-ternary source weight")}
    if b.W[n][k]==0{zero++}else{nonzero++}
   }}
   if zero+nonzero!=N*K||nonzero==0{t.Fatal("incomplete kernel")}
