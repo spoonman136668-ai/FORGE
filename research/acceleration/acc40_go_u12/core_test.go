@@ -45,7 +45,7 @@ func TestPredictorUsesOnlyObservedAddresses(t *testing.T){
 	if r.pending!=nil{t.Fatal("prefetch before first request")}
 	for _,i:=range []int64{0,2,4}{
 		if _,e:=r.Read(i*blockSize);e!=nil{t.Fatal(e)}
-		if i<=2 && r.pending!=nil{t.Fatal("speculated before repeated observed stride")}
+		if i<4 && r.pending!=nil{t.Fatal("speculated before repeated observed stride")}
 	}
 	if r.pending==nil || r.pending.offset!=6*blockSize{t.Fatal("did not infer observed stride")}
 	if _,e:=r.Read(7*blockSize);e!=nil{t.Fatal(e)}

@@ -125,13 +125,19 @@ func drive(output string)error{
 		CacheAttribution:"FIRST_TOUCH_WITH_UNKNOWN_OS_CACHE / WARM_OR_UNCONTROLLED_CACHE; NO_PHYSICAL_COLD_DISK_CLAIM"}
 	for _,size:=range []int64{24*1024*1024,192*1024*1024}{
 		file:=filepath.Join(dir,fmt.Sprintf("source-%d.bin",size))
-		sha,err:=makeSource(file,size);if err!=nil{return err}
 		for _,scenario:=range schedules{
+			var sha string
 			for trial,seed:=range trialSeeds{
-				// AB/BA for candidate and each conventional control; never select best after observing results.
-				order:=[]string{"RESIDENT","SYNC","PREDICTIVE","MMAP","STATIC"}
+				// Restage before every matched trial block; record setup independently.
+				setupStart:=time.Now()
+				newSHA,e:=makeSource(file,size);if e!=nil{return e}
+				rep.DatasetSetupSeconds+=time.Since(setupStart).Seconds()
+				if sha!="" && sha!=newSHA{return errors.New("source identity changed across paired trials")}
+				sha=newSHA
+				// AB/BA: candidate last on even trials, first on odd trials.
+				order:=[]string{"RESIDENT","SYNC","MMAP","STATIC","PREDICTIVE"}
 				ab:="AB"
-				if trial%2==1{order=[]string{"RESIDENT","PREDICTIVE","SYNC","STATIC","MMAP"};ab="BA"}
+				if trial%2==1{order=[]string{"RESIDENT","PREDICTIVE","STATIC","MMAP","SYNC"};ab="BA"}
 				for _,mode:=range order{
 					rec,e:=performChild(exe,file,mode,scenario,seed,trial,ab)
 					if e!=nil{return e}
@@ -142,14 +148,14 @@ func drive(output string)error{
 			rep.Comparisons=append(rep.Comparisons,c)
 		}
 	}
-	rep.DatasetSetupSeconds=time.Since(start).Seconds()
+	elapsed:=time.Since(start).Seconds()
 	rep.Classification="U12_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN"
 	allPass:=len(rep.Comparisons)==6
 	for _,c:=range rep.Comparisons{allPass=allPass&&c.Pass&&c.TraceEqual}
 	if allPass{rep.Classification="U12_RESTRICTED_GO_ENGINEERING_POSITIVE_ONLY"}
 	payload,e:=json.MarshalIndent(rep,"","  ");if e!=nil{return e}
 	if err=os.WriteFile(output,append(payload,'\n'),0644);err!=nil{return err}
-	fmt.Printf("%s; OS=%s; workers=%d; wall=%.3fs\n",rep.Classification,rep.OS,len(rep.Records),rep.DatasetSetupSeconds)
+	fmt.Printf("%s; OS=%s; workers=%d; wall=%.3fs\n",rep.Classification,rep.OS,len(rep.Records),elapsed)
 	return nil
 }
 func main(){
