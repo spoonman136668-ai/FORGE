@@ -1,0 +1,121 @@
+name: AC24 authentic original public DTR fresh cohort development
+on:
+  pull_request:
+    paths:
+      - 'research/ac07_sourcefree/ac24_*'
+      - 'research/ac07_sourcefree/test_ac24_*'
+      - 'docs/research/AC-24-*'
+      - '.github/workflows/forge-ac24-fresh-public-dtr.yml'
+permissions:
+  contents: read
+jobs:
+  source-original-new-development:
+    name: AC24 original DTR new public FIT DEV / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      AC24_UPSTREAM_ROOT: ${{ github.workspace }}/ac24_upstream
+    steps:
+      - name: Checkout only proposed external development adapter
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Use isolated CPython 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate original upstream source before any execution
+        uses: actions/checkout@v4
+        with:
+          repository: CausalAILab/Causal-Gymnasium
+          ref: c94e9a4cd3641588b6b8507e71ccee5c27032bdf
+          path: ac24_upstream
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Validate immutable original DTR and preregistered cohort without external execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ac24"
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac24_*.py' -v
+          python - "$AC24_UPSTREAM_ROOT" <<'PY'
+          import sys
+          sys.path.insert(0,"research/ac07_sourcefree")
+          import ac10_upstream_contract as ac10
+          x=ac10.inspect_upstream(__import__("pathlib").Path(sys.argv[1]))
+          assert x["sha"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          print("AC24_GENUINE_UPSTREAM_SHA_AND_BLOBS=PASS")
+          PY
+      - name: AC11 install unmodified original source declared dependencies and qualify public import
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac11_original_dtr.py --upstream "$AC24_UPSTREAM_ROOT" --out "$RUNNER_TEMP/ac24/ac11-report.json" --freeze "$RUNNER_TEMP/ac24/ac11-freeze.txt" --venv "$RUNNER_TEMP/ac24_venv"
+      - name: AC12 authenticate upstream dependency repair without source patching
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac12_import_repair.py --upstream "$AC24_UPSTREAM_ROOT" --venv "$RUNNER_TEMP/ac24_venv" --out "$RUNNER_TEMP/ac24/ac12-report.json" --freeze "$RUNNER_TEMP/ac24/ac12-freeze.txt"
+      - name: AC13 authenticate CPU torch torchvision runtime with original source unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac13_cpu_torchvision.py --upstream "$AC24_UPSTREAM_ROOT" --venv "$RUNNER_TEMP/ac24_venv" --ac12-report "$RUNNER_TEMP/ac24/ac12-report.json" --out "$RUNNER_TEMP/ac24/ac13-report.json" --freeze "$RUNNER_TEMP/ac24/ac13-freeze.txt"
+      - name: AC14 authenticate official OGBench wheel and actual original source DTR import
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac14_ogbench.py --upstream "$AC24_UPSTREAM_ROOT" --venv "$RUNNER_TEMP/ac24_venv" --ac13-report "$RUNNER_TEMP/ac24/ac13-report.json" --out "$RUNNER_TEMP/ac24/ac14-report.json" --freeze "$RUNNER_TEMP/ac24/ac14-freeze.txt"
+          python - "$RUNNER_TEMP/ac24/ac14-report.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert r["original_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["source_files_modified"] is False
+          assert r["scientific_first_use"] is False
+          assert r["smoke_status"]=="REAL_SOURCE_PUBLIC_SMOKE_PASS",r.get("error_class")
+          assert r["source_owned_public_episodes"]==2
+          print("AC24_PINNED_ORIGINAL_SOURCE_DEPENDENCIES_QUALIFIED=PASS")
+          PY
+      - name: Create authentic new original-source public FIT DEV and compare frozen candidate to controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac24_fresh_original_dtr_public.py --upstream "$AC24_UPSTREAM_ROOT" --venv "$RUNNER_TEMP/ac24_venv" --out "$RUNNER_TEMP/ac24/ac24-report.json"
+          python - "$RUNNER_TEMP/ac24/ac24-report.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac24.fresh-original-dtr-public-development-v1"
+          assert r["source_original_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["source_original_dtr_blob"]=="6af2371dce21804140ea141ccb7be14e003ba275"
+          assert r["fit_source_episode_count"]==64 and r["dev_source_episode_count"]==32
+          assert r["source_owned_public_actions"]==192
+          assert len(r["prediction_rows"])==32
+          assert len(r["source_fit"]["episodes"])==64 and len(r["source_dev"]["episodes"])==32
+          assert all(v["n"]==32 for v in r["metrics"].values())
+          assert r["resource_and_checkpoint_census"]["local_self_reconstruction"]["fit_updates"]==1536
+          assert r["resource_and_checkpoint_census"]["direct_ten_parameter_logistic"]["fit_updates"]==1536
+          assert r["resource_and_checkpoint_census"]["local_self_reconstruction"]["local_pulse_update_calls"]==3072
+          assert r["dev_model_updates"]==0
+          for key in ("model_actions_source_selected","source_private_oracle_fields_admitted",
+                    "source_native_code_edited","native_ygg_or_wingless_code_edited",
+                    "original_scientific_first_use","unfamiliar_family_transfer_tested",
+                    "scientific_admission","forge_autonomy_controller_queue_changed"):
+              assert r[key] is False,key
+          assert r["source_ctf_do_permission_denied"] is True
+          print("AC24_NEW_GENUINE_SOURCE_PUBLIC_COHORT=PASS")
+          print("AC24_AUTHENTIC_FROZEN_DEV_MATCHED_COMPARISON=PASS")
+          print("AC24_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Preserve exact source-owned public episodes and native conventional comparisons
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ac24-authentic-original-development-${{ matrix.os }}
+          path: ${{ runner.temp }}/ac24/ac24-report.json
+          retention-days: 30
+          if-no-files-found: error
