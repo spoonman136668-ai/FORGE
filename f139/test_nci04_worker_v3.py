@@ -116,5 +116,68 @@ class V3WorkerContractTests(unittest.TestCase):
             v3.receipt_v3(admission,report)
 
 
+    def test_original_worker_produces_positive_development_job_outcome_only_with_positive_receipt(self):
+        import os
+        from f139.nci04_worker_entry import execute_v3_development
+        from f139.nci04_native_contract import canonical
+        admission=NativeAdmission(
+            ticket="f139-nci04-i1201-abcdefabcdef-aaaaaaaa",
+            lane="Yggdrasil",source_sha="a"*40,
+            run_id=999999998,runner_os="windows-latest" if os.name=="nt" else "ubuntu-latest",
+            issue_number=1201,issue_id=123322,intent=self.candidate,
+            authorization_sha256="c"*64)
+        report={"schema":v3.SCHEMA,"native_qualified":True,
+                "scientific_first_use":False,
+                "child_cpu_rss_verified":True}
+        receipt={"native_qualified":True,"development_only":True,
+                 "scientific_first_use_authorized":False,
+                 "accepted_ref_mutations":0,"paid_model_calls":0}
+        output=self.root/"out-positive"
+        scratch=self.root/"scratch"
+        native=self.root/"native"
+        for folder in (output,scratch,native):folder.mkdir()
+        env={"F139_NATIVE_PROTOCOL":"v3",
+             "F139_NATIVE_V3_AUTHORIZATION_PASSED":"true"}
+        with patch.dict(os.environ,env,clear=True),\
+             patch("f139.nci04_worker_v3.run_v3",return_value=report) as run,\
+             patch("f139.nci04_worker_v3.receipt_v3",return_value=receipt):
+            actual,completed=execute_v3_development(admission,native,scratch,output)
+        self.assertTrue(completed)
+        self.assertEqual(actual,receipt)
+        self.assertEqual((output/"f139-v3-native-receipt.json").read_bytes(),
+                         canonical(receipt))
+        self.assertEqual((output/"f139-v3-native-report.json").read_bytes(),
+                         canonical(report))
+        self.assertEqual(run.call_count,1)
+        self.assertEqual({p.name for p in output.iterdir()},
+                         {"f139-v3-native-report.json","f139-v3-native-receipt.json"})
+
+    def test_negative_v3_receipt_does_not_complete_job_or_grant_science(self):
+        import os
+        from f139.nci04_worker_entry import execute_v3_development
+        admission=NativeAdmission(
+            ticket="f139-nci04-i1202-abcdefabcdef-aaaaaaaa",
+            lane="Yggdrasil",source_sha="a"*40,
+            run_id=999999997,runner_os="windows-latest" if os.name=="nt" else "ubuntu-latest",
+            issue_number=1202,issue_id=123323,intent=self.candidate,
+            authorization_sha256="c"*64)
+        output=self.root/"out-negative"
+        scratch=self.root/"scratch-neg"
+        native=self.root/"native-neg"
+        for folder in (output,scratch,native):folder.mkdir()
+        report={"schema":v3.SCHEMA,"native_qualified":False}
+        receipt={"native_qualified":False,"development_only":True,
+                 "scientific_first_use_authorized":False,
+                 "accepted_ref_mutations":0,"paid_model_calls":0}
+        with patch.dict(os.environ,{
+             "F139_NATIVE_PROTOCOL":"v3",
+             "F139_NATIVE_V3_AUTHORIZATION_PASSED":"true"},clear=True),\
+             patch("f139.nci04_worker_v3.run_v3",return_value=report),\
+             patch("f139.nci04_worker_v3.receipt_v3",return_value=receipt):
+            actual,completed=execute_v3_development(admission,native,scratch,output)
+        self.assertFalse(completed)
+        self.assertEqual(actual["native_qualified"],False)
+
+
 if __name__=="__main__":
     unittest.main()
