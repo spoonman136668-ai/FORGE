@@ -1,0 +1,133 @@
+name: FORGE F139 V19 candidate 693 source authenticated intake READ ONLY
+on:
+  push:
+    branches: [qualification/f139-v19-native-candidate693-intake-ro-20261029]
+    paths: [.github/workflows/f139-v19-candidate693-intake-readonly.yml]
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: read
+concurrency:
+  group: f139-v19-native-candidate693-intake-ro-20261029
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-native-candidate693-intake-ro-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Read authenticated immutable source continuity and eligible native candidate set
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-native-candidate693-intake-ro-20261029' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY){
+            throw 'F139_V19_FEED_READONLY_ORIGINAL_OWNER_REQUIRED'
+          }
+          $parent=(& git rev-parse HEAD^ | Out-String).Trim()
+          $changes=@(& git diff --name-only HEAD^ HEAD)
+          if($LASTEXITCODE -ne 0 -or
+             $parent -cne 'a66492522736d63e3dcd4bc6f03f2d441c3960f8' -or
+             $changes.Count -ne 1 -or
+             $changes[0] -cne '.github/workflows/f139-v19-candidate693-intake-readonly.yml'){
+            throw 'F139_V19_FEED_READONLY_SOURCE_SCOPE_DENIED'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){
+            throw 'F139_V19_FEED_READONLY_ORIGINAL_TASK_DRIFT'
+          }
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if([string]$task.Principal.UserId -ine $owner.Name -and $sid -cne $owner.User.Value){
+            throw 'F139_V19_FEED_READONLY_SID_DRIFT'
+          }
+          $opts=[string]$task.Actions[0].Arguments
+          function Field([string]$key){
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_V19_FEED_READONLY_TASK_ARG_MISSING'}
+            return [string]$m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $db=Field 'Database'
+          $python=Field 'PythonExe'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne
+                 '0743ca22b76ebd943a66f05a36ea919301676be0' -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_V19_FEED_READONLY_INSTALLED_SOURCE_DRIFT'
+          }
+          $workflowToken=$env:GH_TOKEN
+          try{
+            Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+            $actualLogin=(& gh api user --jq .login | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $actualLogin -cne 'spoonman136668-ai'){
+              throw 'F139_V19_FEED_READONLY_LOCAL_OWNER_CREDENTIAL_NOT_VERIFIED'
+            }
+            Set-Location -LiteralPath $root
+          @'
+          import json,pathlib,sys
+          from f139.local_controller import Database,GitHub
+          from f139.nci04_owner_ledger import verify_native_activation,native_events
+          from f139.nci04_autonomy_feed import candidate_identity_from_intent_base64
+          src='0743ca22b76ebd943a66f05a36ea919301676be0'
+          db=Database.open_readonly(pathlib.Path(sys.argv[1]))
+          try:
+              db.verify()
+              m=db.meta()
+              assert m['source_sha']==src and m['enabled']==1 and m['legacy_suspended']==1,'ORIGINAL_NATIVE_LEDGER_DRIFT'
+              assert verify_native_activation(db),'NATIVE_ACTIVATION_NOT_SEALED'
+              api=GitHub()
+              main=api.protected_main()
+              assert main=='503a55be9eaa34ade818f3a47ca530e67f26ba8f','PROTECTED_MAIN_MOVED'
+              intact=api.deployed_release_continuity(db,src,main)
+              assert intact is True,'DEPLOYED_RELEASE_CONTINUITY_FAILED'
+              original_events=native_events(db)
+              identities={candidate_identity_from_intent_base64(x['native_intent_base64'])
+                 for x in original_events if isinstance(x.get('native_intent_base64'),str)}
+              feed=api.prepare_native_feed(src,identities)
+              assert feed.get('enabled') is True,'FEED_POLICY_INACTIVE'
+              assert any(c.get('lane')=='Yggdrasil' and c.get('pr_number')==693 for c in feed.get('candidates',[])),'NEW_GENUINE_CANDIDATE_693_NOT_ELIGIBLE'
+              entries=[{'lane':x['lane'],'pr_number':x['pr_number']}
+                       for x in feed.get('candidates',[])]
+              rejected=[{'lane':x.get('lane'),'pr_number':x.get('pr_number'),'reason':x.get('reason')}
+                        for x in feed.get('rejected',[])][:20]
+              result={'schema':'forge.f139.v19.continuity-and-feed-observation.v1',
+                  'release_source':src,'protected_main':main,'release_pin_continuity':True,
+                  'owner_policy_authorized':True,'ledger_head_seq':m['head_seq'],
+                  'eligible_candidate_count':len(entries),'eligible_candidates':entries,
+                  'rejected_candidate_count':len(feed.get('rejected',[])),'rejected_samples':rejected,
+                  'historical_native_candidate_count':len(original_events),
+                  'steering_status':feed.get('steering',{}).get('status','none'),
+                  'original_sqlite_writes':0,'github_writes':0,'provider_requests':0,
+                  'scientific_first_use':False}
+              print('F139_V19_ORIGINAL_RELEASE_PIN_CONTINUITY=PASS')
+              print('F139_V19_FEED_ELIGIBILITY_READONLY_RECEIPT='+json.dumps(result,sort_keys=True))
+          finally:db.close()
+          '@ | & $python -B - $db
+            if($LASTEXITCODE -ne 0){
+              throw 'F139_V19_ORIGINAL_RELEASE_OR_FEED_READONLY_PROOF_FAILED'
+            }
+          } finally {
+            $env:GH_TOKEN=$workflowToken
+          }
+          Write-Output 'F139_V19_ORIGINAL_NATIVE_FEED_AND_CONTINUITY_READONLY=PASS'
