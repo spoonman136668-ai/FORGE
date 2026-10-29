@@ -1,0 +1,73 @@
+name: MP-AI05 P8 original Windows external-source intake
+on:
+  push:
+    branches: [proposal/mpai05-p8-independent-source-20261029]
+    paths: ['.github/workflows/mpai05-p8-external-source-intake.yml']
+permissions:
+  contents: read
+jobs:
+  p8-upstream-source:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Original Windows source-only external benchmark provenance and negative tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'MPAI05_P8_ORIGINAL_RUNNER_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P8_PAID_API_PROHIBITED'}
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-p8-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          try {
+            if(Test-Path -LiteralPath $root){throw 'MPAI05_P8_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $root | Out-Null
+            & python -B -m unittest discover -s tests -p test_mpai05_p8_external_source.py -v *> (Join-Path $root 'private-tests.log')
+            $focusedExit=$LASTEXITCODE
+            $focused=Get-Content -Raw -LiteralPath (Join-Path $root 'private-tests.log')
+            if($focusedExit -ne 0 -or $focused -notmatch 'Ran 8 tests' -or $focused -notmatch '(?m)^OK(?:\s|$)'){
+              throw 'MPAI05_P8_FOCUSED_FAIL_PRIVATE_LOG'
+            }
+            Write-Output 'MPAI05_P8_NEGATIVE_TESTS=8_PASS'
+            & git clone --quiet --depth 20 --single-branch --branch main https://github.com/xiaowu0162/LongMemEval-V2.git $src *> (Join-Path $root 'clone-private.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_P8_PUBLIC_SOURCE_CLONE_FAILED'}
+            $upstream=(& git -C $src rev-parse HEAD).Trim()
+            if($LASTEXITCODE -ne 0 -or $upstream -cne '2cc8c540bdb87fe6761629b585e727e1c4704520'){
+              throw 'MPAI05_P8_UPSTREAM_REVISION_NOT_PINNED'
+            }
+            & python -B tools/mpai05_p8_external_source_intake.py $src *> (Join-Path $root 'private-result.json')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_P8_UPSTREAM_SOURCE_PIN_FAILED'}
+            $report=Get-Content -Raw -LiteralPath (Join-Path $root 'private-result.json') | ConvertFrom-Json
+            if($report.schema -cne 'mind-palace.mpai05.p8.external-source-intake.v1' -or
+               $report.upstream_sha -cne '2cc8c540bdb87fe6761629b585e727e1c4704520' -or
+               $report.dataset_questions_opened -ne 0 -or
+               $report.independently_sealed_first_use -ne $false -or
+               $report.independent_grading -ne $false -or
+               $report.model_calls -ne 0 -or $report.accepted_memory_writes -ne 0){
+              throw 'MPAI05_P8_SOURCE_AUTHORITY_CHECK_FAILED'
+            }
+            Write-Output 'MPAI05_P8_OFFICIAL_SOURCE_PIN=PASS'
+            Write-Output 'MPAI05_P8_UPSTREAM_BLOBS=6_PASS'
+            Write-Output ('MPAI05_P8_INTAKE_SHA256='+$report.source_intake_sha256)
+            Write-Output 'MPAI05_P8_EXPOSED_BENCHMARK_TASKS=0'
+            Write-Output 'MPAI05_P8_FIRST_USE=FALSE'
+            Write-Output 'MPAI05_P8_INDEPENDENT_GRADING=FALSE'
+            Write-Output 'MPAI05_P8_LOCAL_MODEL_CALLS=0'
+            Write-Output 'MPAI05_P8_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI05_P8_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $root)))
+          }
