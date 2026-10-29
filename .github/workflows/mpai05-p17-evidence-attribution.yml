@@ -1,0 +1,126 @@
+name: MP-AI05 P17 original Windows public evidence attribution
+on:
+  push:
+    branches: [proposal/mpai05-p17-evidence-attribution-20261029]
+    paths: ['.github/workflows/mpai05-p17-evidence-attribution.yml']
+permissions:
+  contents: read
+jobs:
+  p17-original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only P17 source-grounded attribution and true/false scorer controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+             throw 'MPAI05_P17_ORIGINAL_WINDOWS_RUNNER_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P17_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P17_NO_REPLAY'}
+          $head=(git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA){
+             throw 'MPAI05_P17_WORKFLOW_HEAD_DRIFT'
+          }
+          $blobs=@{
+            'tools/mpai05_p9_dataset_freeze.py'='2c2100c53c001d28843bc2da664c3e92d413e2e6'
+            'tools/mpai05_p10_public_development.py'='7bd698e3265cc41ee4d286461980d7586a25ac99'
+            'tools/mpai05_p11_diagnose.py'='5beb813560d0e4f816a0dabefd1aa5fcc89321a9'
+            'tools/mpai05_p12_evidence_selection.py'='de13820b5598e2cabf8432481b9a34abfd6e461b'
+            'tools/mpai05_p14_scorer_calibration.py'='85cc9664166a5f7bbca21877cbcb6fa8d14281b9'
+            'tools/mpai05_p15_model_qualification.py'='aa36ca7bab95c42bed2167db645b277847c6f2f5'
+            'tools/mpai05_p16_capacity_vs_memory.py'='6fcd49f219d186367d76f70e2ca78edcf83856e3'
+            'tools/mpai05_p17_evidence_attribution.py'='e662b598a2f97ba7ac0fc5d917246e76cc6f543f'
+            'tests/test_mpai05_p17_evidence_attribution.py'='e1b5e53a9da006116d9244479a3d6fc7ec7affbe'
+          }
+          foreach($file in $blobs.Keys){
+             $got=(git rev-parse ('HEAD:'+$file)).Trim()
+             if($LASTEXITCODE -ne 0 -or $got -cne $blobs[$file]){
+               throw 'MPAI05_P17_SOURCE_BLOB_DRIFT'
+             }
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-p17-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $env:RUNNER_TEMP ('mpai05-p17-private-'+$env:GITHUB_RUN_ID+'.log')
+          $env:MPAI05_P17_SCRATCH=$scratch
+          try{
+             if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $private)){
+               throw 'MPAI05_P17_SCRATCH_COLLISION'
+             }
+             & python -B -m unittest discover -s tests -p test_mpai05_p17_evidence_attribution.py -v *> $private
+             $exit=$LASTEXITCODE
+             $log=Get-Content -LiteralPath $private -Raw
+             if($exit -ne 0 -or $log -notmatch 'Ran 8 tests' -or
+                $log -notmatch '(?m)^OK(?:\s|$)'){
+               foreach($m in [regex]::Matches($log,'(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                 Write-Output ('MPAI05_P17_TEST_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+               }
+               foreach($kind in @('SyntaxError','AssertionError','TypeError','ImportError')){
+                 if($log.Contains($kind)){Write-Output ('MPAI05_P17_TEST_ERROR='+$kind);break}
+               }
+               throw 'MPAI05_P17_NEGATIVE_TESTS_FAILED_PRIVATE_LOG'
+             }
+             Write-Output 'MPAI05_P17_FOCUSED_TESTS=8_PASS'
+             Remove-Item -LiteralPath $private -Force
+             & python -B tools/mpai05_p17_evidence_attribution.py *> $private
+             $exit=$LASTEXITCODE
+             $log=Get-Content -LiteralPath $private -Raw
+             if($exit -ne 0){
+               $reason=[regex]::Match($log,'MPAI05_P17_SAFE_FAILURE=(MPAI05_P17_[A-Z0-9_]+|PRIVATE_EXCEPTION)')
+               if($reason.Success){Write-Output ('MPAI05_P17_FAILURE_CLASS='+$reason.Groups[1].Value)}
+               $stage=[regex]::Match($log,'MPAI05_P17_SAFE_STAGE=([A-Z_]+)')
+               if($stage.Success){Write-Output ('MPAI05_P17_FAILURE_STAGE='+$stage.Groups[1].Value)}
+               $kind=[regex]::Match($log,'MPAI05_P17_SAFE_ERROR_TYPE=([A-Za-z]{3,40})')
+               if($kind.Success){Write-Output ('MPAI05_P17_FAILURE_TYPE='+$kind.Groups[1].Value)}
+               throw 'MPAI05_P17_DIAGNOSIS_FAILED_PRIVATE_LOG'
+             }
+             foreach($marker in @(
+               'MPAI05_P17_OFFICIAL_SOURCE_SHA=PASS',
+               'MPAI05_P17_PUBLIC_DATA_SHA256=PASS',
+               'MPAI05_P17_FROZEN_COHORT_SHA256=81be63f61ee45231985c9341419a3abb1f42f40930a95be8337d16375ba1b696',
+               'MPAI05_P17_OFFICIAL_GRADEABLE_CASES=13',
+               'MPAI05_P17_UNSCORABLE_CASES=3',
+               'MPAI05_P17_OFFICIAL_REFERENCES_PASS_NEGATIVE_CONTROLS=PASS',
+               'MPAI05_P17_MODEL_CALLS=0',
+               'MPAI05_P17_SCIENTIFIC_ACCEPTANCE=FALSE',
+               'MPAI05_P17_PRODUCTION_WRITES=0')){
+               if(-not $log.Contains($marker)){throw 'MPAI05_P17_RECEIPT_INCOMPLETE'}
+             }
+             foreach($line in ($log -split [char]10)){
+               $line=$line.Trim()
+               if($line -match '^MPAI05_P17_(OFFICIAL_GRADEABLE|UNSCORABLE)_[A-Z0-9_]+=([0-9]+)$'){
+                 Write-Output $line
+               }
+               elseif($line -match '^MPAI05_P17_(OFFICIAL_FUNCTION_[A-Z_]+|OFFICIAL_SOURCE_SHA|PUBLIC_DATA_SHA256|FROZEN_COHORT_SHA256|REFERENCES_ONLY_POST_FROZEN_RETRIEVAL|LITERAL_PROXY_NOT_SEMANTIC_PROOF|OFFICIAL_REFERENCES_PASS_NEGATIVE_CONTROLS|PUBLIC_DEVELOPMENT_ONLY|MODEL_CALLS|INDEPENDENT_FIRST_USE|SCIENTIFIC_ACCEPTANCE|PRODUCTION_WRITES)=(PASS|TRUE|FALSE|[0-9]+|[a-f0-9]{64})$'){
+                 Write-Output $line
+               }
+             }
+             $dirty=@(git status --porcelain --untracked-files=all)
+             if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+               throw 'MPAI05_P17_SOURCE_CHECKOUT_CHANGED'
+             }
+             Write-Output 'MPAI05_P17_SOURCE_CUSTODY=PASS'
+          } finally {
+             Set-Location $env:RUNNER_TEMP
+             Remove-Item Env:MPAI05_P17_SCRATCH -ErrorAction SilentlyContinue
+             if(Test-Path -LiteralPath $private){
+               Remove-Item -LiteralPath $private -Force -ErrorAction Stop
+             }
+             if(Test-Path -LiteralPath $scratch){
+               Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+             }
+             Write-Output ('MPAI05_P17_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
