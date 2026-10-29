@@ -1,0 +1,60 @@
+name: ITD-02 MG06 exact MG05 public causal contact audit
+on:
+  push:
+    branches:
+      - research/itd02-mg06-causal-exposure-audit-20261028
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-selected-public-trajectory-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - name: Exact checkout without persistent credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Freeze source identity and preregistered non-science audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor e02aaea2dc1796dd96bf2efa3d33e4fb05461ede "$GITHUB_SHA"
+          git merge-base --is-ancestor 695385dfeebb3e56e7d51433781408c26dd5f978 "$GITHUB_SHA"
+          test "$(git hash-object research/lcrm01/mg06_frozen_causal_exposure_audit.json)" = 78f8ee7e3e8e3457fd7cf4d1bb0d6896300996c1
+          test "$(git hash-object research/lcrm01/mg06_source_causal_exposure.py)" = 1a68220ebfd4990ee48eb535f0fc5ff6652c5fbf
+          echo MG06_FROZEN_BEFORE_ANALYZER_PASS
+      - name: Download exact immutable MG05 original-world evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mg06"
+          gh run download 40798859783 --repo "$GH_REPO" --name itd02-mg05-original-doorkey-native-only-separate-control --dir "$RUNNER_TEMP/mg06"
+          test -s "$RUNNER_TEMP/mg06/first.json"
+          test -s "$RUNNER_TEMP/mg06/second.json"
+          echo MG06_ORIGINAL_MG05_EVIDENCE_RETRIEVED
+      - name: Verify both independent source traces and audit causal exposure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/mg06_source_causal_exposure.py \
+            --first "$RUNNER_TEMP/mg06/first.json" \
+            --second "$RUNNER_TEMP/mg06/second.json" \
+            --output "$RUNNER_TEMP/mg06/audit.json"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo MG06_PUBLIC_STATE_REPETITION_SOURCE_CUSTODY_COMPLETE__NO_SCIENCE
+      - name: Preserve source-bound public effect audit
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: itd02-mg06-causal-exposure-audit-no-science
+          path: ${{ runner.temp }}/mg06/audit.json
+          if-no-files-found: warn
+          retention-days: 30
