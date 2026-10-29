@@ -120,6 +120,39 @@ class SteeringIntakeTests(unittest.TestCase):
             [c["issue_body"] for c in snapshots[0]["candidates"]],
             [c["issue_body"] for c in snapshots[1]["candidates"]])
 
+    def test_negative_evidence_observation_never_changes_selected_candidates(self):
+        p = self.fixture()
+        baseline = prepare_feed(
+            p.get, source_sha=p.original.source,
+            existing_candidate_identities=set(), steering_get=p.get)
+        with patch("f139.itd02_negative_evidence_auth.authenticate",
+                   return_value={"status": "AUTHENTICATED_UNADMITTED",
+                                 "steering_manifest_admitted": False,
+                                 "candidate_selection_authorized": False}):
+            observed = prepare_feed(
+                p.get, source_sha=p.original.source,
+                existing_candidate_identities=set(), steering_get=p.get,
+                evidence_get=lambda _: None)
+        self.assertEqual(observed["candidates"], baseline["candidates"])
+        self.assertEqual(observed["rejected"], baseline["rejected"])
+        self.assertEqual(observed["steering"], baseline["steering"])
+        self.assertFalse(observed["negative_evidence_observation"]
+                         ["candidate_selection_authorized"])
+
+    def test_unavailable_negative_evidence_preserves_steering_selection(self):
+        p = self.fixture()
+        baseline = prepare_feed(
+            p.get, source_sha=p.original.source,
+            existing_candidate_identities=set(), steering_get=p.get)
+        observed = prepare_feed(
+            p.get, source_sha=p.original.source,
+            existing_candidate_identities=set(), steering_get=p.get,
+            evidence_get=lambda _: (_ for _ in ()).throw(RuntimeError("offline")))
+        self.assertEqual(observed["candidates"], baseline["candidates"])
+        self.assertEqual(observed["steering"], baseline["steering"])
+        self.assertEqual(observed["negative_evidence_observation"]["status"],
+                         "UNAVAILABLE_OR_DENIED_UNADMITTED")
+
     def test_disabled_feed_does_not_read_guidance(self):
         p = self.fixture()
         p.original.policy["enabled"] = False
