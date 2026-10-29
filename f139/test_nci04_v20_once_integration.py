@@ -19,8 +19,9 @@ class FakeConn:
         if "json_extract" in query:
             return [("prior",)] if self.db.already_terminal else []
         if "SELECT stage,run_id,completed_at" in query:
-            return [{"stage": self.db.stage, "run_id": self.db.run_id,
-                     "completed_at": self.db.completed_at}]
+            return MagicMock(fetchone=lambda: {
+                "stage": self.db.stage, "run_id": self.db.run_id,
+                "completed_at": self.db.completed_at})
         if "SELECT kind FROM events" in query:
             return ([{"kind": "PROVIDER_VERIFIED_TERMINAL"},
                      {"kind": "NATIVE_V_THREE_PROVIDER_CUSTODY"}]
