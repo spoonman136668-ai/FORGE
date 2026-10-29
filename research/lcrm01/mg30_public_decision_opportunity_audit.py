@@ -78,7 +78,6 @@ def synthetic():
     pos=observable(b,after,3,b["mission"])
     assert pos["mission_target_visible_front"] and pos["actual_target_pickup_visible"]
     assert not observable(b,after,5,b["mission"])["actual_target_pickup_visible"]
-    assert not observable(b,after,3,frame("pick up the blue box")["mission"])["actual_target_pickup_visible"] if False else True
     blue=frame(m="pick up the blue box")
     assert not observable(blue,frame(m="pick up the blue box",cell=(1,0,0)),3,blue["mission"])["actual_target_pickup_visible"]
     door=frame(cell=(4,2,2))
