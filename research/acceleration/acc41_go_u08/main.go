@@ -110,8 +110,7 @@ func drive(out string)error{
  passed:=true;for _,c:=range r.Comparisons{passed=passed&&c.Pass}
  if passed{r.Classification="U08_RESTRICTED_NATIVE_GO_ENGINEERING_POSITIVE_ONLY"}
  b,e:=json.MarshalIndent(r,"","  ");if e!=nil{return e}
- if e=os.WriteFile(out,append(b,'
-'),0644);e!=nil{return e}
+ if e=os.WriteFile(out,append(b,byte(10)),0644);e!=nil{return e}
  fmt.Println("ACC41_MEASURED="+r.Classification)
  return nil
 }
