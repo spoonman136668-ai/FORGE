@@ -1643,6 +1643,8 @@ class Database:
         # migration or controller fork is needed.
         from f139.nci04_g38_owner_terminal import verify_g38_custody
         verify_g38_custody(self)
+        from f139.nci04_original_v3_terminal import audit_v3_original_custody
+        audit_v3_original_custody(self)
         from f139.nci04_g49_prepost_negative import verify_g49_custody
         verify_g49_custody(self)
         active_rows = self.actives()
@@ -4022,6 +4024,33 @@ def original_owner_v2_fields_canonical(db, db_path: Path, ticket: str,
         canonical_db.close()
 
 
+def settle_original_v3_canonical(db, db_path: Path, *, ticket: str,
+                                 run_id: int, started_at: str,
+                                 owner_key: str):
+    """The existing lock-holder reopens EXACT same original SQLite canonically."""
+    from f139.local_controller import (
+        Database as CanonicalDatabase, GitHub as CanonicalGitHub)
+    from f139.nci04_original_v3_terminal import settle_original_v3
+    path=Path(db.filename).resolve(strict=True)
+    require(path==Path(db_path).resolve(strict=True)
+            and SingleOwner.held(path.with_suffix(".lock")),
+            "V3_ORIGINAL_OWNER_SETTLEMENT_LOCK_DRIFT")
+    old=db.meta()
+    canonical_db=CanonicalDatabase(path)
+    try:
+        canonical_db.verify()
+        new=canonical_db.meta()
+        require(all(new[k]==old[k] for k in
+                    ("source_sha","head_seq","head_hash","epoch")),
+                "V3_SOURCE_AND_ORIGINAL_EVENT_HEAD_DRIFT")
+        return settle_original_v3(
+            canonical_db,CanonicalGitHub(),path,
+            ticket=ticket,run_id=run_id,started_at=started_at,
+            owner_key=owner_key)
+    finally:
+        canonical_db.close()
+
+
 def original_owner_v3_fields_canonical(db, db_path: Path, ticket: str,
                                        *, owner_hmac_key: str):
     """Read the actual original SQLite under its pre-existing SingleOwner lock.
@@ -4140,6 +4169,29 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                         # or infer success from incomplete provider evidence.
                         legacy_pending[active["ticket"]] = (
                             "V2_PROVIDER_EVIDENCE_UNVERIFIED_NO_REPLAY")
+                        continue
+                    continue
+            if active["ticket"].startswith("f139-nci04-"):
+                from f139.nci04_owner_ledger import frozen_native_issue
+                original_v3=frozen_native_issue(db,active["ticket"])
+                from f139.nci04_worker_v2 import SOURCE_SHA as OLD_V2
+                if (original_v3.lane=="Yggdrasil"
+                    and original_v3.candidate.path=="yggdrasil/public_causal_cells.py"
+                    and original_v3.candidate.target_commit!=OLD_V2
+                    and original_v3.number>1138
+                    and original_v3.source_sha!="0743ca22b76ebd943a66f05a36ea919301676be0"):
+                    if run.get("status") in (
+                            "queued","requested","in_progress","waiting","pending"):
+                        continue
+                    try:
+                        settle_original_v3_canonical(
+                            db,db_path,ticket=active["ticket"],
+                            run_id=run["id"],started_at=active["started_at"],
+                            owner_key=hmac_key)
+                    except (F139Error,ValueError,OSError):
+                        # Never retry a signed work attempt; do not upcast V3 to V1.
+                        legacy_pending[active["ticket"]]=(
+                            "V3_PROVIDER_NOT_AUTHENTICATED_NO_REPLAY")
                         continue
                     continue
             result=api.run_proof(run,active["ticket"],active["source_sha"],active["started_at"])
