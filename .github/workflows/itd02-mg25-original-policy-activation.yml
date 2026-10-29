@@ -1,0 +1,90 @@
+name: ITD-02 MG25 authentic original-world native policy activation falsification
+on:
+  push:
+    branches: [research/itd02-mg25-original-policy-activation-falsification-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-immutable-original-source-forensic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - name: Original full Git SHA source newline contract
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Exact original MG24 parent and frozen MG25 audit candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Python 3.11 original source audit reader
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Download original source two-process evidence and run frozen read-only audit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          git merge-base --is-ancestor 7c0adb0e861378cbb4e4f21a30521173d0c64523 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG25_UNCHANGED_ORIGINAL_MG24_PARENT_NOT_ANCESTOR' }
+          git merge-base --is-ancestor f81e30197135976effd1e701ffce60cc09c29e87 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG25_ANALYTIC_FREEZE_AFTER_EXECUTABLE' }
+          $root=Join-Path $env:RUNNER_TEMP 'mg25'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          gh run download 40874118161 --repo spoonman136668-ai/FORGE --name mg24-original-selected-dev-nine-arm-ubuntu-24.04 --dir $root
+          if ($LASTEXITCODE -ne 0) { throw 'MG25_MISSING_IMMUTABLE_REAL_SOURCE_ARTIFACT' }
+          $first=Join-Path $root 'mg24-real-dev/first.json'
+          $second=Join-Path $root 'mg24-real-dev/second.json'
+          if (!(Test-Path $first) -or !(Test-Path $second)) { throw 'MG25_MISSING_ORIGINAL_TWO_COMPLETE_SOURCE_PROCESSES' }
+          python -B research/lcrm01/mg25_original_policy_activation_audit.py --first $first --second $second --output (Join-Path $root 'receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'MG25_ORIGINAL_SOURCE_FALSIFICATION_AUDIT_BLOCKED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG25_ACCEPTED_SOURCE_TREE_DIRTY' }
+          Write-Host 'MG25_ALL_9186_AUTHENTIC_ORIGINAL_SELECTED_ACTIONS_REVIEWED_NO_NEW_WORLD_ACTIONS'
+      - name: Retain full original-source audit summaries, including negative findings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg25-original-selected-policy-falsification-${{ matrix.os }}
+          path: ${{ runner.temp }}/mg25/receipt.json
+          retention-days: 30
+          if-no-files-found: warn
+  independent-cross-host-policy-receipt:
+    needs: independent-immutable-original-source-forensic
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: mg25-original-selected-policy-falsification-*
+          path: evidence
+      - name: Require identical original-source per-policy evidence Windows and Linux
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          paths=sorted(pathlib.Path("evidence").rglob("receipt.json"))
+          if len(paths)!=2: raise SystemExit("MG25_MISSING_ORIGINAL_SOURCE_TWO_OS_WITNESS")
+          a,b=(json.loads(x.read_text()) for x in paths)
+          if a!=b: raise SystemExit("MG25_INDEPENDENT_OS_ORIGINAL_SELECTED_POLICY_DIVERGENCE")
+          if (a["source_sha256"]!="e2dda4721d6d96ffd083faac5960013380b29c3325f560defa989c4eef0852a9" or
+             a["original_real_selected_actions_checked"]!=9186 or
+             a["episodes"]!=72 or
+             len(a["paired_native_and_ablated_controls"])!=5 or
+             a["new_original_source_steps"]!=0 or a["scientific_first_use"] is not False):
+             raise SystemExit("MG25_FALSE_AUTHENTIC_SOURCE_OR_SCIENCE_PROMOTION")
+          print("MG25_ORIGINAL_TWO_OS_INDEPENDENT_POLICY_FALSIFICATION_PASS",a["classification"],a["canonical_receipt_sha256"])
+          PY
