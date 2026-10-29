@@ -1,5 +1,6 @@
 """Offline boundary tests for opt-in MP-AI05 operational query entrypoint."""
 import json
+import hashlib
 import pathlib
 import sys
 import tempfile
@@ -111,6 +112,106 @@ class OperationalConsumerTests(unittest.TestCase):
                 _write_private(str(root / "private.json"), root, result, receipt)
             with self.assertRaises(ValueError):
                 _write_private("receipt.json", root, result, receipt)
+
+
+
+class ReferenceResolutionTests(unittest.TestCase):
+    """Source-only contract: never accept a stub as factual evidence."""
+
+    class RefSnapshot:
+        def __init__(self, defect=None, copies=1):
+            self.defect = defect
+            self.copies = copies
+            self.get_calls = []
+            self.statement = ("The original experiment was development only; "
+                              "accuracy is unproven. Do not promote as a win.")
+            self.refs = [{"type": "acceptance",
+                          "ref": "https://github.com/example/verified-source"}]
+
+        def recall(self, sha, query, projects, profile):
+            pointers = []
+            for i in range(self.copies):
+                pointer = {
+                    "id": "lesson/record-" + str(i),
+                    "project": "Mind-Palace",
+                    "kind": "lesson",
+                    "status": "observed",
+                    "source_refs": self.refs,
+                    "statement": "Reference only. Fetch full record.",
+                    "retrieval_preview_kind": "reference_only",
+                    "full_record_required": True,
+                    "source_statement_sha256":
+                        hashlib.sha256(self.statement.encode("utf-8")).hexdigest(),
+                }
+                if self.defect == "missing_flag":
+                    pointer["full_record_required"] = False
+                if self.defect == "wrong_hash":
+                    pointer["source_statement_sha256"] = "0" * 64
+                if self.defect == "scope":
+                    pointer["project"] = "Wingless"
+                pointers.append(pointer)
+            return {"source_sha": sha, "scope": projects,
+                    "records_sha256": "f" * 64, "matches": pointers}
+
+        def get_record(self, sha, record_id, projects):
+            self.get_calls.append((sha, record_id, projects[:]))
+            full = {"id": record_id, "project": "Mind-Palace",
+                    "kind": "lesson", "status": "observed",
+                    "source_refs": self.refs,
+                    "statement": self.statement}
+            source = sha
+            digest = "f" * 64
+            if self.defect == "missing_record":
+                return {"source_sha": source, "found": False}
+            if self.defect == "wrong_source":
+                source = "b" * 40
+            if self.defect == "wrong_snapshot":
+                digest = "0" * 64
+            if self.defect == "wrong_provenance":
+                full["source_refs"] = [{"type": "source", "ref": "untrusted"}]
+            if self.defect == "wrong_record_project":
+                full["project"] = "Wingless"
+            return {"source_sha": source, "records_sha256": digest,
+                    "found": True, "record": full}
+
+    def test_opt_in_follows_exact_pointer_to_full_record(self):
+        snapshot = self.RefSnapshot()
+        out, receipt = retrieve(snapshot, SHA, TEMPLATE, projects=["Mind-Palace"],
+                                resolve_reference_only=True)
+        self.assertEqual(receipt["resolved_reference_count"], 1)
+        self.assertEqual(receipt["reference_followup"], "enabled")
+        self.assertEqual(snapshot.get_calls,
+                         [(SHA, "lesson/record-0", ["Mind-Palace"])])
+        self.assertEqual(out["reference_resolution"], "verified_full_records")
+        self.assertEqual(out["resolved_reference_records"][0]["statement"],
+                         snapshot.statement)
+        self.assertTrue(out["matches"][0]["full_record_required"])
+        self.assertEqual(out["matches"][0]["retrieval_preview_kind"], "reference_only")
+
+    def test_default_behavior_is_unchanged_and_no_full_fetch(self):
+        snapshot = self.RefSnapshot()
+        out, receipt = retrieve(snapshot, SHA, TEMPLATE, projects=["Mind-Palace"])
+        self.assertEqual(receipt["reference_followup"], "disabled")
+        self.assertEqual(receipt["resolved_reference_count"], 0)
+        self.assertNotIn("resolved_reference_records", out)
+        self.assertFalse(snapshot.get_calls)
+
+    def test_reference_drift_and_missing_evidence_fail_closed(self):
+        for defect in ("missing_flag", "wrong_hash", "missing_record",
+                       "wrong_source", "wrong_snapshot", "wrong_provenance",
+                       "wrong_record_project"):
+            with self.subTest(defect=defect):
+                snapshot = self.RefSnapshot(defect=defect)
+                with self.assertRaises(RuntimeError):
+                    retrieve(snapshot, SHA, TEMPLATE, projects=["Mind-Palace"],
+                             resolve_reference_only=True)
+
+    def test_more_than_five_reference_followups_rejected(self):
+        snapshot = self.RefSnapshot(copies=6)
+        with self.assertRaises(RuntimeError):
+            retrieve(snapshot, SHA, TEMPLATE, projects=["Mind-Palace"],
+                     resolve_reference_only=True)
+        self.assertEqual(len(snapshot.get_calls), 5)
 
 
 if __name__ == "__main__":
