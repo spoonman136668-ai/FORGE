@@ -50,7 +50,23 @@ def cold(root,head):
         "  assert not s.get_record(h,ids['Yggdrasil' if project=='Wingless' else 'Wingless'],[project])['found']\n"
         "assert not s.get_record(h,'"+NEW+"',['Mind-Palace'])['found']\n"
         "print(s.records_sha256)\n")
-    return process([sys.executable,"-B","-c",script,str(root),head],timeout=90)
+    p=subprocess.run([sys.executable,"-B","-c",script,str(root),head],
+                     capture_output=True,text=True,timeout=90)
+    if p.returncode:
+        # Never export private record contents or arbitrary traceback.
+        diag="PRIVATE_COLD_ASSERTION"
+        for marker in ("source digest mismatch","source schema mismatch",
+               "snapshot count mismatch","source identity mismatch",
+               "ambiguous project labels","unrecognized project",
+               "invalid context budget profile","record not found",
+               "KeyError: 'details'","AssertionError","FileNotFoundError",
+               "ModuleNotFoundError"):
+            if marker in p.stderr:
+                diag=marker.upper().replace(" ","_").replace(":","").replace("'","")
+                break
+        print("MPAI06_COLD_DIAG="+diag,flush=True)
+        check(False,"ACCEPTED_SOURCE_COLD_RECALL")
+    return p.stdout.strip()
 def batch():
     commit="https://github.com/spoonman136668-ai/FORGE/commit/"+RUNS["40865946484"]
     run="https://github.com/spoonman136668-ai/FORGE/actions/runs/40865946484"
