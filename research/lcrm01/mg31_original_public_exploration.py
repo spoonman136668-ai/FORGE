@@ -219,7 +219,9 @@ def execute(source_root,go_binary,p):
             for r in matching:
                 for e in r["source_events"]:
                     tallies.update(selected_effect(e))
-            metrics[family][role]={**{key:tallies[key] for key in ("visible_public_pickup",\n                "exact_mission_target_public_disappearance","real_public_locked_door_open",\n                "original_positive_terminal_goal")},"episodes":3,
+            metrics[family][role]={**{key:tallies[key] for key in ("visible_public_pickup",
+                "exact_mission_target_public_disappearance","real_public_locked_door_open",
+                "original_positive_terminal_goal")},"episodes":3,
                 "original_selected_actions":sum(z["original_source_actions"] for z in matching),
                 "distinct_positive_seed_episodes":sum(r["original_terminal_goal_rewards"]>0 for r in matching)}
     threshold=p["prereg_sufficiency"]
