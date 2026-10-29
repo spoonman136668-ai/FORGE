@@ -154,8 +154,10 @@ def main():
     check(git("rev-parse","HEAD",cwd=root)==head,"PRIVATE_HEAD_CHANGED")
     check(not git("status","--porcelain","--untracked-files=all",cwd=root),
           "SOURCE_WORKTREE_DIRTY")
-    check(git("ls-remote","--exit-code",MAIN,"refs/heads/main").split()[0]==head,
-          "PRIVATE_MAIN_RACED")
+    # Requery the remote through the *authenticated cloned source*,
+    # not through the unrelated FORGE checkout's credential context.
+    check(git("ls-remote","--exit-code","origin","refs/heads/main",
+              cwd=root).split()[0]==head,"PRIVATE_MAIN_RACED")
     check(cold(root,head)==snap,"POST_CLASSIFY_COLD_RECALL_CHANGED")
     print("MPAI06_REAL_RUNS=2_AUTHENTIC")
     print("MPAI06_ORIGINAL_WINDOWS=PASS")
