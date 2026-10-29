@@ -25,7 +25,7 @@ def scoreboard(run_full_screening=False):
     reg=portfolio_module()
     if len(reg.ORIGINAL_NAMES)!=30 or len(reg.NATIVE_NAMES)!=6:
         raise RuntimeError("ACC34_ORIGINAL_36_NAME_REGISTER_DRIFT")
-    if ((set(reg.AC06_ORIGINAL)|set(reg.AC07_ORIGINAL))!={{
+    if ((set(reg.AC06_ORIGINAL)|set(reg.AC07_ORIGINAL)) != {
         f"U{i:02d}" for i in range(1,31)} or
         bool(set(reg.AC06_ORIGINAL)&set(reg.AC07_ORIGINAL)) or
         set(reg.PHYSICAL_ONLY)!={"U03","U06"}):
