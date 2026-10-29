@@ -1,0 +1,57 @@
+name: ITD-02 MG28 independent dual-native source mechanism frozen guard
+on:
+  push:
+    branches: [research/itd02-mg28-independent-native-source-effect-20261029]
+permissions:
+  contents: read
+jobs:
+  mg28-source-only-prereg:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Source text stable
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Original MG27 exact research evidence ancestor
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Immutable protocol before mechanism and research-only tree
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor 4134f8fb268d78fdd527a1c67f1974ae77977252 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG28_GENUINE_ORIGINAL_PRIOR_PROOF_NOT_PARENT' }
+          git merge-base --is-ancestor 90d27057cdb50f94aca07067327febfcacd921c9 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG28_NATIVE_MECHANISM_PREREG_NOT_PRECODE' }
+          $files=@(
+            'research/lcrm01/mg28_independent_native_source_change_prereg.json'
+            'research/lcrm01/mg28_source_signal_guard.py'
+            '.github/workflows/itd02-mg28-independent-native-source-guard.yml'
+          )
+          $actual=@(git diff --name-only 4134f8fb268d78fdd527a1c67f1974ae77977252 $env:GITHUB_SHA)
+          if (@(Compare-Object $files $actual).Count -ne 0) { throw 'MG28_UNAUTHORIZED_SOURCE_OR_MODEL_MUTATION' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG28_SOURCE_GUARD_DIRTY' }
+          Write-Host 'MG28_FROZEN_BEFORE_NATIVE_EXECUTABLE_SCOPE_PASS'
+      - name: Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Validate exact prior evidence, safety gates, negative controls
+        shell: pwsh
+        run: |
+          python -B research/lcrm01/mg28_source_signal_guard.py
+          if ($LASTEXITCODE -ne 0) { throw 'MG28_PREREG_FALSIFICATION_GUARD_FAILED' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG28_TEST_MUTATED_PRECODE_SOURCE' }
+          Write-Host 'MG28_READ_ONLY_FROZEN_NATIVE_SIGNAL_CONTRACT_PASS_NOT_SCIENCE'
