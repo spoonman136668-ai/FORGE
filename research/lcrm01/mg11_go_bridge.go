@@ -82,7 +82,7 @@ func process(p **native.Policy,request Request)(Reply,bool){
  default:err=errors.New("DK8_UNSUPPORTED_OPERATION")
  }
  if err!=nil{r.Error=err.Error();return r,false}
- r.OK=true;r.Updates=m.Samples;r.Live=m.Live
+ r.OK=true;r.Updates=m.Samples;r.Live=m.Agent.Live
  return r,false
 }
 func serve(in io.Reader,out io.Writer)error{
