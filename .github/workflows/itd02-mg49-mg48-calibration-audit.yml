@@ -1,0 +1,107 @@
+name: ITD-02 MG49 original MG48 public-only movement proxy calibration read-only audit
+on:
+  push:
+    branches: [research/itd02-mg49-mg48-public-alignment-calibration-audit-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  frozen-source-only-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Exact LF source settings
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout unchanged pinned MG48 parent plus MG49 diagnostic only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Verify source lineage and all original policy binaries remain untouched
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor f98e3054ae0633c2359a5110e725feac3e4e7241 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'MG49_AUDIT_METRIC_FREEZE_NOT_BEFORE_EXECUTABLE' }
+          $changed=@(git diff --name-only 301cc19ce6ddd5a14c506c85a4ded0c34ca9df2e $env:GITHUB_SHA)
+          $expected=@('research/lcrm01/mg49_mg48_alignment_calibration_prereg.json',
+            'research/lcrm01/mg49_mg48_alignment_calibration_audit.py',
+            '.github/workflows/itd02-mg49-mg48-calibration-audit.yml')
+          if (@(Compare-Object $changed $expected).Count -ne 0) { throw 'MG49_UNAUTHORIZED_MODEL_OR_SOURCE_CHANGE' }
+          python -B research/lcrm01/mg49_mg48_alignment_calibration_audit.py --preflight
+          if ($LASTEXITCODE -ne 0) { throw 'MG49_DIAGNOSTIC_PREFLIGHT_FAIL' }
+          if (git status --porcelain --untracked-files=all) { throw 'MG49_SOURCE_NOT_CLEAN' }
+          Write-Host MG49_FROZEN_READONLY_AUDIT_CROSS_HOST_SOURCE_PREFLIGHT_PASS_NO_SCIENCE
+  pinned-exposed-source-only-audit:
+    needs: frozen-source-only-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Exact LF source settings
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Download exact immutable original MG48 original-world evidence archive, no new world action
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mg49"
+          curl --fail --silent --show-error --location --max-time 120 --retry 2 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12939245997/zip" \
+            --output "$RUNNER_TEMP/mg49/mg48-immutable.zip"
+          test "$(stat -c%s "$RUNNER_TEMP/mg49/mg48-immutable.zip")" -lt 20000000
+          printf '%s  %s\n' 260846dd15ffb4c7fffb5ce52d6dc0143cd8b05f5ceae0d6cafb09817ea79148 "$RUNNER_TEMP/mg49/mg48-immutable.zip" | sha256sum --check --status
+          echo MG49_ORIGINAL_EXPOSED_ARCHIVE_BYTE_CUSTODY_PASS
+      - name: Calibrate original MG48 public movement proxy against genuine visible obstructions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/mg49_mg48_alignment_calibration_audit.py \
+            --archive "$RUNNER_TEMP/mg49/mg48-immutable.zip" \
+            --output "$RUNNER_TEMP/mg49/report.json" \
+            > "$RUNNER_TEMP/mg49/diagnostic.log"
+          grep -F 'MG49_MG48_PUBLIC_ALIGNMENT_CALIBRATION_SOURCE_AUDIT_PASS_NO_SCIENCE' "$RUNNER_TEMP/mg49/diagnostic.log"
+          grep -F 'MG49_BOTH_ORIGINAL_COMPLETE_SOURCE_PROCESSES_AUTHENTIC' "$RUNNER_TEMP/mg49/diagnostic.log"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo MG49_EXPOSED_SOURCE_ONLY_AUDIT_COMPLETE_NO_FARAMA_ACTION_OR_SCIENTIFIC_FIRST_USE
+      - name: Upload compact original-source validated diagnostic receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mg49-mg48-original-public-calibration-audit
+          path: |
+            ${{ runner.temp }}/mg49/report.json
+            ${{ runner.temp }}/mg49/diagnostic.log
+          if-no-files-found: warn
+          retention-days: 30
