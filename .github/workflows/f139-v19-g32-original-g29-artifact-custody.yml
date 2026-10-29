@@ -1,0 +1,130 @@
+name: F139 V19 G32 original G29 GitHub artifact SHA custody
+on:
+  push:
+    branches: [research/f139-v19-g32-github-artifact-custody-20261029]
+    paths:
+      - f139/nci04_v19_g32_artifact_custody.py
+      - f139/test_nci04_v19_g32_artifact_custody.py
+      - .github/workflows/f139-v19-g32-original-g29-artifact-custody.yml
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f139-v19-g32-authenticated-original-g29-artifacts
+  cancel-in-progress: false
+jobs:
+  original-zip-custody:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/research/f139-v19-g32-github-artifact-custody-20261029' &&
+      github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin exact prior G31 source and all three new paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='d998ca902654400b0efe1cf7129113f8ee59ea20'
+          if ((& git rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F139_G32_EXACT_SHA_DRIFT'
+          }
+          & git merge-base --is-ancestor $parent HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F139_G32_BASE_NOT_ANCESTOR' }
+          $actual=@(& git diff --name-only $parent HEAD | Sort-Object)
+          $allowed=@(
+            '.github/workflows/f139-v19-g32-original-g29-artifact-custody.yml',
+            'f139/nci04_v19_g32_artifact_custody.py',
+            'f139/test_nci04_v19_g32_artifact_custody.py'
+          ) | Sort-Object
+          if (($actual -join '|') -cne ($allowed -join '|')) {
+            throw 'F139_G32_SOURCE_SCOPE_DRIFT'
+          }
+          if (@(& git status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_G32_CHECKOUT_DIRTY'
+          }
+          Write-Output 'F139_G32_EXACT_SOURCE_SCOPE=PASS'
+      - name: Run offline metadata and ZIP negative controls
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest f139.test_nci04_v19_g32_artifact_custody -v
+          if ($LASTEXITCODE -ne 0) { throw 'F139_G32_OFFLINE_NEGATIVES_FAILED' }
+          & python -B -c "import ast,pathlib; [ast.parse(pathlib.Path(p).read_text('utf-8')) for p in ['f139/nci04_v19_g32_artifact_custody.py','f139/test_nci04_v19_g32_artifact_custody.py']]"
+          if ($LASTEXITCODE -ne 0) { throw 'F139_G32_SOURCE_COMPILATION_FAILED' }
+          Write-Output 'F139_G32_OFFLINE_NEGATIVES=PASS'
+      - name: Download original immutable G29 artifacts and run metadata
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'g32-original-inputs'
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          $curl=if($IsWindows){'curl.exe'} else {'curl'}
+          $base='https://api.github.com/repos/spoonman136668-ai/FORGE'
+          $urls=@{
+            'run.json'=($base+'/actions/runs/40885501321')
+            'artifacts.json'=($base+'/actions/runs/40885501321/artifacts?per_page=100')
+            'linux.zip'=($base+'/actions/artifacts/12900619626/zip')
+            'windows.zip'=($base+'/actions/artifacts/12901923435/zip')
+          }
+          foreach($name in @('run.json','artifacts.json','linux.zip','windows.zip')){
+            & $curl --fail --silent --show-error --location --max-time 75 --retry 0 -H "Authorization: Bearer $env:GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' $urls[$name] --output (Join-Path $root $name)
+            if($LASTEXITCODE -ne 0){throw ('F139_G32_GITHUB_READ_FAILED_'+$name)}
+          }
+          $expected=@{
+            'linux.zip'='4cd4bf9a236dff693e35173e2c4774b6a0cf6abf0cfc2d6724903ab6e21a5c19'
+            'windows.zip'='8f47dae9acc904d778aea5874795b11d92f8d1ec2feb5aee2834f43dd4d0e15e'
+          }
+          foreach($name in $expected.Keys){
+            $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root $name)).Hash.ToLowerInvariant()
+            if($actual -cne $expected[$name]){throw ('F139_G32_ORIGINAL_ZIP_DIGEST_DRIFT_'+$name)}
+          }
+          Write-Output 'F139_G32_ORIGINAL_GITHUB_ZIPS_DOWNLOADED_AND_HASHED=PASS'
+      - name: Read only authentic G29 reports and reconcile with G31
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GH_TOKEN -or $env:F139_WORKER_HMAC_KEY -or $env:OPENAI_API_KEY){
+            throw 'F139_G32_VERIFIER_CREDENTIAL_EXPOSURE'
+          }
+          $root=Join-Path $env:RUNNER_TEMP 'g32-original-inputs'
+          $report=Join-Path $env:RUNNER_TEMP 'f139-v19-g32-authentic-g29-report.json'
+          & python -B -m f139.nci04_v19_g32_artifact_custody --input $root --output $report
+          if($LASTEXITCODE -ne 0){throw 'F139_G32_AUTHENTIC_ORIGINAL_ARTIFACT_CUSTODY_FAILED'}
+          $obj=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if($obj.native_qualified -ne $false -or
+             $obj.provider_receipt_signed -ne $false -or
+             $obj.original_owner_consumed -ne $false -or
+             $obj.production_release_authorized -ne $false -or
+             $obj.diagnostic.windows_historical_regression -cne 'NEGATIVE_RETAINED'){
+            throw 'F139_G32_FALSE_WORKER_SUCCESS'
+          }
+          Write-Output 'F139_G32_ORIGINAL_TWO_OS_REPORTS_VERIFIED=PASS'
+          Write-Output 'F139_G32_SIGNED_NATIVE_WORKER=UNVERIFIED'
+          Write-Output 'F139_G32_OWNER_CONSUMPTION=UNVERIFIED'
+          Write-Output 'F139_G32_PRODUCTION_RELEASE=HOLD'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: f139-v19-g32-readonly-original-g29-custody-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-v19-g32-authentic-g29-report.json
+          if-no-files-found: error
+          retention-days: 90
