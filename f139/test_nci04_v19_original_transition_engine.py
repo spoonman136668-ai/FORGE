@@ -181,8 +181,14 @@ class V19IsolatedEngineTests(unittest.TestCase):
         self.assertIn('SingleOwner.held(self.filename.with_suffix(".lock"))', transition)
         self.assertIn("SOURCE_TRANSITION_V19_ORIGINAL_CUSTODY_REQUIRED", transition)
         self.assertIn("self.event(\"SOURCE_TRANSITION_ADMITTED\", event)", transition)
-        self.assertNotIn('transition-qualified-native-v19', cli)
-        self.assertNotIn("allow_v19=True", cli)
+        # V19 is intentionally exposed only as a one-time, owner-approved
+        # CLI.  The ordinary scheduled tick/loop must never call it.
+        self.assertIn('transition-qualified-native-v19', cli)
+        self.assertIn('transition_v19.add_argument("--approval",type=Path,required=True)', cli)
+        self.assertIn('verify_v19_readonly_preflight(validator_db,approval)', cli)
+        self.assertIn('allow_v19=True', cli)
+        self.assertNotIn('transition-qualified-native-v19',
+                         inspect.getsource(source.run_once))
 
 
 if __name__ == "__main__":
