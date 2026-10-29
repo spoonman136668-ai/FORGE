@@ -118,6 +118,8 @@ def resolve_reference_records(snapshot, source_sha: str, projects: list[str],
             continue
         if pointer.get("retrieval_preview_kind") != "reference_only":
             raise RuntimeError("reference followup flag inconsistent")
+        if pointer.get("project") != projects[0]:
+            raise RuntimeError("reference pointer scope invalid")
         record_id = pointer.get("id")
         digest = pointer.get("source_statement_sha256")
         if (type(record_id) is not str or not record_id or len(record_id) > 256
