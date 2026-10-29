@@ -33,12 +33,12 @@ def freeze():
     pins=data["future_native_new_source_commit"]
     if (data["schema"]!="itd02.mg07.authentic-original-doorkey-public-temporal-memory.v1"
         or data["source_parent_head"]!="3ff11059a64041e8cfc1dce2d34c43a046a0f64d"
-        or data["identical_fit_count"]!=1664
-        or data["new_development_seeds"]!=[67301,67303,67307]
-        or data["live_action_cap"]!=192 or data["zero_external"] is not True
+        or data["source_fit_count"]!=1664
+        or data["new_original_development_seeds"]!=[67301,67303,67307]
+        or data["max_original_steps"]!=192 or data["actual_live_external_assistance"]!=0
         or data["roles"]!=list(ROLES)
-        or data["public"]!=["image","direction","mission"]
-        or data["source_action_ids"]!=list(range(7))
+        or data["public_fields"]!=["image","direction","mission"]
+        or data["legal_actions"]!=list(range(7))
         or data["negative"]!=NEGATIVE or data["blocked"]!=BLOCKED
         or pins["wingless_go_dk10_head"]!="e8f6cf7bce6bf7580de9bb7ab861530d7fd1e220"
         or pins["yggdrasil_r14_head"]!="c09b674d7045daca98b7881fda2fe54120c8fdd6"):
@@ -143,7 +143,7 @@ def episode(role,seed,trained,binary_new,binary_old,p):
         observed=[]
         goal_reward=carry_effects=door_effects=0
         carry_seen=door_after_carry=False
-        for step in range(p["live_action_cap"]):
+        for step in range(p["max_original_steps"]):
             before=source.normalize(collector,owner,raw)
             if before!=adapter.current:
                 raise ValueError("MG07_NOT_REAL_SOURCE_OBSERVATION")
@@ -261,7 +261,7 @@ def episode(role,seed,trained,binary_new,binary_old,p):
 def run(new_go,old_go,p):
     trained=fit(new_go,old_go,p)
     rows=[]
-    for seed in p["new_development_seeds"]:
+    for seed in p["new_original_development_seeds"]:
         each=[episode(role,seed,trained,new_go,old_go,p) for role in ROLES]
         if len({x["original_public_start_sha256"] for x in each})!=1:
             raise ValueError("MG07_UNEQUAL_ORIGINAL_DOORKEY_PUBLIC_START")
