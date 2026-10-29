@@ -167,7 +167,7 @@ class G32ArtifactTests(unittest.TestCase):
 
     def test_exact_windows_crlf_serialization_without_broad_normalization(self):
         raw = zip_of(g32.EXPECTED["windows"][2],
-                     g32.canonical(fixture("windows")).replace(b"\\n", b"\\r\\n"))
+                     g32.canonical(fixture("windows")).replace(b"\n", b"\r\n"))
         definitions = dict(self.defs)
         ident, name, member, _ = definitions["windows"]
         definitions["windows"] = (ident, name, member, g32.sha(raw))
@@ -180,7 +180,7 @@ class G32ArtifactTests(unittest.TestCase):
                          "NEGATIVE_RETAINED")
 
         bad = zip_of(g32.EXPECTED["windows"][2],
-                     g32.canonical(fixture("windows")).replace(b"\\n", b"\\r\\r\\n"))
+                     g32.canonical(fixture("windows")).replace(b"\n", b"\r\r\n"))
         definitions["windows"] = (ident, name, member, g32.sha(bad))
         art["artifacts"][1]["digest"] = "sha256:" + g32.sha(bad)
         art["artifacts"][1]["size_in_bytes"] = len(bad)
@@ -189,7 +189,7 @@ class G32ArtifactTests(unittest.TestCase):
 
     def test_linux_crlf_is_not_accepted_even_with_forged_matching_zip_digest(self):
         raw = zip_of(g32.EXPECTED["linux"][2],
-                     g32.canonical(fixture("linux")).replace(b"\\n", b"\\r\\n"))
+                     g32.canonical(fixture("linux")).replace(b"\n", b"\r\n"))
         definitions = dict(self.defs)
         ident, name, member, _ = definitions["linux"]
         definitions["linux"] = (ident, name, member, g32.sha(raw))
