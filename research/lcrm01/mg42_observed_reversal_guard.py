@@ -493,6 +493,9 @@ def synthetic_source_preflight():
     baseline_action=original.choose(after)
     if baseline_action!=4 or candidate_action==4:
         raise ValueError("MG42_REVERSAL_PENALTY_NOT_DIFFERENT_FROM_MG40_SOURCE")
+    # Synthetic choose leaves a pending proposal; there was no genuine
+    # env.step in this source-only unit fixture to consume that proposal.
+    learner.pending=None
     raw=learner.checkpoint()
     if ReversalGuardNavigation.restore(raw).checkpoint()!=raw:
         raise ValueError("MG42_COLD_REVERSAL_EVIDENCE_LOST")
