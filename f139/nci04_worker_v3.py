@@ -225,7 +225,7 @@ def receipt_v3(admission:NativeAdmission, report:dict):
         from f139.nci04_v3_bounded_resource import (
             MAX_SAMPLED_RSS_BYTES, MAX_SAMPLED_CPU_MS)
         inventory=report.get("source_module_inventory")
-        require(type(inventory) is list and len(inventory)>=5
+        need(type(inventory) is list and len(inventory)>=5
                 and len(set(inventory))==len(inventory)
                 and ATLAS in inventory
                 and set(report.get("candidate_nonatlas",{}))==
@@ -248,7 +248,7 @@ def receipt_v3(admission:NativeAdmission, report:dict):
         entries.extend((report["candidate_nonatlas"][name],unit(name),"PASS")
                        for name in inventory if name!=ATLAS)
         for row,argv,state in entries:
-            require(type(row) is dict and row.get("argv")==list(argv)
+            need(type(row) is dict and row.get("argv")==list(argv)
                     and row.get("status")==state
                     and type(row.get("returncode")) is int
                     and ((state=="PASS" and row["returncode"]==0)
