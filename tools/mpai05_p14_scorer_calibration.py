@@ -122,9 +122,9 @@ def main():
     print("MPAI05_P14_MODEL_CALLS=0")
     print("MPAI05_P14_SCIENTIFIC_ACCEPTANCE=FALSE")
     print("MPAI05_P14_PRODUCTION_WRITES=0")
-    if summary["known_correct_accepted"]!=11 or
-       summary["reference_box_parse_identity"]!=11 or
-       summary["obviously_wrong_rejected"]!=11:
+    if (summary["known_correct_accepted"]!=11 or
+        summary["reference_box_parse_identity"]!=11 or
+        summary["obviously_wrong_rejected"]!=11):
         raise RuntimeError("MPAI05_P14_POSITIVE_OR_NEGATIVE_CONTROL_MISMATCH")
 
 if __name__=="__main__":
