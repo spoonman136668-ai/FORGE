@@ -329,4 +329,11 @@ if __name__=="__main__":
         print("MPAI05_P6_SAFE_FAILURE="+code,flush=True)
         print("MPAI05_P6_SAFE_PHASE="+PHASE,flush=True)
         print("MPAI05_P6_SAFE_EXCEPTION="+type(e).__name__,flush=True)
+        tb=e.__traceback__
+        while tb is not None and tb.tb_next is not None: tb=tb.tb_next
+        if tb is not None and tb.tb_frame.f_code.co_name in (
+            "main","mcp_read","get_result","evaluate","get_model","run","get",
+            "validate_manifest","validate_receipts"):
+            print("MPAI05_P6_SAFE_FUNCTION="+tb.tb_frame.f_code.co_name,flush=True)
+            print("MPAI05_P6_SAFE_LINE="+str(tb.tb_lineno),flush=True)
         sys.exit(2)
