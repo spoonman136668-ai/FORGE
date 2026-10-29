@@ -1,0 +1,54 @@
+name: MP-AI16 UQ37 source-pinned safe Mind-Palace upgrades transition
+on:
+  push:
+    branches: [proposal/mpai16-uq37-safe-tool-tree-transition-20261029]
+    paths:
+      - .github/workflows/mind-palace-uq37-scheduled-poll.yml
+      - tools/mpai16_mind_palace_tools_transition_check.py
+      - .github/workflows/mpai16-uq37-transition-qualification-20261029.yml
+permissions:
+  contents: read
+jobs:
+  original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify old, intermediate and final approved Git tool-tree SHA on original Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'MPAI16_RUNNER_AUTHORIZATION_DENIED'
+          }
+          if((git rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI16_FORGE_SOURCE_SHA_DRIFT'
+          }
+          $pins=@{
+            '.github/workflows/mind-palace-uq37-scheduled-poll.yml'='5da43929fdd32befda51f70584354e4a1e9421b4'
+            'tools/mpai16_mind_palace_tools_transition_check.py'='171a596199ef914be716cdc1ab954141045be68a'
+          }
+          foreach($path in $pins.Keys){
+            $actual=(git rev-parse ('HEAD:'+$path) | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $actual -cne $pins[$path]){
+              throw 'MPAI16_WORKFLOW_OR_PROGRAM_BLOB_PIN_DRIFT'
+            }
+          }
+          foreach($key in @('OPENAI_API_KEY','ANTHROPIC_API_KEY','OPENROUTER_API_KEY','HF_TOKEN','HUGGING_FACE_HUB_TOKEN')){
+            Remove-Item ('Env:'+$key) -ErrorAction SilentlyContinue
+          }
+          & python -B -m py_compile tools/mpai16_mind_palace_tools_transition_check.py
+          if($LASTEXITCODE -ne 0){throw 'MPAI16_SOURCE_SYNTAX_FAILED'}
+          & python -B tools/mpai16_mind_palace_tools_transition_check.py
+          if($LASTEXITCODE -ne 0){throw 'MPAI16_ROLLOUT_SOURCE_PROOF_FAILED'}
