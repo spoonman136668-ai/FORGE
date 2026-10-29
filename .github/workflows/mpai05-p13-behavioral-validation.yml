@@ -1,0 +1,139 @@
+name: MP-AI05 P13 original Windows IDF-diverse behavioral validation
+on:
+  push:
+    branches: [proposal/mpai05-p13-behavioral-validation-20261029]
+    paths: ['.github/workflows/mpai05-p13-behavioral-validation.yml']
+permissions:
+  contents: read
+jobs:
+  original-p13-development:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 28
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: never
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exact frozen 80-call original Windows public development comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+             throw 'MPAI05_P13_WRONG_ORIGINAL_RUNNER'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI05_P13_PAID_API_PROHIBITED'}
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI05_P13_NO_REPLAY'}
+          $gotHead=(git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $gotHead -cne $env:GITHUB_SHA){
+             throw 'MPAI05_P13_WORKFLOW_SOURCE_HEAD_DRIFT'
+          }
+          $blobs=@{
+            'tools/mpai05_p9_dataset_freeze.py'='2c2100c53c001d28843bc2da664c3e92d413e2e6'
+            'tools/mpai05_p10_public_development.py'='7bd698e3265cc41ee4d286461980d7586a25ac99'
+            'tools/mpai05_p11_diagnose.py'='5beb813560d0e4f816a0dabefd1aa5fcc89321a9'
+            'tools/mpai05_p12_evidence_selection.py'='de13820b5598e2cabf8432481b9a34abfd6e461b'
+            'tools/mpai05_p13_behavioral_validation.py'='af82e84e747bc75c9d91545230838c8b3391eb9e'
+            'tests/test_mpai05_p13_behavioral_validation.py'='b4b2b2f946082bec1aa0e948e138323dd48fa314'
+          }
+          foreach($path in $blobs.Keys){
+             $actual=(git rev-parse ('HEAD:'+$path)).Trim()
+             if($LASTEXITCODE -ne 0 -or $actual -cne $blobs[$path]){
+                throw 'MPAI05_P13_FROZEN_SOURCE_BLOB_DRIFT'
+             }
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-p13-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $env:RUNNER_TEMP ('mpai05-p13-private-'+$env:GITHUB_RUN_ID+'.log')
+          $env:MPAI05_P13_SCRATCH=$scratch
+          try {
+            if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $private)){
+              throw 'MPAI05_P13_SCRATCH_COLLISION'
+            }
+            & python -B -m unittest discover -s tests -p test_mpai05_p13_behavioral_validation.py -v *> $private
+            $testCode=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $private -Raw -ErrorAction Stop
+            if($testCode -ne 0 -or $raw -notmatch 'Ran 11 tests' -or
+               $raw -notmatch '(?m)^OK(?:\s|$)'){
+              foreach($m in [regex]::Matches($raw,'(?m)^(FAIL|ERROR): (test_[a-z_]{3,80}) \(')){
+                 Write-Output ('MPAI05_P13_TEST_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+              }
+              foreach($errorKind in @('SyntaxError','AssertionError','TypeError','ModuleNotFoundError','ValueError')){
+                 if($raw.Contains($errorKind)){Write-Output ('MPAI05_P13_TEST_FAILURE_TYPE='+$errorKind);break}
+              }
+              throw 'MPAI05_P13_FOCUSED_TEST_FAILURE_PRIVATE_LOG'
+            }
+            Write-Output 'MPAI05_P13_FOCUSED_TESTS=11_PASS'
+            Remove-Item -LiteralPath $private -Force
+            & python -B tools/mpai05_p13_behavioral_validation.py *> $private
+            $code=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $private -Raw -ErrorAction Stop
+            if($code -ne 0){
+              $m=[regex]::Match($raw,'MPAI05_P13_SAFE_FAILURE=(MPAI05_P13_[A-Z0-9_]+|PRIVATE_EXCEPTION)')
+              if($m.Success){Write-Output ('MPAI05_P13_FAILURE_CLASS='+$m.Groups[1].Value)}
+              $phase=[regex]::Match($raw,'MPAI05_P13_SAFE_PHASE=([A-Z_]+)')
+              if($phase.Success){Write-Output ('MPAI05_P13_FAILURE_STAGE='+$phase.Groups[1].Value)}
+              $kind=[regex]::Match($raw,'MPAI05_P13_SAFE_EXCEPTION=([A-Za-z]{3,32})')
+              if($kind.Success){Write-Output ('MPAI05_P13_FAILURE_TYPE='+$kind.Groups[1].Value)}
+              throw 'MPAI05_P13_EXPERIMENT_FAILED_PRIVATE_LOG'
+            }
+            foreach($marker in @(
+              'MPAI05_P13_OFFICIAL_SCORER_SOURCE=PASS',
+              'MPAI05_P13_PUBLIC_DATA_AND_MODEL_SHA256=PASS',
+              'MPAI05_P13_FROZEN_COHORT_SHA256=103dbf87dda69f03b32f4c6a3a987b5ab5b7a8d3c3ceeb11f223ad5cf358ae52',
+              'MPAI05_P13_MODEL_CALLS=80',
+              'MPAI05_P13_DEVELOPMENT_CASES=16',
+              'MPAI05_P13_OFFICIAL_DETERMINISTIC_PER_ARM=11',
+              'MPAI05_P13_UNSCORABLE_PER_ARM=5',
+              'MPAI05_P13_BLINDED_FIRST_USE=FALSE',
+              'MPAI05_P13_SCIENTIFIC_ACCEPTANCE=FALSE',
+              'MPAI05_P13_PRODUCTION_WRITES=0')){
+              if(-not $raw.Contains($marker)){
+                 throw 'MPAI05_P13_INCOMPLETE_MODEL_AND_PRIVACY_RECEIPT'
+              }
+            }
+            $names=@('NO_MEMORY','LEXICAL_MEMORY','IDF_DIVERSE_MEMORY','IDF_DIVERSE_REFLECTION','CHAR_MATCHED_PLACEBO')
+            $seen=@{}
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI05_P13_ARM_(NO_MEMORY|LEXICAL_MEMORY|IDF_DIVERSE_MEMORY|IDF_DIVERSE_REFLECTION|CHAR_MATCHED_PLACEBO)=(\{.*\})$'){
+                 $name=$Matches[1]
+                 if($seen.ContainsKey($name)){throw 'MPAI05_P13_DUPLICATE_PUBLIC_SUMMARY'}
+                 $m=$Matches[2] | ConvertFrom-Json
+                 if($m.cases -ne 16 -or $m.official_graded -ne 11 -or
+                    $m.official_unscorable -ne 5 -or
+                    $m.official_correct -gt 11 -or
+                    $m.output_cap_hits -gt 16){
+                    throw 'MPAI05_P13_BAD_PUBLIC_DENOMINATOR'
+                 }
+                 $seen[$name]=$true
+                 foreach($key in @('official_correct','official_graded','official_unscorable',
+                   'tokens','inference_ms','retrieval_cpu_ns','boxed_nonempty',
+                   'output_cap_hits','context_chars')){
+                   Write-Output ('MPAI05_P13_'+$name+'_'+$key.ToUpper()+'='+$m.$key)
+                 }
+              }
+              elseif($line -match '^MPAI05_P13_(MODEL_CALLS|DEVELOPMENT_CASES|OFFICIAL_DETERMINISTIC_PER_ARM|UNSCORABLE_PER_ARM|COST_NEUTRAL_CANDIDATE_METRICS_PASS_UNVERIFIED|PUBLIC_DEVELOPMENT_ONLY|BLINDED_FIRST_USE|INDEPENDENT_SEMANTIC_GRADER|SCIENTIFIC_ACCEPTANCE|PRODUCTION_WRITES|OFFICIAL_SCORER_SOURCE|PUBLIC_DATA_AND_MODEL_SHA256|FROZEN_COHORT_SHA256)=(PASS|TRUE|FALSE|[0-9]+|[a-f0-9]{64})$'){
+                 Write-Output $line
+              }
+            }
+            if($seen.Count -ne 5){throw 'MPAI05_P13_MISSING_FIVE_ARMS'}
+            $dirty=@(git status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+              throw 'MPAI05_P13_WORKSPACE_DIRTY'
+            }
+            Write-Output 'MPAI05_P13_SOURCE_CUSTODY=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI05_P13_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $private){Remove-Item -LiteralPath $private -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse -ErrorAction Stop}
+            Write-Output ('MPAI05_P13_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
