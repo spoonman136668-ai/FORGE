@@ -163,7 +163,7 @@ def evaluate(fit_source,dev_source):
         if model.updates!=1536:raise RuntimeError("AC24_MODEL_FIT_UPDATE_BUDGET_DRIFT")
         checkpoint=model.snapshot() if hasattr(model,"snapshot") else None
         if checkpoint is not None:
-            restored=type(model).restore(checkpoint)
+            restored=(ac21.TemporalRingDev if name=="local_near_unit_fixed_diagnostic" else type(model)).restore(checkpoint)
             if restored.snapshot()!=checkpoint:
                 raise RuntimeError("AC24_CHECKPOINT_COLD_RESTORE_INVALID")
         fit_identity=(model.snapshot() if checkpoint is not None else tuple(model.weights))
