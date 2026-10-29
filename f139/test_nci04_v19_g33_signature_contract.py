@@ -27,7 +27,7 @@ def g32_report():
             "linux": 12900619626, "windows": 12901923435},
         "original_zip_sha256": {
             "linux": "4cd4bf9a236dff693e35173e2c4774b6a0cf6abf0cfc2d6724903ab6e21a5c19",
-            "windows": "8f47dae9acc904d778aea5874795b11a92f8d1ec2feb5aee2834f43dd4d0e15e"},
+            "windows": "8f47dae9acc904d778aea5874795b11d92f8d1ec2feb5aee2834f43dd4d0e15e"},
         "provider_receipt_signed": False,
         "original_owner_consumed": False, "native_qualified": False,
         "full_native_worker_regression_qualified": False,
