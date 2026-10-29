@@ -12,6 +12,7 @@ on:
       - 'docs/research/AC-13-REAL-PYTORCH-TORCHVISION-REPAIR-PROTOCOL.md'
       - 'docs/research/AC-14-AUTHENTIC-OGBENCH-IMPORT-PROTOCOL.md'
       - 'docs/research/AC-15-AUTHENTIC-DTR-YGG-LEARNER-PROTOCOL.md'
+      - 'docs/research/AC-16-REAL-DTR-NATIVE-YGG-NCA-PREREGISTRATION.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
   pull_request:
     branches:
@@ -25,6 +26,7 @@ on:
       - 'docs/research/AC-13-REAL-PYTORCH-TORCHVISION-REPAIR-PROTOCOL.md'
       - 'docs/research/AC-14-AUTHENTIC-OGBENCH-IMPORT-PROTOCOL.md'
       - 'docs/research/AC-15-AUTHENTIC-DTR-YGG-LEARNER-PROTOCOL.md'
+      - 'docs/research/AC-16-REAL-DTR-NATIVE-YGG-NCA-PREREGISTRATION.md'
       - '.github/workflows/forge-ac07-remaining-sourcefree.yml'
 permissions:
   contents: read
@@ -356,6 +358,53 @@ jobs:
           print("AC15_ORIGINAL_CHECKPOINT_AND_TABULAR_PARITY=PASS")
           print("AC15_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
           PY
+      - name: Check out the current active Yggdrasil native local NCA source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 92c421a5475a27015a390efb88c373eb5f15379d
+          path: ac16_ygg_active
+          persist-credentials: false
+          fetch-depth: 1
+      - name: AC-16 train original Ygg local updater on source-owned FIT and freeze DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            PYPATH="$RUNNER_TEMP/ac11_venv/Scripts/python.exe"
+          else
+            PYPATH="$RUNNER_TEMP/ac11_venv/bin/python"
+          fi
+          "$PYPATH" -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac16_*.py' -v
+          "$PYPATH" -B research/ac07_sourcefree/ac16_current_ygg_nca.py --ygg "$GITHUB_WORKSPACE/ac16_ygg_active" --ac15-report "$RUNNER_TEMP/ac07/ac15-report.json" --out "$RUNNER_TEMP/ac07/ac16-report.json"
+          "$PYPATH" - "$RUNNER_TEMP/ac07/ac16-report.json" <<'PY'
+          import json,sys,pathlib,hashlib,math
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding='utf-8'))
+          assert r["schema"]=="forge.ac16.actual-ygg-local-nca-public-development.v1"
+          assert r["scope"]=="EXTERNAL_SUPERVISED_ADAPTER_ON_UNCHANGED_NATIVE_NCA"
+          assert r["current_ygg_native_source_commit"]=="92c421a5475a27015a390efb88c373eb5f15379d"
+          assert r["current_ygg_nca_blob"]=="7b15017b7f5c6f9b507bcf43f4545a3c972f40d1"
+          assert r["original_source_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["actual_source_owned_new_episodes"]==0
+          assert r["fit_public_outcome_examples"]==16
+          assert r["dev_public_outcome_examples"]==8
+          assert r["native_trainable_parameter_count"]>0
+          assert r["model_training"]["initial_parameter_sha256"]!=r["model_training"]["trained_parameter_sha256"]
+          assert r["native_checkpoint_cold_restored"] is True
+          assert r["native_weight_sha256_before_dev"]==r["native_weight_sha256_after_dev"]
+          assert len(r["dev_model_probabilities"])==8
+          assert all(math.isfinite(x) and 0<=x<=1 for x in r["dev_model_probabilities"])
+          assert r["same_observations_and_fit_budget_for_conventional_controls"] is True
+          for k in ("trained_on_dev","native_model_training_objective_is_original_ygg_morphology_objective",
+                    "actual_distributed_action_policy_executed","action_policy_return_measured",
+                    "unfamiliar_family_transfer_measured","causal_credit_assignment_established",
+                    "native_repo_code_modified","original_source_code_modified",
+                    "scientific_first_use","scientific_admission","controller_or_queue_modified"):
+              assert r[k] is False,k
+          print("AC16_ACTUAL_NATIVE_LOCAL_UPDATER_FIT_AND_FROZEN_DEV=PASS")
+          print("AC16_SCIENTIFIC_SUPERIORITY=NOT_ESTABLISHED")
+          print("AC16_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
       - name: Retain source-free evidence per operating system
         if: success()
         uses: actions/upload-artifact@v4
@@ -374,5 +423,6 @@ jobs:
             ${{ runner.temp }}/ac07/ac14-report.json
             ${{ runner.temp }}/ac07/ac14-freeze.txt
             ${{ runner.temp }}/ac07/ac15-report.json
+            ${{ runner.temp }}/ac07/ac16-report.json
           retention-days: 30
           if-no-files-found: error
