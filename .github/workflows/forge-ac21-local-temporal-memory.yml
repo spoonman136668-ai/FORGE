@@ -1,0 +1,116 @@
+name: AC21 historical public DTR local temporal memory (development only)
+on:
+  pull_request:
+    paths:
+      - 'research/ac07_sourcefree/ac21_*'
+      - 'research/ac07_sourcefree/test_ac21_*'
+      - 'docs/research/AC-21-*'
+      - '.github/workflows/forge-ac21-local-temporal-memory.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  public-native-development:
+    name: AC21 public local memory / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            ac15_sha: 68508db981776033d403094f237c17dbbfbadf822ac9eca011feb05d50cba286
+            ac18_sha: de74656aa8cbef76f995a22d1253804583ac18c03f9715efa740ca86cd08ef10
+          - os: windows-latest
+            ac15_sha: 071512caf92b82d8b3ed619d79d7741447be72bde29ae9b1b64fd42de2e39077
+            ac18_sha: 2cea6c95247e36daf2a944f965b39184031da2897259d211f556655864fd95a8
+    steps:
+      - name: Checkout development proposal only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout frozen historical original Ygg source for identity only
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: a39171a76d0d7817e3563682bb139a9d7ecf37c4
+          path: ac21_ygg_history
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Python standard-library runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve previously qualified original public FIT DEV evidence
+        uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 40797373953
+          github-token: ${{ github.token }}
+          name: forge-ac07-${{ matrix.os }}-sourcefree-restricted
+          path: frozen-source
+      - name: Fail closed on original source report mismatch before learner training
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "frozen-source/ac15-report.json" "frozen-source/ac18-report.json" "${{ matrix.ac15_sha }}" "${{ matrix.ac18_sha }}" <<'PY'
+          import hashlib,sys,json,pathlib
+          for p,expected in ((pathlib.Path(sys.argv[1]),sys.argv[3]),(pathlib.Path(sys.argv[2]),sys.argv[4])):
+              assert p.is_file(),p
+              h=hashlib.sha256(p.read_bytes()).hexdigest()
+              assert h==expected,(p,h,expected)
+              doc=json.loads(p.read_text(encoding="utf-8"))
+              assert doc.get("scientific_first_use") is False
+              print("AC21_IMMUTABLE_PARENT_SOURCE_RECEIPT="+p.name+"="+h)
+          PY
+          test "$(git -C ac21_ygg_history rev-parse HEAD)" = "a39171a76d0d7817e3563682bb139a9d7ecf37c4"
+          test "$(git -C ac21_ygg_history rev-parse HEAD:yggdrasil/task_runtime.py)" = "68a1423e0bd7206af511212c14b6ce8534154cc2"
+          test -z "$(git -C ac21_ygg_history status --porcelain --untracked-files=no)"
+      - name: Test local two-hop training, source-only contract and checkpoint negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/ac07_sourcefree -p 'test_ac21_*.py' -v
+      - name: Fit candidate and matched controls using authenticated prior public FIT only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/ac07_sourcefree/ac21_local_temporal_memory.py --ac15-report "$GITHUB_WORKSPACE/frozen-source/ac15-report.json" --ac18-report "$GITHUB_WORKSPACE/frozen-source/ac18-report.json" --out "$RUNNER_TEMP/ac21-report.json"
+          python - "$RUNNER_TEMP/ac21-report.json" <<'PY'
+          import hashlib,json,pathlib,sys,math
+          p=pathlib.Path(sys.argv[1]);r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["schema"]=="forge.ac21.authentic-public-development-local-temporal-memory.v1"
+          assert r["scope"]=="NEW_FORGE_SIDE_LOCAL_TEMPORAL_DEVELOPMENT_CANDIDATE_NOT_ORIGINAL_YGG_MODEL"
+          assert r["source_original_commit"]=="c94e9a4cd3641588b6b8507e71ccee5c27032bdf"
+          assert r["source_fit_episodes_reused"]==8 and r["source_dev_episodes_reused"]==4
+          assert r["public_reward_train_examples"]==8
+          assert r["new_source_episodes_executed"]==0
+          assert r["fit_passes"]==24
+          assert r["training_updates_per_gradient_model"]==192
+          assert r["full_history_conventional_logistic_updates"]==192
+          assert r["eight_cells"]==8 and r["neighbor_radius"]==1 and r["transport_rounds"]==2
+          assert r["one_round_site5_has_earlier_s1"] is False
+          assert r["two_round_site5_has_earlier_s1_and_x1"] is True
+          assert r["local_retention_gates_trained"]>=1
+          assert r["trained_parameter_count"]==10
+          assert r["checkpoint_bytes"]<=8192 and r["checkpoint_cold_restored_identically_same_platform"] is True
+          assert r["dev_updates"]==0 and r["dev_episodes_scored"]==4
+          assert all(z["n"]==4 and 0<=z["brier"]<=1 for z in r["frozen_dev_results"].values())
+          for key in ("source_private_info_exposed","realized_model_action_return_measured",
+                      "original_native_task_runtime_modified","original_ygg_historical_source_modified",
+                      "native_production_integration","scientific_first_use","scientific_admission",
+                      "controller_or_queue_modified"):
+              assert r[key] is False,key
+          print("AC21_GENUINE_SOURCE_PUBLIC_REUSED_FOR_LOCAL_MEMORY=PASS")
+          print("AC21_LOCAL_RETENTION_TRAINING=PASS")
+          print("AC21_SCIENTIFIC_FIRST_USE=FALSE")
+          print("AC21_REPORT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Retain bounded per-OS metrics and negative outcome
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ac21-authentic-public-temporal-${{ matrix.os }}
+          path: ${{ runner.temp }}/ac21-report.json
+          retention-days: 30
+          if-no-files-found: error
