@@ -10,7 +10,7 @@ import json
 import os
 from pathlib import Path
 
-from tools import mpai05_p6_fourarm_dev as base
+import mpai05_p6_fourarm_dev as base
 
 P6_INSTRUCTION = "Apply the reflected output-cap mitigation hypothesis: cite only the exact requested figure or a direct negative answer, in one concise sentence; never invent proof of accuracy."
 COMPACT_INSTRUCTION = "Copy exact figures. Answer briefly. Never claim accuracy was independently proven."
