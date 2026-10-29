@@ -27,7 +27,8 @@ def frozen():
         or p["historic_archive"]["source_sha256"]!=MG24_SHA
         or p["historic_archive"]["source_selected_actions"]!=9186
         or p["design"]["roles"]!=list(ACTORS)
-        or p["design"]["historic_archive"] if False else False):
+        or p["parents"]["WINGLESS_MG28"]!="0a7dde659045719763dfadf656fea1be2818d7ab"
+        or p["parents"]["YGGDRASIL_MG28"]!="e6f20efd875642421ef8c34ae87c8b1a1e4618a5"):
         raise ValueError("MG29_FROZEN_SOURCE_CONTRACT_CHANGED")
     for forbidden in ("no_new_original_world_reset_or_step","no_source_seed_release",
                       "no_model_parent_update","no_accepted_main_merge",
