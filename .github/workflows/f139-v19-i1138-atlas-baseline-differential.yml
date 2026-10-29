@@ -1,0 +1,87 @@
+name: F139 V19 issue1138 original worker atlas failure differential on fixed sources
+on:
+  push:
+    branches: [qualification/f139-v19-i1138-atlas-baseline-differential-20261029]
+    paths: [.github/workflows/f139-v19-i1138-atlas-baseline-differential.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-v19-1138-atlas-failure-differential-20261029
+  cancel-in-progress: false
+jobs:
+  fixed-clean-vs-staged:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-i1138-atlas-baseline-differential-20261029' &&
+      github.run_attempt == 1
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 021423311027517c9096c76bed7d35ac53c4a229
+          path: baseline
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 339276862e42a067344990dc20d907f203009b90
+          path: pr693
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Differential tests only with frozen source and no deployment or retries
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          git -C baseline rev-parse HEAD | grep -Fqx '021423311027517c9096c76bed7d35ac53c4a229'
+          git -C pr693 rev-parse HEAD | grep -Fqx '339276862e42a067344990dc20d907f203009b90'
+          git clone --quiet --no-local --no-checkout baseline stage
+          git -C stage checkout --quiet --detach 021423311027517c9096c76bed7d35ac53c4a229
+          git -C stage remote remove origin
+          python -B - <<'PY'
+          import pathlib,subprocess,os,json,hashlib,sys
+          root=pathlib.Path.cwd()
+          src=root/'pr693'/'yggdrasil'/'public_causal_cells.py'
+          dst=root/'stage'/'yggdrasil'/'public_causal_cells.py'
+          expected='29fac3afa3288b0d33fe3947539de57f9b16f1f5'
+          new=src.read_bytes()
+          h=hashlib.sha1(b'blob '+str(len(new)).encode()+b'\0'+new).hexdigest()
+          assert h==expected, 'PR693_EXACT_BLOB_DRIFT'
+          assert dst.read_bytes()!=new,'PR693_NOT_CHANGED'
+          dst.write_bytes(new)
+          assert subprocess.run(['git','-C',str(root/'baseline'),'status','--porcelain'],capture_output=True,text=True,check=True).stdout=='','BASELINE_DIRTY'
+          assert subprocess.run(['git','-C',str(root/'stage'),'status','--porcelain'],capture_output=True,text=True,check=True).stdout.strip()==' M yggdrasil/public_causal_cells.py','EXACT_STAGING_DELTA_DRIFT'
+          report={}
+          for name,dir in [('baseline',root/'baseline'),('staged_pr693',root/'stage'),('committed_pr693',root/'pr693')]:
+              row={}
+              for suite in ('test_code_atlas.py','test_native_cells.py'):
+                  p=subprocess.run([sys.executable,'-B','-m','unittest','discover','-s','tests','-p',suite,'-v'],cwd=dir,capture_output=True,text=True,timeout=80,env={k:v for k,v in os.environ.items() if k not in ('GH_TOKEN','GITHUB_TOKEN','OPENAI_API_KEY','F139_WORKER_HMAC_KEY')})
+                  lines=(p.stdout+'\n'+p.stderr).splitlines()
+                  errors=[]
+                  for i,line in enumerate(lines):
+                      if line.startswith(('ERROR: ','FAIL: ','RuntimeError: ','FileNotFoundError: ','AssertionError: ','Ran ','FAILED (','OK')):
+                          errors.append(line[:450])
+                  row[suite]={'exit_code':p.returncode,'diagnostics':errors[:24], 'tail':lines[-8:]}
+              report[name]=row
+          print('F139_I1138_FIXED_SOURCE_DIFFERENTIAL='+json.dumps(report,sort_keys=True))
+          # No hidden attribution if the baseline is also negative; require explicit evidence before repair.
+          b=report['baseline']['test_code_atlas.py']['exit_code']
+          s=report['staged_pr693']['test_code_atlas.py']['exit_code']
+          c=report['committed_pr693']['test_code_atlas.py']['exit_code']
+          print('F139_I1138_ATLAS_BASELINE_EXIT='+str(b))
+          print('F139_I1138_ATLAS_STAGED_EXIT='+str(s))
+          print('F139_I1138_ATLAS_COMMITTED_EXIT='+str(c))
+          print('F139_I1138_NO_ORIGINAL_WORKER_REPLAY=TRUE')
+          PY
