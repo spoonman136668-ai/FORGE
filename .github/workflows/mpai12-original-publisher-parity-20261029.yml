@@ -1,0 +1,130 @@
+name: MP-AI12 original publisher versus ARC mirror custody audit
+on:
+  push:
+    branches: [review/mpai-reference-resolving-consumer-20261029]
+    paths:
+      - tools/mpai12_original_publisher_parity.py
+      - tests/test_mpai12_original_publisher_parity.py
+      - .github/workflows/mpai12-original-publisher-parity-20261029.yml
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source tamper and grading-custody negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q tools/mpai12_original_publisher_parity.py
+          python3 -m unittest discover -s tests -p 'test_mpai12_original_publisher_parity.py' -v
+          echo MPAI12_FOCUSED_NEGATIVE_CONTROLS=PASS
+  original-windows:
+    needs: focused
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 17
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download original publisher pinned 680 MB archive and compare 299 exact public ARC records
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI12_WRONG_ORIGINAL_RUNNER'
+          }
+          if($env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'MPAI12_NO_UNAPPROVED_REPLAY'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI12_GIT_SOURCE_PIN_DRIFT'
+          }
+          $pins=@{
+            'tools/mpai12_original_publisher_parity.py'='cd756c8e24920ba4ed9a64cb3ae4d0b3bfd273df'
+            'tests/test_mpai12_original_publisher_parity.py'='3bbfe4ae2227a0cfff599d92f7a79bbeadbf3ac8'
+            'tools/mpai11_external_family_transfer.py'='c02090b98317f48344fe0b1dc68c840500e4bfdd'
+          }
+          foreach($file in $pins.Keys){
+            $blob=(git rev-parse ('HEAD:'+$file)).Trim()
+            if($blob -cne $pins[$file]){throw 'MPAI12_PROGRAM_BLOB_DRIFT'}
+          }
+          # No paid inference, no private source, no token reuse.
+          foreach($key in @('OPENAI_API_KEY','OPENROUTER_API_KEY',
+                             'ANTHROPIC_API_KEY','HUGGING_FACE_HUB_TOKEN','HF_TOKEN')){
+            Remove-Item ('Env:'+$key) -ErrorAction SilentlyContinue
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai12-original-publisher-'+$env:GITHUB_RUN_ID)
+          $privateLog=Join-Path $scratch 'private-source-audit.log'
+          try {
+            if(Test-Path -LiteralPath $scratch){throw 'MPAI12_SCRATCH_COLLISION'}
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $args=@('tools/mpai12_original_publisher_parity.py','--scratch',$scratch)
+            & python -B @args *> $privateLog
+            if($LASTEXITCODE -ne 0){
+              $logs=Get-Content -LiteralPath $privateLog -Raw
+              $failure=[regex]::Match($logs,'MPAI12_[A-Z_]{5,75}')
+              if($failure.Success){
+                Write-Output ('MPAI12_SAFE_FAILURE_CLASS='+$failure.Value)
+              }
+              throw 'MPAI12_PRIMARY_SOURCE_AUDIT_FAILED_PRIVATE_LOG'
+            }
+            $report=Get-Content -LiteralPath (Join-Path $scratch 'mpai12-private-source-audit.json') -Raw | ConvertFrom-Json
+            if($report.schema -cne 'forge.mpai12.publisher-parity-readonly.v1' -or
+               $report.original_publisher_archive_sha256 -cne '6d2d5ab50b2ceec6ba5f79c921be77cf2de712ea25a2b3f4fff3acc101cecfa0' -or
+               $report.mirror_git_blob -cne '907d3294123dbe34929e1fb802c2504d698f7dbd' -or
+               $report.mirror_challenge_dev_sha256 -cne 'cd30140caef3cc4b4ca885cd0a2879aa58e8e34dd2f54ef1b415e52d9a2b105e' -or
+               $report.publisher_parity.all_split_questions -ne 299 -or
+               $report.publisher_parity.selected_gold_key_agreement -ne 24 -or
+               $report.publisher_parity.selected_question_only_sha256 -cne '247abac106a46f67e644ffd40b3720a92a22f78ffb1bcedf461599102d3ba41f' -or
+               $report.separate_independent_reviewer_authenticated -ne $false -or
+               $report.scientific_first_use -ne $false -or
+               $report.scientific_qualification -ne $false -or
+               $report.new_model_calls -ne 0 -or $report.production_writes -ne 0){
+              throw 'MPAI12_RECEIPT_DISAGREES_WITH_PREVIOUS_CONSUMED_SOURCE'
+            }
+            $privateText=Get-Content -LiteralPath $privateLog -Raw
+            foreach($marker in @(
+              'MPAI12_PUBLISHER_ZIP_SHA256=PASS',
+              'MPAI12_ALL_SPLIT_RECORDS_MATCH=299',
+              'MPAI12_CONSUMED_COHORT_GOLD_MATCH=24',
+              'MPAI12_AUTHENTIC_PRIMARY_SECONDARY_PARITY=PASS',
+              'MPAI12_INDEPENDENT_REVIEWER_AUTHENTICATED=FALSE',
+              'MPAI12_FIRST_USE=FALSE',
+              'MPAI12_SCIENTIFIC_QUALIFICATION=FALSE',
+              'MPAI12_PRODUCTION_WRITES=0')){
+              if(-not $privateText.Contains($marker)){throw 'MPAI12_MISSING_SAFE_PUBLISHER_EVIDENCE'}
+            }
+            foreach($line in ($privateText -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI12_(PUBLISHER_ZIP_SHA256|ALL_SPLIT_RECORDS_MATCH|CONSUMED_COHORT_GOLD_MATCH|AUTHENTIC_PRIMARY_SECONDARY_PARITY|INDEPENDENT_REVIEWER_AUTHENTICATED|FIRST_USE|SCIENTIFIC_QUALIFICATION|PRODUCTION_WRITES)=(PASS|TRUE|FALSE|[0-9]+)$'){
+                Write-Output $line
+              }
+              if($line -match '^MPAI12_(PUBLISHER_DEV_SHA256|MIRROR_DEV_SHA256|SELECTED_COHORT_SHA256)=[0-9a-f]{64}$'){
+                Write-Output $line
+              }
+            }
+            $status=@(git status --porcelain=v1 --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $status.Count -ne 0){
+              throw 'MPAI12_FORGE_CHECKOUT_CHANGED'
+            }
+            Write-Output 'MPAI12_PROGRAM_SOURCE_CUSTODY=PASS'
+            Write-Output 'MPAI12_NO_PRIVATE_MEMORY_ACCESSED=TRUE'
+            Write-Output 'MPAI12_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI12_SCRATCH_REMOVED='+[string](-not (Test-Path -LiteralPath $scratch)))
+          }
