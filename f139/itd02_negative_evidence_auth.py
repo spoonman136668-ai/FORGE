@@ -47,7 +47,7 @@ def authenticate(get):
             or "\x00" in content):
         raise EvidenceDenied("SOURCE_IDENTITY_DRIFT")
     if not all(x in content.lower() for x in
-               ("yggdrasil", "itd-02", "negative", "no-go")):
+               ("yggdrasil", "failed to generalize", "not in that manifest", "source-bound")):
         raise EvidenceDenied("SOURCE_SCOPE_INVALID")
     return {
         "schema": "forge.f139.itd02-negative-evidence-provenance.v1",
