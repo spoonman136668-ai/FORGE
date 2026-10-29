@@ -40,7 +40,7 @@ git -C "$RUNNER_TEMP/mg02/wingless" checkout --detach -q d89bf3a0fe057ceb2dfc9cf
 test "$(git -C "$RUNNER_TEMP/mg02/wingless" hash-object go.mod)" = 10b1d534f48e2a2723d22f4cb2c450a89d5658f3
 test "$(git -C "$RUNNER_TEMP/mg02/wingless" hash-object research/native/itd02/r8/online_beliefs.go)" = 6857ecbef2d63f459a432a5d68c7edda2b5347c4
 test "$(git -C "$RUNNER_TEMP/mg02/wingless" hash-object research/native/itd02/r8bridge/main.go)" = e14301e4307424eadb46865d7c1ede51f8bbe011
-test "$(git -C "$RUNNER_TEMP/mg02/wingless" hash-object research/native/itd02/r5/policy.go)" = 239a5f2ab6d122b10cd5c7cc9388d154929b9888
+test "$(git -C "$RUNNER_TEMP/mg02/wingless" hash-object research/native/itd02/r5/cost_frontier.go)" = 239a5f2ab6d122b10cd5c7cc9388d154929b9888
 (cd "$RUNNER_TEMP/mg02/wingless" && go build -trimpath -o "$RUNNER_TEMP/mg02/wingless-r8-bridge" ./research/native/itd02/r8bridge)
 export MG02_WINGLESS_R8_BRIDGE="$RUNNER_TEMP/mg02/wingless-r8-bridge"
 echo MG02_PINNED_ACTUAL_WINGLESS_R8_GO_BINARY_PASS
