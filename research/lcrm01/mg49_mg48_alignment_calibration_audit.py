@@ -52,6 +52,7 @@ def preflight():
     if not(b>=8 and b>=a+3 and DIRECTIONS[0]==(1,0)):
         raise ValueError("MG49_PUBLIC_ONLY_SOURCE_ALIGN_SYNTHETIC_TEST_FAILED")
     print("MG49_FROZEN_READONLY_SOURCE_ONLY_DUAL_OS_PREFLIGHT_PASS")
+    return frozen()
 def front_class(c):
     if c[0]==2:return "wall"
     if c[0]==4 and c[2]!=0:return "nonopen_door"
