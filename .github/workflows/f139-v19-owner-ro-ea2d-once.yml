@@ -1,0 +1,107 @@
+name: FORGE F139 V19 original-owner strictly read-only single witness
+# Source-qualified, one-time, original-owner fact gathering. NOT a cutover.
+# Only a change to this one workflow file on the isolated branch can trigger it.
+on:
+  push:
+    branches:
+      - qualification/f139-v19-owner-ro-ea2d-once-20261029
+    paths:
+      - .github/workflows/f139-v19-owner-ro-ea2d-once.yml
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: f139-v19-owner-readonly-ea2d-once
+  cancel-in-progress: false
+jobs:
+  inspect-original-owner:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/qualification/f139-v19-owner-ro-ea2d-once-20261029' &&
+      github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Authenticate unchanged source and owner route without mutation
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v19-owner-ro-ea2d-once-20261029' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              -not [string]::IsNullOrEmpty($env:OPENAI_API_KEY)) {
+            throw 'F139_V19_READONLY_WRONG_OWNER_OR_PAID_API_PRESENT'
+          }
+          $parent=(& git rev-parse 'HEAD^' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or
+              $parent -cne '70640c92411980c6775389f4306c0e00dc32eddc') {
+            throw 'F139_V19_READONLY_UNQUALIFIED_SOURCE_PARENT'
+          }
+          $source=(& git rev-parse 'HEAD:f139/nci04_v19_original_release_readonly_preflight.py' | Out-String).Trim()
+          $probe=(& git rev-parse 'HEAD:f139/nci04_v19_original_owner_nowrite_probe.py' | Out-String).Trim()
+          if ($source -cne '5599b50fce67d24a13e2daedf0840f1ed15ec651' -or
+              $probe -cne 'fea3dc22025e0c3a97e5125f19443dee75fb624e') {
+            throw 'F139_V19_READONLY_WITNESS_SOURCE_BLOB_DRIFT'
+          }
+          $changes=@(& git diff --name-only 'HEAD^' 'HEAD')
+          if ($changes.Count -ne 1 -or
+              $changes[0] -cne '.github/workflows/f139-v19-owner-ro-ea2d-once.yml') {
+            throw 'F139_V19_READONLY_WORKFLOW_SCOPE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ([string]$task.State -cnotin @('Running','Ready') -or
+              @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3) {
+            throw 'F139_V19_READONLY_ORIGINAL_TASK_TOPOLOGY_UNQUALIFIED'
+          }
+          $action=$task.Actions[0]
+          if ([IO.Path]::GetFileName([string]$action.Execute) -ine 'powershell.exe') {
+            throw 'F139_V19_READONLY_ORIGINAL_EXECUTABLE_DRIFT'
+          }
+          $argsText=[string]$action.Arguments
+          $match=[regex]::Match($argsText,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          if (-not $match.Success) { throw 'F139_V19_READONLY_DATABASE_ARG_MISSING' }
+          $db=[string]$match.Groups[1].Value
+          $expectedDb=Join-Path (Join-Path $env:LOCALAPPDATA 'FORGE-F139') 'state.sqlite'
+          if ([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+              -not(Test-Path -LiteralPath $db -PathType Leaf)) {
+            throw 'F139_V19_READONLY_ORIGINAL_SQLITE_PATH_DRIFT'
+          }
+          $matchPy=[regex]::Match($argsText,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if (-not $matchPy.Success -or -not(Test-Path -LiteralPath $matchPy.Groups[1].Value -PathType Leaf)) {
+            throw 'F139_V19_READONLY_ORIGINAL_PYTHON_ARG_DRIFT'
+          }
+          $python=[string]$matchPy.Groups[1].Value
+          $result = & $python -B -m f139.nci04_v19_original_owner_nowrite_probe --db $db 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output $result
+            throw 'F139_V19_ORIGINAL_OWNER_READONLY_WITNESS_DENIED'
+          }
+          $proof=$result | ConvertFrom-Json
+          if ($proof.disposition -cne 'ORIGINAL_V18_AND_V19_RELEASE_SOURCE_READONLY_ONLY' -or
+              $proof.from_source_sha -cne 'd8bccc604f8607bf10f9d8bc6aa568d1f98af559' -or
+              $proof.candidate_source_sha -cne 'ea2d1c99d7afc1e991510d51168dd010a0b56ec5' -or
+              $proof.read_only -ne $true -or
+              $proof.runtime_cutover_authorized -ne $false -or
+              $proof.source_transition_to_v19_implemented -ne $false -or
+              $proof.original_sqlite_writes -ne 0 -or
+              $proof.github_writes -ne 0 -or
+              $proof.provider_requests -ne 0 -or
+              $proof.paid_api_calls -ne 0 -or
+              $proof.scientific_first_use -ne $false) {
+            throw 'F139_V19_READONLY_EVIDENCE_NOT_FAIL_CLOSED'
+          }
+          Write-Output 'F139_V19_ORIGINAL_OWNER_READONLY_WITNESS=PASS'
+          Write-Output ('F139_V19_ORIGINAL_OWNER_EVIDENCE=' +
+                        ($proof | ConvertTo-Json -Compress -Depth 8))
