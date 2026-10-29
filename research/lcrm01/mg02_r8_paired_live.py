@@ -75,7 +75,7 @@ def fit(executable,ymod):
     cold_go=WingBridge(executable)
     try:
         reply=cold_go.request("load",state=base64.b64encode(go_bytes).decode("ascii"))
-        if reply.get("updates")!=len(stream) or reply.get("steps")!=0:
+        if reply.get("updates")!=len(stream) or reply.get("steps",0)!=0:
             raise ValueError("MG02_R8_FRESH_PROCESS_FIT_RESTORE_MISMATCH")
         if cold_go.snapshot()!=go_bytes:
             raise ValueError("MG02_R8_FRESH_PROCESS_FIT_CHECKPOINT_CHANGED")
@@ -101,10 +101,10 @@ def episode(family,seed,native,fit_state,go_binary,ymod):
         if native=="wingless_go_r8":
             go=WingBridge(go_binary)
             cold=go.request("load",state=base64.b64encode(fit_state["wingless"]).decode())
-            if cold.get("updates")!=fit_state["count"] or cold.get("steps")!=0:
+            if cold.get("updates")!=fit_state["count"] or cold.get("steps",0)!=0:
                 raise ValueError("MG02_R8_EPISODE_FIT_RESTORE_FAILED")
             started=go.request("episode_start")
-            if started.get("steps")!=0:raise ValueError("MG02_R8_BEGIN_EPISODE_NOT_RESET")
+            if started.get("steps",0)!=0:raise ValueError("MG02_R8_BEGIN_EPISODE_NOT_RESET")
         elif native=="yggdrasil_r1_local_cells":
             colony=ymod.GridColony.restore(fit_state["yggdrasil"])
             if colony.feedback_updates!=fit_state["count"]:
