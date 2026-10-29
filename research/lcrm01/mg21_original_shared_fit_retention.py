@@ -63,3 +63,16 @@ def execute(source_root,go_binary):
   fit_receipts.append({"family":family,"original_start_sha256":digest(start),
         "original_source_events":fit,"source_fit_sha256":digest(fit),
         "shared_original_fit_count":len(fit)})
+  group=[]
+  for role in ROLES:
+   actor,adapter=prepare(role,fit,go_binary,family)
+   count=len(fit) if role.endswith("_fit") else 0
+   try:
+    record=probe(gym,family,role,p["world"]["quarantined_probe_seed"],
+                 24,actor,adapter,count)
+    record["source_fit_sha256"]=digest(fit) if count else None
+    record["cold_retention"]=cold_retention(role,actor,go_binary,
+                                            count+record["probe_steps"])
+    group.append(record)
+   finally:
+    if role.startswith("go_"):actor.close()
