@@ -289,7 +289,7 @@ def fit(binary,p):
                         raise ValueError("MG15_UNEQUAL_ORIGINAL_FIT_SELECTED_SAMPLES")
                     digest_stream.update((canon({"before":before,"action":action,
                         "after":after,"reward":float(reward),
-                        "terminal":bool(terminated or truncated)})+"\\n").encode())
+                        "terminal":bool(terminated or truncated)})+"\n").encode())
                     action_counts[str(action)]+=1
                     pickups+=int(event["visible_key_pickup"])
                     doors+=int(event["visible_door_opened"])
@@ -517,7 +517,7 @@ def run(binary,p):
             if any(row["environment"]!=environment or row["external_actions"]!=0 for row in group):
                 raise ValueError("MG15_ORIGINAL_ACTOR_SOURCE_PARITY_FAILURE")
             rows.extend(group)
-    if len(rows)!=24 or any(row["original_live_selected_steps"]<1 for row in rows):
+    if len(rows)!=30 or any(row["original_live_selected_steps"]<1 for row in rows):
         raise ValueError("MG15_MISSING_LAYOUT_ROLE_ORIGINAL_EVENT")
 
     fields=("original_live_selected_steps","source_key_pickups","source_key_drops",
@@ -550,7 +550,9 @@ def run(binary,p):
       "frozen_source_pins":p["native"],"training_cold_sha256":trained["checkpoints_sha"],
       "frozen_original_world_cohorts":p["DEV"]["cohorts"],
       "unassisted_original_world_resets":True,
-      "mission_blind_public_projection_for_all_trained_arms":True,
+      "genuine_original_mission_for_both_native_actors":True,
+      "internally_projected_legacy_parent_mission_only":True,
+      "conditioned_and_blind_conventional_controls_both_present":True,
       "original_task_missions_preserved_in_evidence":True,
       "no_manual_stage_or_scripted_prefix":True,
       "no_original_live_external_actions":True,
@@ -561,7 +563,7 @@ def run(binary,p):
        "scientific_first_use":False,"accepted_native_model_promoted":False,
        "FORGE_or_CKB_controller_modified":False,
        "same_original_selected_FIT_samples":1664,
-       "original_episode_count":24,"external_live_actions":0,
+       "original_episode_count":30,"external_live_actions":0,
        "canonical_original_source_sha256":sha(canon(evidence).encode()),
        "canonical_original_source_evidence":evidence,
        "nondeterministic_original_episode_resource_receipts":resources}
