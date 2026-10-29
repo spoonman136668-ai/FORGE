@@ -1,0 +1,87 @@
+{
+  "schema": "itd02.mg01.original-minigrid-two-native-live-boundary.v1",
+  "scope": "SOURCE_ONLY_ENGINEERING_CONNECTIVITY_NOT_SCIENCE_OR_MODEL_PROMOTION",
+  "preimplementation_freeze": "This file committed before MG01 executable and before new MiniGrid episodes",
+  "parent": {
+    "repo": "spoonman136668-ai/FORGE",
+    "PR": 877,
+    "head": "51b3a936e74a3132c40252f97af1c1b084d62703",
+    "result": "ENGINEERING_PASS_SCIENTIFIC_NO_GO",
+    "K4U_native_negative": {"wingless_empty": "0/8", "wingless_fourrooms": "0/8", "yggdrasil_empty": "1/8", "yggdrasil_fourrooms": "0/8"},
+    "source_benchmark": "K4R PR #874"
+  },
+  "sources": {
+    "farama_minigrid_git": "Farama-Foundation/Minigrid@7f5853792ea7f04f75614661006d87fcf949f26d",
+    "farama_pinned_original_git_blobs": {
+      "minigrid/envs/empty.py": "8810bb0fa156d18475022edd8859b135ef745a5f",
+      "minigrid/envs/fourrooms.py": "d79f007e00f95f48284da66d760872483c02fab2",
+      "minigrid/wrappers.py": "1eb2da8fb612653c97f443ff6c7492ed3f1aaa80",
+      "minigrid/minigrid_env.py": "eb29e9a902de0715ab77ec981a2113576d7664fa"
+    },
+    "wingless_native_go_source": {
+      "repo": "spoonman136668-ai/Wingless",
+      "commit": "cd108800054e7964af845137f0d9d37fae69f5a7",
+      "file": "research/native/itd02/r1/policy.go",
+      "git_blob": "8d1845d82dd8578a709b00e8841bdc5edc8dbc10",
+      "native_architecture": "unchanged Go fast/slow policy, compiled in isolated Go module; IPC only"
+    },
+    "yggdrasil_original_local_cell_source": {
+      "repo": "spoonman136668-ai/Yggdrasil",
+      "commit": "1b042d6bf4832d885d80ef73f3ab29d8a600bfe2",
+      "file": "research/native/itd02/r1/native_policy.py",
+      "git_blob": "3aa22b1e418a7f8cd9619c476f02b8c614917b16",
+      "native_architecture": "unchanged Python GridColony with three independent 9-local-cell action cohorts"
+    },
+    "source_only_fetch": "research/lcrm01/k4u_fetch_native_sources.py"
+  },
+  "one_authentic_environment_contract": {
+    "same_external_source": "Two independent resets of the exact same original Farama MiniGrid family and seed; one separate env instance per native model because their chosen actions may diverge",
+    "families": ["empty", "fourrooms"],
+    "real_env_interaction": "FullyObsWrapper.reset(seed), original env.step(chosen 0/1/2), next public image and actual reward",
+    "public_observation": "Only from original FullyObsWrapper observation['image']; public origin state may be parsed by the original K4R extractor; NO env.unwrapped, hidden grid, RNG, oracle actions, evaluator world labels, task seed or family supplied to native model",
+    "equal_native_six_field_projection": ["x", "y", "goal_x", "goal_y", "direction", "front_blocked"],
+    "critical_wire_guard": "Wingless original Go JSON uses EXACT snake_case field tags, not K4U CamelCase X/GoalX/FrontBlocked. All six fields must be explicitly present, finite and bounds-checked before the Go/colony adapter. A roundtrip test forbids silent default-goal/blocked fields.",
+    "actions": {"0": "turn left", "1": "turn right", "2": "forward"},
+    "native_episode": "own native choose(public six field) -> original env.step(action) -> own native Observe(before, action, after, original reward, terminated OR truncated). Preserve terminated and truncated separately in evaluator trace.",
+    "no_shared_answer_or_weights": "Native actors never receive each other's decisions, state, predicted values, observations from their diverged paths, or evaluator goal path. Initial same-seed public image SHA should match, but the full traces need NOT match after independent decisions.",
+    "no_planner_ownership_transfer": "Planner/BFS and true full public wall image remain external evaluator/controls; original native sixfield projection must not be misrepresented as equally informed as a full-grid BFS planner."
+  },
+  "source_training": {
+    "FIT": "Reuse original K4U 48 genuine independent source FIT episodes (24 family each), exactly one selected-public 0/1/2 action trace replayed in the same order into both unchanged native learners. No model sharing and no invented replay.",
+    "source_data": "Original K4U K4R FullObsWrapper public six-field selected feedback only; convert original dict keys strictly to snake_case instead of silently unmapped Go fields",
+    "freeze_before_live_worlds": "Both fully independent native FIT snapshots authenticated and cold restored before MG01 live paired worlds"
+  },
+  "live_development": {
+    "seeds": [9200, 9201],
+    "episodes_per_native": "2 families * 2 world seeds = 4 fresh development episodes per native model",
+    "max_steps": {"empty": 96, "fourrooms": 192},
+    "selected_feedback_online": true,
+    "separate_native_FIT_restore_for_each_episode": true,
+    "source_feedback_budget": "same exact initial public source training experiences; live turn counts may diverge with native decisions",
+    "science_holdout": false,
+    "stage_role": "PUBLIC_DEVELOPMENT_ORIGINAL_WORLD_CONNECTIVITY_ONLY, not heldout recognition"
+  },
+  "required_evidence": [
+    "Pinned public upstream + pinned actual native Git blobs",
+    "Fail-closed exact wire schema, paired same-seed initial original public full image digest and identical six-field projection",
+    "Record every actual live step (before public image digest, exact six fields, selected action, actual next public digest/six fields, reward, terminated, truncated), counts and authentic MiniGrid call evidence",
+    "After each actual step, actor-specific native feedback update count increments exactly once; no loss or extra oracle-facing events",
+    "Native Wingless fresh Go process cold restore and Yggdrasil independent GridColony restored state; FIT and final checkpoint source identity and lengths",
+    "Repeat the complete source+episode process in independent runner processes; canonical identical evidence hash after stripping machine-only resource fields",
+    "Keep negative original MiniGrid K4U result untouched; do not claim improved navigation from a working connector"
+  ],
+  "classification": {
+    "fail": "MG01_ORIGINAL_MINIGRID_NATIVE_BOUNDARY_BLOCKED__NO_SCIENCE",
+    "pass": "MG01_TWO_INDEPENDENT_NATIVES_LIVE_ORIGINAL_MINIGRID_CONNECTED__NO_SCIENCE",
+    "no_science": true
+  },
+  "authority": {
+    "original_models_modified": false,
+    "original_Farama_source_modified": false,
+    "acceptance_or_model_promotion": false,
+    "merge": false,
+    "FORGE_controller_or_CKB_plane_modified": false,
+    "G29_or_proxy_waiver": false,
+    "parallel_research_workflows_modified": false
+  }
+}
