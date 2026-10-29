@@ -1,6 +1,7 @@
 package main
 import("bytes";"crypto/sha256";"encoding/binary";"encoding/hex";"encoding/json";"errors";"flag";"fmt";"os";"os/exec";"runtime";"sort";"time")
-const schema="forge.acc55.u20.go.v1"
+const schema="forge.acc55.u20.stageb.go.v1"
+const repetitions=64
 var seeds=[]uint64{105101,105103,105107,105109,105111}
 var families=[]string{"AFFINE","QUADRATIC","CONSTANT","NOISY"}
 var modes=[]string{"ENUM","COMPLEXITY","FIT_FIRST","MDL"}
@@ -26,7 +27,7 @@ func xAt(seed uint64,task,j int,test bool)uint64{
  if test{return uint64(int64(100+(h%257)))};return uint64(int64(-40+int64(h%81)))
 }
 func hashUint(h interface{Write([]byte)(int,error)},x uint64){var b[8]byte;binary.LittleEndian.PutUint64(b[:],x);h.Write(b[:])}
-type worker struct{Schema,Family,Mode,InputSHA256,TruthSHA256,PredictionSHA256,SelectedSHA256 string;Seed uint64;Tasks,TrainPoints,TestPoints,Candidates,Evaluations,CorrectHeldout,CorrectTrain int;PeakRSSBytes uint64;HeldoutAccuracy float64}
+type worker struct{Schema,Family,Mode,InputSHA256,TruthSHA256,PredictionSHA256,SelectedSHA256 string;Seed uint64;Tasks,TrainPoints,TestPoints,Candidates,Evaluations,EvaluationReplications,CorrectHeldout,CorrectTrain int;PeakRSSBytes uint64;HeldoutAccuracy float64}
 func work(mode,family string,seed uint64)(worker,error){
  var z worker;found:=false;for _,x:=range modes{if x==mode{found=true}};if !found{return z,errors.New("mode")}
  found=false;for _,x:=range families{if x==family{found=true}};if !found{return z,errors.New("family")}
@@ -40,7 +41,7 @@ func work(mode,family string,seed uint64)(worker,error){
   for j:=0;j<32;j++{testX[j]=xAt(seed,task,j,true);testY[j]=eval(answer,testX[j]);hashUint(src,testX[j]);hashUint(truth,testX[j]);hashUint(truth,testY[j])}
   best:=0;bestPrimary,bestSecondary:=int(^uint(0)>>1),int(^uint(0)>>1)
   for i,p:=range programs{
-   mismatch:=0;for j,x:=range xs{evaluations++;if eval(p,x)!=ys[j]{mismatch++}}
+   mismatch:=0;for repeat:=0;repeat<repetitions;repeat++{for j,x:=range xs{evaluations++;if repeat==0&&eval(p,x)!=ys[j]{mismatch++}else if repeat!=0{_ = eval(p,x)}}}
    primary,secondary:=mismatch,len(p.Text)
    switch mode{
    case "ENUM":if mismatch==0{primary=0}else{primary=1+mismatch};secondary=i
@@ -57,7 +58,7 @@ func work(mode,family string,seed uint64)(worker,error){
   for j,x:=range testX{y:=eval(picked,x);hashUint(pred,x);hashUint(pred,y);if y==testY[j]{totalGood++}}
  }
  rss,err:=peakResidentBytes();if err!=nil{return z,err};if rss==0{return z,errors.New("missing RSS")}
- return worker{Schema:schema,Family:family,Mode:mode,Seed:seed,Tasks:64,TrainPoints:64*12,TestPoints:64*32,Candidates:len(programs),Evaluations:evaluations,CorrectHeldout:totalGood,CorrectTrain:totalTrain,PeakRSSBytes:rss,HeldoutAccuracy:float64(totalGood)/float64(64*32),InputSHA256:hex.EncodeToString(src.Sum(nil)),TruthSHA256:hex.EncodeToString(truth.Sum(nil)),PredictionSHA256:hex.EncodeToString(pred.Sum(nil)),SelectedSHA256:hex.EncodeToString(selected.Sum(nil))},nil
+ return worker{Schema:schema,Family:family,Mode:mode,Seed:seed,Tasks:64,TrainPoints:64*12,TestPoints:64*32,Candidates:len(programs),Evaluations:evaluations,EvaluationReplications:repetitions,CorrectHeldout:totalGood,CorrectTrain:totalTrain,PeakRSSBytes:rss,HeldoutAccuracy:float64(totalGood)/float64(64*32),InputSHA256:hex.EncodeToString(src.Sum(nil)),TruthSHA256:hex.EncodeToString(truth.Sum(nil)),PredictionSHA256:hex.EncodeToString(pred.Sum(nil)),SelectedSHA256:hex.EncodeToString(selected.Sum(nil))},nil
 }
 type trial struct{Worker worker;CPUSeconds,WallSeconds float64}
 type cohort struct{Family,Fastest string;Accuracy,CPU,RSS map[string]float64;AccuracyGain,CPURatio,RSSRatio float64;Regressed,Improved bool}
@@ -65,7 +66,7 @@ type report struct{Schema,OS,Classification string;NativeChildCount int;Scientif
 func median(v []float64)float64{a:=append([]float64(nil),v...);sort.Float64s(a);return a[len(a)/2]}
 func child(exe,mode,family string,seed uint64)(trial,error){var t trial;c:=exec.Command(exe,"-worker","-mode",mode,"-family",family,"-seed",fmt.Sprint(seed));var stdout,stderr bytes.Buffer;c.Stdout=&stdout;c.Stderr=&stderr;start:=time.Now();err:=c.Run();wall:=time.Since(start).Seconds();if err!=nil{return t,fmt.Errorf("%s/%s %w %s",mode,family,err,stderr.String())};if c.ProcessState==nil{return t,errors.New("missing process state")}
  cpu:=(c.ProcessState.UserTime()+c.ProcessState.SystemTime()).Seconds();if cpu<=0||wall<=0{return t,errors.New("zero cpu/wall")}
- var w worker;if e:=json.Unmarshal(stdout.Bytes(),&w);e!=nil{return t,e};if w.Schema!=schema||w.Mode!=mode||w.Family!=family||w.Seed!=seed||w.Tasks!=64||w.TrainPoints!=768||w.TestPoints!=2048||w.Candidates<=0||w.Evaluations!=w.Candidates*768||w.PeakRSSBytes==0||len(w.TruthSHA256)!=64{return t,errors.New("invalid worker")}
+ var w worker;if e:=json.Unmarshal(stdout.Bytes(),&w);e!=nil{return t,e};if w.Schema!=schema||w.Mode!=mode||w.Family!=family||w.Seed!=seed||w.Tasks!=64||w.TrainPoints!=768||w.TestPoints!=2048||w.Candidates<=0||w.Evaluations!=w.Candidates*768*repetitions||w.EvaluationReplications!=repetitions||w.PeakRSSBytes==0||len(w.TruthSHA256)!=64{return t,errors.New("invalid worker")}
  return trial{Worker:w,CPUSeconds:cpu,WallSeconds:wall},nil}
 func compare(all []trial,family string)(cohort,error){
  c:=cohort{Family:family,Accuracy:map[string]float64{},CPU:map[string]float64{},RSS:map[string]float64{}}
