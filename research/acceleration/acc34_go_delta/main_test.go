@@ -70,3 +70,21 @@ func TestFailClosedUnregisteredModeAndNoScientificResult(t *testing.T){
   t.Fatal("scope drift")
  }
 }
+
+func TestNewMeterVersionChargesAll32ColdFITAndGuards(t *testing.T){
+ safe,e:=workerBatch("verified","hidden");if e!=nil{t.Fatal(e)}
+ full,e:=workerBatch("full","hidden");if e!=nil{t.Fatal(e)}
+ unsafe,e:=workerBatch("unverified","hidden");if e!=nil{t.Fatal(e)}
+ if safe.Events!=Events*BatchSessions||safe.FitInterventionProbes!=InputBits*BatchSessions{
+  t.Fatal("batched worker concealed cold events or FIT cost")
+ }
+ if safe.VerificationFullNodeCalls!=Events*Nodes*BatchSessions{
+  t.Fatal("batched worker concealed expensive validation cost")
+ }
+ if safe.OutputDigest!=full.OutputDigest||unsafe.OutputDigest==full.OutputDigest{
+  t.Fatal("source-free bounded real Go cold ensemble lost safety falsification")
+ }
+ if safe.CorrectedCacheMismatches==0{
+  t.Fatal("hidden conjunction no longer exposes FIT-undercoverage")
+ }
+}
