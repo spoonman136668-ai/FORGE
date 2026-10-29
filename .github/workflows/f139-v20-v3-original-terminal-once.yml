@@ -151,6 +151,9 @@ jobs:
               row=source.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()
               assert row==(old,328,"004aab55338a08230bd8644566e564293d41dbcee5b397521566dfbbbdc3eed4")
               with sqlite3.connect(sys.argv[2]) as backup: source.backup(backup)
+          with sqlite3.connect(sys.argv[2]) as cold:
+              assert cold.execute("PRAGMA quick_check").fetchone()[0]=="ok"
+              assert cold.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()==row
           print("F139_V20_TERMINAL_COLD_SQLITE_BACKUP=PASS")
           '@ | & $python -B - $db $backup
             if($LASTEXITCODE -ne 0){throw 'F139_V20_TERMINAL_ORIGINAL_COLD_BACKUP_DENIED'}
