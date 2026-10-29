@@ -87,7 +87,7 @@ def verify_pair(baseline: dict, candidate: dict, source_sha: str) -> tuple[str, 
             and full.get("status") == "observed",
             "FULL_EVIDENCE_PROVENANCE_DRIFT")
     require("no independent factual accuracy grades" in statement
-            and "no scientific improvement claim" in statement
+            and "or scientific improvement claim exist" in statement
             and "96-token output cap" in statement,
             "NEGATIVE_CAVEATS_MISSING")
     return a_pointer["statement"], statement
