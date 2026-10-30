@@ -283,8 +283,13 @@ def main():
         print("MPAI33_LLM_JUDGE_SCIENTIFIC_ADMISSION=BLOCKED",flush=True)
         print("MPAI33_PRODUCTION_MEMORY_WRITES=0",flush=True)
     finally:
-        shutil.rmtree(private)
-        print("MPAI33_PRIVATE_SCRATCH_CLEAN=PASS",flush=True)
+        if args.phase=="freeze":
+            shutil.rmtree(private)
+            print("MPAI33_PRIVATE_SCRATCH_CLEAN=PASS",flush=True)
+        else:
+            # Windows GGUF mmap remains open until this Python process exits.
+            # The owner PowerShell job deletes the private scratch afterwards.
+            print("MPAI33_OWNER_POSTPROCESS_CLEANUP_REQUIRED=TRUE",flush=True)
 
 if __name__=="__main__":
     try:main()
