@@ -1,0 +1,103 @@
+name: FORGE ACC G64 frozen G63 divergence GPU forensics
+on:
+  push:
+    branches: [research/acc-g64-token-divergence-20261030]
+    paths:
+      - 'research/acc_g64/**'
+      - '.github/workflows/forge-acc-g64-forensics.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g64-isolated-rtx-readonly
+  cancel-in-progress: false
+jobs:
+  g64-bounded-reproduction:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify immutable forensic protocol and 10 source-focused tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G64_SOURCE_HEAD_DRIFT' }
+          if (-not (Test-Path 'docs/research/ACC-G64-PREEXEC-20261030.md')) { throw 'G64_PREREG_MISSING' }
+          $p=Get-Command python -ErrorAction Stop
+          & $p.Source -m py_compile research/acc_g64/g64_token_forensics.py research/acc_g64/test_g64.py
+          if ($LASTEXITCODE -ne 0) { throw 'G64_SOURCE_SYNTAX_FAIL' }
+          & $p.Source -m unittest discover -s research/acc_g64 -p test_g64.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G64_FOCUSED_TEST_FAIL' }
+          Write-Output 'G64_FROZEN_SOURCE_FOCUSED_TESTS=PASS'
+      - name: Create disposable RTX CUDA runtime with hard temp boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G64_TEMP_DISK_LT_10GB' }
+          foreach ($name in @('acc-g64-venv','acc-g64-hf','acc-g64-wikitext-test.txt')) {
+            $path=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) { throw "G64_TEMP_PATH_COLLISION:$path" }
+          }
+          $p=Get-Command python -ErrorAction Stop
+          & $p.Source -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G64_PYTHON_COMPATIBILITY_FAIL' }
+          & $p.Source -m venv (Join-Path $env:RUNNER_TEMP 'acc-g64-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G64_VENV_FAILED' }
+          Write-Output 'G64_DISPOSABLE_ENV=PASS'
+      - name: Install exact original Blackwell CUDA and inference package versions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g64-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G64_PINNED_TORCH_FAIL' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G64_PINNED_HF_PACKAGES_FAIL' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g64_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G64_TOOLCHAIN_RECEIPT_FAIL' }
+          Write-Output 'G64_DISPOSABLE_PINNED_CUDA=PASS'
+      - name: Replay exactly original WikiText failing case and inspect first mismatch
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g64-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g64-hf'
+          $env:G64_CORPUS_PATH=Join-Path $env:RUNNER_TEMP 'acc-g64-wikitext-test.txt'
+          $env:G64_OUTPUT=Join-Path (Get-Location).Path 'g64_result.json'
+          & $p -u research/acc_g64/g64_token_forensics.py
+          if ($LASTEXITCODE -ne 0) { throw 'G64_FORENSIC_BENCHMARK_BLOCKED' }
+          & $p -c 'import json; r=json.load(open("g64_result.json")); assert r["status"]=="PASS_BOUNDED_FORENSIC_EXECUTION"; assert len(r["pairs"])==5; assert all(len(p["baseline"]["first_64_token_ids"])==64 and len(p["candidate"]["first_64_token_ids"])==64 for p in r["pairs"]); assert r["original_g63_final"]=="FAIL_NO_GO_UNCHANGED"; assert not r["novel_acceleration_claim"]; print("G64_FIVE_PAIRED_ORIGINAL_PROMPT_REPRODUCTIONS=PASS"); print("G64_REPRODUCTION="+r["disposition"])'
+          if ($LASTEXITCODE -ne 0) { throw 'G64_RESULT_CONTRACT_FAIL' }
+      - name: Preserve immutable bounded forensic evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g64-original-wikitext-divergence
+          path: |
+            g64_result.json
+            g64_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove isolated software model and original source
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g64-venv','acc-g64-hf','acc-g64-wikitext-test.txt')) {
+            $path=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Output 'G64_DISPOSABLE_ENV_CORPUS_CLEANUP=PASS'
