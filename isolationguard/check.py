@@ -27,7 +27,11 @@ def run_git(root: pathlib.Path, *args: str) -> str:
                           text=True, encoding="utf-8", errors="strict",
                           check=False, timeout=30)
     if proc.returncode:
-        raise GateError("GIT_NOT_QUALIFIED")
+        # Report only the fixed Git operation and exit status; never echo output
+        # or repository data into persistent CI logs.
+        allowed = {"rev-parse", "merge-base", "diff"}
+        operation = args[0] if args and args[0] in allowed else "unknown"
+        raise GateError(f"GIT_NOT_QUALIFIED:{operation}:exit_{proc.returncode}")
     return proc.stdout
 
 def is_active(path: str) -> bool:
