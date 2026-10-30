@@ -359,11 +359,33 @@ jobs:
                 Write-Warning 'F139_V26_SAFE_PRETRANSITION_RECOVERY_UNVERIFIED'
               }
             }
-            if($mutationPossible -and -not $resumed) {
-              Write-Warning 'F139_V26_PARTIAL_CUSTODY_EXISTING_TASK_HELD_DISABLED'
-            }
-            if($resumed) {
-              Write-Warning 'F139_V26_POSTCUTOVER_EVIDENCE_FAILURE_TASK_LEFT_RUNNING'
+            # A partial Enable-ScheduledTask can succeed before the subsequent
+            # Start-ScheduledTask fails. Never assume the original task is
+            # still disabled merely because $resumed is false. All post-
+            # mutation failure paths must restore and verify quiescence.
+            if($mutationPossible) {
+              try {
+                $failedState=[string](Get-ScheduledTask -TaskName $name -ErrorAction Stop).State
+                if($failedState -ceq 'Running') {
+                  Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                }
+                Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                for($hold=0;$hold -lt 40;$hold++) {
+                  $remaining=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+                    Where-Object {$_.CommandLine -and
+                      $_.CommandLine.Contains('f139.local_controller') -and
+                      $_.CommandLine.Contains($dbPath)})
+                  if($remaining.Count -eq 0){break}
+                  Start-Sleep -Seconds 1
+                }
+                if([string](Get-ScheduledTask -TaskName $name -ErrorAction Stop).State -cne 'Disabled' -or
+                   $remaining.Count -ne 0) {
+                  throw 'F139_V26_POSTMUTATION_QUIESCENCE_UNVERIFIED'
+                }
+                Write-Warning 'F139_V26_POSTMUTATION_EXISTING_TASK_DISABLED_AND_QUIESCENT'
+              } catch {
+                Write-Warning 'F139_V26_POSTMUTATION_EXISTING_TASK_HOLD_UNVERIFIED'
+              }
             }
             throw
           }
