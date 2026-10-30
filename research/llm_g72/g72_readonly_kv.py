@@ -460,7 +460,7 @@ def main():
                 frozen_past=model(input_ids=shared_public_prefix,use_cache=True).past_key_values
                 frozen_fingerprint=frozen_kv_fingerprint(frozen_past)
                 tampered=tuple(tuple(t.clone() for t in layer) for layer in frozen_past)
-                tampered[0][0].view(-1)[0]+=1
+                tampered[0][0][(0,)*tampered[0][0].ndim]+=1.0
                 if frozen_kv_fingerprint(tampered)==frozen_fingerprint:
                     raise RuntimeError("G72_NEGATIVE_MUTATION_FIXTURE_NOT_DETECTED")
                 fut=concurrent.futures.Future();fut.set_result(frozen_past)
