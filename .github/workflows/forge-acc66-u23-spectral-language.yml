@@ -1,0 +1,124 @@
+name: ACC66 U23 source-pinned spectral language development screen
+on:
+  push:
+    branches: [research/acc66-u23-spectral-language-heldout-20261030]
+permissions:
+  contents: read
+concurrency:
+  group: acc66-u23-frozen-prose-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  study:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original one-based U23 and prospective prereg ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 87509a9551d0a572b3f910ea5e3826fa629efad2 HEAD
+          test "$(git rev-parse HEAD:research/ac07_sourcefree/ac08_portfolio.py)" = "5126c860771fb024ccfc14c3f7ee8925edf29787"
+          python -m py_compile research/acceleration/acc66_u23/experiment.py research/acceleration/acc66_u23/test_experiment.py
+          echo ACC66_U23_SOURCE_PIN_AND_PREREG=PASS
+      - name: Run 28 focused spectral prediction, source and fail-closed tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/acceleration/acc66_u23 -p test_experiment.py -v
+          echo ACC66_U23_FOCUSED_TESTS=PASS
+      - name: Original portfolio AC05 to AC08 inherited negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/ac05_sourcefree -p test_learning.py -v
+          python -m unittest discover -s research/ac06_sourcefree -p test_restricted.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_remaining.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_ac08_portfolio.py -v
+          echo ACC66_U23_INHERITED_RESEARCH=PASS
+      - name: Fetch G74-exposed immutable authentic prose and train/evaluate frozen four predictors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research/acceleration/acc66_u23/experiment.py --json "$RUNNER_TEMP/acc66-u23.json"
+          python - "$RUNNER_TEMP/acc66-u23.json" <<'PY'
+          import sys,json,hashlib
+          data=open(sys.argv[1],"rb").read()
+          x=json.loads(data)
+          assert x["schema"]=="forge.acc66.u23.public-prose-bounded-spectrum-predictor.v1"
+          assert x["original_source"]["git_blob"]=="0a7d439c2f34b0dfacb88b7116429a9575b5735c"
+          assert x["original_source"]["raw_sha256"]=="441e778a4297bfc944dc254810e8ded3134cfb0e36d73eef6bb312b4ffd74d6a"
+          assert x["identity"]["source_exposure"]=="AUSTEN_EXPOSED_IN_PRIOR_G74"
+          assert len(x["folds"])==3
+          assert x["classification"]["scientific_admission"]=="NOT_GRANTED"
+          assert x["classification"]["production_acceptance"]=="NOT_GRANTED"
+          assert x["classification"]["pretrained_llm_speed"]=="UNVERIFIED"
+          for fold in x["folds"]:
+              assert fold["selected_baseline"] in ("ngram1","ngram2","ngram4")
+              assert all(fold["rows"][key]["fit_examples"]==13996 for key in x["preregistered"]["models"])
+              assert all(fold["rows"][key]["check"]["examples"]==5996 for key in x["preregistered"]["models"])
+              assert all(fold["rows"][key]["dev"]["examples"]==3996 for key in x["preregistered"]["models"])
+              assert all(fold["rows"][key]["logical_json_table_bytes"]>0 for key in x["preregistered"]["models"])
+          print("ACC66_U23_ACTUAL_HELDOUT_CHARACTER_REPORT=PASS")
+          print("ACC66_U23_RESULT_SHA256="+hashlib.sha256(data).hexdigest())
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc66-u23-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc66-u23.json
+          retention-days: 30
+          if-no-files-found: warn
+  audit:
+    needs: study
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc66-u23-*
+          path: artifacts
+      - name: Independent exact crossOS source and prediction audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,json,math
+          root=pathlib.Path('artifacts')
+          a=json.loads((root/'acc66-u23-ubuntu-latest'/'acc66-u23.json').read_text())
+          b=json.loads((root/'acc66-u23-windows-latest'/'acc66-u23.json').read_text())
+          assert a['identity']==b['identity']
+          assert a['original_source']==b['original_source']
+          assert a['preregistered']==b['preregistered']
+          assert a['phase_loss_counterexample']==b['phase_loss_counterexample']
+          for f,g in zip(a['folds'],b['folds']):
+              assert f['start']==g['start'] and f['windows']==g['windows']
+              assert f['selected_baseline']==g['selected_baseline']
+              for name in a['preregistered']['models']:
+                  x=f['rows'][name];y=g['rows'][name]
+                  assert x['learned_context_keys']==y['learned_context_keys']
+                  assert x['logical_json_table_bytes']==y['logical_json_table_bytes']
+                  for segment in ('dev','check'):
+                      assert x[segment]['exact']==y[segment]['exact']
+                      assert x[segment]['examples']==y[segment]['examples']
+                      assert x[segment]['unseen']==y[segment]['unseen']
+                      assert x[segment]['prediction_sha256']==y[segment]['prediction_sha256']
+                      assert abs(x[segment]['nll']-y[segment]['nll'])<1e-8
+              assert math.isfinite(f['candidate_speedup_over_best_fit_plus_check'])
+              assert math.isfinite(g['candidate_speedup_over_best_fit_plus_check'])
+          both=all(x['classification']['spectral_power_predictor_vs_dev_selected_ngram']=='U23_RESTRICTED_PUBLIC_PROSE_PREDICTION_RESOURCE_POSITIVE_ONLY' for x in (a,b))
+          print("ACC66_U23_INDEPENDENT_CROSSOS_PREDICTIONS=PASS")
+          print("ACC66_U23_RESTRICTED_DECISION="+("POSITIVE_ONLY" if both else "NO_VERIFIED_PREDICTION_RESOURCE_WIN"))
+          print("ACC66_U23_REAL_PRETRAINED_LLM=UNVERIFIED")
+          PY
