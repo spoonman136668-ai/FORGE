@@ -1,0 +1,162 @@
+name: MP-AI33 original human ANLI NLI adversarial scorer comparison
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai33-independent-author-anli-scoring-development.yml']
+permissions:
+  contents: read
+jobs:
+  external-source-preregistration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    outputs:
+      manifest_sha: ${{ steps.freeze.outputs.manifest_sha }}
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact upstream Git object and freeze 36 external human-annotated source UIDs without reading gold
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai30_real_semantic_judge_canaries.py)" = '0fa02bc09fae04f72c49f555fa7063e31f546f6c'
+          test "$(git rev-parse HEAD:tools/mpai31_conservative_semantic_veto_development.py)" = '97510664d981e3bf70dbcc2f1002fd40945150d4'
+          test "$(git rev-parse HEAD:tools/mpai33_independent_anli_adversarial_development.py)" = '63c84a73468a94dc1a7f1b21ff204386a49ad6be'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai33_independent_anli_adversarial_development.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai33_independent_anli_adversarial_development.py --phase freeze)"
+          printf '%s\n' "$out"
+          grep -Fq 'MPAI33_ANLI_ORIGINAL_SOURCE_GIT_BLOB=PASS' <<< "$out"
+          grep -Fq 'MPAI33_METADATA_ONLY_SELECTION=PASS' <<< "$out"
+          grep -Fq 'MPAI33_ORIGINAL_GOLD_NOT_READ_AT_FREEZE=TRUE' <<< "$out"
+          grep -Fq 'MPAI33_PRESELECTED_UPSTREAM_ROWS=36' <<< "$out"
+          grep -Fq 'MPAI33_PREMODEL_SELECTION_FROZEN=PASS' <<< "$out"
+          grep -Fq 'MPAI33_MODEL_CALLS=0' <<< "$out"
+          grep -Fq 'MPAI33_PRIVATE_SCRATCH_CLEAN=PASS' <<< "$out"
+          manifest="$(printf '%s\n' "$out" | sed -n 's/^MPAI33_FROZEN_SELECTION_SHA256=//p')"
+          protocol="$(printf '%s\n' "$out" | sed -n 's/^MPAI33_FROZEN_PROTOCOL_SHA256=//p')"
+          [[ "$manifest" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$protocol" =~ ^[a-f0-9]{64}$ ]]
+          echo "manifest_sha=$manifest" >> "$GITHUB_OUTPUT"
+          echo "protocol_sha=$protocol" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI33_AUTHENTIC_HUMAN_GOLD_PREMODEL_SELECTION_FROZEN=PASS'
+  original-windows:
+    needs: external-source-preregistration
+    if: ${{ needs.external-source-preregistration.result == 'success' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      EXPECTED_MANIFEST: ${{ needs.external-source-preregistration.outputs.manifest_sha }}
+      EXPECTED_PROTOCOL: ${{ needs.external-source-preregistration.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pinned Phi-3.5 original 36-source-human-gold inference and unchanged P31 veto comparisons
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai'){
+             throw 'MPAI33_ORIGINAL_OWNER_WINDOWS_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI33_PAID_API_DENIED'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'MPAI33_COMMIT_DRIFT'}
+          foreach($one in @(
+            @('tools/mpai30_real_semantic_judge_canaries.py','0fa02bc09fae04f72c49f555fa7063e31f546f6c'),
+            @('tools/mpai31_conservative_semantic_veto_development.py','97510664d981e3bf70dbcc2f1002fd40945150d4'),
+            @('tools/mpai33_independent_anli_adversarial_development.py','63c84a73468a94dc1a7f1b21ff204386a49ad6be')
+          )){
+            $blob=(git rev-parse ('HEAD:'+$one[0])).Trim()
+            if($LASTEXITCODE -ne 0 -or $blob -cne $one[1]){
+              throw 'MPAI33_FROZEN_SOURCE_BLOB_DRIFT'
+            }
+          }
+          if($env:EXPECTED_MANIFEST -notmatch '^[a-f0-9]{64}$' -or
+             $env:EXPECTED_PROTOCOL -notmatch '^[a-f0-9]{64}$'){
+             throw 'MPAI33_CUSTODY_OUTPUTS_NOT_SIGNED'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai33-private-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $scratch 'experiment'
+          $log=Join-Path $scratch 'results-private.log'
+          function Assert([bool]$ok,[string]$why){
+            if(-not $ok){throw ('MPAI33_'+$why)}
+          }
+          Assert (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          $env:MPAI33_PRIVATE_SCRATCH=$private
+          try {
+            & python.exe -B tools/mpai33_independent_anli_adversarial_development.py --phase evaluate --expected-manifest-sha $env:EXPECTED_MANIFEST --expected-protocol-sha $env:EXPECTED_PROTOCOL *> $log
+            $status=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($status -ne 0){
+              foreach($what in @('SAFE_FAILURE','SAFE_PHASE','SAFE_ERROR_TYPE')){
+                $m=[regex]::Match($raw,('MPAI33_'+$what+'=([A-Za-z0-9_]+)'))
+                if($m.Success){Write-Output ('MPAI33_'+$what+'='+$m.Groups[1].Value)}
+              }
+              throw 'MPAI33_ANLI_PRIVATE_EVALUATION_FAILED'
+            }
+            foreach($marker in @(
+              'MPAI33_ANLI_ORIGINAL_SOURCE_GIT_BLOB=PASS',
+              'MPAI33_METADATA_ONLY_SELECTION=PASS',
+              'MPAI33_FROZEN_SELECTION_RECOMPUTED=PASS',
+              'MPAI33_ALL_36_EXTERNAL_ORIGINAL_GOLD_LABELS_VERIFIED=PASS',
+              'MPAI33_PINNED_MODEL_FULL_SHA256=PASS',
+              'MPAI33_REAL_LOCAL_MODEL_CALLS=36',
+              'MPAI33_EXTERNAL_SOURCE_PUBLIC_CONTAMINATION_UNEXCLUDED=TRUE',
+              'MPAI33_LLM_JUDGE_SCIENTIFIC_ADMISSION=BLOCKED',
+              'MPAI33_PRODUCTION_MEMORY_WRITES=0'
+            )){
+              Assert ($raw.Contains($marker)) 'REQUIRED_RECEIPT_MISSING'
+            }
+            Assert ($raw.Contains(('MPAI33_FROZEN_SELECTION_SHA256='+$env:EXPECTED_MANIFEST))) 'EXTERNAL_SOURCE_MANIFEST_DRIFT'
+            Assert ($raw.Contains(('MPAI33_FROZEN_PROTOCOL_SHA256='+$env:EXPECTED_PROTOCOL))) 'PROTOCOL_DRIFT'
+            $seen=@{}
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI33_FAMILY_([A-Z_]+)=(\{.*\})$'){
+                $family=$Matches[1]
+                Assert (-not $seen.ContainsKey($family)) 'FAMILY_DUPLICATE'
+                $value=$Matches[2]|ConvertFrom-Json
+                Assert ($value.cases -eq 6 -and $value.baseline_correct -ge 0 -and $value.baseline_correct -le 6 -and
+                        $value.guard_correct -ge 0 -and $value.guard_correct -le 6) 'FAMILY_METRICS_INVALID'
+                $seen[$family]=$true
+                Write-Output $line
+              } elseif($line -match '^MPAI33_(BASELINE|GUARD|STRICT)_(CORRECT|HARD_FALSE_POSITIVES|SUPPORTED_ENTAILMENTS)=[0-9]+(?:_OF_[0-9]+)?$'){
+                Write-Output $line
+              } elseif($line -match '^MPAI33_(FROZEN_SELECTION_SHA256|FROZEN_PROTOCOL_SHA256|GUARD_CHANGED_DECISIONS|GUARD_ZERO_HARD_FP|REAL_LOCAL_MODEL_CALLS|ORIGINAL_WINDOWS_PROCESS_PEAK_BYTES|MODEL_LOAD_MS|LLM_JUDGE_SCIENTIFIC_ADMISSION|PRODUCTION_MEMORY_WRITES)=[A-Za-z0-9_=-]+$'){
+                Write-Output $line
+              }
+            }
+            Assert ($seen.Count -eq 6) 'ORIGINAL_SIX_CATEGORIES'
+            $dirty=@(& git.exe status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'FORGE_WORKSPACE_MODIFIED'
+            Write-Output 'MPAI33_ORIGINAL_WINDOWS_RESEARCH_EXECUTION=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI33_PRIVATE_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI33_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
