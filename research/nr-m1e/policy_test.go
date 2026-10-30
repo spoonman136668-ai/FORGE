@@ -8,15 +8,15 @@ import (
 
 func observed(i int) Event {
  return Event{
-  Before:[3]float64{float64(i%4),float64((i+1)%5),float64(i%3)},
-  After:[3]float64{float64((i+1)%4),float64((i+3)%5),float64((i+2)%3)},
+  Before:[6]float64{float64(i%4),float64((i+1)%5),float64(i%3),float64(i%3),float64((i+1)%4),float64(i%2)},
+  After:[6]float64{float64((i+1)%4),float64((i+3)%5),float64((i+2)%3),float64((i+2)%5),float64(i%4),float64((i+1)%2)},
   Action:uint8(i%3),Reward:float64((i%3)-1)/2,
  }
 }
 func rotate(e Event) Event {
  return Event{
-  Before:[3]float64{e.Before[2],e.Before[0],e.Before[1]},
-  After:[3]float64{e.After[2],e.After[0],e.After[1]},
+  Before:[6]float64{e.Before[2],e.Before[0],e.Before[1],e.Before[5],e.Before[3],e.Before[4]},
+  After:[6]float64{e.After[2],e.After[0],e.After[1],e.After[5],e.After[3],e.After[4]},
   Action:e.Action,Reward:e.Reward,
  }
 }
@@ -82,7 +82,7 @@ func TestContextAndActionActuallyAffectScore(t *testing.T) {
  e:=observed(0)
  now:=e
  now.Action=(e.Action+1)%3
- now.After=[3]float64{100,100,100}
+ now.After=[6]float64{100,100,100,100,100,100}
  same:=features(e,e)
  shifted:=features(e,now)
  if same==shifted {t.Fatal("candidate ignores public action/context change")}
