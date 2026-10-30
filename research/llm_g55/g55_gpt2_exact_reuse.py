@@ -47,6 +47,14 @@ def exact_row_reuse(rows):
     return {'eligible_rows': len(rows), 'duplicate_rows': duplicates,
             'duplicate_rate': duplicates / len(rows) if rows else None}
 
+def common_prefix_length(a, b):
+    count = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        count += 1
+    return count
+
 def zero_block_counts(values, block):
     if len(values) % block:
         raise ValueError('BLOCK_MISALIGNED')
@@ -108,6 +116,8 @@ def main():
         cases = [('related_' + str(i), SHARED_PREFIX+s, prefix_len) for i, s in enumerate(SUFFIXES)]
         cases.extend(('independent_' + str(i), s, 0) for i, s in enumerate(INDEPENDENT))
         eligible_rows = []
+        observed_sequences = []
+        effective_cases = []
         zero_total = zero_values = zero_blocks = block_total = 0
         hook_handles = []
         current = {'offset': 0, 'case': '', 'positive': False}
@@ -140,12 +150,22 @@ def main():
                     block.mlp.c_fc.register_forward_pre_hook(prehook_fc),
                     block.mlp.c_proj.register_forward_pre_hook(prehook_proj)])
             with torch.inference_mode():
-                for case, text, offset in cases:
+                for case, text, declared_offset in cases:
                     ids = tok(text, add_special_tokens=False, return_tensors='pt')['input_ids']
-                    if offset >= ids.shape[1]:
+                    token_ids = ids[0].tolist()
+                    prior_prefix = max((common_prefix_length(token_ids, x)
+                                        for x in observed_sequences), default=0)
+                    effective_offset = max(declared_offset, prior_prefix)
+                    if effective_offset >= len(token_ids):
                         raise RuntimeError('INVALID_NONPREFIX_BOUNDARY')
-                    current.update({'offset': offset, 'case': case, 'positive': False})
+                    effective_cases.append({
+                        'name': case, 'declared_prefix_tokens': declared_offset,
+                        'maximal_prefix_excluded': effective_offset,
+                        'total_tokens': len(token_ids)})
+                    current.update({'offset': effective_offset,
+                                    'case': case, 'positive': False})
                     model(input_ids=ids, use_cache=True)
+                    observed_sequences.append(token_ids)
                 pos_text = 'Positive control: the same exact test string.'
                 for case in ('positive_a', 'positive_b'):
                     current.update({'offset': 0, 'case': case, 'positive': True})
@@ -174,10 +194,11 @@ def main():
             raise RuntimeError(f'WEIGHT_MATRIX_SCOPE_DRIFT:{len(mats)}')
         result['cross_layer_weight_blocks_4096'] = duplicate_cross_layer_blocks(
             mats, WEIGHT_BLOCK_BYTES)
-        result['case_specs'] = [
-            {'name': case, 'prefix_tokens_excluded': offset,
-             'total_tokens': len(tok(text, add_special_tokens=False)['input_ids'])}
-            for case, text, offset in cases]
+        result['case_specs'] = effective_cases
+        result['maximal_shared_prefix_exclusion'] = 'PASS'
+        if not any(x['maximal_prefix_excluded'] > x['declared_prefix_tokens']
+                   for x in effective_cases):
+            raise RuntimeError('MISSING_EXTENDED_PREFIX_POSITIVE_FALSIFIER')
         h1 = result['exact_nonprefix_mlp_input']['duplicate_rate']
         h2 = result['mlp_gelu_zero']['all_zero_block_fraction']
         h3 = result['cross_layer_weight_blocks_4096']['cross_layer_duplicate_rate']
