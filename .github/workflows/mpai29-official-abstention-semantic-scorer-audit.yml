@@ -1,0 +1,87 @@
+name: MP-AI29 frozen external task official abstention and contradiction scorer audit
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai29-official-abstention-semantic-scorer-audit.yml']
+permissions:
+  contents: read
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    outputs:
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Independent upstream original scorer protocol prefreeze with no gold read
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
+          test "$GITHUB_ACTOR" = "spoonman136668-ai"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = "57385e79ff8fe4d6680fba17e2186fdc32faca00"
+          test "$(git rev-parse HEAD:tools/mpai28_external_task_freeze_and_scorer.py)" = "ca58a30dbe0a5c062aeec2866f8038b93a47797a"
+          test "$(git rev-parse HEAD:tools/mpai29_unanswerable_semantic_scorer_audit.py)" = "d3a7f8d59956714df8831513acd2ff8752179eb6"
+          python -m venv "$RUNNER_TEMP/mpai29-env"
+          "$RUNNER_TEMP/mpai29-env/bin/python" -m pip install --no-input --disable-pip-version-check --only-binary=:all: pyarrow==26.0.0 >/dev/null
+          "$RUNNER_TEMP/mpai29-env/bin/python" -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai29_unanswerable_semantic_scorer_audit.py").read_text("utf-8"))'
+          out="$("$RUNNER_TEMP/mpai29-env/bin/python" -B tools/mpai29_unanswerable_semantic_scorer_audit.py --phase freeze)"
+          printf '%s\n' "$out"
+          grep -Fq 'MPAI29_BEFORE_ORIGINAL_GOLD_INSPECTION=PASS' <<< "$out"
+          grep -Fq 'MPAI29_FROZEN_TASKS_PRESERVED=12' <<< "$out"
+          grep -Fq 'MPAI29_PREEXISTING_FROZEN_SHA256=6ddf3d30019f102f2d2f820be69c1b0478a71f8e7cd1ea6733c5ee07ab29bb85' <<< "$out"
+          pr="$(printf '%s\n' "$out" | sed -n 's/^MPAI29_AUDIT_PROTOCOL_SHA256=//p')"
+          [[ "$pr" =~ ^[0-9a-f]{64}$ ]]
+          echo "protocol_sha=$pr" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI29_PROTOCOL_FROZEN_WITHOUT_GOLD=PASS'
+  private-audit:
+    needs: protocol
+    if: ${{ needs.protocol.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      EXPECTED_PROTOCOL: ${{ needs.protocol.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Privately audit original LoCoMo category5 and MAB contradiction failure modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
+          test "$GITHUB_ACTOR" = "spoonman136668-ai"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = "57385e79ff8fe4d6680fba17e2186fdc32faca00"
+          test "$(git rev-parse HEAD:tools/mpai28_external_task_freeze_and_scorer.py)" = "ca58a30dbe0a5c062aeec2866f8038b93a47797a"
+          test "$(git rev-parse HEAD:tools/mpai29_unanswerable_semantic_scorer_audit.py)" = "d3a7f8d59956714df8831513acd2ff8752179eb6"
+          [[ "$EXPECTED_PROTOCOL" =~ ^[0-9a-f]{64}$ ]]
+          python -m venv "$RUNNER_TEMP/mpai29-env"
+          "$RUNNER_TEMP/mpai29-env/bin/python" -m pip install --no-input --disable-pip-version-check --only-binary=:all: pyarrow==26.0.0 >/dev/null
+          "$RUNNER_TEMP/mpai29-env/bin/python" -B tools/mpai29_unanswerable_semantic_scorer_audit.py --phase audit | tee "$RUNNER_TEMP/mpai29-results.log"
+          grep -Fxq "MPAI29_AUDIT_PROTOCOL_SHA256=$EXPECTED_PROTOCOL" "$RUNNER_TEMP/mpai29-results.log"
+          grep -Fq 'MPAI29_NULL_REFERENCE_ORIGINAL_CATEGORY5=PASS' "$RUNNER_TEMP/mpai29-results.log"
+          grep -Fq 'MPAI29_TOTAL_FROZEN_CASES=12' "$RUNNER_TEMP/mpai29-results.log"
+          grep -Fq 'MPAI29_OFFICIAL_CR_FALSE_POSITIVE_WITNESSES=4' "$RUNNER_TEMP/mpai29-results.log"
+          grep -Fq 'MPAI29_SOURCE_FAITHFUL_FULL_SEMANTIC_SCORER=NOT_QUALIFIED' "$RUNNER_TEMP/mpai29-results.log"
+          grep -Fq 'MPAI29_RELEASE_FOR_UNFAMILIAR_MODEL_EVAL=BLOCKED' "$RUNNER_TEMP/mpai29-results.log"
+          grep -Fq 'MPAI29_GOLD_TEXT_EXPOSED=FALSE' "$RUNNER_TEMP/mpai29-results.log"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI29_INDEPENDENT_JOB_ORIGINAL_SCORE_AUDIT=PASS'
+          echo 'MPAI29_ORIGINAL_F139_CONTROLLER_UNMODIFIED=TRUE'
