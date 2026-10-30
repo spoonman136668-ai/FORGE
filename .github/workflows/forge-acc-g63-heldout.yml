@@ -1,0 +1,103 @@
+name: FORGE ACC G63 pinned WikiText-2 natural-text RTX SDPA speculation
+on:
+  push:
+    branches: [research/acc-g63-heldout-wikitext-20261030]
+    paths:
+      - 'research/acc_g63/**'
+      - '.github/workflows/forge-acc-g63-heldout.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g63-isolated-win-gpu
+  cancel-in-progress: false
+jobs:
+  g63-external-corpus:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Enforce frozen prereg and run source-level falsification tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G63_SOURCE_SHA_MISMATCH' }
+          if (-not (Test-Path docs/research/ACC-G63-PREEXEC-20261030.md)) { throw 'G63_PREREG_MISSING' }
+          $py=Get-Command python -ErrorAction Stop
+          & $py.Source -m py_compile research/acc_g63/g63_heldout_wikitext.py research/acc_g63/test_g63.py
+          if ($LASTEXITCODE -ne 0) { throw 'G63_COMPILE_FAIL' }
+          & $py.Source -m unittest discover -s research/acc_g63 -p test_g63.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G63_SOURCE_TESTS_FAIL' }
+          Write-Output 'G63_SOURCE_FOCUSED_TESTS=PASS'
+      - name: Establish disposable CUDA runtime and isolated original source storage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $drive=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($drive.Free -lt 10000000000) { throw 'G63_INSUFFICIENT_TEMP_DISK_10GB' }
+          foreach ($name in @('acc-g63-venv','acc-g63-hf','acc-g63-wikitext-test.txt')) {
+            $path=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) { throw "G63_TEMP_PATH_COLLISION:$path" }
+          }
+          $py=Get-Command python -ErrorAction Stop
+          & $py.Source -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G63_PYTHON_VERSION_INVALID' }
+          & $py.Source -m venv (Join-Path $env:RUNNER_TEMP 'acc-g63-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G63_VENV_CREATION_FAILED' }
+          Write-Output 'G63_DISPOSABLE_RUNTIME=PASS'
+      - name: Install pinned Blackwell-compatible CUDA inference tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:RUNNER_TEMP 'acc-g63-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G63_GPU_TORCH_INSTALL_FAILED' }
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G63_HF_RUNTIME_INSTALL_FAILED' }
+          & $py -m pip freeze | Out-File -LiteralPath 'g63_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G63_TOOLCHAIN_RECEIPT_FAILED' }
+          Write-Output 'G63_PINNED_CUDA_TOOLS=PASS'
+      - name: Execute authentic WikiText-2 generalization and low-overlap controls
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:RUNNER_TEMP 'acc-g63-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g63-hf'
+          $env:G63_CORPUS_PATH=Join-Path $env:RUNNER_TEMP 'acc-g63-wikitext-test.txt'
+          $env:G63_OUTPUT=Join-Path (Get-Location).Path 'g63_result.json'
+          & $py -u research/acc_g63/g63_heldout_wikitext.py
+          if ($LASTEXITCODE -ne 0) { throw 'G63_EXTERNAL_CORPUS_GPU_SCREEN_FAILED_OR_BLOCKED' }
+          & $py -c 'import json; r=json.load(open("g63_result.json")); assert r["status"]=="PASS_AUTHENTIC_EXTERNAL_CORPUS_GPU_SCREEN"; assert len(r["cases"])==12; assert len({x["anchor_index"] for x in r["cases"]})==3; assert all(len(x["baseline_runs"])==5 and len(x["candidate_runs"])==5 and x["tokens_exact"] for x in r["cases"]); assert r["science_acceptance"]=="NOT_GRANTED"; assert not r["novel_mechanism"]; print("G63_AUTHENTIC_120_GPU_TIMINGS=PASS"); print("G63_GENERALIZATION_DISPOSITION="+r["disposition"])'
+          if ($LASTEXITCODE -ne 0) { throw 'G63_RESULT_INVARIANTS_FAILED' }
+      - name: Preserve source-pinned research receipts without corpus or weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g63-authentic-wikitext-rtx
+          path: |
+            g63_result.json
+            g63_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove all temporary software model and corpus copies
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g63-venv','acc-g63-hf','acc-g63-wikitext-test.txt')) {
+            $path=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Output 'G63_DISPOSABLE_RUNTIME_AND_CORPUS_CLEANUP=PASS'
