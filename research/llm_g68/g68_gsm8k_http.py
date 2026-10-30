@@ -213,7 +213,7 @@ def main():
         raw_path=target
         receipt["dataset_transport"]="PINNED_ARCHIVED_GITHUB_RAW_SHA256_PASS"
         with raw_path.open("r",encoding="utf-8") as f:
-            rows=[{"instruction":item["question"],"category":"math_word_problem"} 
+            rows=[{"instruction":item["question"],"category":"math_word_problem"}
                   for item in (json.loads(line) for line in f if line.strip())]
         heldout=select_heldout(rows)
         receipt["eligible_dataset_rows"]=len(rows)
