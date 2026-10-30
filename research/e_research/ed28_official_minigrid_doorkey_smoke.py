@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import traceback
 
 import gymnasium as gym
 import minigrid  # noqa: F401 -- registers environments
@@ -70,4 +71,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            path = Path(os.environ["RUNNER_TEMP"]) / "ed37-doorkey" / "failure.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"status": "FAIL", "environment_id": ENV_ID,
+                                        "traceback": traceback.format_exc()},
+                                       sort_keys=True), encoding="utf-8")
+        raise
