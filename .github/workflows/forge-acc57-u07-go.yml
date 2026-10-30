@@ -1,0 +1,89 @@
+name: ACC57 U07 native research
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc57_go_u07/**'
+      - '.github/workflows/forge-acc57-u07-go.yml'
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 40
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+      - name: Source and prereg verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 6f7502d679bd83254760689c4c5e6c733be44921 HEAD
+          git merge-base --is-ancestor 4cd865313fe1511cf9602db19c91e07f19f9f283 HEAD
+          test "$(git hash-object docs/research/ACC-57-U07-STAGE-B-TIMING-PREREG.md)" = ef53baa7f7095028df3f9ac268f79d7c2d4b322f
+          test "$(git hash-object docs/research/ACC-57-U07-HDV-BINDING-PREREG.md)" = 5d8897693d3212054f6381f1bc1772b64f9840bf
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/acceleration/acc57_go_u07/main.go)" = 11f712cfbf480711bc454d1b0921be476ad54c27
+      - name: Original 36 source screens
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc57-36.json"
+      - name: Test vet and execute workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc57_go_u07
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc57"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc57-report.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acc57-u07-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc57-report.json
+
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc57-u07-*
+          path: artifacts
+      - name: Independent 80 by 80 source and prediction parity
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc57-u07-ubuntu-latest'/'acc57-report.json').read_text())
+          b=json.loads((p/'acc57-u07-windows-latest'/'acc57-report.json').read_text())
+          assert a['OS']=='linux' and b['OS']=='windows'
+          key=lambda x:(x['Receipt']['Regime'],x['Receipt']['Arm'],x['Receipt']['Seed'])
+          aa={key(t):t['Receipt'] for t in a['Trials']}
+          bb={key(t):t['Receipt'] for t in b['Trials']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for k in aa:
+            for f in ('Source','Truth','Output','Correct','Known','FalsePositive','Queries','LogicalBytes'):
+              assert aa[k][f]==bb[k][f],(k,f)
+          for obj in (a,b):
+            assert obj['WorkerCount']==80 and len(obj['Cohorts'])==4
+            assert obj['Classification']=='U07_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN' or obj['Classification']=='U07_RESTRICTED_SYNTHETIC_GO_ENGINEERING_POSITIVE_ONLY'
+            assert all(t['CPUSeconds']>0 and t['Receipt']['PeakRSSBytes']>0 for t in obj['Trials'])
+          print('ACC57_U07_CROSSOS_80_OF_80_PASS')
+          print('ACC57_LINUX='+a['Classification'])
+          print('ACC57_WINDOWS='+b['Classification'])
+          PY
