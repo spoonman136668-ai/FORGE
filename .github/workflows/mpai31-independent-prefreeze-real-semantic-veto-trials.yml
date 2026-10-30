@@ -1,0 +1,147 @@
+name: MP-AI31 real local semantic scorer deterministic veto precommitted tests
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai31-independent-prefreeze-real-semantic-veto-trials.yml']
+permissions:
+  contents: read
+jobs:
+  preregister:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Freeze novel claim-family canaries and guard before model input
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
+          test "$GITHUB_ACTOR" = "spoonman136668-ai"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai31_conservative_semantic_veto_development.py)" = '97510664d981e3bf70dbcc2f1002fd40945150d4'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai31_conservative_semantic_veto_development.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai31_conservative_semantic_veto_development.py --phase preregister)"
+          printf '%s\n' "$out"
+          grep -Fq 'MPAI31_PREMODEL_PROTOCOL_FROZEN=PASS' <<< "$out"
+          grep -Fq 'MPAI31_DETERMINISTIC_PREMODEL_GUARD_ASSERTIONS=PASS' <<< "$out"
+          grep -Fq 'MPAI31_NEW_PRECOMMITTED_DEVELOPMENT_CASES=48' <<< "$out"
+          grep -Fq 'MPAI31_MODEL_CALLS=0' <<< "$out"
+          sha="$(printf '%s\n' "$out" | sed -n 's/^MPAI31_FROZEN_PROTOCOL_SHA256=//p')"
+          [[ "$sha" =~ ^[0-9a-f]{64}$ ]]
+          echo "protocol_sha=$sha" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI31_FIRST_JOB_PREMODEL_FROZEN=PASS'
+          echo 'MPAI31_INDEPENDENT_HUMAN_ANNOTATION=NOT_PRESENT'
+  original-windows:
+    needs: preregister
+    if: ${{ needs.preregister.result == 'success' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      EXPECTED_PROTOCOL: ${{ needs.preregister.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Original 48 genuine CPU Phi-3.5 calls and same-output original, veto and strict comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai'){
+             throw 'MPAI31_OWNER_WINDOWS_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI31_PAID_API_DENIED'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI31_COMMIT_DRIFT'
+          }
+          $source=(git rev-parse 'HEAD:tools/mpai31_conservative_semantic_veto_development.py').Trim()
+          if($LASTEXITCODE -ne 0 -or $source -cne '97510664d981e3bf70dbcc2f1002fd40945150d4'){
+            throw 'MPAI31_SOURCE_PIN_DRIFT'
+          }
+          if($env:EXPECTED_PROTOCOL -notmatch '^[a-f0-9]{64}$'){
+            throw 'MPAI31_MISSING_FREEZE'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai31-private-'+$env:GITHUB_RUN_ID)
+          $trial=Join-Path $scratch 'private'
+          $log=Join-Path $scratch 'research.log'
+          function Assert([bool]$test,[string]$reason){
+            if(-not $test){throw ('MPAI31_'+$reason)}
+          }
+          Assert (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+          $env:MPAI31_PRIVATE_SCRATCH=$trial
+          try {
+            & python.exe -B tools/mpai31_conservative_semantic_veto_development.py --phase evaluate *> $log
+            $status=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($status -ne 0){
+              foreach($tag in @('SAFE_FAILURE','SAFE_STAGE','SAFE_TYPE')){
+                $mt=[regex]::Match($raw,('MPAI31_'+$tag+'=([A-Za-z0-9_]+)'))
+                if($mt.Success){Write-Output ('MPAI31_'+$tag+'='+$mt.Groups[1].Value)}
+              }
+              throw 'MPAI31_PRIVATE_ORIGINAL_INFERENCE_FAILED'
+            }
+            foreach($mark in @(
+              'MPAI31_REAL_LOCAL_MODEL_CALLS=48',
+              'MPAI31_NEW_PRECOMMITTED_DEVELOPMENT_CASES=48',
+              'MPAI31_SAME_RAW_MODEL_OUTPUT_BOTH_ARMS=TRUE',
+              'MPAI31_MODEL_FULL_SHA256=PASS',
+              'MPAI31_NO_EXTERNAL_BENCHMARK_ANSWER_EXPOSURE=TRUE',
+              'MPAI31_NEW_SYNTHETIC_AUTHORSHIP_NOT_INDEPENDENT=TRUE',
+              'MPAI31_SCIENTIFIC_SEMANTIC_JUDGE=NOT_QUALIFIED',
+              'MPAI31_SCIENTIFIC_MODEL_EVAL_RELEASE=BLOCKED',
+              'MPAI31_PRODUCTION_MEMORY_WRITES=0'
+            )){
+              Assert ($raw.Contains($mark)) 'RECEIPT_MISSING'
+            }
+            Assert ($raw.Contains(('MPAI31_FROZEN_PROTOCOL_SHA256='+$env:EXPECTED_PROTOCOL))) 'FROZEN_PROTOCOL_MISMATCH'
+            $kinds=@{}
+            $metrics=@{}
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI31_(EXACT|PARAPHRASE|CONTRADICTION|UNRELATED|DISCLAIMED_QUOTE|UNSUPPORTED_CLAIM|RETRACTED_CLAIM|DOUBLE_NEGATIVE)=(\{.*\})$'){
+                $kind=$Matches[1]
+                Assert (-not $kinds.ContainsKey($kind)) 'DUPLICATE_KIND'
+                $x=$Matches[2] | ConvertFrom-Json
+                Assert ($x.count -eq 6) 'KIND_DENOMINATOR'
+                $kinds[$kind]=$true
+                Write-Output $line
+              } elseif($line -match '^MPAI31_(BASELINE|GUARD|STRICT)_(HARD_FALSE_POSITIVES|SUPPORTED_POSITIVES|EXACT_LABELS|ABSTENTIONS)=([0-9]+(?:_OF_[0-9]+)?)$'){
+                $metrics[$Matches[1]+'_'+$Matches[2]]=$true
+                Write-Output $line
+              } elseif($line -match '^MPAI31_(FROZEN_PROTOCOL_SHA256|MODEL_LOAD_MS|PEAK_ORIGINAL_WINDOWS_PROCESS_BYTES|REAL_LOCAL_MODEL_CALLS|MODEL_FULL_SHA256|GUARD_ZERO_HARD_FALSE_POSITIVES|SCIENTIFIC_SEMANTIC_JUDGE|PRODUCTION_MEMORY_WRITES)=[A-Za-z0-9_.=-]+$'){
+                Write-Output $line
+              }
+            }
+            Assert ($kinds.Count -eq 8 -and $metrics.Count -eq 12) 'MISSING_COMPARATORS'
+            $dirty=@(& git.exe status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'FORGE_BRANCH_WORKSPACE_WRITTEN'
+            Write-Output 'MPAI31_ORIGINAL_WINDOWS_RESEARCH_QUALIFIED=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI31_PRIVATE_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI31_PRIVATE_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
