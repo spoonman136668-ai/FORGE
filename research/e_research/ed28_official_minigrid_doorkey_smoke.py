@@ -4,6 +4,8 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
+from pathlib import Path
 import sys
 
 import gymnasium as gym
@@ -51,11 +53,18 @@ def run(seed):
 def main():
     assert minigrid.__version__ == EXPECTED_VERSION, minigrid.__version__
     rows = []
+    traces = {}
     for seed in SEEDS:
         first, second = run(seed), run(seed)
         assert first == second, f"replay mismatch on {seed}"
+        traces[str(seed)] = first
         rows.append({"seed": seed, "steps": len(first)-1,
                      "digest": hashlib.sha256(json.dumps(first).encode()).hexdigest()})
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        path = Path(os.environ["RUNNER_TEMP"]) / "ed37-doorkey" / "full-traces.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"env_id": ENV_ID, "version": minigrid.__version__,
+                                    "traces": traces}, sort_keys=True), encoding="utf-8")
     print(json.dumps({"status": "PASS", "source_version": minigrid.__version__,
                       "environment_id": ENV_ID, "seed_results": rows}, sort_keys=True))
 
