@@ -165,6 +165,7 @@ def main():
     from transformers import AutoTokenizer,AutoModelForCausalLM
     contract()
     g55=load_module("g55_g67","llm_g55/g55_gpt2_controls.py")
+    g60=load_module("g60_g68","llm_g60/g60_concurrent.py")
     if (g55.REV,g55.WEIGHT_SHA)!=(MODEL_REV,WEIGHTS_SHA):
         raise RuntimeError("FROZEN_G55_AUTHENTIC_MODEL_MISMATCH")
     torch.set_num_threads(1)
