@@ -69,7 +69,9 @@ def linux_admission_hint(
         subtree = set((group / "cgroup.subtree_control").read_text(encoding="ascii").split())
         out["cpu_memory_controllers_available"] = {"cpu", "memory"}.issubset(controllers)
         out["cpu_memory_subtree_enabled"] = {"cpu", "memory"}.issubset(subtree)
-        out["mount_readonly"] = bool(os.statvfs(group).f_flag & getattr(os, "ST_RDONLY", 1))
+        statvfs = getattr(os, "statvfs", None)
+        if statvfs is not None:
+            out["mount_readonly"] = bool(statvfs(group).f_flag & getattr(os, "ST_RDONLY", 1))
         out["scope_writable_hint"] = os.access(group, os.W_OK | os.X_OK)
     except (OSError, ValueError, UnicodeError):
         return out
