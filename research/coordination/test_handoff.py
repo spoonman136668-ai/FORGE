@@ -160,5 +160,41 @@ class HandoffTests(unittest.TestCase):
         with self.assertRaises(Invalid):
             validate_handoff(self.change(replace))
 
+    def test_h28_original_owner_two_native_sources_remain_advisory(self):
+        h=json.loads(RAW)
+        owner=next(row for row in h["workstreams"] if row["id"]=="forge-operations")
+        self.assertEqual(owner["handoff_status"], "UNVERIFIED")
+        self.assertEqual(owner["oversight"], "forge-operations")
+        self.assertFalse(h["chat_retirement_ready"])
+        self.assertEqual(owner["source_pointers"], [
+            {"url":"https://github.com/spoonman136668-ai/FORGE/pull/1264",
+             "sha":"c2469e2844a9e99ad9cd273898c3113d06468251",
+             "claim":"SOURCE_POINTER_ONLY"},
+            {"url":"https://github.com/spoonman136668-ai/Yggdrasil/pull/703",
+             "sha":"ddee0d82a1e37038304fb862ac725240142c840f",
+             "claim":"SOURCE_POINTER_ONLY"},
+            {"url":"https://github.com/spoonman136668-ai/Yggdrasil/pull/715",
+             "sha":"356d9a7c9a5e58eab85589d5de31650cbf60cb03",
+             "claim":"SOURCE_POINTER_ONLY"},
+        ])
+        self.assertIn("assistant-authored, not model-generated",owner["unverified_handoff"])
+        self.assertFalse(validate_handoff(RAW)["retirement_ready"])
+
+    def test_h28_owner_source_loss_substitution_duplicates_fail_closed(self):
+        for action in ("drop-first","drop-703","drop-715","substitute-703","substitute-715","duplicate","assert-go","model-claim"):
+            def mutate(h):
+                owner=next(row for row in h["workstreams"] if row["id"]=="forge-operations")
+                refs=owner["source_pointers"]
+                if action=="drop-first": refs.pop(0)
+                elif action=="drop-703": refs.pop(1)
+                elif action=="drop-715": refs.pop(2)
+                elif action=="substitute-703": refs[1]["sha"]="0"*40
+                elif action=="substitute-715": refs[2]["sha"]="0"*40
+                elif action=="duplicate": refs.append(dict(refs[-1]))
+                elif action=="assert-go": owner["handoff_status"]="PASS"
+                else: refs[2]["claim"]="MODEL_AUTHORED_ACCEPTED"
+            with self.subTest(action=action),self.assertRaises(Invalid):
+                validate_handoff(self.change(mutate))
+
 if __name__=="__main__":
     unittest.main()

@@ -72,6 +72,17 @@ def validate_handoff(raw):
                 raise Invalid("H5_BAD_SOURCE_POINTER")
         if ident=="forge-operations" and not pointers:
             raise Invalid("H5_ORIGINAL_OWNER_WITNESS_MISSING")
+        if ident=="forge-operations":
+            # H28: immutable *source pointers*, not proof of model authorship,
+            # original SQLite custody or permission to retire research chats.
+            required_owner = {
+                ("https://github.com/spoonman136668-ai/FORGE/pull/1264", "c2469e2844a9e99ad9cd273898c3113d06468251"),
+                ("https://github.com/spoonman136668-ai/Yggdrasil/pull/703", "ddee0d82a1e37038304fb862ac725240142c840f"),
+                ("https://github.com/spoonman136668-ai/Yggdrasil/pull/715", "356d9a7c9a5e58eab85589d5de31650cbf60cb03"),
+            }
+            observed_owner = {(ref["url"], ref["sha"]) for ref in pointers}
+            if observed_owner != required_owner or len(pointers) != len(required_owner):
+                raise Invalid("H28_OWNER_SOURCE_POINTER_LOSS_SUBSTITUTION_OR_DUPLICATION")
         if ident=="mass-research" and not any(
             ref["url"] == "https://github.com/spoonman136668-ai/Yggdrasil/pull/423"
             and ref["sha"] == "d31c8d00ccc2bb00f098b87097610329637a37f6"
