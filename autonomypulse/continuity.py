@@ -97,9 +97,10 @@ def source_blob(api, sha, path):
 def acknowledge_previous_failed_observation(report):
     """Acknowledge one bounded *negative* without qualifying continuity.
 
-    A healthy current read-only observation can survive an old failed run.
-    This never proves science or cross-run continuity: qualification still
-    requires two distinct genuinely scheduled successful marked observations.
+    A healthy current read-only observation can survive an old failed run or
+    expired freshness of a prior successful schedule. Neither negative becomes
+    a qualified observation: two distinct genuinely scheduled, fresh,
+    source-matched successful marked observations remain mandatory.
     """
     require(type(report) is dict and set(report) == {
         "schema", "qualified", "status", "reason", "science_dispatches",
@@ -108,7 +109,9 @@ def acknowledge_previous_failed_observation(report):
     require(report["schema"] == SCHEMA and
             report["qualified"] is False and
             report["status"] == "QUARANTINED_UNVERIFIED" and
-            report["reason"] == "RECENT_SCHEDULE_UNSUCCESSFUL_OR_UNVERIFIED" and
+            report["reason"] in (
+                "RECENT_SCHEDULE_UNSUCCESSFUL_OR_UNVERIFIED",
+                "PREVIOUS_SUCCESS_TOO_OLD_FOR_CONTINUITY") and
             type(report["science_dispatches"]) is int and
             report["science_dispatches"] == 0 and
             report["scientific_first_use_authorized"] is False and
@@ -193,8 +196,13 @@ def qualify(api, now, current_sha, current_run_id=None):
     interval = (utc(selected[0]["created_at"]) -
                 utc(selected[1]["created_at"])).total_seconds()
     age = (now - utc(selected[0]["updated_at"])).total_seconds()
-    require(3 * 3600 <= interval <= 9 * 3600 and 0 <= age <= 9 * 3600,
+    # Separate a cadence/clock-integrity failure from expiration of prior
+    # completed evidence. Only the latter may be acknowledged as a negative,
+    # never as continuity or science. Do not extend the freshness threshold.
+    require(3 * 3600 <= interval <= 9 * 3600,
             "SCHEDULE_CADENCE_OR_FRESHNESS_UNVERIFIED")
+    require(age >= 0, "SCHEDULE_CLOCK_FUTURE_UNVERIFIED")
+    require(age <= 9 * 3600, "PREVIOUS_SUCCESS_TOO_OLD_FOR_CONTINUITY")
     identities = {path: source_blob(api, current_sha, path)
                   for path in SOURCE_PATHS}
     observations = []
