@@ -1,0 +1,103 @@
+name: FORGE ACC G69 RTX original first-decoder attention boundary diagnostic
+on:
+  push:
+    branches: [research/acc-g69-layer0-attn-attribution-20261030]
+    paths:
+      - 'research/acc_g69/**'
+      - '.github/workflows/forge-acc-g69-layer0.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g69-isolated-rtx-original
+  cancel-in-progress: false
+jobs:
+  g69-original-layer0:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify prereg and original source syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G69_SOURCE_SHA_DRIFT' }
+          if (-not (Test-Path 'docs/research/ACC-G69-PREEXEC-20261030.md')) { throw 'G69_PREREG_MISSING' }
+          & python -m py_compile research/acc_g69/g69_layer0_boundaries.py research/acc_g69/test_g69.py
+          if ($LASTEXITCODE -ne 0) { throw 'G69_SYNTAX_FAILED' }
+          Write-Output 'G69_SOURCE_SYNTAX=PASS'
+      - name: Create disposable pinned environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G69_TEMP_DISK_INSUFFICIENT' }
+          foreach ($name in @('acc-g69-venv','acc-g69-hf','acc-g69-wikitext-test.txt')) {
+            $path=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) { throw "G69_TEMP_COLLISION:$path" }
+          }
+          & python -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G69_PYTHON_VERSION_DRIFT' }
+          & python -m venv (Join-Path $env:RUNNER_TEMP 'acc-g69-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G69_TEMP_VENV_FAILED' }
+      - name: Install exact original CUDA and pretrained model runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g69-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G69_TORCH_CUDA_INSTALL_FAILED' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G69_MODEL_RUNTIME_INSTALL_FAILED' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g69_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G69_ENV_PROVENANCE_FAILED' }
+      - name: Run focused original provenance and negative tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g69-venv\Scripts\python.exe'
+          & $p -m unittest discover -s research/acc_g69 -p test_g69.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G69_FOCUSED_CONTRACT_TESTS_FAILED' }
+          Write-Output 'G69_SOURCE_PROVENANCE_AND_NEGATIVES=PASS'
+      - name: Measure original GPU layer zero at 12 boundaries across 18 traces
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g69-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g69-hf'
+          $env:G69_CORPUS=Join-Path $env:RUNNER_TEMP 'acc-g69-wikitext-test.txt'
+          $env:G69_RESULT=Join-Path (Get-Location).Path 'g69_result.json'
+          & $p -u research/acc_g69/g69_layer0_boundaries.py
+          if ($LASTEXITCODE -ne 0) { throw 'G69_ORIGINAL_GPU_DIAGNOSTIC_BLOCKED' }
+          & $p -c 'import json; r=json.load(open("g69_result.json")); d=r["result"]; assert r["status"]=="PASS_COMPLETE_ORIGINAL_GPU_BOUNDARY_DIAGNOSTIC"; assert d["classification"]=="COMPLETE_LAYER0_BOUNDARY_DIAGNOSTIC"; assert d["trace_count"]==18 and d["stage_count"]==12; assert all(len(d["data"][t]["original_logits"][m])==3 for t in ("float16","float32") for m in ("cached_one_by_one","cached_chunk_48","full_no_cache")); assert d["g63_generalization"]=="FAIL_NO_GO_UNCHANGED"; assert d["g67_engineering"]=="NO_GO_ENGINEERING"; assert d["scientific_acceptance"]=="NOT_GRANTED"; print("G69_ORIGINAL_LAYER0_NUMERIC_EVIDENCE=PASS")'
+          if ($LASTEXITCODE -ne 0) { throw 'G69_MEASUREMENT_INVARIANTS_FAILED' }
+      - name: Retain numeric original evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g69-original-rtx-layer0-attention
+          path: |
+            g69_result.json
+            g69_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove isolated software model and text
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g69-venv','acc-g69-hf','acc-g69-wikitext-test.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop }
+          }
+          Write-Output 'G69_ISOLATED_MODEL_TEXT_SOFTWARE_CLEANUP=PASS'
