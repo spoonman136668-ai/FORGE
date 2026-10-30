@@ -1,0 +1,97 @@
+name: FORGE ACC G67 original RTX FP16-backbone FP32-head screen
+on:
+  push:
+    branches: [research/acc-g67-fp32-output-head-20261030]
+    paths:
+      - 'research/acc_g67/**'
+      - '.github/workflows/forge-acc-g67-fp32-head.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g67-isolated-rtx-readonly
+  cancel-in-progress: false
+jobs:
+  g67-fp32-head-research:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify source and prereg chronology, compile and 12 focused tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G67_SOURCE_SHA_DRIFT' }
+          if (-not (Test-Path 'docs/research/ACC-G67-PREEXEC-20261030.md')) { throw 'G67_PREREG_MISSING' }
+          & python -m py_compile research/acc_g67/g67_fp32_head.py research/acc_g67/test_g67.py
+          if ($LASTEXITCODE -ne 0) { throw 'G67_SOURCE_PYCOMPILE_FAILED' }
+          & python -m unittest discover -s research/acc_g67 -p test_g67.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G67_SOURCE_TESTS_FAILED' }
+          Write-Output 'G67_FOCUSED_CONTRACTS=PASS'
+      - name: Create isolated disposable environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G67_TEMP_DISK_LT_10GB' }
+          foreach ($name in @('acc-g67-venv','acc-g67-hf','acc-g67-wikitext-test.txt')) {
+            $path=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) { throw "G67_TEMP_PATH_COLLISION:$path" }
+          }
+          & python -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G67_PYTHON_UNSUPPORTED' }
+          & python -m venv (Join-Path $env:RUNNER_TEMP 'acc-g67-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G67_VENV_FAILED' }
+      - name: Install pinned genuine CUDA model runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g67-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G67_CUDA_RUNTIME_INSTALL_FAILED' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G67_HF_RUNTIME_INSTALL_FAILED' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g67_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G67_ENV_IDENTITY_FAILED' }
+      - name: Test frozen low-memory precision alternative on actual RTX
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g67-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g67-hf'
+          $env:G67_CORPUS=Join-Path $env:RUNNER_TEMP 'acc-g67-wikitext-test.txt'
+          $env:G67_RESULT=Join-Path (Get-Location).Path 'g67_result.json'
+          & $p -u research/acc_g67/g67_fp32_head.py
+          if ($LASTEXITCODE -ne 0) { throw 'G67_EVIDENCE_MISSING_OR_GPU_SOURCE_BLOCKED' }
+          & $p -c 'import json; r=json.load(open("g67_result.json")); assert r["status"]=="PASS_COMPLETE_MEASUREMENT"; assert len(r["cases"])==5; assert all(len(c["variants"][v]["runs"][a])==3 for c in r["cases"] for v in ("fp16_control","fp16_backbone_fp32_head") for a in ("baseline","candidate")); assert all(len(r["forced_shared_prefix_fp32_head"][m])==3 for m in ("cached_one_by_one","cached_chunk_48","full_no_cache")); assert r["g63_generalization"]=="FAIL_NO_GO_UNCHANGED"; assert r["scientific_acceptance"]=="NOT_GRANTED"; print("G67_AUTHENTIC_RTX_SCREEN_EVIDENCE=PASS"); print("G67_ENGINEERING="+r["classification"]["engineering_screen"])'
+          if ($LASTEXITCODE -ne 0) { throw 'G67_FROZEN_MEASUREMENT_CONTRACT_FAILED' }
+      - name: Upload numerical evidence only, even if blocked
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g67-authentic-rtx-fp32-head
+          path: |
+            g67_result.json
+            g67_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove isolated installed software checkpoint and public text
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g67-venv','acc-g67-hf','acc-g67-wikitext-test.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop }
+          }
+          Write-Output 'G67_DISPOSABLE_SOFTWARE_AND_DATA_CLEANUP=PASS'
