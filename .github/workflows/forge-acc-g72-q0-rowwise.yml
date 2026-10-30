@@ -1,0 +1,104 @@
+name: FORGE ACC G72 RTX Q0 rowwise FP16 shape-stabilization screen
+on:
+  push:
+    branches: [research/acc-g72-rowwise-q0-20261030]
+    paths:
+      - 'research/acc_g72/**'
+      - '.github/workflows/forge-acc-g72-q0-rowwise.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g72-original-rtx-precision
+  cancel-in-progress: false
+jobs:
+  g72-layer0-q-engineering:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen prereg and compile original-source scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G72_EXECUTED_SOURCE_SHA_DRIFT' }
+          if (-not (Test-Path 'docs/research/ACC-G72-PREEXEC-20261030.md')) { throw 'G72_PREEXEC_NOT_FROZEN' }
+          & python -m py_compile research/acc_g72/g72_q0_rowwise.py research/acc_g72/test_g72.py
+          if ($LASTEXITCODE -ne 0) { throw 'G72_SOURCE_COMPILE_FAILED' }
+          Write-Output 'G72_SOURCE_PREREG_AND_SYNTAX=PASS'
+      - name: Create isolated disposable pinned runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G72_TEMP_SPACE_LT_10GB' }
+          foreach ($name in @('acc-g72-venv','acc-g72-hf','acc-g72-wikitext-test.txt','acc-g72-tinyshakespeare.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { throw "G72_TEMP_PATH_COLLISION:$p" }
+          }
+          & python -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G72_PYTHON_VERSION_DRIFT' }
+          & python -m venv (Join-Path $env:RUNNER_TEMP 'acc-g72-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G72_ISOLATED_VENV_FAILED' }
+      - name: Install exact original Blackwell CUDA and HF software
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g72-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G72_TORCH_2_8_CUDA128_FAILED' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G72_TRANSFORMERS_PINS_FAILED' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g72_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G72_DEPENDENCY_PROVENANCE_FAILED' }
+      - name: Run 17 focused custody and falsifying controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g72-venv\Scripts\python.exe'
+          & $p -m unittest discover -s research/acc_g72 -p test_g72.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G72_FROZEN_SOURCE_NEGATIVES_FAILED' }
+          Write-Output 'G72_17_FOCUSED_SOURCE_TESTS=PASS'
+      - name: Falsify original RTX rowwise Q0 with frozen exposed-source cases
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g72-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g72-hf'
+          $env:G72_CORPUS=Join-Path $env:RUNNER_TEMP 'acc-g72-wikitext-test.txt'
+          $env:G72_FRESH=Join-Path $env:RUNNER_TEMP 'acc-g72-tinyshakespeare.txt'
+          $env:G72_RESULT=Join-Path (Get-Location).Path 'g72_result.json'
+          & $p -u research/acc_g72/g72_q0_rowwise.py
+          if ($LASTEXITCODE -ne 0) { throw 'G72_SOURCE_GPU_OR_SOURCE_IDENTITY_BLOCKED' }
+          & $p -c 'import json; r=json.load(open("g72_result.json")); c=r["classification"]; assert r["status"]=="PASS_COMPLETE_FROZEN_ORIGINAL_GPU_MEASUREMENT"; assert len(r["cases"])==5 and len(r["prompt_hashes_sha256"])==5; assert set(r["original_forced_logits"])==set(("original_fp16","layer0_q_rowwise","original_fp32_full")); assert all(len(r["original_forced_logits"][v][m])==3 for v in ("original_fp16","layer0_q_rowwise","original_fp32_full") for m in ("cached_one_by_one","cached_chunk_48","full_no_cache")); assert all(len(r["cases"][i]["variants"][v]["runs"][a])==3 for i in range(5) for v in ("original_fp16","layer0_q_rowwise") for a in ("baseline","candidate")); assert c["engineering_screen"] in ("ENGINEERING_SCREEN_PASS_ONLY","NO_GO_ENGINEERING"); assert c["prior_g63_original_generalization"]=="FAIL_NO_GO_UNCHANGED"; assert c["prior_g67_output_head"]=="NO_GO_ENGINEERING"; assert c["scientific_acceptance"]=="NOT_GRANTED"; assert not c["qualified_novel_acceleration"]; audit=r["rowwise_q0_audit"]; assert audit["rowwise_batches"]>0 and audit["rowwise_rows"]>=audit["rowwise_batches"]*2 and audit["unmodified_prefills"]>0 and audit["unmodified_single_steps"]>0; assert r["original_g71"]=="NO_GO_ENGINEERING"; print("G72_AUTHENTIC_RTX_FULL_SCREEN_EVIDENCE=PASS"); print("G72_ENGINEERING="+c["engineering_screen"])'
+          if ($LASTEXITCODE -ne 0) { throw 'G72_FROZEN_QUALIFICATION_DATA_INCOMPLETE' }
+      - name: Upload numeric evidence and runtime pins only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g72-authentic-rtx-layer0-q-fresh-source
+          path: |
+            g72_result.json
+            g72_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Delete disposable software weights and both text sources
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g72-venv','acc-g72-hf','acc-g72-wikitext-test.txt','acc-g72-tinyshakespeare.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop }
+          }
+          Write-Output 'G72_DISPOSABLE_MODEL_SOFTWARE_AND_CORPORA_CLEANUP=PASS'
