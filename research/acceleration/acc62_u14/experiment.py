@@ -31,7 +31,7 @@ def sha(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 def source_identity() -> dict:
-    if not REGISTRY.is_file() or git_blob(REGISTRY.read_bytes())!=REGISTRY_BLOB:
+    if not REGISTRY.is_file() or git_blob(REGISTRY.read_bytes().replace(b"\r\n",b"\n"))!=REGISTRY_BLOB:
         raise RuntimeError("ACC62_U14_ORIGINAL_REGISTRY_DRIFT")
     text=REGISTRY.read_text(encoding="utf-8")
     if '"procedural synthesis of arbitrary weights"' not in text:
