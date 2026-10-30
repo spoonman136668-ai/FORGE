@@ -49,6 +49,8 @@ func DecodeNativeGrid(v [6]float64) (NativePublicGrid,error) {
             return NativePublicGrid{},errors.New("NONCANONICAL_PUBLIC_GRID")
         }
     }
+    for i:=0;i<4;i++ {if v[i]<0 || v[i]>64 {return NativePublicGrid{},errors.New("PUBLIC_GRID_OUT_OF_RANGE")}}
+    if v[4]<0 || v[4]>3 {return NativePublicGrid{},errors.New("PUBLIC_DIRECTION_OUT_OF_RANGE")}
     if v[5]!=0 && v[5]!=1 {return NativePublicGrid{},errors.New("NONCANONICAL_BLOCKED_BIT")}
     g:=NativePublicGrid{
         X:int(v[0]),Y:int(v[1]),GoalX:int(v[2]),GoalY:int(v[3]),
