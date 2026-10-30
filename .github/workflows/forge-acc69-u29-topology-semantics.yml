@@ -1,0 +1,94 @@
+name: ACC69 U29 exact topology semantic role identifiability
+on:
+  push:
+    branches: [research/acc69-u29-topology-semantic-roles-20261030]
+permissions:
+  contents: read
+jobs:
+  study:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source and syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor d2626f95fbe54a4e3cad46d66c42ea592c4cf44 HEAD
+          test "$(git rev-parse HEAD:research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python -m py_compile research/acceleration/acc69_u29/experiment.py research/acceleration/acc69_u29/test_experiment.py
+      - name: Focused 20 source/test cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/acceleration/acc69_u29 -p test_experiment.py -v
+      - name: Inherited portfolio negative regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/ac05_sourcefree -p test_learning.py -v
+          python -m unittest discover -s research/ac06_sourcefree -p test_restricted.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_remaining.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_ac08_portfolio.py -v
+      - name: Execute authentic complete 48 assignment matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/acceleration/acc69_u29/experiment.py --json "$RUNNER_TEMP/acc69-u29.json"
+          python - "$RUNNER_TEMP/acc69-u29.json" <<'PY'
+          import json,sys,hashlib
+          raw=open(sys.argv[1],"rb").read()
+          x=json.loads(raw)
+          assert x['identity']['registry_blob']=='5126c860771fb024ccfc14c3f7ee8925edf29787'
+          assert x['aggregate']['tested_graph_assignments']==48
+          assert x['aggregate']['tested_edges']==288
+          assert x['classification']['universal_topology_only_semantics']=='U29_TOPOLOGY_ONLY_UNIVERSAL_SEMANTICS_NO_GO'
+          assert x['classification']['scientific_acceptance']=='NOT_GRANTED'
+          assert x['classification']['pretrained_LLM_speed']=='UNVERIFIED'
+          print('ACC69_U29_FROZEN_SOURCE_MATRIX=PASS')
+          print('ACC69_U29_SHA256='+hashlib.sha256(raw).hexdigest())
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc69-u29-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc69-u29.json
+          retention-days: 30
+          if-no-files-found: warn
+  audit:
+    needs: study
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc69-u29-*
+          path: evidence
+      - name: Exact independent original crossOS result audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          p=Path('evidence')
+          a=(p/'acc69-u29-ubuntu-latest'/'acc69-u29.json').read_bytes()
+          b=(p/'acc69-u29-windows-latest'/'acc69-u29.json').read_bytes()
+          assert a==b,'CROSSOS_OUTPUT_DRIFT'
+          x=json.loads(a)
+          assert len(x['cases'])==48 and x['aggregate']['tested_edges']==288
+          assert len(x['contradictions'])>0
+          assert x['classification']['production_admission']=='NOT_GRANTED'
+          print('ACC69_U29_CROSSOS_EXACT=PASS')
+          print('ACC69_U29_RESULT_SHA256='+hashlib.sha256(a).hexdigest())
+          PY
