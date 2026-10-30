@@ -1,0 +1,100 @@
+name: MP-AI35 source-pinned original FP32 vs quantized MiniLM ONNX parity
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai35-original-fp32-vs-avx2-int8-onnx-parity.yml']
+permissions:
+  contents: read
+jobs:
+  source-preregistration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Freeze both original model identities and unchanged 36 original ANLI UIDs before human gold
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai33_independent_anli_adversarial_development.py)" = 'b99afe402459977f9d8493746766d1bae7ccd8ac'
+          test "$(git rev-parse HEAD:tools/mpai34_pinned_conventional_nli_original_anli.py)" = 'cec12320510645e6d6b7972d7307726c8ea66128'
+          test "$(git rev-parse HEAD:tools/mpai35_original_vs_quantized_minilm_nli_parity.py)" = '47d44403cdc867ff5c25c4b5beb14f93cf19bd7d'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai35_original_vs_quantized_minilm_nli_parity.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai35_original_vs_quantized_minilm_nli_parity.py --phase freeze)" || { printf '%s\n' "$out" | grep '^MPAI35_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fq 'MPAI35_FIRST_JOB_PREMODEL_COMMITMENT=PASS' <<< "$out"
+          grep -Fq 'MPAI35_GOLD_NOT_ACCESSED_AT_FREEZE=TRUE' <<< "$out"
+          grep -Fq 'MPAI35_MODEL_ORIGINAL_ONNX_SHA256=807d33fffefd95ad60e2a91f54eed50a92aa53c077945a6842bb587a49a3fdf3' <<< "$out"
+          grep -Fq 'MPAI35_MODEL_QUANT_ONNX_SHA256=44391a5241a62e0083c1a8899a71e69a092b95aea5ba89e14062925468eceac7' <<< "$out"
+          grep -Fq 'MPAI35_REUSED_HUMAN_ANLI_36_SOURCE_SELECTION_SHA256=9918f7e1318464c4d3c4ff95db08ae671609ce422417cae649a42cac2f41adf2' <<< "$out"
+          proto="$(printf '%s\n' "$out" | sed -n 's/^MPAI35_FROZEN_PARITY_PROTOCOL_SHA256=//p')"
+          [[ "$proto" =~ ^[a-f0-9]{64}$ ]]
+          echo "protocol_sha=$proto" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI35_IMMUTABLE_TWO_ONNX_MODEL_REVISIONS_PREREGISTERED=PASS'
+  same-cpu-parity:
+    needs: source-preregistration
+    if: ${{ needs.source-preregistration.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      EXPECTED_PROTOCOL: ${{ needs.source-preregistration.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install same inference runtime and tokenizer used by P34
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/mpai35-venv"
+          "$RUNNER_TEMP/mpai35-venv/bin/python" -m pip install --no-input --disable-pip-version-check --only-binary=:all: numpy==2.2.6 tokenizers==0.21.4 onnxruntime==1.22.1 >/dev/null
+          "$RUNNER_TEMP/mpai35-venv/bin/python" -c 'import numpy,onnxruntime,tokenizers; assert numpy.__version__=="2.2.6"; assert onnxruntime.__version__=="1.22.1"; assert tokenizers.__version__=="0.21.4"'
+          echo 'MPAI35_ONNX_RUNTIME_AND_TOKENIZER_PINNED=PASS'
+      - name: Original full SHA CPU paired quantization parity with fixed human source gold
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai33_independent_anli_adversarial_development.py)" = 'b99afe402459977f9d8493746766d1bae7ccd8ac'
+          test "$(git rev-parse HEAD:tools/mpai34_pinned_conventional_nli_original_anli.py)" = 'cec12320510645e6d6b7972d7307726c8ea66128'
+          test "$(git rev-parse HEAD:tools/mpai35_original_vs_quantized_minilm_nli_parity.py)" = '47d44403cdc867ff5c25c4b5beb14f93cf19bd7d'
+          [[ "$EXPECTED_PROTOCOL" =~ ^[a-f0-9]{64}$ ]]
+          out="$("$RUNNER_TEMP/mpai35-venv/bin/python" -B tools/mpai35_original_vs_quantized_minilm_nli_parity.py --phase evaluate --expected-protocol "$EXPECTED_PROTOCOL")" || { printf '%s\n' "$out" | grep '^MPAI35_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fq "MPAI35_FROZEN_PARITY_PROTOCOL_SHA256=$EXPECTED_PROTOCOL" <<< "$out"
+          grep -Fq 'MPAI35_BOTH_ORIGINAL_MODEL_FULL_SHA256=PASS' <<< "$out"
+          grep -Fq 'MPAI35_SHARED_IDENTICAL_TOKENIZATION=PASS' <<< "$out"
+          grep -Fq 'MPAI35_ORIGINAL_SOURCE_INFERENCE_CALLS=72' <<< "$out"
+          grep -Fq 'MPAI35_ORIGINAL_ANLI_PUBLIC_EXPOSED_DEVELOPMENT=TRUE' <<< "$out"
+          grep -Fq 'MPAI35_ALL_PRIVATE_SOURCE_AND_MODEL_REMOVED=PASS' <<< "$out"
+          grep -Fq 'MPAI35_CONVENTIONAL_NLI_SCIENTIFIC_ACCEPTANCE=BLOCKED' <<< "$out"
+          grep -Fq 'MPAI35_ACCEPTED_MEMORY_WRITES=0' <<< "$out"
+          test "$(grep -c '^MPAI35_CATEGORY_' <<< "$out")" = '6'
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI35_ORIGINAL_FP32_VS_INT8_TWO_MODEL_CPU_PARITY_EXECUTED=PASS'
+          echo 'MPAI35_PROTECTED_MAIN_AND_CONTROLLER_UNTOUCHED=TRUE'
