@@ -48,8 +48,9 @@ class G70(unittest.TestCase):
         self.assertEqual(x["g67_original_engineering"],"NO_GO_ENGINEERING")
     def test_mismatch_not_proof(self):
         a=fixture()
-        a["float16"]["cached_chunk_48"][0]["hooked"][0]+=1
-        a["float16"]["cached_chunk_48"][0]["direct_matches_hook"]=False
+        for row in a["float16"]["cached_chunk_48"]:
+            row["hooked"][0]+=1
+            row["direct_matches_hook"]=False
         x=g.assess(a)
         self.assertEqual(x["diagnostic"],"SHAPE_ISOLATION_INCONCLUSIVE")
     def test_no_fp16_shape_effect_no_proof(self):
