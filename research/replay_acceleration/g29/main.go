@@ -25,7 +25,7 @@ func main(){
  role:=flag.String("role","parent",""); mode:=flag.String("mode","busy",""); flag.Parse()
  if *role=="worker" {
   var x uint64=1469598103934665603
-  n:=uint64(0);if *mode=="busy"{n=30000000}
+  n:=uint64(0);if *mode=="busy"{n=120000000}
   for i:=uint64(0);i<n;i++ {x=(x^i)*1099511628211}
   b:=[]byte(fmt.Sprintf("%016x",x))
   digest:=sha256.Sum256(b)
