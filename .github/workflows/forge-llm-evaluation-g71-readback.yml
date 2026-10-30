@@ -1,0 +1,48 @@
+name: FORGE LLM Evaluation G71 read-only run discovery
+on:
+  push:
+    branches: [research/llm-evaluation-g71-onnx-http-20261030]
+    paths: ['.github/workflows/forge-llm-evaluation-g71-readback.yml']
+permissions:
+  actions: read
+  contents: read
+  issues: write
+jobs:
+  read-g71-source-and-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Read existing G71 run status without repeating model evaluation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request
+          root="https://api.github.com/repos/spoonman136668-ai/FORGE"
+          source="753a3e7fc6a5114f7a0fcbe31df2fa0f78300e26"
+          headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"FORGE-G71-readback"}
+          def api(path,data=None):
+              req=urllib.request.Request(root+path,headers=headers,data=json.dumps(data).encode() if data is not None else None,method="POST" if data is not None else "GET")
+              with urllib.request.urlopen(req,timeout=35) as r:return json.load(r)
+          result={"source_sha":source,"kind":"READ_ONLY_G71_SOURCE_AND_RUN_DISCOVERY","scientific_acceptance":"NOT_GRANTED"}
+          try:
+              runs=api("/actions/workflows/forge-llm-evaluation-g71-onnx-http.yml/runs?branch=research/llm-evaluation-g71-onnx-http-20261030&per_page=50")["workflow_runs"]
+              matches=[r for r in runs if r.get("head_sha")==source and r.get("event")=="push"]
+              result["matching_run_count"]=len(matches)
+              result["runs"]=[]
+              for run in matches[:5]:
+                  item={"id":run["id"],"url":run.get("html_url"),"status":run.get("status"),"conclusion":run.get("conclusion")}
+                  jobs=api("/actions/runs/"+str(run["id"])+"/jobs?per_page=100")["jobs"]
+                  item["jobs"]=[{"name":j.get("name"),"status":j.get("status"),"conclusion":j.get("conclusion")} for j in jobs]
+                  arts=api("/actions/runs/"+str(run["id"])+"/artifacts?per_page=100")["artifacts"]
+                  item["artifacts"]=[{"name":a.get("name"),"id":a.get("id"),"digest":a.get("digest"),"expired":a.get("expired")} for a in arts]
+                  result["runs"].append(item)
+              result["inspection"]="PASS" if matches else "NO_SOURCE_WORKFLOW_RUN_FOUND"
+          except Exception as exc:
+              result["inspection"]="BLOCKED"
+              result["error"]=type(exc).__name__+": "+str(exc)
+          print("G71_RUN_DISCOVERY="+json.dumps(result,sort_keys=True))
+          body="### G71 run discovery (no benchmark rerun)\n\n"+json.dumps(result,indent=2,sort_keys=True)
+          api("/issues/1285/comments",{"body":body})
+          PY
