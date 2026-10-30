@@ -1,0 +1,117 @@
+name: FORGE LLM Evaluation G70 original-run evidence audit
+on:
+  push:
+    branches: [research/llm-evaluation-g70-evidence-audit-20261030]
+    paths:
+      - '.github/workflows/forge-llm-eval-g70-original-readback.yml'
+permissions:
+  contents: read
+  actions: read
+  issues: write
+concurrency:
+  group: forge-llm-eval-g70-original-readback
+  cancel-in-progress: false
+jobs:
+  inspect-previous-g70-results:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read original G70 ONNX and locality results without rerunning benchmarks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, os, urllib.error, urllib.request, zipfile
+          ROOT="https://api.github.com/repos/spoonman136668-ai/FORGE"
+          BRANCH="research/llm-g54-gpt2-pinned-20261030"
+          PR=1250
+          HEADERS={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"forge-g70-evidence-audit"}
+          WORKFLOWS=[
+            ("G70_ONNX","forge-llm-g70-onnx-original.yml","g70-original-gpt2-onnx-independent"),
+            ("G70_LOCALITY","forge-llm-g70-locality-http.yml","g70-gpt2-heldout-locality-http"),
+          ]
+          def api(path,data=None):
+              raw=None if data is None else json.dumps(data).encode()
+              req=urllib.request.Request(ROOT+path,headers=HEADERS,data=raw,method="GET" if raw is None else "POST")
+              with urllib.request.urlopen(req,timeout=35) as resp:
+                  return json.load(resp)
+          def get_zip(artifact_id):
+              class NoRedirect(urllib.request.HTTPRedirectHandler):
+                  def redirect_request(self,req,fp,code,msg,headers,newurl): return None
+              req=urllib.request.Request(ROOT+"/actions/artifacts/"+str(artifact_id)+"/zip",headers=HEADERS)
+              try:
+                  with urllib.request.build_opener(NoRedirect()).open(req,timeout=35) as resp:
+                      return resp.read()
+              except urllib.error.HTTPError as ex:
+                  if ex.code not in (301,302,303,307,308): raise
+                  target=ex.headers.get("Location","")
+                  if not target.startswith("https://"): raise RuntimeError("UNSAFE_ZIP_REDIRECT")
+                  with urllib.request.urlopen(urllib.request.Request(target,headers={"User-Agent":"forge-g70-evidence-audit"}),timeout=35) as resp:
+                      return resp.read()
+          audit={"schema":"forge.llm-eval.g70.readback.v1","kind":"READ_ONLY_EVIDENCE_AUDIT","scientific_acceptance":"NOT_GRANTED","source_branch":BRANCH,"workflows":{}}
+          for key,workflow,expected_artifact in WORKFLOWS:
+              item={"status":"UNVERIFIED","all_run_attempts":[]}
+              audit["workflows"][key]=item
+              try:
+                  runs=api("/actions/workflows/"+workflow+"/runs?branch="+BRANCH+"&per_page=50")["workflow_runs"]
+                  runs=[r for r in runs if r.get("head_branch")==BRANCH and r.get("event")=="push"]
+                  item["all_run_attempts"]=[{"id":r["id"],"sha":r.get("head_sha"),"conclusion":r.get("conclusion"),"status":r.get("status"),"url":r.get("html_url")} for r in runs[:20]]
+                  completed=[r for r in runs if r.get("status")=="completed"]
+                  if not completed: raise RuntimeError("NO_COMPLETED_SOURCE_RUN")
+                  original=completed[0]
+                  item["selected_latest_completed"]={"id":original["id"],"source_sha":original.get("head_sha"),"conclusion":original.get("conclusion"),"url":original.get("html_url")}
+                  jobs=api("/actions/runs/"+str(original["id"])+"/jobs?per_page=100")["jobs"]
+                  item["jobs"]=[{"name":j.get("name"),"conclusion":j.get("conclusion")} for j in jobs]
+                  arts=api("/actions/runs/"+str(original["id"])+"/artifacts?per_page=100")["artifacts"]
+                  arts=[a for a in arts if a.get("name")==expected_artifact and not a.get("expired")]
+                  if len(arts)!=1: raise RuntimeError("EXPECTED_ARTIFACT_COUNT_"+str(len(arts)))
+                  art=arts[0]
+                  item["artifact_id"]=art["id"]
+                  payload=get_zip(art["id"])
+                  digest="sha256:"+hashlib.sha256(payload).hexdigest()
+                  item["zip_sha256"]=digest[7:]
+                  item["github_artifact_digest"]=art.get("digest")
+                  if art.get("digest") and art["digest"] != digest:
+                      raise RuntimeError("GITHUB_ARTIFACT_DIGEST_MISMATCH")
+                  with zipfile.ZipFile(io.BytesIO(payload)) as z:
+                      files=[p for p in z.namelist() if p.endswith("g70_result.json")]
+                      if len(files)!=1: raise RuntimeError("RESULT_JSON_NOT_FOUND")
+                      data=z.read(files[0])
+                      if len(data)>3000000: raise RuntimeError("RESULT_JSON_UNBOUNDED")
+                      result=json.loads(data.decode("utf-8-sig"))
+                  item["result_sha256"]=hashlib.sha256(data).hexdigest()
+                  allowed=("engineering","correctness","backend_feasibility","export_status","screen","performance_acceptance","scientific_acceptance","optimized_serving_engine_control","promotion_allowed","error","status")
+                  item["fields"]={k:result[k] for k in allowed if k in result}
+                  item["result_keys"]=sorted(result.keys())
+                  source_field=result.get("commit",result.get("source_sha"))
+                  if source_field:
+                      item["reported_source_sha"]=source_field
+                      if source_field!=original.get("head_sha"): raise RuntimeError("SOURCE_SHA_MISMATCH")
+                  if original.get("conclusion")!="success":
+                      item["status"]="EXECUTION_FAILURE_RETAINED"
+                  elif key=="G70_ONNX":
+                      item["status"]="PASS_BACKEND_FEASIBILITY" if all(result.get(k)=="PASS" for k in ("engineering","backend_feasibility","export_status")) else "NO_FEASIBILITY_PASS"
+                  else:
+                      item["status"]="PASS_CORRECTNESS_SCREEN_"+str(result.get("screen")) if result.get("engineering")=="PASS" and result.get("correctness")=="PASS" else "NO_CORRECTNESS_PASS"
+              except Exception as ex:
+                  item["error"]=type(ex).__name__+": "+str(ex)
+          print("G70_AUDIT="+json.dumps(audit,sort_keys=True))
+          body="### LLM Evaluation G70 — independently authenticated existing-run readback\n\n"
+          body+="**Source-only investigation; no GPU/CPU test re-executed, no results selected from older runs, no scientific/production acceptance.**\n\n"
+          for key,item in audit["workflows"].items():
+              body+="**"+key+"**: "+item["status"]+"\n\n"
+              if "selected_latest_completed" in item: body+="- Original run: "+str(item["selected_latest_completed"])+"\n"
+              if "artifact_id" in item: body+="- Original artifact ID: "+str(item["artifact_id"])+"; ZIP SHA256: "+str(item.get("zip_sha256"))+"; JSON SHA256: "+str(item.get("result_sha256"))+"\n"
+              if "fields" in item: body+="- Original result status fields: "+json.dumps(item["fields"],sort_keys=True)+"\n"
+              if "error" in item: body+="- Retrieval limitation: "+item["error"]+"\n"
+              body+="- All discovered source-push attempts (newest-first): "+json.dumps(item["all_run_attempts"][:20])+"\n\n"
+          body+="G60–G69 original research outcomes and all failed attempts remain unchanged. This readback creates no new model performance results. CPU GPT-2 evaluation and GPU bottleneck research are distinct.\n"
+          try:
+              comment=api("/issues/"+str(PR)+"/comments",{"body":body})
+              print("G70_PR_COMMENT_URL="+comment.get("html_url",""))
+          except Exception as ex:
+              print("G70_COMMENT_ERROR="+type(ex).__name__+": "+str(ex))
+              raise
+          
+          PY
