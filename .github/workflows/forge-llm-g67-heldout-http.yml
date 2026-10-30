@@ -1,0 +1,75 @@
+name: FORGE G67 original GPT-2 heldout Dolly localhost HTTP serving research
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g67/**'
+      - 'docs/research/G67-HUMAN-HELDOUT-HTTP-SERVING-PREREG.md'
+      - '.github/workflows/forge-llm-g67-heldout-http.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g67-research-readonly
+  cancel-in-progress: false
+jobs:
+  authentic-gpt2-heldout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify independent prereg source and freeze original G54-G66 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 928e50853ada4b30ebb81f4825e534dc1cef7275 HEAD
+          test "$(git rev-parse 928e50853ada4b30ebb81f4825e534dc1cef7275:docs/research/G67-HUMAN-HELDOUT-HTTP-SERVING-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G67-HUMAN-HELDOUT-HTTP-SERVING-PREREG.md)"
+          git diff --exit-code aa1cf5769d139ef30cb85cd8246e692d88c2ef67 HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66
+          python -m py_compile research/llm_g67/g67_heldout_http.py research/llm_g67/test_g67.py
+          python -m unittest discover -s research/llm_g67 -p test_g67.py -v
+          echo G67_FROZEN_SOURCE_AND_HELDOUT_SELECTION_TESTS=PASS
+      - name: Install public source-pinned pretrained CPU evaluation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g67_environment_pip_freeze.txt
+      - name: Evaluate independently pinned human heldout localhost GPT-2 HTTP responses
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g67/g67_heldout_http.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g67_result.json'))
+          assert r['correctness']=='PASS' and r['engineering']=='PASS'
+          assert r['scientific_acceptance']=='NOT_GRANTED' and r['promotion_allowed'] is False
+          assert r['optimized_serving_engine_control']=='NOT_INCLUDED'
+          assert set(r['results'])=={'high_shared_system','unique_system'}
+          assert all(len(cohort['trials'])==2 for cohort in r['results'].values())
+          print('G67_AUTHENTIC_HELDOUT_DOLLY_SOURCE_AND_TOKEN_PARITY=PASS')
+          print('G67_FROZEN_LIBRARY_HTTP_SCREEN='+r['screen'])
+          print('G67_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Preserve full real heldout results and exact dependency freeze
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g67-authentic-gpt2-dolly-heldout-http
+          if-no-files-found: warn
+          path: |
+            g67_result.json
+            g67_environment_pip_freeze.txt
+          retention-days: 30
