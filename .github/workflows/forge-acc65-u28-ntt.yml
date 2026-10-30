@@ -1,0 +1,115 @@
+name: ACC65 U28 source-bound NTT CPU and semantic falsification
+on:
+  push:
+    branches: [research/acc65-u28-ntt-semantics-native-cost-20261030]
+permissions:
+  contents: read
+concurrency:
+  group: acc65-u28-exact-study-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  measure:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original U28 claim and prereg-birth check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 7929942f1bfd97b663bd6c8444a07bce1f957cf4 HEAD
+          test "$(git rev-parse HEAD:research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python -m py_compile research/acceleration/acc65_u28/experiment.py research/acceleration/acc65_u28/test_experiment.py
+          echo ACC65_U28_CUSTODY_AND_SYNTAX=PASS
+      - name: 24 focused NTT and semantic falsifier tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/acceleration/acc65_u28 -p 'test_experiment.py' -v
+          echo ACC65_U28_FOCUSED_TESTS=PASS
+      - name: Inherited AC05 AC06 AC07 AC08 negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/ac05_sourcefree -p 'test_learning.py' -v
+          python -m unittest discover -s research/ac06_sourcefree -p 'test_restricted.py' -v
+          python -m unittest discover -s research/ac07_sourcefree -p 'test_remaining.py' -v
+          python -m unittest discover -s research/ac07_sourcefree -p 'test_ac08_portfolio.py' -v
+          echo ACC65_U28_INHERITED_NEGATIVES=PASS
+      - name: Measure all 72 paired Python CPU cases and classify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research/acceleration/acc65_u28/experiment.py --json "$RUNNER_TEMP/acc65-u28.json"
+          python - "$RUNNER_TEMP/acc65-u28.json" <<'PY'
+          import hashlib,json,sys
+          b=open(sys.argv[1],"rb").read()
+          d=json.loads(b)
+          c=d["classification"]
+          assert len(d["observations"])==72 and len(d["summary"])==8
+          assert c["exact_cyclic_convolution"]=="U28_EXACT_CYCLIC_CONVOLUTION_PASS_RESTRICTED"
+          assert c["full_matrix_kernel_speed"] in ("U28_RESTRICTED_PYTHON_KERNEL_SPEED_POSITIVE_ONLY","U28_NO_GENERAL_VERIFIED_PYTHON_KERNEL_SPEED_WIN")
+          assert c["universal_fixed_convolution_semantics"]=="U28_UNIVERSAL_FIXED_CONVOLUTION_SEMANTICS_NO_GO"
+          assert c["pretrained_model_acceleration"]=="UNVERIFIED"
+          assert c["trained_semantic_quality"]=="UNVERIFIED"
+          assert c["scientific_first_use"]=="NOT_ESTABLISHED"
+          assert c["production_acceptance"]=="NOT_GRANTED"
+          assert all(x["source_a_sha256"] and x["source_b_sha256"] and x["naive_output_sha256"]==x["ntt_output_sha256"]==x["output_sha256"] for x in d["observations"])
+          assert all(x["naive_wall_ns"]>0 and x["ntt_wall_ns"]>0 for x in d["observations"])
+          print("ACC65_U28_ACTUAL_EXACT_CPU_KERNEL_EVIDENCE=PASS")
+          print("ACC65_U28_RESULT_SHA256="+hashlib.sha256(b).hexdigest())
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc65-u28-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc65-u28.json
+          retention-days: 30
+          if-no-files-found: warn
+  audit:
+    needs: measure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc65-u28-*
+          path: artifacts
+      - name: CrossOS source/input/answer equality with independent timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc65-u28-ubuntu-latest'/'acc65-u28.json').read_text())
+          b=json.loads((p/'acc65-u28-windows-latest'/'acc65-u28.json').read_text())
+          assert a["identity"]==b["identity"]
+          assert a["protocol"]==b["protocol"]
+          assert a["semantic_counterexample"]==b["semantic_counterexample"]
+          assert len(a["observations"])==len(b["observations"])==72
+          for aa,bb in zip(a["observations"],b["observations"]):
+            for k in ("n","regime","seed","repeat","source_a_sha256","source_b_sha256","output_sha256","naive_output_sha256","ntt_output_sha256","nnz_a","nnz_b"):
+              assert aa[k]==bb[k],(k,aa[k],bb[k])
+          for x in (a,b):
+            assert x["classification"]["exact_cyclic_convolution"]=="U28_EXACT_CYCLIC_CONVOLUTION_PASS_RESTRICTED"
+            assert x["classification"]["universal_fixed_convolution_semantics"]=="U28_UNIVERSAL_FIXED_CONVOLUTION_SEMANTICS_NO_GO"
+            assert x["classification"]["pretrained_model_acceleration"]=="UNVERIFIED"
+            assert x["classification"]["production_acceptance"]=="NOT_GRANTED"
+            for row in x["summary"]:
+              assert row["naive_median_ns"]>0 and row["ntt_median_ns"]>0 and row["min_paired_speedup"]>0
+          print("ACC65_U28_CROSSOS_EXACT_INPUT_OUTPUT_AND_CUSTODY=PASS")
+          print("ACC65_U28_LINUX_SPEED="+a["classification"]["full_matrix_kernel_speed"])
+          print("ACC65_U28_WINDOWS_SPEED="+b["classification"]["full_matrix_kernel_speed"])
+          PY
