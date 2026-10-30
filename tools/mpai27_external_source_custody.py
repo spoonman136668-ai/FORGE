@@ -82,7 +82,7 @@ def inspect(desc,path,size):
     sha256=hashlib.sha256(data).hexdigest()
     if desc["ext"]=="json":
         must(size==LOCOMO_BYTES,"LOCOMO_SOURCE_BYTES")
-        blob=hashlib.sha1(b"blob "+str(size).encode()+b"\\0"+data).hexdigest()
+        blob=hashlib.sha1(b"blob "+str(size).encode()+b"\0"+data).hexdigest()
         must(blob==desc["git_blob"],"LOCOMO_BLOB_DRIFT")
         parsed=json.loads(data)
         must(type(parsed) is list and len(parsed)==10,"LOCOMO_SCHEMA_COUNT")
