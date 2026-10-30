@@ -1,0 +1,99 @@
+name: FORGE research G57 exact frozen G51 GPT-2 replay
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g57/**'
+      - '.github/workflows/forge-llm-g57-exact-g51.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g57-readonly
+  cancel-in-progress: false
+jobs:
+  g57-exact-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify byte-identical frozen G51 original before code execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          base64 --decode research/llm_g57/g51_original_archive.b64 > g51_original.zip
+          echo '0c24e5a599fb7608836a22ca4c36ee695de762c0de89d29b5cb4bf2244e4831c  g51_original.zip' | sha256sum --check
+          unzip -q g51_original.zip
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import hashlib
+          p=Path('g51_original.zip')
+          expected={'g51_gpt2/README.md','g51_gpt2/admission.py','g51_gpt2/g51_gpt2_generation.py','g51_gpt2/test_g51.py'}
+          with ZipFile(p) as z:
+              assert set(z.namelist())==expected
+              assert all(not n.startswith('/') and '..' not in Path(n).parts for n in z.namelist())
+              for name in expected:
+                  assert Path(name).read_bytes()==z.read(name)
+          print('G57_FROZEN_G51_ZIP_SHA256='+hashlib.sha256(p.read_bytes()).hexdigest())
+          print('G57_G51_SOURCE_BYTE_EQUIVALENCE=PASS')
+          PY
+      - name: Install pinned public inference dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          python -m pip freeze > g57_environment_pip_freeze.txt
+      - name: Original unchanged engineering tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s g51_gpt2 -p test_g51.py -v
+      - name: Authentic pinned model execution of unchanged G51 program
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys
+          sys.path.insert(0,'research/llm_g55')
+          from g55_gpt2_controls import stage
+          root, entries=stage()
+          assert len(entries)==7
+          assert str(root)=='g55_frozen_model'
+          print('G57_AUTHENTIC_MODEL_IDENTITY=PASS')
+          PY
+          python g51_gpt2/g51_gpt2_generation.py --model-dir g55_frozen_model --manifest g55_frozen_model/manifest.json --device cpu --tokens 32 --repeats 5 --output g57_original_g51_result.json
+          python - <<'PY'
+          import json
+          r=json.load(open('g57_original_g51_result.json'))
+          assert r['correctness']=='PASS'
+          assert r['promotion_allowed'] is False
+          assert r['requests_per_arm']==3 and r['generated_tokens_per_request']==32
+          assert len(r['repetitions'])==5
+          assert r['model_revision']=='607a30d783dfa663caf39e06633721c8d4cfcd7e'
+          print('G57_ORIGINAL_G51_AUTHENTIC_TOKEN_PARITY=PASS')
+          print('G57_ORIGINAL_G51_SCREEN='+r['screen'])
+          print('G57_ORIGINAL_G51_MEDIAN_SPEEDUP='+str(r['median_paired_speedup']))
+          print('G57_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Archive exact-source result and dependencies
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g57-exact-frozen-g51-authentic-replay
+          if-no-files-found: warn
+          path: |
+            g57_original_g51_result.json
+            g57_environment_pip_freeze.txt
+          retention-days: 30
