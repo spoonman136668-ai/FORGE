@@ -133,8 +133,8 @@ def main():
                 raise RuntimeError("MODEL_ARCHITECTURE_DRIFT")
             impl=m.config._attn_implementation
             kind=type(m.model.layers[0].self_attn).__name__
-            if impl!=backend or ((backend=="sdpa") != ("Sdpa" in kind)):
-                raise RuntimeError(f"ATTENTION_BACKEND_NOT_REALIZED:{backend}:{impl}:{kind}")
+            if impl!=backend:
+                raise RuntimeError(f"ATTENTION_CONFIG_BACKEND_DRIFT:{backend}:{impl}:{kind}")
             if next(m.parameters()).device.type!="cuda":
                 raise RuntimeError("GPU_MODEL_CPU_FALLBACK")
             models[backend]=m
@@ -142,6 +142,25 @@ def main():
                 "implementation":impl,"attention_class":kind,
                 "dtype":str(next(m.parameters()).dtype),
                 "parameters":sum(p.numel() for p in m.parameters())}
+        # Actual operator dispatch, not an unreliable historical attention class name.
+        # Profile the CPU dispatcher while the real model executes on cuda:0.
+        from torch.profiler import profile, ProfilerActivity
+        operator_proof={}
+        with torch.inference_mode():
+            for backend in BACKENDS:
+                with profile(activities=[ProfilerActivity.CPU]) as prof:
+                    models[backend](input_ids=complete[:,:16].to(dev),
+                                    use_cache=True)
+                    torch.cuda.synchronize(dev)
+                keys=[x.key for x in prof.key_averages()]
+                sdpa_count=sum(1 for k in keys if "aten::scaled_dot_product_attention" == k)
+                operator_proof[backend]={
+                    "actual_aten_sdpa_operator_seen":bool(sdpa_count),
+                    "aten_sdpa_op_keys":sdpa_count,
+                    "executed_on_device":"cuda:0"}
+                if bool(sdpa_count) != (backend=="sdpa"):
+                    raise RuntimeError(f"REAL_ATTENTION_DISPATCH_MISMATCH:{backend}:{sdpa_count}")
+        result["actual_attention_operator_proof"]=operator_proof
         torch.cuda.synchronize(dev)
         torch.cuda.reset_peak_memory_stats(dev)
 
