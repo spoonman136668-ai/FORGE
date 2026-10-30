@@ -1,0 +1,120 @@
+name: ACC64 U04 real local subprocess LoRA gradient training
+on:
+  push:
+    branches: [research/acc64-u04-local-micro-lora-training-20261030]
+permissions:
+  contents: read
+concurrency:
+  group: acc64-u04-local-process-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  train:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check original source, prospective freeze, code compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor b220304101f8944f2738c3f318dbd68a9208c661 HEAD
+          test "$(git rev-parse HEAD:research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python -m py_compile research/acceleration/acc64_u04/experiment.py research/acceleration/acc64_u04/test_experiment.py
+          echo ACC64_U04_ORIGINAL_SOURCE=PASS
+      - name: Run 22 focused LoRA gradient, process and source controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/acceleration/acc64_u04 -p 'test_experiment.py' -v
+          echo ACC64_U04_FOCUSED_GRADIENT_TESTS=PASS
+      - name: Run AC05 to AC08 inherited negative portfolio tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/ac05_sourcefree -p 'test_learning.py' -v
+          python -m unittest discover -s research/ac06_sourcefree -p 'test_restricted.py' -v
+          python -m unittest discover -s research/ac07_sourcefree -p 'test_remaining.py' -v
+          python -m unittest discover -s research/ac07_sourcefree -p 'test_ac08_portfolio.py' -v
+          echo ACC64_U04_INHERITED_NEGATIVES=PASS
+      - name: Run original local 48 full training cases with real IPC
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research/acceleration/acc64_u04/experiment.py --json "$RUNNER_TEMP/acc64-u04.json"
+          python - "$RUNNER_TEMP/acc64-u04.json" <<'PY'
+          import sys,json,hashlib,math
+          raw=open(sys.argv[1],"rb").read()
+          j=json.loads(raw)
+          c=j["classification"]
+          assert j["schema"]=="forge.acc64.u04.original-local-process-lora.v1"
+          assert len(j["observations"])==48 and len(j["cohorts"])==2
+          assert c["analytic_lora_training_equivalence"]=="PASS"
+          assert c["four_worker_local_wall_speed"] in ("U04_RESTRICTED_LOCAL_WALL_POSITIVE_ONLY",
+              "U04_NO_GENERAL_VERIFIED_LOCAL_PROCESS_SPEED_WIN")
+          assert c["actual_cross_host_network"]=="UNVERIFIED"
+          assert c["total_host_child_cpu"]=="UNVERIFIED" and c["peak_physical_rss"]=="UNVERIFIED"
+          assert c["actual_pretrained_llm_training"]=="UNVERIFIED"
+          assert c["scientific_first_use"]=="NOT_ESTABLISHED"
+          assert c["production_admission"]=="NOT_GRANTED"
+          assert all(row["steps"]==4 and row["wall_ns"]>0 and math.isfinite(row["final_valid_loss"]) for row in j["observations"])
+          assert all(row["ipc_bytes"]>0 for row in j["observations"] if row["mode"]!="serial")
+          assert all(row["workers"]==4 for row in j["observations"] if row["mode"]=="process_4")
+          assert j["numerical"]["max_param_abs_error"]<=1e-9 and j["numerical"]["max_valid_loss_abs_error"]<=1e-9
+          print("ACC64_U04_AUTHENTIC_LOCAL_TRAINING=PASS")
+          print("ACC64_U04_SOURCE_RESULT_SHA256="+hashlib.sha256(raw).hexdigest())
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc64-u04-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc64-u04.json
+          if-no-files-found: warn
+          retention-days: 30
+  audit:
+    needs: train
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc64-u04-*
+          path: artifacts
+      - name: Independent source, numerical and wall-result audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib,math
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc64-u04-ubuntu-latest'/'acc64-u04.json').read_text())
+          b=json.loads((p/'acc64-u04-windows-latest'/'acc64-u04.json').read_text())
+          assert a['identity']==b['identity']
+          assert a['experiment']==b['experiment']
+          assert len(a['observations'])==len(b['observations'])==48
+          assert all(x['numerical']['all_modes_equivalent'] for x in (a,b))
+          for x in (a,b):
+            assert len(x['cohorts'])==2 and all(c['process4_over_serial']>0 and c['process4_over_process1']>0 for c in x['cohorts'])
+            assert x['classification']['production_admission']=='NOT_GRANTED'
+            assert x['classification']['actual_cross_host_network']=='UNVERIFIED'
+          for aa,bb in zip(a['observations'],b['observations']):
+            for key in ('n','seed','mode','steps','fit_count','workers','repeat'):
+              assert aa[key]==bb[key],(key,aa[key],bb[key])
+            assert abs(aa['final_train_loss']-bb['final_train_loss'])<1e-8
+            assert abs(aa['final_valid_loss']-bb['final_valid_loss'])<1e-8
+            assert aa['param_fingerprint']==bb['param_fingerprint']
+          both_fast=all(x['classification']['four_worker_local_wall_speed']=='U04_RESTRICTED_LOCAL_WALL_POSITIVE_ONLY' for x in (a,b))
+          print('ACC64_U04_CROSSOS_NUMERIC_AND_SOURCE=PASS')
+          print('ACC64_U04_JOINT_LATENCY_DISPOSITION='+('RESTRICTED_POSITIVE' if both_fast else 'NO_GENERAL_VERIFIED_LOCAL_PROCESS_SPEED_WIN'))
+          print('ACC64_U04_REAL_LLM_QUALIFICATION=UNVERIFIED')
+          PY
