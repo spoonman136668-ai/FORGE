@@ -1,0 +1,70 @@
+name: FORGE research G58 authentic Alice partial-backward training
+on:
+  push:
+    branches: [research/llm-g58-partial-backward-20261030]
+    paths:
+      - 'research/llm_g57/g58_partial_backward.py'
+      - 'research/llm_g57/test_g58.py'
+      - '.github/workflows/forge-llm-g58-partial-backward.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g58-readonly
+  cancel-in-progress: false
+jobs:
+  g58-partial-backward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned CPU PyTorch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip freeze > g58_pip_freeze.txt
+      - name: Verify frozen prereg and gradient truncation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -s docs/research/ACC-G58-PREREG-20261030.md
+          python -m py_compile research/llm_g57/g57_train.py research/llm_g57/g58_partial_backward.py research/llm_g57/test_g58.py
+          python -m unittest discover -s research/llm_g57 -p test_g58.py -v
+          echo G58_FROZEN_GRADIENT_TESTS=PASS
+      - name: Train 12 matched authentic Alice models from scratch
+        shell: bash
+        env:
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          set -euo pipefail
+          python -u research/llm_g57/g58_partial_backward.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g58_result.json'))
+          assert r['git_source_blob']=='6c89ee6db335fcd14ff756e5841aba7b9cd708d0'
+          assert r['source_bytes']==167497
+          assert len(r['results'])==12 and len(r['paired'])==3
+          assert {v['seed'] for v in r['results']}=={2701,2703,2707}
+          assert {v['arm'] for v in r['results']}=={'baseline','top2_half','top2_two_thirds','top3_two_thirds'}
+          assert r['scientific_acceptance']=='NOT_GRANTED'
+          assert r['general_acceleration_proven'] is False
+          print('G58_AUTHENTIC_12_OF_12=PASS')
+          print('G58_QUALIFIED='+json.dumps(r['qualified'],sort_keys=True))
+          PY
+      - name: Upload raw no-promotion research artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g58-authentic-alice-three-seed-four-arm
+          if-no-files-found: warn
+          path: |
+            g58_result.json
+            g58_pip_freeze.txt
+          retention-days: 30
