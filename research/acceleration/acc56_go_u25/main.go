@@ -1,9 +1,9 @@
 package main
 import("bytes";"crypto/sha256";"encoding/binary";"encoding/hex";"encoding/json";"errors";"flag";"fmt";"os";"os/exec";"runtime";"sort";"time")
-const schema="forge.acc56.u25.nativego.v1"
+const schema="forge.acc56.u25.stageb.nativego.v1"
 const tasks=64
 const budget=64
-const repetitions=64
+const repetitions=4096
 var seeds=[]uint64{106101,106103,106107,106109,106111}
 var families=[]string{"AFFINE","QUADRATIC","CONSTANT","NOISY"}
 var arms=[]string{"UNIFORM","LENGTH","ERROR_FIRST","LEVIN"}
