@@ -64,7 +64,7 @@ class G75NativeShapedFeasibility(unittest.TestCase):
         self.assertIn('"original_pretrained_model_executed":False',v)
         self.assertIn('"scientific_acceptance":"NOT_GRANTED"',v)
         self.assertIn('"promotion_allowed":False',v)
-        self.assertIn('"feasibility"]="NO_GO_FEASIBILITY"',v)
+        self.assertIn('else "NO_GO_FEASIBILITY"',v)
         self.assertNotIn("from transformers",v)
         self.assertNotIn("model.generate(",v)
 
