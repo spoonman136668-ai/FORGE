@@ -1,7 +1,7 @@
 # E Research E1-A–E1-C — advisory chemical-dynamics results (2026-10-29)
 
-**Record ID:** E-RESEARCH-E1-20261029-FIT-ADVISORY  
-**Status:** Advisory-only; **engineering FAIL** at E1-C; **scientific learning/self-maintenance UNVERIFIED**.  
+**Record ID:** E-RESEARCH-E1-20261029-FIT-ADVISORY
+**Status:** Advisory-only; **engineering FAIL** at E1-C; **scientific learning/self-maintenance UNVERIFIED**.
 **Origin:** Isolated ChatGPT-session CPU simulations, not a FORGE scientific experiment, native FSA original, independent witness, or sealed first-use event. This document preserves reported observations and source digests, **not authenticated original custody**. No promotion, dispatch, owner/runtime/controller change, or acceptance is implied.
 
 ## Purpose and relevance
