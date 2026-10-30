@@ -1,4 +1,4 @@
-name: NR-M1Z/M2A/M2B Native Predictive-State Interfaces (Source-only)
+name: NR-M1Z/M2A/M2B/M2C Native Predictive-State Interfaces (Source-only)
 on:
   pull_request:
     paths:
@@ -11,6 +11,9 @@ on:
       - 'research/nr-m1x/NR_M2B_PREREG.json'
       - 'research/nr-m1x/nr_m2b_factor_cells.py'
       - 'research/nr-m1x/test_nr_m2b_factor_cells.py'
+      - 'research/nr-m1x/NR_M2C_PREREG.json'
+      - 'research/nr-m1x/nr_m2c_goals.py'
+      - 'research/nr-m1x/test_nr_m2c_goals.py'
       - '.github/workflows/nr-m1z-native-interface.yml'
   workflow_dispatch:
 permissions:
@@ -38,6 +41,17 @@ jobs:
         run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2a_online_seam.py' -v
       - name: Test source-only cross-episode trained factor-cell inference against unchanged strong R7
         run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2b_factor_cells.py' -v
+      - name: Validate synthetic public-goal decisions, 8-step forecasts and matched controls
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2c_goals.py' -v
+      - name: Persist machine-readable source-only goal and resource comparison
+        run: python -B research/nr-m1x/nr_m2c_goals.py --output "${{ runner.temp }}/nr-m2c-result.json"
+      - name: Preserve immutable native-versus-controls receipt within CI
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nr-m2c-source-only-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/nr-m2c-result.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Reject tracked source mutations
         run: git diff --exit-code
 
