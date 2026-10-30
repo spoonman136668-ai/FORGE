@@ -97,5 +97,31 @@ class HandoffTests(unittest.TestCase):
         with self.assertRaises(Invalid):
             validate_handoff(self.change(combine))
 
+
+    def test_mass_source_anchor_is_immutable_advisory_not_owner_transfer(self):
+        h=json.loads(RAW)
+        mass=next(x for x in h["workstreams"] if x["id"]=="mass-research")
+        self.assertEqual(mass["handoff_status"],"UNVERIFIED")
+        self.assertEqual(mass["oversight"],"unified-research")
+        self.assertTrue(mass["separate_scientific_lineage"])
+        self.assertIn({
+            "url":"https://github.com/spoonman136668-ai/Yggdrasil/pull/423",
+            "sha":"d31c8d00ccc2bb00f098b87097610329637a37f6",
+            "claim":"SOURCE_POINTER_ONLY"},mass["source_pointers"])
+        self.assertFalse(validate_handoff(RAW)["retirement_ready"])
+
+    def test_missing_mass_symbolic_original_anchor_fails_closed(self):
+        def drop(x):
+            next(row for row in x["workstreams"] if row["id"]=="mass-research")["source_pointers"]=[]
+        with self.assertRaises(Invalid):
+            validate_handoff(self.change(drop))
+
+    def test_unqualified_mass_source_substitution_does_not_inherit_custody(self):
+        def replace(x):
+            mass=next(row for row in x["workstreams"] if row["id"]=="mass-research")
+            mass["source_pointers"][0]["url"]="https://github.com/spoonman136668-ai/Yggdrasil/pull/424"
+        with self.assertRaises(Invalid):
+            validate_handoff(self.change(replace))
+
 if __name__=="__main__":
     unittest.main()
