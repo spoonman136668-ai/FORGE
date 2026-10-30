@@ -1,0 +1,103 @@
+name: FORGE ACC G66 original WikiText fp16 fp32 numerical path diagnostics
+on:
+  push:
+    branches: [research/acc-g66-fp32-precision-20261030]
+    paths:
+      - 'research/acc_g66/**'
+      - '.github/workflows/forge-acc-g66-precision.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g66-isolated-rtx-readonly
+  cancel-in-progress: false
+jobs:
+  g66-original-precision:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen prereg and 11 focused source integrity tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G66_SOURCE_SHA_DRIFT' }
+          if (-not (Test-Path 'docs/research/ACC-G66-PREEXEC-20261030.md')) { throw 'G66_PREREG_MISSING' }
+          $p=Get-Command python -ErrorAction Stop
+          & $p.Source -m py_compile research/acc_g66/g66_precision.py research/acc_g66/test_g66.py
+          if ($LASTEXITCODE -ne 0) { throw 'G66_COMPILE_FAIL' }
+          & $p.Source -m unittest discover -s research/acc_g66 -p test_g66.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G66_SOURCE_TEST_FAIL' }
+          Write-Output 'G66_FROZEN_SOURCE_TESTS=PASS'
+      - name: Create disposable CUDA venv with original source custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G66_TEMP_DISK_FREE_LT_10GB' }
+          foreach ($name in @('acc-g66-venv','acc-g66-hf','acc-g66-wikitext-test.txt')) {
+            $path=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) { throw "G66_TEMP_PATH_COLLISION:$path" }
+          }
+          $p=Get-Command python -ErrorAction Stop
+          & $p.Source -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G66_PYTHON_COMPAT_FAILED' }
+          & $p.Source -m venv (Join-Path $env:RUNNER_TEMP 'acc-g66-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G66_VENV_FAILED' }
+          Write-Output 'G66_TEMP_SCOPE_CREATED=PASS'
+      - name: Install pinned Blackwell CUDA and original HF runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g66-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G66_CUDA_PACKAGE_INSTALL_FAIL' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G66_HF_PACKAGE_INSTALL_FAIL' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g66_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G66_ENVIRONMENT_IDENTITY_FAIL' }
+          Write-Output 'G66_DISPOSABLE_CUDA_RUNTIME=PASS'
+      - name: Compare authentic model FP16 FP32 cached chunk full numerical paths on RTX
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g66-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g66-hf'
+          $env:G66_CORPUS=Join-Path $env:RUNNER_TEMP 'acc-g66-wikitext-test.txt'
+          $env:G66_RESULT=Join-Path (Get-Location).Path 'g66_result.json'
+          & $p -u research/acc_g66/g66_precision.py
+          if ($LASTEXITCODE -ne 0) { throw 'G66_SOURCE_IDENTITY_OR_GPU_NUMERIC_DIAGNOSTIC_BLOCKED' }
+          & $p -c 'import json; r=json.load(open("g66_result.json")); assert r["status"]=="PASS_DIAGNOSTIC_MEASUREMENT"; assert all(len(r["logit_modes"][d][m])==3 for d in ("float16","float32") for m in ("cached_one_by_one","cached_chunk_48","full_no_cache")); assert r["original_g63_final"]=="FAIL_NO_GO_UNCHANGED"; assert not r["novel_acceleration"]; print("G66_REAL_RTX_SIX_PATHS_18_LOGIT_TRACES=PASS"); print("G66_PRECISION="+json.dumps(r["precision_decision"],sort_keys=True))'
+          if ($LASTEXITCODE -ne 0) { throw 'G66_ACCEPTANCE_INVARIANT_FAIL' }
+      - name: Upload primary authenticated numerical evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g66-authentic-rtx-fp16-fp32
+          path: |
+            g66_result.json
+            g66_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Delete disposable software model cache and original text
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g66-venv','acc-g66-hf','acc-g66-wikitext-test.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) {
+              Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Output 'G66_ISOLATED_SOFTWARE_CORPUS_CLEANUP=PASS'
