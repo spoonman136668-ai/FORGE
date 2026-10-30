@@ -1,0 +1,25 @@
+# ACC-72 U06 — analog/resistive arithmetic inside commodity DRAM: physical evidence gate
+
+**2026-10-30 frozen evidence boundary.** The original one-based U06 in the source-pinned 30-method registry is `analog arithmetic in commodity DRAM`, `research/ac07_sourcefree/ac08_portfolio.py` original Git blob `5126c860771fb024ccfc14c3f7ee8925edf29787`. The original AC07 `research/ac07_sourcefree/remaining.py` explicitly declares `PHYSICAL_ONLY={"U03","U06"}`; its `physical_substitutes` merely computes a reproducible 64-element **digital** dot product, and explicitly states `dram_in_situ_analog_arithmetic_executed=False` and `physical_claim_tested=False`. It is not an in-DRAM analog experiment. No separate dedicated U06 physical study is identifiable in current FORGE research PRs. Preserve its distinction from U03, the NUMA/HBM claim.
+
+## Claims that must not be conflated
+1. Commodity DRAM stores charge in cells and uses sensing/precharge hardware; executing arbitrary analog weighted dot products **inside unmodified standard DRAM** is not demonstrated by a CPU-side digital operation. A software `emulator` cannot manufacture a physical analog compute array. This is a hardware implementation boundary, not a measured rejection of every in-memory computing technology.
+2. **Analog or mixed-signal in-memory compute can be physically real on specialized circuits** (resistive RAM, SRAM variants, modified DRAM periphery or dedicated accelerators). The feasibility and accuracy of a particular device must be demonstrated with authenticated hardware documentation, device identity and real measurements; do not assume an unmodified consumer DRAM DIMM has those functions.
+3. The narrower **digital approximation or mixed-precision simulation** can be benchmarked on current CPUs/GPUs, but it must be labeled digital compute and compared fairly with exact or optimized digital baseline. Such a result **cannot close U06's physical claim**, and cannot alone qualify a real LLM gain.
+
+## Preregistered physical test, blocked until suitable hardware exists
+* **Hardware custody**: authenticated part numbers, physical module/periphery and board/controller, a documented interface that actually issues array-level analog MAC/in-DRAM operations, firmware and driver hashes; external sensor calibration and independent hardware witness. Ordinary commodity DRAM must be classified unsupported unless the capability is proven. Do not probe unknown privileged device addresses or modify DRAM timing, voltage, refresh or BIOS.
+* **Accuracy**: independent digital full-precision reference, fixed quantization scheme, randomized 1/0 polarity and negative weights, range and saturation checks, device noise/read disturb/temperature/drift characterization, calibration training leakage, variance, and both single-op and full-model heldout error. No accuracy threshold may be chosen after seeing outputs.
+* **Resource**: real device operation time, conversion DAC/ADC and control overhead, peripheral setup, reprogramming, transfer/host CPU, end-to-end token/s and time-to-first-token with strong complete-model digital baselines, energy per correct output, peak memory including host/device copies, retries, endurance and cumulative calibration. Do not hide transfer costs by quoting only array-operation peak TOPS.
+* **Trial design**: independent FIT/DEV/TEST samples and source hash, matched model/precision/context and repetitions, thermal stabilization and random order, confidence intervals, falsifiable acceptance threshold frozen before data collection. Physical measurement must occur on actual representative available hardware; if hardware absent, verdict is `UNSUPPORTED_HARDWARE`, **not** a numerical speed failure.
+* **Authority**: ordinary GitHub-hosted research CI is source/document custody only, not proof of local physical analog DRAM operations. Use only the verified original hardware-qualified runner where its contract covers read-only physical measurement. No privilege elevation, firmware flashing, voltage changes, hardware emulation disguised as measurement, protected-main modifications, new FORGE controller or paid API.
+
+## Current decision / completeness
+- `U06_DIGITAL_DOT_PRODUCT_IS_NOT_PHYSICAL_ANALOG_DRAM=CONFIRMED`.
+- `U06_UNMODIFIED_COMMODITY_DRAM_IN_SITU_ANALOG_MAC=UNVERIFIED`.
+- `U06_PHYSICAL_HARDWARE_QUALIFICATION=BLOCKED_NO_AUTHENTIC_HARDWARE_EVIDENCE`.
+- `U06_REAL_MODEL_SPEED_ACCURACY_ENERGY=UNVERIFIED`.
+- `U06_SOURCE_CUSTODY=PASS`; `U06_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED`; `U06_PRODUCTION_ACCEPTANCE=NOT_GRANTED`.
+- **DO NOT count this as a completed physical U06 experiment.** It is a completed evidence/admission boundary. The original portfolio has 30/30 initial source-free screens, 28 method-specific deeper software/synthetic studies, and **U03/U06 still lacking genuine physical evaluation**, not 30/30 scientifically qualified. Strong conventional methods and real model transfer qualification remain incomplete across the portfolio.
+
+Draft/unmerged and isolated. Do not change current owner autonomy, model selection or production.
