@@ -1,0 +1,104 @@
+name: FORGE ACC G71 original RTX layer0-Q FP32 local engineering
+on:
+  push:
+    branches: [research/acc-g71-q0-fp32-engineering-20261030]
+    paths:
+      - 'research/acc_g71/**'
+      - '.github/workflows/forge-acc-g71-q0-fp32.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g71-original-rtx-precision
+  cancel-in-progress: false
+jobs:
+  g71-layer0-q-engineering:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen prereg and compile original-source scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G71_EXECUTED_SOURCE_SHA_DRIFT' }
+          if (-not (Test-Path 'docs/research/ACC-G71-PREEXEC-20261030.md')) { throw 'G71_PREEXEC_NOT_FROZEN' }
+          & python -m py_compile research/acc_g71/g71_q0_fp32.py research/acc_g71/test_g71.py
+          if ($LASTEXITCODE -ne 0) { throw 'G71_SOURCE_COMPILE_FAILED' }
+          Write-Output 'G71_SOURCE_PREREG_AND_SYNTAX=PASS'
+      - name: Create isolated disposable pinned runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G71_TEMP_SPACE_LT_10GB' }
+          foreach ($name in @('acc-g71-venv','acc-g71-hf','acc-g71-wikitext-test.txt','acc-g71-tinyshakespeare.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { throw "G71_TEMP_PATH_COLLISION:$p" }
+          }
+          & python -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G71_PYTHON_VERSION_DRIFT' }
+          & python -m venv (Join-Path $env:RUNNER_TEMP 'acc-g71-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G71_ISOLATED_VENV_FAILED' }
+      - name: Install exact original Blackwell CUDA and HF software
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g71-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G71_TORCH_2_8_CUDA128_FAILED' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G71_TRANSFORMERS_PINS_FAILED' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g71_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G71_DEPENDENCY_PROVENANCE_FAILED' }
+      - name: Run 16 focused custody and falsifying controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g71-venv\Scripts\python.exe'
+          & $p -m unittest discover -s research/acc_g71 -p test_g71.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G71_FROZEN_SOURCE_NEGATIVES_FAILED' }
+          Write-Output 'G71_16_FOCUSED_SOURCE_TESTS=PASS'
+      - name: Qualify original RTX one-Q FP32 on known and pinned independent source
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g71-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g71-hf'
+          $env:G71_CORPUS=Join-Path $env:RUNNER_TEMP 'acc-g71-wikitext-test.txt'
+          $env:G71_FRESH=Join-Path $env:RUNNER_TEMP 'acc-g71-tinyshakespeare.txt'
+          $env:G71_RESULT=Join-Path (Get-Location).Path 'g71_result.json'
+          & $p -u research/acc_g71/g71_q0_fp32.py
+          if ($LASTEXITCODE -ne 0) { throw 'G71_SOURCE_GPU_OR_SOURCE_IDENTITY_BLOCKED' }
+          & $p -c 'import json; r=json.load(open("g71_result.json")); c=r["classification"]; assert r["status"]=="PASS_COMPLETE_FROZEN_ORIGINAL_GPU_MEASUREMENT"; assert len(r["cases"])==5 and len(r["prompt_hashes_sha256"])==5; assert set(r["original_forced_logits"])==set(("original_fp16","layer0_q_fp32","original_fp32_full")); assert all(len(r["original_forced_logits"][v][m])==3 for v in ("original_fp16","layer0_q_fp32","original_fp32_full") for m in ("cached_one_by_one","cached_chunk_48","full_no_cache")); assert all(len(r["cases"][i]["variants"][v]["runs"][a])==3 for i in range(5) for v in ("original_fp16","layer0_q_fp32") for a in ("baseline","candidate")); assert c["engineering_screen"] in ("ENGINEERING_SCREEN_PASS_ONLY","NO_GO_ENGINEERING"); assert c["prior_g63_original_generalization"]=="FAIL_NO_GO_UNCHANGED"; assert c["prior_g67_output_head"]=="NO_GO_ENGINEERING"; assert c["scientific_acceptance"]=="NOT_GRANTED"; assert not c["qualified_novel_acceleration"]; print("G71_AUTHENTIC_RTX_FULL_SCREEN_EVIDENCE=PASS"); print("G71_ENGINEERING="+c["engineering_screen"])'
+          if ($LASTEXITCODE -ne 0) { throw 'G71_FROZEN_QUALIFICATION_DATA_INCOMPLETE' }
+      - name: Upload numeric evidence and runtime pins only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g71-authentic-rtx-layer0-q-fresh-source
+          path: |
+            g71_result.json
+            g71_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Delete disposable software weights and both text sources
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g71-venv','acc-g71-hf','acc-g71-wikitext-test.txt','acc-g71-tinyshakespeare.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop }
+          }
+          Write-Output 'G71_DISPOSABLE_MODEL_SOFTWARE_AND_CORPORA_CLEANUP=PASS'
