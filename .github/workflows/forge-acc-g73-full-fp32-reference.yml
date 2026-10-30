@@ -1,0 +1,104 @@
+name: FORGE ACC G73 original RTX full FP32 decoding reference only
+on:
+  push:
+    branches: [research/acc-g73-full-fp32-reference-engineering-20261030]
+    paths:
+      - 'research/acc_g73/**'
+      - '.github/workflows/forge-acc-g73-full-fp32-reference.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g73-original-rtx-precision
+  cancel-in-progress: false
+jobs:
+  g73-layer0-q-engineering:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen prereg and compile original-source scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G73_EXECUTED_SOURCE_SHA_DRIFT' }
+          if (-not (Test-Path 'docs/research/ACC-G73-PREEXEC-20261030.md')) { throw 'G73_PREEXEC_NOT_FROZEN' }
+          & python -m py_compile research/acc_g73/g73_full_fp32_reference.py research/acc_g73/test_g73.py
+          if ($LASTEXITCODE -ne 0) { throw 'G73_SOURCE_COMPILE_FAILED' }
+          Write-Output 'G73_SOURCE_PREREG_AND_SYNTAX=PASS'
+      - name: Create isolated disposable pinned runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G73_TEMP_SPACE_LT_10GB' }
+          foreach ($name in @('acc-g73-venv','acc-g73-hf','acc-g73-wikitext-test.txt','acc-g73-tinyshakespeare.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { throw "G73_TEMP_PATH_COLLISION:$p" }
+          }
+          & python -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G73_PYTHON_VERSION_DRIFT' }
+          & python -m venv (Join-Path $env:RUNNER_TEMP 'acc-g73-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G73_ISOLATED_VENV_FAILED' }
+      - name: Install exact original Blackwell CUDA and HF software
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g73-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G73_TORCH_2_8_CUDA128_FAILED' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G73_TRANSFORMERS_PINS_FAILED' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g73_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G73_DEPENDENCY_PROVENANCE_FAILED' }
+      - name: Run 17 focused original custody and falsifying controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g73-venv\Scripts\python.exe'
+          & $p -m unittest discover -s research/acc_g73 -p test_g73.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G73_FROZEN_SOURCE_NEGATIVES_FAILED' }
+          Write-Output 'G73_17_FOCUSED_SOURCE_TESTS=PASS'
+      - name: Quantify original RTX full FP32 vs FP16 exact 64-token matched-precision reference
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g73-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g73-hf'
+          $env:G73_CORPUS=Join-Path $env:RUNNER_TEMP 'acc-g73-wikitext-test.txt'
+          $env:G73_FRESH=Join-Path $env:RUNNER_TEMP 'acc-g73-tinyshakespeare.txt'
+          $env:G73_RESULT=Join-Path (Get-Location).Path 'g73_result.json'
+          & $p -u research/acc_g73/g73_full_fp32_reference.py
+          if ($LASTEXITCODE -ne 0) { throw 'G73_SOURCE_GPU_OR_SOURCE_IDENTITY_BLOCKED' }
+          & $p -c 'import json; r=json.load(open("g73_result.json")); c=r["classification"]; assert r["status"]=="PASS_COMPLETE_FROZEN_ORIGINAL_GPU_MEASUREMENT"; assert len(r["cases"])==5 and len(r["prompt_hashes_sha256"])==5; assert set(r["original_forced_logits"])==set(("original_fp16","original_fp32_full")); assert all(len(r["original_forced_logits"][v][m])==3 for v in ("original_fp16","original_fp32_full") for m in ("cached_one_by_one","cached_chunk_48","full_no_cache")); assert all(len(r["cases"][i]["variants"][v]["runs"][a])==3 for i in range(5) for v in ("original_fp16","original_fp32_full") for a in ("baseline","candidate")); assert c["reference_screen"] in ("REFERENCE_PRECISION_SCREEN_PASS_ONLY","NO_GO_REFERENCE"); assert c["prior_g63_original_generalization"]=="FAIL_NO_GO_UNCHANGED"; assert c["prior_g67_output_head"]=="NO_GO_ENGINEERING"; assert c["prior_g71_q0_fp32"]=="NO_GO_ENGINEERING"; assert c["prior_g72_rowwise_q0"]=="NO_GO_ENGINEERING"; assert c["scientific_acceptance"]=="NOT_GRANTED"; assert not c["qualified_novel_acceleration"]; print("G73_AUTHENTIC_RTX_FULL_SCREEN_EVIDENCE=PASS"); print("G73_REFERENCE="+c["reference_screen"])'
+          if ($LASTEXITCODE -ne 0) { throw 'G73_FROZEN_QUALIFICATION_DATA_INCOMPLETE' }
+      - name: Upload numeric evidence and runtime pins only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g73-authentic-rtx-full-fp32-reference
+          path: |
+            g73_result.json
+            g73_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Delete disposable software weights and both text sources
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g73-venv','acc-g73-hf','acc-g73-wikitext-test.txt','acc-g73-tinyshakespeare.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop }
+          }
+          Write-Output 'G73_DISPOSABLE_MODEL_SOFTWARE_AND_CORPORA_CLEANUP=PASS'
