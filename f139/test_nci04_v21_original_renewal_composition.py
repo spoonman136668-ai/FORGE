@@ -47,7 +47,7 @@ class OriginalRenewalCompositionTests(TestCase):
         locked = patch.object(route.SingleOwner, "held", return_value=True)
         locked.start()
         self.addCleanup(locked.stop)
-        self.packet = {"lane": "Yggdrasil"}
+        self.packet = {"lane": "Wingless"}
         self.packet_fn = Mock(return_value=self.packet)
         self.public_reader = Mock()
         self.original_get = Mock()
@@ -150,7 +150,7 @@ class OriginalRenewalCompositionTests(TestCase):
         self.send.assert_not_called()
 
     def test_packet_wrong_lane_refused_before_any_original_append(self):
-        self.packet_fn.return_value = {"lane": "Wingless"}
+        self.packet_fn.return_value = {"lane": "Yggdrasil"}
         with self.assertRaisesRegex(route.RenewalCycleDenied,
                                     "PUBLIC_PACKET_LANE_INVALID"):
             self.cycle()
