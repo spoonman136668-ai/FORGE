@@ -80,16 +80,16 @@ def fetch_model(path: Path):
 
 def extract_decision(text: str):
     head = text.strip().splitlines()[0] if text.strip() else ""
-    m = re.fullmatch(r"\s*DECISION\s*:\s*(YES|NO)\s*[.!]?\s*", head, re.I)
+    m = re.fullmatch(r"\s*DECISION\s*:\s*(YES|NO|UNKNOWN)\s*[.!]?\s*", head, re.I)
     return m.group(1).upper() if m else None
 
 def prompt(context: str, question: str):
     return [
         {"role": "system", "content":
          "Answer the question using only supplied evidence. Do not invent facts. "
-         "First line must be exactly DECISION: YES or DECISION: NO. "
+         "First line must be DECISION: YES, DECISION: NO or DECISION: UNKNOWN. "
          "Second line, EVIDENCE: brief explanation. "
-         "When evidence is absent, do not claim authenticated facts. "
+         "When evidence is absent, choose UNKNOWN; do not invent facts. "
          "No other text."},
         {"role": "user", "content": "Evidence:\n" + context + "\nQuestion:\n" + question},
     ]
@@ -172,7 +172,7 @@ def main():
             decision = extract_decision(answer)
             results.append({
                 "case": case_id, "arm": arm, "correct": decision == expected,
-                "parseable": decision is not None,
+                "parseable": decision is not None, "abstained": decision == "UNKNOWN",
                 "decision": decision, "expected": expected,
                 "prompt_tokens": pt, "completion_tokens": ct,
                 "wall_ms": ms, "context_chars": len(context),
@@ -190,6 +190,7 @@ def main():
         summary = {
             "calls": len(rows), "correct": sum(int(x["correct"]) for x in rows),
             "parseable": sum(int(x["parseable"]) for x in rows),
+            "abstentions": sum(int(x["abstained"]) for x in rows),
             "total_tokens": sum(x["prompt_tokens"] + x["completion_tokens"] for x in rows),
             "wall_ms": sum(x["wall_ms"] for x in rows),
             "context_chars": sum(x["context_chars"] for x in rows),
