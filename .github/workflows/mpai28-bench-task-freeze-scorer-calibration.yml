@@ -37,7 +37,7 @@ jobs:
           test -z "${OPENAI_API_KEY:-}"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
-          test "$(git rev-parse HEAD:tools/mpai28_external_task_freeze_and_scorer.py)" = 'f25b184b6741bb58d828d815a16c7bb0d0b77c7b'
+          test "$(git rev-parse HEAD:tools/mpai28_external_task_freeze_and_scorer.py)" = '47ffdabe2ee334684361b808abc3c55e70a46fb1'
           python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai28_external_task_freeze_and_scorer.py").read_text("utf-8"))'
           out="$("$RUNNER_TEMP/mpai28-env/bin/python" -B tools/mpai28_external_task_freeze_and_scorer.py --phase freeze)"
           printf '%s\n' "$out"
@@ -79,13 +79,14 @@ jobs:
           test -z "${OPENAI_API_KEY:-}"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
-          test "$(git rev-parse HEAD:tools/mpai28_external_task_freeze_and_scorer.py)" = 'f25b184b6741bb58d828d815a16c7bb0d0b77c7b'
+          test "$(git rev-parse HEAD:tools/mpai28_external_task_freeze_and_scorer.py)" = '47ffdabe2ee334684361b808abc3c55e70a46fb1'
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{64}$ ]]
           "$RUNNER_TEMP/mpai28-env/bin/python" -B tools/mpai28_external_task_freeze_and_scorer.py --phase calibrate --expected-selection-sha "$EXPECTED_SHA" | tee "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
           grep -Fq 'MPAI28_PREREGISTRATION_MATCH=PASS' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
-          grep -Fq 'MPAI28_ALL_36_SCORER_CONTROLS=PASS' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
+          grep -Fq 'MPAI28_FROZEN_SELECTION_PRESERVED=12' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
+          grep -Fq 'MPAI28_ALL_SCORABLE_CONTROLS=PASS' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
           grep -Fq 'MPAI28_GOLD_PRIVATE_ONLY=PASS' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
           grep -Fq 'MPAI28_MODEL_INFERENCE_CALLS=0' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
           test -z "$(git status --porcelain --untracked-files=all)"
-          echo 'MPAI28_ORIGINAL_BENCHMARK_CALIBRATION=PASS'
+          echo 'MPAI28_ORIGINAL_BENCHMARK_SCORER_DIAGNOSTIC=PASS'
           echo 'MPAI28_SCIENTIFIC_FIRST_USE=NOT_ATTESTED'
