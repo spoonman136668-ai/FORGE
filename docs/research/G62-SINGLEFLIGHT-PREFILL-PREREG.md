@@ -1,0 +1,25 @@
+# G62 — Frozen single-flight overlapped prefix-prefill experiment
+
+Research only; existing draft FORGE PR #1250. No accepted scientific change, original controller/autonomy, production serving, deployment, broker, model training, paid API or merge authorization.
+
+## Checkpoint and original identity
+
+- G61 diagnostic authentic run #41034976844, exact head `f41d93ecee46827e76fd74ad061b8efe52f58d94`: full output parity PASS; high-reuse one-worker adaptive 1.115526x and two-worker 0.849862x, original concurrent slowdown reproducible. G61 final Windows regression was still in progress when this protocol was authored. Its disposition is checked separately.
+- Use authentic pretrained `openai-community/gpt2` at immutable revision `607a30d783dfa663caf39e06633721c8d4cfcd7e`, exact model.safetensors SHA256 `248dfc3911869ec493c76e65bf2fcf7f615828b0254c12b473182f0f81d3a707`, PyTorch 2.5.1+cpu, Transformers 4.48.3, one CPU intra/inter-op thread. Reuse the untouched G55 pretrained stage/inputs and G59 causal admission policy.
+- Freeze this preregistration as a separate immutable Git commit before executable implementation. No modifying existing G51–G61 research source, original benchmark artifacts or frozen acceptance criteria. New gate code and workflow only.
+
+## Frozen causal arms, resources, workload
+
+- Frozen requests (6 per cohort, 16 greedy output tokens per request), original G61 shared-prefix/public request-suffix tokenizer and exact family markers: high_locality=[0,0,0,0,1,1], unique_only=[0,1,2,3,4,5], thrash=[0,1,2,0,1,2].
+- **Three concurrent arms** using two simultaneous decoder workers, a wave barrier, and frozen arrival order: `no_cache` (no shared prefix cache); `serialized_prefill` (G59 adaptive admission, coordinator computes admitted prefixes synchronously before the wave's decoders); and `overlapped_singleflight` (identical policy and arrival order, a single **dedicated** prefill executor runs admitted prefix computations while a decoder for another request can proceed). This makes resource accounting explicit: candidate can use up to **three active model-forward threads** (two decoders + one prefill); no-cache/serialized use up to two. No claims of equal-core production fairness.
+- A prefix is admitted only using history from previous or earlier-arriving requests, never future knowledge. Identical exact token prefix keys. One Future per resident prefix, so concurrent dependents join the same producer; no duplicate prefill for an in-flight key. Deep-copy cached K/V for every decoder request. No native attention weight mutation.
+- Retained cache bounded at 2 entries and 42,000,000 planned/verified K/V bytes. Plan bytes computed using GPT-2 original float32 K/V dimensions and checked against each authenticated prefill output. Real transient allocations and the entire process can exceed this retained-tensor budget; monitor process RSS samples every 10ms. No actual OS memory-pressure or peak RSS claim.
+- Charge all coordinator activity, prefix prefill, queue/wait, future resolution, cache clone, and full decoder generation to timed arm. Authenticate positive overlap (a) of two decoder threads in every two-worker wave and (b) of a prefix producer with an unrelated worker decode when the high-locality stream admits. Record all interval timestamps, cache hit/miss/admission/eviction, prefill producers versus joiners, per-wave and per-request latency, whole-wall, CPU, throughput, sampled process RSS, retained K/V size.
+- Strict output identity: all 16-token outputs must equal the `no_cache` reference exactly for every request, arm, and repetition; any violation FAIL. Enforce one producer per exact-prefix identity and budget regardless of host timing. Correct cache-hit counts must match G59 adaptive logical policy, not become new oracular behavior.
+- One untimed correctness replay and warmup per arm/cohort, **three counterbalanced paired trials per cohort**. Same pinned model/input, CPU environment, no model download or tokenization included in timed measurements.
+
+## Frozen engineering thresholds and interpretation
+
+- **Positive G62 screen** requires (1) high-locality median overlapped/serialized prefill wall-speedup >=1.05x, (2) high-locality overlapped/no-cache median speedup >=1.00x, (3) unique-only overlapped/no-cache median speedup >=0.95x, (4) exact tokens and bounded retained cache/producer correctness, and (5) at least one measured producer/decoder overlap >0. No post-result threshold adjustment.
+- Thrash cohort fully reported without cherry-picking positive cases; separate G56 no-hit slowdown, G58 cache-thrash negative and G60/G61 concurrency FAIL stay authoritative. If candidate is slower, report **FAIL**, not an infrastructure failure.
+- This is not true production concurrent HTTP serving, vLLM, SGLang, continuous/dynamic batching, hardware-equal GPU comparison, energy, native Wingless/Yggdrasil learning, independent replication, or source-accepted scientific acceleration. Regression qualification on Linux and Windows at the resulting exact SHA remains mandatory. PR stays **DRAFT/UNMERGED**, no automatic promotion.
