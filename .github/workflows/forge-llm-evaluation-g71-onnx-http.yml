@@ -1,0 +1,91 @@
+name: FORGE LLM Evaluation G71 independent ONNX HTTP frozen screen
+on:
+  push:
+    branches: [research/llm-evaluation-g71-onnx-http-20261030]
+    paths:
+      - 'research/llm_g71/**'
+      - '.github/workflows/forge-llm-evaluation-g71-onnx-http.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-eval-g71-onnx-independent-frozen
+  cancel-in-progress: false
+jobs:
+  g71-offline-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify standalone preregistration, immutable predecessor and all G71 deterministic controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          git merge-base --is-ancestor 4c0242afe2eee1c23c0cf2704c2ddfb29fe4e57c HEAD
+          git show 4c0242afe2eee1c23c0cf2704c2ddfb29fe4e57c:docs/research/G71-GPT2-INDEPENDENT-ONNX-HTTP-PREEXEC-20261030.md | cmp - docs/research/G71-GPT2-INDEPENDENT-ONNX-HTTP-PREEXEC-20261030.md
+          git diff --exit-code 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          git diff --check 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          python -m py_compile research/llm_g71/g71_onnx_http.py research/llm_g71/test_g71_onnx_http.py
+          python -m unittest discover -s research/llm_g71 -p test_g71_onnx_http.py -v
+          echo G71_FROZEN_SOURCE_AND_HELDOUT_CONTROLS=PASS
+  g71-original-model-http:
+    needs: g71-offline-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned public CPU and independently exported ONNX inference tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip install --disable-pip-version-check 'optimum[onnxruntime]==1.24.0' 'onnx==1.17.0' 'onnxruntime==1.20.1'
+          python -m pip check
+          python -m pip freeze > g71_environment_pip_freeze.txt
+      - name: Execute pinned original GPT-2 and GSM8K independent backend HTTP screening
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g71/g71_onnx_http.py
+          python - <<'PY'
+          import json
+          x=json.load(open('g71_result.json'))
+          assert x['engineering']=='PASS' and x['correctness']=='PASS'
+          assert x['timed_http_responses']==288
+          assert x['screen'] in ('GO','NO_GO')
+          assert x['onnx_export_status']=='PASS'
+          assert x['scientific_acceptance']=='NOT_GRANTED'
+          assert x['promotion_allowed'] is False
+          print('G71_AUTHENTIC_HELDOUT_ONNX_HTTP_ENGINEERING=PASS')
+          print('G71_FROZEN_PERFORMANCE_SCREEN='+x['screen'])
+          print('G71_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Preserve full original heldout timing and exact pinned environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g71-gpt2-original-onnx-http
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            g71_result.json
+            g71_environment_pip_freeze.txt
