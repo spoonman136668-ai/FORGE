@@ -122,8 +122,10 @@ class SelectedOnlineSeam:
         return wrapped
 
     @classmethod
-    def restore(cls, raw, trusted_base_sha):
-        if type(raw) is not bytes or not 0 < len(raw) <= MAX_CHECKPOINT:
+    def restore(cls, raw, trusted_base_sha, trusted_checkpoint_sha):
+        if (type(raw) is not bytes or not 0 < len(raw) <= MAX_CHECKPOINT
+            or type(trusted_checkpoint_sha) is not str
+            or checksum(raw) != trusted_checkpoint_sha):
             raise ValueError("NRM2A_UNTRUSTED_SNAPSHOT")
         try:
             obj = json.loads(raw)
