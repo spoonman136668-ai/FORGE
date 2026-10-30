@@ -23,9 +23,10 @@ class FakeConn:
                 "stage": self.db.stage, "run_id": self.db.run_id,
                 "completed_at": self.db.completed_at})
         if "SELECT kind FROM events" in query:
-            return ([{"kind": "PROVIDER_VERIFIED_TERMINAL"},
+            rows = ([{"kind": "PROVIDER_VERIFIED_TERMINAL"},
                      {"kind": "NATIVE_V_THREE_PROVIDER_CUSTODY"}]
                     if self.db.completed_at else [])
+            return MagicMock(fetchall=lambda: rows)
         raise AssertionError("Unanticipated query in fake original DB: " + query)
 
 
