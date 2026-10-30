@@ -43,7 +43,7 @@ The advisory validator **always** reports `retirement_ready=false` and refuses a
 
 ## Key operational limits
 
-- This branch makes **no** runtime, controller, job, workflow, runner, repo protection, scientific registry, model, scheduler, queue, policy, credential, or accepted-branch changes.
+- This branch makes **no** runtime controller, executable work-queue, runner, repo protection, scientific authority, accepted model, scheduler, credentials, or protected-main changes. It **does** make a narrowly scoped existing **CI qualification workflow** change: both Linux and Windows run the pre-existing advisory Python registry validator and its tests, retaining all original gates and the latest protected-main Windows timeout (40 minutes). This is CI-source change, not new scientific or controller authority. Exact-head cross-platform CI must prove it.
 - It grants no execution, automatic candidate selection, FSA/owner authority, first-use clearance, model promotion or standalone replay eligibility.
 - `Mind-Palace` retrieval remains **read-only advisory** at one pinned SHA; `ckb-plane` is **not** the universal authority. Every program retains its own presently verified controller and independent approvals.
 - Existing F139 source continuity is narrow: [continuity contract](../F139-SINGLE-OWNER-RESEARCH-SOURCE-CONTINUITY.md) lists only specific allowed read-only file paths. These new paths **are NOT covered**; future protected-main merge would require its ordinary qualified source transition. No merge from this draft without that exact compatibility and acceptance proof.
