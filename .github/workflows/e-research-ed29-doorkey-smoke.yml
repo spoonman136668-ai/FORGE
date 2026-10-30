@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/e-research-ed29-doorkey-smoke.yml'
       - 'research/e_research/ed28_official_minigrid_doorkey_smoke.py'
+      - 'research/e_research/ed84_official_minigrid_memory_smoke.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -39,6 +40,7 @@ jobs:
           test "$(git -C "$RUNNER_TEMP/official/minigrid" rev-parse HEAD)" = 7f5853792ea7f04f75614661006d87fcf949f26d
           test "$(git -C "$RUNNER_TEMP/official/minigrid" hash-object minigrid/envs/empty.py)" = 8810bb0fa156d18475022edd8859b135ef745a5f
           test "$(git -C "$RUNNER_TEMP/official/minigrid" hash-object minigrid/envs/doorkey.py)" = df5b29ef063be34e6d83b8b478e092c6e3e01512
+          test "$(git -C "$RUNNER_TEMP/official/minigrid" hash-object minigrid/envs/memory.py)" = 660b0a1b769948034c87bb421759c2b9a4f24548
           python -m pip install --no-deps -e "$RUNNER_TEMP/official/minigrid"
       - name: Execute authentic DoorKey reset step and replay
         shell: bash
@@ -53,3 +55,8 @@ jobs:
           path: ${{ runner.temp }}/ed37-doorkey/
           if-no-files-found: warn
           retention-days: 45
+      - name: Execute original MiniGrid Memory deterministic smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/e_research/ed84_official_minigrid_memory_smoke.py
