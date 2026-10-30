@@ -13,7 +13,7 @@ import struct
 import zlib
 from pathlib import Path
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[3]
 REGISTRY=ROOT/"research/ac07_sourcefree/ac08_portfolio.py"
 PRE=ROOT/"docs/research/ACC-62-U14-PREEXEC-20261030.md"
 REGISTRY_BLOB="5126c860771fb024ccfc14c3f7ee8925edf29787"
