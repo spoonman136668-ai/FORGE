@@ -201,7 +201,7 @@ def run():
             raise RuntimeError("ORIGINAL_WIKITEXT_SOURCE_DRIFT")
         unseen=new_source_bytes()
         receipt["external_sha256"]=hashlib.sha256(unseen).hexdigest()
-        receipt["external_git_blob_sha1"]=SHAKESPEARE_GIT_BLOB
+        receipt["external_git_blob_sha1"]=AUSTEN_GIT_BLOB
         if not torch.cuda.is_available() or torch.version.cuda!="12.8":
             raise RuntimeError("ORIGINAL_CUDA_12_8_UNAVAILABLE")
         device=torch.device("cuda:0")
