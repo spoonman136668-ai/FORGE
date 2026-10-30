@@ -11,7 +11,7 @@ FALSE_CAPABILITIES = {"execute", "dispatch", "scientific_accept", "first_use", "
                       "modify_controller", "create_scheduler", "modify_queues"}
 ID = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
-URL = re.compile(r"^https://github\\.com/spoonman136668-ai/(FORGE|Wingless|Yggdrasil)/(pull/[0-9]+|blob/[0-9a-f]{40}/[a-zA-Z0-9_./-]+)$")
+URL = re.compile(r"^https://github\.com/spoonman136668-ai/(FORGE|Wingless|Yggdrasil)/(pull/[0-9]+|blob/[0-9a-f]{40}/[a-zA-Z0-9_./-]+)$")
 
 
 class Invalid(ValueError):
