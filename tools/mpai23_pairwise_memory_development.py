@@ -75,7 +75,8 @@ def fetch_model(path: Path):
             h.update(chunk)
             out.write(chunk)
     need(n == MODEL_BYTES and h.hexdigest() == MODEL_SHA, "MODEL_BYTES_SHA_DRIFT")
-    need(path.read_bytes()[:4] == b"GGUF", "MODEL_GGUF_HEADER")
+    with path.open("rb") as check:
+        need(check.read(4) == b"GGUF", "MODEL_GGUF_HEADER")
 
 def extract_decision(text: str):
     head = text.strip().splitlines()[0] if text.strip() else ""
