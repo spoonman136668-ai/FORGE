@@ -154,7 +154,7 @@ def report()->dict:
         "candidate_generator_levels":list(LEVELS),
         "fit_check_rule":"sha256 fixed split; 1/5, no check used to select",
         "rounding":"Python round nearest, ties-to-even, clamp [-8,7]",
-        "candidate_decoder_source_bytes":Path(__file__).stat().st_size,
+        "candidate_decoder_source_bytes":len(Path(__file__).read_bytes().replace(b"\r\n",b"\n")),
         "completeness":{"source_matrices":18,"in_dict":6,"outside":12,
                         "independent_matvec_inputs_each":3},
         "cases":records,
