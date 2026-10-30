@@ -33,6 +33,17 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          # Read-only E-D108 diagnostic: identify the exact Git command failing
+          # inside isolationguard/check.py; do not weaken or skip that gate.
+          git rev-parse --is-shallow-repository
+          if git rev-parse --verify HEAD^1 >/dev/null 2>&1; then
+            echo "ED108_HEAD_FIRST_PARENT=PASS"
+            if git merge-base --is-ancestor HEAD^1 HEAD; then echo "ED108_ANCESTOR=PASS"; else echo "ED108_ANCESTOR=FAIL"; fi
+            if git diff --check HEAD^1 HEAD; then echo "ED108_DIFF_CHECK=PASS"; else echo "ED108_DIFF_CHECK=FAIL"; fi
+            if git diff --no-ext-diff --no-color --no-renames --unified=0 HEAD^1 HEAD -- >/dev/null; then echo "ED108_PATCH_DIFF=PASS"; else echo "ED108_PATCH_DIFF=FAIL"; fi
+          else
+            echo "ED108_HEAD_FIRST_PARENT=FAIL"
+          fi
           python3 -B isolationguard/check.py
           # Exercise the read-only FSA pagination/authority boundaries on both OSes.
           python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
@@ -91,6 +102,17 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          # Read-only E-D108 diagnostic: identify the exact Git command failing
+          # inside isolationguard/check.py; do not weaken or skip that gate.
+          git rev-parse --is-shallow-repository
+          if git rev-parse --verify HEAD^1 >/dev/null 2>&1; then
+            echo "ED108_HEAD_FIRST_PARENT=PASS"
+            if git merge-base --is-ancestor HEAD^1 HEAD; then echo "ED108_ANCESTOR=PASS"; else echo "ED108_ANCESTOR=FAIL"; fi
+            if git diff --check HEAD^1 HEAD; then echo "ED108_DIFF_CHECK=PASS"; else echo "ED108_DIFF_CHECK=FAIL"; fi
+            if git diff --no-ext-diff --no-color --no-renames --unified=0 HEAD^1 HEAD -- >/dev/null; then echo "ED108_PATCH_DIFF=PASS"; else echo "ED108_PATCH_DIFF=FAIL"; fi
+          else
+            echo "ED108_HEAD_FIRST_PARENT=FAIL"
+          fi
           python3 -B isolationguard/check.py
           # Exercise the read-only FSA pagination/authority boundaries on both OSes.
           python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
