@@ -1,0 +1,87 @@
+name: MP-AI38 original LoCoMo human evidence turn coverage of frozen P37 retrieval
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai38-original-locomo-evidence-coverage.yml']
+permissions:
+  contents: read
+jobs:
+  preregister:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    outputs:
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Freeze exact P37 original question selection without any human evidence or gold
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
+          test "$(git rev-parse HEAD:tools/mpai37_external_memory_effect.py)" = 'f1305323279cf56c1fdda068a5d14933dfbe6ca7'
+          test "$(git rev-parse HEAD:tools/mpai38_evidence_schema_probe.py)" = 'ca4fb37467f8aa886ef442b0e387fa06d82709c2'
+          test "$(git rev-parse HEAD:tools/mpai38_original_evidence_coverage_audit.py)" = 'bae5ddce69e17b8f3b5682799840405828784e63'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai38_original_evidence_coverage_audit.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai38_original_evidence_coverage_audit.py --phase freeze)" || { printf '%s\n' "$out" | grep '^MPAI38_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fxq 'MPAI38_FIRST_JOB_FREEZE=PASS' <<< "$out"
+          grep -Fxq 'MPAI38_ORIGINAL_P37_SELECTION_SHA256=123411ed33446deded98c45dd3c5e54a98620b8565a8612b7bea1c594131c5b8' <<< "$out"
+          grep -Fxq 'MPAI38_NO_GOLD_OR_SOURCE_EVIDENCE_READ_BY_FREEZE=TRUE' <<< "$out"
+          grep -Fxq 'MPAI38_NO_MODEL_CALLS_IN_FIRST_JOB=TRUE' <<< "$out"
+          proto="$(printf '%s\n' "$out" | sed -n 's/^MPAI38_PREREGISTERED_PROTOCOL_SHA256=//p')"
+          [[ "$proto" =~ ^[a-f0-9]{64}$ ]]
+          echo "protocol_sha=$proto" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI38_ORIGINAL_P37_EVIDENCE_ID_AUDIT_PREREGISTRATION=PASS'
+  original-evidence-audit:
+    needs: preregister
+    if: ${{ needs.preregister.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      EXPECTED_PROTOCOL: ${{ needs.preregister.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticate and score independent original citation IDs in same original retrieved source passages
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
+          test "$(git rev-parse HEAD:tools/mpai37_external_memory_effect.py)" = 'f1305323279cf56c1fdda068a5d14933dfbe6ca7'
+          test "$(git rev-parse HEAD:tools/mpai38_evidence_schema_probe.py)" = 'ca4fb37467f8aa886ef442b0e387fa06d82709c2'
+          test "$(git rev-parse HEAD:tools/mpai38_original_evidence_coverage_audit.py)" = 'bae5ddce69e17b8f3b5682799840405828784e63'
+          [[ "$EXPECTED_PROTOCOL" =~ ^[a-f0-9]{64}$ ]]
+          out="$(python -B tools/mpai38_original_evidence_coverage_audit.py --phase audit --expected-protocol "$EXPECTED_PROTOCOL")" || { printf '%s\n' "$out" | grep '^MPAI38_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fxq "MPAI38_PREREGISTERED_PROTOCOL_SHA256=$EXPECTED_PROTOCOL" <<< "$out"
+          grep -Fxq 'MPAI38_SEPARATE_JOB_SOURCE_AND_SELECTION_RECOMPUTED=PASS' <<< "$out"
+          grep -Fxq 'MPAI38_ALL_25_ORIGINAL_RETRIEVED_PASSAGES_BYTE_FOR_BYTE_VERIFIED=PASS' <<< "$out"
+          grep -Fxq 'MPAI38_MODEL_INFERENCE_CALLS=0' <<< "$out"
+          grep -Fxq 'MPAI38_PRIVATE_SOURCE_AND_GOLD_LOGGED=FALSE' <<< "$out"
+          grep -Fxq 'MPAI38_PRIVATE_SOURCE_CLEAN=PASS' <<< "$out"
+          grep -Fxq 'MPAI38_SCIENTIFIC_ACCEPTANCE=FALSE' <<< "$out"
+          grep -Fxq 'MPAI38_PRODUCTION_MEMORY_WRITES=0' <<< "$out"
+          test "$(grep -c '^MPAI38_CATEGORY_[125]=' <<< "$out")" = '3'
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI38_ORIGINAL_EVIDENCE_COVERAGE_AUDIT_EXECUTED=PASS'
+          echo 'MPAI38_FORGE_AUTONOMY_CONTROLLER_UNMODIFIED=TRUE'
