@@ -72,6 +72,12 @@ def validate_handoff(raw):
                 raise Invalid("H5_BAD_SOURCE_POINTER")
         if ident=="forge-operations" and not pointers:
             raise Invalid("H5_ORIGINAL_OWNER_WITNESS_MISSING")
+        if ident=="mass-research" and not any(
+            ref["url"] == "https://github.com/spoonman136668-ai/Yggdrasil/pull/423"
+            and ref["sha"] == "d31c8d00ccc2bb00f098b87097610329637a37f6"
+            for ref in pointers
+        ):
+            raise Invalid("H13_MASS_SYMBOLIC_SOURCE_WITNESS_MISSING")
     if not MANDATORY.issubset(seen):
         raise Invalid("H5_REQUIRED_INDEPENDENT_WORKSTREAM_MISSING")
     if not isinstance(obj["retirement_gates"], list) or set(obj["retirement_gates"]) != RETIREMENT or len(obj["retirement_gates"]) != len(RETIREMENT):
