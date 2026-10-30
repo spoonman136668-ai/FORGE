@@ -1,0 +1,84 @@
+name: ACC70 U30 restricted Clifford classical simulation
+on:
+  push:
+    branches: [research/acc70-u30-stabilizer-simulation-20261030]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original U30 custody and 16 tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 9f467f8dad81d59eaf78f27affe9c4e9a8723178 HEAD
+          test "$(git rev-parse HEAD:research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python -m unittest discover -s research/acceleration/acc70_u30 -p test_experiment.py -v
+      - name: Inherited AC05-AC08 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/ac05_sourcefree -p test_learning.py -v
+          python -m unittest discover -s research/ac06_sourcefree -p test_restricted.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_remaining.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_ac08_portfolio.py -v
+      - name: Frozen exact source measurement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/acceleration/acc70_u30/experiment.py --json "$RUNNER_TEMP/acc70-u30.json"
+          python - "$RUNNER_TEMP/acc70-u30.json" <<'PY'
+          import json,sys
+          q=json.load(open(sys.argv[1]))
+          assert len(q['observations'])==36 and len(q['summary'])==4
+          assert q['classification']['exact_subclass_probability_parity']=='PASS'
+          assert q['classification']['quantum_speedup']=='NOT_DEMONSTRATED'
+          assert q['classification']['pretrained_LLM_speed']=='UNVERIFIED'
+          assert q['classification']['production_admission']=='NOT_GRANTED'
+          print('ACC70_U30_FROZEN_FULL_MATRIX=PASS')
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc70-u30-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc70-u30.json
+          retention-days: 30
+          if-no-files-found: warn
+  audit:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc70-u30-*
+          path: artifacts
+      - name: Compare exact output identities independent of timings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc70-u30-ubuntu-latest'/'acc70-u30.json').read_text())
+          b=json.loads((p/'acc70-u30-windows-latest'/'acc70-u30.json').read_text())
+          assert a['identity']==b['identity']
+          assert len(a['observations'])==len(b['observations'])==36
+          for x,y in zip(a['observations'],b['observations']):
+            for k in ('n','seed','repeat','probability_sha256','support','affine_bits'):
+              assert x[k]==y[k]
+          print('ACC70_U30_CROSSOS_PARITY=PASS')
+          PY
