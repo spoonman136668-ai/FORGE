@@ -64,6 +64,14 @@ class RARG113ADeltaTests(unittest.TestCase):
         with self.assertRaises(ScopeDeltaDenied):
             diagnostic_delta(linux(100), linux(99))
         with self.assertRaises(ScopeDeltaDenied):
+            diagnostic_delta(linux(100, peak=500), linux(110, peak=499))
+        # Each independent Windows CPU counter must be monotone; a larger
+        # second component must not conceal regression in the first.
+        with self.assertRaises(ScopeDeltaDenied):
+            diagnostic_delta(windows(100, 100), windows(90, 200))
+        with self.assertRaises(ScopeDeltaDenied):
+            diagnostic_delta(windows(100, 100), windows(200, 90))
+        with self.assertRaises(ScopeDeltaDenied):
             diagnostic_delta(windows(100, 200, 648), windows(200, 200, 647))
 
     def test_historical_shared_accounting_cannot_prove_speedup(self):
