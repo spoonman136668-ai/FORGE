@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import random
 import unittest
+from fractions import Fraction
 
 from f139.nci04_model_free_grammar import (
     GrammarDenied, generate, method_for,
@@ -168,6 +170,44 @@ class ModelFreeGrammarTests(unittest.TestCase):
                     method(0, 0, 0, reward_value=True)
                 with self.assertRaises(ValueError):
                     method(0, 0, 0, reward_value=0)
+
+    def test_original_generated_integer_rule_matches_exact_fraction_oracle(self):
+        """Cross-check signed integer products against independent rationals."""
+        rng = random.Random(0xF139)
+        for prior in (1, 2):
+            namespace = {}
+            exec(SOURCE.decode().replace(
+                "    def snapshot(self) -> bytes:\\n",
+                method_for(prior) + "    def snapshot(self) -> bytes:\\n"),
+                namespace)
+            cells = namespace["PublicCausalCells"]()
+            chooser = getattr(cells, f"choose_posterior_public_cost_p{prior}")
+            for _ in range(512):
+                fail0, success0, fail1, success1 = (
+                    rng.randrange(0, 128) for unused in range(4))
+                reward, cost0, cost1 = (
+                    rng.randrange(1, 64), rng.randrange(0, 100),
+                    rng.randrange(0, 100))
+                cells._counts[0][0] = [fail0, success0]
+                cells._counts[0][1] = [fail1, success1]
+                frozen = (
+                    tuple(cells._counts[0][0]),
+                    tuple(cells._counts[0][1]),
+                )
+                n0, n1 = fail0 + success0, fail1 + success1
+                if n0 == 0 or n1 == 0:
+                    expected = None
+                else:
+                    rate0 = (Fraction(success0 + prior, n0 + 2 * prior)
+                             * reward - cost0)
+                    rate1 = (Fraction(success1 + prior, n1 + 2 * prior)
+                             * reward - cost1)
+                    expected = 0 if rate0 > rate1 else 1 if rate1 > rate0 else None
+                self.assertEqual(
+                    chooser(0, cost0, cost1, reward_value=reward), expected)
+                self.assertEqual(
+                    (tuple(cells._counts[0][0]), tuple(cells._counts[0][1])),
+                    frozen)
 
     def test_unknown_recipe_prior_rejected(self):
         for value in (0, 3, True, -1, 1.0):
