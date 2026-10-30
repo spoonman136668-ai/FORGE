@@ -21,6 +21,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install frozen CPU training dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip freeze > g57_pip_freeze.txt
       - name: Verify frozen prereg exists and source tests
         shell: bash
         run: |
@@ -30,12 +36,6 @@ jobs:
           python -m py_compile research/llm_g57/g57_train.py research/llm_g57/test_g57.py
           python -m unittest discover -s research/llm_g57 -p test_g57.py -v
           echo G57_PREREG_SOURCE_TESTS=PASS
-      - name: Install frozen CPU training dependency
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
-          python -m pip freeze > g57_pip_freeze.txt
       - name: Train authentic Tiny Shakespeare corpus across 3x4 preregistered arms
         shell: bash
         env:
