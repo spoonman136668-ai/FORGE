@@ -1,0 +1,91 @@
+name: MP-AI28 external metadata-blind task freeze and scorer calibration
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai28-bench-task-freeze-scorer-calibration.yml']
+permissions:
+  contents: read
+jobs:
+  preregistration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      selected_sha: ${{ steps.freeze.outputs.selected_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install bounded parquet parser outside Git repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/mpai28-env"
+          "$RUNNER_TEMP/mpai28-env/bin/python" -m pip install --no-input --disable-pip-version-check --only-binary=:all: --no-deps pyarrow==21.0.0
+          "$RUNNER_TEMP/mpai28-env/bin/python" -c 'import pyarrow;assert pyarrow.__version__=="21.0.0"'
+      - name: Freeze metadata-only task selection; no reference answer access
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
+          test "$(git rev-parse HEAD:tools/mpai28_external_task_freeze_and_scorer.py)" = 'f25b184b6741bb58d828d815a16c7bb0d0b77c7b'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai28_external_task_freeze_and_scorer.py").read_text("utf-8"))'
+          out="$("$RUNNER_TEMP/mpai28-env/bin/python" -B tools/mpai28_external_task_freeze_and_scorer.py --phase freeze)"
+          printf '%s\n' "$out"
+          sha="$(printf '%s\n' "$out" | sed -n 's/^MPAI28_SELECTION_SHA256=//p')"
+          [[ "$sha" =~ ^[0-9a-f]{64}$ ]]
+          grep -Fq 'MPAI28_PREREGISTRATION_ONLY=PASS' <<< "$out"
+          grep -Fq 'MPAI28_GOLD_READ_BY_SCORER=FALSE' <<< "$out"
+          echo "selected_sha=$sha" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI28_FROZEN_SELECTION_BLOB_RECORDED_BEFORE_GOLD=PASS'
+  calibration:
+    needs: preregistration
+    if: ${{ needs.preregistration.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      EXPECTED_SHA: ${{ needs.preregistration.outputs.selected_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install same bounded parser in fresh independent CI job
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/mpai28-env"
+          "$RUNNER_TEMP/mpai28-env/bin/python" -m pip install --no-input --disable-pip-version-check --only-binary=:all: --no-deps pyarrow==21.0.0
+          "$RUNNER_TEMP/mpai28-env/bin/python" -c 'import pyarrow;assert pyarrow.__version__=="21.0.0"'
+      - name: Verify frozen selection and scorer positive, wrong, blank controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
+          test "$(git rev-parse HEAD:tools/mpai28_external_task_freeze_and_scorer.py)" = 'f25b184b6741bb58d828d815a16c7bb0d0b77c7b'
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{64}$ ]]
+          "$RUNNER_TEMP/mpai28-env/bin/python" -B tools/mpai28_external_task_freeze_and_scorer.py --phase calibrate --expected-selection-sha "$EXPECTED_SHA" | tee "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
+          grep -Fq 'MPAI28_PREREGISTRATION_MATCH=PASS' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
+          grep -Fq 'MPAI28_ALL_36_SCORER_CONTROLS=PASS' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
+          grep -Fq 'MPAI28_GOLD_PRIVATE_ONLY=PASS' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
+          grep -Fq 'MPAI28_MODEL_INFERENCE_CALLS=0' "$RUNNER_TEMP/mpai28-calibration-public-safe.log"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI28_ORIGINAL_BENCHMARK_CALIBRATION=PASS'
+          echo 'MPAI28_SCIENTIFIC_FIRST_USE=NOT_ATTESTED'
