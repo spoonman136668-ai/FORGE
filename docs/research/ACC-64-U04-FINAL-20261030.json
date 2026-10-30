@@ -1,0 +1,149 @@
+{
+  "schema": "forge.acc64.u04.original-local-multiprocess-lora-final.v1",
+  "date": "2026-10-30",
+  "source_claim": "U04 distributed micro-LoRA gradients",
+  "source_registry_git_blob": "5126c860771fb024ccfc14c3f7ee8925edf29787",
+  "original_prior_AC07": "integer gradient gather/broadcast only; no trained LoRA",
+  "prereg_commit": "b220304101f8944f2738c3f318dbd68a9208c661",
+  "prereg_blob": "023f5b3c27d490d7f3dca3310e0a5666222608a0",
+  "execution": {
+    "head": "1a94463fc1942b71a5ca6e3bc5dabd011beadeca",
+    "workflow_run": 41137105926,
+    "conclusion": "success",
+    "windows_job": 124342157604,
+    "ubuntu_job": 124342158063,
+    "crossos_audit_job": 124342350452,
+    "windows_conclusion": "success",
+    "ubuntu_conclusion": "success",
+    "audit_conclusion": "success",
+    "focused_tests_each_os": "22/22 PASS",
+    "inherited_regression": "AC05 AC06 AC07 AC08 PASS both OS",
+    "complete_training_cases_each_os": 48,
+    "source_file_blob": "c2d1f9caad31cf610e924615b0c370c4b5297a80",
+    "tests_blob": "2922edad5fb4d07dd94aee98113e7ce73f4b5e6c",
+    "workflow_blob": "9fd233a71859e2ab5716d3a8383a435414c469c2"
+  },
+  "artifacts": {
+    "linux": {
+      "id": 13016883151,
+      "zip_sha256": "b57f12345f57cf00eb24e6bb5f5e2bf1cf1898a1e479e58a59aa7b3d8ec07693",
+      "result_json_sha256": "5b1aa39bdb1da3019b5666832a96b0a27551cd0e417dc18219437c5cac5b290d"
+    },
+    "windows": {
+      "id": 13016788144,
+      "zip_sha256": "0f261cab267a56a809c3c0f7f5929fae3cb550e9c5298e9b2cc99c86b28ce3b8",
+      "result_json_sha256": "a425c2cc29ac2f097ec31001aff5b5644493ef91d1d9f41a76fa28d2f5e47d8"
+    }
+  },
+  "protocol": {
+    "model": "synthetic rank-4 LoRA A/B with fixed deterministic W0; true analytic gradients, 4 full-batch SGD steps",
+    "dims": [
+      16,
+      32
+    ],
+    "seeds": [
+      211,
+      223,
+      227
+    ],
+    "repetitions": 2,
+    "examples_fit": 64,
+    "examples_validation": 16,
+    "learning_rate": 0.05,
+    "modes": [
+      "serial",
+      "process_1",
+      "process_2",
+      "process_4"
+    ],
+    "modes_implementation": "serial in-process vs persistent local Python subprocess parameter-server, real newline-delimited JSON adapter broadcasts and worker gradient responses",
+    "timing": "end-to-end training wall clock includes subprocess startup/shutdown and per-step serialization/aggregation, excludes corpus generation and heldout validation",
+    "communication": "actual newline-JSON request and response bytes for all subprocess modes, not a physical network measurement"
+  },
+  "validation": {
+    "linux": {
+      "max_parameter_abs_difference": 5.551115123125783e-17,
+      "max_validation_loss_abs_difference": 2.220446049250313e-16,
+      "equivalence": "PASS"
+    },
+    "windows": {
+      "max_parameter_abs_difference": 5.551115123125783e-17,
+      "max_validation_loss_abs_difference": 2.220446049250313e-16,
+      "equivalence": "PASS"
+    },
+    "threshold": "max absolute <= 1e-9 for serial vs any process mode"
+  },
+  "measurements": {
+    "linux": {
+      "dim16": {
+        "median_wall_ms": {
+          "serial": 22.8,
+          "process_1": 71.1,
+          "process_2": 59.7,
+          "process_4": 81.1
+        },
+        "process4_over_serial": 3.5566060386502127,
+        "process4_over_process1": 1.141389028778646
+      },
+      "dim32": {
+        "median_wall_ms": {
+          "serial": 70.1,
+          "process_1": 122.5,
+          "process_2": 87.3,
+          "process_4": 111.2
+        },
+        "process4_over_serial": 1.5868321049916811,
+        "process4_over_process1": 0.9075851929139744
+      }
+    },
+    "windows": {
+      "dim16": {
+        "median_wall_ms": {
+          "serial": 15.9,
+          "process_1": 70.7,
+          "process_2": 73.6,
+          "process_4": 90.3
+        },
+        "process4_over_serial": 5.68764372704305,
+        "process4_over_process1": 1.277309206262964
+      },
+      "dim32": {
+        "median_wall_ms": {
+          "serial": 49.8,
+          "process_1": 107.5,
+          "process_2": 96,
+          "process_4": 104
+        },
+        "process4_over_serial": 2.089612012002362,
+        "process4_over_process1": 0.9681014344886752
+      }
+    },
+    "average_ipc_bytes_by_worker_count_each_os": {
+      "process_1": 183138,
+      "process_2": 214516,
+      "process_4": 277655
+    }
+  },
+  "classification": {
+    "numeric_training_equivalence": "PASS",
+    "local_four_process_speed": "U04_NO_GENERAL_VERIFIED_LOCAL_PROCESS_SPEED_WIN",
+    "authentic_pretrained_LLM_training": "UNVERIFIED",
+    "real_physical_multi_host_network": "UNVERIFIED",
+    "GPU_training": "UNVERIFIED",
+    "full_child_CPU": "UNVERIFIED",
+    "peak_physical_RSS": "UNVERIFIED",
+    "scientific_first_use": "NOT_ESTABLISHED",
+    "scientific_acceptance": "NOT_GRANTED",
+    "production_acceptance": "NOT_GRANTED"
+  },
+  "interpretation": "In a concrete but narrow synthetic rank-4 LoRA SGD task the 4-worker parameter-server algorithm returns numerically equivalent outputs, but the four local processes were slower in end-to-end wall on both OS and both sizes. Do not generalize to GPU distributed-training implementations, cross-host networking, mature ring-allreduce, or larger batches. Per-worker CPU/RSS were not measured and thus no total-resource positive claim is admissible. This is a valid local-process training speed negative, not a mathematical impossibility result.",
+  "scope": {
+    "draft": true,
+    "unmerged": true,
+    "main_untouched": true,
+    "production_untouched": true,
+    "controller_untouched": true,
+    "paid_model_api": false
+  },
+  "next": "Prefer predeclared communication/compute break-even cost model and candidate with demonstrable larger per-step compute; any GPU/distributed trial needs separate pinned source, real trained adapter validation, complete worker CPU/RSS/network and frozen controls."
+}
