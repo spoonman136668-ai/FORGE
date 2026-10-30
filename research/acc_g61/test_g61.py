@@ -31,4 +31,6 @@ class G61FalsificationTests(unittest.TestCase):
   self.assertIn('"new_acceleration_discovered":False',s)
   self.assertIn('ATTENTION_KERNEL_GREEDY_OUTPUT_DIVERGENCE',s)
   self.assertIn('GPU_MODEL_CPU_FALLBACK',s)
+  self.assertIn('REAL_ATTENTION_DISPATCH_MISMATCH',s)
+  self.assertIn('actual_attention_operator_proof',s)
 if __name__=="__main__":unittest.main()
