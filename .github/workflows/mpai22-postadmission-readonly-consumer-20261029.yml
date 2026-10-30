@@ -46,54 +46,54 @@ jobs:
             Assert ($LASTEXITCODE -eq 0) 'AUTHENTICATED_PRIVATE_CLONE_FAILED'
             Assert ((& git.exe -C $source rev-parse HEAD).Trim() -ceq $sha) 'SOURCE_SHA_DRIFT'
             $py=@'
-import sys
-from pathlib import Path
-root=Path(sys.argv[1])
-source_sha=sys.argv[2]
-forge=Path(sys.argv[3])
-sys.path.insert(0,str(root/"tools"))
-sys.path.insert(0,str(forge/"tools"))
-from mindpalace_readonly import MemorySnapshot, ReadContractError
-from mpai05_recall_cli import retrieve
-expected_digest="3a377f825ad6da28d2c85534337ce831441295ee662e7f4b869f6c565d9e4f83"
-keys=(
-  "lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029",
-  "lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029",
-)
-s=MemorySnapshot(root,source_sha,["Mind-Palace"])
-if s.records_sha256 != expected_digest: raise RuntimeError("SNAPSHOT_DIGEST_DRIFT")
-for key in keys:
-    record=s.get_record(source_sha,key,["Mind-Palace"])
-    if not record.get("found"): raise RuntimeError("ACCEPTED_KEY_NOT_FOUND")
-    obj=record["record"]
-    if obj.get("id")!=key or obj.get("status")!="observed" or not obj.get("source_refs"):
-        raise RuntimeError("ACCEPTED_KEY_NOT_OBSERVED_WITH_PROVENANCE")
-try:
-    s.get_record("0"*40,keys[0],["Mind-Palace"])
-except ReadContractError:
-    pass
-else: raise RuntimeError("WRONG_SHA_ACCEPTED")
-queries=(
-  ("What did original P16 P17 LongMemEval experiments find about IDF memory accuracy gain? Does source prove scientific acceptance?",keys[1]),
-  ("Did repaired UQ37 scheduled polling with empty authorized source queue prove unattended Mind-Palace learning?",keys[0]),
-)
-for i,(question,expected_id) in enumerate(queries,1):
-    off,ro=retrieve(s,source_sha,question,mode="off",projects=["Mind-Palace"])
-    eligible,re=retrieve(s,source_sha,question,mode="eligible",projects=["Mind-Palace"])
-    got_off=expected_id in [x["id"] for x in off.get("matches",[])]
-    got_eligible=expected_id in [x["id"] for x in eligible.get("matches",[])]
-    print(f"MPAI22_QUERY_{i}_ORIGINAL_HIT="+str(got_off).upper())
-    print(f"MPAI22_QUERY_{i}_ELIGIBLE_HIT="+str(got_eligible).upper())
-    print(f"MPAI22_QUERY_{i}_ELIGIBLE_ROUTING="+str(re["routing"]))
-    if not got_off or not got_eligible: raise RuntimeError("ADMITTED_LESSON_NOT_RECALLED_BY_QUERY")
-print("MPAI22_ACCEPTED_IDS_AND_PROVENANCE=2_PASS")
-print("MPAI22_SOURCE_SHA_AND_SNAPSHOT_DIGEST=PASS")
-print("MPAI22_NEGATIVE_WRONG_SHA=PASS")
-print("MPAI22_FORGE_NATIVE_READ_ONLY_CONSUMER=PASS")
-print("MPAI22_ACTUAL_NON_CHATGPT_MODEL=NOT_TESTED")
-print("MPAI22_AGENT_BEHAVIORAL_GAIN=UNVERIFIED")
-print("MPAI22_PRODUCTION_WRITES=0")
-'@
+          import sys
+          from pathlib import Path
+          root=Path(sys.argv[1])
+          source_sha=sys.argv[2]
+          forge=Path(sys.argv[3])
+          sys.path.insert(0,str(root/"tools"))
+          sys.path.insert(0,str(forge/"tools"))
+          from mindpalace_readonly import MemorySnapshot, ReadContractError
+          from mpai05_recall_cli import retrieve
+          expected_digest="3a377f825ad6da28d2c85534337ce831441295ee662e7f4b869f6c565d9e4f83"
+          keys=(
+            "lesson/mpai05-uq37-original-scheduled-inspection-repaired-but-idle-20261029",
+            "lesson/mpai05-p16-p17-memory-retriever-model-accuracy-no-gain-20261029",
+          )
+          s=MemorySnapshot(root,source_sha,["Mind-Palace"])
+          if s.records_sha256 != expected_digest: raise RuntimeError("SNAPSHOT_DIGEST_DRIFT")
+          for key in keys:
+              record=s.get_record(source_sha,key,["Mind-Palace"])
+              if not record.get("found"): raise RuntimeError("ACCEPTED_KEY_NOT_FOUND")
+              obj=record["record"]
+              if obj.get("id")!=key or obj.get("status")!="observed" or not obj.get("source_refs"):
+                  raise RuntimeError("ACCEPTED_KEY_NOT_OBSERVED_WITH_PROVENANCE")
+          try:
+              s.get_record("0"*40,keys[0],["Mind-Palace"])
+          except ReadContractError:
+              pass
+          else: raise RuntimeError("WRONG_SHA_ACCEPTED")
+          queries=(
+            ("What did original P16 P17 LongMemEval experiments find about IDF memory accuracy gain? Does source prove scientific acceptance?",keys[1]),
+            ("Did repaired UQ37 scheduled polling with empty authorized source queue prove unattended Mind-Palace learning?",keys[0]),
+          )
+          for i,(question,expected_id) in enumerate(queries,1):
+              off,ro=retrieve(s,source_sha,question,mode="off",projects=["Mind-Palace"])
+              eligible,re=retrieve(s,source_sha,question,mode="eligible",projects=["Mind-Palace"])
+              got_off=expected_id in [x["id"] for x in off.get("matches",[])]
+              got_eligible=expected_id in [x["id"] for x in eligible.get("matches",[])]
+              print(f"MPAI22_QUERY_{i}_ORIGINAL_HIT="+str(got_off).upper())
+              print(f"MPAI22_QUERY_{i}_ELIGIBLE_HIT="+str(got_eligible).upper())
+              print(f'MPAI22_QUERY_{i}_ELIGIBLE_ROUTING='+str(re['routing']))
+              if not got_off or not got_eligible: raise RuntimeError("ADMITTED_LESSON_NOT_RECALLED_BY_QUERY")
+          print("MPAI22_ACCEPTED_IDS_AND_PROVENANCE=2_PASS")
+          print("MPAI22_SOURCE_SHA_AND_SNAPSHOT_DIGEST=PASS")
+          print("MPAI22_NEGATIVE_WRONG_SHA=PASS")
+          print("MPAI22_FORGE_NATIVE_READ_ONLY_CONSUMER=PASS")
+          print("MPAI22_ACTUAL_NON_CHATGPT_MODEL=NOT_TESTED")
+          print("MPAI22_AGENT_BEHAVIORAL_GAIN=UNVERIFIED")
+          print("MPAI22_PRODUCTION_WRITES=0")
+          '@
             & python.exe -B -c $py $source $sha $env:GITHUB_WORKSPACE
             Assert ($LASTEXITCODE -eq 0) 'REAL_CONSUMER_QUALIFICATION_FAILED'
             Assert ((& git.exe -C $source rev-parse HEAD).Trim() -ceq $sha) 'SOURCE_MOVED'
