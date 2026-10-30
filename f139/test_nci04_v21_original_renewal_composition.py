@@ -149,6 +149,20 @@ class OriginalRenewalCompositionTests(TestCase):
         self.reserve.assert_not_called()
         self.send.assert_not_called()
 
+    def test_one_lane_exhausted_does_not_starve_other_native_lane(self):
+        # The source-only witness reports separately eligible authentic terminal
+        # events, but Wingless has already used its daily/rolling slot.
+        self.budget.side_effect = [False, True]
+        self.packet_fn.return_value = {"lane": "Yggdrasil"}
+        response = self.cycle()
+        self.assertEqual(response["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        self.assertEqual(response["lane"], "Yggdrasil")
+        self.assertEqual(self.native.call_count, 2)
+        self.assertEqual(self.budget.call_count, 2)
+        self.assertEqual(self.reserve.call_count, 1)
+        self.assertEqual(self.reserve.call_args.kwargs["lane"], "Yggdrasil")
+        self.assertEqual(self.send.call_count, 1)
+
     def test_packet_wrong_lane_refused_before_any_original_append(self):
         self.packet_fn.return_value = {"lane": "Yggdrasil"}
         with self.assertRaisesRegex(route.RenewalCycleDenied,
