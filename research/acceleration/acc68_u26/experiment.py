@@ -93,7 +93,14 @@ def nearest(query:dict,candidates:list[dict],distance)->str:
         if node["path"]==query["path"]:continue
         dst=distance(a,(node["x"],node["y"]))
         if not math.isfinite(dst) or dst<0:raise RuntimeError("INVALID_DISTANCE")
-        if dst<best:
+        # Roundoff-induced apparent distance ties occur on symmetric tree
+        # coordinates with platform-specific libm. Canonicalize mathematically
+        # equal geometric options by lexical path without consulting gold parent.
+        # The 1e-12 absolute tolerance is numerical determinism only, not a
+        # change to the source, retrieval candidate set, or admission thresholds.
+        eps=1e-12
+        if dst<best-eps or (abs(dst-best)<=eps and
+                            (nearest_path is None or node["path"]<nearest_path)):
             best=dst
             nearest_path=node["path"]
     if nearest_path is None:raise RuntimeError("EMPTY_RETRIEVAL_CANDIDATES")
