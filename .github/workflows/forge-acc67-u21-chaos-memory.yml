@@ -1,0 +1,137 @@
+name: ACC67 U21 finite-chaos memory and authentic next-character prediction
+on:
+  push:
+    branches: [research/acc67-u21-chaos-seed-memory-heldout-20261030]
+permissions:
+  contents: read
+concurrency:
+  group: acc67-u21-uint8-research-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  study:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen prereg, original U21 source, and Python syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 1c961a1793e8f453bc210a1fa33b12a83f780af5 HEAD
+          test "$(git rev-parse HEAD:research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python -m py_compile research/acceleration/acc67_u21/experiment.py research/acceleration/acc67_u21/test_experiment.py
+          echo ACC67_U21_SOURCE_AND_FROZEN_PREREG=PASS
+      - name: Run 28 focused finite-state, cold-restart and training leakage tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/acceleration/acc67_u21 -p 'test_experiment.py' -v
+          echo ACC67_U21_28_FOCUSED_TESTS=PASS
+      - name: Inherited original portfolio negative qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/ac05_sourcefree -p test_learning.py -v
+          python -m unittest discover -s research/ac06_sourcefree -p test_restricted.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_remaining.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_ac08_portfolio.py -v
+          echo ACC67_U21_INHERITED_AC05_AC08=PASS
+      - name: Train finite-state chaos and strong predictors, evaluate pinned public prose
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research/acceleration/acc67_u21/experiment.py --json "$RUNNER_TEMP/acc67-u21.json"
+          python - "$RUNNER_TEMP/acc67-u21.json" <<'PY'
+          import sys,json,hashlib,math
+          raw=open(sys.argv[1],"rb").read()
+          x=json.loads(raw)
+          c=x['classification']
+          assert x['schema']=='forge.acc67.u21.eightbit-chaos-state-public-prose.v1'
+          assert x['identity']['original_git_blob']=='5126c860771fb024ccfc14c3f7ee8925edf29787'
+          assert x['source']['git_blob']=='0a7d439c2f34b0dfacb88b7116429a9575b5735c'
+          assert x['source']['source_sha256']=='441e778a4297bfc944dc254810e8ded3134cfb0e36d73eef6bb312b4ffd74d6a'
+          assert x['identity']['source_previous_exposure']=='G74_AND_U23'
+          assert c['fixed_eight_bit_infinite_state']=='U21_FIXED_8BIT_INFINITE_STATE_NO_GO'
+          assert c['chaos_state_predictive_speed_resource'] in ('U21_RESTRICTED_CHAOS_NEXTCHAR_POSITIVE_ONLY','U21_NO_VERIFIED_RESTRICTED_CHAOS_PREDICTION_WIN')
+          assert c['pretrained_LLM_inference_speed']=='UNVERIFIED'
+          assert c['scientific_admission']=='NOT_GRANTED'
+          assert c['production_acceptance']=='NOT_GRANTED'
+          assert len(x['folds'])==3 and x['finite_state_witness']['collision_histories']>=473
+          for fold in x['folds']:
+            assert fold['selected_control'] in x['protocol']['controls']
+            assert len(fold['models'])==5
+            for row in fold['models'].values():
+              assert row['fit_examples']==13996 and row['dev']['examples']==3996
+              assert row['check']['examples']==5996 and row['table_bytes']>0
+              assert row['fit_ns']>0 and row['check_ns']>0
+              assert math.isfinite(row['check']['nll'])
+          print('ACC67_U21_EXACT_SOURCE_AND_FULL_REPORT=PASS')
+          print('ACC67_U21_ORIGINAL_JSON_SHA256='+hashlib.sha256(raw).hexdigest())
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc67-u21-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc67-u21.json
+          retention-days: 30
+          if-no-files-found: warn
+  audit:
+    needs: study
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc67-u21-*
+          path: artifacts
+      - name: Independent exact source, trained prediction, and negative boundary audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib,math
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc67-u21-ubuntu-latest'/'acc67-u21.json').read_text())
+          b=json.loads((p/'acc67-u21-windows-latest'/'acc67-u21.json').read_text())
+          assert a['identity']==b['identity']
+          assert a['source']==b['source']
+          assert a['protocol']==b['protocol']
+          assert a['finite_state_witness']==b['finite_state_witness']
+          assert len(a['folds'])==len(b['folds'])==3
+          for f,g in zip(a['folds'],b['folds']):
+            assert f['start']==g['start']
+            assert f['window_hashes']==g['window_hashes']
+            assert f['selected_control']==g['selected_control']
+            for mode in a['protocol']['modes']:
+              x=f['models'][mode];y=g['models'][mode]
+              assert x['fit_examples']==y['fit_examples']==13996
+              assert x['learned_keys']==y['learned_keys']
+              assert x['table_bytes']==y['table_bytes']
+              for segment in ('dev','check'):
+                assert x[segment]['examples']==y[segment]['examples']
+                assert x[segment]['correct']==y[segment]['correct']
+                assert x[segment]['unseen']==y[segment]['unseen']
+                assert x[segment]['prediction_sha256']==y[segment]['prediction_sha256']
+                assert abs(x[segment]['nll']-y[segment]['nll'])<1e-8
+              assert x['fit_ns']>0 and x['check_ns']>0
+              assert y['fit_ns']>0 and y['check_ns']>0
+          for z in (a,b):
+            assert z['classification']['fixed_eight_bit_infinite_state']=='U21_FIXED_8BIT_INFINITE_STATE_NO_GO'
+            assert z['classification']['pretrained_LLM_inference_speed']=='UNVERIFIED'
+            assert z['classification']['scientific_admission']=='NOT_GRANTED'
+          both=all(x['classification']['chaos_state_predictive_speed_resource']=='U21_RESTRICTED_CHAOS_NEXTCHAR_POSITIVE_ONLY' for x in (a,b))
+          print('ACC67_U21_INDEPENDENT_CROSSOS_TRAINED_PREDICTION=PASS')
+          print('ACC67_U21_JOINT_PREDICTION_DISPOSITION='+('RESTRICTED_POSITIVE_ONLY' if both else 'NO_VERIFIED_PREDICTION_WIN'))
+          print('ACC67_U21_REAL_LLM_OR_INFINITE_COGNITION=UNVERIFIED')
+          PY
