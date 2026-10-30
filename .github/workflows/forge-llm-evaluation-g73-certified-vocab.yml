@@ -1,0 +1,87 @@
+name: FORGE LLM Evaluation G73 authentic certified vocabulary-head screen
+on:
+  push:
+    branches: [research/llm-evaluation-g73-certified-vocab-20261030]
+    paths:
+      - '.github/workflows/forge-llm-evaluation-g73-certified-vocab.yml'
+      - 'research/llm_g73/**'
+permissions:
+  contents: read
+concurrency:
+  group: forge-cpu-g73-certified-vocab-original
+  cancel-in-progress: false
+jobs:
+  frozen-offline-source-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify prereg before execution and immutable CPU G70 predecessor
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          git merge-base --is-ancestor 2ce3ed5a979aeffb2c56e01ad9cfd11b0d1f1063 HEAD
+          test "$(git rev-parse HEAD:docs/research/G73-GPT2-CERTIFIED-VOCAB-PREEXEC-20261030.md)" = "$(git rev-parse 2ce3ed5a979aeffb2c56e01ad9cfd11b0d1f1063:docs/research/G73-GPT2-CERTIFIED-VOCAB-PREEXEC-20261030.md)"
+          git diff --exit-code 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          git diff --check 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          python -B -m unittest discover -s research/llm_g73 -p test_g73_certified_vocab.py -v
+          echo 'G73_FROZEN_ADMISSION=PASS'
+  authentic-pinned-gpt2-head:
+    needs: frozen-offline-source-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install original CPU GPT-2 environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip check
+          python -m pip freeze > g73_original_environment.txt
+      - name: Run frozen authentic vocabulary-head bound falsifier
+        shell: bash
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g73/g73_certified_vocab.py
+          python - <<'PY'
+          import json
+          r=json.load(open("g73_original_result.json"))
+          assert r["gate"]=="G73"
+          assert r["engineering"]=="PASS" and r["correctness"]=="PASS"
+          assert len(r["measurements"])==480
+          assert r["performance"] in ("GO","NO_GO")
+          assert not r["promotion_allowed"] and r["scientific_acceptance"]=="NOT_GRANTED"
+          print("G73_AUTHENTIC_EXACT_HEAD=PASS")
+          print("G73_FROZEN_PERFORMANCE="+r["performance"])
+          PY
+      - name: Preserve original success, failure or environment-blocked evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g73-authentic-gpt2-certified-head-original
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            g73_original_result.json
+            g73_original_environment.txt
