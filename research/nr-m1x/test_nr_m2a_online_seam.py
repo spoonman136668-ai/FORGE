@@ -193,5 +193,30 @@ print("NRM2A_FRESH_OS_COLD_SOURCE_BOUND_RESTORE_PASS")
         self.assertEqual(self.base.checkpoint(),self.original)
         print(f"NRM2A_MATCHED_CONVENTIONAL_CATEGORICAL_SOURCE_ONLY_PASS comparisons={cases}")
 
+    def test_capacity_and_window_are_fail_closed_not_silent_eviction(self):
+        # A long history is intentionally bounded but has transparent support.
+        for i in range(12):
+            self.record(9,0,14 if i<8 else 13)
+        self.assertEqual(len(self.native.rows[(9,0)]),8)
+        self.assertEqual(self.native.rows[(9,0)], [14]*4+[13]*4)
+        self.assertEqual(self.native.step(9,0),(None,False))
+        self.assertEqual(self.native.step(9,0),self.control.step(9,0))
+        # Distinct context cap must reject before mutating the source ledger.
+        native=SelectedOnlineSeam(self.base)
+        native.begin_episode()
+        for before in range(64):
+            native.commit(before,0)
+            native.feedback(before,0,before)
+        self.assertEqual(len(native.rows),64)
+        self.assertEqual(native.events,64)
+        native.commit(64,0)
+        with self.assertRaisesRegex(ValueError,"NRM2A_SOURCE_MEMORY_CAP_FAIL_CLOSED"):
+            native.feedback(64,0,64)
+        self.assertEqual(native.events,64)
+        self.assertEqual(len(native.rows),64)
+        with self.assertRaises(ValueError):
+            native.checkpoint()
+        self.assertEqual(self.base.checkpoint(),self.original)
+
 if __name__=="__main__":
     unittest.main()
