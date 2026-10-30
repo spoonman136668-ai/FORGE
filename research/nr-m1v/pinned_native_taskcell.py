@@ -4,6 +4,9 @@ file research/native/itd02/mg40/task_cells.py, Git blob
 fdccd7a601adfacf4a4f8533279e66280cf16d99.
 Not a live native import, original-world execution, or independent science.
 """
+# Original MG40 source-module global; the class excerpt below is unchanged.
+MAX_COUNT = 4096
+
 class TaskCell:
     def __init__(self):
         self.count=[0]*7
