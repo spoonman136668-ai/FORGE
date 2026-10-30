@@ -1,0 +1,104 @@
+name: MP-AI36 original native safetensors and FP32 ONNX parity both input directions
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai36-original-native-pytorch-vs-fp32-onnx-interface.yml']
+permissions:
+  contents: read
+jobs:
+  preregister:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    outputs:
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify historical benchmark/model source blobs and freeze native parity protocol with no gold
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai33_independent_anli_adversarial_development.py)" = 'b99afe402459977f9d8493746766d1bae7ccd8ac'
+          test "$(git rev-parse HEAD:tools/mpai34_pinned_conventional_nli_original_anli.py)" = 'cec12320510645e6d6b7972d7307726c8ea66128'
+          test "$(git rev-parse HEAD:tools/mpai35_original_vs_quantized_minilm_nli_parity.py)" = '47d44403cdc867ff5c25c4b5beb14f93cf19bd7d'
+          test "$(git rev-parse HEAD:tools/mpai36_native_safetensors_onnx_interface_parity.py)" = 'd03be3d1e283e11004d4fbd12bd48c8f0cd5ee77'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai36_native_safetensors_onnx_interface_parity.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai36_native_safetensors_onnx_interface_parity.py --phase freeze)" || { printf '%s\n' "$out" | grep '^MPAI36_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fxq 'MPAI36_SEPARATE_PREMODEL_PROTOCOL_FROZEN=PASS' <<< "$out"
+          grep -Fxq 'MPAI36_ORIGINAL_MODEL_SHA256=ec9c5b6a08b60d7a01b465c7ed44b496244dfd1bed3274c95875a74cea89ab35' <<< "$out"
+          grep -Fxq 'MPAI36_ORIGINAL_FP32_ONNX_SHA256=807d33fffefd95ad60e2a91f54eed50a92aa53c077945a6842bb587a49a3fdf3' <<< "$out"
+          grep -Fxq 'MPAI36_FROZEN_ANLI36_SELECTION=9918f7e1318464c4d3c4ff95db08ae671609ce422417cae649a42cac2f41adf2' <<< "$out"
+          grep -Fxq 'MPAI36_GOLD_NOT_READ_BY_FREEZE=TRUE' <<< "$out"
+          grep -Fxq 'MPAI36_MODEL_CALLS_BY_FREEZE=0' <<< "$out"
+          proto="$(printf '%s\n' "$out" | sed -n 's/^MPAI36_PREMODEL_PROTOCOL_SHA256=//p')"
+          [[ "$proto" =~ ^[a-f0-9]{64}$ ]]
+          echo "protocol_sha=$proto" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI36_ORIGINAL_SOURCE_PINNED_NO_GOLD_PREMODEL=PASS'
+  native-interface-parity:
+    needs: preregister
+    if: ${{ needs.preregister.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      EXPECTED_PROTOCOL: ${{ needs.preregister.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated pinned CPU-only torch and inference dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/mpai36-venv"
+          "$RUNNER_TEMP/mpai36-venv/bin/python" -m pip install --no-input --disable-pip-version-check --only-binary=:all: 'torch==2.6.0+cpu' --index-url https://download.pytorch.org/whl/cpu >/dev/null
+          "$RUNNER_TEMP/mpai36-venv/bin/python" -m pip install --no-input --disable-pip-version-check --only-binary=:all: 'numpy==2.2.6' 'tokenizers==0.21.4' 'onnxruntime==1.22.1' 'transformers==4.51.3' 'safetensors==0.5.3' >/dev/null
+          "$RUNNER_TEMP/mpai36-venv/bin/python" -c 'import torch,transformers,onnxruntime,numpy,tokenizers,safetensors;assert torch.__version__=="2.6.0+cpu";assert transformers.__version__=="4.51.3";assert onnxruntime.__version__=="1.22.1";assert numpy.__version__=="2.2.6";assert tokenizers.__version__=="0.21.4";assert safetensors.__version__=="0.5.3"'
+          echo 'MPAI36_CPU_ONLY_NATIVE_AND_ONNX_ENV_PINNED=PASS'
+      - name: Execute original safetensors PyTorch and FP32 ONNX 36 cases in both input directions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai33_independent_anli_adversarial_development.py)" = 'b99afe402459977f9d8493746766d1bae7ccd8ac'
+          test "$(git rev-parse HEAD:tools/mpai34_pinned_conventional_nli_original_anli.py)" = 'cec12320510645e6d6b7972d7307726c8ea66128'
+          test "$(git rev-parse HEAD:tools/mpai35_original_vs_quantized_minilm_nli_parity.py)" = '47d44403cdc867ff5c25c4b5beb14f93cf19bd7d'
+          test "$(git rev-parse HEAD:tools/mpai36_native_safetensors_onnx_interface_parity.py)" = 'd03be3d1e283e11004d4fbd12bd48c8f0cd5ee77'
+          [[ "$EXPECTED_PROTOCOL" =~ ^[a-f0-9]{64}$ ]]
+          out="$("$RUNNER_TEMP/mpai36-venv/bin/python" -B tools/mpai36_native_safetensors_onnx_interface_parity.py --phase evaluate --expected-protocol "$EXPECTED_PROTOCOL")" || { printf '%s\n' "$out" | grep '^MPAI36_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fxq "MPAI36_PREMODEL_PROTOCOL_SHA256=$EXPECTED_PROTOCOL" <<< "$out"
+          grep -Fxq 'MPAI36_BOTH_ORIGINAL_NATIVE_AND_ONNX_FULL_SHA256=PASS' <<< "$out"
+          grep -Fxq 'MPAI36_BOTH_DIRECTIONS_NATIVE_AND_ONNX_MODEL_CALLS=144' <<< "$out"
+          grep -Fxq 'MPAI36_BOTH_INPUT_ORDERS_CHECKED=PASS' <<< "$out"
+          grep -Fxq 'MPAI36_PRIVATE_MODEL_AND_ANLI_SCRATCH_REMOVED=PASS' <<< "$out"
+          grep -Fxq 'MPAI36_SCIENTIFIC_JUDGE_ACCEPTANCE=BLOCKED' <<< "$out"
+          grep -Fxq 'MPAI36_PRODUCTION_MEMORY_WRITES=0' <<< "$out"
+          grep -Fxq 'MPAI36_F139_CONTROLLER_UNMODIFIED=TRUE' <<< "$out"
+          test "$(grep -c '^MPAI36_DIRECTION_' <<< "$out")" -eq 2
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI36_SOURCE_AUTHENTIC_NATIVE_AND_FP32_ONNX_INTERFACE_AUDIT_EXECUTED=PASS'
+          echo 'MPAI36_PROTECTED_MAIN_UNCHANGED=TRUE'
