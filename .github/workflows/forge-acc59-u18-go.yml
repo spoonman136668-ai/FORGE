@@ -1,0 +1,125 @@
+name: ACC59 original U18 vector superposition native qualification
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc59_go_u18/**'
+      - 'docs/research/ACC-59-*'
+      - '.github/workflows/forge-acc59-u18-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 45
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original U18 identity prereg and source hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 58678da4a8c9d73036968f6c0c0554f54d38d493 HEAD
+          git merge-base --is-ancestor 1fac65f8daee37deb5ac267493d32ed5d1935f00 HEAD
+          test "$(git hash-object docs/research/ACC-59-U18-STAGE-B-PREREG.md)" = cd8979b1c77b83f432afd4fccf3e8fa070e3040e
+          test "$(git hash-object docs/research/ACC-59-U18-VSA-PREREG.md)" = 77e6bd5cf6903534f94f8f53ce1e205b847f9cd5
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/acceleration/acc59_go_u18/main.go)" = 92b6427c630bf3cc375e25eaefa7cec326b56e0d
+          test "$(git hash-object research/acceleration/acc59_go_u18/go.mod)" = 152cbb8fc61fdf350109ed090c18af915c3fbd79
+          test "$(git hash-object research/acceleration/acc59_go_u18/core_test.go)" = 3eeaaa29ac070d6ffcf160dc81edd266750bff57
+          python - <<'PY'
+          import ast,pathlib
+          t=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          a=ast.literal_eval(next(v.value for v in t.body if isinstance(v,ast.Assign) and any(isinstance(x,ast.Name) and x.id=='ORIGINAL_NAMES' for x in v.targets)))
+          assert len(a)==30 and a[17]=='vector symbolic superposition'
+          print('ACC59_ORIGINAL_U18_PREREG_PASS')
+          PY
+      - name: Preserve original 36 research screens
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc59-36.json"
+      - name: Test vet build and 80 cold workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc59_go_u18
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc59"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc59-report.json"
+      - name: Audit source outcome CPU and memory
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP/acc59-report.json" <<'PY'
+          import json,math,sys
+          r=json.load(open(sys.argv[1]))
+          assert r['Schema']=='acc59-u18-stageb-v1' and r['Workers']==len(r['Trials'])==80 and len(r['Cohorts'])==4
+          seen=set();paired={}
+          for t in r['Trials']:
+            w=t['Receipt'];k=(w['Regime'],w['Mode'],w['Seed'])
+            assert k not in seen;seen.add(k)
+            assert w['Queries']==1048576 and w['Episodes']==4096
+            assert 0<=w['Correct']<=1048576 and w['PeakRSSBytes']>0 and w['LogicalBytes']>0
+            assert t['CPUSeconds']>0 and t['WallSeconds']>0 and math.isfinite(w['Accuracy'])
+            assert all(len(w[s])==64 for s in ('SourceSHA','TruthSHA','OutputSHA'))
+            pair=(w['Regime'],w['Seed']);h=(w['SourceSHA'],w['TruthSHA'])
+            assert pair not in paired or paired[pair]==h
+            paired[pair]=h
+          assert len(seen)==80 and len(paired)==20
+          print('ACC59_U18_80_NATIVE_CPU_RSS_PASS')
+          print('ACC59_CLASSIFICATION='+r['Classification'])
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc59-u18-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc59-report.json
+            ${{ runner.temp }}/acc59-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc59-u18-*
+          path: artifacts
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc59-u18-ubuntu-latest'/'acc59-report.json').read_text())
+          b=json.loads((p/'acc59-u18-windows-latest'/'acc59-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda t:(t['Receipt']['Regime'],t['Receipt']['Mode'],t['Receipt']['Seed'])
+          aa={key(t):t['Receipt'] for t in a['Trials']}
+          bb={key(t):t['Receipt'] for t in b['Trials']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for k in aa:
+            for field in ('SourceSHA','TruthSHA','OutputSHA','Correct','FalsePositive','LogicalBytes','Known','Queries'):
+              assert aa[k][field]==bb[k][field],(k,field)
+          print('ACC59_U18_CROSSOS_80_OF_80_EXACT_PASS')
+          print('ACC59_LINUX='+a['Classification'])
+          print('ACC59_WINDOWS='+b['Classification'])
+          PY
