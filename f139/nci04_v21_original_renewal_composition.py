@@ -86,6 +86,7 @@ def run_original_renewal_source_only(
     # admission is independent; it is not an extension of lifetime-8.
     attempts = original_attempts(db)
     selected = None
+    budget_exhausted_lane = None
     for lane in LANES:
         witness = project_original_native_terminal(
             db, lane=lane, utc_day=utc_day,
@@ -98,10 +99,16 @@ def run_original_renewal_source_only(
                     "ELIGIBLE_SHADOW_ONLY_NOT_AUTHORIZED"):
             continue
         if not combined_budget(db, attempts, lane, utc_day):
-            return _report("BLOCKED_ORIGINAL_PLUS_RENEWAL_ROLLING_BUDGET", lane=lane)
+            # One lane's spent daily slot must not starve a separately
+            # eligible native lane; still use the same original ledger.
+            budget_exhausted_lane = lane
+            continue
         selected = (lane, witness)
         break
     if selected is None:
+        if budget_exhausted_lane is not None:
+            return _report("BLOCKED_ORIGINAL_PLUS_RENEWAL_ROLLING_BUDGET",
+                           lane=budget_exhausted_lane)
         # An old terminal, including V20 seq330 followed by model attempts
         # seq331/332, may NEVER be re-purchased by changing source or time.
         return _report("BLOCKED_NO_FRESH_ELIGIBLE_NATIVE_TERMINAL")
