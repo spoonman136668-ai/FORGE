@@ -1,6 +1,6 @@
 # E Research E2-M3 — FIT causal signal-propagation feasibility (2026-10-29)
 
-**Engineering:** PASS for 24 isolated trajectories, finite/nonnegative intermediate states and replay.  
+**Engineering:** PASS for 24 isolated trajectories, finite/nonnegative intermediate states and replay.
 **Science:** No associative learning was tested or established; distal cue communication under the original short readout **NOT SUPPORTED**. Advisory only; no FORGE autonomy, FSA, controller, weights, or scientific acceptance changes.
 
 ## Actual execution
