@@ -66,10 +66,11 @@ class RARG113BScopeAdmissionTests(unittest.TestCase):
             membership.write_text("0::/../outside\n")
             out = linux_admission_hint(root, membership, pid=100)
             self.assertFalse(out["current_scope_resolved"])
-            (root / "escaped").symlink_to(Path(outside), target_is_directory=True)
-            membership.write_text("0::/escaped\n")
-            out = linux_admission_hint(root, membership, pid=100)
-            self.assertFalse(out["current_scope_resolved"])
+            if sys.platform != "win32":
+                (root / "escaped").symlink_to(Path(outside), target_is_directory=True)
+                membership.write_text("0::/escaped\n")
+                out = linux_admission_hint(root, membership, pid=100)
+                self.assertFalse(out["current_scope_resolved"])
 
     def test_windows_exports_never_prove_nested_job_admission(self):
         out = windows_admission_hint()
