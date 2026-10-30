@@ -78,6 +78,14 @@ def validate_handoff(raw):
             for ref in pointers
         ):
             raise Invalid("H13_MASS_SYMBOLIC_SOURCE_WITNESS_MISSING")
+        if ident=="language-research":
+            required_language = {
+                ("https://github.com/spoonman136668-ai/FORGE/pull/820", "d15ce497843244894642735ee218a185bb87c1e4"),
+                ("https://github.com/spoonman136668-ai/FORGE/pull/945", "407004e7b962c2baac45bd2ed8c6c1c14868d647"),
+            }
+            observed_language = {(ref["url"], ref["sha"]) for ref in pointers}
+            if observed_language != required_language or len(pointers) != len(required_language):
+                raise Invalid("H17_LANGUAGE_SOURCE_WITNESS_MISSING_OR_SUBSTITUTED")
     if not MANDATORY.issubset(seen):
         raise Invalid("H5_REQUIRED_INDEPENDENT_WORKSTREAM_MISSING")
     if not isinstance(obj["retirement_gates"], list) or set(obj["retirement_gates"]) != RETIREMENT or len(obj["retirement_gates"]) != len(RETIREMENT):
