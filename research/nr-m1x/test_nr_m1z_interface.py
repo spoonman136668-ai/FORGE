@@ -42,12 +42,12 @@ class NativeR7Interface(unittest.TestCase):
         raw=path.read_bytes()
         git=subprocess.run(["git","show","HEAD:research/nr-m1x/nr_m1z_pinned_r7.py"],
                            check=True,capture_output=True).stdout
-        digest=hashlib.sha1(b"blob "+str(len(git)).encode()+b"\\0"+git).hexdigest()
+        digest=hashlib.sha1(b"blob "+str(len(git)).encode()+b"\0"+git).hexdigest()
         if digest!=SOURCE_GIT_BLOB:
             raise AssertionError("NRM1Z_ORIGINAL_R7_GIT_BLOB_CHANGED "+digest)
         # Git for Windows can check out CRLF from the same pinned LF blob.
         # Compare executed bytes after lossless normalization to exact Git.
-        if raw.replace(b"\\r\\n",b"\\n")!=git:
+        if raw.replace(b"\r\n",b"\n")!=git:
             raise AssertionError("NRM1Z_RUNTIME_SOURCE_NOT_PINNED_ORIGINAL")
         cls.native=build()
         cls.checkpoint=cls.native.checkpoint()
