@@ -1,0 +1,48 @@
+name: ACC57 U07 native research
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc57_go_u07/**'
+      - '.github/workflows/forge-acc57-u07-go.yml'
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 40
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+      - name: Source and prereg verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 6f7502d679bd83254760689c4c5e6c733be44921 HEAD
+          test "$(git hash-object docs/research/ACC-57-U07-HDV-BINDING-PREREG.md)" = 5d8897693d3212054f6381f1bc1772b64f9840bf
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/acceleration/acc57_go_u07/main.go)" = 201acadde2310f2f03dae4ccb3222ab96e304481
+      - name: Test vet and execute workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc57_go_u07
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc57"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc57-report.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acc57-u07-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc57-report.json
