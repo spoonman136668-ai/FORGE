@@ -26,7 +26,7 @@ P37_BLOB = "f1305323279cf56c1fdda068a5d14933dfbe6ca7"
 P38_BLOB = "bae5ddce69e17b8f3b5682799840405828784e63"
 P39_BLOB = "3b892d8ccdf0316990a06ed353b565be864a55cd"
 P40_BLOB = "080f6b64239d1c458c9496972752aa3c320b9663"
-SEED = "mpai41-new-category-3-4-per-sample-first-source-hash-v1"
+SEED = "mpai41-new-category-3-4-per-sample-first-source-hash-v2-backed-up"
 CATEGORIES = ("3", "4")
 ARMS = ("idf", "bm25", "session_neighbor")
 STAGE = "INIT"
@@ -46,18 +46,40 @@ def choose(data):
     need(frozen == P37_FROZEN and len(original) == 25, "ORIGINAL_SOURCE_IDENTITY")
     old = {(item["sample"], item["index"]) for item in original}
     chosen = []
+    missing = []
     need(len(data) == 10, "SOURCE_SAMPLE_COUNT")
     for i, sample in enumerate(data):
         sample_id = str(sample["sample_id"])
         for category in CATEGORIES:
             options = [j for j, qa in enumerate(sample["qa"])
                        if str(qa.get("category")) == category]
-            need(bool(options), "CATEGORY_UNAVAILABLE")
+            if not options:
+                missing.append((i, category))
+                continue
             index = min(options, key=lambda j: digest(
                 SEED + "|" + sample_id + "|" + category + "|" + str(j)))
             need((i, index) not in old, "EXPOSED_QUESTION_OVERLAP")
             chosen.append({"sample": i, "sample_id": sample_id,
                            "index": index, "category": category})
+    # Original LoCoMo sample 1 has no category-3 questions. Fill any absent
+    # sample/category slot from an unused QA row in another source sample.
+    # Choose by frozen metadata hash only; never consult question or gold.
+    for missing_sample, category in missing:
+        used = old | {(x["sample"], x["index"]) for x in chosen}
+        candidates = []
+        for donor_i, donor in enumerate(data):
+            donor_id = str(donor["sample_id"])
+            for j, qa in enumerate(donor["qa"]):
+                if str(qa.get("category")) != category or (donor_i, j) in used:
+                    continue
+                key = digest(SEED + "|backfill|" + str(missing_sample)
+                             + "|" + donor_id + "|" + category + "|" + str(j))
+                candidates.append((key, donor_i, j))
+        need(bool(candidates), "CATEGORY_BACKFILL_UNAVAILABLE")
+        _, donor_i, index = min(candidates)
+        chosen.append({"sample": donor_i,
+                       "sample_id": str(data[donor_i]["sample_id"]),
+                       "index": index, "category": category})
     need(len(chosen) == 20 and Counter(x["category"] for x in chosen)
          == {"3": 10, "4": 10}, "CATEGORY_BALANCE")
     need(len({(x["sample"], x["index"]) for x in chosen}) == 20,
@@ -66,11 +88,12 @@ def choose(data):
 
 def protocol(chosen):
     return digest(canon({
-        "schema": "mpai41-source-only-new-category-retrieval-v1",
+        "schema": "mpai41-source-only-new-category-retrieval-v2",
         "upstream_locomo_git_blob": p37.source.LOCOMO_BLOB,
         "original_p37_task_commitment": P37_FROZEN,
         "original_source_blobs": [P37_BLOB, P38_BLOB, P39_BLOB, P40_BLOB],
         "selection_rule": SEED,
+        "missing_category_strategy": "hash-ranked unused-source-QA backfill; source sample may repeat",
         "selected_source_metadata_only": chosen,
         "retrieval_arms": ARMS,
         "retriever_parameters": "unchanged imported P37/P39/P40 functions",
