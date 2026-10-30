@@ -1,0 +1,33 @@
+name: MP-AI37 independent original LoCoMo private structural preflight
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai37-original-locomo-structural-probe.yml']
+permissions:
+  contents: read
+jobs:
+  metadata-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify and inspect original dialogue source shape without question or gold text
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
+          test "$(git rev-parse HEAD:tools/mpai37_original_locomo_schema_probe.py)" = '4651d36a57ba63b1444ca6ee1c682aa861f2711e'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai37_original_locomo_schema_probe.py").read_text("utf-8"))'
+          python -B tools/mpai37_original_locomo_schema_probe.py
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI37_ORIGINAL_SOURCE_SCHEMA_QUALIFIED=PASS'
