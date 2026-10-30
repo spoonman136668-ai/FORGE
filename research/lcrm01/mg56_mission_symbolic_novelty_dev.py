@@ -584,7 +584,7 @@ def main():
             or first.get("canonical_source_sha256")!=digest(first["source"])
             or first["source"].get("classification") not in
                  (p["frozen_dev_filter"]["pass"],p["frozen_dev_filter"]["fail"])
-            or len(first["source"]["original_234_episodes"])!=216
+            or len(first["source"]["original_234_episodes"])!=234
             or first["source"]["scientific_first_use"] is not False
             or first["source"]["zero_external_actions"] is not True):
             raise ValueError("MG56_INDEPENDENT_ORIGINAL_PROCESSES_DIVERGED")
