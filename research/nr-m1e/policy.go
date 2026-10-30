@@ -124,7 +124,7 @@ func (l *Learner) Feedback(reward float64) error {
  for j:=0;j<4;j++ {
   l.Weights[j]+=0.05*advantage*l.Trace[j]
   if l.Weights[j]>8 { l.Weights[j]=8 }
-  if l.Weights[j]<-8 { l.Weights[j]=-8 }
+  if l.Weights[j] < -8 { l.Weights[j]=-8 }
  }
  l.Baseline=0.975*l.Baseline+0.025*reward
  l.Episodes++
