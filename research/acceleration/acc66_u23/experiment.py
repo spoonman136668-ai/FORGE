@@ -59,8 +59,9 @@ def fetch_source()->tuple[str,dict]:
             git_blob(raw)!=AUSTEN_GIT_BLOB):
         raise RuntimeError("ACC66_AUTHENTIC_PUBLIC_DOMAIN_AUSTEN_SOURCE_MISMATCH")
     # Exactly one output character per original decoded character.
-    decoded=raw.decode("utf-8").lower()
-    normalized="".join(c if c in ALPHA_IDX else " " for c in decoded)
+    decoded=raw.decode("utf-8")
+    normalized="".join(lc if len(lc)==1 and lc in ALPHA_IDX else " "
+                       for c in decoded for lc in (c.lower(),))
     if len(normalized)<max(STARTS)+28000:raise RuntimeError("ACC66_CORPUS_TOO_SHORT")
     return normalized,{"repo":"GITenberg/Pride-and-Prejudice_1342",
         "source_commit":AUSTEN_COMMIT,"git_blob":AUSTEN_GIT_BLOB,
