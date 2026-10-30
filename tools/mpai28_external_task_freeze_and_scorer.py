@@ -43,7 +43,7 @@ def rank(*data):
 def normalize(s):
     require(isinstance(s, str), "ANSWER_NOT_STRING")
     t = s.lower()
-    t = "".join(" " if c in string.punctuation else c for c in t)
+    t = "".join(c for c in t if c not in string.punctuation)
     t = re.sub(r"\b(a|an|the)\b", " ", t)
     return " ".join(t.split())
 
