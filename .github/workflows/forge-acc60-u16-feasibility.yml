@@ -1,0 +1,94 @@
+name: ACC60 U16 generated-weights compiler feasibility
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc60_go_u16/**'
+      - '.github/workflows/forge-acc60-u16-feasibility.yml'
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify authentic prereg and pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 4110e04d6c5121cd5dcbf0ea749f60f17bcc7485 HEAD
+          test "$(git hash-object docs/research/ACC-60-U16-ICACHE-PREREG.md)" = ff49f388d4b3e823852406e1bd524470e44fd088
+          test "$(git hash-object research/acceleration/acc60_go_u16/main.go)" = cf735c3708c9eff50e9f533f6591709c335adb7f
+          test "$(git hash-object research/acceleration/acc60_go_u16/generate.py)" = 5711a74e8ba0c92d7dde3c6b81a14d6d4995864a
+      - name: Generate and compile source on authentic OS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc60_go_u16
+          python generate.py
+          python - <<'PY'
+          import pathlib,hashlib,json,os
+          p=pathlib.Path('compiled_generated.go')
+          t=p.read_bytes()
+          assert t.count(b'case ') >= 327680
+          out={'os':os.environ['RUNNER_OS'],'generated_sha256':hashlib.sha256(t).hexdigest(),'generated_bytes':len(t),'immediate_count':327680}
+          pathlib.Path(os.environ['RUNNER_TEMP'],'acc60-feasibility.json').write_text(json.dumps(out,indent=2))
+          print('ACC60_GENERATED_SHA256='+out['generated_sha256'])
+          print('ACC60_GENERATED_BYTES='+str(len(t)))
+          PY
+          gofmt -w compiled_generated.go
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc60"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          python - "$BIN" "$RUNNER_TEMP/acc60-feasibility.json" <<'PY'
+          import json,sys,os
+          p=sys.argv[2];d=json.load(open(p));d['binary_bytes']=os.stat(sys.argv[1]).st_size
+          with open(p,'w') as f:json.dump(d,f,indent=2)
+          print('ACC60_U16_NATIVE_GENERATED_COMPILE_PASS')
+          print('ACC60_BINARY_BYTES='+str(d['binary_bytes']))
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc60-feasibility-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc60-feasibility.json
+          retention-days: 30
+          if-no-files-found: warn
+  audit:
+    needs: compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc60-feasibility-*
+          path: artifacts
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc60-feasibility-ubuntu-latest'/'acc60-feasibility.json').read_text())
+          b=json.loads((p/'acc60-feasibility-windows-latest'/'acc60-feasibility.json').read_text())
+          assert a['generated_sha256']==b['generated_sha256']
+          assert a['generated_bytes']==b['generated_bytes']
+          assert a['immediate_count']==b['immediate_count']==327680
+          assert a['binary_bytes']>0 and b['binary_bytes']>0
+          print('ACC60_U16_GENERATED_SOURCE_CROSSOS_EXACT_PASS')
+          PY
