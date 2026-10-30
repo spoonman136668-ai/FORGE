@@ -1,0 +1,78 @@
+name: FORGE G70 authentic GPT-2 independent GSM8K locality-dose HTTP research
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g70/**'
+      - 'docs/research/G70-GSM8K-LOCALITY-DOSE-PREREG.md'
+      - '.github/workflows/forge-llm-g70-locality-http.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g70-readonly
+  cancel-in-progress: false
+jobs:
+  authentic-verified-gsm8k-dose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify G70 prereg before code and original research unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 672447c13730c5e841956f4e017b0722517b90d3 HEAD
+          test "$(git rev-parse 672447c13730c5e841956f4e017b0722517b90d3:docs/research/G70-GSM8K-LOCALITY-DOSE-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G70-GSM8K-LOCALITY-DOSE-PREREG.md)"
+          git diff --exit-code a3ef4e4d7fb16211367ebbdfa9367cc862ceb02f HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68
+          python -m py_compile research/llm_g70/g70_gsm8k_locality.py research/llm_g70/test_g70.py
+          python -m unittest discover -s research/llm_g70 -p test_g70.py -v
+          echo G70_FROZEN_SOURCE_AND_HELDOUT_DISJOINTNESS=PASS
+      - name: Install exact previous G68 CPU inference dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g70_environment_pip_freeze.txt
+      - name: Run 4-crossover human-heldout GPT-2 locality-dose HTTP screen
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g70/g70_gsm8k_locality.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g70_result.json'))
+          assert r['correctness']=='PASS' and r['engineering']=='PASS'
+          assert r['scientific_acceptance']=='NOT_GRANTED' and r['promotion_allowed'] is False
+          assert r['optimized_serving_engine_control']=='NOT_INCLUDED'
+          assert set(r['results'])=={'reuse_0','reuse_25','reuse_50','reuse_75'}
+          assert len(r['prior_g68_source_rows'])==12
+          assert len({x['source_row'] for x in r['heldout_selection']})==12
+          assert not set(r['prior_g68_source_rows']) & {x['source_row'] for x in r['heldout_selection']}
+          assert all(len(v['trials'])==2 for v in r['results'].values())
+          print('G70_ORIGINAL_GSM8K_NEW_HELDOUT_AND_TOKEN_PARITY=PASS')
+          print('G70_FROZEN_LOCALITY_DOSE_SCREEN='+r['screen'])
+          print('G70_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Preserve full authentic mixed-prefix results and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g70-gpt2-heldout-locality-http
+          if-no-files-found: warn
+          path: |
+            g70_result.json
+            g70_environment_pip_freeze.txt
+          retention-days: 30
