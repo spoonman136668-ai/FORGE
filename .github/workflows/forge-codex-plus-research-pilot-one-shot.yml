@@ -1,0 +1,87 @@
+# Exactly one opt-in subscription-Codex research-proposal smoke test.
+# This is not a scheduler, research controller, accepted result, or production change.
+name: FORGE one-shot Codex Plus research pilot (Luna)
+on:
+  push:
+    branches:
+      - qualification/codex-plus-research-pilot-20261030
+    paths:
+      - .github/workflows/forge-codex-plus-research-pilot-one-shot.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-codex-plus-research-pilot-20261030
+  cancel-in-progress: false
+jobs:
+  one-shot:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event.head_commit.message == 'qualify: one-shot subscription Luna research proposal probe'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Verify existing ChatGPT subscription, forbid API billing, and enforce runner identity
+        shell: pwsh
+        env:
+          CODEX_HOME: C:\ProgramData\CKBR\codex\home
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER_IDENTITY' }
+          foreach ($N in @('OPENAI_API_KEY','CODEX_API_KEY','OPENAI_BASE_URL','OPENROUTER_API_KEY','NVIDIA_API_KEY')) {
+            if (-not [string]::IsNullOrWhiteSpace([string][Environment]::GetEnvironmentVariable($N))) {
+              throw ('FORBIDDEN_API_BILLING_OR_PROVIDER_ENV_' + $N)
+            }
+          }
+          if (-not (Test-Path -LiteralPath $env:CODEX_HOME -PathType Container)) { throw 'CODEX_HOME_UNAVAILABLE' }
+          $cmd = Get-Command codex -ErrorAction Stop
+          $status = (& $cmd.Source login status 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $status -notmatch '(?i)logged in using chatgpt') {
+            throw 'CHATGPT_SUBSCRIPTION_AUTH_NOT_VERIFIED'
+          }
+          Write-Output 'CODEX_PLUS_LOGIN_SUBSCRIPTION_ONLY=PASS'
+          Write-Output 'CODEX_PLUS_PROVIDER_API_KEYS=ZERO'
+      - name: Execute exactly one low-effort, source-free Luna proposal probe
+        shell: pwsh
+        env:
+          CODEX_HOME: C:\ProgramData\CKBR\codex\home
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cmd = (Get-Command codex -ErrorAction Stop).Source
+          $scratch = Join-Path $env:RUNNER_TEMP 'codex-plus-research-pilot-20261030'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          $out = Join-Path $scratch 'proposal.txt'
+          $prompt = @'
+          This is exactly one source-free, read-only, subscription-funded Codex proposal probe.
+          Do not use tools, inspect files, execute commands, or access any network endpoints.
+          Do not write code, create commits, or infer experimental success.
+          Produce at most 190 words and use exactly these four headings:
+          WINGLESS: one narrowly falsifiable next experiment on native non-transformer action-conditioned causal state memory.
+          YGGDRASIL: one distinct falsifiable next experiment on native independent local-cell plasticity and retained learning.
+          CONTROL: one resource-matched frozen comparator plus an unfamiliar-family held-out test for each.
+          STOP: specify no-post-result-tuning, equal compute/memory accounting, provenance and isolated native qualification before acceptance.
+          Do not treat external language models as the architecture of Wingless or Yggdrasil.
+          '@
+          Push-Location $scratch
+          try {
+            & $cmd exec --model 'gpt-5.6-luna' --config 'model_reasoning_effort="low"' --sandbox read-only --skip-git-repo-check --output-last-message $out $prompt
+            if ($LASTEXITCODE -ne 0) { throw ('CODEX_PLUS_LUNA_PROBE_FAILED exit=' + $LASTEXITCODE) }
+            if (-not (Test-Path -LiteralPath $out -PathType Leaf)) { throw 'CODEX_PLUS_OUTPUT_MISSING' }
+            $text = [IO.File]::ReadAllText($out)
+            if ($text.Length -lt 80 -or $text.Length -gt 2800) { throw 'CODEX_PLUS_OUTPUT_LENGTH_INVALID' }
+            foreach ($tag in @('WINGLESS:','YGGDRASIL:','CONTROL:','STOP:')) {
+              if (-not $text.Contains($tag)) { throw ('CODEX_PLUS_OUTPUT_MISSING_TAG_' + $tag) }
+            }
+            $sum = (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Output "CODEX_PLUS_OUTPUT_SHA256=$sum"
+            Write-Output 'CODEX_PLUS_LUNA_BOUNDED_PROPOSAL=PASS'
+            Write-Output 'CODEX_PLUS_SCIENTIFIC_ACCEPTANCE=FALSE'
+            Write-Output 'CODEX_PLUS_SOURCE_EDITS=ZERO'
+            Write-Output 'CODEX_PLUS_AUTO_RETRY=ZERO'
+          }
+          finally {
+            Pop-Location
+          }
+      - name: Confirm nonexecuting pilot boundary
+        shell: pwsh
+        run: |
+          Write-Output 'CODEX_PLUS_NEXT_STEP=Independent human/source review before any experiment'
+          Write-Output 'CODEX_PLUS_NO_NEW_CONTROLLERS=PASS'
+          Write-Output 'CODEX_PLUS_NO_ACCEPTED_REF_MUTATION=PASS'
