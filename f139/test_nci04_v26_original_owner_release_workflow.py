@@ -74,7 +74,7 @@ class OriginalV26ReleaseWorkflowTests(unittest.TestCase):
             "assert cold.meta() == original",
             "F139_V26_BACKUP_SHA256_MISMATCH",
             "F139_V26_PRETRANSITION_BACKUP_COLLISION",
-            "F139_V26_PARTIAL_CUSTODY_EXISTING_TASK_HELD_DISABLED",
+            "F139_V26_POSTMUTATION_EXISTING_TASK_DISABLED_AND_QUIESCENT",
             "F139_V26_ORIGINAL_TASK_NOT_RESUMED",
         ):
             self.assertIn(token, s)
@@ -84,6 +84,36 @@ class OriginalV26ReleaseWorkflowTests(unittest.TestCase):
             "--db $dbPath --approval $approval"), 1)
         self.assertNotIn("transition-qualified-native-v20", s)
         self.assertNotIn("activate-native --approval", s)
+
+    def test_failed_start_cannot_leave_original_task_enabled(self):
+        s = self.raw
+        catch = s.index("          } catch {", s.index(
+            "Start-ScheduledTask -TaskName $name -ErrorAction Stop"))
+        recovery = s[catch:]
+        # The previous release left an enabled task after Start failed.
+        # Every postmutation failure, even after $resumed becomes True,
+        # must explicitly stop, disable, and verify zero original children.
+        for required in (
+            "if($mutationPossible) {",
+            "Stop-ScheduledTask -TaskName $name -ErrorAction Stop",
+            "Disable-ScheduledTask -TaskName $name -ErrorAction Stop",
+            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\"",
+            "Contains('f139.local_controller')",
+            ".Contains($dbPath)",
+            "if($remaining.Count -eq 0){break}",
+            "$remaining.Count -ne 0",
+            "State -cne 'Disabled'",
+            "F139_V26_POSTMUTATION_QUIESCENCE_UNVERIFIED",
+            "F139_V26_POSTMUTATION_EXISTING_TASK_HOLD_UNVERIFIED",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, recovery)
+        self.assertLess(recovery.index("Stop-ScheduledTask"),
+                        recovery.index("Disable-ScheduledTask"))
+        self.assertLess(recovery.index("Disable-ScheduledTask"),
+                        recovery.index("F139_V26_POSTMUTATION_QUIESCENCE_UNVERIFIED"))
+        self.assertNotIn(
+            "F139_V26_POSTCUTOVER_EVIDENCE_FAILURE_TASK_LEFT_RUNNING", s)
 
     def test_no_assumption_of_model_or_scientific_first_use(self):
         s = self.raw
