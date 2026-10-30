@@ -38,8 +38,8 @@ class PublicNativeSevenActionGate(unittest.TestCase):
             original=subprocess.run(["git","show","HEAD:"+name],
                                     check=True,capture_output=True).stdout
             actual=Path(__file__).with_name(filename).read_bytes()
-            blob=sha1(b"blob "+str(len(original)).encode()+b"\\0"+original).hexdigest()
-            if blob!=expected or actual.replace(b"\\r\\n",b"\\n")!=original:
+            blob=sha1(b"blob "+str(len(original)).encode()+b"\0"+original).hexdigest()
+            if blob!=expected or actual.replace(b"\r\n",b"\n")!=original:
                 raise AssertionError("NRM2D_PINNED_NATIVE_SOURCE_DRIFT "+filename)
         cls.initial=source_free_frame()
 
