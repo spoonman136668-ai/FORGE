@@ -1,6 +1,6 @@
 """NR-M2G: source-only online action-conditioned structural public-effect cells.
 
-Learns independent scalar copy/constant-overwrite rules across all 441
+Learns independent scalar copy/constant-overwrite rules across all 147
 public image components, original heading and original mission. No original
 environment or native model is executed; the supplied admission validator
 is the exact pinned NR-M2E public-source interface in qualification.
@@ -15,7 +15,7 @@ MAX_PER_ACTION = 128
 MAX_TOTAL = 896
 MAX_SNAPSHOT_BYTES = 5000000
 MIN_SUPPORT = 4
-COMPONENTS = 443
+COMPONENTS = 149
 
 def canonical(obj):
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
@@ -30,7 +30,7 @@ def unpack(values):
     if len(values) != COMPONENTS:
         raise ValueError("PUBLIC_COMPONENT_WIDTH")
     image = [[values[3 * (7 * y + x):3 * (7 * y + x) + 3] for x in range(7)] for y in range(7)]
-    return {"image": image, "direction": values[441], "mission": values[442]}
+    return {"image": image, "direction": values[147], "mission": values[148]}
 
 class StructuralEffectCells:
     def __init__(self, admission):
