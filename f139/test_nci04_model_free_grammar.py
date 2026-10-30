@@ -176,10 +176,9 @@ class ModelFreeGrammarTests(unittest.TestCase):
         rng = random.Random(0xF139)
         for prior in (1, 2):
             namespace = {}
-            exec(SOURCE.decode().replace(
-                "    def snapshot(self) -> bytes:\\n",
-                method_for(prior) + "    def snapshot(self) -> bytes:\\n"),
-                namespace)
+            anchor = "    def snapshot(self) -> bytes:" + chr(10)
+            exec(SOURCE.decode().replace(anchor, method_for(prior) + anchor),
+                 namespace)
             cells = namespace["PublicCausalCells"]()
             chooser = getattr(cells, f"choose_posterior_public_cost_p{prior}")
             for _ in range(512):
