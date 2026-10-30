@@ -365,11 +365,15 @@ jobs:
             # mutation failure paths must restore and verify quiescence.
             if($mutationPossible) {
               try {
-                $failedState=[string](Get-ScheduledTask -TaskName $name -ErrorAction Stop).State
-                if($failedState -ceq 'Running') {
-                  Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
-                }
+                # First disable future triggers even if stopping the
+                # partially started task fails. Then attempt to stop its
+                # existing instance; verify process absence independently.
                 Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                try {
+                  Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                } catch {
+                  Write-Warning 'F139_V26_POSTMUTATION_STOP_UNVERIFIED'
+                }
                 for($hold=0;$hold -lt 40;$hold++) {
                   $remaining=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
                     Where-Object {$_.CommandLine -and
