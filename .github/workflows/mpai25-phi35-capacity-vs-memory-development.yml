@@ -1,0 +1,113 @@
+name: MP-AI25 original Windows stronger Phi-3.5 model evidence-use comparison
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai25-phi35-capacity-vs-memory-development.yml']
+permissions:
+  contents: read
+jobs:
+  original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Paired original Windows grammar-versus-freeform 24-call model diagnosis
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai'){
+             throw 'MPAI25_ORIGINAL_OWNER_WINDOWS_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){ throw 'MPAI25_PAID_API_DENIED' }
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI25_WORKFLOW_COMMIT_DRIFT'
+          }
+          $pin=(git rev-parse 'HEAD:tools/mpai25_phi35_capacity_vs_memory_development.py').Trim()
+          if($LASTEXITCODE -ne 0 -or $pin -cne '4bb84abf99ccd31b00f7defbb51b6b5ef3e0e4a7'){
+            throw 'MPAI25_TRIAL_CODE_DRIFT'
+          }
+          & python.exe -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai25_format_vs_reasoning_development.py").read_text(encoding="utf-8"))'
+          if($LASTEXITCODE -ne 0){ throw 'MPAI25_PYTHON_SYNTAX' }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai25-private-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $scratch 'source'
+          $trial=Join-Path $scratch 'trial'
+          $privateLog=Join-Path $scratch 'private.log'
+          function Assert([bool]$ok,[string]$reason){
+            if(-not $ok){throw ('MPAI25_'+$reason)}
+          }
+          Assert (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+          $env:MPAI25_PRIVATE_SCRATCH=$trial
+          $env:MPAI25_PRIVATE_SOURCE=$source
+          try{
+            & git.exe clone --quiet --depth 1 --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $source
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_SOURCE_AUTH'
+            Assert ((& git.exe -C $source rev-parse HEAD).Trim() -ceq '84ad556910c869afa2f171673d5a5b4041a4a9b4') 'ACCEPTED_SHA_DRIFT'
+            & python.exe -B tools/mpai25_format_vs_reasoning_development.py *> $privateLog
+            $status=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $privateLog -Raw
+            if($status -ne 0){
+              $stage=[regex]::Match($raw,'MPAI25_SAFE_STAGE=([A-Z_]+)')
+              $why=[regex]::Match($raw,'MPAI25_SAFE_FAILURE=(MPAI25_[A-Z0-9_]+)')
+              $kind=[regex]::Match($raw,'MPAI25_SAFE_ERROR_TYPE=([A-Za-z]+)')
+              if($stage.Success){Write-Output ('MPAI25_FAILURE_STAGE='+$stage.Groups[1].Value)}
+              if($why.Success){Write-Output ('MPAI25_FAILURE_CLASS='+$why.Groups[1].Value)}
+              if($kind.Success){Write-Output ('MPAI25_FAILURE_TYPE='+$kind.Groups[1].Value)}
+              throw 'MPAI25_MODEL_DIAGNOSIS_FAILED_PRIVATE_LOG'
+            }
+            foreach($mark in @(
+              'MPAI25_PINNED_SNAPSHOT_AND_2_RECORDS=PASS',
+              'MPAI25_MODEL_FULL_SHA256=PASS',
+              'MPAI25_REAL_LOCAL_MODEL_CALLS=24',
+              'MPAI25_OFFLINE_INFERENCE=PASS',
+              'MPAI25_PUBLIC_DEVELOPMENT_ONLY=TRUE',
+              'MPAI25_FIRST_USE_HOLDOUT=FALSE',
+              'MPAI25_SCIENTIFIC_ACCEPTANCE=FALSE',
+              'MPAI25_PRODUCTION_WRITES=0'
+            )){
+              Assert ($raw.Contains($mark)) 'MISSING_MODEL_RECEIPT'
+            }
+            $count=0
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI25_(FREE|GRAMMAR)_(NO_MEMORY|PLACEBO|ACCEPTED_MEMORY)=(\{.*\})$'){
+                $obj=$Matches[3]|ConvertFrom-Json
+                Assert ($obj.calls -eq 4 -and $obj.correct -ge 0 -and $obj.correct -le 4 -and
+                        $obj.unparseable -ge 0 -and $obj.unparseable -le 4 -and
+                        $obj.abstained -ge 0 -and $obj.abstained -le 4) 'ARM_DENOMINATOR'
+                Write-Output $line
+                $count++
+              }elseif($line -match '^MPAI25_(MODEL_LOAD_MS|PEAK_WORKING_SET_BYTES|REAL_LOCAL_MODEL_CALLS|FROZEN_DEVELOPMENT_PROTOCOL_SHA256|PINNED_SNAPSHOT_AND_2_RECORDS|MODEL_FULL_SHA256|OFFLINE_INFERENCE|PUBLIC_DEVELOPMENT_ONLY|FIRST_USE_HOLDOUT|SCIENTIFIC_ACCEPTANCE|PRODUCTION_WRITES)=[A-Za-z0-9_.-]+$'){
+                Write-Output $line
+              }
+            }
+            Assert ($count -eq 6) 'SIX_ARM_SUMMARIES'
+            $dirty=@(& git.exe -C $source status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'PRIVATE_SOURCE_MUTATED'
+            $workspaceDirty=@(& git.exe status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $workspaceDirty.Count -eq 0) 'PUBLIC_WORKSPACE_MUTATED'
+            Write-Output 'MPAI25_STRONGER_MODEL_ORIGINAL_WINDOWS_QUALIFIED=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI25_PRIVATE_SCRATCH,Env:MPAI25_PRIVATE_SOURCE -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI25_PRIVATE_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
