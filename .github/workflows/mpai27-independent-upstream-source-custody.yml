@@ -1,0 +1,34 @@
+name: MP-AI27 independently authored upstream memory benchmark source-custody gate
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai27-independent-upstream-source-custody.yml']
+permissions:
+  contents: read
+jobs:
+  first-use-boundary-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Frozen source-code guard and upstream original-byte verification, no task exposure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai27_external_source_custody.py").read_text(encoding="utf-8"))'
+          python -B tools/mpai27_external_source_custody.py
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI27_BRANCH_SOURCE_CUSTODY_UNCHANGED=PASS'
+          echo 'MPAI27_NO_F139_CONTROLLER_OR_NCI_DISPATCH=TRUE'
