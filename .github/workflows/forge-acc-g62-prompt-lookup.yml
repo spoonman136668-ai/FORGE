@@ -1,0 +1,102 @@
+name: FORGE ACC G62 TinyLlama 1B true SDPA versus prompt-lookup speculation
+on:
+  push:
+    branches: [research/acc-g62-prompt-lookup-20261030]
+    paths:
+      - 'research/acc_g62/**'
+      - '.github/workflows/forge-acc-g62-prompt-lookup.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g62-isolated-win-gpu
+  cancel-in-progress: false
+jobs:
+  g62-matched-sdpa:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify original prereg and 8 focused tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G62_SOURCE_SHA_MISMATCH' }
+          if (-not (Test-Path 'docs/research/ACC-G62-PREEXEC-20261030.md')) { throw 'G62_FROZEN_PROTOCOL_MISSING' }
+          $py = Get-Command python -ErrorAction Stop
+          & $py.Source -m py_compile research/acc_g62/g62_prompt_lookup.py research/acc_g62/test_g62.py
+          if ($LASTEXITCODE -ne 0) { throw 'G62_COMPILE_FAIL' }
+          & $py.Source -m unittest discover -s research/acc_g62 -p test_g62.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G62_TEST_FAIL' }
+          Write-Output 'G62_PREREG_SOURCE_TESTS=PASS'
+      - name: Create disposable Windows RTX CUDA 12.8 environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $drive = (Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($drive.Free -lt 10000000000) { throw 'G62_TEMP_FREE_DISK_BELOW_10GB' }
+          foreach ($name in @('acc-g62-venv','acc-g62-hf')) {
+            $path = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) { throw "G62_TEMP_COLLISION:$path" }
+          }
+          $py = Get-Command python -ErrorAction Stop
+          & $py.Source -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G62_PYTHON_WHEEL_INCOMPATIBLE' }
+          & $py.Source -m venv (Join-Path $env:RUNNER_TEMP 'acc-g62-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G62_VENV_CREATION_FAIL' }
+          Write-Output 'G62_VENV=PASS'
+      - name: Install pinned CUDA plus upstream speculative generation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = Join-Path $env:RUNNER_TEMP 'acc-g62-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE = '1'
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G62_CUDA_TORCH_INSTALL_FAILED' }
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G62_PINNED_TRANSFORMERS_INSTALL_FAILED' }
+          & $py -m pip freeze | Out-File -LiteralPath g62_pip_freeze.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G62_ENV_RECEIPT_FAILED' }
+          Write-Output 'G62_DISPOSABLE_GPU_RUNTIME=PASS'
+      - name: Run authentic TinyLlama SDPA matched baseline and speculative screen
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = Join-Path $env:RUNNER_TEMP 'acc-g62-venv\Scripts\python.exe'
+          $env:HF_HOME = Join-Path $env:RUNNER_TEMP 'acc-g62-hf'
+          $env:G62_RESULT = Join-Path (Get-Location).Path 'g62_result.json'
+          & $py -u research/acc_g62/g62_prompt_lookup.py
+          if ($LASTEXITCODE -ne 0) { throw 'G62_EXPERIMENT_FAILED_OR_BLOCKED' }
+          & $py -c 'import json; r=json.load(open("g62_result.json")); assert r["status"]=="PASS_AUTHENTIC_MATCHED_SDPA_SPECULATIVE_SCREEN"; assert len(r["cases"])==6; assert all(len(c["baseline_trials"])==5 and len(c["candidate_trials"])==5 and c["all_token_ids_identical"] for c in r["cases"]); assert not r["novel_acceleration"]; assert r["scientific_acceptance"]=="NOT_GRANTED"; print("G62_AUTHENTIC_60_GPU_MEASUREMENTS=PASS"); print("G62_DISPOSITION="+r["disposition"])'
+          if ($LASTEXITCODE -ne 0) { throw 'G62_RESULT_INVARIANTS_FAILED' }
+      - name: Upload immutable research-only raw results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g62-real-rtx-sdpa-prompt-lookup
+          path: |
+            g62_result.json
+            g62_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove temporary model and software
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('acc-g62-venv','acc-g62-hf')) {
+            $p = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) {
+              Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Output 'G62_ISOLATED_CLEANUP=PASS'
