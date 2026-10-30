@@ -1,7 +1,7 @@
 # E Research E-C6 — closure audit and niche-construction experiment preflight
 
-**Date:** 2026-10-29  
-**Gate:** E-C6 — protocol/design only, **no new experiment executed**.  
+**Date:** 2026-10-29
+**Gate:** E-C6 — protocol/design only, **no new experiment executed**.
 **Authority:** Advisory draft in FORGE PR #1194. No scientific first-use, FSA acceptance, native model selection, owner/controller/queue change, or deployment.
 
 ## Source check and narrow closure
