@@ -44,6 +44,22 @@ jobs:
           Write-Host 'F139_LOCAL_SQLITE_AND_RESTART_PROOF=PASS'
           Write-Host 'F139_CLOUDFLARE_CONTROLLER=ABSENT'
           Write-Host 'F139_SCIENTIFIC_ORIGINALS=ZERO'
+      # G113F source-only qualification: compile but DO NOT invoke the standalone
+      # one-shot native Job Object probe. No Job Object or process is created.
+      - name: RAR-G113F native Windows C# compile only (no execution)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $probeSource = (Resolve-Path 'f139/RARG113FOneShotWindowsJob.cs').Path
+          Add-Type -Path $probeSource -ErrorAction Stop
+          $entry = [RARG113FOneShotWindowsJob].GetMethod('Main')
+          if ($null -eq $entry -or -not $entry.IsStatic) {
+            throw 'RAR_G113F_NATIVE_COMPILE_ENTRY_INVALID'
+          }
+          Write-Host 'RAR_G113F_NATIVE_WINDOWS_CSHARP_COMPILE_ONLY=PASS'
+          Write-Host 'RAR_G113F_ONE_SHOT_NATIVE_EXECUTION=NOT_PERFORMED'
       - name: Verify native Windows PowerShell 5.1 strict-mode dry run
         if: runner.os == 'Windows'
         shell: powershell
