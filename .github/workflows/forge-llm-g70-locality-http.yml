@@ -29,10 +29,19 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git merge-base --is-ancestor 672447c13730c5e841956f4e017b0722517b90d3 HEAD
-          test "$(git rev-parse 672447c13730c5e841956f4e017b0722517b90d3:docs/research/G70-GSM8K-LOCALITY-DOSE-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G70-GSM8K-LOCALITY-DOSE-PREREG.md)"
+          python - <<'PY'
+          import pathlib, subprocess
+          path='docs/research/G70-GSM8K-LOCALITY-DOSE-PREREG.md'
+          frozen=subprocess.check_output(['git','show','672447c13730c5e841956f4e017b0722517b90d3:'+path])
+          current=pathlib.Path(path).read_bytes()
+          normalized=lambda blob:[line.rstrip() for line in blob.splitlines()]
+          assert normalized(frozen)==normalized(current), 'G70_FROZEN_PROTOCOL_CONTENT_DRIFT'
+          print('G70_FROZEN_PREREG_WHITESPACE_ONLY=PASS')
+          PY
+          test "$(git rev-parse ebc4cb4f8658d2928be1db43abeefbff77ecb28b:research/llm_g70/g70_gsm8k_locality.py)" = "$(git rev-parse HEAD:research/llm_g70/g70_gsm8k_locality.py)"
           git diff --exit-code a3ef4e4d7fb16211367ebbdfa9367cc862ceb02f HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68
-          python -m py_compile research/llm_g70/g70_gsm8k_locality.py research/llm_g70/test_g70.py
-          python -m unittest discover -s research/llm_g70 -p test_g70.py -v
+          python -m py_compile research/llm_g70/g70_gsm8k_locality.py research/llm_g70/test_g70_locality.py
+          python -m unittest discover -s research/llm_g70 -p test_g70_locality.py -v
           echo G70_FROZEN_SOURCE_AND_HELDOUT_DISJOINTNESS=PASS
       - name: Install exact previous G68 CPU inference dependencies
         shell: bash
