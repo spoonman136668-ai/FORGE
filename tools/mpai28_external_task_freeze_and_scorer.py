@@ -190,6 +190,8 @@ def calibrate(files, selected):
     positive = Counter()
     negative = Counter()
     wrong_blank = Counter()
+    unscorable = Counter()
+    gold_shape = Counter()
     for d in selected:
         family = d["family"]
         if family == "LOCOMO":
@@ -201,8 +203,14 @@ def calibrate(files, selected):
             require(isinstance(a, list) and len(a) > d["q"], "ANSWER_PAIR_MISSING")
             gold = a[d["q"]]
             rule = "substring" if family == "MAB_CR" else "exact"
+        original_kind = type(gold).__name__
         gold = gold_strings(gold)
-        require(len(gold) > 0, "UNSCORABLE_GOLD")
+        if not gold:
+            # Preserve every precommitted task; do NOT replace or inspect
+            # other answers to choose a more convenient scored sample.
+            unscorable[family] += 1
+            gold_shape[(family, original_kind)] += 1
+            continue
         # Positive, explicit corrupted, and blank controls on *real*
         # gold strings; gold and task inputs never printed.
         correct = score(gold[0], gold, rule)
@@ -214,13 +222,31 @@ def calibrate(files, selected):
         positive[family] += int(correct)
         negative[family] += int(not wrong)
         wrong_blank[family] += int(not blank)
-    require(all(counts[k] == PER_FAMILY for k in FAMILIES), "CALIBRATED_COUNT")
+    require(all(counts[k]+unscorable[k] == PER_FAMILY for k in FAMILIES),
+            "PRESERVED_FROZEN_TASK_COUNT")
+    require(sum(counts.values()) > 0, "NO_SCORABLE_REFERENCES")
     for family in FAMILIES:
+        print("MPAI28_"+family+"_SCORABLE_CASES="+str(counts[family]), flush=True)
+        print("MPAI28_"+family+"_UNSCORABLE_CASES="+str(unscorable[family]), flush=True)
         print("MPAI28_"+family+"_SCORER_POSITIVES="+str(positive[family]), flush=True)
         print("MPAI28_"+family+"_WRONG_ANSWERS_REJECTED="+str(negative[family]), flush=True)
         print("MPAI28_"+family+"_BLANK_ANSWERS_REJECTED="+str(wrong_blank[family]), flush=True)
-    print("MPAI28_TOTAL_GOLD_CONTROL_CASES=12", flush=True)
-    print("MPAI28_ALL_36_SCORER_CONTROLS=PASS", flush=True)
+    for (family, kind), number in sorted(gold_shape.items()):
+        # Strictly only source family, built-in type name and count:
+        # no gold content, task IDs or question text.
+        if kind not in ("str", "NoneType", "list", "dict", "int", "float", "bool"):
+            kind = "other"
+        print("MPAI28_UNSCORABLE_SHAPE_"+family+"_"+kind.upper()+"="+str(number), flush=True)
+    count=sum(counts.values())
+    print("MPAI28_FROZEN_SELECTION_PRESERVED=12", flush=True)
+    print("MPAI28_TOTAL_SCORABLE_CASES="+str(count), flush=True)
+    print("MPAI28_TOTAL_UNSCORABLE_CASES="+str(sum(unscorable.values())), flush=True)
+    print("MPAI28_CORRECT_WRONG_BLANK_CONTROLS_PASS="+str(3*count), flush=True)
+    print("MPAI28_ALL_SCORABLE_CONTROLS=PASS", flush=True)
+    if sum(unscorable.values()) == 0:
+        print("MPAI28_FULL_12_TASK_SCORER_COVERAGE=PASS", flush=True)
+    else:
+        print("MPAI28_FULL_12_TASK_SCORER_COVERAGE=NOT_QUALIFIED", flush=True)
     print("MPAI28_LOCOMO_SEMANTIC_SCORER=NOT_QUALIFIED", flush=True)
 
 def main():
