@@ -1,0 +1,105 @@
+name: FORGE ACC G68 original RTX stagewise hidden numerics
+on:
+  push:
+    branches: [research/acc-g68-hidden-state-attribution-20261030]
+    paths:
+      - 'research/acc_g68/**'
+      - '.github/workflows/forge-acc-g68-hidden-state.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g68-original-rtx-readonly
+  cancel-in-progress: false
+jobs:
+  g68-authenticated-hidden-diagnostic:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify prereg source SHA, compile without GPU packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G68_SOURCE_SHA_DRIFT' }
+          if (-not (Test-Path 'docs/research/ACC-G68-PREEXEC-20261030.md')) { throw 'G68_PREEXEC_MISSING' }
+          & python -m py_compile research/acc_g68/g68_hidden_attribution.py research/acc_g68/test_g68.py
+          if ($LASTEXITCODE -ne 0) { throw 'G68_SYNTAX_OR_COMPILE_FAILED' }
+          Write-Output 'G68_SOURCE_SYNTAX=PASS'
+      - name: Create disposable pinned runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G68_TEMP_FREE_LT_10GB' }
+          foreach ($name in @('acc-g68-venv','acc-g68-hf','acc-g68-wikitext-test.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { throw "G68_TEMP_PATH_COLLISION:$p" }
+          }
+          & python -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G68_PYTHON_VERSION_DRIFT' }
+          & python -m venv (Join-Path $env:RUNNER_TEMP 'acc-g68-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G68_VENV_CREATION_FAILED' }
+      - name: Install original exact Blackwell CUDA library environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g68-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G68_TORCH_CUDA_INSTALL_FAILED' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G68_ORIGINAL_TRANSFORMERS_INSTALL_FAILED' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g68_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G68_ENV_FREEZE_FAILED' }
+      - name: Run 12 focused source/negative-contract tests on original pinned torch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g68-venv\Scripts\python.exe'
+          & $p -m unittest discover -s research/acc_g68 -p test_g68.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G68_FOCUSED_SOURCE_CONTRACT_FAILED' }
+          Write-Output 'G68_FOCUSED_NEGATIVES_AND_SOURCE=PASS'
+      - name: Inspect 23 authentic last-token stages across 18 RTX GPU traces
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g68-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g68-hf'
+          $env:G68_CORPUS=Join-Path $env:RUNNER_TEMP 'acc-g68-wikitext-test.txt'
+          $env:G68_RESULT=Join-Path (Get-Location).Path 'g68_result.json'
+          & $p -u research/acc_g68/g68_hidden_attribution.py
+          if ($LASTEXITCODE -ne 0) { throw 'G68_FROZEN_GPU_DIAGNOSTIC_BLOCKED' }
+          & $p -c 'import json; r=json.load(open("g68_result.json")); d=r["diagnostic"]; assert r["status"]=="PASS_COMPLETE_ORIGINAL_GPU_DIAGNOSTIC"; assert d["screen"]=="COMPLETE_NUMERICAL_ATTRIBUTION_SCREEN"; assert d["traces"]==18 and d["stages_per_trace"]==23; assert all(len(d["numerical"][p]["paths"][m])==3 for p in ("float16","float32") for m in ("cached_one_by_one","cached_chunk_48","full_no_cache")); assert d["g63_original_generalization"]=="FAIL_NO_GO_UNCHANGED"; assert d["g67_original_engineering"]=="NO_GO_ENGINEERING"; assert d["scientific_acceptance"]=="NOT_GRANTED"; print("G68_AUTHENTIC_STAGEWISE_GPU_EVIDENCE=PASS")'
+          if ($LASTEXITCODE -ne 0) { throw 'G68_MEASUREMENT_INVARIANT_FAILED' }
+      - name: Retain original numerical evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g68-authentic-rtx-stagewise-hidden
+          path: |
+            g68_result.json
+            g68_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Dispose of isolated packages checkpoint and text
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g68-venv','acc-g68-hf','acc-g68-wikitext-test.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) {
+              Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Output 'G68_DISPOSABLE_MODEL_SOFTWARE_AND_TEXT_CLEANUP=PASS'
