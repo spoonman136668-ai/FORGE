@@ -51,13 +51,21 @@ def diagnostic_delta(before: dict, after: dict) -> dict:
                 raise ScopeDeltaDenied("RAR_G113_MEMORY_INVARIANT")
             _counter(sample, "direct_process_count")
         end_memory_peak = _counter(after, "memory_peak_bytes")
+        if end_memory_peak < _counter(before, "memory_peak_bytes"):
+            raise ScopeDeltaDenied("RAR_G113_MEMORY_PEAK_REGRESSED")
         memory_label = "CGROUP_CHARGED_PEAK_INCLUDING_OTHER_WORK"
         unit = "microseconds"
     else:
         if before["method"] != "windows_immediate_job_accounting_read_only" or before["cpu_scope"] != "IMMEDIATE_EXISTING_JOB_INCLUDING_PRIOR_MEMBERS" or before["memory_scope"] != "WINDOWS_JOB_PEAK_COMMIT_NOT_PHYSICAL_RSS":
             raise ScopeDeltaDenied("RAR_G113_WINDOWS_SCOPE_CLASSIFICATION")
-        start = _counter(before, "total_user_100ns") + _counter(before, "total_kernel_100ns")
-        finish = _counter(after, "total_user_100ns") + _counter(after, "total_kernel_100ns")
+        start_user = _counter(before, "total_user_100ns")
+        start_kernel = _counter(before, "total_kernel_100ns")
+        end_user = _counter(after, "total_user_100ns")
+        end_kernel = _counter(after, "total_kernel_100ns")
+        if end_user < start_user or end_kernel < start_kernel:
+            raise ScopeDeltaDenied("RAR_G113_WINDOWS_COMPONENT_CPU_REGRESSED")
+        start = start_user + start_kernel
+        finish = end_user + end_kernel
         for sample in (before, after):
             if _counter(sample, "active_processes") > _counter(sample, "total_processes"):
                 raise ScopeDeltaDenied("RAR_G113_JOB_PROCESS_INVARIANT")
