@@ -1,0 +1,215 @@
+name: FORGE CPU LLM Evaluation G79 full Linux Windows source qualification
+on:
+  push:
+    branches: [research/cpu-llm-g79-minstate-decode-20261030]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g79-full-regression.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-evaluation-g79-qualified-source
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify unchanged qualified G70 foundation and G79 frozen experimental source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          # Standing FORGE full regression uses shallow history; the dedicated
+          # G61 atlas test requires a complete history only in its own lane.
+          # Compare exact immutable Git tree/blob identities instead of
+          # expanding this isolated G79 qualification checkout.
+          test "$(git rev-parse --is-shallow-repository)" = "true"
+          test "$(git rev-parse HEAD:research/llm_g54)" = "204af0f5502269be4288c6c56f689526d03c77fb"
+          test "$(git rev-parse HEAD:research/llm_g55)" = "2e40d5bd574bf9f57f81c4ecf5fd611f9ef753e3"
+          test "$(git rev-parse HEAD:research/llm_g56)" = "7a728365dd6bdef415c8427d2a87791f6049ab2a"
+          test "$(git rev-parse HEAD:research/llm_g57)" = "dbabd811207e52764568fc4100bb7fa151255cff"
+          test "$(git rev-parse HEAD:research/llm_g58)" = "9c391b65ae0c1275191c3856d967f46ec5597038"
+          test "$(git rev-parse HEAD:research/llm_g59)" = "693d705b2e5f42886660ebc30e73ee73d5f6d911"
+          test "$(git rev-parse HEAD:research/llm_g60)" = "7681d55047cb7793542b1f340d2a1eaa15617f67"
+          test "$(git rev-parse HEAD:research/llm_g61)" = "f1bc119d185d301e5b80929a75cbacf66a48d79c"
+          test "$(git rev-parse HEAD:research/llm_g62)" = "f7345e7250e242f7b30964b486ce3c91640b34cd"
+          test "$(git rev-parse HEAD:research/llm_g63)" = "651d9e92106c43c594eb2e9486f08446b902eee9"
+          test "$(git rev-parse HEAD:research/llm_g64)" = "59b6203707a891fe36a02d0e83d1c173e6aa6b1f"
+          test "$(git rev-parse HEAD:research/llm_g65)" = "18ddbdbe436728b04f660b870abc924bdf21e554"
+          test "$(git rev-parse HEAD:research/llm_g66)" = "f3d0980ead446b0a89d5defe6531b1e00283b546"
+          test "$(git rev-parse HEAD:research/llm_g67)" = "ed268f83fbffa0cc13343d8647201c7798d070b9"
+          test "$(git rev-parse HEAD:research/llm_g68)" = "88fc035bb77e3192f2b69567d2226090c8a05361"
+          test "$(git rev-parse HEAD:research/llm_g70)" = "681c4022516e370a7edf9205d90a39e69b0a784f"
+          test "$(git rev-parse HEAD:docs/research/CPU-G79-GPT2-MINSTATE-DECODE-PREEXEC-20261030.md)" = "7ee4d08937fa9281c3d01ef5a2150a8cd75f2cf9"
+          test "$(git rev-parse HEAD:research/cpu_g79/test_g79_minstate_decode.py)" = "0fd03dd39983ac83d4b6ffd8e75831e39960d57a"
+          test "$(git rev-parse HEAD:docs/research/CPU-G79-GPT2-MINSTATE-FULLDECODE-ORIGINAL-NO-GO-20261030.json)" = "f1f990cd9dd9c29c696e9bb16a1e850b0cd98960"
+          test "$(git rev-parse HEAD:research/cpu_g79/g79_minstate_decode.py)" = "35701acae851b97dadfbdc1c6ca310d5658196be"
+          git diff --check HEAD^ HEAD
+          python - <<'PY'
+          import ast
+          for path in ("research/cpu_g79/g79_minstate_decode.py","research/cpu_g79/test_g79_minstate_decode.py"):
+              ast.parse(open(path,encoding="utf-8").read(),filename=path)
+          print("G79_PYTHON_SYNTAX=PASS")
+          PY
+          python -B -m unittest discover -s research/cpu_g79 -p test_g79_minstate_decode.py -v
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G79-GPT2-MINSTATE-FULLDECODE-ORIGINAL-NO-GO-20261030.json"
+          with open(p,encoding="utf-8") as f:r=json.load(f)
+          assert r["original_source_commit"]=="ad27ff284878394829c8b342d23fedf318e6117d"
+          assert r["original_artifact_zip_sha256"]=="3285705e39e13d251a06bcf61d7456e66877bcc13f6b7525af62bc190f2b8baa"
+          assert r["original_result_json_sha256"]=="1d477ab0cbb328464d6ef2a031712d931a79795204461593e7dbd6bb8adb4b8e"
+          assert r["decision"]=="NO_GO" and r["engineering"]=="PASS"
+          assert r["correctness"]=="PASS" and r["restrictions"]["scientific_acceptance"]=="NOT_GRANTED"
+          assert r["restrictions"]["promotion_allowed"] is False
+          print("G79_AUTHENTIC_NEGATIVE_RECEIPT=PASS")
+          PY
+          echo G79_FROZEN_EXPERIMENT_SOURCE_AND_REGRESSION_ADMISSION=PASS
+      - name: Enforce FORGE independence from private CKB-plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Public isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e snapshot
+          test ! -e research/successor-builder
+          # Keep imports, arbitrary process creation and network posting denied everywhere.
+          ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|os.StartProcess|net/http.Post' .
+          # Freeze the seven preexisting non-supervisor exec.Command sites;
+          # deny every new, duplicated, moved, or modified source call.
+          # The original bounded supervisor's separate count gates stay intact.
+          python3 -B isolationguard/check_subprocess_sites.py
+          # The exception contains exactly the bounded executor and its integration test.
+          grep -l -E 'exec.Command' subprocesssupervisor/supervise.go subprocesssupervisor/supervise_test.go >/dev/null
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' subprocesssupervisor | wc -l)" -eq 3
+          grep -q -E 'exec.Command' subprocesssupervisor/partial_crash_test.go
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
+          grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
+          ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify unchanged qualified G70 foundation and G79 frozen experimental source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          # Standing FORGE full regression uses shallow history; the dedicated
+          # G61 atlas test requires a complete history only in its own lane.
+          # Compare exact immutable Git tree/blob identities instead of
+          # expanding this isolated G79 qualification checkout.
+          test "$(git rev-parse --is-shallow-repository)" = "true"
+          test "$(git rev-parse HEAD:research/llm_g54)" = "204af0f5502269be4288c6c56f689526d03c77fb"
+          test "$(git rev-parse HEAD:research/llm_g55)" = "2e40d5bd574bf9f57f81c4ecf5fd611f9ef753e3"
+          test "$(git rev-parse HEAD:research/llm_g56)" = "7a728365dd6bdef415c8427d2a87791f6049ab2a"
+          test "$(git rev-parse HEAD:research/llm_g57)" = "dbabd811207e52764568fc4100bb7fa151255cff"
+          test "$(git rev-parse HEAD:research/llm_g58)" = "9c391b65ae0c1275191c3856d967f46ec5597038"
+          test "$(git rev-parse HEAD:research/llm_g59)" = "693d705b2e5f42886660ebc30e73ee73d5f6d911"
+          test "$(git rev-parse HEAD:research/llm_g60)" = "7681d55047cb7793542b1f340d2a1eaa15617f67"
+          test "$(git rev-parse HEAD:research/llm_g61)" = "f1bc119d185d301e5b80929a75cbacf66a48d79c"
+          test "$(git rev-parse HEAD:research/llm_g62)" = "f7345e7250e242f7b30964b486ce3c91640b34cd"
+          test "$(git rev-parse HEAD:research/llm_g63)" = "651d9e92106c43c594eb2e9486f08446b902eee9"
+          test "$(git rev-parse HEAD:research/llm_g64)" = "59b6203707a891fe36a02d0e83d1c173e6aa6b1f"
+          test "$(git rev-parse HEAD:research/llm_g65)" = "18ddbdbe436728b04f660b870abc924bdf21e554"
+          test "$(git rev-parse HEAD:research/llm_g66)" = "f3d0980ead446b0a89d5defe6531b1e00283b546"
+          test "$(git rev-parse HEAD:research/llm_g67)" = "ed268f83fbffa0cc13343d8647201c7798d070b9"
+          test "$(git rev-parse HEAD:research/llm_g68)" = "88fc035bb77e3192f2b69567d2226090c8a05361"
+          test "$(git rev-parse HEAD:research/llm_g70)" = "681c4022516e370a7edf9205d90a39e69b0a784f"
+          test "$(git rev-parse HEAD:docs/research/CPU-G79-GPT2-MINSTATE-DECODE-PREEXEC-20261030.md)" = "7ee4d08937fa9281c3d01ef5a2150a8cd75f2cf9"
+          test "$(git rev-parse HEAD:research/cpu_g79/test_g79_minstate_decode.py)" = "0fd03dd39983ac83d4b6ffd8e75831e39960d57a"
+          test "$(git rev-parse HEAD:docs/research/CPU-G79-GPT2-MINSTATE-FULLDECODE-ORIGINAL-NO-GO-20261030.json)" = "f1f990cd9dd9c29c696e9bb16a1e850b0cd98960"
+          test "$(git rev-parse HEAD:research/cpu_g79/g79_minstate_decode.py)" = "35701acae851b97dadfbdc1c6ca310d5658196be"
+          git diff --check HEAD^ HEAD
+          python - <<'PY'
+          import ast
+          for path in ("research/cpu_g79/g79_minstate_decode.py","research/cpu_g79/test_g79_minstate_decode.py"):
+              ast.parse(open(path,encoding="utf-8").read(),filename=path)
+          print("G79_PYTHON_SYNTAX=PASS")
+          PY
+          python -B -m unittest discover -s research/cpu_g79 -p test_g79_minstate_decode.py -v
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G79-GPT2-MINSTATE-FULLDECODE-ORIGINAL-NO-GO-20261030.json"
+          with open(p,encoding="utf-8") as f:r=json.load(f)
+          assert r["original_source_commit"]=="ad27ff284878394829c8b342d23fedf318e6117d"
+          assert r["original_artifact_zip_sha256"]=="3285705e39e13d251a06bcf61d7456e66877bcc13f6b7525af62bc190f2b8baa"
+          assert r["original_result_json_sha256"]=="1d477ab0cbb328464d6ef2a031712d931a79795204461593e7dbd6bb8adb4b8e"
+          assert r["decision"]=="NO_GO" and r["engineering"]=="PASS"
+          assert r["correctness"]=="PASS" and r["restrictions"]["scientific_acceptance"]=="NOT_GRANTED"
+          assert r["restrictions"]["promotion_allowed"] is False
+          print("G79_AUTHENTIC_NEGATIVE_RECEIPT=PASS")
+          PY
+          echo G79_FROZEN_EXPERIMENT_SOURCE_AND_REGRESSION_ADMISSION=PASS
+      - name: FORGE independence and standing isolation enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
