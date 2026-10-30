@@ -135,7 +135,8 @@ def track(work):
 
 def source_only_report():
     original_base=trained_original_r7(11)
-    base_sha=hashlib.sha256(original_base.checkpoint()).hexdigest()
+    base_raw=original_base.checkpoint()
+    base_sha=hashlib.sha256(base_raw).hexdigest()
     candidate=PersistentFactorCells(original_base)
     regimes=[]
     total_choice_disagreements=0
@@ -150,14 +151,14 @@ def source_only_report():
         snap=candidate.checkpoint()
         restored=PersistentFactorCells.restore(
             snap,base_sha,hashlib.sha256(snap).hexdigest())
-        held=held_states(seed)[:PUBLIC_START_COUNT]
-        if len(held)!=PUBLIC_START_COUNT or len(set(held))!=PUBLIC_START_COUNT:
+        held=held_states(seed)
+        if len(held)!=64 or len(set(held))!=64:
             raise AssertionError("NRM2C_UNEXPECTED_PUBLIC_HELDOUT_ROSTER")
         # Goal recipe is EVALUATOR-ONLY. It creates reachable synthetic
         # public goals but is not included in the planner's inputs.
         tasks=[
             (start,true_chain(seed,start,sequence))
-            for start in held for sequence in GOAL_SEQUENCES
+            for start in held[:PUBLIC_START_COUNT] for sequence in GOAL_SEQUENCES
         ]
         if len(tasks)!=32:
             raise AssertionError("NRM2C_TASK_COUNT_DRIFT")
@@ -202,7 +203,7 @@ def source_only_report():
         total_choice_disagreements+=same
         if candidate.episodes!=3*(SOURCE_SEEDS.index(seed)+1) or restored.checkpoint()!=snap:
             raise AssertionError("NRM2C_PERSISTENT_CUSTODY_DRIFT")
-        if original_base.checkpoint()!=original_base.checkpoint(): # prior base separately checked
+        if original_base.checkpoint()!=base_raw:
             raise AssertionError("NRM2C_UNEXPECTED_BASE_DRIFT")
         regimes.append({
             "source_only_regime":seed,
@@ -210,6 +211,7 @@ def source_only_report():
             "sliding_window_evictions":candidate.evictions,
             "explicit_world_identity_given_to_candidate":False,
             "heldout_public_starts":len(held),
+            "public_task_starts":PUBLIC_START_COUNT,
             "source_only_reachable_public_goal_tasks":len(tasks),
             "goal_sequence_rules_evaluator_only":True,
             "selected_action_disagreements_with_strong_fitted_R7":same,
