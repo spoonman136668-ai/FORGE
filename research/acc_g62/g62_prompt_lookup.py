@@ -56,6 +56,16 @@ def decision(cases):
  okay=all(x["ratio_baseline_over_candidate"]>=1.15 and x["all_token_ids_identical"] for x in structured)
  okay=okay and geom>=1.0 and all(x["candidate_peak_allocated_mib"]<=1.10*x["baseline_peak_allocated_mib"] for x in cases)
  return ("GO_NARROW_ENGINEERING" if okay else "NO_GO",geom)
+def audited_continuation(raw_tokens,arm):
+ length=len(raw_tokens)
+ if arm=="baseline" and length!=NEW_TOKENS:
+  raise RuntimeError(f"BASELINE_GENERATION_LENGTH_MISMATCH:{length}")
+ if arm=="candidate" and not (NEW_TOKENS<=length<=NEW_TOKENS+5):
+  raise RuntimeError(f"CANDIDATE_GENERATION_LENGTH_OUTSIDE_PREREG_BOUND:{length}")
+ if arm not in ("baseline","candidate"):
+  raise ValueError("UNKNOWN_ARM")
+ return list(raw_tokens[:NEW_TOKENS]),length
+
 def run():
  import torch
  import transformers
@@ -123,10 +133,11 @@ def run():
    finally:handle.remove()
    torch.cuda.synchronize(dev)
    dt=time.perf_counter()-t
-   continuation=out[0,ids.shape[1]:].detach().cpu().tolist()
-   if len(continuation)!=NEW_TOKENS:
-    raise RuntimeError(f"GENERATION_LENGTH_MISMATCH:{arm}:{len(continuation)}")
+   raw_continuation=out[0,ids.shape[1]:].detach().cpu().tolist()
+   continuation,raw_length=audited_continuation(raw_continuation,arm)
    return {"seconds":dt,"token_ids":continuation,
+      "raw_continuation_tokens":raw_length,
+      "extra_generated_tokens_charged":raw_length-NEW_TOKENS,
       "forward_calls":calls["count"],
       "peak_allocated_mib":torch.cuda.max_memory_allocated(dev)/1024**2,
       "peak_reserved_mib":torch.cuda.max_memory_reserved(dev)/1024**2}
@@ -163,8 +174,8 @@ def run():
        "candidate_peak_allocated_mib":max(v["peak_allocated_mib"] for v in trials["candidate"]),
        "baseline_peak_reserved_mib":max(v["peak_reserved_mib"] for v in trials["baseline"]),
        "candidate_peak_reserved_mib":max(v["peak_reserved_mib"] for v in trials["candidate"]),
-       "baseline_trials":[{k:v[k] for k in ("seconds","forward_calls","peak_allocated_mib","peak_reserved_mib")} for v in trials["baseline"]],
-       "candidate_trials":[{k:v[k] for k in ("seconds","forward_calls","peak_allocated_mib","peak_reserved_mib")} for v in trials["candidate"]],
+       "baseline_trials":[{k:v[k] for k in ("seconds","forward_calls","peak_allocated_mib","peak_reserved_mib","raw_continuation_tokens","extra_generated_tokens_charged")} for v in trials["baseline"]],
+       "candidate_trials":[{k:v[k] for k in ("seconds","forward_calls","peak_allocated_mib","peak_reserved_mib","raw_continuation_tokens","extra_generated_tokens_charged")} for v in trials["candidate"]],
        "candidate_reduced_target_forward_calls":any(
            c["forward_calls"]<b["forward_calls"] for c,b in zip(trials["candidate"],trials["baseline"])),
        "all_token_ids_identical":True,
