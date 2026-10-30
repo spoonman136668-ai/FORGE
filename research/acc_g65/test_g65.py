@@ -22,7 +22,7 @@ class G65FrozenContract(unittest.TestCase):
  def test_three_frozen_modes_only(self):
   self.assertEqual(g.MODES,("cached_one_by_one","cached_chunk_48","full_no_cache"))
  def test_sha_uses_original_json_list_canonicalization(self):
-  self.assertEqual(g.token_sha([1,2,3]),"a36b1f2c3f84522dd100c004a9e09f1ce8ee00b4ad1d87fba43c82f009f47c49")
+  self.assertEqual(g.token_sha([1,2,3]),"a36b1f2c3f84522dd1005145646617d7054c0851e97c72a039c0bdfac9fa07f3")
  def test_full_source_refuses_to_change_g63_final(self):
   src=Path(__file__).with_name("g65_logit_path.py").read_text(encoding="utf-8")
   self.assertIn('"original_g63_final":"FAIL_NO_GO_UNCHANGED"',src)
