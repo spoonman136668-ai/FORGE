@@ -17,7 +17,7 @@ func rotate(e Event) Event {
  return Event{
   Before:[6]float64{e.Before[2],e.Before[0],e.Before[1],e.Before[5],e.Before[3],e.Before[4]},
   After:[6]float64{e.After[2],e.After[0],e.After[1],e.After[5],e.After[3],e.After[4]},
-  Action:e.Action,Reward:e.Reward,
+  Action:e.Action,Reward:e.Reward,Terminal:e.Terminal,Truncated:e.Truncated,
  }
 }
 func TestBoundedAndRewardOnly(t *testing.T) {
