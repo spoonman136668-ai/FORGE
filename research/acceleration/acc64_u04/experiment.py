@@ -78,8 +78,8 @@ def grad(a:list[float],b:list[float],cases:list,n:int)->dict:
         h=[math.fsum(a[j*n+i]*x[i] for i in range(n)) for j in range(RANK)]
         dh=[0.0]*RANK
         for o in range(n):
-            pred=math.fsum(w0(o,i,n)*x[i] for i in range(n))+
-                 math.fsum(b[o*RANK+j]*h[j] for j in range(RANK))
+            pred=(math.fsum(w0(o,i,n)*x[i] for i in range(n))+
+                  math.fsum(b[o*RANK+j]*h[j] for j in range(RANK)))
             err=pred-target[o]
             total+=.5*err*err
             for j in range(RANK):
