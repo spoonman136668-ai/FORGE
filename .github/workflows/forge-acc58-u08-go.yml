@@ -1,0 +1,131 @@
+name: ACC58 original U08 reservoir native
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc58_go_u08/**'
+      - 'docs/research/ACC-58-*'
+      - '.github/workflows/forge-acc58-u08-go.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 45
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original U08 source and prereg-first custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor f7dd294cf4a0c739176c83f16e6907a3bb013802 HEAD
+          test "$(git hash-object docs/research/ACC-58-U08-RESERVOIR-PREREG.md)" = 6ef006a7d9d86039c26fd1ac5035d6c783838ec9
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python - <<'PY'
+          import ast,pathlib
+          t=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          a=ast.literal_eval(next(v.value for v in t.body if isinstance(v,ast.Assign) and any(isinstance(x,ast.Name) and x.id=='ORIGINAL_NAMES' for x in v.targets)))
+          assert len(a)==30 and a[7]=='fixed reservoir dynamics'
+          print('ACC58_ORIGINAL_U08_PREREG_PASS')
+          PY
+          test "$(git hash-object research/acceleration/acc58_go_u08/go.mod)" = 944d12ebb9f3400e612cf8029abde02f0a417d5b
+          test "$(git hash-object research/acceleration/acc58_go_u08/main.go)" = ac9ca11ebd7f53c6dc0424f461b514528140a42a
+          test "$(git hash-object research/acceleration/acc58_go_u08/core_test.go)" = 8423e7aa771d2cebae0cc930c57aad2a2b391421
+          test "$(git hash-object research/acceleration/acc58_go_u08/rss_linux.go)" = 6d0b62ca5b34f400649132f27e446cd180308bc4
+          test "$(git hash-object research/acceleration/acc58_go_u08/rss_windows.go)" = 96e8010b630c97372e18dfeb41e3f0701970101f
+      - name: Preserve original 36 research screens
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc58-36.json"
+      - name: Go tests vet build and 80 native subprocesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc58_go_u08
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc58"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc58-report.json"
+      - name: Audit cold workers and independent data
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP/acc58-report.json" <<'PY'
+          import json,sys,math
+          r=json.load(open(sys.argv[1]))
+          assert r['Schema']=='acc58.u08.ridge.v1'
+          assert r['WorkerCount']==len(r['Trials'])==80
+          assert len(r['Cohorts'])==4
+          seen=set();pairs={}
+          for t in r['Trials']:
+            w=t['Worker'];k=(w['Regime'],w['Mode'],w['Seed'])
+            assert k not in seen;seen.add(k)
+            assert w['Train']==256 and w['Test']==128
+            assert 0<=w['TrainCorrect']<=256 and 0<=w['TestCorrect']<=128
+            assert w['StateBytes']>0 and w['PeakRSSBytes']>0
+            assert t['CPUSeconds']>0 and t['WallSeconds']>0
+            assert math.isfinite(w['Accuracy'])
+            assert all(len(w[x])==64 for x in ('SourceSHA','TrainSHA','TestSHA','TruthSHA','PredSHA'))
+            pair=(w['Regime'],w['Seed']);h=(w['SourceSHA'],w['TrainSHA'],w['TestSHA'],w['TruthSHA'])
+            assert pair not in pairs or pairs[pair]==h
+            pairs[pair]=h
+          assert len(seen)==80 and len(pairs)==20
+          print('ACC58_U08_NATIVE_80_CPU_RSS_SOURCE_PASS')
+          print('ACC58_CLASSIFICATION='+r['Classification'])
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc58-u08-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc58-report.json
+            ${{ runner.temp }}/acc58-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc58-u08-*
+          path: artifacts
+      - name: Independent crossOS 80 predictions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc58-u08-ubuntu-latest'/'acc58-report.json').read_text())
+          b=json.loads((p/'acc58-u08-windows-latest'/'acc58-report.json').read_text())
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda x:(x['Worker']['Regime'],x['Worker']['Mode'],x['Worker']['Seed'])
+          aa={key(t):t['Worker'] for t in a['Trials']}
+          bb={key(t):t['Worker'] for t in b['Trials']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for k in aa:
+            for f in ('SourceSHA','TrainSHA','TestSHA','TruthSHA','PredSHA','TrainCorrect','TestCorrect','Train','Test','StateBytes'):
+              assert aa[k][f]==bb[k][f],(k,f)
+          print('ACC58_U08_CROSSOS_80_OF_80_EXACT_PASS')
+          print('ACC58_LINUX='+a['Classification'])
+          print('ACC58_WINDOWS='+b['Classification'])
+          print('ACC58_NATIVE_MODEL_GENERALIZATION_UNVERIFIED')
+          PY
