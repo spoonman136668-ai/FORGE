@@ -100,6 +100,30 @@ def placebo(length: int, unrelated_statement: str):
     txt = "Unrelated historical record: " + unrelated_statement
     return (txt + "\n") * ((length // max(1, len(txt))) + 2)
 
+def peak_working_set() -> int:
+    import ctypes
+    from ctypes import wintypes
+    class Counters(ctypes.Structure):
+        _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+          ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+          ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+          ("QuotaPagedPoolUsage", ctypes.c_size_t),
+          ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+          ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+          ("PagefileUsage", ctypes.c_size_t),
+          ("PeakPagefileUsage", ctypes.c_size_t)]
+    c = Counters()
+    c.cb = ctypes.sizeof(c)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    psapi = ctypes.WinDLL("psapi", use_last_error=True)
+    kernel.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE,
+        ctypes.POINTER(Counters), wintypes.DWORD]
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+    need(bool(psapi.GetProcessMemoryInfo(kernel.GetCurrentProcess(),
+               ctypes.byref(c), c.cb)), "WIN32_MEMORY_COUNTER")
+    return int(c.PeakWorkingSetSize)
+
 def main():
     global STATUS
     need(os.name == "nt" and os.environ.get("RUNNER_NAME") == "FORGE-CODEX-REMOTE"
@@ -197,6 +221,9 @@ def main():
         }
         print("MPAI23_ARM_" + arm.upper() + "=" +
               json.dumps(summary, sort_keys=True, separators=(",", ":")), flush=True)
+    peak_bytes = peak_working_set()
+    need(0 < peak_bytes <= 5000000000, "PEAK_MEMORY_CAP")
+    print("MPAI23_PEAK_WORKING_SET_BYTES=" + str(peak_bytes), flush=True)
     print("MPAI23_MODEL_LOAD_MS=" + str(load_ms), flush=True)
     print("MPAI23_REAL_LOCAL_MODEL_CALLS=" + str(len(results)), flush=True)
     print("MPAI23_SAME_MODEL_AND_TASKS=PASS", flush=True)
