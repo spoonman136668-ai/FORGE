@@ -18,6 +18,10 @@ from f139.local_controller import (
 )
 from f139.nci04_model_owner_bridge import inspect_policy, FORGE_REPO, POLICY_ISSUE
 from f139.nci04_native_contract import canonical
+from f139.nci04_owner_ledger import (
+    APPROVAL_SCHEMA as NATIVE_APPROVAL_SCHEMA, activate_native,
+    verify_native_activation,
+)
 from f139.nci04_v24_v20_renewable_readonly_preflight import (
     FROM_V20, SCHEMA as APPROVAL_SCHEMA, FIELDS as APPROVAL_FIELDS,
 )
@@ -88,7 +92,29 @@ def guarded_original_transition(db_path: Path, approval_path: Path) -> dict:
             db.verify()
             require(db.meta()["source_sha"] == target,
                     "ORIGINAL_POST_TRANSITION_SOURCE_MISMATCH")
-            return report
+            # Same qualified original native-development authority, rebound
+            # to the new source only after the one-shot V21 transition is
+            # cold-verifiable. No worker is dispatched by activation.
+            original_head = db.meta()["head_seq"]
+            original_approval = {
+                "schema": NATIVE_APPROVAL_SCHEMA,
+                "source_sha": target,
+                "expected_event_head_sha256": db.meta()["head_hash"],
+                "native_development_approved": True,
+                "scientific_first_use": False,
+                "create_controller": False, "paid_api_calls": 0,
+            }
+            require(activate_native(db, original_approval) is True,
+                    "ORIGINAL_NATIVE_REACTIVATION_REFUSED")
+            db.verify()
+            meta = db.meta()
+            require(meta["head_seq"] == original_head + 1
+                    and meta["source_sha"] == target
+                    and verify_native_activation(db) is True,
+                    "ORIGINAL_NATIVE_ACTIVATION_NOT_COLD_AUTHENTIC")
+            return {**report, "native_reactivated": True,
+                    "activation_event_seq": meta["head_seq"],
+                    "event_head_sha256": meta["head_hash"]}
     finally:
         db.close()
 
