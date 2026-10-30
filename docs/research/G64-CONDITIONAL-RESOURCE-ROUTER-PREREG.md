@@ -1,0 +1,28 @@
+# G64 — Conditional CPU resource routing for authentic GPT-2 prefix reuse
+
+**Research-only, source-frozen engineering screen. No production deployment, accepted-model change, FORGE original controller/queue/autonomy modification, research first-use acceptance, paid API or merge. Existing draft PR #1250.**
+
+## Locked G63 checkpoint
+
+- G63 source `04d9a148bfbe007451853b2159a15ec6db8eb44d`, benchmark https://github.com/spoonman136668-ai/FORGE/actions/runs/41037723218, Linux/Windows https://github.com/spoonman136668-ai/FORGE/actions/runs/41037731987: engineering/source tests PASS and both OS regressions PASS, **performance screen FAIL**.
+- Original model `openai-community/gpt2` revision `607a30d783dfa663caf39e06633721c8d4cfcd7e`, exact safetensors SHA256 `248dfc3911869ec493c76e65bf2fcf7f615828b0254c12b473182f0f81d3a707`; freeze torch=2.5.1+cpu, transformers=4.48.3, one intra/inter-op thread and same G55 source prompt/tokenizer.
+- Preserve original G63 negative unique-only B=2 `0.8669936478580442x`, B=3 `0.9174442622666944x`, thrash B=2 `0.8583405008268638x` and B=3 `0.928276064938575x` for unconditional overlap. No later result may rewrite those findings.
+
+## Frozen intervention, controls, and causality
+
+- Affinity pin each trial to exactly B=2 and B=3 previously available Linux logical CPUs and verify. All arms use total B model-forward worker slots; torch thread count 1. No expansion of allowed compute for candidate.
+- Frozen cohorts six pretokenized arrival-ordered requests, 16 greedy generated tokens each: `high_locality=(0,0,0,0,1,1)`, `unique_only=(0,1,2,3,4,5)`, `thrash=(0,1,2,0,1,2)`. Identical exact family-prefix and unique suffix strings to G63. Group arrival into waves of B request slots; each wave must complete before the next. Same wave boundaries across controls/candidate; no artificial delays. This adds a wave-scheduler control relative to G63 and does not permit direct speed comparison across G63 and G64.
+- Three arms: (1) no shared-prefix cache, B decode workers; (2) serialized adaptive prefill, B decode workers and causal G59 admission; (3) **conditional resource router**. At each wave boundary inspect only the prefixes of **currently arriving requests** and *past* observed request identities, no future stream: enable prefix producer IFF some currently arriving family has appeared **at least twice before** this wave. On active waves allocate B−1 decoding workers + 1 prefill producer; on inactive waves allocate the full B decoding workers and do not create any prefix prefill/cached state. Charge measured pool creation/switching, coordination, admissions, future waits, deep copies, decoder work, shutdown. Persist only previous observed family IDs (no outputs/oracle lookahead).
+- Active waves apply the **unchanged G59 adaptive policy** with exact token prefix keys and LRU cap 2 (retained float32 prefix-KV <=42,000,000 bytes); inactive waves still update causal history but retain no prefix cache. On switching inactive, drop retained entries; include eviction costs. In active waves each exact prefix has at most one in-flight producer; consumers wait on the same future and deep-copy K/V per decoder. No double prefill.
+- Predeclared expected routes (verify): high_locality B=2 `[off,on,off]`; high_locality B=3 `[off,on]`. Unique and thrash routes off for every wave at B=2/B=3. Independently record actually used model-forward workers and CPU affinity; pool size alone is not proof of CPU utilization.
+- Every arm observes the same arrival order and wave timing policy; all wall time begins before the first wave and ends after last work is completed. Include entire cache admission/prefill, pool startup and teardown, switching overhead. Paired run order rotates, with one untimed reference/equivalence pass and warmup, **two paired repeats** per cohort/budget (24 controlled arm runs, plus untimed checks). Record all request outputs SHA, exact tokens, per-wave route, process wall+CPU, tokens/s, prefix KV retained peak, sampled RSS, measured preparation/decoder overlap and count of prefill producers.
+- For no cache, ensure zero cross-request prefix cache. For unique and thrash, the conditional arm must have zero prefills, zero retained cache memory and never select prefill worker. Failure to meet any invariant is engineering FAIL regardless of timing.
+
+## Frozen *screen only* (not scientific acceptance)
+
+- Exact output parity every request/arm/run, CPU-affinity identity, B total model-forward worker cap, never exceed 2 retained entries or 42,000,000 prefix KV bytes, no future-peeking, expected routes and no false producer creation.
+- Performance PASS only if conditional/no-cache median high_locality B=3 >=1.05x, B=2 >=0.98x, unique_only B=3 >=0.98x and thrash B=3 >=0.98x, plus conditional/serialized median high_locality B=3 >=1.00x. If any condition fails, record FAIL without threshold edits. Report all B=2/B=3 cohort results including negatives and per-wave overhead.
+- Any apparent improvement is limited to original GPT-2 synthetic sequential waves on one CPU host. No live multi-user serving, GPU, dynamic batching, energy, exact process peak RSS, independent host holdout, or Wingless/Yggdrasil native model benefit. User-level or production acceptance NOT GRANTED. PR remains DRAFT / UNMERGED.
+- Full exact-head Linux/Windows source regression is mandatory after the experiment. Retain original G63 and earlier evidence immutable.
+
+**This document MUST be committed separately before G64 implementation and experimental execution. Any post-result revisions to policy, thresholds or workloads require a new named gate.**
