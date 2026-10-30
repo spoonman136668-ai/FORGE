@@ -89,7 +89,7 @@ class G74Frozen(unittest.TestCase):
     def test_cross_speed_bound_independent_of_reference(self):
         a,b=good()
         for x in a[1:]:
-            x["variants"]["original_fp16"]["median_seconds"]["baseline"]=.3
+            x["variants"]["original_fp16"]["median_seconds"]["baseline"]=.5
         d=g.adjudicate(a,b)
         self.assertEqual(d["firstuse_fp32_reference_screen"],"FRESH_FP32_REFERENCE_PASS_ONLY")
         self.assertEqual(d["cross_precision_practical_screen"],"NO_GO_CROSS_PRECISION")
