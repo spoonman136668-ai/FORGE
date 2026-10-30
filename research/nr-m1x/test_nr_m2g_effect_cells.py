@@ -14,7 +14,7 @@ import unittest
 
 from nr_m2d_pinned_original_public import MISSION
 from nr_m2e_extended_public import full_public, GOAL_MISSION
-from nr_m2g_effect_cells import StructuralEffectCells
+from nr_m2g_effect_cells import StructuralEffectCells, components, unpack
 
 MISSIONS = (GOAL_MISSION, "pick up the red ball", MISSION)
 PIXELS = ([1, 0, 0], [2, 4, 0], [4, 1, 2])
@@ -54,6 +54,9 @@ def train():
 
 class NativeSourceOnlyM2G(unittest.TestCase):
     def test_frozen_unseen_full_public_contract(self):
+        first = fit_frame(0)
+        self.assertEqual(len(components(first)), 149)
+        self.assertEqual(unpack(components(first)), first)
         model = train()
         self.assertEqual(model.events, 84)
         self.assertEqual(model.evictions, 0)
