@@ -1,0 +1,137 @@
+name: ACC60 U16 source-qualified native inference benchmark
+on:
+  pull_request:
+    paths:
+      - 'research/acceleration/acc60_go_u16/**'
+      - 'docs/research/ACC-60-*'
+      - '.github/workflows/forge-acc60-u16-benchmark.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original source and prereg-first custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 4110e04d6c5121cd5dcbf0ea749f60f17bcc7485 HEAD
+          test "$(git hash-object docs/research/ACC-60-U16-ICACHE-PREREG.md)" = ff49f388d4b3e823852406e1bd524470e44fd088
+          test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          test "$(git hash-object research/acceleration/acc60_go_u16/main.go)" = cf735c3708c9eff50e9f533f6591709c335adb7f
+          test "$(git hash-object research/acceleration/acc60_go_u16/generate.py)" = 5711a74e8ba0c92d7dde3c6b81a14d6d4995864a
+          python - <<'PY'
+          import ast,pathlib
+          t=ast.parse(pathlib.Path('research/ac07_sourcefree/ac08_portfolio.py').read_text())
+          a=ast.literal_eval(next(v.value for v in t.body if isinstance(v,ast.Assign) and any(isinstance(x,ast.Name) and x.id=='ORIGINAL_NAMES' for x in v.targets)))
+          assert len(a)==30 and a[15]=='compiled weights in instruction cache'
+          print('ACC60_ORIGINAL_U16_PREREG_PASS')
+          PY
+      - name: Preserve 36 original research screens
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acceleration -p 'test_acc34_scoreboard.py' -v
+          python -B research/acceleration/acc34_scoreboard.py --full "$RUNNER_TEMP/acc60-36.json"
+      - name: Generate code and test build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd research/acceleration/acc60_go_u16
+          python generate.py
+          python - <<'PY'
+          import pathlib,hashlib,os,json
+          b=pathlib.Path('compiled_generated.go').read_bytes().replace(b'\r\n',b'\n')
+          assert b.count(b'case ') >= 327680
+          d={'source_sha256':hashlib.sha256(b).hexdigest(),'source_bytes':len(b),'cases':327680}
+          pathlib.Path(os.environ['RUNNER_TEMP'],'acc60-generated.json').write_text(json.dumps(d))
+          print('ACC60_SOURCE='+d['source_sha256'])
+          PY
+          gofmt -w compiled_generated.go
+          go test -count=1 ./...
+          go vet ./...
+          BIN="$RUNNER_TEMP/acc60"
+          if [ "$RUNNER_OS" = Windows ]; then BIN="$BIN.exe"; fi
+          go build -trimpath -o "$BIN" .
+          "$BIN" -out "$RUNNER_TEMP/acc60-report.json"
+      - name: Verify independent worker receipts
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP/acc60-report.json" <<'PY'
+          import json,sys,math
+          r=json.load(open(sys.argv[1]))
+          assert r['Schema']=='acc60-u16-v1'
+          assert r['Workers']==len(r['Trials'])==60 and len(r['Cohorts'])==4
+          seen=set();paired={}
+          for t in r['Trials']:
+            w=t['Receipt'];key=(w['N'],w['Mode'],w['Seed'])
+            assert key not in seen;seen.add(key)
+            assert w['Inputs']==12288 and w['Outputs']==w['Correct']==12288*w['N']
+            assert w['Repetitions']==3 and w['BinaryBytes']>0 and w['PeakRSSBytes']>0
+            assert t['CPUSeconds']>0 and t['WallSeconds']>0
+            assert all(len(w[x])==64 for x in ('WeightsSHA','InputSHA','OutputSHA'))
+            p=(w['N'],w['Seed']);h=(w['WeightsSHA'],w['InputSHA'],w['OutputSHA'])
+            assert p not in paired or paired[p]==h
+            paired[p]=h
+          assert len(seen)==60 and len(paired)==20
+          print('ACC60_U16_NATIVE_60_CPU_RSS_SHA_PASS')
+          print('ACC60_CLASSIFICATION='+r['Classification'])
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc60-u16-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acc60-report.json
+            ${{ runner.temp }}/acc60-generated.json
+            ${{ runner.temp }}/acc60-36.json
+          retention-days: 30
+          if-no-files-found: warn
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc60-u16-*
+          path: artifacts
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc60-u16-ubuntu-latest'/'acc60-report.json').read_text())
+          b=json.loads((p/'acc60-u16-windows-latest'/'acc60-report.json').read_text())
+          ga=json.loads((p/'acc60-u16-ubuntu-latest'/'acc60-generated.json').read_text())
+          gb=json.loads((p/'acc60-u16-windows-latest'/'acc60-generated.json').read_text())
+          assert ga==gb and ga['cases']==327680
+          assert {a['OS'],b['OS']}=={'linux','windows'}
+          key=lambda t:(t['Receipt']['N'],t['Receipt']['Mode'],t['Receipt']['Seed'])
+          aa={key(t):t['Receipt'] for t in a['Trials']}
+          bb={key(t):t['Receipt'] for t in b['Trials']}
+          assert len(aa)==len(bb)==60 and set(aa)==set(bb)
+          for k in aa:
+            for field in ('WeightsSHA','InputSHA','OutputSHA','Inputs','Outputs','Correct','Repetitions'):
+              assert aa[k][field]==bb[k][field],(k,field)
+          print('ACC60_U16_CROSSOS_60_OF_60_EXACT_PASS')
+          print('ACC60_LINUX='+a['Classification'])
+          print('ACC60_WINDOWS='+b['Classification'])
+          PY
