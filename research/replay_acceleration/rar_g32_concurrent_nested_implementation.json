@@ -1,0 +1,52 @@
+{
+  "schema": "forge.research.replay-acceleration.g32.v1",
+  "gate": "RAR-G32",
+  "classification": "COOPERATIVE_NESTED_CONCURRENT_GO_PROBE_IMPLEMENTED_NOT_YET_RUN",
+  "source": {
+    "repo": "spoonman136668-ai/FORGE",
+    "branch": "research/rar-g7-g8-synthetic-negative-evidence-20261029",
+    "workflow": ".github/workflows/rar-g32-tree.yml",
+    "source_files": [
+      "research/replay_acceleration/g32/main.go",
+      "research/replay_acceleration/g32/rss_linux.go",
+      "research/replay_acceleration/g32/rss_windows.go",
+      "research/replay_acceleration/g32/verify.py"
+    ],
+    "commit": "22534d1229444979658487eb32c3822c7d3d422c"
+  },
+  "design": {
+    "process_tree": "parent spawns two middle processes concurrently; each middle spawns two Go workers concurrently",
+    "go_workers_per_root": 4,
+    "worker_bounded_wall_ms": 650,
+    "cpu_accounting": "cooperative per-parent ProcessState UserTime + SystemTime, aggregate descendant receipts",
+    "rss": "sum of individual peak RSS is conservative upper bound, NOT simultaneous tree peak; max individual physical high water separately",
+    "operating_systems": [
+      "ubuntu-24.04",
+      "windows-2022"
+    ],
+    "repeated_per_os": 2,
+    "safety": "source-only isolated deterministic validation, no original-world experiments or training"
+  },
+  "caveats": [
+    "Not Windows Job Object based accounting",
+    "Not OS-complete process tree if uncooperative children are orphaned or short-lived",
+    "Sum individual peak RSS is not concurrent tree peak",
+    "Worker timing/output digest may vary because time-based loop; test never claims deterministic cross-host checksum",
+    "Needs actual hosted CI execution and original artifacts before PASS"
+  ],
+  "executed": {
+    "new_original_steps": 0,
+    "hosted_job_status": "NO_RUN_REPORTED_ON_WORKFLOW_CREATION_COMMIT",
+    "scientific_acceptance": false
+  },
+  "next_gate": {
+    "id": "RAR-G33",
+    "action": "Fetch real G32 hosted Linux and Windows source-head jobs, identify and fix failures with bounded source-only changes, inspect archived receipts and preserve pass/fail. Then implement kernel complete tree measurement separately if necessary."
+  },
+  "authority": {
+    "no_autonomy_controller_mutation": true,
+    "no_accepted_native_model_mutation": true,
+    "no_production_main_merge": true,
+    "advisory_only": true
+  }
+}

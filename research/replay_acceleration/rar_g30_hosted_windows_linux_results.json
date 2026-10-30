@@ -1,0 +1,41 @@
+{
+  "schema": "forge.research.replay-acceleration.g30-hosted-qualification.v1",
+  "gate": "RAR-G30",
+  "classification": "WINDOWS_SOURCE_ONLY_PASS_LINUX_WORKLOAD_DETECTION_THRESHOLD_FAIL_REPAIR_COMMITTED_REQUALIFICATION_PENDING",
+  "original_run": {
+    "id": 41020992870,
+    "commit": "fe88b39bd30df14dd90f670202e1ae6c7c20e144",
+    "windows_job": 123948025845,
+    "windows": "success",
+    "ubuntu_job": 123948026123,
+    "ubuntu": "failure",
+    "ubuntu_failure": "verify.py assertion busy min CPU > idle max CPU +0.03; busy min 0.029645s idle max 0.001225s; observed gap 0.028420s; short by 0.001580s",
+    "original_acceptance_cpu_margin_s": 0.03,
+    "windows_source_only_meter_accepted": true,
+    "linux_source_only_meter_accepted": false
+  },
+  "repair": {
+    "commit": "cb07a9936fb6f03f4de440e49a0bcb8f74682d43",
+    "file": "research/replay_acceleration/g29/main.go",
+    "source_change": "busy loop iterations 30,000,000 -> 120,000,000; deterministic algorithm and output hash expected to change; no changes to threshold or mode definitions",
+    "reason": "increase genuine workload rather than relax acceptance threshold",
+    "new_rerun_on_repair": "NOT_YET_VERIFIED"
+  },
+  "limitations": [
+    "Windows success covers direct Go child CPU and self-reported physical RSS, not Python->Python->Go process tree",
+    "parallel mode still two sequential Go workers, not actual overlapping descendants",
+    "A source-only meter smoke test cannot prove real native training speedup"
+  ],
+  "next_gate": {
+    "id": "RAR-G31",
+    "objective": "Verify exact repaired source run Windows and Ubuntu; if both succeed, independently audit artifact and clearly classify direct child only; then implement true concurrent process-tree stress",
+    "stop_on_failure": true
+  },
+  "safety": {
+    "original_world_actions": 0,
+    "controller_changes": 0,
+    "accepted_model_changes": 0,
+    "scientific_first_use": false,
+    "advisory_only": true
+  }
+}
