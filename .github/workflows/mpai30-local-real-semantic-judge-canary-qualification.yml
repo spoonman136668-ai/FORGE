@@ -1,0 +1,144 @@
+name: MP-AI30 frozen semantic scorer falsification with authentic local model
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai30-local-real-semantic-judge-canary-qualification.yml']
+permissions:
+  contents: read
+jobs:
+  preregister:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pre-model protocol independent Linux qualification, no questions leaked
+        shell: bash
+        id: freeze
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
+          test "$GITHUB_ACTOR" = "spoonman136668-ai"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai30_real_semantic_judge_canaries.py)" = "0fa02bc09fae04f72c49f555fa7063e31f546f6c"
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai30_real_semantic_judge_canaries.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai30_real_semantic_judge_canaries.py --phase preregister)"
+          printf '%s\n' "$out"
+          grep -Fq 'MPAI30_PREMODEL_PROTOCOL_FROZEN=PASS' <<< "$out"
+          grep -Fq 'MPAI30_DECLARATIVE_SYNTHETIC_CASES=30' <<< "$out"
+          grep -Fq 'MPAI30_ORIGINAL_EXTERNAL_GOLD_READ=FALSE' <<< "$out"
+          protocol="$(printf '%s\n' "$out" | sed -n 's/^MPAI30_FROZEN_CANARY_PROTOCOL_SHA256=//p')"
+          [[ "$protocol" =~ ^[a-f0-9]{64}$ ]]
+          echo "protocol_sha=$protocol" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI30_LINUX_PREMODEL_REGISTRATION=PASS'
+  original-windows-judge:
+    needs: preregister
+    if: ${{ needs.preregister.result == 'success' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      EXPECTED_PROTOCOL: ${{ needs.preregister.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Evaluate real local 3.8B semantic judge on frozen 30 canaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai'){
+             throw 'MPAI30_ORIGINAL_OWNER_WINDOWS_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI30_PAID_API_DENIED'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI30_BRANCH_COMMIT_DRIFT'
+          }
+          $p=(git rev-parse 'HEAD:tools/mpai30_real_semantic_judge_canaries.py').Trim()
+          if($LASTEXITCODE -ne 0 -or $p -cne '0fa02bc09fae04f72c49f555fa7063e31f546f6c'){
+            throw 'MPAI30_TRIAL_SOURCE_CHANGED'
+          }
+          if($env:EXPECTED_PROTOCOL -notmatch '^[a-f0-9]{64}$'){
+            throw 'MPAI30_PROTOCOL_NOT_FROZEN'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai30-private-'+$env:GITHUB_RUN_ID)
+          $trial=Join-Path $scratch 'trial'
+          $log=Join-Path $scratch 'private-results.log'
+          function Assert([bool]$ok,[string]$what){
+            if(-not $ok){throw ('MPAI30_'+$what)}
+          }
+          Assert (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+          $env:MPAI30_PRIVATE_SCRATCH=$trial
+          try {
+            & python.exe -B tools/mpai30_real_semantic_judge_canaries.py --phase evaluate *> $log
+            $status=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($status -ne 0){
+              foreach($key in @('SAFE_FAILURE','FAILURE_STAGE','FAILURE_TYPE')){
+                $m=[regex]::Match($raw,('MPAI30_'+$key+'=([A-Za-z0-9_]+)'))
+                if($m.Success){Write-Output ('MPAI30_'+$key+'='+$m.Groups[1].Value)}
+              }
+              throw 'MPAI30_PRIVATE_MODEL_EVALUATION_FAILED'
+            }
+            foreach($label in @(
+              'MPAI30_REAL_JUDGE_MODEL_CALLS=30',
+              'MPAI30_DECLARATIVE_SYNTHETIC_CASES=30',
+              'MPAI30_HARD_NEGATIVE_CASES=12',
+              'MPAI30_ORIGINAL_MODEL_FULL_SHA256=PASS',
+              'MPAI30_AUTHOR_GENERATED_DEVELOPMENT_ONLY=TRUE',
+              'MPAI30_INDEPENDENT_HUMAN_REFERENCE=NOT_PRESENT',
+              'MPAI30_EXTERNAL_BENCHMARK_GOLD_MODEL_EXPOSURE=0',
+              'MPAI30_PRODUCTION_MEMORY_WRITES=0',
+              'MPAI30_SCIENTIFIC_SEMANTIC_SCORER=NOT_QUALIFIED',
+              'MPAI30_UNFAMILIAR_EVALUATION_RELEASE=BLOCKED'
+            )){
+              Assert ($raw.Contains($label)) 'MISSING_ORIGINAL_RECEIPT'
+            }
+            Assert ($raw.Contains(('MPAI30_FROZEN_CANARY_PROTOCOL_SHA256='+$env:EXPECTED_PROTOCOL))) 'FROZEN_PROTOCOL_DRIFT'
+            $kinds=@{}
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI30_KIND_(EXACT|PARAPHRASE|CONTRADICTION|UNRELATED|QUOTED_DISCLAIMER)=(\{.*\})$'){
+                $kind=$Matches[1]
+                Assert (-not $kinds.ContainsKey($kind)) 'DUPLICATE_CANARY_KIND'
+                $x=$Matches[2]|ConvertFrom-Json
+                Assert ($x.cases -eq 6 -and $x.exact_label_correct -ge 0 -and
+                        $x.exact_label_correct -le 6 -and $x.hard_false_positives -ge 0 -and
+                        $x.hard_false_positives -le 6) 'KIND_METRICS'
+                $kinds[$kind]=$true
+                Write-Output $line
+              } elseif($line -match '^MPAI30_(FROZEN_CANARY_PROTOCOL_SHA256|REAL_JUDGE_MODEL_CALLS|TOTAL_HARD_FALSE_POSITIVES|CORRECT_POSITIVE_ACCEPTED|ALL_EXACT_LABELS_CORRECT|ORIGINAL_WINDOWS_PEAK_BYTES|MODEL_LOAD_MS|ZERO_HARD_FALSE_POSITIVES|SYNTHETIC_PARAPHRASE_SEMANTIC_CREDIT|AUTHOR_GENERATED_DEVELOPMENT_ONLY|SCIENTIFIC_SEMANTIC_SCORER|INDEPENDENT_HUMAN_REFERENCE|EXTERNAL_BENCHMARK_GOLD_MODEL_EXPOSURE|PRODUCTION_MEMORY_WRITES|UNFAMILIAR_EVALUATION_RELEASE|ORIGINAL_MODEL_FULL_SHA256)=[A-Za-z0-9_.=-]+$'){
+                Write-Output $line
+              }
+            }
+            Assert ($kinds.Count -eq 5) 'FIVE_CANARY_GROUPS'
+            $dirty=@(& git.exe status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'FORGE_SOURCE_MODIFIED'
+            Write-Output 'MPAI30_ORIGINAL_WINDOWS_JUDGE_DIAGNOSTIC=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI30_PRIVATE_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI30_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
