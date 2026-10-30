@@ -1,0 +1,147 @@
+name: MP-AI32 replay exact P30 hard false positives against frozen P31 veto
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai32-original-p30-failure-replay-p31-veto.yml']
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify original P30 and P31 source blobs; freeze exposed replay protocol
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai30_real_semantic_judge_canaries.py)" = '0fa02bc09fae04f72c49f555fa7063e31f546f6c'
+          test "$(git rev-parse HEAD:tools/mpai31_conservative_semantic_veto_development.py)" = '97510664d981e3bf70dbcc2f1002fd40945150d4'
+          test "$(git rev-parse HEAD:tools/mpai32_original_failure_veto_regression.py)" = 'efe136e420ddf167d3502d27443233d282c62f06'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai32_original_failure_veto_regression.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai32_original_failure_veto_regression.py --phase preregister)"
+          printf '%s\n' "$out"
+          grep -Fq 'MPAI32_LINUX_SOURCE_FREEZE=PASS' <<< "$out"
+          grep -Fq 'MPAI32_REPLAY_CANDIDATES=30' <<< "$out"
+          grep -Fq 'MPAI32_ORIGINAL_P30_PROTOCOL_VERIFIED=PASS' <<< "$out"
+          grep -Fq 'MPAI32_ORIGINAL_P31_PROTOCOL_VERIFIED=PASS' <<< "$out"
+          grep -Fq 'MPAI32_P31_FROZEN_VETO_COVERS_6_EXPOSED_DISCLAIMERS=PASS' <<< "$out"
+          pr="$(printf '%s\n' "$out" | sed -n 's/^MPAI32_FROZEN_PROTOCOL_SHA256=//p')"
+          [[ "$pr" =~ ^[0-9a-f]{64}$ ]]
+          echo "protocol_sha=$pr" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI32_EXPOSED_REGRESSION_FROZEN_BEFORE_MODEL=PASS'
+  original-windows:
+    needs: preflight
+    if: ${{ needs.preflight.result == 'success' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      EXPECTED_PROTOCOL: ${{ needs.preflight.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Original source-pinned P30 30 model calls and unchanged P31 guard comparator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai'){
+            throw 'MPAI32_ORIGINAL_WINDOWS_REQUIRED'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI32_NO_PAID_API'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'MPAI32_BRANCH_SHA'}
+          foreach($x in @(
+            @('tools/mpai30_real_semantic_judge_canaries.py','0fa02bc09fae04f72c49f555fa7063e31f546f6c'),
+            @('tools/mpai31_conservative_semantic_veto_development.py','97510664d981e3bf70dbcc2f1002fd40945150d4'),
+            @('tools/mpai32_original_failure_veto_regression.py','efe136e420ddf167d3502d27443233d282c62f06')
+          )){
+            $blob=(git rev-parse ('HEAD:'+$x[0])).Trim()
+            if($LASTEXITCODE -ne 0 -or $blob -cne $x[1]){throw 'MPAI32_SOURCE_BLOB_CHANGED'}
+          }
+          if($env:EXPECTED_PROTOCOL -notmatch '^[a-f0-9]{64}$'){throw 'MPAI32_FROZEN_PROTOCOL_MISSING'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai32-private-'+$env:GITHUB_RUN_ID)
+          $trial=Join-Path $scratch 'trials'
+          $log=Join-Path $scratch 'private-results.log'
+          function Assert([bool]$ok,[string]$tag){if(-not $ok){throw ('MPAI32_'+$tag)}}
+          Assert (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          $env:MPAI32_PRIVATE_SCRATCH=$trial
+          try {
+            & python.exe -B tools/mpai32_original_failure_veto_regression.py --phase evaluate *> $log
+            $code=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($code -ne 0){
+              foreach($key in @('SAFE_FAILURE','SAFE_STAGE','SAFE_TYPE')){
+                $mt=[regex]::Match($raw,('MPAI32_'+$key+'=([A-Za-z0-9_]+)'))
+                if($mt.Success){Write-Output ('MPAI32_'+$key+'='+$mt.Groups[1].Value)}
+              }
+              throw 'MPAI32_ORIGINAL_REPLAY_FAILED'
+            }
+            foreach($marker in @(
+              'MPAI32_REPLAY_CANDIDATES=30',
+              'MPAI32_REAL_P30_REPLAY_MODEL_CALLS=30',
+              'MPAI32_FULL_MODEL_SHA256_VERIFIED=PASS',
+              'MPAI32_REPLAY_EXPOSED_DEVELOPMENT_ONLY=TRUE',
+              'MPAI32_HUMAN_INDEPENDENT_ADJUDICATION=FALSE',
+              'MPAI32_BENCHMARK_GOLD_MODEL_EXPOSURE=0',
+              'MPAI32_PRODUCTION_MEMORY_WRITES=0',
+              'MPAI32_EXTERNAL_SCIENTIFIC_FIRST_USE=FALSE',
+              'MPAI32_SEMANTIC_JUDGE_SCIENTIFIC_ADMISSION=BLOCKED'
+            )){
+              Assert ($raw.Contains($marker)) 'MISSING_REQUIRED_RECEIPT'
+            }
+            Assert ($raw.Contains(('MPAI32_FROZEN_PROTOCOL_SHA256='+$env:EXPECTED_PROTOCOL))) 'PRECOMMITTED_SHA_DRIFT'
+            $kinds=@{}
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI32_KIND_(EXACT|PARAPHRASE|CONTRADICTION|UNRELATED|QUOTED_DISCLAIMER)=(\{.*\})$'){
+                $kind=$Matches[1]
+                Assert (-not $kinds.ContainsKey($kind)) 'DUPLICATE_KIND'
+                $v=$Matches[2]|ConvertFrom-Json
+                Assert ($v.cases -eq 6 -and
+                        $v.original_baseline_hard_false_positives -ge 0 -and
+                        $v.original_baseline_hard_false_positives -le 6 -and
+                        $v.guard_hard_false_positives -ge 0 -and
+                        $v.guard_hard_false_positives -le 6) 'OUT_OF_RANGE'
+                $kinds[$kind]=$true
+                Write-Output $line
+              } elseif($line -match '^MPAI32_(BASELINE|GUARDED|STRICT)_(FALSE_POSITIVES|CORRECT|SUPPORTED)=[0-9]+(?:_OF_[0-9]+)?$'){
+                Write-Output $line
+              } elseif($line -match '^MPAI32_(REAL_P30_REPLAY_MODEL_CALLS|MODEL_LOAD_MS|PEAK_WINDOWS_PROCESS_BYTES|GUARD_CHANGED_DECISIONS|ORIGINAL_P30_RECEIPTS_REPRODUCED|GUARD_ZERO_HARD_FALSE_POSITIVES|GUARD_INCREMENTAL_FALSE_POSITIVES_PREVENTED|FULL_MODEL_SHA256_VERIFIED|SEMANTIC_JUDGE_SCIENTIFIC_ADMISSION)=[A-Za-z0-9_=-]+$'){
+                Write-Output $line
+              }
+            }
+            Assert ($kinds.Count -eq 5) 'FROZEN_FIVE_SOURCE_CLASSES'
+            $dirty=@(& git.exe status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'FORGE_SOURCE_WAS_WRITTEN'
+            Write-Output 'MPAI32_ORIGINAL_WINDOWS_EXPERIMENT_EXECUTED=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI32_PRIVATE_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Write-Output ('MPAI32_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
