@@ -1,0 +1,57 @@
+{
+  "schema": "forge.research.replay-acceleration.g24-cpu-meter-validation.v1",
+  "gate": "RAR-G24",
+  "classification": "LINUX_REAPED_CHILD_CPU_METER_SMOKE_PASS_REAL_NATIVE_RESOURCE_PARITY_UNVERIFIED",
+  "implementation": {
+    "test": "Standalone Python parent spawns bounded Python idle and busy subprocesses; uses resource.getrusage(RUSAGE_SELF) and RUSAGE_CHILDREN before/after subprocess.run completion",
+    "platform": "Linux",
+    "runs": {
+      "idle": 5,
+      "busy": 5
+    },
+    "synthetic_only": true,
+    "no_worlds": true,
+    "no_native_models": true
+  },
+  "results": {
+    "median_idle_child_cpu_s": 1.0202010000000001,
+    "median_busy_child_cpu_s": 1.4863720000000011,
+    "median_incremental_busy_child_cpu_s": 0.466171000000001,
+    "checks": {
+      "child_cpu_captured": true,
+      "busy_increment_over_idle": true,
+      "parent_cpu_not_substitute_for_child": true
+    },
+    "all_checks_pass": true,
+    "local_receipt_sha256": "8f7c602e609db571b8ab386347c15834f02e900440d26b13b5e36c35d7bc7f00"
+  },
+  "negative_control_note": "Initial 5x busy/idle ratio failed due expensive Python startup (~1 s) even for idle children. Preserved as measurement pitfall; corrected fixed quantitative comparison confirms >0.20 s incremental workload CPU, no attempt to hide startup from total CPU.",
+  "limitations": [
+    "resource.RUSAGE_CHILDREN only accounts completed/reaped children; not active concurrent child attribution",
+    "RUSAGE_CHILDREN can include unrelated children reaped during interval",
+    "Windows needs independent process CPU/cgroup/job object proof",
+    "No Go binary IPC/Go process accounting in this gate",
+    "No peak resident memory, power, concurrency, or wall-to-CPU efficiency validation",
+    "No actual proficiency or authenticated world interaction measured",
+    "No full CPU cost-to-proficiency baseline"
+  ],
+  "next_gate": {
+    "id": "RAR-G25",
+    "goal": "Native Go IPC CPU + Windows resource accounting qualification using genuine source-only binaries; no new Farama source episodes",
+    "requirements": [
+      "isolated Go child workloads with parent-vs-child CPU attribution",
+      "Windows independently qualified process time including descendants",
+      "separate startup overhead from per-update learning but include both in full total cost",
+      "cold checkpoint and memory footprint",
+      "do not promote without actual original-world proficiency"
+    ]
+  },
+  "custody": {
+    "scientific_accepted": false,
+    "allow_promotion": false,
+    "allow_dispatch": false,
+    "real_native_training": false,
+    "original_world_episodes": 0,
+    "controller_changed": false
+  }
+}
