@@ -43,9 +43,12 @@ def summarize_logits(logits):
     import torch
     z=logits.detach().float()
     values,idx=torch.topk(z,k=2)
+    greedy=int(torch.argmax(z).item())
+    ties=int(torch.count_nonzero(z==z.max()).item())
     first=int(idx[0]);second=int(idx[1])
     a=float(z[BASELINE_ID]);b=float(z[CANDIDATE_ID])
-    return {"top1_id":first,"top2_id":second,
+    return {"greedy_argmax_id":greedy,"topk_first_id":first,"topk_second_id":second,
+            "exact_max_tie_count":ties,
             "top1_logit":float(values[0]),"top2_logit":float(values[1]),
             "top1_top2_margin":float(values[0]-values[1]),
             "baseline_token_id":BASELINE_ID,"baseline_logit":a,
@@ -108,9 +111,9 @@ def logits_for_mode(model,prompt,shared,mode):
 def classify(rows):
     if set(rows)!=set(MODES) or any(len(rows[k])!=REPEATS for k in MODES):
         raise ValueError("THREE_REPEATS_PER_MODE_REQUIRED")
-    cached=[x["top1_id"] for x in rows["cached_one_by_one"]]
-    chunk=[x["top1_id"] for x in rows["cached_chunk_48"]]
-    full=[x["top1_id"] for x in rows["full_no_cache"]]
+    cached=[x["greedy_argmax_id"] for x in rows["cached_one_by_one"]]
+    chunk=[x["greedy_argmax_id"] for x in rows["cached_chunk_48"]]
+    full=[x["greedy_argmax_id"] for x in rows["full_no_cache"]]
     stable=all(len(set(y))==1 for y in (cached,chunk,full))
     split=all(x==BASELINE_ID for x in cached) and all(x==CANDIDATE_ID for x in full)
     return {"cached_full_argmax_split_reproduced":split,
@@ -205,7 +208,7 @@ def run():
                     obs["total_context_tokens"]=int(prompt.shape[1]+shared.shape[1])
                     rows[mode].append(obs)
                 print("G65_REP="+str(rep)+" TOP1="+json.dumps(
-                   {m:rows[m][-1]["top1_id"] for m in MODES},sort_keys=True),flush=True)
+                   {m:rows[m][-1]["greedy_argmax_id"] for m in MODES},sort_keys=True),flush=True)
         report["modes"]=rows
         report["numeric_comparison"]=classify(rows)
         report["status"]="PASS_DIAGNOSTIC_MEASUREMENT"

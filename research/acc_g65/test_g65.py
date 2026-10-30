@@ -30,9 +30,9 @@ class G65FrozenContract(unittest.TestCase):
   self.assertIn('"causal_root_cause_conclusively_proven":False',src)
  def test_classify_true_split(self):
   fake={
-   "cached_one_by_one":[{"top1_id":g.BASELINE_ID} for _ in range(3)],
-   "cached_chunk_48":[{"top1_id":g.CANDIDATE_ID} for _ in range(3)],
-   "full_no_cache":[{"top1_id":g.CANDIDATE_ID} for _ in range(3)]
+   "cached_one_by_one":[{"greedy_argmax_id":g.BASELINE_ID} for _ in range(3)],
+   "cached_chunk_48":[{"greedy_argmax_id":g.CANDIDATE_ID} for _ in range(3)],
+   "full_no_cache":[{"greedy_argmax_id":g.CANDIDATE_ID} for _ in range(3)]
   }
   d=g.classify(fake)
   self.assertTrue(d["cached_full_argmax_split_reproduced"])
@@ -40,8 +40,14 @@ class G65FrozenContract(unittest.TestCase):
  def test_classify_refuses_incomplete_repeats(self):
   with self.assertRaises(ValueError):g.classify({x:[] for x in g.MODES})
  def test_classify_detects_numerical_drift(self):
-  fake={x:[{"top1_id":g.CANDIDATE_ID} for _ in range(3)] for x in g.MODES}
+  fake={x:[{"greedy_argmax_id":g.CANDIDATE_ID} for _ in range(3)] for x in g.MODES}
   self.assertEqual(g.classify(fake)["classification"],"G64_NUMERICAL_PATH_OBSERVATION_DRIFT")
+ def test_canonical_greedy_argmax_never_inferred_from_topk_tie(self):
+  src=Path(__file__).with_name("g65_logit_path.py").read_text(encoding="utf-8")
+  self.assertIn("greedy=int(torch.argmax(z).item())",src)
+  self.assertIn("ties=int(torch.count_nonzero(z==z.max()).item())",src)
+  self.assertIn('"greedy_argmax_id":greedy',src)
+  self.assertIn('"topk_first_id":first',src)
  def test_zero_tuning_and_three_same_context_modes(self):
   src=Path(__file__).with_name("g65_logit_path.py").read_text(encoding="utf-8")
   self.assertIn('torch.backends.cuda.matmul.allow_tf32=False',src)
