@@ -1,0 +1,109 @@
+name: ACC62 U14 source-bound exact capacity falsification
+on:
+  push:
+    branches: [research/acc62-u14-procedural-weights-falsifier-20261030]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: acc62-u14-source-bound-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate source and frozen test ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor fbb6793b2e37e3493468c7ea7b2bf9810c39adda HEAD
+          test "$(git rev-parse HEAD:research/ac07_sourcefree/ac08_portfolio.py)" = "5126c860771fb024ccfc14c3f7ee8925edf29787"
+          test -f docs/research/ACC-62-U14-PREEXEC-20261030.md
+          python -m py_compile research/acceleration/acc62_u14/experiment.py research/acceleration/acc62_u14/test_experiment.py
+          echo ACC62_U14_FROZEN_SOURCE_CUSTODY=PASS
+      - name: Run 18 focused U14 exact and negative source controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/acceleration/acc62_u14 -p 'test_experiment.py' -v
+          echo ACC62_U14_18_FOCUSED_SOURCE_TESTS=PASS
+      - name: Inherited AC05 AC06 AC07 AC08 portfolio regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/ac05_sourcefree -p 'test_learning.py' -v
+          python -m unittest discover -s research/ac06_sourcefree -p 'test_restricted.py' -v
+          python -m unittest discover -s research/ac07_sourcefree -p 'test_remaining.py' -v
+          python -m unittest discover -s research/ac07_sourcefree -p 'test_ac08_portfolio.py' -v
+          echo ACC62_U14_INHERITED_RESEARCH_NEGATIVES=PASS
+      - name: Construct and independently validate frozen restricted control matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/acceleration/acc62_u14/experiment.py --json "$RUNNER_TEMP/acc62-u14.json"
+          python - "$RUNNER_TEMP/acc62-u14.json" <<'PY'
+          import json,sys,hashlib
+          p=sys.argv[1]
+          blob=open(p,'rb').read()
+          j=json.loads(blob)
+          assert j["schema"]=="forge.acc62.u14.capacity.source-bound.v1"
+          assert j["classification"]["universal_arbitrary_exact_shrinking"]=="U14_NO_GO_PROVEN"
+          assert j["classification"]["restricted_structured_lossless"]=="U14_PASS_RESTRICTED_ONLY"
+          assert j["classification"]["original_model_weight_speed_accuracy_rss"]=="UNVERIFIED"
+          assert j["classification"]["scientific_first_use"]=="NOT_ESTABLISHED"
+          assert j["classification"]["production_admission"]=="NOT_GRANTED"
+          assert j["counting_two_byte_weights"]["source_space"]==65536
+          assert j["counting_two_byte_weights"]["all_shorter_codewords"]==65535
+          assert len(j["structured"])==12 and len(j["controls"])==9
+          assert all(x["exact"] and x["source_sha256"]==x["decoded_sha256"] and x["descriptor_bytes"]==x["period"]+5 for x in j["structured"])
+          assert all(x["periodic_decoder_can_represent"] is False and x["source_sha256"]==x["zlib6_recovered_sha256"] for x in j["controls"])
+          print("ACC62_U14_EXACT_CAPACITY_AND_CONTROL_MATRIX=PASS")
+          print("ACC62_U14_RESULT_SHA256="+hashlib.sha256(blob).hexdigest())
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc62-u14-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc62-u14.json
+          if-no-files-found: warn
+          retention-days: 30
+  audit:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc62-u14-*
+          path: artifacts
+      - name: Exact cross-OS content and 36-claim source-bound admission audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,json,hashlib
+          root=pathlib.Path("artifacts")
+          a=(root/"acc62-u14-ubuntu-latest"/"acc62-u14.json").read_bytes()
+          b=(root/"acc62-u14-windows-latest"/"acc62-u14.json").read_bytes()
+          assert a==b,"CROSSOS_ORIGINAL_RESULT_BYTES_DRIFT"
+          x=json.loads(a)
+          assert len(x["structured"])==12 and len(x["controls"])==9
+          assert x["identity"]["original_claim"]=="U14"
+          assert x["classification"]["production_admission"]=="NOT_GRANTED"
+          assert x["classification"]["original_model_weight_speed_accuracy_rss"]=="UNVERIFIED"
+          print("ACC62_U14_CROSSOS_EXACT_RESULT=PASS")
+          print("ACC62_U14_INDEPENDENT_SHA256="+hashlib.sha256(a).hexdigest())
+          PY
