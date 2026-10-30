@@ -1,0 +1,153 @@
+name: FORGE LLM Evaluation G71 full Linux Windows source qualification
+on:
+  push:
+    branches: [research/llm-evaluation-g71-onnx-http-20261030]
+    paths:
+      - '.github/workflows/forge-llm-evaluation-g71-full-regression.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-evaluation-g71-qualified-source
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify unchanged qualified G70 foundation and G71 frozen negative source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          git merge-base --is-ancestor 4c0242afe2eee1c23c0cf2704c2ddfb29fe4e57c HEAD
+          git show 4c0242afe2eee1c23c0cf2704c2ddfb29fe4e57c:docs/research/G71-GPT2-INDEPENDENT-ONNX-HTTP-PREEXEC-20261030.md | cmp - docs/research/G71-GPT2-INDEPENDENT-ONNX-HTTP-PREEXEC-20261030.md
+          git diff --exit-code 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          git diff --check 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          python -m py_compile research/llm_g71/g71_onnx_http.py research/llm_g71/test_g71_onnx_http.py
+          python -m unittest discover -s research/llm_g71 -p test_g71_onnx_http.py -v
+          python - <<'PY'
+          import json
+          with open("docs/research/G71-GPT2-ONNX-HTTP-ORIGINAL-NO-GO-20261030.json") as f: r=json.load(f)
+          assert r["source_commit"]=="753a3e7fc6a5114f7a0fcbe31df2fa0f78300e26"
+          assert r["original_artifact_sha256"]=="341ca01d85eb2db3ac755c4b9d73777cf9df6b9afd2c82872e65d274be07bd58"
+          assert r["result"]=="NO_GO_ENGINEERING" and r["scientific_acceptance"]=="NOT_GRANTED"
+          print("G71_AUTHENTIC_ORIGINAL_NEGATIVE_RECEIPT=PASS")
+          PY
+      - name: Enforce FORGE independence from private CKB-plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Public isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e snapshot
+          test ! -e research/successor-builder
+          # Keep imports, arbitrary process creation and network posting denied everywhere.
+          ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|os.StartProcess|net/http.Post' .
+          # Freeze the seven preexisting non-supervisor exec.Command sites;
+          # deny every new, duplicated, moved, or modified source call.
+          # The original bounded supervisor's separate count gates stay intact.
+          python3 -B isolationguard/check_subprocess_sites.py
+          # The exception contains exactly the bounded executor and its integration test.
+          grep -l -E 'exec.Command' subprocesssupervisor/supervise.go subprocesssupervisor/supervise_test.go >/dev/null
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' subprocesssupervisor | wc -l)" -eq 3
+          grep -q -E 'exec.Command' subprocesssupervisor/partial_crash_test.go
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
+          grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
+          ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify unchanged qualified G70 foundation and G71 frozen negative source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          git merge-base --is-ancestor 4c0242afe2eee1c23c0cf2704c2ddfb29fe4e57c HEAD
+          git show 4c0242afe2eee1c23c0cf2704c2ddfb29fe4e57c:docs/research/G71-GPT2-INDEPENDENT-ONNX-HTTP-PREEXEC-20261030.md | cmp - docs/research/G71-GPT2-INDEPENDENT-ONNX-HTTP-PREEXEC-20261030.md
+          git diff --exit-code 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          git diff --check 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          python -m py_compile research/llm_g71/g71_onnx_http.py research/llm_g71/test_g71_onnx_http.py
+          python -m unittest discover -s research/llm_g71 -p test_g71_onnx_http.py -v
+          python - <<'PY'
+          import json
+          with open("docs/research/G71-GPT2-ONNX-HTTP-ORIGINAL-NO-GO-20261030.json") as f: r=json.load(f)
+          assert r["source_commit"]=="753a3e7fc6a5114f7a0fcbe31df2fa0f78300e26"
+          assert r["original_artifact_sha256"]=="341ca01d85eb2db3ac755c4b9d73777cf9df6b9afd2c82872e65d274be07bd58"
+          assert r["result"]=="NO_GO_ENGINEERING" and r["scientific_acceptance"]=="NOT_GRANTED"
+          print("G71_AUTHENTIC_ORIGINAL_NEGATIVE_RECEIPT=PASS")
+          PY
+      - name: FORGE independence and standing isolation enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
