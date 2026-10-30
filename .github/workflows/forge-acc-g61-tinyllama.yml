@@ -1,0 +1,102 @@
+name: FORGE ACC G61 authentic TinyLlama 1.1B CUDA SDPA baseline
+on:
+  push:
+    branches: [research/acc-g61-tinyllama-sdpa-20261030]
+    paths:
+      - 'research/acc_g61/**'
+      - '.github/workflows/forge-acc-g61-tinyllama.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g61-isolated-win-gpu
+  cancel-in-progress: false
+jobs:
+  g61-authentic-1b:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify G61 prereg, source identity and seven focused tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G61_SOURCE_HEAD_MISMATCH' }
+          if (-not (Test-Path 'docs/research/ACC-G61-PREEXEC-20261030.md')) { throw 'G61_PREREG_MISSING' }
+          $p = Get-Command python -ErrorAction Stop
+          & $p.Source -m py_compile research/acc_g61/g61_tinyllama_sdpa.py research/acc_g61/test_g61.py
+          if ($LASTEXITCODE -ne 0) { throw 'G61_SOURCE_COMPILE_FAIL' }
+          & $p.Source -m unittest discover -s research/acc_g61 -p test_g61.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G61_FOCUSED_TEST_FAIL' }
+          Write-Output 'G61_FROZEN_SOURCE_TESTS=PASS'
+      - name: Create disposable CUDA 12.8 Python environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $drive = (Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($drive.Free -lt 10000000000) { throw 'G61_TEMP_DISK_SPACE_BELOW_10GB' }
+          foreach ($name in @('acc-g61-venv','acc-g61-hf')) {
+            $p = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { throw "G61_TEMP_PATH_COLLISION:$p" }
+          }
+          $py = Get-Command python -ErrorAction Stop
+          & $py.Source -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G61_PYTHON_VERSION_WHEEL_MISMATCH' }
+          & $py.Source -m venv (Join-Path $env:RUNNER_TEMP 'acc-g61-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G61_VENV_CREATION_FAILED' }
+          Write-Output 'G61_VENV_CREATED=PASS'
+      - name: Install pinned CUDA 12.8 and Transformers only in disposable environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = Join-Path $env:RUNNER_TEMP 'acc-g61-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE = '1'
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G61_PINNED_TORCH_CUDA_INSTALL_FAILED' }
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G61_PINNED_MODEL_LIBRARIES_FAILED' }
+          & $py -m pip freeze | Out-File -LiteralPath g61_pip_freeze.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G61_DEPENDENCY_RECEIPT_FAILED' }
+          Write-Output 'G61_CUDA_PINNED_RUNTIME=PASS'
+      - name: Execute authenticated 1.1B causal model on RTX, eager versus optimized SDPA
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = Join-Path $env:RUNNER_TEMP 'acc-g61-venv\Scripts\python.exe'
+          $env:HF_HOME = Join-Path $env:RUNNER_TEMP 'acc-g61-hf'
+          $env:G61_RESULT = Join-Path (Get-Location).Path 'g61_result.json'
+          & $py -u research/acc_g61/g61_tinyllama_sdpa.py
+          if ($LASTEXITCODE -ne 0) { throw 'G61_AUTHENTIC_CUDA_BENCH_FAILED_OR_BLOCKED' }
+          & $py -c 'import json; r=json.load(open("g61_result.json")); assert r["status"]=="PASS_REAL_GPU_LARGER_PRETRAINED_MODEL_OPTIMIZED_SDPA_BASELINE"; assert len(r["cases"])==3; assert all(x["all_greedy_outputs_equal"] and len(x["sdpa_trials"])==5 and len(x["eager_trials"])==5 for x in r["cases"]); assert not r["new_acceleration_discovered"]; assert r["actual_attention_operator_proof"]["sdpa"]["actual_aten_sdpa_operator_seen"]; assert not r["actual_attention_operator_proof"]["eager"]["actual_aten_sdpa_operator_seen"]; print("G61_REAL_1B_MATCHED_GPU_30_MEASUREMENTS=PASS")'
+          if ($LASTEXITCODE -ne 0) { throw 'G61_RESULT_INVARIANT_FAIL' }
+      - name: Preserve primary research-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g61-1b-real-rtx-sdpa
+          path: |
+            g61_result.json
+            g61_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove all isolated temporary software and model cache
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('acc-g61-venv','acc-g61-hf')) {
+            $p = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) {
+              Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Output 'G61_RESEARCH_RUNTIME_CLEANUP=PASS'
