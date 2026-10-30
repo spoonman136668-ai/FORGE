@@ -1,0 +1,146 @@
+name: MP-AI37 genuine LoCoMo memory retrieval vs unrelated and none
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai37-original-locomo-real-memory-effect.yml']
+permissions:
+  contents: read
+jobs:
+  first-source-freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      selected_sha: ${{ steps.freeze.outputs.selected_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-authenticated LoCoMo task identity freeze without gold or model
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
+          test "$(git rev-parse HEAD:tools/mpai28_external_task_freeze_and_scorer.py)" = 'ca58a30dbe0a5c062aeec2866f8038b93a47797a'
+          test "$(git rev-parse HEAD:tools/mpai30_real_semantic_judge_canaries.py)" = '0fa02bc09fae04f72c49f555fa7063e31f546f6c'
+          test "$(git rev-parse HEAD:tools/mpai37_external_memory_effect.py)" = 'f1305323279cf56c1fdda068a5d14933dfbe6ca7'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai37_external_memory_effect.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai37_external_memory_effect.py --phase freeze)" || { printf '%s\n' "$out" | grep '^MPAI37_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fxq 'MPAI37_PREMODEL_REGISTRATION=PASS' <<< "$out"
+          grep -Fxq 'MPAI37_SELECTION_ORIGINAL_25=PASS' <<< "$out"
+          grep -Fxq 'MPAI37_ORIGINAL_GOLD_NOT_READ_BY_SELECTOR=TRUE' <<< "$out"
+          grep -Fxq 'MPAI37_LINUX_SOURCE_SCRATCH_CLEAN=PASS' <<< "$out"
+          freeze="$(printf '%s\n' "$out" | sed -n 's/^MPAI37_FROZEN_SELECTION_SHA256=//p')"
+          [[ "$freeze" =~ ^[a-f0-9]{64}$ ]]
+          echo "selected_sha=$freeze" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI37_SOURCE_AUTHORED_25_TASKS_FROZEN_BEFORE_ANSWERS=PASS'
+  original-windows-memory:
+    needs: first-source-freeze
+    if: ${{ needs.first-source-freeze.result == 'success' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      FROZEN_SELECTION: ${{ needs.first-source-freeze.outputs.selected_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Original pinned 3.8B real local Phi model with paired LoCoMo conversation-memory controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai'){throw 'MPAI37_ORIGINAL_WINDOWS_RUNNER_REQUIRED'}
+          if($env:OPENAI_API_KEY){throw 'MPAI37_NO_PAID_API'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'MPAI37_BRANCH_COMMIT_DRIFT'}
+          foreach($ref in @(
+            @('tools/mpai27_external_source_custody.py','57385e79ff8fe4d6680fba17e2186fdc32faca00'),
+            @('tools/mpai28_external_task_freeze_and_scorer.py','ca58a30dbe0a5c062aeec2866f8038b93a47797a'),
+            @('tools/mpai30_real_semantic_judge_canaries.py','0fa02bc09fae04f72c49f555fa7063e31f546f6c'),
+            @('tools/mpai37_external_memory_effect.py','f1305323279cf56c1fdda068a5d14933dfbe6ca7')
+          )){
+            $blob=(git rev-parse ('HEAD:'+$ref[0])).Trim()
+            if($LASTEXITCODE -ne 0 -or $blob -cne $ref[1]){throw 'MPAI37_ORIGINAL_SOURCE_BLOB_DRIFT'}
+          }
+          if($env:FROZEN_SELECTION -notmatch '^[a-f0-9]{64}$'){throw 'MPAI37_FROZEN_SELECTION_MISSING'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai37-private-'+$env:GITHUB_RUN_ID)
+          $private=Join-Path $scratch 'original'
+          $log=Join-Path $scratch 'private-output.log'
+          function Assert([bool]$ok,[string]$code){if(-not $ok){throw ('MPAI37_'+$code)}}
+          Assert (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          $env:MPAI37_SCRATCH=$private
+          try {
+            & python.exe -B tools/mpai37_external_memory_effect.py --phase evaluate --expected-sha $env:FROZEN_SELECTION *> $log
+            $status=$LASTEXITCODE
+            $out=Get-Content -LiteralPath $log -Raw
+            if($status -ne 0){
+              foreach($key in @('SAFE_FAILURE','SAFE_PHASE','SAFE_TYPE')){
+                $m=[regex]::Match($out,('MPAI37_'+$key+'=([A-Za-z0-9_]+)'))
+                if($m.Success){Write-Output ('MPAI37_'+$key+'='+$m.Groups[1].Value)}
+              }
+              throw 'MPAI37_PRIVATE_MEMORY_EXPERIMENT_FAILED'
+            }
+            foreach($marker in @(
+              'MPAI37_SELECTION_ORIGINAL_25=PASS',
+              'MPAI37_SEPARATE_JOB_SELECTION=PASS',
+              'MPAI37_AUTHENTIC_MODEL_SHA256=PASS',
+              'MPAI37_ORIGINAL_GOLD_USED_BY_RETRIEVAL=FALSE',
+              'MPAI37_REAL_LOCAL_MODEL_CALLS=75',
+              'MPAI37_ORIGINAL_FULL_PROMPT_PLACEBO_TOKEN_PARITY=PASS',
+              'MPAI37_ORIGINAL_25_TASK_SELECTION_PRESERVED=PASS',
+              'MPAI37_SOURCE_QUESTION_OR_GOLD_LOGGED=FALSE',
+              'MPAI37_SEMANTIC_FREE_TEXT_SCORER=NOT_QUALIFIED',
+              'MPAI37_DEPLOYED_MINDPALACE_EFFECT=NOT_EVALUATED',
+              'MPAI37_SCIENTIFIC_ACCEPTANCE=FALSE',
+              'MPAI37_ACCEPTED_MEMORY_WRITES=0'
+            )){Assert ($out.Contains($marker)) 'REQUIRED_EVIDENCE_MISSING'}
+            Assert ($out.Contains(('MPAI37_FROZEN_SELECTION_SHA256='+$env:FROZEN_SELECTION))) 'FROZEN_SELECTION_DRIFT'
+            $arms=@{}
+            $groups=@{}
+            foreach($line in ($out -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI37_ARM_(NONE|UNRELATED_TOKEN_MATCHED|RETRIEVED_CONVERSATION)=(\{.*\})$'){
+                Assert (-not $arms.ContainsKey($Matches[1])) 'DUPLICATE_ARM'
+                $arms[$Matches[1]]=$true
+                $d=$Matches[2]|ConvertFrom-Json
+                Assert ($d.n -eq 25 -and $d.scorable -ge 20 -and $d.scorable -le 25) 'ARM_METRICS'
+                Write-Output $line
+              } elseif($line -match '^MPAI37_(CATEGORY_[125]|RETRIEVED_VS_NONE|RETRIEVED_VS_UNRELATED_TOKEN_MATCHED)=(\{.*\})$'){
+                $groups[$Matches[1]]=$true
+                Write-Output $line
+              } elseif($line -match '^MPAI37_(FROZEN_SELECTION_SHA256|REAL_LOCAL_MODEL_CALLS|SOURCE_QUESTION_OR_GOLD_LOGGED|SEMANTIC_FREE_TEXT_SCORER|DEPLOYED_MINDPALACE_EFFECT|SCIENTIFIC_ACCEPTANCE|ACCEPTED_MEMORY_WRITES)=[A-Za-z0-9_-]+$'){
+                Write-Output $line
+              }
+            }
+            Assert ($arms.Count -eq 3 -and $groups.Count -eq 5) 'COMPARISON_GROUPS'
+            $dirty=@(& git.exe status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'SOURCE_MODIFIED'
+            Write-Output 'MPAI37_ORIGINAL_LOCAL_MEMORY_COMPARISON_EXECUTED=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI37_SCRATCH -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI37_PRIVATE_SCRATCH_REMOVED='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
