@@ -1,0 +1,72 @@
+name: FORGE research G55 authentic GPT-2 exact-reuse falsification
+on:
+  push:
+    branches: [research/llm-g55-exact-skip-screen-20261030]
+    paths:
+      - 'research/llm_g55/**'
+      - '.github/workflows/forge-llm-g55-exact-reuse.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g55-source-readonly
+  cancel-in-progress: false
+jobs:
+  g55-cpu-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify isolated source and seven tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m py_compile research/llm_g55/g55_gpt2_exact_reuse.py research/llm_g55/test_g55.py
+          python -m unittest discover -s research/llm_g55 -p test_g55.py -v
+          echo G55_SOURCE_AND_FOCUSED_TESTS=PASS
+      - name: Install pinned CPU inference dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          python -m pip freeze > g55_environment_pip_freeze.txt
+      - name: Execute pinned pretrained-model exact-reuse falsifier
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g55/g55_gpt2_exact_reuse.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g55_result.json'))
+          assert r['status']=='PASS_AUTHENTIC_SCREEN'
+          assert r['positive_repeat_control_12_layers']=='PASS'
+          assert len(r['case_specs'])==6
+          assert r['scientific_acceptance']=='NOT_GRANTED'
+          assert r['promotion_allowed'] is False
+          assert r['hardware_speedup']=='NOT_MEASURED'
+          assert r['weight_sha256_actual']==r['weight_sha256_expected']
+          print('G55_AUTHENTIC_SOURCE_AND_CONTROL=PASS')
+          print('G55_HYPOTHESES='+json.dumps(r['hypotheses'],sort_keys=True))
+          print('G55_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Upload raw research-only results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g55-authentic-exact-reuse-screen
+          if-no-files-found: warn
+          path: |
+            g55_result.json
+            g55_environment_pip_freeze.txt
+          retention-days: 30
