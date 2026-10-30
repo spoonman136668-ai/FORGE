@@ -3557,6 +3557,19 @@ jobs:
           counts=[dict(r) for r in con.execute("SELECT stage,COUNT(*) AS count FROM tasks GROUP BY stage ORDER BY stage")]
           latest=[dict(r) for r in con.execute("SELECT seq,kind,payload FROM events WHERE kind IN ('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED','NATIVE_V9_TRANSITION','NATIVE_DEVELOPMENT_ACTIVATED') ORDER BY seq DESC LIMIT 12")]
           active=[dict(r) for r in con.execute("SELECT ticket,lane,stage,source_sha,run_id,started_at,completed_at,quarantine_reason FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER') ORDER BY ticket LIMIT 12")]
+          # Original owner renewability diagnosis is STRICTLY READ-ONLY:
+          # no event payload, free-provider credential, raw model response,
+          # secret HMAC, task mutation, issue write or provider request.
+          renewal_kinds=("FREE_REASONER_ATTEMPTED","MODEL_DRAFT_ATTEMPTED",
+                         "MODEL_DRAFT_AUTHENTICATED","PROVIDER_VERIFIED_TERMINAL",
+                         "NATIVE_V_THREE_PROVIDER_CUSTODY")
+          marks=",".join("?" for _ in renewal_kinds)
+          reasoner_counts={k:0 for k in renewal_kinds}
+          for item in con.execute("SELECT kind,COUNT(*) AS n FROM events WHERE kind IN ("+marks+") GROUP BY kind",renewal_kinds):
+              reasoner_counts[item["kind"]]=item["n"]
+          tail=[dict(row) for row in con.execute("SELECT seq,kind,sha FROM events ORDER BY seq DESC LIMIT 8")]
+          assert len(tail)<=8 and all(set(row)=={"seq","kind","sha"} for row in tail)
+          print("F139_G54_RENEWAL_READ_ONLY="+json.dumps({"source_sha":meta["source_sha"],"head_seq":meta["head_seq"],"head_sha256":meta["head_hash"],"event_counts":reasoner_counts,"last_eight_event_kinds":tail},sort_keys=True))
           print(json.dumps({"quick_check":check,"meta":meta,"task_counts":counts,"active_or_ready":active,"relevant_events":latest},sort_keys=True))
           '@
           $dbReport | & $python -B - $db $deployedSource

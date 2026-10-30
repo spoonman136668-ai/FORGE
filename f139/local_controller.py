@@ -720,14 +720,24 @@ class Database:
                               "provider_failures_sha256", "v19_terminal_event_sha256",
                               "terminal_tasks_sha256", "model_history_sha256",
                               "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20,
+                is_v21 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v21"
+                          and set(doc) == base_fields | {
+                              "owner_event_id", "custodied_negative_tasks",
+                              "custodied_negative_tickets", "provider_failures_sha256",
+                              "v20_terminal_event_sha256",
+                              "terminal_tasks_sha256", "model_history_sha256",
+                              "last_original_free_event_seq",
+                              "last_original_free_event_sha256",
+                              "legacy_free_attempts_spent", "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1588,6 +1598,11 @@ class Database:
                             and verify_second_negative_custody(self)
                             and verify_g49_custody(self),
                             "SOURCE_TRANSITION_V20_ORIGINAL_CUSTODY_DRIFT")
+                if is_v21:
+                    from f139.nci04_v25_v20_source_transition import (
+                        verify_v21_cold_source_event)
+                    verify_v21_cold_source_event(self, row, doc,
+                                                 source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -4496,6 +4511,31 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                         "scientific_first_use":False,
                         "worker_dispatched":False,"paid_model_calls":0}
             if model_successes:
+                # V23 renewable free-only research becomes eligible only AFTER
+                # the original finite V17 lifetime-eight requests are spent.
+                # V21's authentic fresh-native-terminal+rolling-budget guards
+                # remain authoritative; no old terminal, UTC rollover, or new
+                # source SHA repurchases historical model requests.
+                free_spent = db.conn.execute(
+                    "SELECT COUNT(*) FROM events WHERE kind='FREE_REASONER_ATTEMPTED'"
+                ).fetchone()[0]
+                if free_spent >= 8:
+                    from f139.nci04_v23_original_renewal_natural_tick import (
+                        run_original_renewal_from_natural_tick)
+                    try:
+                        renewal_report = run_original_renewal_from_natural_tick(
+                            db, api, db_path, source_sha=meta["source_sha"],
+                            utc_day=dt.datetime.now(
+                                dt.timezone.utc).strftime("%Y-%m-%d"),
+                            owner_witness=lambda:
+                                native_original_running_publisher_profile(db_path))
+                    except (F139Error, ValueError, OSError):
+                        renewal_report = {
+                            "disposition": "NATIVE_RENEWAL_GUARD_BLOCKED_FAIL_CLOSED",
+                            "scientific_first_use": False,
+                            "worker_dispatched": False, "paid_model_calls": 0}
+                    return preserve_verified_steering(
+                        renewal_report, steering_selection)
                 # The one frozen model-free G29 mechanism has completed. The
                 # free reasoner is advisory-only, bounded to public data and
                 # the original SHA-chained terminal outcomes. No credentials:
