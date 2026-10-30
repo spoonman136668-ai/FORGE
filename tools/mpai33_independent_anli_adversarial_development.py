@@ -89,7 +89,7 @@ def source_rows(path):
         must(set(("uid","context","statement","gold_label","A1Code")).issubset(
              set(rdr.fieldnames or ())),"ANLI_FIELDS")
         rows=list(rdr)
-    must(len(rows)==177,"ANLI_ORIGINAL_ROW_COUNT")
+    must(len(rows)==178,"ANLI_ORIGINAL_ROW_COUNT")
     must(len({r["uid"] for r in rows})==len(rows),"ANLI_UID_DUPLICATION")
     return rows
 
