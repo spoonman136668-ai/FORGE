@@ -7,7 +7,8 @@ from unittest.mock import Mock, patch
 import inspect
 
 from f139 import nci04_v21_original_renewal_composition as route
-from f139.local_controller import run_once
+from f139.local_controller import run_once, SingleOwner
+from test_nci04_v19_original_attempt_schema import OriginalRequestColdVerifierTests
 
 
 class DummyOriginal:
@@ -207,3 +208,89 @@ class OriginalRenewalCompositionTests(TestCase):
         self.assertNotIn("OPENROUTER_API_KEY", own)
         self.assertNotIn("requests.post", own)
         self.assertNotIn("subprocess", own)
+
+
+class OriginalLedgerRenewalNegativeTests(TestCase):
+    """Real isolated original Database/SHA chain, not simulated ledger mocks."""
+
+    def setUp(self):
+        fixture = OriginalRequestColdVerifierTests(
+            "test_no_new_events_original_behavior_and_original_head_unchanged")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.fixture = fixture
+        self.db = fixture.db
+        self.mutex = fixture.mutex
+        self.public_fetch = Mock(
+            side_effect=AssertionError("NO PUBLIC FETCH WITHOUT A VALID TERMINAL"))
+        self.sender = Mock(
+            side_effect=AssertionError("NO MODEL SEND WITHOUT A VALID TERMINAL"))
+        self.publisher = Mock(
+            side_effect=AssertionError("NO ORIGINAL DRAFT WITHOUT VALID TERMINAL"))
+        self.packet = Mock(
+            side_effect=AssertionError("NO PUBLIC PACKET WITHOUT VALID TERMINAL"))
+
+    def run_gate(self):
+        return route.run_original_renewal_source_only(
+            self.db, utc_day="2026-10-28",
+            packet_for_terminal=self.packet,
+            public_reader=self.public_fetch,
+            original_get=Mock(), original_write=self.publisher,
+            owner_witness=lambda: True,
+            token="inert-test-only-not-real",
+            transport=self.sender,
+        )
+
+    def assert_no_external_or_original_mutation(self, original):
+        self.db.verify()
+        self.assertEqual(self.db.meta(), original)
+        self.assertEqual(self.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind LIKE 'NATIVE_RENEWAL%'"
+        ).fetchone()[0], 0)
+        self.packet.assert_not_called()
+        self.public_fetch.assert_not_called()
+        self.sender.assert_not_called()
+        self.publisher.assert_not_called()
+        cold = route.Database(self.db.filename)
+        try:
+            cold.verify()
+            self.assertEqual(cold.meta(), original)
+        finally:
+            cold.close()
+
+    def test_exact_old_original_native_terminal_spent_by_legacy_send(self):
+        # Genuine original native task/event transitions, then genuine
+        # FREE_REASONER_ATTEMPTED grammar; no synthetic eligibility oracle.
+        self.fixture.real_native()
+        self.fixture.original_spent_free_request()
+        with SingleOwner(self.mutex):
+            original = self.db.meta().copy()
+            result = self.run_gate()
+            self.assertEqual(
+                result["disposition"],
+                "BLOCKED_NO_FRESH_ELIGIBLE_NATIVE_TERMINAL")
+            self.assertFalse(result["runtime_activated"])
+            self.assert_no_external_or_original_mutation(original)
+
+    def test_fresh_original_terminal_still_cannot_bypass_legacy_daily_slot(self):
+        # The native terminal is genuinely new relative to the old spend, but
+        # old+new budgets still count the same original lane's past call.
+        self.fixture.original_spent_free_request()
+        self.fixture.real_native()
+        with SingleOwner(self.mutex):
+            original = self.db.meta().copy()
+            result = self.run_gate()
+            self.assertEqual(
+                result["disposition"],
+                "BLOCKED_ORIGINAL_PLUS_RENEWAL_ROLLING_BUDGET")
+            self.assertEqual(result["lane"], "Wingless")
+            self.assert_no_external_or_original_mutation(original)
+
+    def test_original_ledger_without_native_terminal_never_requests_a_model(self):
+        with SingleOwner(self.mutex):
+            original = self.db.meta().copy()
+            result = self.run_gate()
+            self.assertEqual(
+                result["disposition"],
+                "BLOCKED_NO_FRESH_ELIGIBLE_NATIVE_TERMINAL")
+            self.assert_no_external_or_original_mutation(original)
