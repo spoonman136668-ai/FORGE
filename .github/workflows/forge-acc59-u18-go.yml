@@ -34,9 +34,11 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor 58678da4a8c9d73036968f6c0c0554f54d38d493 HEAD
+          git merge-base --is-ancestor 1fac65f8daee37deb5ac267493d32ed5d1935f00 HEAD
+          test "$(git hash-object docs/research/ACC-59-U18-STAGE-B-PREREG.md)" = cd8979b1c77b83f432afd4fccf3e8fa070e3040e
           test "$(git hash-object docs/research/ACC-59-U18-VSA-PREREG.md)" = 77e6bd5cf6903534f94f8f53ce1e205b847f9cd5
           test "$(git hash-object research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
-          test "$(git hash-object research/acceleration/acc59_go_u18/main.go)" = cc70242f74b824e462212ecbd593a6316596a67e
+          test "$(git hash-object research/acceleration/acc59_go_u18/main.go)" = 92b6427c630bf3cc375e25eaefa7cec326b56e0d
           test "$(git hash-object research/acceleration/acc59_go_u18/go.mod)" = 152cbb8fc61fdf350109ed090c18af915c3fbd79
           test "$(git hash-object research/acceleration/acc59_go_u18/core_test.go)" = 3eeaaa29ac070d6ffcf160dc81edd266750bff57
           python - <<'PY'
@@ -69,13 +71,13 @@ jobs:
           python - "$RUNNER_TEMP/acc59-report.json" <<'PY'
           import json,math,sys
           r=json.load(open(sys.argv[1]))
-          assert r['Schema']=='acc59-u18-native-v1' and r['Workers']==len(r['Trials'])==80 and len(r['Cohorts'])==4
+          assert r['Schema']=='acc59-u18-stageb-v1' and r['Workers']==len(r['Trials'])==80 and len(r['Cohorts'])==4
           seen=set();paired={}
           for t in r['Trials']:
             w=t['Receipt'];k=(w['Regime'],w['Mode'],w['Seed'])
             assert k not in seen;seen.add(k)
-            assert w['Queries']==16384 and w['Episodes']==64
-            assert 0<=w['Correct']<=16384 and w['PeakRSSBytes']>0 and w['LogicalBytes']>0
+            assert w['Queries']==1048576 and w['Episodes']==4096
+            assert 0<=w['Correct']<=1048576 and w['PeakRSSBytes']>0 and w['LogicalBytes']>0
             assert t['CPUSeconds']>0 and t['WallSeconds']>0 and math.isfinite(w['Accuracy'])
             assert all(len(w[s])==64 for s in ('SourceSHA','TruthSHA','OutputSHA'))
             pair=(w['Regime'],w['Seed']);h=(w['SourceSHA'],w['TruthSHA'])
