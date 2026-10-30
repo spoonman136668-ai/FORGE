@@ -11,13 +11,15 @@ import (
 
 // Event contains only an already observed transition and its actual public
 // reward. It excludes future queries, protected labels, and latent world state.
-// The three coordinates are an adapter contract, not a claim about MiniGrid's
-// native PublicGrid layout; an authorized native adapter must be qualified.
+// The six coordinates retain every field of Wingless R1's public grid through
+// an audited conversion; no active Wingless runtime imports this candidate.
 type Event struct {
- Before [3]float64 `json:"before"`
- After [3]float64 `json:"after"`
+ Before [6]float64 `json:"before"`
+ After [6]float64 `json:"after"`
  Action uint8 `json:"action"`
  Reward float64 `json:"reward"`
+ Terminal bool `json:"terminal"`
+ Truncated bool `json:"truncated"`
 }
 
 // Learner uses a fixed two-transition memory and four learned, role-neutral
@@ -40,15 +42,15 @@ func New(seed uint64) *Learner {
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v,0) }
 func valid(e Event) bool {
  if e.Action > 2 || !finite(e.Reward) || e.Reward < -1 || e.Reward > 1 { return false }
- for i:=0;i<3;i++ {
+ for i:=0;i<6;i++ {
   if !finite(e.Before[i]) || !finite(e.After[i]) { return false }
   if math.Abs(e.Before[i]) > 1e6 || math.Abs(e.After[i]) > 1e6 { return false }
  }
  return true
 }
-func absSum(a,b [3]float64) float64 {
+func absSum(a,b [6]float64) float64 {
  var z float64
- for i:=0;i<3;i++ { z += math.Abs(a[i]-b[i]) }
+ for i:=0;i<6;i++ { z += math.Abs(a[i]-b[i]) }
  return z
 }
 
