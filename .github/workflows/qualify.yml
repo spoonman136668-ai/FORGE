@@ -49,6 +49,20 @@ jobs:
           python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
           # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
           python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: E Research original MiniGrid Memory smoke (PR 1194 only)
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 1194 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install 'numpy==1.26.4' 'gymnasium==1.1.1' 'pygame-ce==2.5.3'
+          git init -q "$RUNNER_TEMP/ed-memory-minigrid"
+          git -C "$RUNNER_TEMP/ed-memory-minigrid" remote add origin https://github.com/Farama-Foundation/Minigrid.git
+          git -C "$RUNNER_TEMP/ed-memory-minigrid" fetch --no-tags --depth=1 origin 7f5853792ea7f04f75614661006d87fcf949f26d
+          git -C "$RUNNER_TEMP/ed-memory-minigrid" checkout -q --detach 7f5853792ea7f04f75614661006d87fcf949f26d
+          test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" rev-parse HEAD)" = 7f5853792ea7f04f75614661006d87fcf949f26d
+          test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" hash-object minigrid/envs/memory.py)" = 660b0a1b769948034c87bb421759c2b9a4f24548
+          python3 -m pip install --no-deps -e "$RUNNER_TEMP/ed-memory-minigrid"
+          python3 -B research/e_research/ed84_official_minigrid_memory_smoke.py
       - name: F139 Python controller and native-custody regression
         shell: bash
         run: |
