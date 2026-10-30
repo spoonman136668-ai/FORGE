@@ -21,8 +21,8 @@ Deterministic exact replay PASS; finite/nonnegative and mass within 1e-6 checks 
 
 ## Provenance
 
-Original isolated source: `/mnt/data/e_research/eb2/run_eb2.py` — SHA-256 `de9579c33c7691892a76712723a5c95d7de94e9bcf0bc9989491ce73ec037086`.  
-Original JSON: `/mnt/data/e_research/eb2/results.json` — SHA-256 `00b01fb5baa3e3cebc0ec6bbcb50d288714f7c393808f5bfd8fdbbedf5c77dbc`.  
+Original isolated source: `/mnt/data/e_research/eb2/run_eb2.py` — SHA-256 `de9579c33c7691892a76712723a5c95d7de94e9bcf0bc9989491ce73ec037086`.
+Original JSON: `/mnt/data/e_research/eb2/results.json` — SHA-256 `00b01fb5baa3e3cebc0ec6bbcb50d288714f7c393808f5bfd8fdbbedf5c77dbc`.
 Original summary: `/mnt/data/e_research/eb2/summary.txt` — SHA-256 `d22047fd3a3f1340049ef58da8063b7f5d53dd2574c2b97ce9b41e66eacda143`.
 
 **Repository limitation:** Original bytes remain outside this FORGE branch; these digests do not establish independently authenticated original custody or reproducibility from the PR alone. No held-out use, scientific first-use, independent witness, accepted result, runtime/owner/controller/queue mutation or model training occurred.
