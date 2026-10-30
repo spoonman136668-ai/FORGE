@@ -46,3 +46,36 @@ jobs:
         with:
           name: acc57-u07-${{ matrix.os }}
           path: ${{ runner.temp }}/acc57-report.json
+
+  crossos:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc57-u07-*
+          path: artifacts
+      - name: Independent 80 by 80 source and prediction parity
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('artifacts')
+          a=json.loads((p/'acc57-u07-ubuntu-latest'/'acc57-report.json').read_text())
+          b=json.loads((p/'acc57-u07-windows-latest'/'acc57-report.json').read_text())
+          assert a['OS']=='linux' and b['OS']=='windows'
+          key=lambda x:(x['Receipt']['Regime'],x['Receipt']['Arm'],x['Receipt']['Seed'])
+          aa={key(t):t['Receipt'] for t in a['Trials']}
+          bb={key(t):t['Receipt'] for t in b['Trials']}
+          assert len(aa)==len(bb)==80 and set(aa)==set(bb)
+          for k in aa:
+            for f in ('Source','Truth','Output','Correct','Known','FalsePositive','Queries','LogicalBytes'):
+              assert aa[k][f]==bb[k][f],(k,f)
+          for obj in (a,b):
+            assert obj['WorkerCount']==80 and len(obj['Cohorts'])==4
+            assert obj['Classification']=='U07_NO_GENERAL_VERIFIED_NATIVE_GO_RESOURCE_WIN' or obj['Classification']=='U07_RESTRICTED_SYNTHETIC_GO_ENGINEERING_POSITIVE_ONLY'
+            assert all(t['CPUSeconds']>0 and t['Receipt']['PeakRSSBytes']>0 for t in obj['Trials'])
+          print('ACC57_U07_CROSSOS_80_OF_80_PASS')
+          print('ACC57_LINUX='+a['Classification'])
+          print('ACC57_WINDOWS='+b['Classification'])
+          PY
