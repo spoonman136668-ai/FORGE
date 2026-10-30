@@ -23,7 +23,9 @@ func rotate(e Event) Event {
 func TestBoundedAndRewardOnly(t *testing.T) {
  m:=New(17)
  for i:=0;i<30;i++ {
-  if err:=m.Observe(observed(i));err!=nil {t.Fatal(err)}
+  e:=observed(i)
+  if i==29 { e.Terminal=true }
+  if err:=m.Observe(e);err!=nil {t.Fatal(err)}
   if len(m.Slots)>2 {t.Fatalf("unbounded slots: %d",len(m.Slots))}
  }
  before:=m.Weights
@@ -35,6 +37,7 @@ func TestPublicCoordinateRelabelingIsEquivariant(t *testing.T) {
  a,b:=New(31),New(31)
  for i:=0;i<50;i++ {
   e:=observed(i)
+  if i==49 {e.Truncated=true}
   if err:=a.Observe(e);err!=nil {t.Fatal(err)}
   if err:=b.Observe(rotate(e));err!=nil {t.Fatal(err)}
  }
@@ -51,15 +54,17 @@ func TestPublicCoordinateRelabelingIsEquivariant(t *testing.T) {
 }
 func TestColdRestartProducesSameNextEpisode(t *testing.T) {
  original:=New(47)
- for i:=0;i<30;i++ {if err:=original.Observe(observed(i));err!=nil {t.Fatal(err)}}
+ for i:=0;i<30;i++ {e:=observed(i);if i==29 {e.Terminal=true};if err:=original.Observe(e);err!=nil {t.Fatal(err)}}
  if err:=original.Feedback(1);err!=nil {t.Fatal(err)}
  snap,err:=original.Snapshot()
  if err!=nil {t.Fatal(err)}
  restored,err:=Restore(snap)
  if err!=nil {t.Fatal(err)}
  for i:=30;i<70;i++ {
-  if err:=original.Observe(observed(i));err!=nil {t.Fatal(err)}
-  if err:=restored.Observe(observed(i));err!=nil {t.Fatal(err)}
+  e:=observed(i)
+  if i==69 {e.Terminal=true}
+  if err:=original.Observe(e);err!=nil {t.Fatal(err)}
+  if err:=restored.Observe(e);err!=nil {t.Fatal(err)}
  }
  if err:=original.Feedback(0);err!=nil {t.Fatal(err)}
  if err:=restored.Feedback(0);err!=nil {t.Fatal(err)}
@@ -86,4 +91,23 @@ func TestContextAndActionActuallyAffectScore(t *testing.T) {
  same:=features(e,e)
  shifted:=features(e,now)
  if same==shifted {t.Fatal("candidate ignores public action/context change")}
+}
+
+func TestObservedTerminalRequiredAndNoFurtherSteps(t *testing.T) {
+ m:=New(113)
+ before,err:=m.Snapshot();if err!=nil {t.Fatal(err)}
+ if err:=m.Feedback(1);err==nil {t.Fatal("accepted terminal reward before any source event")}
+ if err:=m.Observe(observed(0));err!=nil {t.Fatal(err)}
+ if err:=m.Feedback(1);err==nil {t.Fatal("accepted terminal reward before source termination")}
+ last:=observed(1);last.Truncated=true
+ if err:=m.Observe(last);err!=nil {t.Fatal(err)}
+ raw,err:=m.Snapshot();if err!=nil {t.Fatal(err)}
+ recovered,err:=Restore(raw);if err!=nil {t.Fatal(err)}
+ if err:=recovered.Observe(observed(2));err==nil {t.Fatal("accepted source step after termination before feedback")}
+ after,err:=recovered.Snapshot();if err!=nil {t.Fatal(err)}
+ if !bytes.Equal(raw,after) {t.Fatal("rejected step mutated retained state")}
+ if err:=recovered.Feedback(1);err!=nil {t.Fatal(err)}
+ if recovered.AwaitingFeedback || len(recovered.Slots)!=0 {t.Fatal("did not close episode")}
+ if err:=recovered.Feedback(1);err==nil {t.Fatal("accepted duplicate terminal reward")}
+ if bytes.Equal(raw,before) {t.Fatal("terminal state not retained before feedback")}
 }
