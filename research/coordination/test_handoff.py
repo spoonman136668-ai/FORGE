@@ -41,7 +41,7 @@ class HandoffTests(unittest.TestCase):
             extra=json.loads(json.dumps(x["workstreams"][2]))
             extra["id"]="new-causal-proposal"
             x["workstreams"].append(extra)
-        self.assertEqual(validate_handoff(self.change(extend))["workstreams"],10)
+        self.assertEqual(validate_handoff(self.change(extend))["workstreams"],12)
 
     def test_no_accepted_new_source_owner_without_qualification(self):
         with self.assertRaises(Invalid):
