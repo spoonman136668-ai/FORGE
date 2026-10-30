@@ -1,95 +1,83 @@
-name: FORGE ACC G59 isolated GPU capability observation
+name: FORGE ACC G60 isolated CUDA runtime admission
 on:
   push:
-    branches: [research/acc-g59-gpu-evidence-20261030]
+    branches: [research/acc-g60-cuda-runtime-20261030]
     paths:
       - '.github/workflows/forge-acc-g59-hardware-census.yml'
 permissions:
   contents: read
 concurrency:
-  group: forge-acc-g59-isolated-readonly
+  group: forge-acc-g60-isolated-runtime
   cancel-in-progress: false
 jobs:
-  g59-hardware-only:
+  g60-cuda-runtime-only:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 5
+    timeout-minutes: 25
     steps:
-      - name: Read-only hardware and installed-runtime observation
+      - name: Install isolated CUDA 12.8 torch and execute actual GPU matmul
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $gpus = @()
-          $nv = Get-Command 'nvidia-smi' -ErrorAction SilentlyContinue
-          if ($nv) {
-            $raw = @(& $nv.Source --query-gpu=name,memory.total,memory.free,driver_version --format=csv,noheader,nounits 2>$null)
-            if ($LASTEXITCODE -eq 0) {
-              foreach ($line in $raw) {
-                $parts = @($line -split ',')
-                if ($parts.Count -eq 4) {
-                  $name = $parts[0].Trim()
-                  $total = 0
-                  $free = 0
-                  if ([int]::TryParse($parts[1].Trim(), [ref]$total) -and [int]::TryParse($parts[2].Trim(), [ref]$free)) {
-                    $gpus += @{
-                      model = $name
-                      vram_total_mib = $total
-                      vram_free_mib = $free
-                      driver_version = $parts[3].Trim()
-                    }
-                  }
-                }
-              }
-            }
-          }
-          $torch = @{ torch_present = $false; cuda_available = $false; cuda_device_count = 0 }
-          $py = Get-Command 'python' -ErrorAction SilentlyContinue
-          if ($py) {
+          $reportPath = Join-Path $env:RUNNER_TEMP 'g60_cuda_admission.json'
+          $venv = Join-Path $env:RUNNER_TEMP ('g60-cuda-' + $env:GITHUB_RUN_ID)
+          $report = @{schema='forge.acc.g60.cuda-admission.v1'; gate='G60A'; status='BLOCKED'; gpu_compute_executed=$false; authentic_model_loaded=$false; scientific_acceptance='NOT_GRANTED'; run_id=$env:GITHUB_RUN_ID; source_sha=$env:GITHUB_SHA}
+          try {
+            if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { throw 'NVIDIA_SMI_MISSING' }
+            $gpu = & nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
+            if ($LASTEXITCODE -ne 0 -or -not $gpu) { throw 'NVIDIA_GPU_NOT_DETECTED' }
+            $report.driver_gpu = @($gpu)
+            $py = Get-Command python -ErrorAction Stop
+            & $py.Source -m venv $venv
+            if ($LASTEXITCODE -ne 0) { throw 'VENV_CREATION_FAILED' }
+            $exe = Join-Path $venv 'Scripts\python.exe'
+            & $exe -m pip install --disable-pip-version-check --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.8.0
+            if ($LASTEXITCODE -ne 0) { throw 'TORCH_CU128_INSTALL_FAILED' }
             $code = @'
-          import json
-          try:
-              import torch
-              print(json.dumps({"torch_present":True,
-                                "version":str(torch.__version__),
-                                "cuda_available":bool(torch.cuda.is_available()),
-                                "cuda_device_count":int(torch.cuda.device_count())}))
-          except Exception:
-              print(json.dumps({"torch_present":False,"cuda_available":False,"cuda_device_count":0}))
+          import json, time, torch
+          r = {"torch":torch.__version__,"built_cuda":torch.version.cuda,"cuda_available":torch.cuda.is_available(),"gpu_compute_executed":False}
+          assert torch.cuda.is_available(), "CUDA_UNAVAILABLE"
+          assert torch.version.cuda and tuple(map(int,torch.version.cuda.split(".")[:2])) >= (12,8), "CUDA_VERSION_BELOW_12_8"
+          assert torch.cuda.device_count() > 0, "NO_CUDA_DEVICE"
+          gpu = torch.device("cuda:0")
+          r["device_name"] = torch.cuda.get_device_name(0)
+          r["compute_capability"] = list(torch.cuda.get_device_capability(0))
+          assert r["compute_capability"][0] >= 12, "NOT_BLACKWELL_GPU"
+          a=torch.arange(1024*1024,device=gpu,dtype=torch.float32).reshape(1024,1024)/1048576
+          torch.cuda.synchronize()
+          t0=time.perf_counter()
+          out=a@a
+          torch.cuda.synchronize()
+          r["gpu_matmul_wall_ms"]=round((time.perf_counter()-t0)*1000,3)
+          assert out.is_cuda and torch.isfinite(out).all().item(), "GPU_RESULT_INVALID"
+          r["gpu_result_checksum"]=round(out.sum().item(),3)
+          r["max_allocated_vram_bytes"]=torch.cuda.max_memory_allocated(0)
+          r["gpu_compute_executed"]=True
+          print("G60_JSON="+json.dumps(r,sort_keys=True))
           '@
-            $json = @(& $py.Source -c $code 2>$null)
-            if ($LASTEXITCODE -eq 0 -and $json.Count -gt 0) {
-              try { $torch = ConvertFrom-Json -InputObject $json[-1] -AsHashtable }
-              catch { $torch = @{ torch_present = $false; cuda_available = $false; cuda_device_count = 0 } }
-            }
+            $output = @(& $exe -c $code)
+            if ($LASTEXITCODE -ne 0) { throw 'GPU_MATMUL_FAILED' }
+            $line = $output | Where-Object { $_ -like 'G60_JSON=*' } | Select-Object -Last 1
+            if (-not $line) { throw 'MISSING_GPU_RESULT' }
+            $result = ($line.Substring(9) | ConvertFrom-Json -AsHashtable)
+            if (-not $result.gpu_compute_executed) { throw 'GPU_EXECUTION_UNVERIFIED' }
+            $report.gpu = $result
+            $report.gpu_compute_executed = $true
+            $report.status = 'PASS'
+            Write-Output 'G60_CUDA_RUNTIME_ADMISSION=PASS'
+          } catch {
+            $report.status = 'FAIL'
+            $report.failure = $_.Exception.Message
+            Write-Output ('G60_CUDA_RUNTIME_ADMISSION=FAIL ' + $report.failure)
+            throw
+          } finally {
+            $report | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $reportPath -Encoding utf8
+            if (Test-Path -LiteralPath $venv) { Remove-Item -LiteralPath $venv -Recurse -Force -ErrorAction SilentlyContinue }
           }
-          $llama = [bool](Get-Command 'llama-bench' -ErrorAction SilentlyContinue)
-          $report = @{
-            schema = 'forge.acc.g59.hardware-census.v1'
-            classification = if ($gpus.Count -gt 0) { 'NVIDIA_DRIVER_GPU_DETECTED' } else { 'NO_NVIDIA_DRIVER_GPU_DETECTED' }
-            nvidia_smi_present = [bool]$nv
-            gpu_count = $gpus.Count
-            gpus = @($gpus)
-            torch = $torch
-            llama_bench_on_path = $llama
-            weights_downloaded = $false
-            model_loaded = $false
-            training_executed = $false
-            inference_executed = $false
-            accelerator_performance_measured = $false
-            scientific_acceptance = 'NOT_GRANTED'
-            operational_source = 'existing forge-codex-isolated self-hosted Windows runner'
-          }
-          $path = Join-Path $env:RUNNER_TEMP 'g59_hardware_only.json'
-          $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $path -Encoding utf8
-          Write-Output ('G59_READONLY_HARDWARE=' + $report.classification)
-          Write-Output ('G59_NVIDIA_GPU_COUNT=' + $report.gpu_count)
-          Write-Output ('G59_TORCH_CUDA=' + $torch.cuda_available)
-          Write-Output ('G59_LLAMA_BENCH_INSTALLED=' + $llama)
-          Write-Output 'G59_MODEL_INFERENCE_OR_TRAINING_EXECUTED=FALSE'
-      - name: Preserve capability observation as isolated research artifact
+      - name: Preserve immutable runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: acc-g59-hardware-only
-          path: ${{ runner.temp }}/g59_hardware_only.json
-          if-no-files-found: error
+          name: acc-g60-cuda-admission
+          path: ${{ runner.temp }}/g60_cuda_admission.json
+          if-no-files-found: warn
           retention-days: 30
