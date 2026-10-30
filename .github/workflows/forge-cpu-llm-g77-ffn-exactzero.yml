@@ -1,0 +1,92 @@
+name: FORGE CPU LLM G77 original GPT2 FFN exact-zero opportunity
+on:
+  push:
+    branches: [research/cpu-llm-g77-ffn-exactzero-20261030]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g77-ffn-exactzero.yml'
+      - 'research/cpu_g77/**'
+permissions:
+  contents: read
+concurrency:
+  group: forge-cpu-g77-original-exactzero
+  cancel-in-progress: false
+jobs:
+  frozen-source-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen prereg original parent, no prior research changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          git merge-base --is-ancestor da9b9dc83be89e0bb274ad36afea73faabaa8901 HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G77-GPT2-FFN-EXACTZERO-PREEXEC-20261030.md)" = "$(git rev-parse da9b9dc83be89e0bb274ad36afea73faabaa8901:docs/research/CPU-G77-GPT2-FFN-EXACTZERO-PREEXEC-20261030.md)"
+          git diff --exit-code 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          git diff --check 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          python -B -m py_compile research/cpu_g77/g77_ffn_exactzero.py research/cpu_g77/test_g77_ffn_exactzero.py
+          python -B -m unittest discover -s research/cpu_g77 -p test_g77_ffn_exactzero.py -v
+          echo CPU_G77_FROZEN_SOURCE_ADMISSION=PASS
+  original-model-activation-survey:
+    needs: frozen-source-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin authentic original FP32 GPT2 CPU environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip check
+          python -m pip freeze > cpu_g77_original_environment.txt
+      - name: Survey 1152 original heldout FP32 GELU activation vectors
+        shell: bash
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/cpu_g77/g77_ffn_exactzero.py
+          python - <<'PY'
+          import json
+          r=json.load(open("cpu_g77_original_result.json"))
+          assert r["gate"]=="CPU_G77"
+          assert r["model_executed"] is True
+          assert r["engineering"]=="PASS"
+          assert r["summary"]["authentic_positions"]==96
+          assert r["summary"]["original_gelu_activation_vectors"]==1152
+          assert r["summary"]["original_float32_elements_counted"]==1152*3072
+          assert r["feasibility"] in ("GO_FOR_FUTURE_SEPARATE_ORIGINAL_SPARSE_TEST","NO_GO_FEASIBILITY")
+          assert r["performance"]=="NOT_MEASURED"
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and not r["promotion_allowed"]
+          print("CPU_G77_ORIGINAL_PRETRAINED_FFN_CUSTODY=PASS")
+          print("CPU_G77_FROZEN_FEASIBILITY="+r["feasibility"])
+          PY
+      - name: Preserve original evidence including blocked errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g77-original-gpt2-ffn-exactzero
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g77_original_result.json
+            cpu_g77_original_environment.txt
