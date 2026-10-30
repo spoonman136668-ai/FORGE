@@ -70,8 +70,15 @@ class SourceOnlyActionPlanning(unittest.TestCase):
             self.assertEqual(native["per_task_action_sequences"],
                              strong["per_task_action_sequences"])
             self.assertLess(native["checkpoint_bytes"],25000)
-            self.assertGreater(native["planning_cost"]["cpu_ns"],0)
-            self.assertGreater(strong["planning_cost"]["cpu_ns"],0)
+            # Keep CPU clock data truthful: Windows may quantize a short
+            # measurement to zero without changing any prediction or control.
+            for arm in (native, strong):
+                cost = arm["planning_cost"]
+                self.assertGreater(cost["wall_ns"], 0)
+                self.assertGreaterEqual(cost["cpu_ns"], 0)
+                self.assertEqual(cost["cpu_timer_quantized"],
+                                 cost["cpu_ns"] == 0 and cost["wall_ns"] > 0)
+                self.assertGreaterEqual(cost["tracemalloc_peak_bytes"], 0)
             self.assertEqual(native["training_events_effective"],576)
             self.assertEqual(strong["training_events_effective"],576)
             self.assertEqual(stage["own_selected_events_cumulative"],576 if seed==11 else 1152)
