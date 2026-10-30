@@ -1,0 +1,136 @@
+name: MP-AI26 prospective four-source-family matched-token development recall
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai26-new-family-token-matched-development.yml']
+permissions:
+  contents: read
+jobs:
+  preregistration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Freeze source-identity plus prospectively new questions before any model use
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai26_new_family_transfer_development.py)" = "1d919799482731caf77bc25ee404407dbd0a4f5d"
+          python -B -m py_compile tools/mpai26_new_family_transfer_development.py
+          python -B -c "import sys;sys.path.insert(0,'tools');import mpai26_new_family_transfer_development as m;m.assert_protocol();print('MPAI26_PREMODEL_PROTOCOL_FROZEN=PASS')"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI26_NO_MODEL_EXPOSURE_DURING_PREREG=PASS'
+          echo 'MPAI26_INDEPENDENT_SCIENTIFIC_HOLDOUT_CUSTODY=NOT_ESTABLISHED'
+  original-windows:
+    needs: preregistration
+    if: ${{ needs.preregistration.result == 'success' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run 24 genuine source-pinned local model paired trials; protect original sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai'){
+             throw 'MPAI26_ORIGINAL_WINDOWS_AUTHORITY'
+          }
+          if($env:OPENAI_API_KEY){throw 'MPAI26_PAID_API_DENIED'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI26_SOURCE_COMMIT_DRIFT'
+          }
+          $script=(git rev-parse 'HEAD:tools/mpai26_new_family_transfer_development.py').Trim()
+          if($LASTEXITCODE -ne 0 -or $script -cne '1d919799482731caf77bc25ee404407dbd0a4f5d'){
+            throw 'MPAI26_PREREG_SOURCE_BLOB_DRIFT'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai26-private-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $scratch 'private-source'
+          $trial=Join-Path $scratch 'private-trial'
+          $log=Join-Path $scratch 'private-results.log'
+          function Assert([bool]$ok,[string]$code){
+            if(-not $ok){throw ('MPAI26_'+$code)}
+          }
+          Assert (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+          $env:MPAI26_PRIVATE_SCRATCH=$trial
+          $env:MPAI26_PRIVATE_SOURCE=$source
+          try {
+            & git.exe clone --quiet --depth 1 --single-branch --branch main https://github.com/spoonman136668-ai/Mind-Palace.git $source
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_SOURCE_CLONE'
+            Assert ((& git.exe -C $source rev-parse HEAD).Trim() -ceq '84ad556910c869afa2f171673d5a5b4041a4a9b4') 'ACCEPTED_SOURCE_SHA_DRIFT'
+            & python.exe -B tools/mpai26_new_family_transfer_development.py *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($exit -ne 0){
+              foreach($label in @('SAFE_FAILURE','SAFE_STAGE','SAFE_ERROR_TYPE')){
+                $m=[regex]::Match($raw,('MPAI26_'+$label+'=([A-Za-z0-9_]+)'))
+                if($m.Success){Write-Output ('MPAI26_'+$label+'='+$m.Groups[1].Value)}
+              }
+              throw 'MPAI26_PRIVATE_EVALUATION_FAILURE'
+            }
+            foreach($mark in @(
+              'MPAI26_SOURCE_AND_FOUR_LESSONS_VERIFIED=PASS',
+              'MPAI26_MODEL_FULL_SHA256=PASS',
+              'MPAI26_REAL_TOKEN_PARITY_PREINFERENCE=PASS',
+              'MPAI26_ACTUAL_FULL_PROMPT_TOKEN_PARITY=PASS',
+              'MPAI26_REAL_LOCAL_MODEL_CALLS=24',
+              'MPAI26_SOURCE_FAMILIES=4',
+              'MPAI26_NEW_DEVELOPMENT_TASKS=8',
+              'MPAI26_FIRST_USE_INDEPENDENT_CUSTODY=FALSE',
+              'MPAI26_INDEPENDENT_BLIND_HOLDOUT=FALSE',
+              'MPAI26_SCIENTIFIC_ACCEPTANCE=FALSE',
+              'MPAI26_PRODUCTION_MEMORY_WRITES=0'
+            )){
+              Assert ($raw.Contains($mark)) 'MISSING_RECEIPT'
+            }
+            $seen=@{}
+            foreach($line in ($raw -split [char]10)){
+              $line=$line.Trim()
+              if($line -match '^MPAI26_ARM_(NONE|SOURCE_MATCHED_PLACEBO|ACCEPTED_MEMORY)=(\{.*\})$'){
+                $arm=$Matches[1]
+                Assert (-not $seen.ContainsKey($arm)) 'DUPLICATE_ARM'
+                $v=$Matches[2]|ConvertFrom-Json
+                Assert ($v.calls -eq 8 -and $v.correct -ge 0 -and $v.correct -le 8 -and
+                        $v.abstentions -ge 0 -and $v.abstentions -le 8 -and
+                        $v.unparseable -ge 0 -and $v.unparseable -le 8) 'ARM_METRIC_INVALID'
+                $seen[$arm]=$true
+                Write-Output $line
+              } elseif($line -match '^MPAI26_(SOURCE_FAMILY_[1-4]_ACCURACY|PROTOCOL_SHA256|MODEL_LOAD_MS|ORIGINAL_WINDOWS_PEAK_WORKING_SET|REAL_LOCAL_MODEL_CALLS|DISTINCT_LESSON_SOURCE_FAMILIES|INDEPENDENT_BLIND_HOLDOUT|NOVEL_ENVIRONMENT_TRANSFER|SCIENTIFIC_ACCEPTANCE|AUTONOMOUS_AGENT_LEARNING|PRODUCTION_MEMORY_WRITES|SOURCE_AND_FOUR_LESSONS_VERIFIED|REAL_TOKEN_PARITY_PREINFERENCE|ACTUAL_FULL_PROMPT_TOKEN_PARITY|MODEL_FULL_SHA256)=[A-Za-z0-9_=.-]+$'){
+                Write-Output $line
+              }
+            }
+            Assert ($seen.Count -eq 3) 'ARM_COUNT'
+            $dirty=@(& git.exe -C $source status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'PRIVATE_SOURCE_MODIFIED'
+            $mainDirty=@(& git.exe status --porcelain --untracked-files=all)
+            Assert ($LASTEXITCODE -eq 0 -and $mainDirty.Count -eq 0) 'FORGE_BRANCH_WORKSPACE_MODIFIED'
+            Write-Output 'MPAI26_ORIGINAL_WINDOWS_QUALIFICATION=PASS'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            Remove-Item Env:MPAI26_PRIVATE_SCRATCH,Env:MPAI26_PRIVATE_SOURCE -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Write-Output ('MPAI26_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
+          }
