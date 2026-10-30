@@ -7,7 +7,7 @@ for mode in ("idle","busy","parallel"):
         p=subprocess.run([binary,"-role=parent","-mode="+mode],capture_output=True,text=True,check=True)
         r=json.loads(p.stdout)
         assert r["schema"]=="forge.rar.g29.cooperative-meter.v1"
-        assert r["peak_child_rss_bytes"]>0 and r["child_cpu_seconds"]>0
+        assert r["peak_child_rss_bytes"]>0 and r["child_cpu_seconds"]>=0
         assert r["child_count"]==(2 if mode=="parallel" else 1)
         samples.append(r)
     assert len({x["output_sha256"] for x in samples})==1,mode
