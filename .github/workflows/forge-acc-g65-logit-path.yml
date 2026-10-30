@@ -1,0 +1,103 @@
+name: FORGE ACC G65 exact frozen FP16 cached versus full logits
+on:
+  push:
+    branches: [research/acc-g65-fp16-logit-path-20261030]
+    paths:
+      - 'research/acc_g65/**'
+      - '.github/workflows/forge-acc-g65-logit-path.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g65-original-rtx-isolated
+  cancel-in-progress: false
+jobs:
+  g65-numerical-diagnostic:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate preexecution protocol and frozen exact-case tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G65_SOURCE_HEAD_CHANGED' }
+          if (-not (Test-Path 'docs/research/ACC-G65-PREEXEC-20261030.md')) { throw 'G65_PREREG_MISSING' }
+          $py=Get-Command python -ErrorAction Stop
+          & $py.Source -m py_compile research/acc_g65/g65_logit_path.py research/acc_g65/test_g65.py
+          if ($LASTEXITCODE -ne 0) { throw 'G65_SOURCE_COMPILE_FAIL' }
+          & $py.Source -m unittest discover -s research/acc_g65 -p test_g65.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G65_FROZEN_SOURCE_TEST_FAIL' }
+          Write-Output 'G65_FROZEN_SOURCE_TESTS=PASS'
+      - name: Create strictly disposable CUDA 12.8 runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G65_TEMP_FREE_DISK_LT_10GB' }
+          foreach ($name in @('acc-g65-venv','acc-g65-hf','acc-g65-wikitext-test.txt')) {
+            $path=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) { throw "G65_TEMP_PATH_COLLISION:$path" }
+          }
+          $py=Get-Command python -ErrorAction Stop
+          & $py.Source -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G65_PYTHON_VERSION_FAIL' }
+          & $py.Source -m venv (Join-Path $env:RUNNER_TEMP 'acc-g65-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G65_VENV_CREATION_FAIL' }
+          Write-Output 'G65_DISPOSABLE_VENV=PASS'
+      - name: Install original pinned Blackwell-compatible inference environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:RUNNER_TEMP 'acc-g65-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G65_PINNED_TORCH_CUDA_FAIL' }
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G65_PINNED_TRANSFORMERS_FAIL' }
+          & $py -m pip freeze | Out-File -LiteralPath 'g65_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G65_DEPENDENCY_RECEIPT_FAIL' }
+          Write-Output 'G65_CUDA_PINNED_ENV=PASS'
+      - name: Repeat exact first-divergence cached chunked and full GPU logits
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:RUNNER_TEMP 'acc-g65-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g65-hf'
+          $env:G65_CORPUS_PATH=Join-Path $env:RUNNER_TEMP 'acc-g65-wikitext-test.txt'
+          $env:G65_OUTPUT=Join-Path (Get-Location).Path 'g65_result.json'
+          & $py -u research/acc_g65/g65_logit_path.py
+          if ($LASTEXITCODE -ne 0) { throw 'G65_NUMERICAL_PATH_MEASUREMENT_BLOCKED' }
+          & $py -c 'import json; r=json.load(open("g65_result.json")); assert r["status"]=="PASS_DIAGNOSTIC_MEASUREMENT"; assert set(r["modes"])=={"cached_one_by_one","cached_chunk_48","full_no_cache"}; assert all(len(x)==3 for x in r["modes"].values()); assert r["original_g63_final"]=="FAIL_NO_GO_UNCHANGED"; assert not r["causal_root_cause_conclusively_proven"]; print("G65_NINE_SOURCE_PINNED_GPU_LOGIT_TRACES=PASS"); print("G65_MODE_RESULT="+r["numeric_comparison"]["classification"])'
+          if ($LASTEXITCODE -ne 0) { throw 'G65_DIAGNOSTIC_OUTPUT_INVALID' }
+      - name: Save source-authenticated diagnostic receipt only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g65-original-fp16-logit-path
+          path: |
+            g65_result.json
+            g65_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove all strictly isolated software and original data copies
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g65-venv','acc-g65-hf','acc-g65-wikitext-test.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) {
+              Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Output 'G65_DISPOSABLE_CLEANUP=PASS'
