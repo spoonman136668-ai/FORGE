@@ -68,5 +68,34 @@ class HandoffTests(unittest.TestCase):
         with self.assertRaises(Invalid):
             validate_handoff(self.change(lambda x: x["workstreams"][-1].__setitem__("source_pointers",[])))
 
+    def test_bio_optimizer_language_are_three_separate_scientific_scopes(self):
+        h=json.loads(RAW)
+        required={"bio-research","optimizer-research","language-research"}
+        self.assertTrue(required.issubset({w["id"] for w in h["workstreams"]}))
+        self.assertEqual(len(h["workstreams"]), 11)
+        self.assertNotIn("bio-optimizer-language",{w["id"] for w in h["workstreams"]})
+        for w in h["workstreams"]:
+            if w["id"] in required:
+                self.assertTrue(w["separate_scientific_lineage"])
+                self.assertEqual(w["handoff_status"], "UNVERIFIED")
+                self.assertEqual(w["oversight"], "unified-research")
+                self.assertEqual(w["source_pointers"], [])
+
+    def test_denies_loss_of_any_support_science_lane(self):
+        for ident in ("bio-research","optimizer-research","language-research"):
+            with self.subTest(ident=ident),self.assertRaises(Invalid):
+                validate_handoff(self.change(lambda x: x["workstreams"].__setitem__(
+                    slice(None),[row for row in x["workstreams"] if row["id"]!=ident])))
+
+    def test_denies_grouping_support_science_as_one(self):
+        def combine(x):
+            x["workstreams"]=[w for w in x["workstreams"] if w["id"] not in
+                ("bio-research","optimizer-research","language-research")]
+            extra=dict(x["workstreams"][2])
+            extra["id"]="bio-optimizer-language"
+            x["workstreams"].append(extra)
+        with self.assertRaises(Invalid):
+            validate_handoff(self.change(combine))
+
 if __name__=="__main__":
     unittest.main()

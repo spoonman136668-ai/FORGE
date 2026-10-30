@@ -8,7 +8,7 @@ from validate_registry import Invalid, _unique_object_pairs
 
 HANDOFF_SCHEMA = "forge.research-chat-handoff.v1"
 MANDATORY = {"native-intelligence", "n-research", "e-research", "replay-acceleration",
-             "llm-acceleration", "independent-science", "bio-optimizer-language",
+             "llm-acceleration", "independent-science", "bio-research", "optimizer-research", "language-research",
              "mass-research", "forge-operations"}
 RETIREMENT = {"owner-continuity", "research-handoff", "evidence-routing",
               "unattended-cycles", "science-and-owner-signoff"}
@@ -45,7 +45,7 @@ def validate_handoff(raw):
         raise Invalid("H5_BOUNDARY_COUNT")
     for x in boundaries: _bounded(x)
     rows=obj["workstreams"]
-    if not isinstance(rows, list) or not 9 <= len(rows) <= 40:
+    if not isinstance(rows, list) or not 11 <= len(rows) <= 40:
         raise Invalid("H5_MISSING_WORKSTREAMS")
     seen=set()
     for row in rows:

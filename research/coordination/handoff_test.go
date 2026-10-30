@@ -29,11 +29,11 @@ func TestHandoffPreservesIndependentNativeAndResearchScopes(t *testing.T) {
         h.ExecutionAuthorized || h.ChatRetirementReady || h.InventoryCompleteness != "UNVERIFIED" {
         t.Fatal("handoff cannot grant runtime or retirement authority")
     }
-    if len(h.Workstreams) < 9 { t.Fatal("incomplete research handoff inventory") }
+    if len(h.Workstreams) < 11 { t.Fatal("incomplete research handoff inventory") }
     required := map[string]bool{
         "native-intelligence": true, "n-research": true, "e-research": true,
         "replay-acceleration": true, "llm-acceleration": true,
-        "independent-science": true, "bio-optimizer-language": true,
+        "independent-science": true, "bio-research": true, "optimizer-research": true, "language-research": true,
         "mass-research": true, "forge-operations": true,
     }
     seen := make(map[string]bool)
