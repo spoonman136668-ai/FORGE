@@ -13,7 +13,7 @@ from mg54_public_pooled_goal_credit_dev import (
     pooled_context,public_exact_target_front)
 
 HERE=Path(__file__).resolve().parent
-PREREG=HERE/"mg55_mg54_goal_credit_audit_prereg.json"
+PREREG=HERE/"mg55_mg54_pooled_credit_audit_prereg.json"
 PARENT="d14ed35e79ba85e3abb747803fd4c6a5ee5b66c9"
 FREEZE="860a4cc66054df7f96e846815fe925e387789bc2"
 ZIP_SHA="ef5a7882dd0775754c359d68da1e7248f39a50f90a55241ccb0757548ca480b1"
