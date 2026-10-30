@@ -1,0 +1,103 @@
+name: FORGE ACC G70 original RTX Q GEMM shape isolation
+on:
+  push:
+    branches: [research/acc-g70-qproj-shape-20261030]
+    paths:
+      - 'research/acc_g70/**'
+      - '.github/workflows/forge-acc-g70-qproj-shape.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g70-original-rtx-qproj
+  cancel-in-progress: false
+jobs:
+  original-q-projection:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify prereg source identity and compile diagnostic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G70_SOURCE_SHA_DRIFT' }
+          if (-not (Test-Path 'docs/research/ACC-G70-PREEXEC-20261030.md')) { throw 'G70_PREEXEC_MISSING' }
+          & python -m py_compile research/acc_g70/g70_qproj_shapes.py research/acc_g70/test_g70.py
+          if ($LASTEXITCODE -ne 0) { throw 'G70_SOURCE_COMPILE_FAILED' }
+          Write-Output 'G70_SOURCE_COMPILE=PASS'
+      - name: Isolate disposable pinned CUDA runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $volume=(Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($volume.Free -lt 10000000000) { throw 'G70_TEMP_DISK_LT_10GB' }
+          foreach ($name in @('acc-g70-venv','acc-g70-hf','acc-g70-wikitext-test.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { throw "G70_TEMP_PATH_COLLISION:$p" }
+          }
+          & python -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G70_UNSUPPORTED_PYTHON' }
+          & python -m venv (Join-Path $env:RUNNER_TEMP 'acc-g70-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G70_VENV_CREATION_FAILED' }
+      - name: Install pinned original RTX CUDA and HF libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g70-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G70_CUDA_PACKAGE_FAILED' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G70_FROZEN_HF_PACKAGE_FAILED' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g70_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G70_PACKAGE_PROVENANCE_FAILED' }
+      - name: Execute 13 frozen negative and custody contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g70-venv\Scripts\python.exe'
+          & $p -m unittest discover -s research/acc_g70 -p test_g70.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G70_SOURCE_NEGATIVE_TEST_FAILED' }
+          Write-Output 'G70_FOCUSED_SOURCE_TESTS=PASS'
+      - name: Measure authentic RTX Q projection batching shape in 18 original traces
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g70-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g70-hf'
+          $env:G70_CORPUS=Join-Path $env:RUNNER_TEMP 'acc-g70-wikitext-test.txt'
+          $env:G70_RESULT=Join-Path (Get-Location).Path 'g70_result.json'
+          & $p -u research/acc_g70/g70_qproj_shapes.py
+          if ($LASTEXITCODE -ne 0) { throw 'G70_SOURCE_OR_GPU_DIAGNOSTIC_BLOCKED' }
+          & $p -c 'import json; r=json.load(open("g70_result.json")); a=r["classification"]; assert r["status"]=="PASS_COMPLETE_ORIGINAL_Q_SHAPE_DIAGNOSTIC"; assert a["full_model_traces"]==18 and a["isolated_q_projections"]==18; assert a["diagnostic"] in ("DIRECT_QPROJECTION_SHAPE_REPRODUCED","SHAPE_ISOLATION_INCONCLUSIVE"); assert a["g63_original_generalization"]=="FAIL_NO_GO_UNCHANGED"; assert a["g67_original_engineering"]=="NO_GO_ENGINEERING"; assert a["scientific_acceptance"]=="NOT_GRANTED"; print("G70_GPU_NUMERIC_INTEGRITY=PASS"); print("G70_DIAGNOSTIC="+a["diagnostic"])'
+          if ($LASTEXITCODE -ne 0) { throw 'G70_RESEARCH_INVARIANTS_FAILED' }
+      - name: Retain numerical evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g70-original-rtx-qproj-shapes
+          path: |
+            g70_result.json
+            g70_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove isolated dependencies checkpoint and original public text
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g70-venv','acc-g70-hf','acc-g70-wikitext-test.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop }
+          }
+          Write-Output 'G70_SOFTWARE_AND_SOURCE_CLEANUP=PASS'
