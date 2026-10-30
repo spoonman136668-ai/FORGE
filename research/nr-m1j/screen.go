@@ -3,6 +3,9 @@
 package nrm1j
 
 import (
+    "crypto/sha256"
+    "encoding/hex"
+    "encoding/json"
     "errors"
     "math"
     "math/rand"
@@ -42,6 +45,8 @@ type Result struct {
     DifferentFromReservoir bool
     DecisionDiscriminating bool
     SourceFreeOnly bool
+    CheckpointSHA256 string
+    HistorySHA256 string
     Events int
     MaxMemorySlots int
 }
@@ -134,6 +139,10 @@ func Screen(in Input) (Result,error) {
     if err!=nil {return Result{},err}
     reservoir,err:=Recommend(memoryReservoir(in.History,in.ReservoirSeed),in.NextPublicGrid)
     if err!=nil {return Result{},err}
+    historyBytes,err:=json.Marshal(in.History)
+    if err!=nil {return Result{},err}
+    checkpointDigest:=sha256.Sum256(in.CandidateCheckpoint)
+    historyDigest:=sha256.Sum256(historyBytes)
     // A different action is diagnostic ONLY if both arms have actual public
     // reward evidence. Missing evidence is recorded as abstention.
     fromFIFO:=candidate.HasEvidence&&fifo.HasEvidence&&candidate.Action!=fifo.Action
@@ -142,6 +151,8 @@ func Screen(in Input) (Result,error) {
         Candidate:candidate,FIFO:fifo,Reservoir:reservoir,
         DifferentFromFIFO:fromFIFO,DifferentFromReservoir:fromReservoir,
         DecisionDiscriminating:fromFIFO||fromReservoir,
-        SourceFreeOnly:true,Events:len(in.History),MaxMemorySlots:MemorySlots,
+        SourceFreeOnly:true,CheckpointSHA256:hex.EncodeToString(checkpointDigest[:]),
+        HistorySHA256:hex.EncodeToString(historyDigest[:]),
+        Events:len(in.History),MaxMemorySlots:MemorySlots,
     },nil
 }
