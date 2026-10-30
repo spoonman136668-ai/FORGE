@@ -1,0 +1,129 @@
+name: ACC68 U26 finite hyperbolic retrieval vs exact index and matched Euclidean
+on:
+  push:
+    branches: [research/acc68-u26-hyperbolic-hierarchy-retrieval-20261030]
+permissions:
+  contents: read
+concurrency:
+  group: acc68-u26-frozen-retrieval-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  study:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original U26 source and immutable prereg custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor dc6119e0c80de7485014383014838ec20287bc1f HEAD
+          test "$(git rev-parse HEAD:research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python -m py_compile research/acceleration/acc68_u26/experiment.py research/acceleration/acc68_u26/test_experiment.py
+          echo ACC68_U26_ORIGINAL_PREREG_AND_SOURCE=PASS
+      - name: Run 30 finite-coordinate and matched-retrieval tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/acceleration/acc68_u26 -p test_experiment.py -v
+          echo ACC68_U26_30_FOCUSED_TESTS=PASS
+      - name: Inherited AC05 AC06 AC07 AC08 portfolio regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/ac05_sourcefree -p test_learning.py -v
+          python -m unittest discover -s research/ac06_sourcefree -p test_restricted.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_remaining.py -v
+          python -m unittest discover -s research/ac07_sourcefree -p test_ac08_portfolio.py -v
+          echo ACC68_U26_INHERITED_PORTFOLIO=PASS
+      - name: Measure nine full-tree CHECK retrieval matrices and finite memory evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research/acceleration/acc68_u26/experiment.py --json "$RUNNER_TEMP/acc68-u26.json"
+          python - "$RUNNER_TEMP/acc68-u26.json" <<'PY'
+          import sys,json,hashlib,math
+          raw=open(sys.argv[1],"rb").read()
+          x=json.loads(raw)
+          c=x["classification"]
+          assert x["schema"]=="forge.acc68.u26.finite-hyperbolic-tree-retrieval.v1"
+          assert x["identity"]["registry_blob"]=="5126c860771fb024ccfc14c3f7ee8925edf29787"
+          assert c["fixed_float64_pair_infinite_memory"]=="U26_FINITE_128BIT_COORDINATE_INFINITE_MEMORY_NO_GO"
+          assert c["exact_parent_index_reference"]=="PASS"
+          assert c["matched_metric_hierarchy_retrieval"] in ("U26_RESTRICTED_HIERARCHY_RETRIEVAL_POSITIVE_ONLY","U26_NO_GENERAL_VERIFIED_HIERARCHY_RETRIEVAL_WIN")
+          assert c["learned_embeddings"]=="UNVERIFIED"
+          assert c["real_pretrained_LLM_speed"]=="UNVERIFIED"
+          assert c["scientific_acceptance"]=="NOT_GRANTED"
+          assert c["production_admission"]=="NOT_GRANTED"
+          assert len(x["trees"])==9
+          for tree in x["trees"]:
+            assert tree["coord_payload_bytes"]==tree["nodes"]*16
+            assert tree["exact_parent_reference_correct"]==tree["checks"] and tree["checks"]>0
+            assert tree["euclidean"]["correct"]+len(tree["euclidean"]["errors"])==tree["checks"]
+            assert tree["hyperbolic"]["correct"]+len(tree["hyperbolic"]["errors"])==tree["checks"]
+            assert math.isfinite(tree["hyperbolic_over_euclidean_latency"])
+          print("ACC68_U26_FULL_SOURCE_AND_TREE_MATRIX=PASS")
+          print("ACC68_U26_ORIGINAL_RESULT_SHA256="+hashlib.sha256(raw).hexdigest())
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc68-u26-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc68-u26.json
+          retention-days: 30
+          if-no-files-found: warn
+  audit:
+    needs: study
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc68-u26-*
+          path: artifacts
+      - name: Independent matched source, query, prediction and finite-capacity parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("artifacts")
+          a=json.loads((p/"acc68-u26-ubuntu-latest"/"acc68-u26.json").read_text())
+          b=json.loads((p/"acc68-u26-windows-latest"/"acc68-u26.json").read_text())
+          assert a["identity"]==b["identity"]
+          assert a["protocol"]==b["protocol"]
+          assert a["finite_capacity"]==b["finite_capacity"]
+          assert len(a["trees"])==len(b["trees"])==9
+          for x,y in zip(a["trees"],b["trees"]):
+            for k in ("depth","seed","nodes","checks","fold_sizes","check_paths_sha256",
+                      "exact_parent_reference_correct","coord_payload_bytes",
+                      "exact_parent_index_payload_json_bytes",
+                      "quantized_int16_distinct_pairs","quantized_int16_collisions"):
+              assert x[k]==y[k],(k,x[k],y[k])
+            # Cross-OS trig/libm may differ at last binary64 bit. Verify deterministic
+            # queries and retrieved path identities, not raw coordinate bit identity.
+            for method in ("hyperbolic","euclidean"):
+              assert x[method]["prediction_sha256"]==y[method]["prediction_sha256"]
+              assert x[method]["correct"]==y[method]["correct"]
+              assert x[method]["errors"]==y[method]["errors"]
+              assert x[method]["scan_ns"]>0 and y[method]["scan_ns"]>0
+          for x in (a,b):
+            assert x["classification"]["fixed_float64_pair_infinite_memory"]=="U26_FINITE_128BIT_COORDINATE_INFINITE_MEMORY_NO_GO"
+            assert x["classification"]["real_pretrained_LLM_speed"]=="UNVERIFIED"
+            assert x["classification"]["scientific_acceptance"]=="NOT_GRANTED"
+          both=all(x["classification"]["matched_metric_hierarchy_retrieval"]=="U26_RESTRICTED_HIERARCHY_RETRIEVAL_POSITIVE_ONLY" for x in (a,b))
+          print("ACC68_U26_CROSSOS_QUERY_RETRIEVAL_PARITY=PASS")
+          print("ACC68_U26_JOINT_VERDICT="+("RESTRICTED_POSITIVE_ONLY" if both else "NO_GENERAL_VERIFIED_HIERARCHY_RETRIEVAL_WIN"))
+          print("ACC68_U26_REAL_MODEL_QUALIFICATION=UNVERIFIED")
+          PY
