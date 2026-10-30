@@ -43,7 +43,7 @@ def audit(source):
 class NRM2JSourceOnlyFalsification(unittest.TestCase):
     def test_prereg_is_explicitly_not_new_original_first_use(self):
         p=json.loads(PREREG.read_text(encoding="utf-8"))
-        self.assertEqual(p["schema"],SCHEMA.replace("selected-original-public-information-yield","information-yield-closed-cycle-source-only"))
+        self.assertEqual(p["schema"],"forge.nr-m2j.information-yield-closed-cycle-source-only-v1")
         self.assertEqual(p["parent"]["qualified_commit"],"1ae96b1c61d345ac74a10e758225441026abb471")
         self.assertEqual(p["custodian"]["artifact"],12945140842)
         self.assertEqual(p["custodian"]["source_script_blob"],"6ead3934b56a5ba502ffdab8481d96c18ac5bf8f")
