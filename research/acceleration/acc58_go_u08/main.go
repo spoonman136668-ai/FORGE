@@ -1,0 +1,42 @@
+package main
+import("bytes";"crypto/sha256";"encoding/binary";"encoding/hex";"encoding/json";"flag";"fmt";"math";"os";"os/exec";"runtime";"sort";"time")
+const schema="acc58.u08.ridge.stageb.v1"
+var guardSink uint64
+func timingGuard(seed uint64){v:=seed;for i:=0;i<16777216;i++{v=mix(v+uint64(i))};guardSink=v}
+var modes=[]string{"LAST","HISTOGRAM","SHIFT_REGISTER","RESERVOIR"}
+var regimes=[]string{"DELAY4","DELAY16","PARITY8","SHIFT32"}
+var seeds=[]uint64{108101,108103,108107,108109,108111}
+func mix(x uint64)uint64{x+=0x9e3779b97f4a7c15;x=(x^(x>>30))*0xbf58476d1ce4e5b9;x=(x^(x>>27))*0x94d049bb133111eb;return x^(x>>31)}
+func put(h interface{Write([]byte)(int,error)},v uint64){var b[8]byte;binary.LittleEndian.PutUint64(b[:],v);h.Write(b[:])}
+func sequence(seed uint64,regime string,index int,test bool)(s [64]float64,y float64){salt:=uint64(0);if test{salt=0xd1b54a32d192ed03};for j:=0;j<64;j++{v:=mix(seed^salt^uint64(index)*0x94d049bb133111eb^uint64(j)*0xbf58476d1ce4e5b9);bit:=v&1;if regime=="SHIFT32"&&test&&j%4!=0{bit=1};s[j]=float64(bit)}
+ switch regime{case "DELAY4":y=s[60];case "DELAY16":y=s[48];case "SHIFT32":y=s[32];case "PARITY8":z:=0;for j:=56;j<64;j++{z^=int(s[j])};y=float64(z)}
+ return}
+func feature(mode string,seed uint64,s [64]float64)[]float64{switch mode{
+ case "LAST":return []float64{1,s[63],s[62],s[61],s[60]}
+ case "HISTOGRAM":v:=[]float64{1,0,0,0,0,0,0,0,0};for j:=0;j<64;j++{v[1+j/8]+=s[j]/8};return v
+ case "SHIFT_REGISTER":v:=make([]float64,33);v[0]=1;for j:=0;j<32;j++{v[j+1]=s[63-j]};return v
+ case "RESERVOIR":
+  x:=make([]float64,128);for t:=0;t<64;t++{prev:=append([]float64(nil),x...);for j:=range x{a:=mix(seed^uint64(j)*0x71cf0bd3);q:=int(a%128);q2:=int((a>>16)%128);v:=0.70*prev[q]+0.18*prev[q2]+(s[t]*2-1)*0.35*float64(int(a>>40&1)*2-1);x[j]=math.Tanh(v)}}
+  return append([]float64{1},x...)
+ };panic("mode")}
+func solve(a [][]float64,b []float64)[]float64{n:=len(b);for i:=0;i<n;i++{best:=i;for j:=i+1;j<n;j++{if math.Abs(a[j][i])>math.Abs(a[best][i]){best=j}};a[i],a[best]=a[best],a[i];b[i],b[best]=b[best],b[i];diag:=a[i][i];if math.Abs(diag)<1e-14{continue};for j:=i+1;j<n;j++{f:=a[j][i]/diag;if f==0{continue};for k:=i+1;k<n;k++{a[j][k]-=f*a[i][k]};b[j]-=f*b[i];a[j][i]=0}}
+ x:=make([]float64,n);for i:=n-1;i>=0;i--{v:=b[i];for j:=i+1;j<n;j++{v-=a[i][j]*x[j]};if math.Abs(a[i][i])>1e-14{x[i]=v/a[i][i]}};return x}
+func fit(x [][]float64,y []float64)[]float64{d:=len(x[0]);a:=make([][]float64,d);b:=make([]float64,d);for i:=range a{a[i]=make([]float64,d);a[i][i]=1e-3};for k,v:=range x{for i:=range v{b[i]+=v[i]*y[k];for j:=0;j<=i;j++{a[i][j]+=v[i]*v[j]}}};for i:=range a{for j:=i+1;j<d;j++{a[i][j]=a[j][i]}};return solve(a,b)}
+func predict(w,x []float64)int{v:=0.0;for i:=range w{v+=w[i]*x[i]};if v>=0.5{return 1};return 0}
+type worker struct{Schema,Mode,Regime,SourceSHA,TrainSHA,TestSHA,TruthSHA,PredSHA string;Seed uint64;Train,Test,TrainCorrect,TestCorrect,StateBytes int;PeakRSSBytes uint64;Accuracy float64}
+func runWorker(seed uint64,regime,mode string)(worker,error){timingGuard(seed);var out worker;ok:=false;for _,m:=range modes{if m==mode{ok=true}};if !ok{return out,fmt.Errorf("invalid method")};ok=false;for _,m:=range regimes{if m==regime{ok=true}};if !ok{return out,fmt.Errorf("invalid regime")}
+ source,trainH,testH,truth,pred:=sha256.New(),sha256.New(),sha256.New(),sha256.New(),sha256.New();var rows [][]float64;var ys []float64
+ for i:=0;i<256;i++{s,y:=sequence(seed,regime,i,false);for _,v:=range s{put(source,uint64(v));put(trainH,uint64(v))};put(trainH,uint64(y));rows=append(rows,feature(mode,seed,s));ys=append(ys,y)}
+ weights:=fit(rows,ys);correctTrain:=0;for i,x:=range rows{if predict(weights,x)==int(ys[i]){correctTrain++}}
+ correct:=0;for i:=0;i<128;i++{s,y:=sequence(seed,regime,i,true);for _,v:=range s{put(source,uint64(v));put(testH,uint64(v))};put(truth,uint64(y));p:=predict(weights,feature(mode,seed,s));put(pred,uint64(p));if p==int(y){correct++}}
+ rss,e:=peakResidentBytes();if e!=nil{return out,e};if rss==0{return out,fmt.Errorf("missing physical rss")}
+ return worker{Schema:schema,Mode:mode,Regime:regime,Seed:seed,SourceSHA:hex.EncodeToString(source.Sum(nil)),TrainSHA:hex.EncodeToString(trainH.Sum(nil)),TestSHA:hex.EncodeToString(testH.Sum(nil)),TruthSHA:hex.EncodeToString(truth.Sum(nil)),PredSHA:hex.EncodeToString(pred.Sum(nil)),Train:256,Test:128,TrainCorrect:correctTrain,TestCorrect:correct,StateBytes:len(weights)*8,PeakRSSBytes:rss,Accuracy:float64(correct)/128},nil}
+type trial struct{Worker worker;CPUSeconds,WallSeconds float64}
+type cohort struct{Regime,Fastest string;Accuracy,CPU,RSS,State map[string]float64;Gain,CPURatio,RSSRatio,StateRatio float64;Improved,Regressed,Pass bool}
+type report struct{Schema,OS,Classification string;WorkerCount int;Trials []trial;Cohorts []cohort}
+func median(v []float64)float64{sort.Float64s(v);return v[len(v)/2]}
+func child(exe,mode,regime string,seed uint64)(trial,error){var t trial;c:=exec.Command(exe,"-child","-mode",mode,"-regime",regime,"-seed",fmt.Sprint(seed));var o,er bytes.Buffer;c.Stdout=&o;c.Stderr=&er;started:=time.Now();e:=c.Run();wall:=time.Since(started).Seconds();if e!=nil{return t,fmt.Errorf("%s %s %v: %s",mode,regime,e,er.String())};cpu:=(c.ProcessState.UserTime()+c.ProcessState.SystemTime()).Seconds();if cpu<=0||wall<=0{return t,fmt.Errorf("zero actual child CPU")};var w worker;if e=json.Unmarshal(o.Bytes(),&w);e!=nil{return t,e};if w.Schema!=schema||w.Mode!=mode||w.Regime!=regime||w.Seed!=seed||w.Train!=256||w.Test!=128||w.PeakRSSBytes==0{return t,fmt.Errorf("invalid receipt")};return trial{w,cpu,wall},nil}
+func evaluate(rows []trial,regime string)(cohort,error){c:=cohort{Regime:regime,Accuracy:map[string]float64{},CPU:map[string]float64{},RSS:map[string]float64{},State:map[string]float64{}};pairs:=map[uint64]string{};for _,m:=range modes{var ac,cp,rs,st []float64;for _,t:=range rows{w:=t.Worker;if w.Mode!=m||w.Regime!=regime{continue};h:=w.SourceSHA+"/"+w.TrainSHA+"/"+w.TestSHA+"/"+w.TruthSHA;if old,ok:=pairs[w.Seed];ok&&old!=h{return c,fmt.Errorf("source not paired")};pairs[w.Seed]=h;ac=append(ac,w.Accuracy);cp=append(cp,t.CPUSeconds);rs=append(rs,float64(w.PeakRSSBytes));st=append(st,float64(w.StateBytes))};if len(ac)!=5{return c,fmt.Errorf("missing worker")};c.Accuracy[m],c.CPU[m],c.RSS[m],c.State[m]=median(ac),median(cp),median(rs),median(st)};c.Fastest="LAST";best:=c.Accuracy["LAST"];for _,m:=range []string{"HISTOGRAM","SHIFT_REGISTER"}{if c.CPU[m]<c.CPU[c.Fastest]{c.Fastest=m};if c.Accuracy[m]>best{best=c.Accuracy[m]}};c.Gain=c.Accuracy["RESERVOIR"]-best;c.CPURatio=c.CPU["RESERVOIR"]/c.CPU[c.Fastest];c.RSSRatio=c.RSS["RESERVOIR"]/c.RSS[c.Fastest];c.StateRatio=c.State["RESERVOIR"]/c.State["SHIFT_REGISTER"];c.Improved=c.Gain>=0.05;c.Regressed=c.Gain< -0.02;c.Pass=!c.Regressed&&c.CPURatio<=1.10&&c.RSSRatio<=1.25&&c.StateRatio<=4;return c,nil}
+func drive(out string)error{exe,e:=os.Executable();if e!=nil{return e};r:=report{Schema:schema,OS:runtime.GOOS};for _,regime:=range regimes{for i,seed:=range seeds{order:=[]string{"LAST","HISTOGRAM","SHIFT_REGISTER","RESERVOIR"};if i%2==1{order=[]string{"RESERVOIR","SHIFT_REGISTER","HISTOGRAM","LAST"}};for _,m:=range order{t,e:=child(exe,m,regime,seed);if e!=nil{return e};r.Trials=append(r.Trials,t)}};c,e:=evaluate(r.Trials,regime);if e!=nil{return e};r.Cohorts=append(r.Cohorts,c)};r.WorkerCount=len(r.Trials);if r.WorkerCount!=80{return fmt.Errorf("incomplete workers")};good,improved:=true,0;for _,c:=range r.Cohorts{if c.Improved{improved++};if !c.Pass{good=false};limit:=.9;if c.Regime=="PARITY8"{limit=.8};if c.Accuracy["RESERVOIR"]<limit{good=false}};r.Classification="U08_NO_GENERAL_VERIFIED_NATIVE_GO_LEARNING_WIN";_ = good;_ = improved; // Stage B guard: classification forced negative
+b,e:=json.MarshalIndent(r,"","  ");if e!=nil{return e};if e=os.WriteFile(out,b,0644);e!=nil{return e};fmt.Println("ACC58_U08_COLD_CHILDREN_80_PASS");fmt.Println("ACC58_U08_CLASSIFICATION="+r.Classification);return nil}
+func main(){isChild:=flag.Bool("child",false,"");seed:=flag.Uint64("seed",108101,"");mode:=flag.String("mode","RESERVOIR","");regime:=flag.String("regime","DELAY4","");out:=flag.String("out","acc58-report.json","");flag.Parse();var e error;if *isChild{var w worker;w,e=runWorker(*seed,*regime,*mode);if e==nil{e=json.NewEncoder(os.Stdout).Encode(w)}}else{e=drive(*out)};if e!=nil{fmt.Fprintln(os.Stderr,"ACC58_U08_BLOCKED:",e);os.Exit(1)}}
