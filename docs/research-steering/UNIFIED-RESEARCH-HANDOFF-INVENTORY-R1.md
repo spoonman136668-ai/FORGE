@@ -38,3 +38,18 @@ These references are *discovery and source ownership inventory*, not proof of or
 The existing [RSH-01 six-lane preview](../RSH-01-SIX-LANE-RESEARCH-EVIDENCE-PREVIEW.md) remains unchanged. N/E/Replay/compute coordination are **not** secretly mapped into one of its six source-acceptance lanes. Follow current project authority; FORGE and each native research owner remain distinct, Mind-Palace stays read-only. This H1 document never issues work or grants acceptance.
 
 **Safe operator guidance now:** New research direction and experiment triage can use one unified research conversation. Keep other chats accessible and do not stop active loops until handoff is witnessed and the five URC-R1 retirement gates independently PASS. When that happens, the existing scheduled retirement-readiness check may notify the operator, but it is not an execution/acceptance authority.
+
+
+## H5 — Independent chat-responsibility retention (source-only follow-up, 2026-10-30)
+
+The H1 inventory above is a **historical snapshot**, not the current PR frontier and not proof of complete chat ownership. H5 adds machine-readable `research/coordination/handoff.v1.json` plus fail-closed tests, preserving **nine distinct responsibilities** while targeting two oversight conversations.
+
+The prior Native Intelligence chat distinguishes native implementation/execution/qualification for independent Wingless and Yggdrasil from N Research mechanism discovery and FORGE operations. Some earlier Native Intelligence chat checkpoints referenced MG51/source-index regeneration; they are **historical and not evidence that those exact gates remain active**. Current repository review also finds Yggdrasil [MG89 #709](https://github.com/spoonman136668-ai/Yggdrasil/pull/709) at `bc7549dba7d657c6bcb2bd5a4a507a76b3249ad4`, still a draft. Do not treat MG51 history, MG84, MG89, or a successful workflow alone as accepted native learning or convergence.
+
+N Research's source-only task-effect work [FORGE #1254](https://github.com/spoonman136668-ai/FORGE/pull/1254), E Research's incomplete original-world evidence [FORGE #1194](https://github.com/spoonman136668-ai/FORGE/pull/1194), replay/compute acceleration, independent scientific validation, BIO/Optimizer/Language, Mass Research, and the original F139 owner all retain distinct scientific or operational custodians. Consolidating **conversation oversight** does not reassign source owners or automatically migrate a stopped or active runner.
+
+The H5 manifest is deliberately **not** a signed handoff, admission record, fresh source authentication, protected evaluation, worker task, accepted ref, queue work request or permission. Every record says `UNVERIFIED` and new experiments can be proposed with distinct IDs and bounded, *untrusted* source pointers. Additional original source repositories require separately qualified schema/custody changes; they must not be silently mapped into the existing six-lane RSH-01 protocol.
+
+H5 code is tested on Linux and Windows by the unchanged set of mandatory safety gates plus the existing qualified Python-test discovery and Go full regression. Both must complete successfully for this **new exact H5 SHA**, irrespective of earlier H2 PASS. None of H5 supplies the missing original Windows F139 terminal audit or consecutive natural research cycles.
+
+**Retirement remains blocked.** Do not delete chats or disrupt autonomous work until original-owner custody, a genuinely complete handoff, two-native-lane evidence routing, recovery-proven natural cycles and independent scientific/owner signoff are all supported by actual external receipts.
