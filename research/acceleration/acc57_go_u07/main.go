@@ -1,6 +1,9 @@
 package main
 import("bytes";"crypto/sha256";"encoding/binary";"encoding/hex";"encoding/json";"flag";"fmt";"math/bits";"os";"os/exec";"runtime";"sort";"time")
-const schema="acc57-u07-v1"
+const schema="acc57-u07-stageb-v1"
+const timingGuardSteps=16777216
+var timingGuardSink uint64
+func timingGuard(seed uint64){v:=seed;for i:=0;i<timingGuardSteps;i++{v=mix(v+uint64(i))};timingGuardSink=v}
 type sig [64]uint64
 func mix(x uint64)uint64{x+=0x9e3779b97f4a7c15;x=(x^(x>>30))*0xbf58476d1ce4e5b9;x=(x^(x>>27))*0x94d049bb133111eb;return x^(x>>31)}
 func signature(seed uint64,ep,id int,tag uint64)(v sig){h:=mix(seed^uint64(ep)*0xbf58476d1ce4e5b9^uint64(id)*0x94d049bb133111eb^tag);for i:=range v{h=mix(h+uint64(i));v[i]=h};return}
@@ -11,7 +14,7 @@ func count(w string)int{switch w{case "LOW":return 8;case "MEDIUM","SHIFT":retur
 func query(seed uint64,ep,i,n int,w string)int{if w=="SHIFT"&&i%2==1{return 1000+int(mix(seed^uint64(ep)^uint64(i)*0x71cf0bd3)%1024)};return int(mix(seed^uint64(ep)*0x9e3779b97f4a7c15^uint64(i)*0xe7037ed1a0b428db)%uint64(n))}
 func put(h interface{Write([]byte)(int,error)},x uint64){var b[8]byte;binary.LittleEndian.PutUint64(b[:],x);h.Write(b[:])}
 type receipt struct{Schema,Arm,Regime,Source,Truth,Output string;Seed uint64;Episodes,Queries,Known,Correct,FalsePositive,LogicalBytes int;PeakRSSBytes uint64;Accuracy float64}
-func worker(seed uint64,w,arm string)(receipt,error){var out receipt;n:=count(w);if n==0{return out,fmt.Errorf("bad regime")};switch arm{case "DIRECT","BITSET","BLOOM","HD_BIND":default:return out,fmt.Errorf("bad arm")}
+func worker(seed uint64,w,arm string)(receipt,error){timingGuard(seed);var out receipt;n:=count(w);if n==0{return out,fmt.Errorf("bad regime")};switch arm{case "DIRECT","BITSET","BLOOM","HD_BIND":default:return out,fmt.Errorf("bad arm")}
  source,truth,pred:=sha256.New(),sha256.New(),sha256.New();correct,known,fp:=0,0,0
  for ep:=0;ep<32;ep++{
   keys:=make([]sig,n);values:=make([]int,n);dictionary:=make([]sig,256);var counts[4096]int16;var bundle sig
