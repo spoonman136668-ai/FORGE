@@ -28,14 +28,14 @@ def frozen_fixture(path: Path) -> None:
     connection = sqlite3.connect(str(path))
     try:
         connection.executescript(
-            "CREATE TABLE meta(schema TEXT,source_sha TEXT,enabled INTEGER,"
+            "CREATE TABLE meta(id INTEGER PRIMARY KEY,schema TEXT,source_sha TEXT,enabled INTEGER,"
             "legacy_suspended INTEGER,head_seq INTEGER,head_hash TEXT);"
             "CREATE TABLE tasks(ticket TEXT,lane TEXT,stage TEXT,source_sha TEXT,"
             "run_id INTEGER,started_at TEXT,completed_at TEXT,quarantine_reason TEXT);"
             "CREATE TABLE events(seq INTEGER,kind TEXT,payload TEXT,sha TEXT);"
         )
-        connection.execute("INSERT INTO meta VALUES(?,?,?,?,?,?)",
-                           ("forge.f139.windows-controller.v1",
+        connection.execute("INSERT INTO meta VALUES(?,?,?,?,?,?,?)",
+                           (1,"forge.f139.windows-controller.v1",
                             SOURCE,1,1,332,"c"*64))
         connection.execute("INSERT INTO tasks(stage) VALUES('VERIFIED')")
         kinds = ["FREE_REASONER_ATTEMPTED", "FREE_REASONER_ATTEMPTED",
