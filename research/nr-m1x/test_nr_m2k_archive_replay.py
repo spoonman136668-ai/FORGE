@@ -74,7 +74,7 @@ class NRM2KArchiveTransportTests(unittest.TestCase):
     def test_exact_original_source_development_reference_is_not_scientific_gain(self):
         cfg=_config()
         self.assertTrue(cfg["original_owner"]["exposed_dev_only"])
-        self.assertIn("not",cfg["goal"].lower())
+        self.assertIn("without any original-world environment actions",cfg["goal"])
         self.assertIn("No HTTP",__import__("nr_m2k_archive_replay").__doc__)
         self.assertEqual(cfg["expected_development_diagnostics"]["enabled_genuine_original_goals"],1)
         self.assertEqual(cfg["expected_development_diagnostics"]["disabled_genuine_original_goals"],3)
