@@ -79,7 +79,11 @@ class HandoffTests(unittest.TestCase):
                 self.assertTrue(w["separate_scientific_lineage"])
                 self.assertEqual(w["handoff_status"], "UNVERIFIED")
                 self.assertEqual(w["oversight"], "unified-research")
-                self.assertEqual(w["source_pointers"], [])
+                if w["id"] in ("bio-research", "optimizer-research"):
+                    self.assertEqual(w["source_pointers"], [])
+                else:
+                    self.assertEqual(len(w["source_pointers"]), 2)
+                    self.assertTrue(all(p["claim"] == "SOURCE_POINTER_ONLY" for p in w["source_pointers"]))
 
     def test_denies_loss_of_any_support_science_lane(self):
         for ident in ("bio-research","optimizer-research","language-research"):
@@ -97,6 +101,39 @@ class HandoffTests(unittest.TestCase):
         with self.assertRaises(Invalid):
             validate_handoff(self.change(combine))
 
+
+    def test_language_l9_l10_exact_sources_remain_advisory(self):
+        h = json.loads(RAW)
+        row = next(x for x in h["workstreams"] if x["id"] == "language-research")
+        self.assertEqual(row["handoff_status"], "UNVERIFIED")
+        self.assertEqual(row["source_pointers"], [
+            {"url": "https://github.com/spoonman136668-ai/FORGE/pull/820",
+             "sha": "d15ce497843244894642735ee218a185bb87c1e4", "claim": "SOURCE_POINTER_ONLY"},
+            {"url": "https://github.com/spoonman136668-ai/FORGE/pull/945",
+             "sha": "407004e7b962c2baac45bd2ed8c6c1c14868d647", "claim": "SOURCE_POINTER_ONLY"},
+        ])
+        self.assertFalse(validate_handoff(RAW)["retirement_ready"])
+
+    def test_language_l9_l10_missing_substituted_or_duplicate_fails_closed(self):
+        for action in ("remove-l9", "remove-l10", "replace-l9", "replace-l10", "append-duplicate"):
+            def mutate(h):
+                refs = next(x for x in h["workstreams"] if x["id"] == "language-research")["source_pointers"]
+                if action == "remove-l9": refs.pop(0)
+                elif action == "remove-l10": refs.pop(1)
+                elif action == "replace-l9": refs[0]["sha"] = "0" * 40
+                elif action == "replace-l10": refs[1]["sha"] = "0" * 40
+                else: refs.append(dict(refs[0]))
+            with self.subTest(action=action), self.assertRaises(Invalid):
+                validate_handoff(self.change(mutate))
+
+    def test_language_cannot_self_certify_first_use_or_owner(self):
+        def mutate(h):
+            row = next(x for x in h["workstreams"] if x["id"] == "language-research")
+            row["source_pointers"][0]["claim"] = "SCIENTIFIC_GO"
+        with self.assertRaises(Invalid):
+            validate_handoff(self.change(mutate))
+        with self.assertRaises(Invalid):
+            validate_handoff(self.change(lambda h: next(x for x in h["workstreams"] if x["id"] == "language-research").__setitem__("handoff_status", "PASS")))
 
     def test_mass_source_anchor_is_immutable_advisory_not_owner_transfer(self):
         h=json.loads(RAW)
