@@ -37,6 +37,14 @@ class FrozenG62Tests(unittest.TestCase):
   self.assertIn('"novel_acceleration":False',body)
   self.assertIn("GREEDY_SEQUENCE_MISMATCH",body)
   self.assertIn("ACTUAL_OPTIMIZED_SDPA_OPERATOR_NOT_OBSERVED",body)
+ def test_speculative_length_overrun_charged_not_discarded(self):
+  frozen=list(range(g.NEW_TOKENS))
+  tokens,raw_len=g.audited_continuation(frozen+[65],"candidate")
+  self.assertEqual((tokens,raw_len),(frozen,g.NEW_TOKENS+1))
+  self.assertEqual(g.audited_continuation(frozen,"baseline")[1],g.NEW_TOKENS)
+  with self.assertRaises(RuntimeError):g.audited_continuation(frozen+[65],"baseline")
+  with self.assertRaises(RuntimeError):g.audited_continuation(frozen+[65]*6,"candidate")
+  with self.assertRaises(RuntimeError):g.audited_continuation(frozen[:-1],"candidate")
  def test_sha_helper(self):
   with tempfile.TemporaryDirectory() as path:
    p=Path(path)/"x";p.write_bytes(b"abc")
