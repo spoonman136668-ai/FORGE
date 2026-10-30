@@ -1,0 +1,203 @@
+name: F139 V26 one-shot original Windows SQLite read-only audit
+on:
+  push:
+    branches:
+      - audit/f139-v26-original-ro-terminal-20261030
+
+permissions: {}
+concurrency:
+  group: f139-v26-original-readonly-audit-one-shot
+  cancel-in-progress: false
+
+jobs:
+  original-ledger-readonly:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/audit/f139-v26-original-ro-terminal-20261030'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Checkout only this one-shot audit source without persist credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Verify protected source and existing owner identity without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $source = '49c7b15343bea3c201fb52b498d8c0f397384afe'
+          $auditPath = '.github/workflows/f139-v26-original-owner-one-shot-readonly-audit.yml'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/f139-v26-original-ro-terminal-20261030' -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1') {
+            throw 'F139_V26_READONLY_WRONG_ORIGINAL_RUNNER_OR_EVENT'
+          }
+          $parents = ((& git rev-list --parents -n 1 HEAD | Out-String).Trim() -split '\s+')
+          if ($LASTEXITCODE -ne 0 -or $parents.Count -ne 2 -or $parents[1] -cne $source) {
+            throw 'F139_V26_READONLY_NOT_DIRECT_CHILD_OF_DEPLOYED_SOURCE'
+          }
+          $changed = @(& git diff --name-only $source HEAD)
+          if ($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne $auditPath) {
+            throw 'F139_V26_READONLY_NOT_EXACT_ONE_WORKFLOW'
+          }
+          $dirty = (& git status --porcelain --untracked-files=all | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $dirty.Length -ne 0) {
+            throw 'F139_V26_READONLY_AUDIT_CHECKOUT_NOT_CLEAN'
+          }
+          $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $state = [string]$task.State
+          if ($state -cnotin @('Running','Ready') -or
+              @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+              [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {
+            throw 'F139_V26_READONLY_ORIGINAL_TASK_DISABLED_OR_TOPOLOGY_DRIFT'
+          }
+          $who = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = [string]$task.Principal.UserId
+          $sid = ''
+          try {
+            $sid = (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          if ($principal -ine $who.Name -and $sid -cne $who.User.Value) {
+            throw 'F139_V26_READONLY_OWNER_SID_DRIFT'
+          }
+          $argsText = [string]$task.Actions[0].Arguments
+          function Field([string]$field) {
+            $pattern = '(?i)(?:^|\s)-' + $field + '\s+"([^"]+)"'
+            $m = [regex]::Match($argsText,$pattern)
+            if (-not $m.Success) { throw 'F139_V26_READONLY_TASK_ARGUMENT_MISSING' }
+            return $m.Groups[1].Value
+          }
+          $root = Field 'RepositoryRoot'
+          $dbPath = Field 'Database'
+          $python = Field 'PythonExe'
+          $wrapper = Field 'File'
+          $expected = Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if (-not (Test-Path -LiteralPath $dbPath -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $python -PathType Leaf) -or
+              [IO.Path]::GetFullPath($dbPath) -ine [IO.Path]::GetFullPath($expected) -or
+              [IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1') {
+            throw 'F139_V26_READONLY_ORIGINAL_DATABASE_OR_WRAPPER_DRIFT'
+          }
+          $installed = (& git -C $root rev-parse HEAD | Out-String).Trim()
+          $installedDirty = (& git -C $root status --porcelain --untracked-files=all | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $installed -cne $source -or $installedDirty.Length -ne 0) {
+            throw 'F139_V26_READONLY_INSTALLED_SOURCE_DRIFT'
+          }
+          Write-Output 'F139_V26_AUDIT_ORIGINAL_OWNER_TASK=PASS'
+          Write-Output ('F139_V26_AUDIT_TASK_STATE=' + $state)
+          $taskInfo = Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Write-Output ('F139_V26_AUDIT_LAST_TASK_RESULT=' + [string]$taskInfo.LastTaskResult)
+          # Only read existing original SQLite with URI mode=ro and query_only.
+          # No SingleOwner acquisition, Python controller execution, provider POST,
+          # API credential, task modification, source release or science.
+          $audit = @'
+          import hashlib,json,pathlib,sqlite3,sys
+          path=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          ticket="f139-nci04-i1258-49c7b15343be-3e2ed1ff"
+          source="49c7b15343bea3c201fb52b498d8c0f397384afe"
+          run_id=41031067925
+          os_sha={
+              "ubuntu-latest":"77774155ecf7af63ee21e1e9b91b428437848e72356f1ff17aaac16f7bf17049",
+              "windows-latest":"ac7a42308ccc1fa13774779410112a1b733a431fe12dac3143f00a5eebd0feee"}
+          def check(ok,why):
+              if not ok: raise RuntimeError("F139_V26_AUDIT_"+why)
+          def canonical(x):
+              return (json.dumps(x,sort_keys=True,separators=(",",":"),ensure_ascii=True)+"\n").encode("ascii")
+          with sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=20) as conn:
+              conn.row_factory=sqlite3.Row
+              conn.execute("PRAGMA query_only=ON")
+              check(conn.execute("PRAGMA query_only").fetchone()[0]==1,"READONLY_SQLITE_NOT_ENFORCED")
+              conn.execute("BEGIN")
+              check(conn.execute("PRAGMA quick_check").fetchone()[0]=="ok","SQLITE_QUICK_CHECK_FAILED")
+              meta=dict(conn.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              check(meta["source_sha"]==source and meta["enabled"]==1 and
+                    meta["legacy_suspended"]==1 and meta["head_seq"]>=337,"ORIGINAL_META_DRIFT")
+              prev="0"*64
+              events=[]
+              for row in conn.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"):
+                  e=dict(row)
+                  check(e["seq"]==len(events)+1 and e["prior_sha"]==prev,"SHA_CHAIN_SEQUENCE_DRIFT")
+                  payload=json.loads(e["payload"])
+                  obj={"seq":e["seq"],"prior_sha":e["prior_sha"],
+                       "kind":e["kind"],"payload":payload}
+                  check(hashlib.sha256(canonical(obj)).hexdigest()==e["sha"],
+                        "ORIGINAL_SHA_CHAIN_INVALID")
+                  prev=e["sha"]
+                  if isinstance(payload,dict) and payload.get("ticket")==ticket:
+                      events.append(("ticket",e["seq"],e["kind"],payload))
+                  else:
+                      events.append(("other",e["seq"],e["kind"],None))
+              check(len(events)==meta["head_seq"] and prev==meta["head_hash"],
+                    "ORIGINAL_EVENT_HEAD_DRIFT")
+              row=conn.execute("SELECT ticket,stage,source_sha,run_id,evidence_dir,evidence_sha,started_at,completed_at FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+              check(row is not None,"ORIGINAL_TARGET_TASK_MISSING")
+              task=dict(row)
+              check(task["source_sha"]==source,"ORIGINAL_TASK_SOURCE_DRIFT")
+              proof={kind:[seq for typ,seq,k,p in events if typ=="ticket" and k==kind]
+                     for kind in ("NATIVE_DEVELOPMENT_ADMITTED",
+                                  "BEFORE_DISPATCH_INTENT","DISPATCH_POST_RETURNED",
+                                  "PROVIDER_VERIFIED_TERMINAL","NATIVE_V_THREE_PROVIDER_CUSTODY")}
+              check(len(proof["NATIVE_DEVELOPMENT_ADMITTED"])==1 and
+                    len(proof["BEFORE_DISPATCH_INTENT"])==1 and
+                    len(proof["DISPATCH_POST_RETURNED"])==1,
+                    "ADMISSION_CLAIM_OR_DISPATCH_MISSING")
+              summary={"schema":"forge.f139.v26.original-readonly-terminal-audit.v1",
+                       "original_chain_valid":True,"source_sha":source,
+                       "event_head_seq":meta["head_seq"],"event_head_sha256":meta["head_hash"],
+                       "ticket":ticket,"stage":task["stage"],
+                       "run_id":task["run_id"],
+                       "event_sequences":proof,
+                       "scientific_first_use_authorized":False,
+                       "original_database_writes":0,
+                       "worker_dispatched_here":False}
+              print("F139_V26_ORIGINAL_LEDGER_OBSERVATION="+json.dumps(summary,sort_keys=True))
+              if task["stage"]!="VERIFIED":
+                  print("F139_V26_ORIGINAL_TERMINAL=NOT_RECORDED")
+                  raise SystemExit(21)
+              check(task["run_id"]==run_id and
+                    len(proof["PROVIDER_VERIFIED_TERMINAL"])==1 and
+                    len(proof["NATIVE_V_THREE_PROVIDER_CUSTODY"])==1,
+                    "SIGNED_TERMINAL_NOT_UNIQUE")
+              check(proof["NATIVE_DEVELOPMENT_ADMITTED"][0]<
+                    proof["BEFORE_DISPATCH_INTENT"][0]<
+                    proof["DISPATCH_POST_RETURNED"][0]<
+                    proof["PROVIDER_VERIFIED_TERMINAL"][0]<
+                    proof["NATIVE_V_THREE_PROVIDER_CUSTODY"][0],
+                    "ORIGINAL_TERMINAL_EVENT_ORDER_DRIFT")
+              folder=pathlib.Path(task["evidence_dir"]).resolve(strict=True)
+              check(folder.name==str(run_id) and folder.parent.name==ticket and
+                    folder.parent.parent.name=="evidence" and
+                    folder.parent.parent.parent.resolve()==path.parent,
+                    "ORIGINAL_EVIDENCE_PATH_DRIFT")
+              check({p.name for p in folder.iterdir()}==
+                    {"ubuntu-latest.zip","windows-latest.zip","manifest.json"},
+                    "ORIGINAL_EVIDENCE_MEMBERS_DRIFT")
+              manifest_path=folder/"manifest.json"
+              manifest_raw=manifest_path.read_bytes()
+              check(hashlib.sha256(manifest_raw).hexdigest()==task["evidence_sha"],
+                    "ORIGINAL_MANIFEST_HASH_DRIFT")
+              manifest=json.loads(manifest_raw)
+              check(manifest["schema"]=="forge.f139.windows-evidence-manifest.v1" and
+                    manifest["ticket"]==ticket and manifest["run_id"]==run_id and
+                    manifest["scientific_originals"]==0 and
+                    manifest["approved_science"] is False,
+                    "ORIGINAL_MANIFEST_FIELDS_DRIFT")
+              for label,expected_sha in os_sha.items():
+                  got=hashlib.sha256((folder/(label+".zip")).read_bytes()).hexdigest()
+                  check(got==expected_sha and manifest["sha256"][label]==got,
+                        "ORIGINAL_SIGNED_ZIP_HASH_DRIFT")
+              print("F139_V26_ORIGINAL_TERMINAL=PASS")
+              print("F139_V26_ORIGINAL_TWO_OS_EVIDENCE=PASS")
+              print("F139_V26_NEW_CONTROLLER=FALSE")
+              print("F139_V26_SCIENTIFIC_FIRST_USE=FALSE")
+          '@
+          & $python -B -c $audit $dbPath
+          if ($LASTEXITCODE -ne 0) { throw 'F139_V26_ORIGINAL_TERMINAL_NOT_PROVEN_READONLY' }
