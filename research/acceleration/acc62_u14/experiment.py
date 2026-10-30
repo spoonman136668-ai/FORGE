@@ -145,7 +145,7 @@ def main():
     args=p.parse_args()
     result=report()
     args.json.parent.mkdir(parents=True,exist_ok=True)
-    args.json.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    args.json.write_bytes((json.dumps(result,indent=2,sort_keys=True)+"\n").encode("utf-8"))
     print("ACC62_U14_SCOPE=RESTRICTED_SOURCE_BOUND")
     print("ACC62_U14_UNIVERSAL="+result["classification"]["universal_arbitrary_exact_shrinking"])
     print("ACC62_U14_STRUCTURED="+result["classification"]["restricted_structured_lossless"])
