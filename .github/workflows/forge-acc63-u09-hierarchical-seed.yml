@@ -1,0 +1,106 @@
+name: ACC63 U09 hierarchical-seed synthetic FIT CHECK study
+on:
+  push:
+    branches: [research/acc63-u09-fractal-seed-screen-20261030]
+permissions:
+  contents: read
+concurrency:
+  group: acc63-u09-frozen-study-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  study:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original U09 claim, immutable prereg, source syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 6e4e4cb2c6b25e29997e583d5954912eb8cde529 HEAD
+          test "$(git rev-parse HEAD:research/ac07_sourcefree/ac08_portfolio.py)" = 5126c860771fb024ccfc14c3f7ee8925edf29787
+          python -m py_compile research/acceleration/acc63_u09/experiment.py research/acceleration/acc63_u09/test_experiment.py
+          echo ACC63_U09_ORIGINAL_CLAIM_PREREG=PASS
+      - name: Execute 20 focused FIT-only CHECK negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/acceleration/acc63_u09 -p 'test_experiment.py' -v
+          echo ACC63_U09_20_FOCUSED=PASS
+      - name: Inherited original portfolio negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research/ac05_sourcefree -p 'test_learning.py' -v
+          python -m unittest discover -s research/ac06_sourcefree -p 'test_restricted.py' -v
+          python -m unittest discover -s research/ac07_sourcefree -p 'test_remaining.py' -v
+          python -m unittest discover -s research/ac07_sourcefree -p 'test_ac08_portfolio.py' -v
+          echo ACC63_U09_INHERITED_RESEARCH_NEGATIVES=PASS
+      - name: Produce and verify independent 18-source synthetic evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/acceleration/acc63_u09/experiment.py --json "$RUNNER_TEMP/acc63-u09.json"
+          python - "$RUNNER_TEMP/acc63-u09.json" <<'PY'
+          import json,sys,hashlib
+          raw=open(sys.argv[1],"rb").read()
+          x=json.loads(raw)
+          c=x["classification"]
+          assert x["schema"]=="forge.acc63.u09.synthetic-hierarchical-seed.v1"
+          assert c["in_dictionary_exact"]=="U09_PASS_RESTRICTED_ONLY"
+          assert c["out_of_dictionary_general"]=="U09_NO_GO_OUT_DICT"
+          assert c["original_pretrained_llm_speed_memory_accuracy"]=="UNVERIFIED"
+          assert c["scientific_first_use"]=="NOT_ESTABLISHED" and c["production_admission"]=="NOT_GRANTED"
+          assert len(x["cases"])==18
+          assert all(r["full_tensor_exact"] and r["matvec_3_of_3_exact"]==3 for r in x["cases"] if r["family"]=="in_dict")
+          assert all(not r["full_tensor_exact"] for r in x["cases"] if r["family"]!="in_dict")
+          assert all(set(r["comparator_check_mae"])=={"global_mean","row_mean","column_mean"} for r in x["cases"])
+          assert all(0.15<=r["check_entries"]/(r["side"]**2)<=0.25 for r in x["cases"])
+          print("ACC63_U09_FIT_HOLDOUT_REPORT=PASS")
+          print("ACC63_U09_REPORT_SHA256="+hashlib.sha256(raw).hexdigest())
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc63-u09-${{ matrix.os }}
+          path: ${{ runner.temp }}/acc63-u09.json
+          if-no-files-found: warn
+          retention-days: 30
+  audit:
+    needs: study
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc63-u09-*
+          path: artifacts
+      - name: Identical evidence and negative control protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,hashlib,json
+          root=pathlib.Path("artifacts")
+          a=(root/"acc63-u09-ubuntu-latest"/"acc63-u09.json").read_bytes()
+          b=(root/"acc63-u09-windows-latest"/"acc63-u09.json").read_bytes()
+          assert a==b, "ACC63_U09_CROSSOS_EVIDENCE_DRIFT"
+          obj=json.loads(a)
+          assert len(obj["cases"])==18
+          assert obj["identity"]["claim_id"]=="U09"
+          assert obj["classification"]["production_admission"]=="NOT_GRANTED"
+          assert obj["classification"]["original_pretrained_llm_speed_memory_accuracy"]=="UNVERIFIED"
+          print("ACC63_U09_CROSSOS_EXACT=PASS")
+          print("ACC63_U09_EVIDENCE_SHA256="+hashlib.sha256(a).hexdigest())
+          PY
