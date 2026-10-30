@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Official source-pinned MiniGrid DoorKey engineering smoke; no training."""
+# E-D33: trigger the scoped research-only qualification after path-filter repair.
 from __future__ import annotations
 import hashlib
 import json
