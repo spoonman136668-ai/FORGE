@@ -108,10 +108,11 @@ def aggregate(parts:list,total:int,n:int)->dict:
             "loss":math.fsum(p["sum_loss"] for p in parts)/total}
 
 def loss(a:list[float],b:list[float],cases:list,n:int)->float:
-    return math.fsum(.5*math.fsum((q-t)**2 for q,t in zip(predict(a,b,x,n),y))
-                     for x,y in cases for q,t in [(0.0,0.0)] ) if False else (
-       math.fsum(.5*math.fsum((v-t)**2 for v,t in zip(predict(a,b,x,n),y))
-                 for x,y in cases)/len(cases))
+    if not cases:raise ValueError("empty evaluation")
+    return math.fsum(
+        .5*math.fsum((v-t)**2 for v,t in zip(predict(a,b,x,n),target))
+        for x,target in cases
+    )/len(cases)
 
 def fingerprint(a:list[float],b:list[float])->str:
     # Quantized only to catch cross-OS drift, never replace numeric tolerance checks.
