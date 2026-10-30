@@ -1,0 +1,95 @@
+name: FORGE ACC G59 isolated GPU capability observation
+on:
+  push:
+    branches: [research/acc-g59-gpu-evidence-20261030]
+    paths:
+      - '.github/workflows/forge-acc-g59-hardware-census.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g59-isolated-readonly
+  cancel-in-progress: false
+jobs:
+  g59-hardware-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Read-only hardware and installed-runtime observation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gpus = @()
+          $nv = Get-Command 'nvidia-smi' -ErrorAction SilentlyContinue
+          if ($nv) {
+            $raw = @(& $nv.Source --query-gpu=name,memory.total,memory.free,driver_version --format=csv,noheader,nounits 2>$null)
+            if ($LASTEXITCODE -eq 0) {
+              foreach ($line in $raw) {
+                $parts = @($line -split ',')
+                if ($parts.Count -eq 4) {
+                  $name = $parts[0].Trim()
+                  $total = 0
+                  $free = 0
+                  if ([int]::TryParse($parts[1].Trim(), [ref]$total) -and [int]::TryParse($parts[2].Trim(), [ref]$free)) {
+                    $gpus += @{
+                      model = $name
+                      vram_total_mib = $total
+                      vram_free_mib = $free
+                      driver_version = $parts[3].Trim()
+                    }
+                  }
+                }
+              }
+            }
+          }
+          $torch = @{ torch_present = $false; cuda_available = $false; cuda_device_count = 0 }
+          $py = Get-Command 'python' -ErrorAction SilentlyContinue
+          if ($py) {
+            $code = @'
+          import json
+          try:
+              import torch
+              print(json.dumps({"torch_present":True,
+                                "version":str(torch.__version__),
+                                "cuda_available":bool(torch.cuda.is_available()),
+                                "cuda_device_count":int(torch.cuda.device_count())}))
+          except Exception:
+              print(json.dumps({"torch_present":False,"cuda_available":False,"cuda_device_count":0}))
+          '@
+            $json = @(& $py.Source -c $code 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $json.Count -gt 0) {
+              try { $torch = ConvertFrom-Json -InputObject $json[-1] -AsHashtable }
+              catch { $torch = @{ torch_present = $false; cuda_available = $false; cuda_device_count = 0 } }
+            }
+          }
+          $llama = [bool](Get-Command 'llama-bench' -ErrorAction SilentlyContinue)
+          $report = @{
+            schema = 'forge.acc.g59.hardware-census.v1'
+            classification = if ($gpus.Count -gt 0) { 'NVIDIA_DRIVER_GPU_DETECTED' } else { 'NO_NVIDIA_DRIVER_GPU_DETECTED' }
+            nvidia_smi_present = [bool]$nv
+            gpu_count = $gpus.Count
+            gpus = @($gpus)
+            torch = $torch
+            llama_bench_on_path = $llama
+            weights_downloaded = $false
+            model_loaded = $false
+            training_executed = $false
+            inference_executed = $false
+            accelerator_performance_measured = $false
+            scientific_acceptance = 'NOT_GRANTED'
+            operational_source = 'existing forge-codex-isolated self-hosted Windows runner'
+          }
+          $path = Join-Path $env:RUNNER_TEMP 'g59_hardware_only.json'
+          $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $path -Encoding utf8
+          Write-Output ('G59_READONLY_HARDWARE=' + $report.classification)
+          Write-Output ('G59_NVIDIA_GPU_COUNT=' + $report.gpu_count)
+          Write-Output ('G59_TORCH_CUDA=' + $torch.cuda_available)
+          Write-Output ('G59_LLAMA_BENCH_INSTALLED=' + $llama)
+          Write-Output 'G59_MODEL_INFERENCE_OR_TRAINING_EXECUTED=FALSE'
+      - name: Preserve capability observation as isolated research artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g59-hardware-only
+          path: \${{ runner.temp }}\g59_hardware_only.json
+          if-no-files-found: warn
+          retention-days: 30
