@@ -23,7 +23,7 @@ class OriginalCLIBridgeDenied(ValueError):
     pass
 
 
-def _original_api_identity(api: object, db_path: Path) -> None:
+def _original_api_identity(db: object, api: object, db_path: Path) -> None:
     """Authenticate the actual CLI class rather than trusting its class name."""
     main = sys.modules.get("__main__")
     canonical = type(api) is GitHub
@@ -31,6 +31,8 @@ def _original_api_identity(api: object, db_path: Path) -> None:
         type(api).__module__ == "__main__"
         and type(api).__name__ == "GitHub"
         and main is not None
+        and type(api) is getattr(main, "GitHub", None)
+        and type(db) is getattr(main, "Database", None)
         and isinstance(getattr(main, "__file__", None), str)
         and Path(main.__file__).resolve(strict=True) ==
             (Path(__file__).resolve().parent / "local_controller.py").resolve(strict=True)
@@ -60,7 +62,7 @@ def run_original_cli_v21_source_only(
     controller mutex and must independently authenticate its source, native
     terminal, credential permission, one-POST budget and rollback custody.
     """
-    _original_api_identity(api, db_path)
+    _original_api_identity(db, api, db_path)
     if (not callable(owner_witness) or owner_witness() is not True
             or not all(callable(x) for x in (packet_for_terminal,
                                             public_reader, transport))
