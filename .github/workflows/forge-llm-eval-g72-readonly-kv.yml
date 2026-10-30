@@ -1,0 +1,87 @@
+name: FORGE LLM Evaluation G72 pinned readonly-KV HTTP screen
+on:
+  push:
+    branches: [research/llm-evaluation-g72-readonly-kv-20261030]
+    paths:
+      - '.github/workflows/forge-llm-eval-g72-readonly-kv.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-evaluation-g72-research
+  cancel-in-progress: false
+jobs:
+  original-source-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify immutable G70 source and standalone G72 preregistration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          git merge-base --is-ancestor 4a5d88c6598cd365167049a0df829db92f0d41c9 HEAD
+          test "$(git rev-parse 4a5d88c6598cd365167049a0df829db92f0d41c9:docs/research/G72-GPT2-READONLY-KV-PREEXEC-20261030.md)" = "$(git rev-parse HEAD:docs/research/G72-GPT2-READONLY-KV-PREEXEC-20261030.md)"
+          git diff --exit-code 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          git diff --check 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          python -B -m unittest discover -s research/llm_g72 -p test_g72_readonly_kv.py -v
+          echo "G72_FROZEN_PREEXEC_AND_SOURCE_ONLY_TESTS=PASS"
+  authenticated-cpu-screen:
+    needs: original-source-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install originally qualified CPU Torch and GPT2 dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip check
+          python -m pip freeze > g72_pinned_installed_environment.txt
+      - name: Run authentic original human-heldout and frozen alias-safety test
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g72/g72_readonly_kv.py
+          python - <<'PY'
+          import json
+          d=json.load(open("g72_result.json"))
+          assert d["gate"]=="G72"
+          assert d["alias_safety"]=="PASS" and d["correctness"]=="PASS" and d["engineering"]=="PASS"
+          assert d["timed_http_responses"]==288
+          assert d["scientific_acceptance"]=="NOT_GRANTED" and d["promotion_allowed"] is False
+          assert d["screen"] in ("GO","NO_GO")
+          print("G72_ALIAS_SAFETY_AND_AUTHENTIC_PARITY=PASS")
+          print("G72_FROZEN_PERFORMANCE_SCREEN="+d["screen"])
+          print("G72_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED")
+          PY
+      - name: Save original success, failure or blocked evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g72-gpt2-readonly-kv-original
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            g72_result.json
+            g72_pinned_installed_environment.txt
