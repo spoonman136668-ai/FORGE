@@ -32,6 +32,7 @@ type Learner struct {
  Baseline float64 `json:"baseline"`
  RNG uint64 `json:"rng"`
  Episodes uint64 `json:"episodes"`
+ AwaitingFeedback bool `json:"awaiting_feedback"`
  Version int `json:"version"`
 }
 
@@ -81,7 +82,8 @@ func (l *Learner) uniform() float64 {
 func (l *Learner) Observe(e Event) error {
  if l==nil || l.Version!=1 || len(l.Slots)>2 { return errors.New("INVALID_MEMORY_STATE") }
  if !valid(e) { return errors.New("INVALID_PUBLIC_TRANSITION") }
- if len(l.Slots)<2 { l.Slots=append(l.Slots,e); return nil }
+ if l.AwaitingFeedback { return errors.New("EPISODE_AWAITING_TERMINAL_FEEDBACK") }
+ if len(l.Slots)<2 { l.Slots=append(l.Slots,e);l.AwaitingFeedback=e.Terminal||e.Truncated;return nil }
  candidates:=[3]Event{l.Slots[0],l.Slots[1],e}
  var fs [3][4]float64
  var scores [3]float64
@@ -113,13 +115,14 @@ func (l *Learner) Observe(e Event) error {
   indices[chosen],indices[remaining-1]=indices[remaining-1],indices[chosen]
  }
  l.Slots=[]Event{candidates[selected[0]],candidates[selected[1]]}
+ l.AwaitingFeedback=e.Terminal||e.Truncated
  return nil
 }
 
 // Feedback accepts delayed outcome reward only. It deliberately does not
 // receive correct actions, queries, desired memories or an oracle ranking.
 func (l *Learner) Feedback(reward float64) error {
- if l==nil || l.Version!=1 || !finite(reward) || reward<0 || reward>1 || len(l.Slots)==0 {
+ if l==nil || l.Version!=1 || !l.AwaitingFeedback || !finite(reward) || reward<0 || reward>1 || len(l.Slots)==0 {
   return errors.New("INVALID_TERMINAL_FEEDBACK")
  }
  advantage:=reward-l.Baseline
@@ -131,6 +134,7 @@ func (l *Learner) Feedback(reward float64) error {
  l.Baseline=0.975*l.Baseline+0.025*reward
  l.Episodes++
  l.Slots=nil
+ l.AwaitingFeedback=false
  l.Trace=[4]float64{}
  return nil
 }
