@@ -192,10 +192,54 @@ def main():
                  "No native Wingless/Yggdrasil/FORGE model integration"
              ]}
     try:
-        raw_path=Path(hf_hub_download(repo_id=DATA_REPO,revision=DATA_REV,
-                              filename=DATA_FILE,repo_type="dataset",token=False))
-        if sha256_file(raw_path)!=DATA_SHA:
-            raise RuntimeError("INDEPENDENT_DATASET_CHECKSUM_MISMATCH")
+        # Source transport repair ONLY. The first pinned original host may issue
+        # CDN-LFS 403 even for public immutable files. Try a bounded independent
+        # read-only mirror, but NEVER substitute different bytes or a revision.
+        # Previous failed hosted result remains a separate infrastructure FAIL.
+        data_errors=[]
+        raw_path=None
+        try:
+            downloaded=Path(hf_hub_download(repo_id=DATA_REPO,revision=DATA_REV,
+                               filename=DATA_FILE,repo_type="dataset",token=False))
+            if sha256_file(downloaded)!=DATA_SHA:
+                raise RuntimeError("INDEPENDENT_DATASET_CHECKSUM_MISMATCH")
+            raw_path=downloaded
+            receipt["dataset_transport"]="ORIGINAL_HF_REVISION"
+        except Exception as exc:
+            data_errors.append(type(exc).__name__+": "+str(exc)[:160])
+        if raw_path is None:
+            # Immutable URL and expected SHA were both frozen before first use.
+            # A mirror is merely a transport, not a trusted data source.
+            import urllib.request
+            mirrors=(
+               "https://hf-mirror.com/datasets/"+DATA_REPO+"/resolve/"+DATA_REV+"/"+DATA_FILE,
+               "https://alpha-ollama.hf-mirror.com/datasets/"+DATA_REPO+"/resolve/"+DATA_REV+"/"+DATA_FILE
+            )
+            for mirror in mirrors:
+                try:
+                    target=Path("g67_verified_heldout_download.jsonl")
+                    if target.exists():
+                        target.unlink()
+                    req=urllib.request.Request(mirror,headers={"User-Agent":"FORGE-G67-source-pinned-evidence/1"})
+                    with urllib.request.urlopen(req,timeout=45) as response, target.open("xb") as out:
+                        max_bytes=16000000
+                        total=0
+                        for chunk in iter(lambda:response.read(1024*1024),b""):
+                            total+=len(chunk)
+                            if total>max_bytes:
+                                raise RuntimeError("DATASET_MIRROR_SIZE_CAP_EXCEEDED")
+                            out.write(chunk)
+                    if sha256_file(target)!=DATA_SHA:
+                        raise RuntimeError("INDEPENDENT_DATASET_CHECKSUM_MISMATCH")
+                    raw_path=target
+                    receipt["dataset_transport"]="READONLY_MIRROR_VERIFIED_SHA256"
+                    receipt["dataset_mirror_hostname"]=mirror.split("/")[2]
+                    break
+                except Exception as exc:
+                    data_errors.append(type(exc).__name__+": "+str(exc)[:160])
+        receipt["dataset_transport_failures"]=data_errors
+        if raw_path is None:
+            raise RuntimeError("PINNED_HELDOUT_DATA_UNAVAILABLE_ALL_CHECKSUM_VERIFIED_ROUTES")
         with raw_path.open("r",encoding="utf-8") as f:
             rows=[json.loads(line) for line in f if line.strip()]
         heldout=select_heldout(rows)
