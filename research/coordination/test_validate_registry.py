@@ -45,7 +45,7 @@ class RegistryTests(unittest.TestCase):
 
     def test_reject_untrusted_repo_and_url(self):
         for mutation in (
-            lambda x: x["tracks"][0].__setitem__("custodian_repo", "spoonman136668-ai/ckb-plane"),
+            lambda x: x["tracks"][0].__setitem__("custodian_repo", "untrusted/private-repo"),
             lambda x: x["tracks"][0].__setitem__("source_pointer", "file:///tmp/secret"),
         ):
             with self.assertRaises(Invalid):
