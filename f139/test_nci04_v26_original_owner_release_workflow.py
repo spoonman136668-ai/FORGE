@@ -108,10 +108,13 @@ class OriginalV26ReleaseWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(required=required):
                 self.assertIn(required, recovery)
-        self.assertLess(recovery.index("Stop-ScheduledTask"),
-                        recovery.index("Disable-ScheduledTask"))
+        # Disabled-task hold is restored before attempting to stop a
+        # partially started instance, even when Stop-ScheduledTask fails.
         self.assertLess(recovery.index("Disable-ScheduledTask"),
+                        recovery.index("Stop-ScheduledTask"))
+        self.assertLess(recovery.index("Stop-ScheduledTask"),
                         recovery.index("F139_V26_POSTMUTATION_QUIESCENCE_UNVERIFIED"))
+        self.assertIn("F139_V26_POSTMUTATION_STOP_UNVERIFIED", recovery)
         self.assertNotIn(
             "F139_V26_POSTCUTOVER_EVIDENCE_FAILURE_TASK_LEFT_RUNNING", s)
 
