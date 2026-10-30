@@ -52,8 +52,9 @@ class G75NativeShapedFeasibility(unittest.TestCase):
         xs[0][0,0,0,0]=np.nan
         with self.assertRaisesRegex(ValueError,"G75_NONFINITE_ORIGINAL_INPUT"):
             g.validate(tuple(xs),np)
+        clean=list(g.seed_inputs(64,np))
         with self.assertRaisesRegex(ValueError,"G75_NATIVE_SHAPE_DTYPE_INVALID"):
-            g.validate(tuple(xs[:-1]+[np.ones((2,3),dtype=np.float32)]),np)
+            g.validate(tuple(clean[:-1]+[np.ones((2,3),dtype=np.float32)]),np)
     def test_p95_and_precise_gate(self):
         self.assertEqual(g.p95(list(range(10))),9)
         self.assertEqual(g.THRESHOLDS,{"max_abs_error":0.05,"max_payload_ratio":0.30,
