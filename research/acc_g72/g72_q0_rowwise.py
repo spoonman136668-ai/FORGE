@@ -32,14 +32,14 @@ ARMS=g67.ARMS
 REPEATS=3
 WARMUPS=2
 LOGITS_MODES=prior.MODES
-RESULT=Path(os.getenv("G72_RESULT","g71_result.json"))
-CORPUS=Path(os.getenv("G72_CORPUS","g71_wikitext_test.txt"))
-FRESH=Path(os.getenv("G72_FRESH","g71_tinyshakespeare.txt"))
+RESULT=Path(os.getenv("G72_RESULT","g72_result.json"))
+CORPUS=Path(os.getenv("G72_CORPUS","g72_wikitext_test.txt"))
+FRESH=Path(os.getenv("G72_FRESH","g72_tinyshakespeare.txt"))
 
 def source_identity():
     if g64.git_blob(Path(parent.__file__).read_bytes())!=G71_SOURCE_GIT_BLOB:
-        raise RuntimeError("ORIGINAL_G70_SCRIPT_GIT_BLOB_DRIFT")
-    finalized=Path(__file__).resolve().parents[2]/"docs"/"research"/"ACC-G70-FINAL-20261030.json"
+        raise RuntimeError("ORIGINAL_G71_SCRIPT_GIT_BLOB_DRIFT")
+    finalized=Path(__file__).resolve().parents[2]/"docs"/"research"/"ACC-G71-FINAL-20261030.json"
     if not finalized.is_file() or g64.git_blob(finalized.read_bytes())!=G71_FINAL_GIT_BLOB:
         raise RuntimeError("ORIGINAL_G71_FINAL_GIT_BLOB_DRIFT")
     prereg=Path(__file__).resolve().parents[2]/"docs"/"research"/"ACC-G72-PREEXEC-20261030.md"
