@@ -1,8 +1,8 @@
 # E Research E2-P0 — preregistered chemical-history learning challenge
 
-**Date:** 2026-10-29  
-**Status:** Design/preregistration candidate; **NOT run, NOT scientifically accepted**.  
-**Relationship:** Supersedes no E1 empirical result. E1-C4 closed claims of adaptive self-maintenance *for the tested system* as NOT SUPPORTED. E2 tests a different, prospective proposition.  
+**Date:** 2026-10-29
+**Status:** Design/preregistration candidate; **NOT run, NOT scientifically accepted**.
+**Relationship:** Supersedes no E1 empirical result. E1-C4 closed claims of adaptive self-maintenance *for the tested system* as NOT SUPPORTED. E2 tests a different, prospective proposition.
 **Location:** Documentation-only draft FORGE PR; no controller, F139 policy, owner/witness, model weights, live research selection, or queue changes.
 
 ## Question and falsifiable hypothesis
