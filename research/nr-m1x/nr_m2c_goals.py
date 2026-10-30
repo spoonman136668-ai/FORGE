@@ -131,7 +131,7 @@ def track(work):
     result_wall=time.perf_counter_ns()-wall
     current,peak=tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    return result,{"cpu_ns":result_cpu,"wall_ns":result_wall,"tracemalloc_peak_bytes":peak}
+    # A short control evaluation may legitimately consume zero *measured* CPU\n    # ticks on Windows. Preserve the raw zero; never fabricate a speedup.\n    return result,{"cpu_ns":result_cpu,"wall_ns":result_wall,\n                   "cpu_timer_quantized":result_cpu==0 and result_wall>0,\n                   "tracemalloc_peak_bytes":peak}
 
 def source_only_report():
     original_base=trained_original_r7(11)
