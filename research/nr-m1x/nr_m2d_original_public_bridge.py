@@ -72,6 +72,9 @@ class ExactPublicSevenActionBridge:
         if (type(raw) is not bytes or type(trusted_sha256) is not str
             or hashlib.sha256(raw).hexdigest()!=trusted_sha256):
             raise ValueError("NRM2D_EXTERNAL_SOURCE_IDENTITY_FAILURE")
+        restored=DoorKeyPublicAdapter.restore(raw)
+        if restored.checkpoint()!=raw:
+            raise ValueError("NRM2D_NONCANONICAL_ORIGINAL_PUBLIC_SOURCE_CHECKPOINT")
         result=cls()
-        result._native=DoorKeyPublicAdapter.restore(raw)
+        result._native=restored
         return result
