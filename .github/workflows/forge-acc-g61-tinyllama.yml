@@ -54,7 +54,7 @@ jobs:
           $env:PYTHONNOUSERSITE = '1'
           & $py -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
           if ($LASTEXITCODE -ne 0) { throw 'G61_PINNED_TORCH_CUDA_INSTALL_FAILED' }
-          & $py -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.52.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
           if ($LASTEXITCODE -ne 0) { throw 'G61_PINNED_MODEL_LIBRARIES_FAILED' }
           & $py -m pip freeze | Out-File -LiteralPath g61_pip_freeze.txt -Encoding utf8
           if ($LASTEXITCODE -ne 0) { throw 'G61_DEPENDENCY_RECEIPT_FAILED' }
@@ -76,7 +76,7 @@ jobs:
           $env:G61_RESULT = Join-Path (Get-Location).Path 'g61_result.json'
           & $py -u research/acc_g61/g61_tinyllama_sdpa.py
           if ($LASTEXITCODE -ne 0) { throw 'G61_AUTHENTIC_CUDA_BENCH_FAILED_OR_BLOCKED' }
-          & $py -c 'import json; r=json.load(open("g61_result.json")); assert r["status"]=="PASS_REAL_GPU_LARGER_PRETRAINED_MODEL_OPTIMIZED_SDPA_BASELINE"; assert len(r["cases"])==3; assert all(x["all_greedy_outputs_equal"] and len(x["sdpa_trials"])==5 and len(x["eager_trials"])==5 for x in r["cases"]); assert not r["new_acceleration_discovered"]; print("G61_REAL_1B_MATCHED_GPU_30_MEASUREMENTS=PASS")'
+          & $py -c 'import json; r=json.load(open("g61_result.json")); assert r["status"]=="PASS_REAL_GPU_LARGER_PRETRAINED_MODEL_OPTIMIZED_SDPA_BASELINE"; assert len(r["cases"])==3; assert all(x["all_greedy_outputs_equal"] and len(x["sdpa_trials"])==5 and len(x["eager_trials"])==5 for x in r["cases"]); assert not r["new_acceleration_discovered"]; assert r["actual_attention_operator_proof"]["sdpa"]["actual_aten_sdpa_operator_seen"]; assert not r["actual_attention_operator_proof"]["eager"]["actual_aten_sdpa_operator_seen"]; print("G61_REAL_1B_MATCHED_GPU_30_MEASUREMENTS=PASS")'
           if ($LASTEXITCODE -ne 0) { throw 'G61_RESULT_INVARIANT_FAIL' }
       - name: Preserve primary research-only evidence
         if: always()
