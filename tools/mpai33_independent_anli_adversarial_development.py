@@ -87,7 +87,7 @@ def source_rows(path):
     with path.open("r",encoding="utf-8-sig",newline="") as file:
         rdr=csv.DictReader(file)
         must(set(("uid","context","statement","gold_label","A1Code")).issubset(
-             set(rdr.fieldnames or ()),"ANLI_FIELDS")
+             set(rdr.fieldnames or ())),"ANLI_FIELDS")
         rows=list(rdr)
     must(len(rows)==177,"ANLI_ORIGINAL_ROW_COUNT")
     must(len({r["uid"] for r in rows})==len(rows),"ANLI_UID_DUPLICATION")
