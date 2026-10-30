@@ -1,0 +1,103 @@
+name: MP-AI34 pinned conventional NLI MiniLM on original ANLI36
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai34-original-anli-conventional-minilm-nli.yml']
+permissions:
+  contents: read
+jobs:
+  preregister:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    outputs:
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Freeze source, 3-way label map and tokenizer identity before human gold
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai30_real_semantic_judge_canaries.py)" = '0fa02bc09fae04f72c49f555fa7063e31f546f6c'
+          test "$(git rev-parse HEAD:tools/mpai31_conservative_semantic_veto_development.py)" = '97510664d981e3bf70dbcc2f1002fd40945150d4'
+          test "$(git rev-parse HEAD:tools/mpai33_independent_anli_adversarial_development.py)" = 'b99afe402459977f9d8493746766d1bae7ccd8ac'
+          test "$(git rev-parse HEAD:tools/mpai34_pinned_conventional_nli_original_anli.py)" = 'cec12320510645e6d6b7972d7307726c8ea66128'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai34_pinned_conventional_nli_original_anli.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai34_pinned_conventional_nli_original_anli.py --phase freeze)" || { printf '%s\n' "$out" | grep '^MPAI34_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fq 'MPAI34_FREEZE=PASS' <<< "$out"
+          grep -Fq 'MPAI34_MODEL_PINNED_REV=f3b1e8aac2451320dfe2ce56673b3f2ec63e6f03' <<< "$out"
+          grep -Fq 'MPAI34_AUTHENTIC_MODEL_EXPECTED_SHA256=44391a5241a62e0083c1a8899a71e69a092b95aea5ba89e14062925468eceac7' <<< "$out"
+          grep -Fq 'MPAI34_LABELS_NOT_READ_BY_PREREGISTRATION=TRUE' <<< "$out"
+          grep -Fq 'MPAI34_FROZEN_SOURCE_SELECTION_SHA256=9918f7e1318464c4d3c4ff95db08ae671609ce422417cae649a42cac2f41adf2' <<< "$out"
+          proto="$(printf '%s\n' "$out" | sed -n 's/^MPAI34_PREMODEL_PROTOCOL_SHA256=//p')"
+          [[ "$proto" =~ ^[a-f0-9]{64}$ ]]
+          echo "protocol_sha=$proto" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI34_SEPARATE_PREREG_SOURCE_AND_LABEL_MAPPING=PASS'
+  conventional-nli:
+    needs: preregister
+    if: ${{ needs.preregister.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      EXPECTED_PROTOCOL: ${{ needs.preregister.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: ''
+      - name: Install pinned CPU ONNX inference dependencies in ephemeral GitHub hosted venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/mpai34-venv"
+          "$RUNNER_TEMP/mpai34-venv/bin/python" -m pip install --no-input --disable-pip-version-check --only-binary=:all: numpy==2.2.6 tokenizers==0.21.4 onnxruntime==1.22.1 >/dev/null
+          "$RUNNER_TEMP/mpai34-venv/bin/python" -c 'import numpy,onnxruntime,tokenizers;assert numpy.__version__=="2.2.6";assert onnxruntime.__version__=="1.22.1";assert tokenizers.__version__=="0.21.4"'
+          echo 'MPAI34_CPU_LIBRARIES_ISOLATED=PASS'
+      - name: Source-pinned real 36 NLI model inference, original human gold and resource metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai30_real_semantic_judge_canaries.py)" = '0fa02bc09fae04f72c49f555fa7063e31f546f6c'
+          test "$(git rev-parse HEAD:tools/mpai31_conservative_semantic_veto_development.py)" = '97510664d981e3bf70dbcc2f1002fd40945150d4'
+          test "$(git rev-parse HEAD:tools/mpai33_independent_anli_adversarial_development.py)" = 'b99afe402459977f9d8493746766d1bae7ccd8ac'
+          test "$(git rev-parse HEAD:tools/mpai34_pinned_conventional_nli_original_anli.py)" = 'cec12320510645e6d6b7972d7307726c8ea66128'
+          [[ "$EXPECTED_PROTOCOL" =~ ^[a-f0-9]{64}$ ]]
+          out="$("$RUNNER_TEMP/mpai34-venv/bin/python" -B tools/mpai34_pinned_conventional_nli_original_anli.py --phase evaluate --expected-protocol "$EXPECTED_PROTOCOL")" || { printf '%s\n' "$out" | grep '^MPAI34_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fq "MPAI34_PREMODEL_PROTOCOL_SHA256=$EXPECTED_PROTOCOL" <<< "$out"
+          grep -Fq 'MPAI34_MODEL_FULL_SHA256=PASS' <<< "$out"
+          grep -Fq 'MPAI34_ORIGINAL_ANLI_HUMAN_GOLD_VERIFIED=PASS' <<< "$out"
+          grep -Fq 'MPAI34_NLI_ORIGINAL_SOURCE_INFERENCE_CALLS=36' <<< "$out"
+          grep -Fq 'MPAI34_PRIVATE_SOURCE_MODEL_SCRATCH_REMOVED=PASS' <<< "$out"
+          grep -Fq 'MPAI34_SCIENTIFIC_ACCEPTANCE=BLOCKED' <<< "$out"
+          grep -Fq 'MPAI34_ACCEPTED_MINDPALACE_MEMORY_WRITES=0' <<< "$out"
+          grep -Fq 'MPAI34_SAME_HARDWARE_LATENCY_COMPARISON=NOT_AVAILABLE' <<< "$out"
+          test "$(grep -c '^MPAI34_FAMILY_' <<< "$out")" = '6'
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI34_ORIGINAL_HUMAN_LABELED_CONVENTIONAL_NLI_EXPERIMENT=PASS'
+          echo 'MPAI34_FORGE_CONTROLLER_UNCHANGED=TRUE'
