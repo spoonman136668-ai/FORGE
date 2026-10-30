@@ -120,6 +120,22 @@ class U26Test(unittest.TestCase):
     def test_29_same_coordinates_both_metrics(self):
         a=m.nodes(4,26011)
         self.assertEqual(m.coord(a[4]["path"],4),(a[4]["x"],a[4]["y"]))
+    def test_31_canonical_tie_break_independent_of_candidate_order(self):
+        # Exact geometric symmetry across ±x, and the same query's gold
+        # parent is not consulted when ranking.
+        q={"path":"query","x":0.0,"y":0.0}
+        a={"path":"a","x":-.25,"y":0.0}
+        z={"path":"z","x":.25,"y":0.0}
+        for metric in (m.euclidean,m.hyperbolic):
+            self.assertEqual(m.nearest(q,[z,a],metric),"a")
+            self.assertEqual(m.nearest(q,[a,z],metric),"a")
+    def test_32_near_tie_libm_tolerance_does_not_use_gold(self):
+        q={"path":"query","x":0.0,"y":0.0}
+        a={"path":"a","x":-.25,"y":0.0}
+        z={"path":"z","x":.25000000000000006,"y":0.0}
+        for metric in (m.euclidean,m.hyperbolic):
+            self.assertEqual(m.nearest(q,[z,a],metric),"a")
+            self.assertEqual(m.nearest(q,[a,z],metric),"a")
     def test_30_readonly_model_scope(self):
         self.assertEqual(m.source_custody()["research_scope"],"SYNTHETIC_TREE_COORDINATE_RETRIEVAL_ONLY")
 
