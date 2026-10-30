@@ -25,7 +25,7 @@ class TestG58FrozenContract(unittest.TestCase):
   for order in g.ORDER.values():self.assertEqual(set(order),set(g.ARMS))
  def test_source_rejects_wrong_bytes(self):
   self.assertNotEqual(g.gitblob(b"tampered"),g.GIT_BLOB)
-  self.assertEqual(g.gitblob(b"123"),"d800886b5fe4e24d9191b1a28b2668f1d843a180")
+  self.assertEqual(g.gitblob(b"123"),"d800886d9c86731ae5c4a62b0b77c437015e00d2")
  def test_model_hash_pinned(self):
   self.assertEqual(g.gitblob(Path(g.original.__file__).read_bytes()),g.G57_BLOB)
  def test_gradients_truly_truncated_but_forward_matches(self):
