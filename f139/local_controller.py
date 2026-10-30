@@ -4496,6 +4496,31 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                         "scientific_first_use":False,
                         "worker_dispatched":False,"paid_model_calls":0}
             if model_successes:
+                # V23 renewable free-only research becomes eligible only AFTER
+                # the original finite V17 lifetime-eight requests are spent.
+                # V21's authentic fresh-native-terminal+rolling-budget guards
+                # remain authoritative; no old terminal, UTC rollover, or new
+                # source SHA repurchases historical model requests.
+                free_spent = db.conn.execute(
+                    "SELECT COUNT(*) FROM events WHERE kind='FREE_REASONER_ATTEMPTED'"
+                ).fetchone()[0]
+                if free_spent >= 8:
+                    from f139.nci04_v23_original_renewal_natural_tick import (
+                        run_original_renewal_from_natural_tick)
+                    try:
+                        renewal_report = run_original_renewal_from_natural_tick(
+                            db, api, db_path, source_sha=meta["source_sha"],
+                            utc_day=dt.datetime.now(
+                                dt.timezone.utc).strftime("%Y-%m-%d"),
+                            owner_witness=lambda:
+                                native_original_running_publisher_profile(db_path))
+                    except (F139Error, ValueError, OSError):
+                        renewal_report = {
+                            "disposition": "NATIVE_RENEWAL_GUARD_BLOCKED_FAIL_CLOSED",
+                            "scientific_first_use": False,
+                            "worker_dispatched": False, "paid_model_calls": 0}
+                    return preserve_verified_steering(
+                        renewal_report, steering_selection)
                 # The one frozen model-free G29 mechanism has completed. The
                 # free reasoner is advisory-only, bounded to public data and
                 # the original SHA-chained terminal outcomes. No credentials:
