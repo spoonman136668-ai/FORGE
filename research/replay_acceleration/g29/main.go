@@ -55,6 +55,6 @@ func main(){
  }
  h:=sha256.Sum256([]byte(seed))
  combined.OutputSHA256=hex.EncodeToString(h[:])
- if combined.ChildCPUSeconds<=0{panic("ZERO_CHILD_CPU_INCREASE_WORKLOAD")}
+ if *mode!="idle" && combined.ChildCPUSeconds<=0{panic("ZERO_CHILD_CPU_INCREASE_WORKLOAD")}
  if err=json.NewEncoder(os.Stdout).Encode(combined);err!=nil{panic(err)}
 }
