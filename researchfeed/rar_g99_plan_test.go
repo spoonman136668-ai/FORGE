@@ -1,6 +1,7 @@
 package researchfeed
 
 import (
+    "bytes"
     "encoding/json"
     "os"
     "path/filepath"
@@ -12,6 +13,22 @@ func rarG99Source(t *testing.T, file string) []byte {
     t.Helper()
     raw, err := os.ReadFile(filepath.Join("..", "research", "replay_acceleration", file))
     if err != nil { t.Fatal(err) }
+    // Windows checkout can materialize CRLF despite the immutable Git blob
+    // containing LF. Reconstruct the canonical fixture ONLY in the test,
+    // then independently require the exact pinned Git blob identity.
+    // Production PreviewRARPlanning never normalizes or trusts altered bytes.
+    if bytes.Contains(raw, []byte("\r\n")) {
+        raw = bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n"))
+    }
+    pinned := map[string]string{
+        "rar_g90_source_index.json": "6b5bc107ab725a3a0d502da6693438f879c169b1",
+        "rar_g7_g8_advisory_evidence.json": rarG78Blob,
+        "rar_g33_original_cross_os_nested_receipts.json": rarG33Blob,
+    }
+    want, ok := pinned[file]
+    if !ok || rarGitBlob(raw) != want {
+        t.Fatalf("checkout fixture does not match pinned Git blob: %s", file)
+    }
     return raw
 }
 func rarG99Inputs(t *testing.T) ([]byte, []byte, []byte) {
@@ -65,6 +82,11 @@ func TestRARG99RejectSourceByteOrIndexDrift(t *testing.T) {
     candidates:=[]RARHypothesis{{ID:"same-replay",PriorResearchID:"RAR-G7"}}
     if _,e:=PreviewRARPlanning(index,append(append([]byte(nil),g78...), ' '),g33,candidates);e==nil {
         t.Fatal("changed G7/G8 source accepted")
+    }
+    // Checkout compatibility is not caller-side permission to rewrite the
+    // original artifact. Production must reject CRLF re-encodings as drift.
+    if _,e:=PreviewRARPlanning(index,bytes.ReplaceAll(g78,[]byte("\n"),[]byte("\r\n")),g33,candidates);e==nil {
+        t.Fatal("re-encoded original source accepted")
     }
     if _,e:=PreviewRARPlanning(index,g78,append(append([]byte(nil),g33...), ' '),candidates);e==nil {
         t.Fatal("changed G33 source accepted")
