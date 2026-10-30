@@ -33,9 +33,9 @@ ARMS=g67.ARMS
 REPEATS=3
 WARMUPS=2
 LOGITS_MODES=prior.MODES
-RESULT=Path(os.getenv("G73_RESULT","g71_result.json"))
-CORPUS=Path(os.getenv("G73_CORPUS","g71_wikitext_test.txt"))
-FRESH=Path(os.getenv("G73_FRESH","g71_tinyshakespeare.txt"))
+RESULT=Path(os.getenv("G73_RESULT","g73_result.json"))
+CORPUS=Path(os.getenv("G73_CORPUS","g73_wikitext_test.txt"))
+FRESH=Path(os.getenv("G73_FRESH","g73_tinyshakespeare.txt"))
 
 def source_identity():
     if g64.git_blob(Path(parent.__file__).read_bytes())!=G71_SOURCE_GIT_BLOB:
