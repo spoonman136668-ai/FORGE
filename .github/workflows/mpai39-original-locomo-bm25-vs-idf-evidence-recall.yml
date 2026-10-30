@@ -1,0 +1,92 @@
+name: MP-AI39 original LoCoMo P37 IDF vs untuned BM25 matched evidence audit
+on:
+  push:
+    branches: [oneoff/mpai21-owner-approved-two-record-admission-20261029]
+    paths: ['.github/workflows/mpai39-original-locomo-bm25-vs-idf-evidence-recall.yml']
+permissions:
+  contents: read
+jobs:
+  preregister:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      protocol_sha: ${{ steps.freeze.outputs.protocol_sha }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-authenticated freeze of original P37 LoCoMo25 before QA text/gold examination
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
+          test "$(git rev-parse HEAD:tools/mpai37_external_memory_effect.py)" = 'f1305323279cf56c1fdda068a5d14933dfbe6ca7'
+          test "$(git rev-parse HEAD:tools/mpai38_original_evidence_coverage_audit.py)" = 'bae5ddce69e17b8f3b5682799840405828784e63'
+          test "$(git rev-parse HEAD:tools/mpai39_original_bm25_retrieval_comparison.py)" = '3b892d8ccdf0316990a06ed353b565be864a55cd'
+          python -B -c 'import ast,pathlib;ast.parse(pathlib.Path("tools/mpai39_original_bm25_retrieval_comparison.py").read_text("utf-8"))'
+          out="$(python -B tools/mpai39_original_bm25_retrieval_comparison.py --phase freeze)" || { printf '%s\n' "$out" | grep '^MPAI39_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fxq 'MPAI39_FREEZE=PASS' <<< "$out"
+          grep -Fxq 'MPAI39_ORIGINAL_SOURCE_VERIFIED=PASS' <<< "$out"
+          grep -Fxq 'MPAI39_FROZEN_ORIGINAL_CASES=25' <<< "$out"
+          grep -Fxq 'MPAI39_SOURCE_QA_GOLD_AND_EVIDENCE_NOT_READ_BY_SELECTOR=TRUE' <<< "$out"
+          grep -Fxq 'MPAI39_NO_MODEL_CALLS=TRUE' <<< "$out"
+          grep -Fxq 'MPAI39_EXACT_P37_SELECTION_SHA256=123411ed33446deded98c45dd3c5e54a98620b8565a8612b7bea1c594131c5b8' <<< "$out"
+          protocol="$(printf '%s\n' "$out" | sed -n 's/^MPAI39_PREREGISTERED_PROTOCOL_SHA256=//p')"
+          [[ "$protocol" =~ ^[a-f0-9]{64}$ ]]
+          echo "protocol_sha=$protocol" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI39_SOURCE_SELECTION_AND_RETRIEVERS_PREREGISTERED=PASS'
+  bm25-source-audit:
+    needs: preregister
+    if: ${{ needs.preregister.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      EXPECTED_PROTOCOL: ${{ needs.preregister.outputs.protocol_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compare exact P37 source passages with untuned BM25 under same top12 and context budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_ACTOR" = 'spoonman136668-ai'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test -z "${OPENAI_API_KEY:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:tools/mpai27_external_source_custody.py)" = '57385e79ff8fe4d6680fba17e2186fdc32faca00'
+          test "$(git rev-parse HEAD:tools/mpai37_external_memory_effect.py)" = 'f1305323279cf56c1fdda068a5d14933dfbe6ca7'
+          test "$(git rev-parse HEAD:tools/mpai38_original_evidence_coverage_audit.py)" = 'bae5ddce69e17b8f3b5682799840405828784e63'
+          test "$(git rev-parse HEAD:tools/mpai39_original_bm25_retrieval_comparison.py)" = '3b892d8ccdf0316990a06ed353b565be864a55cd'
+          [[ "$EXPECTED_PROTOCOL" =~ ^[a-f0-9]{64}$ ]]
+          out="$(python -B tools/mpai39_original_bm25_retrieval_comparison.py --phase evaluate --expected-protocol "$EXPECTED_PROTOCOL")" || { printf '%s\n' "$out" | grep '^MPAI39_SAFE_' || true; exit 2; }
+          printf '%s\n' "$out"
+          grep -Fxq "MPAI39_PREREGISTERED_PROTOCOL_SHA256=$EXPECTED_PROTOCOL" <<< "$out"
+          grep -Fxq 'MPAI39_ALL_RETRIEVAL_COMPLETED_BEFORE_GOLD=PASS' <<< "$out"
+          grep -Fxq 'MPAI39_MATCHED_TOP12_AND_6500_CHAR_BUDGET=PASS' <<< "$out"
+          grep -Fxq 'MPAI39_P37_RETRIEVED_CONTEXT_BYTE_EXACT_25_OF_25=PASS' <<< "$out"
+          grep -Fxq 'MPAI39_SOURCE_ORACLE_ANNOTATED_EVIDENCE_AVAILABLE=38_OF_38' <<< "$out"
+          grep -Fxq 'MPAI39_ORACLE_NOT_USED_FOR_RANKING=PASS' <<< "$out"
+          grep -Fxq 'MPAI39_NO_NEW_INFERENCE_CALLS=0' <<< "$out"
+          grep -Fxq 'MPAI39_ORIGINAL_PRIVATE_SOURCE_CLEANED=PASS' <<< "$out"
+          grep -Fxq 'MPAI39_ACCEPTED_MEMORY_WRITES=0' <<< "$out"
+          grep -Fxq 'MPAI39_SCIENTIFIC_ACCEPTANCE=BLOCKED' <<< "$out"
+          test "$(grep -c '^MPAI39_.*_CATEGORY_[125]=' <<< "$out")" = '6'
+          test "$(grep -c '^MPAI39_.*_ANSWERABLE=' <<< "$out")" = '2'
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo 'MPAI39_SOURCE_ONLY_MATCHED_BM25_RETRIEVAL_AUDIT_EXECUTED=PASS'
+          echo 'MPAI39_FORGE_AUTONOMY_CONTROLLER_UNMODIFIED=TRUE'
