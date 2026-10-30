@@ -134,18 +134,19 @@ class OnlineSeamTests(unittest.TestCase):
             self.record(9,0,14)
             self.record(14,1,8)
         snapshot=self.native.checkpoint()
-        cold=SelectedOnlineSeam.restore(snapshot,self.original_sha)
+        checkpoint_sha=hashlib.sha256(snapshot).hexdigest()
+        cold=SelectedOnlineSeam.restore(snapshot,self.original_sha,checkpoint_sha)
         self.assertEqual(cold.checkpoint(),snapshot)
         self.assertEqual(cold.forecast(9,[0,1]),(8,True))
         with self.assertRaises(ValueError):
-            SelectedOnlineSeam.restore(snapshot,self.original_sha.replace("a","f"))
+            SelectedOnlineSeam.restore(snapshot,"0"*64,checkpoint_sha)
         with self.assertRaises(ValueError):
-            SelectedOnlineSeam.restore(snapshot+b"x",self.original_sha)
+            SelectedOnlineSeam.restore(snapshot+b"x",self.original_sha,checkpoint_sha)
         bad=json.loads(snapshot)
         bad["body"]["rows"][0][2]=[99]
         bad["sha256"]=hashlib.sha256(canonical(bad["body"])).hexdigest()
         with self.assertRaises(ValueError):
-            SelectedOnlineSeam.restore(canonical(bad),self.original_sha)
+            SelectedOnlineSeam.restore(canonical(bad),self.original_sha,checkpoint_sha)
         with tempfile.TemporaryDirectory(prefix="nr-m2a-") as tmp:
             target=Path(tmp)/"selected-public-checkpoint.json"
             target.write_bytes(snapshot)
@@ -153,12 +154,12 @@ class OnlineSeamTests(unittest.TestCase):
 import hashlib,pathlib,sys
 from nr_m2a_online_seam import SelectedOnlineSeam
 source=pathlib.Path(sys.argv[1]).read_bytes()
-model=SelectedOnlineSeam.restore(source,sys.argv[2])
+model=SelectedOnlineSeam.restore(source,sys.argv[2],sys.argv[3])
 assert model.forecast(9,[0,1])==(8,True)
 assert model.checkpoint()==source
 print("NRM2A_FRESH_OS_COLD_SOURCE_BOUND_RESTORE_PASS")
 """
-            p=subprocess.run([sys.executable,"-B","-c",child_script,str(target),self.original_sha],
+            p=subprocess.run([sys.executable,"-B","-c",child_script,str(target),self.original_sha,checkpoint_sha],
                              cwd=str(Path(__file__).parent),capture_output=True,text=True,timeout=30)
             self.assertEqual(p.returncode,0,p.stdout+" "+p.stderr)
             self.assertIn("NRM2A_FRESH_OS_COLD_SOURCE_BOUND_RESTORE_PASS",p.stdout)
