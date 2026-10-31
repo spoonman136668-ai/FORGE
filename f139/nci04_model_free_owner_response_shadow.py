@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 
-from f139.nci04_autonomy_feed import candidate_identity
+from f139.nci04_autonomy_feed import _semantic_identities, candidate_identity
 from f139.nci04_model_free_intent_bridge import build_unsigned_native_intents
 from f139.nci04_model_proposal import SCHEMA as MODEL_SCHEMA, validate
 from f139.nci04_native_contract import canonical, digest, parse_intent
@@ -74,6 +74,16 @@ def encode_owner_response_shadow(*, controller_source_sha: str,
          and all(type(x) is str and SHA64.fullmatch(x) is not None for x in
                  (owner_consumed_candidates | owner_consumed_after_hashes)),
          "OWNER_CONSUMPTION_SET_INVALID")
+    expected_metadata = _semantic_identities(
+        controller_source_sha, "Yggdrasil", target_tree_sha,
+        "yggdrasil/public_causal_cells.py")
+    need(type(metadata) is dict
+         and set(metadata) == set(expected_metadata) | {"frozen_split_sha256"}
+         and all(metadata.get(key) == value
+                 for key, value in expected_metadata.items())
+         and type(metadata.get("frozen_split_sha256")) is str
+         and SHA64.fullmatch(metadata["frozen_split_sha256"]) is not None,
+         "OWNER_SEMANTIC_IDENTITIES_MISMATCH")
     result = build_unsigned_native_intents(
         controller_source_sha=controller_source_sha,
         target_commit=target_commit, target_tree_sha=target_tree_sha,
