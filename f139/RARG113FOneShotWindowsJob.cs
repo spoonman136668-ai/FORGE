@@ -1,5 +1,6 @@
 // RAR-G113F: explicitly invoked, bounded Windows one-shot Job Object probe.
-// Source-only until an independently authorized Windows execution is recorded.
+// G113G's independently authorized one-shot ran once and failed closed. This
+// G113H source-only diagnostic patch grants no second execution authority.
 // Never invoke from any F139 owner/controller path or automatic science workflow.
 // This program is an inert standalone CLI unless --run-one-shot-offline is given.
 // Child is the fixed local Windows system cmd.exe executing "exit 0"; never a
