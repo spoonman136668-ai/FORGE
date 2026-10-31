@@ -1,0 +1,120 @@
+name: FORGE CPU G94 final immutable receipt qualification
+on:
+  push:
+    branches: [research/cpu-llm-g94-kv-cohort-scaling-gpt2-20261031]
+    paths:
+      - 'docs/research/CPU-G94-GPT2-KV-COHORT-SCALING-ARTIFACT-RECEIPT-20261031.json'
+      - 'docs/research/CPU-G94-GPT2-KV-COHORT-SCALING-FINAL-QUALIFICATION-TRIGGER-20261031.md'
+permissions:
+  contents: read
+concurrency:
+  group: forge-cpu-g94-final-qualification
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Verify G94 immutable result and exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:docs/research/CPU-G94-GPT2-KV-COHORT-SCALING-PREREG-20261031.md)" = "17d34fe37463f717fc9ea85777ed29b0e0d8f5f3"
+          test "$(git rev-parse HEAD:research/cpu_g94/g94_kv_cohort_scaling_original.py)" = "34d2d94fbb03460814f363be155520951f00ccf7"
+          test "$(git rev-parse HEAD:research/cpu_g94/test_g94_kv_cohort_scaling_original.py)" = "e668e051a73c7e9a10fa85711c910f3c67534afc"
+          test "$(git rev-parse HEAD:docs/research/CPU-G94-GPT2-KV-COHORT-SCALING-ARTIFACT-RECEIPT-20261031.json)" = "20229ed431f6f522982091bd6a97d1643865ff6b"
+          python - <<'PY'
+          import json
+          r=json.load(open("docs/research/CPU-G94-GPT2-KV-COHORT-SCALING-ARTIFACT-RECEIPT-20261031.json"))
+          assert r["execution"]["workflow_run_id"] == 41225515691
+          assert r["execution"]["artifact_id"] == 13051053217
+          assert r["results"]["decision"] == "KV_COHORT_SCALE_PASS"
+          assert r["results"]["timed_authentic_responses"] == 240
+          assert r["results"]["timed_authentic_generated_tokens"] == 1920
+          assert len([x for x in r["results"]["qualification"] if x["qualifies"]]) == 4
+          assert r["design"]["scientific_acceptance"] == "NOT_GRANTED"
+          assert r["design"]["promotion_allowed"] is False
+          print("G94_ARCHIVED_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g94/g94_kv_cohort_scaling_original.py research/cpu_g94/test_g94_kv_cohort_scaling_original.py
+          python -B -m unittest discover -s research/cpu_g94 -p 'test_g94_kv_cohort_scaling_original.py' -v
+      - name: FORGE isolation and F139 custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+          python3 -B -m unittest discover -s f139 -p 'test_*.py' -v
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go tests race vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Verify G94 immutable result and exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:research/cpu_g94/g94_kv_cohort_scaling_original.py)" = "34d2d94fbb03460814f363be155520951f00ccf7"
+          test "$(git rev-parse HEAD:docs/research/CPU-G94-GPT2-KV-COHORT-SCALING-ARTIFACT-RECEIPT-20261031.json)" = "20229ed431f6f522982091bd6a97d1643865ff6b"
+          python - <<'PY'
+          import json
+          r=json.load(open("docs/research/CPU-G94-GPT2-KV-COHORT-SCALING-ARTIFACT-RECEIPT-20261031.json"))
+          assert r["results"]["decision"] == "KV_COHORT_SCALE_PASS"
+          assert r["results"]["timed_authentic_responses"] == 240
+          assert r["results"]["timed_authentic_generated_tokens"] == 1920
+          assert r["design"]["scientific_acceptance"] == "NOT_GRANTED"
+          assert r["design"]["promotion_allowed"] is False
+          print("G94_ARCHIVED_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g94/g94_kv_cohort_scaling_original.py research/cpu_g94/test_g94_kv_cohort_scaling_original.py
+          python -B -m unittest discover -s research/cpu_g94 -p 'test_g94_kv_cohort_scaling_original.py' -v
+      - name: FORGE isolation and F139 custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 native custody regression
+        shell: pwsh
+        run: python -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Windows Go final regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go test -race -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_RACE_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
