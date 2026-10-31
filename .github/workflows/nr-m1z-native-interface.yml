@@ -1,0 +1,116 @@
+name: NR-M1Z/M2A/M2B/M2C/M2D/M2E Source-Only Native Interfaces
+on:
+  pull_request:
+    paths:
+      - 'research/nr-m1x/nr_m1z_*.py'
+      - 'research/nr-m1x/test_nr_m1z_interface.py'
+      - 'research/nr-m1x/NR_M1Z_PREREG.json'
+      - 'research/nr-m1x/NR_M2A_PREREG.json'
+      - 'research/nr-m1x/nr_m2a_online_seam.py'
+      - 'research/nr-m1x/test_nr_m2a_online_seam.py'
+      - 'research/nr-m1x/NR_M2B_PREREG.json'
+      - 'research/nr-m1x/nr_m2b_factor_cells.py'
+      - 'research/nr-m1x/test_nr_m2b_factor_cells.py'
+      - 'research/nr-m1x/NR_M2C_PREREG.json'
+      - 'research/nr-m1x/nr_m2c_goals.py'
+      - 'research/nr-m1x/test_nr_m2c_goals.py'
+      - 'research/nr-m1x/NR_M2D_PREREG.json'
+      - 'research/nr-m1x/NR_M2D_RESULT.json'
+      - 'research/nr-m1x/nr_m2d_pinned_original_public.py'
+      - 'research/nr-m1x/nr_m2d_original_public_bridge.py'
+      - 'research/nr-m1x/test_nr_m2d_original_public.py'
+      - 'research/nr-m1x/NR_M2E_PREREG.json'
+      - 'research/nr-m1x/NR_M2E_RESULT.json'
+      - 'research/nr-m1x/NR_M2F_PREREG.json'
+      - 'research/nr-m1x/NR_M2F_CONTROL_PREREG.json'
+      - 'research/nr-m1x/NR_M2G_PREREG.json'
+      - 'research/nr-m1x/NR_M2H_PREREG.json'
+      - 'research/nr-m1x/NR_M2I_PREREG.json'
+      - 'research/nr-m1x/NR_M2J_PREREG.json'
+      - 'research/nr-m1x/NR_M2K_PREREG.json'
+      - 'research/nr-m1x/NR_M2M_PREREG.json'
+      - 'research/nr-m1x/nr_m2m_prefix_advisory.py'
+      - 'research/nr-m1x/test_nr_m2m_prefix_advisory.py'
+      - 'research/nr-m1x/nr_m2k_archive_replay.py'
+      - 'research/nr-m1x/test_nr_m2k_archive_replay.py'
+      - 'research/nr-m1x/nr_m2j_source_cycles.py'
+      - 'research/nr-m1x/test_nr_m2j_source_cycles.py'
+      - 'research/nr-m1x/nr_m2i_decision_evidence.py'
+      - 'research/nr-m1x/test_nr_m2i_decision_evidence.py'
+      - 'research/nr-m1x/test_nr_m2h_prereg.py'
+      - 'research/nr-m1x/nr_m2h_*.py'
+      - 'research/nr-m1x/test_nr_m2h_*.py'
+      - 'research/nr-m1x/nr_m2g_effect_cells.py'
+      - 'research/nr-m1x/test_nr_m2g_effect_cells.py'
+      - 'research/nr-m1x/nr_m2f_equal_data_control.py'
+      - 'research/nr-m1x/test_nr_m2f_equal_data_control.py'
+      - 'research/nr-m1x/nr_m2f_predictive.py'
+      - 'research/nr-m1x/test_nr_m2f_predictive.py'
+      - 'research/nr-m1x/nr_m2e_pinned_r18_mission.py'
+      - 'research/nr-m1x/nr_m2e_pinned_mg19_mission.py'
+      - 'research/nr-m1x/nr_m2e_extended_public.py'
+      - 'research/nr-m1x/test_nr_m2e_extended_public.py'
+      - '.github/workflows/nr-m1z-native-interface.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bounded-existing-native-interface:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Exact standalone original native source-only interface test
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m1z_interface.py' -v
+      - name: Test selected-action online seam against matched categorical control and cold restart
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2a_online_seam.py' -v
+      - name: Test source-only cross-episode trained factor-cell inference against unchanged strong R7
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2b_factor_cells.py' -v
+      - name: Validate synthetic public-goal decisions, 8-step forecasts and matched controls
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2c_goals.py' -v
+      - name: Persist machine-readable source-only goal and resource comparison
+        run: python -B research/nr-m1x/nr_m2c_goals.py --output "${{ runner.temp }}/nr-m2c-result.json"
+      - name: Preserve immutable native-versus-controls receipt within CI
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nr-m2c-source-only-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/nr-m2c-result.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Verify original seven-action full-public source contract and block lossy R7 casting
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2d_original_public.py' -v
+      - name: Qualify unchanged original R18/MG19 source admission and complete seven-action mission custody
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2e_extended_public.py' -v
+      - name: Validate NR-M2F full-public source-only predictor and custody
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2f_predictive.py' -v
+      - name: Qualify equal-selected-input native versus conventional count negative control
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2f_equal_data_control.py' -v
+      - name: Qualify NR-M2G original-public unseen-state effects and cold custody
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2g_effect_cells.py' -v
+      - name: Validate NR-M2H prospective source-only cohort and original-source pins
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2h_prereg.py' -v
+      - name: Qualify NR-M2H precondition learning versus equal-data conventional public stump
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2h_public_predicates.py' -v
+      - name: Validate NR-M2I explicit parent-versus-selected source-only decision witness
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2i_decision_evidence.py' -v
+      - name: Verify NR-M2J original-public source-only cycle and information-yield falsifiers
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2j_source_cycles.py' -v
+      - name: Validate NR-M2K offline archive SHA/custody rejection and deterministic replay boundaries
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2k_archive_replay.py' -v
+      - name: Falsify NR-M2M pre-decision causal-prefix future-suffix leakage and deny policy actions
+        run: python -B -m unittest discover -s research/nr-m1x -p 'test_nr_m2m_prefix_advisory.py' -v
+      - name: Reject tracked source mutations
+        run: git diff --exit-code
+
+# This test does NOT execute Farama, approve any cohort or modify native repos.
