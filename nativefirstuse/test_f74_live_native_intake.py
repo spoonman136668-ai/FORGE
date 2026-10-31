@@ -75,8 +75,10 @@ class F74(unittest.TestCase):
                 old = ("e" if lane == "Wingless" else "f") * 40
                 api[(repo, "/actions/runs/38800000100")]["head_sha"] = old
                 api[(repo, "/compare/" + old + "..." + main)] = {
-                    "status": "ahead", "base_commit": {"sha": old},
-                    "head_commit": {"sha": main},
+                    "status": "ahead", "ahead_by": 2,
+                    "base_commit": {"sha": old},
+                    "commits": [{"sha": ("e" if lane == "Wingless" else "f") * 39 + "0"},
+                                {"sha": main}],
                 }
         result = self.work(edit)
         self.assertEqual(len(result["lanes"]), 2)
@@ -90,8 +92,9 @@ class F74(unittest.TestCase):
             bad = "f" * 40
             api[(repo, "/actions/runs/38800000100")]["head_sha"] = bad
             api[(repo, "/compare/" + bad + "..." + main)] = {
-                "status": "diverged", "base_commit": {"sha": bad},
-                "head_commit": {"sha": main},
+                "status": "diverged", "ahead_by": 1,
+                "base_commit": {"sha": bad},
+                "commits": [{"sha": main}],
             }
         with self.assertRaises(m.Denied):
             self.work(edit)
