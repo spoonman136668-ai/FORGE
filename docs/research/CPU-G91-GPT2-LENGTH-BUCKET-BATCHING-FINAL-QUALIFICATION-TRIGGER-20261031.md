@@ -7,3 +7,5 @@ Durable result receipt: `CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-ARTIFACT-RECEIPT-20
 Frozen disposition: **engineering PASS, correctness PASS, LENGTH_BUCKET_NO_GO**. Length bucketing reduced padding tokens and beat same-size random grouping, but absolute full-cohort throughput was only 1.007404× batch1 for batch2 and 0.946625× for batch4; neither met the 1.20× frozen requirement. All 240 responses/1,920 tokens matched exactly. No thresholds or experiment cohorts changed.
 
 This final workflow performs immutable receipt/source checks, G91 unit tests, isolation/FSA, F139 custody and full Go tests/race/vet/build on Linux and Windows. It does not rerun inference. Scientific acceptance remains NOT_GRANTED and promotion remains false.
+
+Receipt-only Linux/Windows final qualification workflow is now committed. Start a new final verification run from this exact branch head.
