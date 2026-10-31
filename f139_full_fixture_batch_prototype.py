@@ -25,7 +25,9 @@ ELIGIBLE = {
 
 
 def fingerprint(db):
-    if not hasattr(db, "conn"):\n        return "DATABASE_CLOSED_OR_UNINITIALIZED"\n    schema = [tuple(row) for row in db.conn.execute(
+    if not hasattr(db, "conn"):
+        return "DATABASE_CLOSED_OR_UNINITIALIZED"
+    schema = [tuple(row) for row in db.conn.execute(
         "SELECT type,name,tbl_name,sql FROM sqlite_master "
         "WHERE sql IS NOT NULL ORDER BY type,name")]
     table_names = [row[0] for row in db.conn.execute(
