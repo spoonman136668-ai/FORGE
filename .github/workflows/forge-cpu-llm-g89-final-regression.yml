@@ -1,0 +1,179 @@
+name: FORGE CPU LLM Evaluation G89 archived receipt Linux Windows final qualification
+
+on:
+  push:
+    branches: [research/cpu-llm-g89-mkldnn-prepack-gpt2-20261031]
+    paths:
+      - 'docs/research/CPU-G89-GPT2-MKLDNN-PREPACK-ARTIFACT-RECEIPT-20261031.json'
+      - 'docs/research/CPU-G89-GPT2-MKLDNN-PREPACK-FINAL-QUALIFICATION-TRIGGER-20261031.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-cpu-llm-g89-archived-receipt-regression
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify exact G89 archived receipt and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:research/llm_g54)" = "204af0f5502269be4288c6c56f689526d03c77fb"
+          test "$(git rev-parse HEAD:research/llm_g55)" = "2e40d5bd574bf9f57f81c4ecf5fd611f9ef753e3"
+          test "$(git rev-parse HEAD:research/llm_g56)" = "7a728365dd6bdef415c8427d2a87791f6049ab2a"
+          test "$(git rev-parse HEAD:research/llm_g57)" = "dbabd811207e52764568fc4100bb7fa151255cff"
+          test "$(git rev-parse HEAD:research/llm_g58)" = "9c391b65ae0c1275191c3856d967f46ec5597038"
+          test "$(git rev-parse HEAD:research/llm_g59)" = "693d705b2e5f42886660ebc30e73ee73d5f6d911"
+          test "$(git rev-parse HEAD:research/llm_g60)" = "7681d55047cb7793542b1f340d2a1eaa15617f67"
+          test "$(git rev-parse HEAD:research/llm_g61)" = "f1bc119d185d301e5b80929a75cbacf66a48d79c"
+          test "$(git rev-parse HEAD:research/llm_g62)" = "f7345e7250e242f7b30964b486ce3c91640b34cd"
+          test "$(git rev-parse HEAD:research/llm_g63)" = "651d9e92106c43c594eb2e9486f08446b902eee9"
+          test "$(git rev-parse HEAD:research/llm_g64)" = "59b6203707a891fe36a02d0e83d1c173e6aa6b1f"
+          test "$(git rev-parse HEAD:research/llm_g65)" = "18ddbdbe436728b04f660b870abc924bdf21e554"
+          test "$(git rev-parse HEAD:research/llm_g66)" = "f3d0980ead446b0a89d5defe6531b1e00283b546"
+          test "$(git rev-parse HEAD:research/llm_g67)" = "ed268f83fbffa0cc13343d8647201c7798d070b9"
+          test "$(git rev-parse HEAD:research/llm_g68)" = "88fc035bb77e3192f2b69567d2226090c8a05361"
+          test "$(git rev-parse HEAD:research/llm_g70)" = "681c4022516e370a7edf9205d90a39e69b0a784f"
+          test "$(git rev-parse HEAD:docs/research/CPU-G89-GPT2-MKLDNN-PREPACK-PREREG-20261031.md)" = "078473d030453b6489c927f691df9e251d883567"
+          test "$(git rev-parse HEAD:research/cpu_g89/g89_mkldnn_prepack_original.py)" = "c0e7877629242781569774d0a6ba3abe095dba68"
+          test "$(git rev-parse HEAD:research/cpu_g89/test_g89_mkldnn_prepack_original.py)" = "4c616b2546e341899130076d6b851534b86b887d"
+          test "$(git rev-parse HEAD:docs/research/CPU-G89-GPT2-MKLDNN-PREPACK-ARTIFACT-RECEIPT-20261031.json)" = "c11ce79bf46ca253e9c2b3998a259df73f1c0608"
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G89-GPT2-MKLDNN-PREPACK-ARTIFACT-RECEIPT-20261031.json"
+          r=json.load(open(p,encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g89.archive-receipt.v1"
+          assert r["execution"]["workflow_run_id"]==41215980043
+          assert r["execution"]["artifact_id"]==13048815616
+          assert r["execution"]["artifact_zip_sha256"]=="3946bbe4aea729620f25fe342158dd7a254f9d17746385d5c60c2c85ce71226a"
+          assert r["execution"]["artifact_result_json_sha256"]=="fc35fdc1918a6b82a164dc32b00a1ccfe396174102bcac58f3d0142246bdd3ef"
+          assert r["design"]["conv1d_conversions"]==48
+          assert r["backend_dispatch_evidence"]["candidate_mkldnn_linear_calls"]==49
+          assert r["backend_dispatch_evidence"]["baseline_mkldnn_linear_calls"]==0
+          assert r["results"]["engineering"]=="PASS" and r["results"]["correctness"]=="PASS"
+          assert r["results"]["decision"]=="MKLDNN_PREPACK_NO_GO"
+          assert r["results"]["timed_authentic_responses"]==96
+          assert r["results"]["timed_authentic_generated_tokens"]==768
+          assert r["design"]["scientific_acceptance"]=="NOT_GRANTED" and r["design"]["promotion_allowed"] is False
+          print("G89_ARCHIVED_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g89/g89_mkldnn_prepack_original.py research/cpu_g89/test_g89_mkldnn_prepack_original.py
+          python -B -m unittest discover -s research/cpu_g89 -p 'test_g89_mkldnn_prepack_original.py' -v
+      - name: FORGE isolation and authority regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 controller and native custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify exact G89 archived receipt and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:research/llm_g54)" = "204af0f5502269be4288c6c56f689526d03c77fb"
+          test "$(git rev-parse HEAD:research/llm_g55)" = "2e40d5bd574bf9f57f81c4ecf5fd611f9ef753e3"
+          test "$(git rev-parse HEAD:research/llm_g56)" = "7a728365dd6bdef415c8427d2a87791f6049ab2a"
+          test "$(git rev-parse HEAD:research/llm_g57)" = "dbabd811207e52764568fc4100bb7fa151255cff"
+          test "$(git rev-parse HEAD:research/llm_g58)" = "9c391b65ae0c1275191c3856d967f46ec5597038"
+          test "$(git rev-parse HEAD:research/llm_g59)" = "693d705b2e5f42886660ebc30e73ee73d5f6d911"
+          test "$(git rev-parse HEAD:research/llm_g60)" = "7681d55047cb7793542b1f340d2a1eaa15617f67"
+          test "$(git rev-parse HEAD:research/llm_g61)" = "f1bc119d185d301e5b80929a75cbacf66a48d79c"
+          test "$(git rev-parse HEAD:research/llm_g62)" = "f7345e7250e242f7b30964b486ce3c91640b34cd"
+          test "$(git rev-parse HEAD:research/llm_g63)" = "651d9e92106c43c594eb2e9486f08446b902eee9"
+          test "$(git rev-parse HEAD:research/llm_g64)" = "59b6203707a891fe36a02d0e83d1c173e6aa6b1f"
+          test "$(git rev-parse HEAD:research/llm_g65)" = "18ddbdbe436728b04f660b870abc924bdf21e554"
+          test "$(git rev-parse HEAD:research/llm_g66)" = "f3d0980ead446b0a89d5defe6531b1e00283b546"
+          test "$(git rev-parse HEAD:research/llm_g67)" = "ed268f83fbffa0cc13343d8647201c7798d070b9"
+          test "$(git rev-parse HEAD:research/llm_g68)" = "88fc035bb77e3192f2b69567d2226090c8a05361"
+          test "$(git rev-parse HEAD:research/llm_g70)" = "681c4022516e370a7edf9205d90a39e69b0a784f"
+          test "$(git rev-parse HEAD:docs/research/CPU-G89-GPT2-MKLDNN-PREPACK-PREREG-20261031.md)" = "078473d030453b6489c927f691df9e251d883567"
+          test "$(git rev-parse HEAD:research/cpu_g89/g89_mkldnn_prepack_original.py)" = "c0e7877629242781569774d0a6ba3abe095dba68"
+          test "$(git rev-parse HEAD:research/cpu_g89/test_g89_mkldnn_prepack_original.py)" = "4c616b2546e341899130076d6b851534b86b887d"
+          test "$(git rev-parse HEAD:docs/research/CPU-G89-GPT2-MKLDNN-PREPACK-ARTIFACT-RECEIPT-20261031.json)" = "c11ce79bf46ca253e9c2b3998a259df73f1c0608"
+          python - <<'PY'
+          import json
+          r=json.load(open("docs/research/CPU-G89-GPT2-MKLDNN-PREPACK-ARTIFACT-RECEIPT-20261031.json",encoding="utf-8"))
+          assert r["results"]["decision"]=="MKLDNN_PREPACK_NO_GO"
+          assert r["backend_dispatch_evidence"]["candidate_mkldnn_linear_calls"]==49
+          assert r["backend_dispatch_evidence"]["baseline_mkldnn_linear_calls"]==0
+          assert r["design"]["authentic_full_responses"]==96 and r["design"]["generated_tokens"]==768
+          assert r["design"]["scientific_acceptance"]=="NOT_GRANTED" and r["design"]["promotion_allowed"] is False
+          print("G89_ARCHIVED_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g89/g89_mkldnn_prepack_original.py research/cpu_g89/test_g89_mkldnn_prepack_original.py
+          python -B -m unittest discover -s research/cpu_g89 -p 'test_g89_mkldnn_prepack_original.py' -v
+      - name: FORGE isolation and authority regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 controller and native custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go test -race -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_RACE_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
