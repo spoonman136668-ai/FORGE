@@ -1,0 +1,116 @@
+name: FORGE CPU LLM Evaluation G90 original GPT2 batching throughput screen
+
+on:
+  push:
+    branches: [research/cpu-llm-g90-batched-throughput-gpt2-20261031]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g90-batching-original-model.yml'
+      - 'research/cpu_g90/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-cpu-llm-g90-independent-batching
+  cancel-in-progress: false
+
+jobs:
+  frozen-source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact G70 baseline, G90 preregistration and immutable source identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          PREREG=76410a228cae6eb8f1afdd6462bb83ab6f4ec168
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git merge-base --is-ancestor "$PREREG" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G90-GPT2-BATCHED-THROUGHPUT-PREREG-20261031.md)" = "5c8ccc1c7a1a0924e1bd0441a785581135302e5a"
+          test "$(git rev-parse HEAD:research/cpu_g90/g90_batching_original.py)" = "de66558c81dd85b376d863addaaccdc11e92de79"
+          test "$(git rev-parse HEAD:research/cpu_g90/test_g90_batching_original.py)" = "6d6305a3815dddeff07ab7f4f600c25937f84b49"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          python -B -m py_compile research/cpu_g90/g90_batching_original.py research/cpu_g90/test_g90_batching_original.py
+          python -B -m unittest discover -s research/cpu_g90 -p 'test_g90_batching_original.py' -v
+          echo CPU_G90_FROZEN_SOURCE_ADMISSION=PASS
+
+  original-model-batching:
+    needs: frozen-source-admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify native CPU host and source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          test "$(git rev-parse HEAD:research/cpu_g90/g90_batching_original.py)" = "de66558c81dd85b376d863addaaccdc11e92de79"
+          python -B -m unittest discover -s research/cpu_g90 -p 'test_g90_batching_original.py' -v
+      - name: Install pinned original CPU GPT2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.48.3 huggingface-hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1 psutil==7.1.3
+          python -m pip check
+          python - <<'PY'
+          import torch,transformers
+          assert torch.__version__=="2.5.1+cpu",torch.__version__
+          assert torch.version.cuda is None
+          assert transformers.__version__=="4.48.3"
+          print("G90_PINNED_ORIGINAL_CPU_RUNTIME=PASS")
+          PY
+          python -m pip freeze > cpu_g90_environment.txt
+          uname -a >> cpu_g90_environment.txt
+          lscpu >> cpu_g90_environment.txt
+      - name: Run original GPT2 batch1 versus independent request batching
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/cpu_g90/g90_batching_original.py
+          python - <<'PY'
+          import json
+          r=json.load(open("cpu_g90_original_result.json",encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g90.authentic-request-batching.v1"
+          assert r["gate"]=="CPU_G90"
+          assert r["preregistration_commit"]=="76410a228cae6eb8f1afdd6462bb83ab6f4ec168"
+          assert r["engineering"]=="PASS" and r["correctness"]=="PASS"
+          assert r["summary"]["timed_authentic_responses"]==240
+          assert r["summary"]["timed_authentic_generated_tokens"]==1920
+          assert r["decision"] in ("BATCHING_PASS","BATCHING_NO_GO")
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and not r["promotion_allowed"]
+          print("CPU_G90_ORIGINAL_BATCHING_RESULT="+r["decision"])
+          PY
+      - name: Upload original measurement and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g90-original-gpt2-batching
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g90_original_result.json
+            cpu_g90_environment.txt
