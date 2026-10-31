@@ -1,6 +1,7 @@
 """Validate a future H53 one-shot release bundle without activating it."""
 from __future__ import annotations
 import pathlib
+import hashlib
 from f139 import h53_audit_guards as g
 
 WORKFLOW=".github/workflows/f139-h53-original-owner-one-shot.yml"
@@ -22,3 +23,11 @@ def verify_release_manifest(changed, *, parent, source_hashes, expected_hashes):
              "RELEASE_CONTENT_DRIFT")
     return {"release_parent":parent,"file_count":len(REQUIRED),
             "source_pins_verified":True,"release_authorized":False}
+
+def verify_release_bytes(changed, *, parent, files, expected_hashes):
+    """Check actual byte content against immutable SHA-256 pins, not caller labels."""
+    g.demand(set(files)==REQUIRED,"RELEASE_BYTES_SET")
+    calculated={k:hashlib.sha256(files[k]).hexdigest() for k in REQUIRED}
+    return verify_release_manifest(changed,parent=parent,
+                                   source_hashes=calculated,
+                                   expected_hashes=expected_hashes)
