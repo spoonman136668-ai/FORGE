@@ -28,7 +28,7 @@ class InteractingCells:
         self.fast = [0.5]*8
         self.slow = [0.5]*8
         self.count = [0]*8
-        self.incoming = [(0,0)]*8
+        self.incoming = [((0,0),(0,0)) for _ in range(8)]
         self.sent_payload_bytes = 0
         self.delivered_payload_bytes = 0
         # Hamming-cube neighbors; shuffled ablation permutes sender endpoints.
@@ -38,7 +38,7 @@ class InteractingCells:
 
     def predict(self,bits):
         i=idx(bits)
-        msg=0 if self.mode=="disabled" else sum(self.incoming[i])/254.0
+        msg=0 if self.mode=="disabled" else sum(pair[1] for pair in self.incoming[i])/254.0
         return int(self.fast[i]+BETA*math.tanh(msg)>0.5)
 
     def observe(self,visible):
@@ -53,12 +53,13 @@ class InteractingCells:
     def advance_messages(self):
         """Compute *after* current observations, deliver for next timestep only."""
         if self.mode=="disabled":
-            self.incoming=[(0,0)]*8
+            self.incoming=[((0,0),(0,0)) for _ in range(8)]
             return
-        flags=[encode(self.fast[i]-self.slow[i]) for i in range(8)]
-        self.incoming=[tuple(flags[j] for j in self.edges[i]) for i in range(8)]
-        self.sent_payload_bytes+=16
-        self.delivered_payload_bytes+=16
+        messages=[(int(self.fast[i]>0.5), encode(self.fast[i]-self.slow[i])) for i in range(8)]
+        self.incoming=[tuple(messages[j] for j in self.edges[i]) for i in range(8)]
+        # Two one-byte signed fields per edge: prediction and confidence/error.
+        self.sent_payload_bytes+=32
+        self.delivered_payload_bytes+=32
 
     def snapshot(self):
         return json.dumps({"schema":MODEL_SCHEMA,"mode":self.mode,"fast":self.fast,
@@ -82,9 +83,9 @@ class InteractingCells:
             raise ValueError("INVALID_STATE")
         model.count=cnt
         inc=obj["incoming"]
-        if not isinstance(inc,list) or len(inc)!=8 or any(not isinstance(pair,list) or len(pair)!=2 or any(type(x) is not int or not -127<=x<=127 for x in pair) for pair in inc):
+        if not isinstance(inc,list) or len(inc)!=8 or any(not isinstance(edges,list) or len(edges)!=2 or any(not isinstance(pair,list) or len(pair)!=2 or type(pair[0]) is not int or pair[0] not in (0,1) or type(pair[1]) is not int or not -127<=pair[1]<=127 for pair in edges) for edges in inc):
             raise ValueError("INVALID_STATE")
-        model.incoming=[tuple(pair) for pair in inc]
+        model.incoming=[tuple(tuple(pair) for pair in edges) for edges in inc]
         for name,field in (("sent","sent_payload_bytes"),("delivered","delivered_payload_bytes")):
             val=obj[name]
             if type(val) is not int or val<0: raise ValueError("INVALID_STATE")
