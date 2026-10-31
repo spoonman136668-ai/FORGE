@@ -11,3 +11,5 @@ This final workflow performs immutable receipt/source checks, G91 unit tests, is
 Receipt-only Linux/Windows final qualification workflow is now committed. Start a new final verification run from this exact branch head.
 
 Regression test fixture whitespace assertions were corrected; restart final receipt-only Linux/Windows qualification against this exact test blob.
+
+Pinned G91 implementation source SHA was corrected to the authenticated Git blob; rerun final qualification.
