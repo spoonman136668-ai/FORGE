@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import platform
+import subprocess
 import urllib.request
 from pathlib import Path
 
@@ -64,6 +65,13 @@ def run() -> dict:
     gpu = torch.cuda.get_device_name(device)
     capability = torch.cuda.get_device_capability(device)
     free, total = torch.cuda.mem_get_info(device)
+    nv = subprocess.run(
+        ["nvidia-smi", "--query-gpu=name,driver_version,memory.total,memory.free",
+         "--format=csv,noheader,nounits"],
+        check=True, capture_output=True, text=True)
+    driver_readback = nv.stdout.strip().splitlines()
+    if not driver_readback:
+        raise RuntimeError("G76_NVIDIA_SMI_READBACK_MISSING")
     if "RTX 5070 Ti Laptop GPU" not in gpu or capability != (12, 0) or free < 7_000 * 1024**2:
         raise RuntimeError("G76_ORIGINAL_RTX_ADMISSION_FAILED")
     probe = torch.ones((1024, 1024), device=device, dtype=torch.float32)
@@ -135,7 +143,7 @@ def run() -> dict:
                          scope="Previously exposed G74 source; profiling diagnostic only"),
         runtime=dict(python=platform.python_version(), torch=torch.__version__,
                       cuda=torch.version.cuda, transformers=transformers.__version__,
-                      gpu=gpu, capability=list(capability),
+                      gpu=gpu, capability=list(capability), nvidia_smi=driver_readback,
                       free_vram_before_load_mib=free // 1024**2,
                       total_vram_mib=total // 1024**2),
         profiler=dict(activities=["CPU", "CUDA"], record_shapes=False,
