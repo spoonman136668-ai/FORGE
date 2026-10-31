@@ -1,5 +1,6 @@
 // RAR-G113F: explicitly invoked, bounded Windows one-shot Job Object probe.
-// Source-only until an independently authorized Windows execution is recorded.
+// G113G's independently authorized one-shot ran once and failed closed. This
+// G113H source-only diagnostic patch grants no second execution authority.
 // Never invoke from any F139 owner/controller path or automatic science workflow.
 // This program is an inert standalone CLI unless --run-one-shot-offline is given.
 // Child is the fixed local Windows system cmd.exe executing "exit 0"; never a
@@ -253,6 +254,39 @@ public static class RARG113FOneShotWindowsJob
         }
     }
 
+    // Only fixed, source-declared markers may cross the diagnostic boundary.
+    // Never output an exception message, OS text, stack, process path or secret.
+    private static readonly string[] AllowedFailureMarkers = new string[]
+    {
+        "RAR_G113F_NEW_JOB_DENIED",
+        "RAR_G113F_NO_KILL_ON_CLOSE",
+        "RAR_G113F_JOB_READBACK_FAILED",
+        "RAR_G113F_NATIVE_RECORD_SIZE_MISMATCH",
+        "RAR_G113F_WINDOWS_SYSTEM_DIRECTORY_UNAVAILABLE",
+        "RAR_G113F_FIXED_CHILD_MISSING",
+        "RAR_G113F_WINDOWS_ONLY",
+        "RAR_G113F_UNSAFE_JOB_POLICY",
+        "RAR_G113F_SUSPENDED_CHILD_DENIED",
+        "RAR_G113F_ASSIGN_BEFORE_RESUME_DENIED",
+        "RAR_G113F_RESUME_FAILED",
+        "RAR_G113F_CHILD_TIMEOUT_OR_WAIT_FAILED",
+        "RAR_G113F_EXIT_CODE_QUERY_FAILED",
+        "RAR_G113F_NOOP_EXIT_FAILED",
+        "RAR_G113F_NOT_SINGLE_PROCESS_QUIESCENT",
+        "RAR_G113F_JOB_POLICY_DRIFT",
+        "RAR_G113F_COUNTER_OVERFLOW",
+    };
+
+    private static string BoundedFailureMarker(Exception exc)
+    {
+        if (!(exc is Win32Exception) && !(exc is InvalidOperationException))
+            return "RAR_G113F_UNKNOWN_NATIVE_FAILURE";
+        foreach (string marker in AllowedFailureMarkers)
+            if (String.Equals(exc.Message, marker, StringComparison.Ordinal))
+                return marker;
+        return "RAR_G113F_UNCLASSIFIED_NATIVE_FAILURE";
+    }
+
     public static int Main(string[] args)
     {
         // An explicit CLI gate is a safety interlock, NOT independent authority
@@ -269,8 +303,8 @@ public static class RARG113FOneShotWindowsJob
         }
         catch (Exception exc)
         {
-            // Only static fault family; no user data or secrets in output.
-            Console.Error.WriteLine("RAR_G113F_ABORTED_" + exc.GetType().Name);
+            // Output one approved literal fault marker, never raw exception text.
+            Console.Error.WriteLine("RAR_G113F_ABORTED:" + BoundedFailureMarker(exc));
             return 1;
         }
     }
