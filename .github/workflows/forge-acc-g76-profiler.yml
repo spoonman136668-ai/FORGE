@@ -1,0 +1,111 @@
+name: FORGE ACC G76 authentic RTX profiler trace diagnostic
+on:
+  push:
+    branches: [research/acc-g76-profiler-integration-20261030]
+    paths:
+      - 'research/acc_g76/**'
+      - 'docs/research/ACC-G76-PREEXEC-20261031.md'
+      - '.github/workflows/forge-acc-g76-profiler.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g73-original-rtx-precision
+  cancel-in-progress: false
+jobs:
+  g76-original-rtx-profiler:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen G76 prereg and source identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G76_SOURCE_SHA_DRIFT' }
+          if (-not (git merge-base --is-ancestor e8fde4286fffb326399c1fee148cc69c2935e7ce HEAD)) { throw 'G76_PREREG_NOT_ANCESTOR' }
+          $prereg=(git rev-parse HEAD:docs/research/ACC-G76-PREEXEC-20261031.md).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $prereg) { throw 'G76_PREEXEC_MISSING' }
+          & python -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G76_PYTHON_ABI_DRIFT' }
+          Write-Output ('G76_PREREG_BLOB=' + $prereg)
+          Write-Output 'G76_PREEXEC_SOURCE=PASS'
+      - name: Create collision-checked disposable runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((Get-Item $env:RUNNER_TEMP).PSDrive.Free -lt 10000000000) { throw 'G76_TEMP_SPACE_LT_10GB' }
+          foreach ($name in @('acc-g76-venv','acc-g76-hf','acc-g76-austen.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { throw ('G76_TEMP_COLLISION:' + $name) }
+          }
+          if (Test-Path -LiteralPath 'g76-output') { throw 'G76_OUTPUT_COLLISION' }
+          & python -m venv (Join-Path $env:RUNNER_TEMP 'acc-g76-venv')
+          if ($LASTEXITCODE -ne 0) { throw 'G76_VENV_CREATE_FAILED' }
+      - name: Install pinned isolated CUDA and model runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g76-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE='1'
+          & $p -m pip install --disable-pip-version-check --no-cache-dir torch==2.8.0+cu128 --index-url https://download.pytorch.org/whl/cu128
+          if ($LASTEXITCODE -ne 0) { throw 'G76_TORCH_CU128_INSTALL_FAILED' }
+          & $p -m pip install --disable-pip-version-check --no-cache-dir transformers==4.52.3 huggingface_hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1
+          if ($LASTEXITCODE -ne 0) { throw 'G76_HF_PINS_INSTALL_FAILED' }
+          & $p -m pip freeze | Out-File -LiteralPath 'g76_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G76_PACKAGE_FREEZE_FAILED' }
+      - name: Run offline frozen-source and profiler contract tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g76-venv\Scripts\python.exe'
+          & $p -m py_compile research/acc_g76/g76i_timeline.py research/acc_g76/g76_profile_original.py research/acc_g76/test_g76i_timeline.py research/acc_g76/test_g76_profile_original.py
+          if ($LASTEXITCODE -ne 0) { throw 'G76_SOURCE_COMPILE_FAILED' }
+          & $p -m unittest discover -s research/acc_g76 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'G76_OFFLINE_CONTRACT_TESTS_FAILED' }
+      - name: Capture original RTX CPU CUDA profiler traces only
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference='Stop'
+          if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { throw 'G76_NVIDIA_SMI_MISSING' }
+          $nv=@(& nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free --format=csv,noheader)
+          if ($LASTEXITCODE -ne 0 -or -not $nv -or ($nv -join [Environment]::NewLine) -notmatch 'RTX 5070 Ti Laptop GPU') { throw 'G76_ORIGINAL_RTX_NOT_VISIBLE' }
+          Write-Output ('G76_LIVE_NVIDIA=' + ($nv -join ';'))
+          $p=Join-Path $env:RUNNER_TEMP 'acc-g76-venv\Scripts\python.exe'
+          $env:HF_HOME=Join-Path $env:RUNNER_TEMP 'acc-g76-hf'
+          $env:G76_OUTPUT_DIR=Join-Path (Get-Location).Path 'g76-output'
+          & $p -u research/acc_g76/g76_profile_original.py
+          if ($LASTEXITCODE -ne 0) { throw 'G76_REAL_GPU_PROFILER_CAPTURE_FAILED' }
+          & $p -c 'import json,pathlib; r=json.loads(pathlib.Path("g76-output/g76i_run.json").read_text()); assert r["status"]=="PASS_COMPLETE_FROZEN_GPU_TRACE"; assert len(r["cases"])==2; assert [x["context_tokens"] for x in r["cases"]]==[512,1536]; assert all(x["result"]["profiled_output_parity"]=="PASS" for x in r["cases"]); assert all(x["result"]["summary"]["cpu_events"]>0 and x["result"]["summary"]["kernel_events"]>0 and x["result"]["summary"]["cuda_runtime_events"]>0 for x in r["cases"]); assert all(x["result"]["sdpa_operator_count"]>0 for x in r["cases"]); assert all(x["result"]["launch_overhead_fraction"]=="UNVERIFIED" for x in r["cases"]); assert r["science_acceptance"]=="NOT_GRANTED"; print("G76_AUTHENTIC_TRACE_CAPTURE=PASS"); print("G76_LAUNCH_OVERHEAD=UNMEASURED")'
+          if ($LASTEXITCODE -ne 0) { throw 'G76_FROZEN_REPORT_CONTRACT_FAILED' }
+      - name: Upload numeric trace artifacts only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g76-original-rtx-profiler-traces
+          path: |
+            g76-output/*.json
+            g76_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Delete disposable runtime, model cache, text source and local traces
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($name in @('acc-g76-venv','acc-g76-hf','acc-g76-austen.txt')) {
+            $p=Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop }
+          }
+          if (Test-Path -LiteralPath 'g76-output') { Remove-Item -LiteralPath 'g76-output' -Recurse -Force -ErrorAction Stop }
+          if (Test-Path -LiteralPath 'g76_pip_freeze.txt') { Remove-Item -LiteralPath 'g76_pip_freeze.txt' -Force -ErrorAction Stop }
+          Write-Output 'G76_DISPOSABLE_CLEANUP=PASS'
