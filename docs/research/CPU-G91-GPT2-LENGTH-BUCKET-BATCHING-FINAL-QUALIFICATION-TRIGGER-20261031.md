@@ -9,3 +9,5 @@ Frozen disposition: **engineering PASS, correctness PASS, LENGTH_BUCKET_NO_GO**.
 This final workflow performs immutable receipt/source checks, G91 unit tests, isolation/FSA, F139 custody and full Go tests/race/vet/build on Linux and Windows. It does not rerun inference. Scientific acceptance remains NOT_GRANTED and promotion remains false.
 
 Receipt-only Linux/Windows final qualification workflow is now committed. Start a new final verification run from this exact branch head.
+
+Regression test fixture whitespace assertions were corrected; restart final receipt-only Linux/Windows qualification against this exact test blob.
