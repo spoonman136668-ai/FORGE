@@ -62,12 +62,14 @@ def ledger_observation(db: pathlib.Path) -> dict:
         require(meta["source_sha"] == SOURCE_SHA and meta["enabled"] == 1, "SOURCE_POLICY_DRIFT")
         require(meta["head_seq"] >= BASELINE_SEQ, "HEAD_REGRESSION")
         previous = "0" * 64
+        expected_seq = 1
         baseline_found = False
         subsequent = []
         for row in conn.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"):
             e = dict(row)
             seq = e["seq"]
-            require(seq > 0 and e["prior_sha"] == previous, "CHAIN_LINK_DRIFT")
+            require(seq == expected_seq and e["prior_sha"] == previous, "CHAIN_LINK_DRIFT")
+            expected_seq += 1
             payload = json.loads(e["payload"])
             expected = hashlib.sha256(canonical({
                 "seq": seq, "prior_sha": e["prior_sha"],
