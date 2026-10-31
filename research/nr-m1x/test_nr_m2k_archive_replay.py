@@ -12,7 +12,8 @@ import unittest
 import zipfile
 
 from nr_m2k_archive_replay import (
-    _config, _process, _summarize, _byte_sha256, replay_archive, ROLE_ON, ROLE_OFF
+    _config, _process, _summarize, _byte_sha256, replay_archive, ROLE_ON, ROLE_OFF,
+    EXPECTED_PROCESS_MEMBERS,
 )
 from nr_m2i_decision_evidence import sha256
 
@@ -27,6 +28,13 @@ class NRM2KArchiveTransportTests(unittest.TestCase):
         self.assertEqual(cfg["expected_development_diagnostics"]["enabled_cycle_four"], 11)
         self.assertEqual(cfg["expected_development_diagnostics"]["enabled_cycle_zero_new_exact_views_action_cost"], 134)
         self.assertTrue(all(v is False for v in cfg["no_authority"].values()))
+
+    def test_exact_original_eight_member_archive_manifest(self):
+        self.assertEqual(len(EXPECTED_PROCESS_MEMBERS), 8)
+        self.assertEqual(EXPECTED_PROCESS_MEMBERS, frozenset((
+            "comparison.log", "first.json", "second.json", "first.log", "second.log",
+            "first-resources.json", "second-resources.json", "mg33c-synthetic.json",
+        )))
 
     def test_no_archive_no_replay(self):
         with tempfile.TemporaryDirectory(prefix="nr-m2k-") as folder:
