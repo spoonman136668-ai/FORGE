@@ -1,72 +1,69 @@
-# G107 — Authentic baseline identity report
+# G107 — Authentic model and GPU baseline identity report
 
 **Checkpoint:** 2026-10-31  
-**Status:** `BLOCKED_IDENTITY` — read-only repository and durable-context inventory completed; no model benchmark or target-GPU probe executed.
+**Status:** `BLOCKED_MODEL_IDENTITY` — target GPU and one-shot CUDA execution path are verified; approved model/checkpoint and authentic inference runtime identity remain unverified. No model inference or training benchmark was executed.
 
-## Pinned source identities
+## Verified target GPU and qualified route — corrected prior finding
 
-- FORGE protected/default `main`: commit `0810ecf3df6378bcbfe5239d30df836b7e12a602`.
-- FORGE `README.md` blob: `3133342229817b08f3a80b462e840687e70f3370`.
-- FORGE `PUBLIC_SOURCE_BOUNDARY.md` blob: `5c1003bbf29d2a7dd4b1ef5140b63d1777b3a738`.
-- FORGE `docs/FSA-RUNNABLE-AUTHORITY-R13.md` blob: `09513407f93f3d17934e41970b57a3c4f085024c`.
-- Mind-Palace pinned main for this retrieval: `84ad556910c869afa2f171673d5a5b4041a4a9b4`. Remote bootstrap blob `62440b15e9e7e7b6846dbaf35bbf7c204108ab90`; catalog blob `4579ff9a811d26ecaf9dc4138e04dbe388940d21`. Both required schemas validated and `source.records_sha256` matched `3a377f825ad6da28d2c85534337ce831441295ee662e7f4b869f6c565d9e4f83`.
+The prior report said no target-GPU route had been established. That statement was incomplete and is superseded by the original G59/G60 source evidence.
 
-## Authoritative findings
+### G59 — actual hardware observation
 
-1. FORGE `main` README explicitly describes the project as a **public source-only prototype**, not deployed or qualified for live scientific execution. It says the public prototype is non-executing and does not yet implement or activate FSA. It further identifies GitHub-hosted Ubuntu and Windows CI, not an actual target-GPU execution route.
-2. `PUBLIC_SOURCE_BOUNDARY.md` explicitly says the published code is an audited subset; private scientific source archives, accepted-ref/production authority records, credentials, sealed cohorts, runner tokens/configuration and private backend controller are intentionally omitted. It says public source contracts perform structural validation, not third-party provenance authentication or permission to execute/accept science. FSA is not yet implemented or activated. Public GitHub Actions use hosted Linux/Windows runners with read-only permissions and no private repository checkout.
-3. `docs/FSA-RUNNABLE-AUTHORITY-R13.md` says its authority and witness processes are source-qualified only, **not deployed or independently provisioned**; no live scientific authority, original-first-use clearance, write endpoint or worker execution exists. Its operations are read-only anchor/binding GETs. Its loopback tests do not prove independent physical hosts or operator-owned secret custody.
-4. Mind-Palace bounded FORGE records `decision/forge-cloudflare-reuse-autonomy-priority-20261015`, `decision/forge-dream-rsi-fsa-execution-partition-20261011`, `decision/forge-e2e-cutover-proof-gate-20261011`, and `decision/forge-portfolio-methods-preservation-20261012` reinforce that authentic first-use, FSA/authority qualification, and independent evidence custody are gates; these records are advisory and historical/observed, not execution authority. Relevant global record `boundary/webui-command-status-not-execution-authority` also confirms the WebUI is not execution or acceptance authority. Preserve these Mind-Palace record IDs and their source_refs; the authoritative current state is the pinned FORGE main source above.
-5. Repository code searches on FORGE's default branch found no TinyLlama, Llama, tokenizer, CUDA, `CUDA_VISIBLE_DEVICES`, `nvidia-smi`, `AutoModelForCausalLM`, or `model.safetensors` implementation/configuration match. Searches for general `inference`/model terms returned unrelated scientific-autonomy and FSA custody files, not a decoder or model loader. This is bounded search evidence, not proof that no private checkpoint exists elsewhere.
-6. Final G91–G106 workflow run #2735 completed full Linux and Windows jobs successfully. These are hosted source qualification jobs; neither emitted authenticated target-GPU telemetry or an original-model inference trace.
+FORGE issue [#1259](https://github.com/spoonman136668-ai/FORGE/issues/1259) records original read-only capability run [#41030389354](https://github.com/spoonman136668-ai/FORGE/actions/runs/41030389354). The existing self-hosted Windows `FORGE-CODEX-REMOTE` runner with labels `[self-hosted, Windows, forge-codex-isolated]` exposed:
 
-## Additional bounded source search
+- NVIDIA GeForce RTX 5070 Ti Laptop GPU; one device.
+- 12,227 MiB total VRAM and 11,812 MiB free at the observation (ephemeral).
+- NVIDIA driver 596.13.
+- At that time, no globally installed/importable PyTorch CUDA runtime and no `llama-bench` on PATH.
 
-- GitHub repository list confirms the connected account exposes a dedicated private `spoonman136668-ai/forge-knowledge` repository. Code-index searches in that repository and FORGE's default `main` for `TinyLlama`, `RTX 4070`, `5070Ti`, `ROG Strix`, and `model revision` produced no matching model/device identity source. Search for `inference runtime` in forge-knowledge returned only Graphify/Obsidian index and test-navigation files, not an inference manifest.
-- FORGE `main` search for `TinyLlama`, `llama`, `tokenizer`, `cuda`, `CUDA_VISIBLE_DEVICES`, `nvidia-smi`, `AutoModelForCausalLM`, and `model.safetensors` produced no source configuration/implementation hits. General `inference` results pointed to source-only FSA/autonomy and research custody files, not a decoder or checkpoint loader. The query `4070` matched incidental numeric values in unrelated research artifacts; those matches are not hardware evidence.
-- Search scope is limited to GitHub indexed code in the connected FORGE and forge-knowledge repositories; a zero-result search does not prove that private files, unindexed content, local model caches or workstation state do not exist.
-- The public FORGE README states no private scientific evidence, external-source archives, private backend controller, runner tokens/configuration, or sealed evaluation data are included in the public repository. `PUBLIC_SOURCE_BOUNDARY.md` further says public workflows use GitHub-hosted Ubuntu/Windows with read-only permissions and no private repository checkout. This confirms that run #2735 is hosted software qualification, not the required model/GPU route.
+Corrected workflow commit `acfe588425351848942097d258842e47fe811f80`, artifact ID `12966370600`, ZIP SHA256 `c6d368b70e6697e4ec699c7943100401214eed5fcea17688e3ed6351b564bac2`. Structured source record: `docs/research/ACC-G59-GPU-CAPABILITY-20261030.json`, commit `a4f67b3fd4936cc83fd1b9fb1cff57350fd55293`, blob `569bed3450a80f454b9c846040153299c6ee1c50`.
 
-## Additional repository-route checks
+### G60/G61 — actual CUDA runtime admission
 
-- Connected repository inventory contains `Qualification-Forge`, `rbackup`, and `forge-knowledge`, but none is evidence of the requested model or target-device manifest.
-- `Qualification-Forge/README.md` blob `636984cadb0fcf9696e27afbc2e970a0f4676223` describes a shared Windows qualification worker whose stated controller and acceptance authority remains CKB-plane. It explicitly disallows independent scheduling, promotion, production activation and accepted-reference mutation. This is **not** proof of a qualified FORGE-owned GPU execution route, and it cannot be repurposed as one.
-- `rbackup/README.md` blob `d690ae611951ff2fe745672e7bcbca07ff1b38f5` defines a private encrypted recovery-backup vault for FORGE scientific evidence. Its status states no D1 backup had been uploaded/restored and no production migration or scientific dispatch was authorized. It is not identified as a model checkpoint registry.
-- `forge-knowledge/README.md` blob `0051858f647fc36f0c323e82b44f15fcf0ab7b2a` identifies generated, code-only advisory navigation (source-main snapshot d8bccc60), explicitly with no scientific, execution, release, or model-training authority.
-- A broader connected-account GitHub code-search attempt was rate-limited (HTTP 429) before scoped scans of all remaining private repositories could finish. Therefore G107 records those repositories as **NOT FULLY SEARCHED**, not as confirmed empty. No retries, alternate controller, or credential escalation was attempted.
+G60 used the same dedicated runner and a one-shot workflow on isolated branch `research/acc-g60-cuda-runtime-20261030`:
 
-## Scoped private-repository search follow-up
+- Source commit `34cff5dff81407688e010f9abff0f33a253cf655`; workflow blob `5d4248029f4478b51ca8f9296d94de6792ceb1e8`.
+- Original job [#124205236235](https://github.com/spoonman136668-ai/FORGE/actions/runs/41097033533/job/124205236235) in run [#41097033533](https://github.com/spoonman136668-ai/FORGE/actions/runs/41097033533) completed SUCCESS.
+- It created a temporary virtual environment under `RUNNER_TEMP`, installed `torch==2.8.0` from the official CUDA 12.8 wheel index, and confirmed `torch 2.8.0+cu128`, CUDA 12.8, CUDA availability, device compute capability `sm_120`, and an actual CUDA-resident matrix multiplication.
+- The measured one-shot 1024×1024 FP32 GPU matmul wall time was 113.323 ms; result checksum 268,522,304; maximum allocated VRAM 24,248,320 bytes. This is a runtime smoke test, **not** a model throughput benchmark.
+- The workflow's `finally` block removes the temporary virtual environment. It did not establish a persistent global PyTorch runtime; it did not install `llama.cpp`, `llama-bench`, or model files.
+- Original artifact ID `12995299765`, GitHub digest and independently downloaded ZIP SHA256 both `c0f4fee1d06a566e01dc4529ff7f031a89a3b0a22c5b15337f89afc6d2eab5e4`. The artifact JSON records `authentic_model_loaded=false` and `scientific_acceptance=NOT_GRANTED`.
+- The G61 readback comment on issue #1259 confirms the original G60 run's PASS without repeating hardware execution.
 
-A fresh, repository-scoped GitHub code search was completed after the prior API rate limit cleared. Exact connected targets: `spoonman136668-ai/FORGE`, `forge-knowledge`, `rbackup`, `Qualification-Forge`, and `ckb`. Independent single-term searches for `TinyLlama`, `model.safetensors`, `huggingface`, `nvidia-smi`, and `CUDA_VISIBLE_DEVICES` returned **zero indexed code results across those five repositories**. This directly addresses the earlier rate-limited search limitation for these specific repositories.
+Structured combined receipt: `G107_GPU_RUNTIME_ADMISSION_20261030.json` in this directory, committed in the current branch. It preserves both G59 and G60 immutable provenance.
 
-The result is bounded to the GitHub code-search index and default-branch searchable content. It does **not** inspect unindexed repositories, unindexed paths, non-code GitHub assets/releases, local workstation model caches, external model registries, private runner machines, or encrypted backup contents. The `ckb` and `Qualification-Forge` source repositories are not repurposed as FORGE execution authority; the documented Qualification-Forge README still assigns its worker to CKB-plane governance.
+**Revised gate state:** target GPU identity **PASS**; existing dedicated runner visibility **PASS**; isolated CUDA 12.8 runtime admission and real GPU matmul **PASS**. This corrects the earlier generic G107 statement that GPU route was unverified. The only thing established here is that this specific one-shot CUDA test worked on that runner at that time.
 
-No checkpoint revision, tokenizer/shard hashes, actual CUDA runtime manifest or target GPU readback was recovered. `BLOCKED_IDENTITY` remains the correct G107 status. The next safe acquisition path is a bounded read-only lookup against the actual model registry/cache manifest and the existing qualified GPU runner inventory, using their established authorized sources—not broader unrelated repo searches or new infrastructure.
-
-## Required identity inventory
+## Remaining approved-model identity inventory
 
 | Identity item | Result | Evidence / reason |
 |---|---|---|
-| Approved TinyLlama repo + immutable checkpoint revision | **UNVERIFIED** | No source-bound checkpoint/revision located in FORGE main or bounded FORGE Mind-Palace records |
-| Config/tokenizer/weight-shard SHA256 manifest | **UNVERIFIED** | Model files are not present in public FORGE source; public boundary says historical/private source artifacts are omitted |
-| Exact loader/decoder/cache/sampling/backend source SHA | **UNVERIFIED** | No TinyLlama/model loader implementation located in FORGE main |
-| Python/framework/CUDA/cuDNN/kernel versions for target run | **UNVERIFIED** | No actual target inference process or environment manifest |
-| Target GPU PCI/device identity, compute capability, driver and device memory | **UNVERIFIED** | CI evidence establishes hosted Linux/Windows software qualification only; no target-device readback |
-| Existing authorized route that can see the target GPU | **UNVERIFIED** | No source evidence ties a currently qualified authorized runner to the target GPU; runner labels are insufficient |
-| Fixed held-out prompt/token-ID corpus digest | **UNVERIFIED** | No approved immutable benchmark corpus manifest identified |
-| Baseline TTFT/tokens/s/latency and memory telemetry | **NOT RUN** | G107 correctly stopped before model load/inference |
-| Baseline output parity/quality | **NOT RUN** | No model execution performed |
+| Approved causal-LM model repository and immutable revision | **UNVERIFIED** | G59 recommends choosing and pinning an approved open-weight model; it does not nominate or authorize a specific checkpoint |
+| TinyLlama checkpoint identity (if TinyLlama remains the intended baseline) | **UNVERIFIED** | No source-bound model ID/revision found in the inspected records; do not infer a revision from the model family name |
+| Model config, tokenizer, all weight-shard names/sizes/SHA256 | **UNVERIFIED** | G59/G60 did not download, load, or hash model files |
+| Model license/usage rights and permitted checkpoint source | **UNVERIFIED** | No approved model-specific rights record tied to the target checkpoint |
+| Persistent inference runtime/loader/decoder/cache/sampling source SHA | **UNVERIFIED** | G60 validated a temporary PyTorch CUDA runtime only; it did not establish a persistent inference stack |
+| Persistent optimized inference backend and versions (llama.cpp CUDA, Transformers/SDPA, etc.) | **UNVERIFIED** | `llama-bench` was absent at G59; G60 did not install or test an inference backend |
+| Target-device identity, driver, VRAM, compute capability | **PASS — historical readback** | G59/G60 original artifacts; live VRAM free space is not guaranteed and must be reread before a later benchmark |
+| Existing qualified route capable of real GPU compute | **PASS — one-shot admission** | Existing `FORGE-CODEX-REMOTE` self-hosted Windows runner, G59/G60 source and immutable artifacts |
+| Fixed held-out prompt/token-ID corpus digest and generation settings | **UNVERIFIED** | No approved model-specific inference workload manifest |
+| End-to-end TTFT, steady-state tokens/s, latency distribution and memory | **NOT RUN** | No authentic model loaded |
+| Model output parity/quality baseline | **NOT RUN** | No inference performed |
 
-## Decision
+## Other relevant source checked
 
-**G107 = `BLOCKED_IDENTITY`.** Read-only repository inventory is complete. The public FORGE source does not contain the required target model/runtime or a qualified GPU route, and its own documentation explicitly withholds the live execution/first-use authority. This is a concrete evidence boundary, not an inference that the user's computer lacks a GPU or that no private checkpoint exists.
+G58 draft PR [#1257](https://github.com/spoonman136668-ai/FORGE/pull/1257) identifies a pinned public-domain *Alice's Adventures in Wonderland* training corpus and a small four-layer scratch model. That is a distinct scratch-training experiment; it is not a pretrained TinyLlama checkpoint and cannot be substituted for the approved inference baseline.
 
-### Exact remaining blocker
+Repository-scoped code-index searches across FORGE, forge-knowledge, rbackup, Qualification-Forge and ckb for `TinyLlama`, `model.safetensors`, `huggingface`, `nvidia-smi`, and `CUDA_VISIBLE_DEVICES` returned zero indexed code results. This does not inspect unindexed files, release assets, external registries, local model caches, encrypted backup contents, or runner-host directories. No local files, credentials, caches or secrets were inspected.
 
-Need an authenticated read-only source of truth for the already-approved checkpoint (repository and immutable revision, config, tokenizer, all shard digests), the corresponding inference runtime source/dependency identity, and an existing authorized execution route whose actual GPU PCI/device/driver/CUDA visibility is verified. None of these can be supplied by run #2735's hosted Linux/Windows CI or by a historical device description.
+Mind-Palace was retrieved read-only at pinned commit `84ad556910c869afa2f171673d5a5b4041a4a9b4`; v2 bootstrap/catalog schemas and matching `source.records_sha256` were verified. Relevant FORGE advisory records include `decision/forge-cloudflare-reuse-autonomy-priority-20261015`, `decision/forge-dream-rsi-fsa-execution-partition-20261011`, `decision/forge-e2e-cutover-proof-gate-20261011`, and `decision/forge-portfolio-methods-preservation-20261012`. They reinforce that actual first-use, source custody, frozen scientific controls and separate acceptance remain mandatory. They grant no execution authority.
 
-### Next step and authority boundary
+## Decision and next gate
 
-Continue only with read-only retrieval of the existing original checkpoint/runtime manifest and authorized runner/device identity from their actual source of truth. Do not guess a Hugging Face repo, substitute a recent TinyLlama revision, infer a GPU model from hardware recollection, download/load weights, run local shell/GPU probes, allocate a GPU, alter drivers/runtime, benchmark, integrate a candidate, merge or promote. Any such execution still requires the existing applicable authority and qualified route; Mind-Palace is advisory and does not grant it. No CKB-plane route or new controller is introduced.
+**G107 = `BLOCKED_MODEL_IDENTITY`, not GPU-access-blocked.**
 
-No secrets, tokens, private prompt contents, personal paths or account credentials are retained.
+The next gate is to obtain or select an **explicitly approved** immutable causal-LM checkpoint and a matching evaluation corpus. Then perform read-only identity capture: model repository and commit, config/tokenizer/shard hashes, license, exact inference backend and source/dependency identity, fixed held-out token IDs, context/batch/generation settings and quality criterion. After that, separately qualify a persistent optimized inference backend in an isolated temporary environment on the already verified runner, reread live VRAM and device/driver state, and preregister the first authentic baseline measurement.
+
+Do not silently choose a Hugging Face repo/revision, download weights, load a model, install a persistent runtime, or claim first-use/benchmark success before the model identity, rights, resource budget, and applicable authorization are established. No controller, protected-main, accepted-ref, CKB-plane, production or scientific acceptance change is made here.
+
+**Plain English:** We have the GPU and proved CUDA compute works on the existing FORGE runner. We still do not know which exact approved model checkpoint and tokenizer should be benchmarked. That is now the sole primary blocker for starting the authentic model baseline.
