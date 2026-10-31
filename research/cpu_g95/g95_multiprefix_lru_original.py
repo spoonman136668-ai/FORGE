@@ -258,7 +258,8 @@ def main():
   "dataset_revision":DATA_REV,"dataset_sha256":DATA_SHA,"engineering":"UNVERIFIED","correctness":"UNVERIFIED",
   "decision":"UNVERIFIED","scientific_acceptance":"NOT_GRANTED","promotion_allowed":False,
   "runtime":{"torch":torch.__version__,"transformers":transformers.__version__,"python":platform.python_version(),
-  "platform":platform.platform(),"machine":platform.machine(),"cpu":platform.processor(),"logical_cpus":os.cpu_count(),\n  "torch_intraop_threads":torch.get_num_threads(),"torch_interop_threads":torch.get_num_interop_threads()},
+  "platform":platform.platform(),"machine":platform.machine(),"cpu":platform.processor(),"logical_cpus":os.cpu_count(),
+  "torch_intraop_threads":torch.get_num_threads(),"torch_interop_threads":torch.get_num_interop_threads()},
   "limitations":["Four exact prefix keys and deterministic round-robin traffic only","Original GPT2 FP32 CPU workload; one Linux x86_64 virtualized host, 3-core affinity",
    "GSM8K rank cohort disjoint but not proven unseen in GPT2 pretraining","Sampled RSS, no energy metric",
    "No production/general-traffic/other-model/scientific acceptance/promotion claim"]}
