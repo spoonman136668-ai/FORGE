@@ -89,13 +89,36 @@ class DatabasePhaseTiming:
         @contextmanager
         @wraps(transaction)
         def measured_transaction(db, *args, **kwargs):
-            start = time.perf_counter()
+            # Mirrors Database.transaction exactly: BEGIN IMMEDIATE is outside
+            # the protected body; COMMIT is inside it; any body/commit exception
+            # triggers ROLLBACK and is re-raised. Only timing is added.
+            begin_started = time.perf_counter()
             try:
-                with transaction(db, *args, **kwargs) as conn:
-                    yield conn
+                db.conn.execute("BEGIN IMMEDIATE")
             finally:
-                self.samples["transaction"].append(
-                    (time.perf_counter() - start, TimingResult.current_test_id))
+                self.samples["begin"].append(
+                    (time.perf_counter() - begin_started, TimingResult.current_test_id))
+            try:
+                body_started = time.perf_counter()
+                try:
+                    yield db.conn
+                finally:
+                    self.samples["body"].append(
+                        (time.perf_counter() - body_started, TimingResult.current_test_id))
+                commit_started = time.perf_counter()
+                try:
+                    db.conn.execute("COMMIT")
+                finally:
+                    self.samples["commit"].append(
+                        (time.perf_counter() - commit_started, TimingResult.current_test_id))
+            except BaseException:
+                rollback_started = time.perf_counter()
+                try:
+                    db.conn.execute("ROLLBACK")
+                finally:
+                    self.samples["rollback"].append(
+                        (time.perf_counter() - rollback_started, TimingResult.current_test_id))
+                raise
 
         @wraps(event)
         def measured_event(db, *args, **kwargs):
@@ -143,7 +166,7 @@ def main():
             f"F139_TIMING_DB_{name.upper()}=count={len(samples)} "
             f"total={sum(samples):.3f}s", file=sys.stderr,
         )
-    for name in ("transaction", "event"):
+    for name in ("begin", "body", "commit", "rollback", "transaction", "event"):
         samples = phases.samples[name]
         valid = [(seconds, test_id) for seconds, test_id in samples if test_id]
         by_module_phase = defaultdict(list)
