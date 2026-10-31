@@ -32,6 +32,33 @@ class InteractingContracts(unittest.TestCase):
         self.assertEqual(m.sent_payload_bytes,64)
         self.assertEqual(InteractingCells.restore(m.snapshot()).snapshot(),m.snapshot())
 
+    def test_message_effect_and_complete_payload_accounting(self):
+        a=InteractingCells("connected")
+        b=InteractingCells("disabled")
+        # Neighbor 1's positive feedback must reach cell 0 only on next tick.
+        for learner in (a,b):
+            learner.observe([((0,0,1),1)] * 5)
+        self.assertEqual(a.predict((0,0,0)),b.predict((0,0,0)))
+        a.advance_messages()
+        b.advance_messages()
+        self.assertEqual(a.sent_payload_bytes,32)
+        self.assertEqual(a.delivered_payload_bytes,32)
+        self.assertEqual(b.sent_payload_bytes,0)
+        self.assertEqual(b.delivered_payload_bytes,0)
+        # The neighboring cell contributes a nonzero quantized error signal.
+        self.assertNotEqual(a.incoming[0][0][1],0)
+        self.assertEqual(b.incoming[0],((0,0),(0,0)))
+
+    def test_exact_full_episode_communication_cost(self):
+        trace=switching_trace("DEV",54,701)
+        for mode in ("connected","shuffled"):
+            report=evaluate(trace,mode)
+            self.assertEqual(report["payload_bytes_sent"],320*32)
+            self.assertEqual(report["payload_bytes_delivered"],320*32)
+        report=evaluate(trace,"disabled")
+        self.assertEqual(report["payload_bytes_sent"],0)
+        self.assertEqual(report["payload_bytes_delivered"],0)
+
     def test_shuffled_topology_not_identical(self):
         a=InteractingCells("connected")
         b=InteractingCells("shuffled")
