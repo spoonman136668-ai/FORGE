@@ -83,9 +83,15 @@ def audit():
   # its exact source is an ancestor of the currently pinned main, not equal
   # to today's main and not merely a successful run from an unrelated commit.
   lineage=get(repo,"/compare/"+run_sha+"..."+sha)
+  lineage_commits=lineage.get("commits")
+  lineage_head=(lineage_commits[-1].get("sha")
+                if isinstance(lineage_commits,list) and lineage_commits
+                else run_sha if lineage.get("status")=="identical" else None)
   need(lineage.get("status") in ("ahead","identical") and
        lineage.get("base_commit",{}).get("sha")==run_sha and
-       lineage.get("head_commit",{}).get("sha")==sha,
+       lineage_head==sha and
+       (lineage.get("ahead_by",0)>0 if lineage.get("status")=="ahead"
+        else run_sha==sha),
        "RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
   again=get(repo,"/branches/"+urllib.parse.quote(active,safe="/"))
   need(again.get("commit",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
