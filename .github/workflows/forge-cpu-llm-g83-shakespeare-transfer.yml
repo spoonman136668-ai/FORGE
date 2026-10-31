@@ -1,0 +1,90 @@
+name: FORGE CPU LLM G83 original GPT2 fixed two-thread Shakespeare transfer
+on:
+  push:
+    branches: [research/cpu-llm-g83-shakespeare-transfer-20261030]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g83-shakespeare-transfer.yml'
+      - 'research/cpu_g83/**'
+permissions:
+  contents: read
+concurrency:
+  group: forge-cpu-g83-original-prefill-thread-study
+  cancel-in-progress: false
+jobs:
+  frozen-source-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify immutable original G70 parent and independent G83 prereg
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          git merge-base --is-ancestor b73fc3ce33367d429d8cd4c3eee62abb2fe4110b HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G83-GPT2-SHAKESPEARE-TRANSFER-PREREG-20261030.md)" = "$(git rev-parse b73fc3ce33367d429d8cd4c3eee62abb2fe4110b:docs/research/CPU-G83-GPT2-SHAKESPEARE-TRANSFER-PREREG-20261030.md)"
+          git diff --exit-code 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          git diff --check 20a540d0241519e2e9d90ace868ffd6db60bd065 HEAD
+          python -B -m py_compile research/cpu_g83/g83_shakespeare_transfer.py research/cpu_g83/test_g83_shakespeare_transfer.py
+          python -B -m unittest discover -s research/cpu_g83 -p test_g83_shakespeare_transfer.py -v
+          echo CPU_G83_FROZEN_SOURCE_ADMISSION=PASS
+  authentic-original-full-decoder:
+    needs: frozen-source-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin original pretrained GPT2 CPU runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip check
+          python -m pip freeze > cpu_g83_original_environment.txt
+      - name: Evaluate original GPT2 static uniform2 against one and three threads on pinned Shakespeare
+        shell: bash
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/cpu_g83/g83_shakespeare_transfer.py
+          python - <<'PY'
+          import json
+          r=json.load(open("cpu_g83_original_result.json",encoding="utf-8"))
+          assert r["gate"]=="CPU_G83"
+          assert r["engineering"]=="PASS" and r["correctness"]=="PASS"
+          assert r["summary"]["timed_authentic_responses"]==180
+          assert r["summary"]["timed_authentic_generated_tokens"]==1440
+          assert len(r["original_paired_trials"])==60
+          assert r["transfer"] in ("TRANSFER_PASS","TRANSFER_FAIL")
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and not r["promotion_allowed"]
+          print("CPU_G83_ORIGINAL_PRETRAINED_THREAD_STUDY=PASS")
+          print("CPU_G83_FROZEN_TRANSFER="+r["transfer"])
+          PY
+      - name: Preserve original result even on blocked or engineering failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g83-original-phase-prefill-thread-budget
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g83_original_result.json
+            cpu_g83_original_environment.txt
