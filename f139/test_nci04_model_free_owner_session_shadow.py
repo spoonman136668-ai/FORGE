@@ -16,7 +16,7 @@ from f139.nci04_model_free_owner_response_shadow import encode_owner_response_sh
 from f139.nci04_model_owner_bridge import OwnerModelDenied, owner_request, owner_response
 from f139.test_nci04_genuine_yggdrasil_fixture import FIXTURES, ORIGINAL_SHA256
 from f139.test_nci04_model_free_grammar import META
-from f139.test_nci04_model_owner_publication import OwnerModelPublicationTests
+from f139 import test_nci04_model_owner_publication as _owner_fixture
 from test_nci04_owner_ledger import MAIN
 
 
@@ -24,7 +24,7 @@ class OriginalOwnerSessionModelFreeShadowTests(unittest.TestCase):
     """Exercise original read-only session path without calling publish_model_once."""
 
     def setUp(self):
-        owner = OwnerModelPublicationTests(
+        owner = _owner_fixture.OwnerModelPublicationTests(
             "test_original_owner_single_model_draft_publication_and_no_dispatch")
         owner.setUp()
         self.addCleanup(owner.doCleanups)
@@ -104,7 +104,7 @@ class OriginalOwnerSessionModelFreeShadowTests(unittest.TestCase):
         shadow = self.response(prepared)
         old = dict(self.db.meta())
         with self.db.transaction():
-            self.db.event("H73_SYNTHETIC_STALE_OWNER_EVENT", {"negative": True})
+            self.db.event("SYNTHETIC_OWNER_STALE_EVENT", {"negative": True})
         self.assertNotEqual(self.db.meta()["head_hash"], old["head_hash"])
         with self.assertRaisesRegex(OwnerModelDenied, "SESSION_STALE"):
             owner_response(self.db, self.provider.get, self.steering.get,
