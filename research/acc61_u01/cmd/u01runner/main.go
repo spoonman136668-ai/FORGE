@@ -245,9 +245,15 @@ func main(){
 		fmt.Fprintln(os.Stderr,"ACC125_RECEIPT_WRITE:",errors.Join(encErr,closeErr))
 		os.Exit(2)
 	}
-	if err:=os.Rename(tempPath,out);err!=nil {
+	// Link is atomic and refuses to replace a pre-existing result path.
+	// A plain rename would silently overwrite an immutable research receipt.
+	if err:=os.Link(tempPath,out);err!=nil {
 		_ = os.Remove(tempPath)
-		fmt.Fprintln(os.Stderr,"ACC125_RECEIPT_RENAME:",err)
+		fmt.Fprintln(os.Stderr,"ACC126_RECEIPT_EXCLUSIVE_LINK:",err)
+		os.Exit(2)
+	}
+	if err:=os.Remove(tempPath);err!=nil {
+		fmt.Fprintln(os.Stderr,"ACC126_RECEIPT_TEMP_CLEANUP:",err)
 		os.Exit(2)
 	}
 	fmt.Printf("ACC125_COLD_CHILDREN=%d FROZEN=%t DECISION=%s\n",
