@@ -34,7 +34,7 @@ def fixed():
             "id": 38800000100, "name": lane + " research continuation launcher",
             "status": "completed", "conclusion": "success", "head_sha": main,
         }
-        data[(repo, "/compare/" + main + "..." + main)] = {
+        data[(repo, "/compare/" + main + "..." + main + "?per_page=1&page=1")] = {
             "status": "identical", "base_commit": {"sha": main},
             "head_commit": {"sha": main},
         }
@@ -76,8 +76,11 @@ class F74(unittest.TestCase):
                 api[(repo, "/actions/runs/38800000100")]["head_sha"] = old
                 api[(repo, "/compare/" + old + "..." + main + "?per_page=1&page=1")] = {
                     "status": "ahead", "ahead_by": 2,
-                    "base_commit": {"sha": old},
-                    "commits": [{"sha": ("e" if lane == "Wingless" else "f") * 40}],
+                    "base_commit": {"sha": old}, "commits": [{"sha": old}],
+                }
+                api[(repo, "/compare/" + old + "..." + main + "?per_page=1&page=2")] = {
+                    "status": "ahead", "ahead_by": 2,
+                    "base_commit": {"sha": old}, "commits": [{"sha": main}],
                 }
         result = self.work(edit)
         self.assertEqual(len(result["lanes"]), 2)
