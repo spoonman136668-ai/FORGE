@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from f139.nci04_native_contract import canonical, digest
 
-SHA64 = re.compile(r"[a-f0-9]{64}\\Z")
+SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 LINEAGE_SCHEMA = "forge.f139.model-free-research-lineage.v1"
 LINEAGE_FIELDS = frozenset({
     "schema", "controller_source_sha", "target_commit", "target_tree_sha",
