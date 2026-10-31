@@ -1,0 +1,119 @@
+name: FORGE CPU LLM Evaluation G88 original GPT2 oneDNN MKLDNN screen
+
+on:
+  push:
+    branches: [research/cpu-llm-g88-mkldnn-gpt2-20261031]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g88-mkldnn-original-model.yml'
+      - 'research/cpu_g88/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-cpu-llm-g88-original-mkldnn-study
+  cancel-in-progress: false
+
+jobs:
+  frozen-source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact G70 baseline, frozen G88 preregistration and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          PREREG=c5247d658eaf2c0e226025660bbe8cb62b0f7b57
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git merge-base --is-ancestor "$PREREG" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G88-GPT2-MKLDNN-PREREG-20261031.md)" = "a7725a01bbf0758df0a00a37012bac7ee9c6de9a"
+          test "$(git rev-parse HEAD:research/cpu_g88/g88_mkldnn_original.py)" = "560ea9e17b7b41d9c8d6690276b1e6fb35c247d1"
+          test "$(git rev-parse HEAD:research/cpu_g88/test_g88_mkldnn_original.py)" = "c4dd51d8e6525f791fd8d002a0c743a8076b4dd6"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          python -B -m py_compile research/cpu_g88/g88_mkldnn_original.py research/cpu_g88/test_g88_mkldnn_original.py
+          python -B -m unittest discover -s research/cpu_g88 -p 'test_g88_mkldnn_original.py' -v
+          echo CPU_G88_FROZEN_SOURCE_ADMISSION=PASS
+
+  original-model-mkldnn:
+    needs: frozen-source-admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      MAX_JOBS: '2'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify native CPU host and source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          test "$(git rev-parse HEAD:research/cpu_g88/g88_mkldnn_original.py)" = "560ea9e17b7b41d9c8d6690276b1e6fb35c247d1"
+          python -B -m unittest discover -s research/cpu_g88 -p 'test_g88_mkldnn_original.py' -v
+      - name: Install pinned original CPU model runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.48.3 huggingface-hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1 psutil==7.1.3
+          python -m pip check
+          python - <<'PY'
+          import torch,transformers
+          assert torch.__version__=="2.5.1+cpu",torch.__version__
+          assert torch.version.cuda is None
+          assert transformers.__version__=="4.48.3"
+          assert torch.backends.mkldnn.is_available()
+          print("G88_PINNED_MKLDNN_RUNTIME=PASS")
+          PY
+          python -m pip freeze > cpu_g88_environment.txt
+          uname -a >> cpu_g88_environment.txt
+          lscpu >> cpu_g88_environment.txt
+      - name: Run authentic original GPT2 MKLDNN enabled versus disabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/cpu_g88/g88_mkldnn_original.py
+          python - <<'PY'
+          import json
+          r=json.load(open("cpu_g88_original_result.json",encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g88.authentic-mkldnn-backend.v1"
+          assert r["gate"]=="CPU_G88"
+          assert r["preregistration_commit"]=="c5247d658eaf2c0e226025660bbe8cb62b0f7b57"
+          assert r["engineering"]=="PASS" and r["correctness"]=="PASS"
+          assert r["summary"]["timed_authentic_responses"]==96
+          assert r["summary"]["timed_authentic_generated_tokens"]==768
+          assert len(r["original_paired_trials"])==48
+          assert r["decision"] in ("MKLDNN_PASS","MKLDNN_NO_GO")
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and not r["promotion_allowed"]
+          print("CPU_G88_ORIGINAL_MKLDNN_RESULT="+r["decision"])
+          PY
+      - name: Upload original measurement and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g88-original-gpt2-mkldnn
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g88_original_result.json
+            cpu_g88_environment.txt
