@@ -159,5 +159,136 @@ class FrozenLineagePreimageTests(unittest.TestCase):
                 verify_detached_mac_math_only(**other)
 
 
+
+def native_synthetic_example():
+    """Artificial offline test bytes. Never original owner data or signatures."""
+    import base64
+    import json
+
+    from f139.nci04_native_contract import (
+        SCHEMA, parse_intent,
+    )
+
+    r = sample()
+    before = b"class PublicCausalCells:\n    pass\n"
+    after = b"class PublicCausalCells:\n    def choose(self):\n        return 0\n"
+    r["proposal"]["before_sha256"] = hashlib.sha256(before).hexdigest()
+    r["proposal"]["after_sha256"] = hashlib.sha256(after).hexdigest()
+    row = r["proposal"]
+    intent = {
+        "schema": SCHEMA,
+        "controller_source_sha": row["controller_source_sha"],
+        "lane": row["lane"],
+        "target_repository": "spoonman136668-ai/Yggdrasil",
+        "target_commit": row["target_commit"],
+        "target_tree_sha": row["target_tree_sha"],
+        "dependency_sha256": row["dependency_sha256"],
+        "qualification_harness_sha256": row["qualification_harness_sha256"],
+        "training_config_sha256": row["training_config_sha256"],
+        "toolchain_identity": row["toolchain_identity"],
+        "suite_identity_sha256": row["suite_identity_sha256"],
+        "path": row["path"],
+        "before_sha256": row["before_sha256"],
+        "after_sha256": row["after_sha256"],
+        "after_base64": base64.b64encode(after).decode("ascii"),
+        "worker_mode": "isolated-candidate-only",
+        "scientific_first_use": False,
+        "paid_api_calls": 0,
+        "accepted_ref_mutations": 0,
+        "optimizer_policy_mutations": 0,
+        "protected_holdouts_accessed": 0,
+    }
+    raw = json.dumps(intent, sort_keys=True,
+                     separators=(",", ":")).encode("ascii")
+    parsed = parse_intent(
+        raw, protected_main=row["controller_source_sha"],
+        target_commit=row["target_commit"],
+        target_tree_sha=row["target_tree_sha"])
+    r["native"]["intent_sha256"] = parsed.intent_sha256
+    r["native"]["qualification_key"] = parsed.qualification_key
+    r["owner"]["native_ticket"] = (
+        f'f139-nci04-i{r["owner"]["issue_number"]}-'
+        f'{row["controller_source_sha"][:12]}-{parsed.intent_sha256[:8]}')
+    return r, raw, before
+
+
+class H37NativeIntentBridgeTests(unittest.TestCase):
+    def test_exact_synthetic_native_key_recomputed_without_any_authority(self):
+        from f139.nci04_model_free_provenance_preimage import (
+            cross_check_native_intent_math_only,
+        )
+
+        rec, raw, original = native_synthetic_example()
+        report = cross_check_native_intent_math_only(
+            native_intent_raw=raw, original_source_bytes=original, **rec)
+        self.assertTrue(report["native_source_bytes_mathematically_consistent"])
+        self.assertEqual(report["recomputed_native_qualification_key"],
+                         rec["native"]["qualification_key"])
+        for label in ("original_owner_authenticated",
+                      "native_authorization_authenticated",
+                      "original_ledger_complete_authenticated",
+                      "frozen_experiment_authenticated",
+                      "scientific_first_use", "native_qualification_accepted",
+                      "publication_authorized", "dispatch_authorized",
+                      "signed_owner_provenance_accepted"):
+            self.assertIs(report[label], False)
+
+    def test_h37_semantic_negative_changes_fail_closed(self):
+        from f139.nci04_model_free_provenance_preimage import (
+            cross_check_native_intent_math_only,
+        )
+
+        rec, raw, original = native_synthetic_example()
+        variants = (
+            ("native", "qualification_key", "e" * 64),
+            ("native", "intent_sha256", "e" * 64),
+            ("proposal", "before_sha256", "f" * 64),
+            ("proposal", "after_sha256", "f" * 64),
+            ("proposal", "target_tree_sha", "d" * 40),
+            ("proposal", "path", "yggdrasil/other.py"),
+            ("proposal", "dependency_sha256", "a" * 64),
+            ("proposal", "training_config_sha256", "a" * 64),
+            ("proposal", "suite_identity_sha256", "a" * 64),
+            ("proposal", "qualification_harness_sha256", "a" * 64),
+        )
+        for group, key, value in variants:
+            with self.subTest(group=group, key=key), self.assertRaises(ProvenanceDenied):
+                other = deepcopy(rec)
+                other[group][key] = value
+                cross_check_native_intent_math_only(
+                    native_intent_raw=raw,
+                    original_source_bytes=original, **other)
+        with self.assertRaises(ProvenanceDenied):
+            cross_check_native_intent_math_only(
+                native_intent_raw=raw, original_source_bytes=original + b"x",
+                **rec)
+        with self.assertRaises(ProvenanceDenied):
+            cross_check_native_intent_math_only(
+                native_intent_raw=raw[:-1] + b"x",
+                original_source_bytes=original, **rec)
+
+    def test_h37_mechanism_or_split_drift_is_not_externally_attested(self):
+        from f139.nci04_model_free_provenance_preimage import (
+            cross_check_native_intent_math_only,
+        )
+
+        rec, raw, original = native_synthetic_example()
+        base = cross_check_native_intent_math_only(
+            native_intent_raw=raw, original_source_bytes=original, **rec)
+        for key in ("mechanism_sha256", "frozen_split_sha256"):
+            altered = deepcopy(rec)
+            altered["proposal"][key] = "a" * 64
+            report = cross_check_native_intent_math_only(
+                native_intent_raw=raw,
+                original_source_bytes=original, **altered)
+            self.assertEqual(
+                report["recomputed_native_qualification_key"],
+                base["recomputed_native_qualification_key"])
+            self.assertNotEqual(
+                report["unsigned_lineage_preimage_sha256"],
+                base["unsigned_lineage_preimage_sha256"])
+            self.assertIs(report["frozen_experiment_authenticated"], False)
+            self.assertIs(report["signed_owner_provenance_accepted"], False)
+
 if __name__ == "__main__":
     unittest.main()

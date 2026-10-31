@@ -132,3 +132,72 @@ def verify_detached_mac_math_only(
         "dispatch_authorized": False,
         "signed_owner_provenance_accepted": False,
     }
+
+
+def cross_check_native_intent_math_only(
+    *, native_intent_raw: bytes, original_source_bytes: bytes,
+    proposal: dict, owner: dict, native: dict, frozen: dict,
+) -> dict:
+    """Recompute a V26 key from supplied native bytes; authenticate NOTHING.
+
+    The original owner's independent protected Git/read-only SQLite source
+    authentication, actual signed native permit and scientific preregistration
+    MUST be checked elsewhere by the existing authorized original owner.
+    This method cannot sign, publish, dispatch or authorize any action.
+    """
+    from f139.nci04_native_contract import NativeContractError, parse_intent
+
+    preimage = make_unsigned_preimage(
+        proposal=proposal, owner=owner, native=native, frozen=frozen)
+    need(type(native_intent_raw) is bytes
+         and 0 < len(native_intent_raw) <= 60000
+         and type(original_source_bytes) is bytes
+         and 0 < len(original_source_bytes) <= 32768,
+         "NATIVE_SOURCE_BYTES_INVALID")
+    try:
+        candidate = parse_intent(
+            native_intent_raw,
+            protected_main=owner["source_sha"],
+            target_commit=proposal["target_commit"],
+            target_tree_sha=proposal["target_tree_sha"])
+    except (NativeContractError, UnicodeError, ValueError, TypeError) as exc:
+        raise ProvenanceDenied("F139_H37_NATIVE_INTENT_INVALID") from exc
+    need(candidate.intent_sha256 == native["intent_sha256"]
+         and candidate.qualification_key == native["qualification_key"],
+         "NATIVE_DIGEST_NOT_RECOMPUTED")
+    need(candidate.lane == proposal["lane"]
+         and candidate.path == proposal["path"]
+         and candidate.before_sha256 == proposal["before_sha256"]
+         and candidate.after_sha256 == proposal["after_sha256"]
+         and hashlib.sha256(original_source_bytes).hexdigest()
+             == proposal["before_sha256"],
+         "NATIVE_ORIGINAL_SOURCE_DRIFT")
+    # parse_intent already forbids duplicate JSON keys and enforces canonical
+    # base64, source/target pins, lane/path, no first-use and no paid calls.
+    # It returns no dependency/config attributes, so check those directly
+    # only AFTER its strict raw-intent parser has admitted the exact JSON.
+    import json
+    intent_fields = json.loads(native_intent_raw)
+    need(all(intent_fields[k] == proposal[k] for k in (
+        "controller_source_sha", "target_commit", "target_tree_sha",
+        "dependency_sha256", "qualification_harness_sha256",
+        "training_config_sha256", "toolchain_identity",
+        "suite_identity_sha256", "before_sha256", "after_sha256",
+        "lane", "path")), "NATIVE_SEMANTIC_FIELDS_DRIFT")
+    return {
+        "schema": "forge.f139.model-free-native-intent-math-only.v1",
+        "unsigned_lineage_preimage_sha256":
+            hashlib.sha256(preimage).hexdigest(),
+        "recomputed_native_intent_sha256": candidate.intent_sha256,
+        "recomputed_native_qualification_key": candidate.qualification_key,
+        "native_source_bytes_mathematically_consistent": True,
+        "original_owner_authenticated": False,
+        "native_authorization_authenticated": False,
+        "original_ledger_complete_authenticated": False,
+        "frozen_experiment_authenticated": False,
+        "scientific_first_use": False,
+        "native_qualification_accepted": False,
+        "publication_authorized": False,
+        "dispatch_authorized": False,
+        "signed_owner_provenance_accepted": False,
+    }
