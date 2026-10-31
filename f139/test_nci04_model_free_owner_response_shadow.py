@@ -237,5 +237,58 @@ class OwnerResponseShadowTests(unittest.TestCase):
         self.assertFalse(result["dispatch_authorized"])
 
 
+    def test_h77_pinned_original_yggdrasil_two_recipe_succession(self):
+        """Independent frozen source bytes, two finite recipes, no science claim."""
+        variants = {}
+        for module, prior, sha in FIXTURES:
+            raw = Path(importlib.import_module(module).__file__).read_bytes()
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), sha)
+            variants[prior] = raw
+        original = variants[1].replace(method_for(1).encode("ascii"), b"", 1)
+        self.assertEqual(hashlib.sha256(original).hexdigest(), ORIGINAL_SHA256)
+        source = "49c7b15343bea3c201fb52b498d8c0f397384afe"
+        target = "5e74f8db85b2f5839c42148c0dfba69a88b1a2c9"
+        tree = "180008502f6bdfe5a06c3d0d6f47f941dd01f20b"
+        args = dict(original=original, controller=source,
+                    target=target, tree=tree)
+        first = run(**args)["selected"][0]
+        first_source = json.loads(first["model_response_bytes"])["candidate_source"]
+        self.assertIn(first_source.encode(), variants.values())
+        initial = build_unsigned_native_intents(
+            controller_source_sha=source, target_commit=target,
+            target_tree_sha=tree, frozen_source_sha256=ORIGINAL_SHA256,
+            original=original, metadata=META, complete_history=[])
+        negative = event(initial["selected"][0], 1, "QUARANTINED")
+        negative["controller_source_sha"] = source
+        ids, afters = {first["owner_candidate_identity"]}, {first["after_sha256"]}
+        second = run(history=[negative], consumed=ids, afters=afters,
+                     **args)["selected"][0]
+        self.assertNotEqual(second["after_sha256"], first["after_sha256"])
+        second_bytes = json.loads(second["model_response_bytes"])[
+            "candidate_source"].encode()
+        self.assertIn(second_bytes, variants.values())
+        self.assertNotEqual(second_bytes, first_source.encode())
+        checked = validate(
+            second["model_response_bytes"], lane="Yggdrasil",
+            target_commit=target, path="yggdrasil/public_causal_cells.py",
+            before=original, before_sha256=ORIGINAL_SHA256,
+            history_sha256=OWNER_HEAD, consumed_candidates=ids,
+            consumed_after_hashes=afters)
+        self.assertEqual(checked["record"]["candidate_identity"],
+                         second["owner_candidate_identity"])
+        succ = build_unsigned_native_intents(
+            controller_source_sha=source, target_commit=target,
+            target_tree_sha=tree, frozen_source_sha256=ORIGINAL_SHA256,
+            original=original, metadata=META, complete_history=[negative])
+        verified = event(succ["selected"][0], 2, "VERIFIED")
+        verified["controller_source_sha"] = source
+        empty = run(history=[negative, verified],
+                    consumed=ids | {second["owner_candidate_identity"]},
+                    afters=afters | {second["after_sha256"]}, **args)
+        self.assertEqual(empty["selected"], [])
+        self.assertFalse(empty["original_owner_signed"])
+        self.assertFalse(empty["scientific_first_use"])
+
+
 if __name__ == "__main__":
     unittest.main()
