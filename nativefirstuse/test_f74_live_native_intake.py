@@ -35,8 +35,8 @@ def fixed():
             "status": "completed", "conclusion": "success", "head_sha": main,
         }
         data[(repo, "/compare/" + main + "..." + main + "?per_page=1&page=1")] = {
-            "status": "identical", "base_commit": {"sha": main},
-            "head_commit": {"sha": main},
+            "status": "identical", "ahead_by": 0,
+            "base_commit": {"sha": main}, "commits": [],
         }
 
     def gh(repo, path):
