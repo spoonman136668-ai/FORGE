@@ -128,7 +128,10 @@ class FixtureResult(unittest.TextTestResult):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("original", "batch"), required=True)
+    parser.add_argument("--replicate", type=int, default=1)
     args = parser.parse_args()
+    if not 1 <= args.replicate <= 10:
+        parser.error("replicate must be 1..10")
     FixtureResult.mode = args.mode
     suite = unittest.TestSuite()
     loader = unittest.defaultTestLoader
@@ -142,6 +145,7 @@ def main():
     receipt = json.dumps(result.snapshots, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(receipt.encode("utf-8")).hexdigest()
     print(f"F139_G114L_MODE={args.mode}")
+    print(f"F139_G114L_REPLICATE={args.replicate}")
     print(f"F139_G114L_DISCOVERED={discovered}")
     print(f"F139_G114L_EXECUTED={result.testsRun}")
     print(f"F139_G114L_SKIPPED={len(result.skipped)}")
