@@ -203,7 +203,7 @@ def receipt_from_report(admission: NativeAdmission, report: dict) -> dict:
         if dual_mode:
             require(type(actual["test_count"]) is int and actual["test_count"] >= 0
                     and (actual["outcome"] != "PASS"
-                         or expected[1:4] != ["-B", "-m", "unittest"]
+                         or tuple(expected[1:4]) != ("-B", "-m", "unittest")
                          or actual["test_count"] > 0),
                     "COMMAND_TEST_COUNT_INVALID")
     complete = len(commands) == len(fixed) and all(
