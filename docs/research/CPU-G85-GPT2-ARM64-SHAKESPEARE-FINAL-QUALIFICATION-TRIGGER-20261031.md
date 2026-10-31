@@ -12,3 +12,7 @@ This record requests the existing exact-receipt Linux and Windows regression wor
 Frozen decision is **TRANSFER_FAIL**: uniform2 median speedup was **1.061656× vs uniform1** (below 1.35×) and **0.972751× vs uniform3** (below 1.05×; three threads were faster). The paired-minimum, p95, sampled RSS and process CPU limits passed. Do not retune, and do not treat this as model acceptance or intelligence transfer.
 
 This trigger exists solely to run the required exact-receipt custody, unchanged G70 baseline, F139/isolation and full Linux/Windows source qualification. Scientific/model acceptance remains NOT_GRANTED.
+
+## Exact-receipt regression retry — 2026-10-31
+
+The final regression now hashes the committed Git blob bytes using `git show HEAD:<receipt-path> | sha256sum`, not the OS-normalized checkout working tree. This makes the check invariant to Git CRLF conversion while preserving the exact committed receipt. G85 canonical receipt SHA-256: `4ab290bd0c603a0717624347a206076bd851fb99c7ef8648660db9e8469c88dd`. No benchmark data, thresholds, preregistration, model identity or classification changed. Both operating systems must still complete the full existing regression.
