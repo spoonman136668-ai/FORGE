@@ -13,13 +13,19 @@ from f139.nci04_model_free_owner_response_shadow import (
 )
 from f139.nci04_model_proposal import ProposalDenied, validate
 from f139.nci04_native_contract import parse_intent
-from f139.test_nci04_model_free_grammar import SOURCE, S, T, TREE, META, event
+from f139.test_nci04_model_free_grammar import SOURCE, S, T, TREE, META as GRAMMAR_META, event
 from f139.nci04_model_free_intent_bridge import build_unsigned_native_intents
 from f139.nci04_genuine_yggdrasil_p1_fixture import PublicCausalCells
 from f139.test_nci04_genuine_yggdrasil_fixture import (
     FIXTURES, ORIGINAL_SHA256,
 )
 from f139.nci04_model_free_grammar import method_for
+from f139.nci04_autonomy_feed import _semantic_identities
+
+TEST_META = {
+    **_semantic_identities(S, "Yggdrasil", TREE, "yggdrasil/public_causal_cells.py"),
+    "frozen_split_sha256": GRAMMAR_META["frozen_split_sha256"],
+}
 
 OWNER_HEAD = "7" * 64
 
@@ -33,7 +39,7 @@ def run(*, original=SOURCE, metadata=None, history=None, owner_hash=OWNER_HEAD,
         frozen_source_sha256=(hashlib.sha256(original).hexdigest()
                               if before is None else before),
         original=original,
-        metadata=META if metadata is None else metadata,
+        metadata=TEST_META if metadata is None else metadata,
         complete_history=[] if history is None else history,
         owner_history_sha256=owner_hash,
         owner_consumed_candidates=set() if consumed is None else consumed,
@@ -41,6 +47,11 @@ def run(*, original=SOURCE, metadata=None, history=None, owner_hash=OWNER_HEAD,
 
 
 class OwnerResponseShadowTests(unittest.TestCase):
+    def test_owner_semantic_metadata_drift_rejects_before_candidate_generation(self):
+        bad = dict(TEST_META, dependency_sha256="8" * 64)
+        with self.assertRaisesRegex(
+                OwnerResponseShadowDenied, "OWNER_SEMANTIC_IDENTITIES_MISMATCH"):
+            run(metadata=bad)
     def test_roundtrip_through_existing_owner_model_validator(self):
         x = run()
         self.assertEqual(len(x["selected"]), 1)
@@ -92,7 +103,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         bridge = build_unsigned_native_intents(
             controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
             frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
-            original=SOURCE, metadata=META, complete_history=[])
+            original=SOURCE, metadata=TEST_META, complete_history=[])
         self.assertEqual(bridge["selected"][0]["candidate_identity"],
                          a["frontier_candidate_identity"])
         history = [event(bridge["selected"][0], 1, "START_RISK")]
@@ -104,7 +115,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         second = build_unsigned_native_intents(
             controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
             frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
-            original=SOURCE, metadata=META, complete_history=history)
+            original=SOURCE, metadata=TEST_META, complete_history=history)
         exhausted = run(history=history+[event(second["selected"][0], 2, "QUARANTINED")])
         self.assertEqual(exhausted["selected"], [])
         self.assertEqual(len(exhausted["abstentions"]), 2)
@@ -174,7 +185,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         first_bridge = build_unsigned_native_intents(
             controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
             frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
-            original=SOURCE, metadata=META, complete_history=[])
+            original=SOURCE, metadata=TEST_META, complete_history=[])
         first = run()["selected"][0]
         self.assertEqual(first_bridge["selected"][0]["candidate_identity"],
                          first["frontier_candidate_identity"])
@@ -210,7 +221,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         initial = build_unsigned_native_intents(
             controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
             frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
-            original=SOURCE, metadata=META, complete_history=[])
+            original=SOURCE, metadata=TEST_META, complete_history=[])
         negative = event(initial["selected"][0], 1, "NEGATIVE")
         successor = run(history=[negative])["selected"][0]
         for pair in (
@@ -225,7 +236,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         succ_bridge = build_unsigned_native_intents(
             controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
             frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
-            original=SOURCE, metadata=META, complete_history=[negative])
+            original=SOURCE, metadata=TEST_META, complete_history=[negative])
         complete = [negative, event(succ_bridge["selected"][0], 2, "VERIFIED")]
         result = run(
             history=complete,
@@ -258,7 +269,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         initial = build_unsigned_native_intents(
             controller_source_sha=source, target_commit=target,
             target_tree_sha=tree, frozen_source_sha256=ORIGINAL_SHA256,
-            original=original, metadata=META, complete_history=[])
+            original=original, metadata=TEST_META, complete_history=[])
         negative = event(initial["selected"][0], 1, "QUARANTINED")
         negative["controller_source_sha"] = source
         ids, afters = {first["owner_candidate_identity"]}, {first["after_sha256"]}
@@ -280,7 +291,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         succ = build_unsigned_native_intents(
             controller_source_sha=source, target_commit=target,
             target_tree_sha=tree, frozen_source_sha256=ORIGINAL_SHA256,
-            original=original, metadata=META, complete_history=[negative])
+            original=original, metadata=TEST_META, complete_history=[negative])
         verified = event(succ["selected"][0], 2, "VERIFIED")
         verified["controller_source_sha"] = source
         empty = run(history=[negative, verified],
@@ -298,7 +309,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         line = first["research_lineage_record"]
         self.assertEqual(line["schema"], "forge.f139.model-free-research-lineage.v1")
         self.assertEqual(line["mechanism_sha256"], first["mechanism_sha256"])
-        self.assertEqual(line["frozen_split_sha256"], META["frozen_split_sha256"])
+        self.assertEqual(line["frozen_split_sha256"], TEST_META["frozen_split_sha256"])
         self.assertEqual(line["owner_history_sha256"], OWNER_HEAD)
         self.assertEqual(line["frontier_candidate_identity"],
                          first["frontier_candidate_identity"])
@@ -316,7 +327,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         second, selected_split = None, None
         for digit in "3456789abcdef0":
             candidate_split = digit * 64
-            possible = run(metadata=dict(META,
+            possible = run(metadata=dict(TEST_META,
                          frozen_split_sha256=candidate_split))["selected"][0]
             if possible["after_sha256"] == first["after_sha256"]:
                 second, selected_split = possible, candidate_split
@@ -344,7 +355,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         initial = build_unsigned_native_intents(
             controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
             frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
-            original=SOURCE, metadata=META, complete_history=[])
+            original=SOURCE, metadata=TEST_META, complete_history=[])
         negative = event(initial["selected"][0], 1, "QUARANTINED")
         second = run(history=[negative],
                      consumed={first["owner_candidate_identity"]},
@@ -356,7 +367,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         self.assertNotEqual(l0["after_sha256"], l1["after_sha256"])
         self.assertNotEqual(l0["frontier_history_sha256"],
                             l1["frontier_history_sha256"])
-        self.assertEqual(l1["frozen_split_sha256"], META["frozen_split_sha256"])
+        self.assertEqual(l1["frozen_split_sha256"], TEST_META["frozen_split_sha256"])
         self.assertIs(second["research_lineage_authenticated"], False)
         self.assertIs(second["native_v1_scientific_lineage_bound"], False)
         self.assertIs(run(history=[negative])["publication_authorized"], False)
@@ -378,10 +389,10 @@ class OwnerResponseShadowTests(unittest.TestCase):
             frozen_split_sha256=item["frozen_split_sha256"],
             owner_history_sha256=OWNER_HEAD,
             before_sha256=hashlib.sha256(SOURCE).hexdigest(),
-            dependency_sha256=META["dependency_sha256"],
-            qualification_harness_sha256=META["qualification_harness_sha256"],
-            suite_identity_sha256=META["suite_identity_sha256"],
-            training_config_sha256=META["training_config_sha256"],
+            dependency_sha256=TEST_META["dependency_sha256"],
+            qualification_harness_sha256=TEST_META["qualification_harness_sha256"],
+            suite_identity_sha256=TEST_META["suite_identity_sha256"],
+            training_config_sha256=TEST_META["training_config_sha256"],
             frontier_history_sha256=line["frontier_history_sha256"])
         self.assertEqual(checked["record"], line)
         self.assertTrue(checked["self_consistency_verified"])
@@ -407,10 +418,10 @@ class OwnerResponseShadowTests(unittest.TestCase):
             frozen_split_sha256=item["frozen_split_sha256"],
             owner_history_sha256=OWNER_HEAD,
             before_sha256=hashlib.sha256(SOURCE).hexdigest(),
-            dependency_sha256=META["dependency_sha256"],
-            qualification_harness_sha256=META["qualification_harness_sha256"],
-            suite_identity_sha256=META["suite_identity_sha256"],
-            training_config_sha256=META["training_config_sha256"],
+            dependency_sha256=TEST_META["dependency_sha256"],
+            qualification_harness_sha256=TEST_META["qualification_harness_sha256"],
+            suite_identity_sha256=TEST_META["suite_identity_sha256"],
+            training_config_sha256=TEST_META["training_config_sha256"],
             frontier_history_sha256=line["frontier_history_sha256"])
         bad = dict(line, mechanism_sha256="8"*64)
         import hashlib as _hashlib
@@ -455,10 +466,10 @@ class OwnerResponseShadowTests(unittest.TestCase):
             frozen_split_sha256=item["frozen_split_sha256"],
             owner_history_sha256=OWNER_HEAD,
             before_sha256=hashlib.sha256(SOURCE).hexdigest(),
-            dependency_sha256=META["dependency_sha256"],
-            qualification_harness_sha256=META["qualification_harness_sha256"],
-            suite_identity_sha256=META["suite_identity_sha256"],
-            training_config_sha256=META["training_config_sha256"],
+            dependency_sha256=TEST_META["dependency_sha256"],
+            qualification_harness_sha256=TEST_META["qualification_harness_sha256"],
+            suite_identity_sha256=TEST_META["suite_identity_sha256"],
+            training_config_sha256=TEST_META["training_config_sha256"],
             frontier_history_sha256=line["frontier_history_sha256"])
         for key, wrong in (
             ("before_sha256", "1"*64),
