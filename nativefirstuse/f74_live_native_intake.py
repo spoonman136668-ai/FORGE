@@ -74,15 +74,27 @@ def audit():
   last_id=int(state.get("github_run_id",0))
   need(last_id>0,"LAST_RUN_NOT_IDENTIFIED")
   run=get(repo,"/actions/runs/"+str(last_id))
+  run_sha=run.get("head_sha")
   need(run.get("id")==last_id and run.get("name")==name+" research continuation launcher" and
        run.get("status")=="completed" and run.get("conclusion")=="success" and
-       run.get("head_sha")==sha,"RESEARCH_RUN_SOURCE_UNCONFIRMED")
+       isinstance(run_sha,str) and HEX40.fullmatch(run_sha),
+       "RESEARCH_RUN_SOURCE_UNCONFIRMED")
+  # The saved launcher can legitimately predate later main commits. Confirm
+  # its exact source is an ancestor of the currently pinned main, not equal
+  # to today's main and not merely a successful run from an unrelated commit.
+  lineage=get(repo,"/compare/"+run_sha+"..."+sha)
+  need(lineage.get("status") in ("ahead","identical") and
+       lineage.get("base_commit",{}).get("sha")==run_sha and
+       lineage.get("head_commit",{}).get("sha")==sha,
+       "RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
   again=get(repo,"/branches/"+urllib.parse.quote(active,safe="/"))
   need(again.get("commit",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
+  main_again=get(repo,"/branches/main")
+  need(main_again.get("commit",{}).get("sha")==sha,"MAIN_MOVED_DURING_READ")
   summary.append({
    "lane":name,"repository":repo,"main_sha":sha,"active_research_head":active_sha,
    "reported_last_completed_experiment":state["experiment"],
-   "last_continuation_run_confirmed":last_id,
+   "last_continuation_run_confirmed":last_id,\n   "last_continuation_run_head_sha":run_sha,
    "repo_local_research_workflow_confirmed":True,
    "full_original_seed_lease_ledger_independently_observed":False,
    "current_scientific_owner_independently_authorized":False,
