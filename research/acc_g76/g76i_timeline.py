@@ -55,13 +55,22 @@ def run_timeline(model, ids, tokenizer, output_dir, *, tokens=64):
         actual = observed[0,ids.shape[1]:].detach().cpu().tolist()
     if actual != expected:
         raise RuntimeError("PROFILED_OUTPUT_MISMATCH")
+    keys = [entry.key for entry in prof.key_averages()]
+    sdpa_count = sum(1 for key in keys if key == "aten::scaled_dot_product_attention")
+    if sdpa_count <= 0:
+        raise RuntimeError("REAL_SDPA_OPERATOR_NOT_OBSERVED")
     prof.export_chrome_trace(str(trace))
     raw = trace.read_bytes()
+    summary = validate_trace(json.loads(raw))
+    if not summary["cpu_events"] or not summary["kernel_events"] or not summary["cuda_runtime_events"]:
+        raise RuntimeError("TRACE_MISSING_CPU_CUDA_KERNEL_EVENT_CLASS")
     result = dict(schema=SCHEMA,context_tokens=ids.shape[1],
                   tokens_sha256=hashlib.sha256(json.dumps(expected,separators=(",",":")).encode()).hexdigest(),
                   trace_sha256=hashlib.sha256(raw).hexdigest(),trace_bytes=len(raw),
-                  summary=validate_trace(json.loads(raw)),profiled_output_parity="PASS",
-                  launch_overhead_fraction="UNVERIFIED",cuda_graph_speedup="UNVERIFIED",
+                  sdpa_operator="aten::scaled_dot_product_attention",
+                  sdpa_operator_count=sdpa_count,
+                  summary=summary,profiled_output_parity="PASS",
+                  launch_overhead_fraction="UNMEASURED",cuda_graph_speedup="UNMEASURED",
                   necessary_removable_fraction=necessary_removable_fraction(),
                   qualification="NOT_GRANTED")
     report.write_text(json.dumps(result,indent=2)+"\n",encoding="utf-8")
