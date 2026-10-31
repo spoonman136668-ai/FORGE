@@ -1,6 +1,9 @@
-# INACTIVE H53 one-shot workflow template. This file is deliberately outside .github/workflows.
-# It must not be installed or triggered until an exact audit commit is owner-approved,
-# its audit ref has immutable protection, and all final guard tests have passed.
+# INACTIVE RELEASE TEMPLATE: deliberately outside .github/workflows.
+# Release requires a separately owner-approved, immutable one-shot audit SHA.
+# The release branch MUST be a direct child of original V26 and its diff MUST
+# contain exactly this workflow at the path below and the pinned H53 observer.
+# The preflight implementation is engineering source, NOT part of this audit diff.
+# Do not install/activate until a self-contained, audited runtime bundle exists.
 name: F139 H53 original Windows read-only successor one-shot
 on:
   push:
@@ -27,15 +30,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Fail closed pending immutable owner approval and exact runner verification
+      - name: Check original Windows runner and exact initial one-shot identity
         shell: pwsh
         run: |
-          $ErrorActionPreference='Stop'
+          $ErrorActionPreference = 'Stop'
           if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_RUN_ATTEMPT -cne '1') {
             throw 'F139_H53_ORIGINAL_RUNNER_OR_ATTEMPT_DRIFT'
           }
-          throw 'F139_H53_NOT_RELEASED_EXACT_OWNER_APPROVAL_AND_IMMUTABLE_REF_GUARD_REQUIRED'
-# The terminal throw is intentional. A release engineer must implement and qualify
-# the exact-ref immutable ruleset readback, owner SHA approval, original SID/task/
-# installed V26/source and database checks, and pinned witness invocation before
-# replacing this fail-closed template with a reviewed final one-shot workflow.
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/f139-v26-h53-original-successor-ro-once-20261031') {
+            throw 'F139_H53_AUDIT_REF_OR_OWNER_DRIFT'
+          }
+          $parents = @(git rev-list --parents -n 1 HEAD) -split ' '
+          if ($parents.Count -ne 2 -or
+              $parents[0] -cne $env:GITHUB_SHA -or
+              $parents[1] -cne '49c7b15343bea3c201fb52b498d8c0f397384afe') {
+            throw 'F139_H53_NOT_DIRECT_ORIGINAL_V26_CHILD'
+          }
+          if ((git status --porcelain --untracked-files=all)) {
+            throw 'F139_H53_AUDIT_CHECKOUT_DIRTY'
+          }
+      - name: Release gate — fail closed until exact self-contained audit runtime is qualified
+        shell: pwsh
+        run: |
+          throw 'F139_H53_RELEASE_BLOCKED_RUNTIME_BUNDLE_AND_EXACT_SHA_APPROVAL_NOT_YET_QUALIFIED'
+# This is a complete NON-ACTIVATING template, not a released audit.
+# The approved release must bundle its own read-only runtime: GitHub ruleset
+# and issue #807 approval readback, SID/task/source and native SQLite verifier.
+# Engineering modules cannot be imported from an audit branch that contains
+# only the workflow and observer. No release may silently widen that diff.
