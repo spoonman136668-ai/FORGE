@@ -105,7 +105,7 @@ def main():
       "model_revision":MODEL_REV,"model_weights_sha256":WEIGHTS_SHA,
       "dataset_revision":DATA_REV,"dataset_sha256":DATA_SHA,
       "runtime":{"torch":torch.__version__,"torch_cuda":torch.version.cuda,"transformers":transformers.__version__,
-                 "python":platform.python_version(),"machine":platform.machine(),"processor":platform.processor(),"logical_cpu_count":os.cpu_count(),"platform":platform.platform()},
+                 "python":platform.python_version(),"machine":platform.machine(),"processor":platform.processor(),"logical_cpu_count":os.cpu_count(),"os_name":os.name,"platform":platform.platform()},
       "engineering":"UNVERIFIED","correctness":"UNVERIFIED","transfer":"UNVERIFIED",
       "scientific_acceptance":"NOT_GRANTED","promotion_allowed":False,
       "limitations":["Original pretrained GPT2 full 8-token FP32 requests; not natural network traffic",
