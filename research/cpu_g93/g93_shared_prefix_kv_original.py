@@ -90,7 +90,7 @@ def decide(trials):
       "p95_amortized_candidate_over_baseline_request_latency":p95([x["request_wall_ns"]+x["prefix_setup_share_ns"] for x in candidate_rows])/p95([x["request_wall_ns"] for x in baseline_rows]),
       "total_cpu_candidate_over_baseline":sum(cand_cpu)/sum(base_cpu),
       "sampled_rss_candidate_over_baseline":max(cand_rss)/max(base_rss),
-      "median_candidate_prefix_setup_ns":statistics.median([x["prefix_setup_ns"] for x in trials for x in [x["arms"][ARMS[1]]]]),
+      "median_candidate_prefix_setup_ns":statistics.median([trial["arms"][ARMS[1]]["prefix_setup_ns"] for trial in trials]),
       "median_baseline_cohort_wall_ns":statistics.median(base_wall),
       "median_candidate_cohort_wall_ns":statistics.median(cand_wall),
       "timed_authentic_responses":REPEATS*2*CASES,
