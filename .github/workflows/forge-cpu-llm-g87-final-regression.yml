@@ -1,0 +1,186 @@
+name: FORGE CPU LLM Evaluation G87 archived receipt Linux Windows final qualification
+
+on:
+  push:
+    branches: [research/cpu-llm-g87-inductor-gpt2-20261031]
+    paths:
+      - 'docs/research/CPU-G87-GPT2-INDUCTOR-ARTIFACT-RECEIPT-20261031.json'
+      - 'docs/research/CPU-G87-GPT2-INDUCTOR-FINAL-QUALIFICATION-TRIGGER-20261031.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-cpu-llm-g87-archived-receipt-regression
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify archived receipt, preregistration and immutable G70 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:research/llm_g54)" = "204af0f5502269be4288c6c56f689526d03c77fb"
+          test "$(git rev-parse HEAD:research/llm_g55)" = "2e40d5bd574bf9f57f81c4ecf5fd611f9ef753e3"
+          test "$(git rev-parse HEAD:research/llm_g56)" = "7a728365dd6bdef415c8427d2a87791f6049ab2a"
+          test "$(git rev-parse HEAD:research/llm_g57)" = "dbabd811207e52764568fc4100bb7fa151255cff"
+          test "$(git rev-parse HEAD:research/llm_g58)" = "9c391b65ae0c1275191c3856d967f46ec5597038"
+          test "$(git rev-parse HEAD:research/llm_g59)" = "693d705b2e5f42886660ebc30e73ee73d5f6d911"
+          test "$(git rev-parse HEAD:research/llm_g60)" = "7681d55047cb7793542b1f340d2a1eaa15617f67"
+          test "$(git rev-parse HEAD:research/llm_g61)" = "f1bc119d185d301e5b80929a75cbacf66a48d79c"
+          test "$(git rev-parse HEAD:research/llm_g62)" = "f7345e7250e242f7b30964b486ce3c91640b34cd"
+          test "$(git rev-parse HEAD:research/llm_g63)" = "651d9e92106c43c594eb2e9486f08446b902eee9"
+          test "$(git rev-parse HEAD:research/llm_g64)" = "59b6203707a891fe36a02d0e83d1c173e6aa6b1f"
+          test "$(git rev-parse HEAD:research/llm_g65)" = "18ddbdbe436728b04f660b870abc924bdf21e554"
+          test "$(git rev-parse HEAD:research/llm_g66)" = "f3d0980ead446b0a89d5defe6531b1e00283b546"
+          test "$(git rev-parse HEAD:research/llm_g67)" = "ed268f83fbffa0cc13343d8647201c7798d070b9"
+          test "$(git rev-parse HEAD:research/llm_g68)" = "88fc035bb77e3192f2b69567d2226090c8a05361"
+          test "$(git rev-parse HEAD:research/llm_g70)" = "681c4022516e370a7edf9205d90a39e69b0a784f"
+          test "$(git rev-parse HEAD:docs/research/CPU-G87-GPT2-INDUCTOR-PREREG-20261031.md)" = "77a95f712d533f10f0165fae86967d4577943945"
+          test "$(git rev-parse HEAD:research/cpu_g87/g87_inductor_original.py)" = "bc7f8739d0b75dcd59a4a8c15619aa41e9c2fdaf"
+          test "$(git rev-parse HEAD:research/cpu_g87/test_g87_inductor_original.py)" = "5d9139a97ca5fc488b1156979fb2c250a5e83870"
+          test "$(git rev-parse HEAD:docs/research/CPU-G87-GPT2-INDUCTOR-ARTIFACT-RECEIPT-20261031.json)" = "4414579a6d4da5b5c23958ffe08282e239414f15"
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G87-GPT2-INDUCTOR-ARTIFACT-RECEIPT-20261031.json"
+          r=json.load(open(p,encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g87.archive-receipt.v1"
+          assert r["frozen_contract"]["preregistration_commit"]=="7f2cfff5f2348a28141df4c63792a3bfb659175c"
+          assert r["execution"]["workflow_run_id"]==41214799091
+          assert r["execution"]["artifact_id"]==13047314884
+          assert r["execution"]["artifact_zip_sha256"]=="f13ef344acffe59d0d784ac8062b50e7c6767c0c5dc2cdb68bf4b99bb0fb8523"
+          assert r["execution"]["artifact_result_json_sha256"]=="40f29c9d6b11f72a09222fac7e3b74074a864315db546f93d26f3be3f70de06d"
+          assert r["results"]["engineering"]=="PASS" and r["results"]["correctness"]=="PASS"
+          assert r["results"]["decision"]=="INDUCTOR_NO_GO"
+          assert r["results"]["compiled_graph_count"] if "compiled_graph_count" in r["results"] else r["results"].get("compiled_graph_count",3)==3
+          assert r["results"]["compiled_graph_count"]==3 and r["results"]["graph_break_count"]==0
+          assert r["results"]["compile_startup_seconds"]==90.910515862
+          assert r["results"]["break_even_full_responses"]==1328
+          assert r["results"]["amortized_total_wall_ratio_at_1000_responses"]>1.0
+          assert r["design"]["authentic_full_responses"]==96 and r["design"]["generated_tokens"]==768
+          assert r["design"]["scientific_acceptance"]=="NOT_GRANTED" and r["design"]["promotion_allowed"] is False
+          print("G87_ARCHIVED_RESULT_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g87/g87_inductor_original.py research/cpu_g87/test_g87_inductor_original.py
+          python -B -m unittest discover -s research/cpu_g87 -p 'test_g87_inductor_original.py' -v
+      - name: FORGE isolation and authority regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 controller and native custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify archived receipt, preregistration and immutable G70 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:research/llm_g54)" = "204af0f5502269be4288c6c56f689526d03c77fb"
+          test "$(git rev-parse HEAD:research/llm_g55)" = "2e40d5bd574bf9f57f81c4ecf5fd611f9ef753e3"
+          test "$(git rev-parse HEAD:research/llm_g56)" = "7a728365dd6bdef415c8427d2a87791f6049ab2a"
+          test "$(git rev-parse HEAD:research/llm_g57)" = "dbabd811207e52764568fc4100bb7fa151255cff"
+          test "$(git rev-parse HEAD:research/llm_g58)" = "9c391b65ae0c1275191c3856d967f46ec5597038"
+          test "$(git rev-parse HEAD:research/llm_g59)" = "693d705b2e5f42886660ebc30e73ee73d5f6d911"
+          test "$(git rev-parse HEAD:research/llm_g60)" = "7681d55047cb7793542b1f340d2a1eaa15617f67"
+          test "$(git rev-parse HEAD:research/llm_g61)" = "f1bc119d185d301e5b80929a75cbacf66a48d79c"
+          test "$(git rev-parse HEAD:research/llm_g62)" = "f7345e7250e242f7b30964b486ce3c91640b34cd"
+          test "$(git rev-parse HEAD:research/llm_g63)" = "651d9e92106c43c594eb2e9486f08446b902eee9"
+          test "$(git rev-parse HEAD:research/llm_g64)" = "59b6203707a891fe36a02d0e83d1c173e6aa6b1f"
+          test "$(git rev-parse HEAD:research/llm_g65)" = "18ddbdbe436728b04f660b870abc924bdf21e554"
+          test "$(git rev-parse HEAD:research/llm_g66)" = "f3d0980ead446b0a89d5defe6531b1e00283b546"
+          test "$(git rev-parse HEAD:research/llm_g67)" = "ed268f83fbffa0cc13343d8647201c7798d070b9"
+          test "$(git rev-parse HEAD:research/llm_g68)" = "88fc035bb77e3192f2b69567d2226090c8a05361"
+          test "$(git rev-parse HEAD:research/llm_g70)" = "681c4022516e370a7edf9205d90a39e69b0a784f"
+          test "$(git rev-parse HEAD:docs/research/CPU-G87-GPT2-INDUCTOR-PREREG-20261031.md)" = "77a95f712d533f10f0165fae86967d4577943945"
+          test "$(git rev-parse HEAD:research/cpu_g87/g87_inductor_original.py)" = "bc7f8739d0b75dcd59a4a8c15619aa41e9c2fdaf"
+          test "$(git rev-parse HEAD:research/cpu_g87/test_g87_inductor_original.py)" = "5d9139a97ca5fc488b1156979fb2c250a5e83870"
+          test "$(git rev-parse HEAD:docs/research/CPU-G87-GPT2-INDUCTOR-ARTIFACT-RECEIPT-20261031.json)" = "4414579a6d4da5b5c23958ffe08282e239414f15"
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G87-GPT2-INDUCTOR-ARTIFACT-RECEIPT-20261031.json"
+          r=json.load(open(p,encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g87.archive-receipt.v1"
+          assert r["execution"]["workflow_run_id"]==41214799091
+          assert r["execution"]["artifact_id"]==13047314884
+          assert r["results"]["engineering"]=="PASS" and r["results"]["correctness"]=="PASS"
+          assert r["results"]["decision"]=="INDUCTOR_NO_GO"
+          assert r["results"]["compiled_graph_count"]==3 and r["results"]["graph_break_count"]==0
+          assert r["results"]["break_even_full_responses"]==1328
+          assert r["design"]["authentic_full_responses"]==96 and r["design"]["generated_tokens"]==768
+          assert r["design"]["scientific_acceptance"]=="NOT_GRANTED" and r["design"]["promotion_allowed"] is False
+          print("G87_ARCHIVED_RESULT_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g87/g87_inductor_original.py research/cpu_g87/test_g87_inductor_original.py
+          python -B -m unittest discover -s research/cpu_g87 -p 'test_g87_inductor_original.py' -v
+      - name: FORGE isolation and authority regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 controller and native custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go test -race -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_RACE_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
