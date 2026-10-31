@@ -52,8 +52,8 @@ def doc(repo,sha,path):
 def audit():
  summary=[]
  for name,repo in LANES:
-  m=get(repo,"/branches/main")
-  sha=m.get("commit",{}).get("sha")
+  m=get(repo,"/git/ref/heads/main")
+  sha=m.get("object",{}).get("sha")
   need(isinstance(sha,str) and HEX40.fullmatch(sha),"MAIN_SHA_INVALID")
   cfg=doc(repo,sha,".research-autonomy/config.json")
   need(cfg.get("schema")=="research.autonomy.v2" and
@@ -65,8 +65,8 @@ def audit():
   need(isinstance(active,str) and active.startswith("research/autonomy-")
        and len(active)<140 and re.fullmatch("[a-z0-9/_-]+",active),
        "ACTIVE_BRANCH_INVALID")
-  b=get(repo,"/branches/"+urllib.parse.quote(active,safe="/"))
-  active_sha=b.get("commit",{}).get("sha")
+  b=get(repo,"/git/ref/heads/"+urllib.parse.quote(active,safe="/"))
+  active_sha=b.get("object",{}).get("sha")
   need(isinstance(active_sha,str) and HEX40.fullmatch(active_sha),"ACTIVE_SHA_INVALID")
   state=doc(repo,active_sha,".research-autonomy/state.json")
   need(state.get("schema")=="research.repo-local-state.v1" and
@@ -107,10 +107,10 @@ def audit():
         isinstance(last_commits,list) and len(last_commits)==1 and
         last_commits[0].get("sha")==sha,
         "RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
-  again=get(repo,"/branches/"+urllib.parse.quote(active,safe="/"))
-  need(again.get("commit",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
-  main_again=get(repo,"/branches/main")
-  need(main_again.get("commit",{}).get("sha")==sha,"MAIN_MOVED_DURING_READ")
+  again=get(repo,"/git/ref/heads/"+urllib.parse.quote(active,safe="/"))
+  need(again.get("object",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
+  main_again=get(repo,"/git/ref/heads/main")
+  need(main_again.get("object",{}).get("sha")==sha,"MAIN_MOVED_DURING_READ")
   summary.append({
    "lane":name,"repository":repo,"main_sha":sha,"active_research_head":active_sha,
    "reported_last_completed_experiment":state["experiment"],
