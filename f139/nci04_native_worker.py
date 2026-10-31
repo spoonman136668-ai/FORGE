@@ -61,9 +61,26 @@ R7_COMMANDS = {
 }
 
 
+YGGDRASIL_G29_SOURCE = "yggdrasil/public_causal_cells.py"
+YGGDRASIL_G29_TESTS = (
+    "test_free_fanout_sidecar.py",
+    "test_native_cells.py",
+    "test_native_cells_wilson.py",
+    "test_portable_checkpoint.py",
+)
+
+
 def commands_for(candidate: Candidate):
-    """Select from two immutable inventories; candidate bytes cannot supply argv."""
+    """Select from immutable, path-specific inventories; candidates supply no argv."""
     require(isinstance(candidate, Candidate), "CANDIDATE_UNTRUSTED")
+    if candidate.lane == "Yggdrasil" and candidate.path == YGGDRASIL_G29_SOURCE:
+        tests = tuple(
+            ("python", "-B", "-m", "unittest", "discover",
+             "-s", "tests", "-p", name, "-v")
+            for name in YGGDRASIL_G29_TESTS
+        )
+        return tests + (("python", "-B", "-m", "compileall",
+                         "-q", "yggdrasil", "scripts"),)
     if candidate.path in R7_TEST_PATHS[candidate.lane]:
         return R7_COMMANDS[candidate.lane]
     return COMMANDS[candidate.lane]
@@ -388,9 +405,9 @@ def _verify_yggdrasil_dual_custody(candidate: Candidate, stage: Path, *,
     test_names = sorted(p.name for p in test_dir.glob("test_*.py")
                         if p.is_file() and not p.is_symlink())
     tracked = set(_git(baseline, "ls-files", "--", "tests").splitlines())
-    require("test_code_atlas.py" in test_names
-            and all("tests/" + name in tracked for name in test_names)
-            and len(test_names) >= 2, "G29_TEST_INVENTORY_UNTRUSTED")
+    require(test_names == sorted((YGG_G29_ATLAS_TEST,) + YGGDRASIL_G29_TESTS)
+            and all("tests/" + name in tracked for name in test_names),
+            "G29_TEST_INVENTORY_UNTRUSTED")
     env = dict(env or {})
     if not env:
         allow = {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR",
@@ -421,8 +438,7 @@ def _verify_yggdrasil_dual_custody(candidate: Candidate, stage: Path, *,
                 and expected_marker.encode("utf-8") in candidate_output,
                 "G29_CANDIDATE_NEGATIVE_NOT_EXACT")
         candidate_g29_disposition = "EXPECTED_FROZEN_ATLAS_REJECTION"
-    candidate_names = [name for name in test_names if name != YGG_G29_ATLAS_TEST]
-    require(candidate_names, "G29_CANDIDATE_APPLICABLE_TESTS_EMPTY")
+    candidate_names = list(YGGDRASIL_G29_TESTS)
     commands = []
     for name in candidate_names:
         argv = _g29_command(name)
