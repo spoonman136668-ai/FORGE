@@ -14,6 +14,7 @@ from pathlib import Path
 from f139.nci04_model_free_grammar import method_for
 from f139.nci04_model_free_owner_response_shadow import encode_owner_response_shadow
 from f139.nci04_model_owner_bridge import OwnerModelDenied, owner_request, owner_response
+from f139.nci04_autonomy_feed import _semantic_identities
 from f139.test_nci04_genuine_yggdrasil_fixture import FIXTURES, ORIGINAL_SHA256
 from f139.test_nci04_model_free_grammar import META
 from f139 import test_nci04_model_owner_publication as _owner_fixture
@@ -60,13 +61,18 @@ class OriginalOwnerSessionModelFreeShadowTests(unittest.TestCase):
             path=self.provider.path, owner_witness=witness)
 
     def response(self, snapshot):
+        metadata = {
+            **_semantic_identities(MAIN, "Yggdrasil", self.provider.tree,
+                                   self.provider.path),
+            "frozen_split_sha256": META["frozen_split_sha256"],
+        }
         return encode_owner_response_shadow(
             controller_source_sha=MAIN,
             target_commit=self.provider.parent,
             target_tree_sha=self.provider.tree,
             frozen_source_sha256=ORIGINAL_SHA256,
             original=self.original,
-            metadata=META,
+            metadata=metadata,
             complete_history=[],
             owner_history_sha256=snapshot["session"]["history_sha256"],
             owner_consumed_candidates=snapshot["consumed_candidates"],
