@@ -67,6 +67,9 @@ jobs:
           git -C "$RUNNER_TEMP/ed-memory-minigrid" checkout -q --detach 7f5853792ea7f04f75614661006d87fcf949f26d
           test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" rev-parse HEAD)" = 7f5853792ea7f04f75614661006d87fcf949f26d
           test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" hash-object minigrid/envs/memory.py)" = 660b0a1b769948034c87bb421759c2b9a4f24548
+          # Reuse this exact original-source checkout for the separate DoorKey engineering smoke.
+          test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" hash-object minigrid/envs/empty.py)" = 8810bb0fa156d18475022edd8859b135ef745a5f
+          test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" hash-object minigrid/envs/doorkey.py)" = df5b29ef063be34e6d83b8b478e092c6e3e01512
           python3 -m pip install --no-deps -e "$RUNNER_TEMP/ed-memory-minigrid"
           python3 -B research/e_research/ed84_official_minigrid_memory_smoke.py
           python3 -B research/e_research/ed125_memory_random_baseline.py
@@ -84,6 +87,17 @@ jobs:
           python3 -B research/e_research/ed116_memory_causal_junction.py
           python3 -B research/e_research/ed133_exposed_memory_controls.py
           python3 -B -m unittest discover -s research/e_research/ed103 -p 'test_*.py'
+          # Official DoorKey engineering reset/step replay on four exposed engineering seeds.
+          # No training, scientific first-use, or protected cohort access.
+          python3 -B research/e_research/ed28_official_minigrid_doorkey_smoke.py
+      - name: Preserve E Research DoorKey replay evidence (PR 1194 only)
+        if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.number == 1194 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e-research-ed37-official-doorkey-traces
+          path: ${{ runner.temp }}/ed37-doorkey/
+          if-no-files-found: error
+          retention-days: 45
       - name: F139 Python controller and native-custody regression
         shell: bash
         run: |
