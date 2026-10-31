@@ -23,11 +23,11 @@ from f139.nci04_model_free_grammar import method_for
 from f139.nci04_autonomy_feed import _semantic_identities
 
 def semantic_meta(controller, tree):
-    return {
-        **_semantic_identities(
-            controller, "Yggdrasil", tree, "yggdrasil/public_causal_cells.py"),
-        "frozen_split_sha256": GRAMMAR_META["frozen_split_sha256"],
-    }
+    values = _semantic_identities(
+        controller, "Yggdrasil", tree, "yggdrasil/public_causal_cells.py")
+    values.pop("toolchain_identity")
+    return {**values,
+            "frozen_split_sha256": GRAMMAR_META["frozen_split_sha256"]}
 
 
 TEST_META = semantic_meta(S, TREE)

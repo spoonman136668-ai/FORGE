@@ -61,9 +61,11 @@ class OriginalOwnerSessionModelFreeShadowTests(unittest.TestCase):
             path=self.provider.path, owner_witness=witness)
 
     def response(self, snapshot):
+        owner_semantics = _semantic_identities(
+            MAIN, "Yggdrasil", self.provider.tree, self.provider.path)
+        owner_semantics.pop("toolchain_identity")
         metadata = {
-            **_semantic_identities(MAIN, "Yggdrasil", self.provider.tree,
-                                   self.provider.path),
+            **owner_semantics,
             "frozen_split_sha256": META["frozen_split_sha256"],
         }
         return encode_owner_response_shadow(

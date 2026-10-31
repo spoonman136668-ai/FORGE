@@ -77,6 +77,9 @@ def encode_owner_response_shadow(*, controller_source_sha: str,
     expected_metadata = _semantic_identities(
         controller_source_sha, "Yggdrasil", target_tree_sha,
         "yggdrasil/public_causal_cells.py")
+    # Toolchain identity is fixed by the native intent contract, not part of
+    # the grammar's five-field semantic metadata input.
+    expected_metadata.pop("toolchain_identity")
     need(type(metadata) is dict
          and set(metadata) == set(expected_metadata) | {"frozen_split_sha256"}
          and all(metadata.get(key) == value
