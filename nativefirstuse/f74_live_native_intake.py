@@ -20,8 +20,14 @@ class Denied(ValueError):pass
 
 def need(ok,msg):
  if not ok:raise Denied("F74_"+msg)
+def safe_api_path(path):
+ if not isinstance(path,str) or not path.startswith("/"):
+  return False
+ route=path.split("?",1)[0]
+ return all(segment not in (".","..") for segment in route.split("/"))
+
 def get(repo,path):
- need(repo in [r for _,r in LANES] and path.startswith("/") and ".." not in path,
+ need(repo in [r for _,r in LANES] and safe_api_path(path),
       "ROUTE_UNSAFE")
  url=API+repo+path
  headers={"Accept":"application/vnd.github+json","User-Agent":"FORGE-F74-NATIVE-SCIENCE-SOURCE-READONLY"}
