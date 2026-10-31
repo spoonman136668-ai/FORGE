@@ -9,7 +9,7 @@ permissions:
   contents: write
 concurrency:
   group: forge-cpu-llm-g84-windows-original-model
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   frozen-source-admission:
     runs-on: ubuntu-latest
@@ -108,6 +108,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if (!(Test-Path cpu_g84_windows_result.json)) { throw 'G84_RESULT_FILE_NOT_CREATED' }
           if (!(Test-Path cpu_g84_windows_environment.txt)) { 'ENVIRONMENT_INSTALL_DID_NOT_COMPLETE' | Out-File -Encoding utf8 cpu_g84_windows_environment.txt }
+          git fetch origin refs/heads/research/cpu-llm-g84-windows-shakespeare-20261031
+          if ($LASTEXITCODE -ne 0) { throw 'G84_BRANCH_FETCH_FAILED' }
+          git reset --hard FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'G84_BRANCH_FAST_FORWARD_READ_FAILED' }
+          git merge-base --is-ancestor $env:GITHUB_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'G84_BRANCH_ADVANCED_OUTSIDE_RUN_ANCESTRY' }
           $dest = 'docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json'
           Copy-Item cpu_g84_windows_result.json $dest -Force
           $envDest = 'docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ENVIRONMENT-20261031.txt'
