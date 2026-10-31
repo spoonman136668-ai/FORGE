@@ -20,7 +20,7 @@ import json
 import re
 
 from f139.nci04_native_contract import Candidate, canonical, digest, parse_intent
-from f139.nci04_native_worker import commands_for
+from f139.nci04_native_worker import (commands_for, YGGDRASIL_G29_SOURCE, YGGDRASIL_G29_TESTS, YGG_G29_ATLAS_TEST, YGG_G29_ATLAS_MARKER)
 from f139.verify_ticket import REPO, WORKFLOW, admit as admit_controller_ticket, Untrusted
 
 ISSUE_NUMBER = re.compile(r"[1-9][0-9]*\Z")
@@ -141,25 +141,25 @@ def admit_native_intent(inputs: dict, native_intent_raw: bytes, *,
 
 
 def receipt_from_report(admission: NativeAdmission, report: dict) -> dict:
-    """Build a source-bound *development* receipt; no science or merge grant.
-
-    Real provider ZIP/receipt custody and terminal reconciliation remain the
-    responsibility of the existing independently qualified F139 controller.
-    Missing process measurements remain explicitly unknown.
-    """
-    require(isinstance(admission, NativeAdmission)
-            and isinstance(report, dict)
-            and set(report) == {
-                "schema", "intent_sha256", "qualification_key", "target_commit",
-                "target_tree_sha", "candidate_file", "candidate_sha256", "lane",
-                "qualification_complete", "real_code_changed_in_isolated_copy",
-                "commands", "child_peak_rss_bytes", "scientific_first_use",
-                "protected_holdouts_accessed", "accepted_ref_mutations",
-                "paid_model_calls", "durable_controller_custody_verified",
-                "unattended_controller_dispatch_verified",
-            }, "REPORT_FIELDS_INVALID")
+    """Build a source-bound development receipt; no science or merge grant."""
+    require(isinstance(admission, NativeAdmission) and isinstance(report, dict),
+            "REPORT_FIELDS_INVALID")
     c = admission.intent
-    require(report["schema"] == "forge.f139.nci04.native-development-diagnostic.v1"
+    dual_mode = c.lane == "Yggdrasil" and c.path == YGGDRASIL_G29_SOURCE
+    common = {
+        "schema", "intent_sha256", "qualification_key", "target_commit",
+        "target_tree_sha", "candidate_file", "candidate_sha256", "lane",
+        "qualification_complete", "real_code_changed_in_isolated_copy",
+        "commands", "child_peak_rss_bytes", "scientific_first_use",
+        "protected_holdouts_accessed", "accepted_ref_mutations",
+        "paid_model_calls", "durable_controller_custody_verified",
+        "unattended_controller_dispatch_verified",
+    }
+    fields = common | ({"dual_custody"} if dual_mode else set())
+    schema = ("forge.f139.nci04.native-development-diagnostic.v2"
+              if dual_mode else
+              "forge.f139.nci04.native-development-diagnostic.v1")
+    require(set(report) == fields and report.get("schema") == schema
             and report["intent_sha256"] == c.intent_sha256
             and report["qualification_key"] == c.qualification_key
             and report["target_commit"] == c.target_commit
@@ -178,16 +178,16 @@ def receipt_from_report(admission: NativeAdmission, report: dict) -> dict:
             and report["durable_controller_custody_verified"] is False
             and report["unattended_controller_dispatch_verified"] is False,
             "REPORT_AUTHORITY_OR_SOURCE_INVALID")
-    commands = report["commands"]
-    fixed = commands_for(admission.intent)
+    fixed, commands = commands_for(admission.intent), report["commands"]
     require(isinstance(commands, list) and 1 <= len(commands) <= len(fixed),
             "COMMAND_SEQUENCE_INVALID")
     for actual, expected in zip(commands, fixed):
-        require(isinstance(actual, dict)
-                and set(actual) == {
-                    "command", "outcome", "returncode", "elapsed_ms",
-                    "output_sha256", "output_bytes", "excerpt",
-                } and actual["command"] == list(expected)
+        command_fields = {"command", "outcome", "returncode", "elapsed_ms",
+                          "output_sha256", "output_bytes", "excerpt"}
+        if dual_mode:
+            command_fields.add("test_count")
+        require(isinstance(actual, dict) and set(actual) == command_fields
+                and actual["command"] == list(expected)
                 and actual["outcome"] in ("PASS", "TEST_FAILURE", "TIMEOUT")
                 and type(actual["returncode"]) is int
                 and type(actual["elapsed_ms"]) is int and actual["elapsed_ms"] >= 0
@@ -198,13 +198,75 @@ def receipt_from_report(admission: NativeAdmission, report: dict) -> dict:
                 and len(actual["excerpt"].encode("utf-8")) <= 4096
                 and ((actual["outcome"] == "PASS" and actual["returncode"] == 0)
                      or (actual["outcome"] == "TIMEOUT" and actual["returncode"] == -1)
-                     or (actual["outcome"] == "TEST_FAILURE"
-                         and actual["returncode"] > 0)),
+                     or (actual["outcome"] == "TEST_FAILURE" and actual["returncode"] > 0)),
                 "COMMAND_EVIDENCE_INVALID")
-    complete = len(commands) == len(fixed) and all(x["outcome"] == "PASS" for x in commands)
+        if dual_mode:
+            require(type(actual["test_count"]) is int and actual["test_count"] >= 0
+                    and (actual["outcome"] != "PASS"
+                         or expected[1:4] != ["-B", "-m", "unittest"]
+                         or actual["test_count"] > 0),
+                    "COMMAND_TEST_COUNT_INVALID")
+    complete = len(commands) == len(fixed) and all(
+        x["outcome"] == "PASS" for x in commands)
     require(report["qualification_complete"] is complete
             and (complete or commands[-1]["outcome"] != "PASS"),
             "FALSE_QUALIFICATION_CLAIM")
+    if dual_mode:
+        dual = report["dual_custody"]
+        require(isinstance(dual, dict) and set(dual) == {
+            "schema", "baseline_commit", "baseline_tree_sha", "test_inventory",
+            "baseline_g29", "baseline_full", "candidate_g29",
+            "candidate_non_atlas_test_modules",
+        } and dual["schema"] == "forge.f139.nci04.yggdrasil.g29-dual-custody.v1"
+            and dual["baseline_commit"] == c.target_commit
+            and dual["baseline_tree_sha"] == c.target_tree_sha
+            and dual["test_inventory"] == sorted(
+                (YGG_G29_ATLAS_TEST,) + YGGDRASIL_G29_TESTS)
+            and dual["candidate_non_atlas_test_modules"] == list(YGGDRASIL_G29_TESTS),
+            "G29_DUAL_CUSTODY_IDENTITY_INVALID")
+        def argv(name):
+            return ["python", "-B", "-m", "unittest", "discover",
+                    "-s", "tests", "-p", name, "-v"]
+        def valid_record(record, expected_argv):
+            require(isinstance(record, dict) and set(record) == {
+                "command", "outcome", "returncode", "elapsed_ms",
+                "output_sha256", "output_bytes", "excerpt", "test_count",
+            } and record["command"] == expected_argv
+                and record["outcome"] == "PASS" and record["returncode"] == 0
+                and type(record["elapsed_ms"]) is int and record["elapsed_ms"] >= 0
+                and isinstance(record["output_sha256"], str)
+                and SHA256.fullmatch(record["output_sha256"]) is not None
+                and type(record["output_bytes"]) is int and record["output_bytes"] >= 0
+                and isinstance(record["excerpt"], str)
+                and len(record["excerpt"].encode("utf-8")) <= 4096
+                and type(record["test_count"]) is int and record["test_count"] > 0,
+                "G29_BASELINE_EVIDENCE_INVALID")
+        valid_record(dual["baseline_g29"], argv(YGG_G29_ATLAS_TEST))
+        valid_record(dual["baseline_full"], argv("test_*.py"))
+        atlas = dual["candidate_g29"]
+        require(isinstance(atlas, dict) and set(atlas) == {
+            "command", "outcome", "returncode", "elapsed_ms", "output_sha256",
+            "output_bytes", "excerpt", "test_count", "disposition", "expected_marker",
+        } and atlas["command"] == argv(YGG_G29_ATLAS_TEST)
+            and atlas["expected_marker"] == YGG_G29_ATLAS_MARKER + c.path
+            and type(atlas["elapsed_ms"]) is int and atlas["elapsed_ms"] >= 0
+            and isinstance(atlas["output_sha256"], str)
+            and SHA256.fullmatch(atlas["output_sha256"]) is not None
+            and type(atlas["output_bytes"]) is int and atlas["output_bytes"] >= 0
+            and isinstance(atlas["excerpt"], str)
+            and len(atlas["excerpt"].encode("utf-8")) <= 4096
+            and type(atlas["test_count"]) is int and atlas["test_count"] > 0,
+            "G29_CANDIDATE_ATLAS_EVIDENCE_INVALID")
+        if atlas["disposition"] == "EXPECTED_FROZEN_ATLAS_REJECTION":
+            require(atlas["outcome"] == "TEST_FAILURE"
+                    and atlas["returncode"] > 0
+                    and atlas["expected_marker"] in atlas["excerpt"],
+                    "G29_EXPECTED_NEGATIVE_NOT_AUTHENTIC")
+        elif atlas["disposition"] == "PASS":
+            require(atlas["outcome"] == "PASS" and atlas["returncode"] == 0,
+                    "G29_ATLAS_PASS_CLAIM_INVALID")
+        else:
+            raise Untrusted("F139_NCI04_G29_ATLAS_DISPOSITION_INVALID")
     raw = canonical(report)
     require(len(raw) <= MAX_RECEIPT, "REPORT_OVERSIZE")
     return {
@@ -223,3 +285,4 @@ def receipt_from_report(admission: NativeAdmission, report: dict) -> dict:
         "paid_model_calls": 0, "local_custody_verified": False,
         "controller_unattended_verified": False,
     }
+
