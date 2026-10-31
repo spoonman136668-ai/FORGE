@@ -82,3 +82,15 @@ Bounded code-index searches in FORGE and forge-knowledge for `TinyLlama`, `RTX 4
 
 
 **G107 targeted private-source lookup — completed 2026-10-31:** After the earlier global search rate limit, repository-scoped code searches ran independently against FORGE, forge-knowledge, rbackup, Qualification-Forge and ckb. Search terms: `TinyLlama`, `model.safetensors`, `huggingface`, `nvidia-smi`, `CUDA_VISIBLE_DEVICES`; all returned zero indexed code results. This resolves the rate-limit gap for these five repositories only. It does not inspect other private repositories, non-indexed code, releases/assets, local model caches, model registries, or runner-host state. G107 remains `BLOCKED_IDENTITY`; updated report commit `a8c69a5287a87925327683b22131b7248431a20f`. No execution route or target device has been assumed.
+
+
+## G107 correction — real GPU and CUDA admission verified (G59/G60)
+
+Earlier statements that the target GPU or an existing qualified route were unverified are **superseded** by original G59/G60 evidence recovered from FORGE issue #1259.
+
+- G59 [run #41030389354](https://github.com/spoonman136668-ai/FORGE/actions/runs/41030389354) on existing `FORGE-CODEX-REMOTE` self-hosted Windows runner observed an NVIDIA GeForce RTX 5070 Ti Laptop GPU, one device, 12,227 MiB total VRAM, 11,812 MiB free at observation, driver 596.13. Original artifact #12966370600 SHA256 `c6d368b70e6697e4ec699c7943100401214eed5fcea17688e3ed6351b564bac2`.
+- G60 [run #41097033533](https://github.com/spoonman136668-ai/FORGE/actions/runs/41097033533), source `34cff5dff81407688e010f9abff0f33a253cf655`, used that runner's `forge-codex-isolated` self-hosted label and a temporary venv with PyTorch `2.8.0+cu128` / CUDA 12.8. It observed compute capability `sm_120`, CUDA available, and actually executed a CUDA 1024×1024 FP32 matrix multiplication (113.323 ms, checksum 268522304.0, max allocated VRAM 24,248,320 bytes). Job #124205236235 succeeded. The workflow removes the temporary venv in its `finally` block; no persistent runtime or inference backend was installed.
+- Original G60 artifact #12995299765 ZIP SHA256 `c0f4fee1d06a566e01dc4529ff7f031a89a3b0a22c5b15337f89afc6d2eab5e4` was independently downloaded and matched. Detailed combined receipt: `G107_GPU_RUNTIME_ADMISSION_20261030.json`.
+- G61 readback was recorded by GitHub Actions bot in issue #1259 and independently confirms G60 PASS without rerunning the experiment.
+
+**Updated G107 status:** target hardware identity PASS; existing runner GPU visibility PASS; one-shot isolated CUDA runtime admission PASS. No authentic model/checkpoint loaded, no LLM inference or training, and no end-to-end performance result. Model checkpoint/revision, tokenizer/weight shard hashes, rights, persistent inference loader/runtime identity, and fixed held-out inference workload remain UNVERIFIED. G107 is therefore `BLOCKED_MODEL_IDENTITY`, **not blocked on GPU access**. The corrected full report is committed at `a6c57c60771714e8b37536273163cea7804348b0`.
