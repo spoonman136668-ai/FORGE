@@ -109,7 +109,7 @@ def main():
       "engineering":"UNVERIFIED","correctness":"UNVERIFIED","transfer":"UNVERIFIED",
       "scientific_acceptance":"NOT_GRANTED","promotion_allowed":False,
       "limitations":["Original pretrained GPT2 full 8-token FP32 requests; not natural network traffic",
-                     "Three logical CPUs shared by all arms; PyTorch intraop thread change charged inside every request",
+                     "Two logical CPUs shared by all arms; PyTorch intraop thread change charged inside every request",
                      "No GPU or model weights changed, no universal token output proof beyond observed original samples",
                      "Pinned dramatic Shakespeare corpus; not provably unseen to GPT2 training",
                      "RSS sampled, not true physical peak; process CPU time measured but no energy metric",
@@ -149,7 +149,7 @@ def main():
             raise RuntimeError("G84_PRETRAINED_FP32_MODEL_DRIFT")
         if not hasattr(proc,"cpu_affinity"):raise RuntimeError("G84_CPU_AFFINITY_UNAVAILABLE")
         old_aff=proc.cpu_affinity()
-        if len(old_aff)<CPU_BUDGET:raise RuntimeError("G84_THREE_CPU_AFFINITY_UNAVAILABLE")
+        if len(old_aff)<CPU_BUDGET:raise RuntimeError("G84_TWO_CPU_AFFINITY_UNAVAILABLE")
         proc.cpu_affinity(old_aff[:CPU_BUDGET])
         receipt["fixed_affinity"]=proc.cpu_affinity()
         receipt["fixed_torch_interop"]=torch.get_num_interop_threads()
