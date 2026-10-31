@@ -25,6 +25,27 @@ class PortableReplayTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "OUTPUT_LITERAL_MATCH_COUNT_2"):
             patched_tree('x="old"; y="old"', 'old', 'new')
 
+    def test_actual_frozen_sources_prepare(self):
+        # Positive path: require byte-exact committed sources for BOTH gates,
+        # and validate their in-memory AST transform without running NumPy.
+        repo_root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            for gate in ("g89", "g90"):
+                with self.subTest(gate=gate):
+                    target = Path(tmp) / (gate + ".json")
+                    source, destination, compiled = prepare(repo_root, gate, target)
+                    self.assertTrue(source.is_file())
+                    self.assertEqual(destination, target.resolve())
+                    self.assertEqual(compiled.co_filename, str(source))
+                    self.assertGreater(len(compiled.co_code), 0)
+
+    def test_actual_frozen_sources_reject_non_json_output(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        for gate in ("g89", "g90"):
+            with self.subTest(gate=gate):
+                with self.assertRaisesRegex(ValueError, "JSON_OUTPUT_REQUIRED"):
+                    prepare(repo_root, gate, "result.txt")
+
     def test_reject_source_drift(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/"research/acc_g89/g89.py"
