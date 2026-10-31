@@ -1,5 +1,6 @@
 """Focused H53 negative controls; no live owner or scheduler required."""
 import hashlib
+from contextlib import closing
 import importlib.util
 import json
 from pathlib import Path
@@ -15,7 +16,7 @@ spec.loader.exec_module(h53)
 
 
 def make_db(path, *, bad_hash=False, gap=False, source=None):
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db:
         db.execute("CREATE TABLE meta (id INTEGER PRIMARY KEY, source_sha TEXT, enabled INTEGER, head_seq INTEGER, head_hash TEXT)")
         db.execute("CREATE TABLE events (seq INTEGER PRIMARY KEY, kind TEXT, payload TEXT, prior_sha TEXT, sha TEXT)")
         previous = "0" * 64
