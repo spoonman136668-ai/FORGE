@@ -250,13 +250,15 @@ def main():
  contract()
  if platform.system()!="Linux" or platform.machine().lower() not in ("x86_64","amd64"):raise RuntimeError("G95_NOT_NATIVE_LINUX_X86_64")
  if torch.version.cuda is not None:raise RuntimeError("G95_NON_CPU_RUNTIME")
- torch.set_num_threads(1);torch.set_num_interop_threads(1);proc=psutil.Process();old=None
+ torch.set_num_threads(2);torch.set_num_interop_threads(1)
+ if torch.get_num_threads()!=2 or torch.get_num_interop_threads()!=1:raise RuntimeError("G95_THREAD_CONTRACT_MISMATCH")
+ proc=psutil.Process();old=None
  receipt={"schema":"forge.cpu-llm-g95.multi-prefix-lru.v1","gate":"CPU_G95","preregistration_commit":PREREG,
   "source_sha":os.getenv("GITHUB_SHA","UNSET"),"model_revision":MODEL_REV,"model_weights_sha256":WEIGHTS_SHA,
   "dataset_revision":DATA_REV,"dataset_sha256":DATA_SHA,"engineering":"UNVERIFIED","correctness":"UNVERIFIED",
   "decision":"UNVERIFIED","scientific_acceptance":"NOT_GRANTED","promotion_allowed":False,
   "runtime":{"torch":torch.__version__,"transformers":transformers.__version__,"python":platform.python_version(),
-  "platform":platform.platform(),"machine":platform.machine(),"cpu":platform.processor(),"logical_cpus":os.cpu_count()},
+  "platform":platform.platform(),"machine":platform.machine(),"cpu":platform.processor(),"logical_cpus":os.cpu_count(),\n  "torch_intraop_threads":torch.get_num_threads(),"torch_interop_threads":torch.get_num_interop_threads()},
   "limitations":["Four exact prefix keys and deterministic round-robin traffic only","Original GPT2 FP32 CPU workload; one Linux x86_64 virtualized host, 3-core affinity",
    "GSM8K rank cohort disjoint but not proven unseen in GPT2 pretraining","Sampled RSS, no energy metric",
    "No production/general-traffic/other-model/scientific acceptance/promotion claim"]}
