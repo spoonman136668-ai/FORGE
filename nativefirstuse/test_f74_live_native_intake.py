@@ -74,13 +74,12 @@ class F74(unittest.TestCase):
                 main = api[(repo, "/git/ref/heads/main")]["commit"]["sha"]
                 old = ("e" if lane == "Wingless" else "f") * 40
                 api[(repo, "/actions/runs/38800000100")]["head_sha"] = old
-                api[(repo, "/compare/" + old + "..." + main + "?per_page=1&page=1")] = {
-                    "status": "ahead", "ahead_by": 2,
-                    "base_commit": {"sha": old}, "commits": [{"sha": old}],
+                middle = ("9" if lane == "Wingless" else "8") * 40
+                api[(repo, "/git/commits/" + main)] = {
+                    "sha": main, "parents": [{"sha": middle}],
                 }
-                api[(repo, "/compare/" + old + "..." + main + "?per_page=1&page=2")] = {
-                    "status": "ahead", "ahead_by": 2,
-                    "base_commit": {"sha": old}, "commits": [{"sha": main}],
+                api[(repo, "/git/commits/" + middle)] = {
+                    "sha": middle, "parents": [{"sha": old}],
                 }
         result = self.work(edit)
         self.assertEqual(len(result["lanes"]), 2)
@@ -107,10 +106,11 @@ class F74(unittest.TestCase):
             main = api[(repo, "/git/ref/heads/main")]["commit"]["sha"]
             bad = "f" * 40
             api[(repo, "/actions/runs/38800000100")]["head_sha"] = bad
-            api[(repo, "/compare/" + bad + "..." + main + "?per_page=1&page=1")] = {
-                "status": "diverged", "ahead_by": 1,
-                "base_commit": {"sha": bad},
-                "commits": [{"sha": main}],
+            api[(repo, "/git/commits/" + main)] = {
+                "sha": main, "parents": [{"sha": "1" * 40}],
+            }
+            api[(repo, "/git/commits/" + ("1" * 40))] = {
+                "sha": "1" * 40, "parents": [],
             }
         with self.assertRaises(m.Denied):
             self.work(edit)
