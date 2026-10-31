@@ -88,17 +88,25 @@ def audit():
   # The saved launcher can legitimately predate later main commits. Confirm
   # its exact source is an ancestor of the currently pinned main, not equal
   # to today's main and not merely a successful run from an unrelated commit.
-  lineage=get(repo,"/compare/"+run_sha+"..."+sha)
-  lineage_commits=lineage.get("commits")
-  lineage_head=(lineage_commits[-1].get("sha")
-                if isinstance(lineage_commits,list) and lineage_commits
-                else run_sha if lineage.get("status")=="identical" else None)
+  compare_path="/compare/"+run_sha+"..."+sha+"?per_page=1&page=1"
+  lineage=get(repo,compare_path)
+  ahead=lineage.get("ahead_by")
   need(lineage.get("status") in ("ahead","identical") and
        lineage.get("base_commit",{}).get("sha")==run_sha and
-       lineage_head==sha and
-       (lineage.get("ahead_by",0)>0 if lineage.get("status")=="ahead"
-        else run_sha==sha),
+       isinstance(ahead,int) and 0<=ahead<=10000,
        "RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
+  if lineage.get("status")=="identical":
+   need(ahead==0 and run_sha==sha,"RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
+  else:
+   need(ahead>0,"RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
+   last_page=get(repo,"/compare/"+run_sha+"..."+sha+"?per_page=1&page="+str(ahead))
+   last_commits=last_page.get("commits")
+   need(last_page.get("status")=="ahead" and
+        last_page.get("ahead_by")==ahead and
+        last_page.get("base_commit",{}).get("sha")==run_sha and
+        isinstance(last_commits,list) and len(last_commits)==1 and
+        last_commits[0].get("sha")==sha,
+        "RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
   again=get(repo,"/branches/"+urllib.parse.quote(active,safe="/"))
   need(again.get("commit",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
   main_again=get(repo,"/branches/main")
