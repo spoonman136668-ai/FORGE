@@ -33,6 +33,7 @@ def make_db(path, *, bad_hash=False, gap=False, source=None):
             db.execute("INSERT INTO events VALUES (?,?,?,?,?)", (seq, kind, json.dumps(payload), previous, digest))
             previous = digest
         db.execute("INSERT INTO meta VALUES (1,?,?,?,?)", (source or h53.SOURCE_SHA, 1, 351, previous))
+        db.commit()
 
 
 class H53NegativeControls(unittest.TestCase):
