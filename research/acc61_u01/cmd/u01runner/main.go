@@ -219,6 +219,38 @@ func runAll(workerPath string, queries int, childTimeout time.Duration) (*receip
 	return out,nil
 }
 
+// writeReceiptExclusive commits a complete JSON receipt once. It never
+// replaces a prior result, even under concurrent invocations, and stages the
+// temporary file in the destination directory for same-filesystem atomicity.
+func writeReceiptExclusive(destination string, record *receipt) error {
+	if destination == "" || record == nil {
+		return errors.New("ACC126_INVALID_RECEIPT_DESTINATION_OR_RECORD")
+	}
+	staged, err := os.CreateTemp(filepath.Dir(destination), ".acc126-receipt-*.tmp")
+	if err != nil { return fmt.Errorf("ACC126_TEMP_CREATE:%w", err) }
+	name := staged.Name()
+	defer os.Remove(name)
+	if err := staged.Chmod(0600); err != nil {
+		_ = staged.Close()
+		return fmt.Errorf("ACC126_TEMP_MODE:%w", err)
+	}
+	if err := json.NewEncoder(staged).Encode(record); err != nil {
+		_ = staged.Close()
+		return fmt.Errorf("ACC126_TEMP_ENCODE:%w", err)
+	}
+	if err := staged.Sync(); err != nil {
+		_ = staged.Close()
+		return fmt.Errorf("ACC126_TEMP_SYNC:%w", err)
+	}
+	if err := staged.Close(); err != nil {
+		return fmt.Errorf("ACC126_TEMP_CLOSE:%w", err)
+	}
+	if err := os.Link(name, destination); err != nil {
+		return fmt.Errorf("ACC126_RECEIPT_EXISTS_OR_HARDLINK_UNSUPPORTED:%w", err)
+	}
+	return nil
+}
+
 func main(){
 	var bin,out string
 	var queries,timeoutSec int
@@ -235,25 +267,8 @@ func main(){
 	if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
 	// External child wall/CPU readings are recorded, but parent source-generation
 	// CPU/RSS is not charged, so whole-study resource acceptance stays blocked.
-	tempPath:=out+".tmp"
-	f,err:=os.OpenFile(tempPath,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
-	if err!=nil{fmt.Fprintln(os.Stderr,"ACC125_RECEIPT_OPEN:",err);os.Exit(2)}
-	encErr:=json.NewEncoder(f).Encode(receipt)
-	closeErr:=f.Close()
-	if encErr!=nil||closeErr!=nil {
-		_ = os.Remove(tempPath)
-		fmt.Fprintln(os.Stderr,"ACC125_RECEIPT_WRITE:",errors.Join(encErr,closeErr))
-		os.Exit(2)
-	}
-	// Link is atomic and refuses to replace a pre-existing result path.
-	// A plain rename would silently overwrite an immutable research receipt.
-	if err:=os.Link(tempPath,out);err!=nil {
-		_ = os.Remove(tempPath)
-		fmt.Fprintln(os.Stderr,"ACC126_RECEIPT_EXCLUSIVE_LINK:",err)
-		os.Exit(2)
-	}
-	if err:=os.Remove(tempPath);err!=nil {
-		fmt.Fprintln(os.Stderr,"ACC126_RECEIPT_TEMP_CLEANUP:",err)
+	if err:=writeReceiptExclusive(out,receipt);err!=nil{
+		fmt.Fprintln(os.Stderr,err)
 		os.Exit(2)
 	}
 	fmt.Printf("ACC125_COLD_CHILDREN=%d FROZEN=%t DECISION=%s\n",
