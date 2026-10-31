@@ -9,6 +9,7 @@ from pathlib import Path
 
 from f139.nci04_model_free_owner_response_shadow import (
     OwnerResponseShadowDenied, encode_owner_response_shadow,
+    validate_research_lineage,
 )
 from f139.nci04_model_proposal import ProposalDenied, validate
 from f139.nci04_native_contract import parse_intent
@@ -359,6 +360,71 @@ class OwnerResponseShadowTests(unittest.TestCase):
         self.assertIs(second["research_lineage_authenticated"], False)
         self.assertIs(second["native_v1_scientific_lineage_bound"], False)
         self.assertIs(run(history=[negative])["publication_authorized"], False)
+
+
+    def test_h79_lineage_validator_roundtrips_and_preserves_non_authority(self):
+        item = run()["selected"][0]
+        line = item["research_lineage_record"]
+        checked = validate_research_lineage(
+            record=line, declared_sha256=item["research_lineage_sha256"],
+            model_response_sha256=item["model_response_sha256"],
+            native_intent_sha256=item["native_intent_sha256"],
+            native_qualification_key=item["native_qualification_key"],
+            after_sha256=item["after_sha256"],
+            frontier_candidate_identity=item["frontier_candidate_identity"],
+            owner_candidate_identity=item["owner_candidate_identity"],
+            controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
+            mechanism_sha256=item["mechanism_sha256"],
+            frozen_split_sha256=item["frozen_split_sha256"],
+            owner_history_sha256=OWNER_HEAD)
+        self.assertEqual(checked["record"], line)
+        self.assertTrue(checked["self_consistency_verified"])
+        for key in ("source_identity_authenticated",
+                    "frozen_science_authenticated", "owner_history_authenticated",
+                    "scientific_first_use", "publication_authorized",
+                    "dispatch_authorized"):
+            self.assertIs(checked[key], False, key)
+
+    def test_h79_lineage_validator_rejects_tamper_even_with_rehashed_claims(self):
+        item = run()["selected"][0]
+        line = item["research_lineage_record"]
+        args = dict(
+            record=line, declared_sha256=item["research_lineage_sha256"],
+            model_response_sha256=item["model_response_sha256"],
+            native_intent_sha256=item["native_intent_sha256"],
+            native_qualification_key=item["native_qualification_key"],
+            after_sha256=item["after_sha256"],
+            frontier_candidate_identity=item["frontier_candidate_identity"],
+            owner_candidate_identity=item["owner_candidate_identity"],
+            controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
+            mechanism_sha256=item["mechanism_sha256"],
+            frozen_split_sha256=item["frozen_split_sha256"],
+            owner_history_sha256=OWNER_HEAD)
+        bad = dict(line, mechanism_sha256="8"*64)
+        import hashlib as _hashlib
+        import json as _json
+        with self.assertRaisesRegex(OwnerResponseShadowDenied,
+                                    "RESEARCH_LINEAGE_DIGEST_INVALID"):
+            validate_research_lineage(**dict(args, record=bad))
+        # Rehashing tampered content does not make it match the candidate or
+        # owner response the caller actually supplied.
+        bad_hash = _hashlib.sha256(_json.dumps(
+            bad, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True).encode("ascii")).hexdigest()
+        with self.assertRaisesRegex(OwnerResponseShadowDenied,
+                                    "RESEARCH_LINEAGE_RESPONSE_LINK_MISMATCH"):
+            validate_research_lineage(**dict(args, record=bad,
+                                              declared_sha256=bad_hash))
+        for field, value in (("scientific_first_use", True),
+                             ("unexpected_authority", True)):
+            changed = dict(line, **{field: value})
+            changed_hash = _hashlib.sha256(_json.dumps(
+                changed, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=True).encode("ascii")).hexdigest()
+            with self.subTest(field=field), self.assertRaises(
+                    OwnerResponseShadowDenied):
+                validate_research_lineage(**dict(args, record=changed,
+                                                  declared_sha256=changed_hash))
 
 
 if __name__ == "__main__":
