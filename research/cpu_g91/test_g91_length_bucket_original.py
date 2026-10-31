@@ -84,7 +84,7 @@ class G91LengthBucketAdmission(unittest.TestCase):
 
     def test_no_model_mutation_or_promotion(self):
         source=P.read_text(encoding="utf-8")
-        for token in ('"scientific_acceptance":"NOT_GRANTED"','"promotion_allowed":False',
+        for token in ('"scientific_acceptance": "NOT_GRANTED"','"promotion_allowed": False',
           'strategy=="length"','input_lengths','padding_tokens','LENGTH_BUCKET_PASS','LENGTH_BUCKET_NO_GO'):
             self.assertIn(token,source)
         self.assertNotIn("model.train(",source)
