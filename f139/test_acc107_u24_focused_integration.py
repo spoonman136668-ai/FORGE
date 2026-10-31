@@ -27,12 +27,13 @@ class ACC107U24FocusedIntegration(unittest.TestCase):
             suite = unittest.defaultTestLoader.discover(
                 str(directory), pattern="test_*.py", top_level_dir=str(directory)
             )
-            self.assertGreaterEqual(suite.countTestCases(), 20,
+            expected_count = suite.countTestCases()
+            self.assertGreaterEqual(expected_count, 20,
                                     "ACC107_TEST_CASE_COUNT_DRIFT")
             output = io.StringIO()
             result = unittest.TextTestRunner(stream=output, verbosity=1).run(suite)
             self.assertTrue(result.wasSuccessful(),
                             "ACC107_FOCUSED_U24_FAILED:\n" + output.getvalue())
-            self.assertEqual(result.testsRun, suite.countTestCases())
+            self.assertEqual(result.testsRun, expected_count)
         finally:
             sys.path.remove(str(directory))
