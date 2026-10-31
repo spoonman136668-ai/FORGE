@@ -9,3 +9,5 @@ Disposition remains **engineering PASS, correctness PASS, MKLDNN_PREPACK_NO_GO**
 This final workflow only validates exact receipt/provenance, Linux/Windows isolation and F139 custody, Go tests/race/vet/build. It does not rerun inference. The original model weights and G70 sources stay immutable. Scientific acceptance remains NOT_GRANTED; promotion remains false.
 
 Final qualification workflow added; trigger a fresh Linux/Windows receipt-only run from this exact branch head.
+
+The verifier now pins the exact recovered receipt Git blob SHA; rerun final receipt-only qualification on this branch head.
