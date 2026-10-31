@@ -15,7 +15,7 @@ import time
 
 from f139.local_controller import Database, SCHEMA, ZERO
 
-SOURCE = "a" * 64
+SOURCE = "a" * 40
 SCHEMA_PATH = Path(__file__).parent / "f139" / "local_schema.sql"
 INSERT_META = (
     "INSERT INTO meta(id,schema,source_sha,epoch,enabled,legacy_suspended,"
