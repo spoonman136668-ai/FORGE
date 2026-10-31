@@ -35,6 +35,14 @@
 - `forge-knowledge/README.md` blob `0051858f647fc36f0c323e82b44f15fcf0ab7b2a` identifies generated, code-only advisory navigation (source-main snapshot d8bccc60), explicitly with no scientific, execution, release, or model-training authority.
 - A broader connected-account GitHub code-search attempt was rate-limited (HTTP 429) before scoped scans of all remaining private repositories could finish. Therefore G107 records those repositories as **NOT FULLY SEARCHED**, not as confirmed empty. No retries, alternate controller, or credential escalation was attempted.
 
+## Scoped private-repository search follow-up
+
+A fresh, repository-scoped GitHub code search was completed after the prior API rate limit cleared. Exact connected targets: `spoonman136668-ai/FORGE`, `forge-knowledge`, `rbackup`, `Qualification-Forge`, and `ckb`. Independent single-term searches for `TinyLlama`, `model.safetensors`, `huggingface`, `nvidia-smi`, and `CUDA_VISIBLE_DEVICES` returned **zero indexed code results across those five repositories**. This directly addresses the earlier rate-limited search limitation for these specific repositories.
+
+The result is bounded to the GitHub code-search index and default-branch searchable content. It does **not** inspect unindexed repositories, unindexed paths, non-code GitHub assets/releases, local workstation model caches, external model registries, private runner machines, or encrypted backup contents. The `ckb` and `Qualification-Forge` source repositories are not repurposed as FORGE execution authority; the documented Qualification-Forge README still assigns its worker to CKB-plane governance.
+
+No checkpoint revision, tokenizer/shard hashes, actual CUDA runtime manifest or target GPU readback was recovered. `BLOCKED_IDENTITY` remains the correct G107 status. The next safe acquisition path is a bounded read-only lookup against the actual model registry/cache manifest and the existing qualified GPU runner inventory, using their established authorized sources—not broader unrelated repo searches or new infrastructure.
+
 ## Required identity inventory
 
 | Identity item | Result | Evidence / reason |
