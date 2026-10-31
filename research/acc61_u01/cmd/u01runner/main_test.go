@@ -5,6 +5,9 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"reflect"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	u01 "github.com/spoonman136668-ai/forge/research/acc61_u01"
@@ -46,5 +49,37 @@ func TestACC125InvalidCohortFailsBeforeBinaryRead(t *testing.T) {
 		if _,err:=runAll("/missing/worker",queries,1);err==nil{
 			t.Fatalf("ACC125_INVALID_QUERY_ACCEPTED:%d",queries)
 		}
+	}
+}
+
+func TestACC126ReceiptAtomicExclusiveNoOverwrite(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "u01-receipt.json")
+	first := &receipt{
+		Schema: "forge.acc125.u01.cold-process-matrix.v1",
+		ScientificAcceptance: "NOT_GRANTED",
+		Decision: "RESOURCE_AND_SCIENCE_WITNESS_UNVERIFIED",
+	}
+	if err := writeReceiptExclusive(destination, first); err != nil {
+		t.Fatalf("ACC126_FIRST_RECEIPT_WRITE:%v", err)
+	}
+	before, err := os.ReadFile(destination)
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(string(before), "NOT_GRANTED") {
+		t.Fatal("ACC126_RECEIPT_SCIENCE_STATUS_MISSING")
+	}
+	second := &receipt{Schema:"TAMPER",ScientificAcceptance:"PROMOTED"}
+	if err := writeReceiptExclusive(destination, second); err == nil {
+		t.Fatal("ACC126_RECEIPT_OVERWRITE_MUST_FAIL")
+	}
+	after, err := os.ReadFile(destination)
+	if err != nil { t.Fatal(err) }
+	if string(before) != string(after) {
+		t.Fatal("ACC126_RECEIPT_CHANGED_AFTER_REJECTED_OVERWRITE")
+	}
+	if err := writeReceiptExclusive("", first); err == nil {
+		t.Fatal("ACC126_EMPTY_RECEIPT_DESTINATION_ACCEPTED")
+	}
+	if err := writeReceiptExclusive(filepath.Join(t.TempDir(),"x.json"), nil); err == nil {
+		t.Fatal("ACC126_NIL_RECEIPT_ACCEPTED")
 	}
 }
