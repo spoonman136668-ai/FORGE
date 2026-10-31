@@ -233,8 +233,8 @@ func main(){
 	}
 	receipt,err:=runAll(bin,queries,time.Duration(timeoutSec)*time.Second)
 	if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
-	// The parent-side wall value is deliberately not treated as a complete
-	// parent CPU/RSS measurement: source generation was outside child peaks.
+	// External child wall/CPU readings are recorded, but parent source-generation
+	// CPU/RSS is not charged, so whole-study resource acceptance stays blocked.
 	tempPath:=out+".tmp"
 	f,err:=os.OpenFile(tempPath,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
 	if err!=nil{fmt.Fprintln(os.Stderr,"ACC125_RECEIPT_OPEN:",err);os.Exit(2)}
