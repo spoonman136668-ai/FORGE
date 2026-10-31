@@ -1,4 +1,5 @@
 """Pure H53 one-shot admission checks. No network, scheduler or SQLite writes."""
+import ntpath
 SOURCE = "49c7b15343bea3c201fb52b498d8c0f397384afe"
 RUNNER = "FORGE-CODEX-REMOTE"
 OWNER = "spoonman136668-ai"
@@ -46,8 +47,8 @@ def owner_guard(*, task_name, task_state, task_sid, runner_sid, actions,
     demand(task_name == TASK and task_state in ("Running", "Ready"), "OWNER_TASK")
     demand(task_sid == runner_sid and bool(task_sid), "OWNER_SID")
     demand(actions == 1 and triggers == 3 and poll_seconds == 300, "OWNER_TOPOLOGY")
-    demand(db_path.casefold() == expected_db.casefold()
-           and db_path.replace("\\", "/").endswith(DB_SUFFIX), "OWNER_DATABASE")
+    demand(ntpath.normcase(ntpath.normpath(db_path)) == ntpath.normcase(ntpath.normpath(expected_db))
+           and ntpath.normcase(ntpath.normpath(db_path)).endswith(ntpath.normcase(DB_SUFFIX.replace("/", "\\"))), "OWNER_DATABASE")
 
 def ledger_guard(*, source_sha, enabled, legacy_suspended, head_seq, baseline_sha,
                  query_only, quick_check, cold_verified):
