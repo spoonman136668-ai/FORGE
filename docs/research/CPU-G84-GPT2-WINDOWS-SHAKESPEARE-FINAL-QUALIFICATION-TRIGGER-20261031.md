@@ -11,3 +11,7 @@ This record requests the existing exact-receipt Linux and Windows qualification 
 Original measured classification is **TRANSFER_FAIL** with engineering PASS and exact-output correctness PASS. Median uniform2 speedups: **0.935517× vs uniform1** and **1.025079× vs uniform3**. Minimum paired uniform3/uniform2 ratio: **0.825854×**. The p95, sampled RSS and process CPU constraints passed. The preregistered result remains unchanged; this trigger exists solely to verify custody, unchanged baseline and mandatory full cross-platform source regression.
 
 Scientific/model acceptance remains NOT_GRANTED.
+
+## Exact-receipt regression retry — 2026-10-31
+
+The final regression now hashes the committed Git blob bytes using `git show HEAD:<receipt-path> | sha256sum`, not the OS-normalized checkout working tree. This makes the check invariant to Git CRLF conversion while preserving the exact committed receipt. G84 canonical receipt SHA-256: `ce62be71ec63e8149310381082cf1de94987a58797132b90d6bb175ed756e573`. No benchmark data, thresholds, preregistration, model identity or classification changed. Both operating systems must still complete the full existing regression.
