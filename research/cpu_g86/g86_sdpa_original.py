@@ -72,7 +72,7 @@ def decide(trials):
                 raise RuntimeError("G86_INVALID_CPU_WALL_OR_RSS_TIMING")
             if x["backend_dispatch_calls"]<=0:
                 raise RuntimeError("G86_BACKEND_NOT_DISPATCHED_"+a)
-            if a.startswith("eager") and x["sdpa_dispatch_calls"]!=0:
+            if a.startswith("eager") and (x["sdpa_dispatch_calls"]!=0 or x["eager_dispatch_calls"]<=0):
                 raise RuntimeError("G86_EAGER_SDPA_FALLBACK_"+a)
             if a.startswith("sdpa") and x["sdpa_dispatch_calls"]<=0:
                 raise RuntimeError("G86_SDPA_NOT_ACTUALLY_CALLED_"+a)
