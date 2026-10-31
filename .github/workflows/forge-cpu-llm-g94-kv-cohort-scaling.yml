@@ -1,0 +1,104 @@
+name: FORGE CPU LLM Evaluation G94 original GPT2 KV cohort scaling
+on:
+  push:
+    branches: [research/cpu-llm-g94-kv-cohort-scaling-gpt2-20261031]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g94-kv-cohort-scaling.yml'
+      - 'research/cpu_g94/**'
+permissions:
+  contents: read
+concurrency:
+  group: forge-cpu-llm-g94-kv-scaling
+  cancel-in-progress: false
+jobs:
+  source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Verify baseline, preregistration and source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          PREREG=f2e8323f1909b70a8ae998e332e5c94754591077
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git merge-base --is-ancestor "$PREREG" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G94-GPT2-KV-COHORT-SCALING-PREREG-20261031.md)" = "17d34fe37463f717fc9ea85777ed29b0e0d8f5f3"
+          test "$(git rev-parse HEAD:research/cpu_g94/g94_kv_cohort_scaling_original.py)" = "34d2d94fbb03460814f363be155520951f00ccf7"
+          test "$(git rev-parse HEAD:research/cpu_g94/test_g94_kv_cohort_scaling_original.py)" = "e668e051a73c7e9a10fa85711c910f3c67534afc"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          python -B -m py_compile research/cpu_g94/g94_kv_cohort_scaling_original.py research/cpu_g94/test_g94_kv_cohort_scaling_original.py
+          python -B -m unittest discover -s research/cpu_g94 -p 'test_g94_kv_cohort_scaling_original.py' -v
+  original-model-kv-scaling:
+    needs: source-admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Verify native CPU runner and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test "$(git rev-parse HEAD:research/cpu_g94/g94_kv_cohort_scaling_original.py)" = "34d2d94fbb03460814f363be155520951f00ccf7"
+          python -B -m unittest discover -s research/cpu_g94 -p 'test_g94_kv_cohort_scaling_original.py' -v
+      - name: Install pinned original CPU GPT2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.48.3 huggingface-hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1 psutil==7.1.3
+          python -m pip check
+          python - <<'PY'
+          import torch,transformers
+          assert torch.__version__ == "2.5.1+cpu"
+          assert torch.version.cuda is None
+          assert transformers.__version__ == "4.48.3"
+          print("G94_PINNED_RUNTIME=PASS")
+          PY
+          python -m pip freeze > cpu_g94_environment.txt
+          uname -a >> cpu_g94_environment.txt
+          lscpu >> cpu_g94_environment.txt
+      - name: Run original GPT2 shared-prefix cohort-size scaling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/cpu_g94/g94_kv_cohort_scaling_original.py
+          python - <<'PY'
+          import json
+          r=json.load(open("cpu_g94_original_result.json",encoding="utf-8"))
+          assert r["schema"] == "forge.cpu-llm-g94.kv-cohort-scaling.v1"
+          assert r["gate"] == "CPU_G94"
+          assert r["preregistration_commit"] == "f2e8323f1909b70a8ae998e332e5c94754591077"
+          assert r["engineering"] == "PASS" and r["correctness"] == "PASS"
+          assert r["metrics"]["timed_authentic_responses"] == 240
+          assert r["metrics"]["timed_authentic_generated_tokens"] == 1920
+          assert r["decision"] in ("KV_COHORT_SCALE_PASS","KV_COHORT_SCALE_NO_GO")
+          assert r["scientific_acceptance"] == "NOT_GRANTED" and not r["promotion_allowed"]
+          print("CPU_G94_RESULT="+r["decision"])
+          PY
+      - name: Upload original cohort-scale receipt and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g94-original-gpt2-kv-cohort-scaling
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g94_original_result.json
+            cpu_g94_environment.txt
