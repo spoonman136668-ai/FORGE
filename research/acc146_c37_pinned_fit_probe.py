@@ -74,7 +74,7 @@ def run(fit, first, second):
         raise AssertionError("ORIGINAL_MODEL_SHA_MISMATCH")
     if a["precommitted_protocol_sha256"] != b["precommitted_protocol_sha256"]:
         raise AssertionError("PREREG_DRIFT")
-    if a["FIT_trained_two_action_original_forks"] != b["FIT_trained_two_action_original_forks"] != 93:
+    if a["FIT_trained_two_action_original_forks"] != 93 or b["FIT_trained_two_action_original_forks"] != 93:
         raise AssertionError("FROZEN_OPTION_COUNT_DRIFT")
     if a["criteria"] != b["criteria"] or a["factorial_source_actor_summaries"] != b["factorial_source_actor_summaries"]:
         raise AssertionError("ORIGINAL_SCIENCE_DRIFT")
