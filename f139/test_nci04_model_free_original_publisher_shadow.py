@@ -38,12 +38,15 @@ class ModelFreeOriginalPublisherShadowTests(unittest.TestCase):
         self.assertEqual(len(response["selected"]), 1)
         self.item = response["selected"][0]
         self.raw_response = self.item["model_response_bytes"]
+        self.lineage = {"record": self.item["research_lineage_record"],
+                        "sha256": self.item["research_lineage_sha256"]}
 
-    def run_publisher(self, *, witness=lambda: True):
+    def run_publisher(self, *, witness=lambda: True, lineage=None):
+        kwargs = {} if lineage is None else {"research_lineage": lineage}
         return publish_model_once(
             self.db, self.api.get, self.f.steering.get,
             self.api.write, session=self.session["session"],
-            raw_response=self.raw_response, owner_witness=witness)
+            raw_response=self.raw_response, owner_witness=witness, **kwargs)
 
     def rows(self, kind):
         return [json.loads(x["payload"]) for x in
@@ -143,6 +146,52 @@ class ModelFreeOriginalPublisherShadowTests(unittest.TestCase):
         self.assertEqual(self.db.meta(), initial)
         self.assertEqual(self.api.write_calls, [])
         self.assertEqual(self.rows(ATTEMPT), [])
+        self.db.verify()
+
+
+    def test_h80_validated_lineage_is_retained_in_existing_owner_draft_note(self):
+        out = self.run_publisher(lineage=self.lineage)
+        self.assertEqual(out["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        note = json.loads(self.api.pr["body"])
+        envelope = note["research_lineage"]
+        self.assertEqual(envelope["schema"],
+                         "forge.f139.model-free-research-lineage-envelope.v1")
+        self.assertEqual(envelope["record"], self.lineage["record"])
+        self.assertEqual(envelope["sha256"], self.lineage["sha256"])
+        self.assertTrue(envelope["self_consistency_verified"])
+        for key in ("source_identity_authenticated", "frozen_science_authenticated",
+                    "owner_history_authenticated", "scientific_first_use",
+                    "publication_authorized", "dispatch_authorized"):
+            self.assertIs(envelope[key], False, key)
+        # No change to the original strict two-event custody schema.
+        self.assertEqual(len(self.rows(ATTEMPT)), 1)
+        self.assertEqual(len(self.rows(SUCCESS)), 1)
+        self.assertNotIn("research_lineage", self.rows(ATTEMPT)[0])
+        self.assertFalse(out["scientific_first_use"])
+        self.assertFalse(out["worker_dispatched"])
+        self.db.verify()
+
+    def test_h80_invalid_lineage_rejects_before_owner_attempt_or_remote_write(self):
+        import hashlib as _hashlib
+        import json as _json
+        bad = dict(self.lineage["record"], owner_history_sha256="8" * 64)
+        bad_hash = _hashlib.sha256(_json.dumps(
+            bad, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True).encode("ascii")).hexdigest()
+        cases = (
+            {"record": bad, "sha256": bad_hash},
+            {"record": self.lineage["record"], "sha256": "0" * 64},
+            {"record": self.lineage["record"], "sha256": self.lineage["sha256"],
+             "unexpected": True},
+        )
+        for envelope in cases:
+            with self.subTest(envelope=envelope), self.assertRaisesRegex(
+                    ModelDraftDenied, "LINEAGE"):
+                self.run_publisher(lineage=envelope)
+            self.assertEqual(self.api.write_calls, [])
+            self.assertEqual(self.rows(ATTEMPT), [])
+            self.assertEqual(self.rows(SUCCESS), [])
+            self.assertEqual(self.db.meta(), self.epoch)
         self.db.verify()
 
 

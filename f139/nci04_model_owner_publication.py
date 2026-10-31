@@ -18,6 +18,7 @@ from f139.nci04_autonomy_feed import (
 from f139.nci04_candidate_publisher import _sha1_blob, _verified_original
 from f139.nci04_model_owner_bridge import owner_response
 from f139.nci04_native_contract import REPOS, canonical, digest, parse_intent
+from f139.nci04_research_lineage import ResearchLineageDenied, validate_research_lineage
 
 ATTEMPT = "MODEL_DRAFT_ATTEMPTED"
 SUCCESS = "MODEL_DRAFT_AUTHENTICATED"
@@ -123,7 +124,8 @@ def _unique_branch(get: Callable, repository: str, branch: str) -> None:
 
 
 def _preflight(db: Database, get: Callable, steering_get: Callable,
-               session: dict, raw_response: bytes, owner_witness: Callable) -> dict:
+               session: dict, raw_response: bytes, owner_witness: Callable,
+               research_lineage: dict | None = None) -> dict:
     need(type(db) is Database and callable(get) and callable(steering_get)
          and callable(owner_witness) and owner_witness() is True,
          "ORIGINAL_OWNER_WITNESS_REQUIRED")
@@ -169,6 +171,44 @@ def _preflight(db: Database, get: Callable, steering_get: Callable,
         "dispatch_authorized": False,
         "independent_scientific_acceptance": False,
     }
+    if research_lineage is not None:
+        need(type(research_lineage) is dict
+             and set(research_lineage) == {"record", "sha256"},
+             "LINEAGE_ENVELOPE_FIELDS_INVALID")
+        record = research_lineage["record"]
+        try:
+            verified = validate_research_lineage(
+                record=record, declared_sha256=research_lineage["sha256"],
+                model_response_sha256=digest(raw_response),
+                native_intent_sha256=candidate.intent_sha256,
+                native_qualification_key=candidate.qualification_key,
+                after_sha256=note["after_sha256"],
+                frontier_candidate_identity=record.get("frontier_candidate_identity"),
+                owner_candidate_identity=note["candidate_identity"],
+                controller_source_sha=source_sha, target_commit=parent,
+                target_tree_sha=session["target_tree_sha"],
+                mechanism_sha256=record.get("mechanism_sha256"),
+                frozen_split_sha256=record.get("frozen_split_sha256"),
+                owner_history_sha256=session["history_sha256"],
+                before_sha256=session["before_sha256"],
+                dependency_sha256=record.get("dependency_sha256"),
+                qualification_harness_sha256=record.get("qualification_harness_sha256"),
+                suite_identity_sha256=record.get("suite_identity_sha256"),
+                training_config_sha256=record.get("training_config_sha256"),
+                frontier_history_sha256=record.get("frontier_history_sha256"))
+        except (ResearchLineageDenied, AttributeError, TypeError) as exc:
+            raise ModelDraftDenied("F139_MODEL_DRAFT_LINEAGE_INVALID") from exc
+        document["research_lineage"] = {
+            "schema": "forge.f139.model-free-research-lineage-envelope.v1",
+            "record": verified["record"], "sha256": verified["sha256"],
+            "self_consistency_verified": True,
+            "source_identity_authenticated": False,
+            "frozen_science_authenticated": False,
+            "owner_history_authenticated": False,
+            "scientific_first_use": False,
+            "publication_authorized": False,
+            "dispatch_authorized": False,
+        }
     title = ("F139 autonomy DEV: bounded " + session["lane"] +
              " learning proposal " + note["candidate_identity"][:12])
     result = {
@@ -245,7 +285,8 @@ def _write_draft(get: Callable, write: Callable, plan: dict) -> dict:
 
 def publish_model_once(db: Database, get: Callable, steering_get: Callable,
                        write: Callable, *, session: dict, raw_response: bytes,
-                       owner_witness: Callable[[], bool]) -> dict:
+                       owner_witness: Callable[[], bool],
+                       research_lineage: dict | None = None) -> dict:
     """Original-owner-only once-only publication, no running model or dispatch.
 
     Caller owns the original Windows SingleOwner lock throughout this call.
@@ -257,9 +298,9 @@ def publish_model_once(db: Database, get: Callable, steering_get: Callable,
          and callable(write) and callable(owner_witness)
          and owner_witness() is True,
          "ORIGINAL_WINDOWS_OWNER_REQUIRED")
-    plan = _preflight(db, get, steering_get, session, raw_response, owner_witness)
+    plan = _preflight(db, get, steering_get, session, raw_response, owner_witness, research_lineage)
     # Re-read Git and owner history just before freezing the immutable attempt.
-    fresh = _preflight(db, get, steering_get, session, raw_response, owner_witness)
+    fresh = _preflight(db, get, steering_get, session, raw_response, owner_witness, research_lineage)
     need(fresh == plan, "PLAN_MOVED_BEFORE_CUSTODY")
     with db.transaction():
         db.verify()
