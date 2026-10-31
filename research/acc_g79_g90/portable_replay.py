@@ -17,7 +17,7 @@ SOURCES = {
 }
 
 def git_blob(data):
-    return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\\0" + data).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(data)).encode() + bytes([0]) + data).hexdigest()
 
 def patched_tree(source, old_output, new_output):
     tree = ast.parse(source)
