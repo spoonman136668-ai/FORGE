@@ -19,7 +19,7 @@ ROLE_ON = "mg56_mission_conditioned_symbolic_novelty_prediction_enabled"
 ROLE_OFF = "mg56_mission_conditioned_symbolic_novelty_prediction_disabled"
 ROLES = frozenset((ROLE_ON, ROLE_OFF))
 EXPECTED_PROCESS_MEMBERS = frozenset((
-    "first.json", "second.json", "first.log", "second.log",
+    "first.json", "second.json", "first.log", "second.log", "comparison.log",
     "first-resources.json", "second-resources.json",
     "mg33c-synthetic.json",
 ))
