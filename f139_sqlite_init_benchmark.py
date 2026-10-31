@@ -62,7 +62,8 @@ def main():
     if not 1 <= args.iterations <= 50:
         parser.error("iterations must be between 1 and 50")
     schema_bytes = SCHEMA_PATH.read_bytes()
-    schema_text = schema_bytes.decode("utf-8")
+    # Match Database.initialize: Path.read_text() normalizes platform newlines.
+    schema_text = SCHEMA_PATH.read_text(encoding="utf-8")
     durations = {"original": [], "experimental": []}
     template = sqlite3.connect(":memory:", isolation_level=None)
     try:
