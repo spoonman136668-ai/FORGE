@@ -180,7 +180,7 @@ func runAll(workerPath string, queries int, childTimeout time.Duration) (*receip
 			if err!=nil{return nil,err}
 			dir,err:=os.MkdirTemp("","forge-acc125-*")
 			if err!=nil{return nil,err}
-			func(){}() // Scoped temp directory; cleanup occurs after three cold child runs.
+			// Remove the staged artifacts after all three isolated children finish.
 			densePath:=filepath.Join(dir,"dense.bin")
 			encodedPath:=filepath.Join(dir,"rle.bin")
 			err=os.WriteFile(densePath,dense,0600)
@@ -231,12 +231,10 @@ func main(){
 		fmt.Fprintln(os.Stderr,"ACC125_RUNNER_MISSING_OR_INVALID_ARGS")
 		os.Exit(2)
 	}
-	start:=time.Now()
 	receipt,err:=runAll(bin,queries,time.Duration(timeoutSec)*time.Second)
 	if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
 	// The parent-side wall value is deliberately not treated as a complete
 	// parent CPU/RSS measurement: source generation was outside child peaks.
-	_ = start
 	tempPath:=out+".tmp"
 	f,err:=os.OpenFile(tempPath,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
 	if err!=nil{fmt.Fprintln(os.Stderr,"ACC125_RECEIPT_OPEN:",err);os.Exit(2)}
