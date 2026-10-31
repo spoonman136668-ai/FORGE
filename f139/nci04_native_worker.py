@@ -11,6 +11,7 @@ import json
 import os
 import re
 import signal
+import sys
 from pathlib import Path
 import shutil
 import subprocess
@@ -275,7 +276,214 @@ def _bounded_capture(argv, *, cwd, env, timeout_seconds):
     return bytes(output), returncode, "PASS" if returncode == 0 else "TEST_FAILURE"
 
 
+YGG_G29_BASELINE_COMMIT = "5e74f8db85b2f5839c42148c0dfba69a88b1a2c9"
+YGG_G29_ATLAS_TEST = "test_code_atlas.py"
+YGG_G29_ATLAS_MARKER = "YGG_ATLAS_FAIL_CLOSED: working source mismatch: "
+
+
+def _g29_command(pattern: str):
+    return ("python", "-B", "-m", "unittest", "discover",
+            "-s", "tests", "-p", pattern, "-v")
+
+
+def _g29_capture(argv, cwd: Path, env: dict, runner, timeout_seconds: int):
+    """Run one fixed command and retain bounded output exactly once."""
+    started = time.monotonic()
+    try:
+        if runner is None:
+            output, returncode, outcome = _bounded_capture(
+                argv, cwd=cwd, env=env, timeout_seconds=timeout_seconds)
+        else:
+            p = runner(list(argv), cwd=cwd, env=env,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                       stdin=subprocess.DEVNULL, check=False,
+                       timeout=timeout_seconds)
+            output = p.stdout or b""
+            returncode = p.returncode
+            outcome = "PASS" if returncode == 0 else "TEST_FAILURE"
+            if len(output) > MAX_CAPTURE_BYTES:
+                output = output[:MAX_CAPTURE_BYTES]
+                returncode, outcome = -1, "OUTPUT_LIMIT"
+    except subprocess.TimeoutExpired as ex:
+        output = (ex.stdout or b"") if isinstance(ex.stdout, bytes) else b""
+        output = output[:MAX_CAPTURE_BYTES]
+        returncode, outcome = -1, "TIMEOUT"
+    require(isinstance(output, bytes), "CHILD_OUTPUT_INVALID")
+    diagnostic = ""
+    if outcome == "PASS" and _unittest_discovery(argv) and not _positive_unittest_count(output):
+        diagnostic = ("F139_NATIVE_ZERO_OR_UNPROVEN_UNITTEST_COUNT: worker-generated "
+                      "TEST_FAILURE/1; no positive Ran N tests summary retained\n")
+        outcome, returncode = "TEST_FAILURE", 1
+    if outcome == "OUTPUT_LIMIT":
+        diagnostic = ("F139_NATIVE_OUTPUT_LIMIT: worker-generated TEST_FAILURE/1; "
+                      "native child killed; first capture bytes retained; tail unknown\n")
+        outcome, returncode = "TEST_FAILURE", 1
+    elif outcome == "ORPHANED_OUTPUT":
+        diagnostic = ("F139_NATIVE_ORPHANED_STDOUT_PIPE: native parent exited but "
+                      "descendants held the pipe; worker-generated TEST_FAILURE/1\n")
+        outcome, returncode = "TEST_FAILURE", 1
+    elif outcome == "TEST_FAILURE" and returncode <= 0:
+        diagnostic = ("F139_NATIVE_ABNORMAL_EXIT: worker-generated TEST_FAILURE/1\n")
+        returncode = 1
+    if outcome == "TIMEOUT" and len(output) == MAX_CAPTURE_BYTES:
+        diagnostic = "F139_NATIVE_TIMEOUT_CAPTURE_TRUNCATED\n"
+    excerpt = (diagnostic + output[:MAX_EXCERPT_BYTES].decode(
+        "utf-8", errors="replace")).encode("utf-8")[:MAX_EXCERPT_BYTES].decode(
+            "utf-8", errors="ignore")
+    return {
+        "command": list(argv), "outcome": outcome, "returncode": returncode,
+        "elapsed_ms": int((time.monotonic() - started) * 1000),
+        "output_sha256": digest(output), "output_bytes": len(output),
+        "excerpt": excerpt, "test_count": _unittest_count(output),
+    }, output
+
+
+def _unittest_count(output: bytes) -> int:
+    counts = re.findall(rb"Ran\\s+([0-9]+)\\s+tests?\\b", output)
+    return int(counts[-1]) if counts else 0
+
+
+def _clone_clean_baseline(checkout: Path, candidate: Candidate,
+                          sandbox_parent: Path) -> Path:
+    source = _inspect_checkout(Path(checkout), candidate)
+    root = Path(tempfile.mkdtemp(prefix="f139-nci04-baseline-", dir=sandbox_parent))
+    clone = root / "checkout"
+    result = subprocess.run(
+        ["git", "clone", "--no-local", "--no-checkout", "--quiet",
+         "--", str(source), str(clone)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL, timeout=90, check=False)
+    require(result.returncode == 0, "G29_BASELINE_CLONE_FAILED")
+    for command in (
+        ["git", "-C", str(clone), "checkout", "--detach", candidate.target_commit],
+        ["git", "-C", str(clone), "remote", "remove", "origin"],
+    ):
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 stdin=subprocess.DEVNULL, timeout=40, check=False)
+        require(result.returncode == 0, "G29_BASELINE_CHECKOUT_FAILED")
+    require(_git(clone, "rev-parse", "HEAD") == candidate.target_commit
+            and _git(clone, "rev-parse", "HEAD^{tree}") == candidate.target_tree_sha
+            and _git(clone, "remote") == "", "G29_BASELINE_IDENTITY_DRIFT")
+    return clone
+
+
+def _verify_yggdrasil_dual_custody(candidate: Candidate, stage: Path, *,
+                                    baseline_checkout: Path | None,
+                                    runner=None, timeout_seconds=600, env=None):
+    """Qualify pristine baseline plus changed-source expected atlas negative.
+
+    The native candidate only runs against its isolated stage. Baseline tests
+    run in a second exact detached clone with no remote. The G29 candidate
+    failure is retained as EXPECTED_NEGATIVE, never relabelled PASS.
+    """
+    require(candidate.lane == "Yggdrasil" and baseline_checkout is not None,
+            "G29_BASELINE_CHECKOUT_REQUIRED")
+    root = stage / "checkout"
+    require(root.is_dir() and root.parent == stage, "STAGING_ROOT_INVALID")
+    baseline = _clone_clean_baseline(
+        Path(baseline_checkout), candidate, stage.parent)
+    test_dir = baseline / "tests"
+    require(test_dir.is_dir() and not test_dir.is_symlink(),
+            "G29_TEST_INVENTORY_MISSING")
+    test_names = sorted(p.name for p in test_dir.glob("test_*.py")
+                        if p.is_file() and not p.is_symlink())
+    tracked = set(_git(baseline, "ls-files", "--", "tests").splitlines())
+    require("test_code_atlas.py" in test_names
+            and all("tests/" + name in tracked for name in test_names)
+            and len(test_names) >= 2, "G29_TEST_INVENTORY_UNTRUSTED")
+    env = dict(env or {})
+    if not env:
+        allow = {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR",
+                 "SYSTEMDRIVE", "PATHEXT", "COMSPEC", "TMP", "TEMP", "TMPDIR",
+                 "APPDATA", "LOCALAPPDATA", "LANG", "LC_ALL", "GOPATH",
+                 "GOROOT", "GOCACHE", "GOMODCACHE", "CGO_ENABLED", "PYTHONPATH"}
+        env = {k: v for k, v in os.environ.items() if k.upper() in allow}
+        env.update({"GIT_TERMINAL_PROMPT": "0", "GOPROXY": "off",
+                    "GOSUMDB": "off", "GOTOOLCHAIN": "local",
+                    "PYTHONDONTWRITEBYTECODE": "1"})
+    atlas_argv = _g29_command(YGG_G29_ATLAS_TEST)
+    full_argv = _g29_command("test_*.py")
+    baseline_g29, _ = _g29_capture(atlas_argv, baseline, env, runner, timeout_seconds)
+    require(baseline_g29["outcome"] == "PASS" and baseline_g29["test_count"] > 0,
+            "G29_BASELINE_ATLAS_FAILED")
+    baseline_full, _ = _g29_capture(full_argv, baseline, env, runner, timeout_seconds)
+    require(baseline_full["outcome"] == "PASS" and baseline_full["test_count"] > 0,
+            "G29_BASELINE_FULL_REGRESSION_FAILED")
+    candidate_g29, candidate_output = _g29_capture(
+        atlas_argv, root, env, runner, timeout_seconds)
+    expected_marker = YGG_G29_ATLAS_MARKER + candidate.path
+    if candidate_g29["outcome"] == "PASS":
+        candidate_g29_disposition = "PASS"
+    else:
+        require(candidate_g29["outcome"] == "TEST_FAILURE"
+                and candidate_g29["returncode"] > 0
+                and candidate_g29["test_count"] > 0
+                and expected_marker.encode("utf-8") in candidate_output,
+                "G29_CANDIDATE_NEGATIVE_NOT_EXACT")
+        candidate_g29_disposition = "EXPECTED_FROZEN_ATLAS_REJECTION"
+    candidate_names = [name for name in test_names if name != YGG_G29_ATLAS_TEST]
+    require(candidate_names, "G29_CANDIDATE_APPLICABLE_TESTS_EMPTY")
+    commands = []
+    for name in candidate_names:
+        argv = _g29_command(name)
+        record, _ = _g29_capture(argv, root, env, runner, timeout_seconds)
+        commands.append(record)
+        if record["outcome"] != "PASS":
+            break
+    if len(commands) == len(candidate_names) and all(
+            item["outcome"] == "PASS" for item in commands):
+        compile_argv = ("python", "-B", "-m", "compileall", "-q",
+                        "yggdrasil", "scripts")
+        compile_record, _ = _g29_capture(
+            compile_argv, root, env, runner, timeout_seconds)
+        commands.append(compile_record)
+    dual = {
+        "schema": "forge.f139.nci04.yggdrasil.g29-dual-custody.v1",
+        "baseline_commit": candidate.target_commit,
+        "baseline_tree_sha": candidate.target_tree_sha,
+        "test_inventory": test_names,
+        "baseline_g29": baseline_g29,
+        "baseline_full": baseline_full,
+        "candidate_g29": {
+            **candidate_g29,
+            "disposition": candidate_g29_disposition,
+            "expected_marker": expected_marker,
+        },
+        "candidate_non_atlas_test_modules": candidate_names,
+    }
+    complete = (
+        baseline_g29["outcome"] == "PASS"
+        and baseline_full["outcome"] == "PASS"
+        and candidate_g29_disposition in (
+            "PASS", "EXPECTED_FROZEN_ATLAS_REJECTION")
+        and len(commands) == len(candidate_names) + 1
+        and all(item["outcome"] == "PASS" for item in commands)
+    )
+    return {
+        "schema": "forge.f139.nci04.native-development-diagnostic.v2",
+        "intent_sha256": candidate.intent_sha256,
+        "qualification_key": candidate.qualification_key,
+        "target_commit": candidate.target_commit,
+        "target_tree_sha": candidate.target_tree_sha,
+        "candidate_file": candidate.path,
+        "candidate_sha256": candidate.after_sha256,
+        "lane": candidate.lane,
+        "qualification_complete": complete,
+        "real_code_changed_in_isolated_copy": True,
+        "commands": commands,
+        "dual_custody": dual,
+        "child_peak_rss_bytes": None,
+        "scientific_first_use": False,
+        "protected_holdouts_accessed": 0,
+        "accepted_ref_mutations": 0,
+        "paid_model_calls": 0,
+        "durable_controller_custody_verified": False,
+        "unattended_controller_dispatch_verified": False,
+    }
+
+
 def verify_fixed_commands(candidate: Candidate, stage: Path, *,
+                          baseline_checkout: Path | None = None,
                           runner=None, timeout_seconds=600):
     """Run the fixed focused/complete/build inventory with no shell commands.
 
@@ -289,6 +497,10 @@ def verify_fixed_commands(candidate: Candidate, stage: Path, *,
     require(root.is_dir() and root.parent == stage, "STAGING_ROOT_INVALID")
     require(type(timeout_seconds) is int and 15 <= timeout_seconds <= 900,
             "TIMEOUT_NOT_BOUNDED")
+    if candidate.lane == "Yggdrasil":
+        return _verify_yggdrasil_dual_custody(
+            candidate, stage, baseline_checkout=baseline_checkout,
+            runner=runner, timeout_seconds=timeout_seconds)
     run = runner or subprocess.run
     # Positive allowlist, not a secret-name blacklist: signing keys, cloud
     # credentials, GitHub runner tokens and arbitrary inherited variables must
@@ -403,4 +615,4 @@ def qualification_from_bytes(intent_raw: bytes, *, protected_main: str,
                              target_commit=target_commit,
                              target_tree_sha=target_tree_sha)
     stage = stage_candidate(candidate, checkout, sandbox_parent)
-    return candidate, stage, verify_fixed_commands(candidate, stage)
+    return candidate, stage, verify_fixed_commands(candidate, stage, baseline_checkout=checkout)
