@@ -7,18 +7,30 @@ class InteractingContracts(unittest.TestCase):
     def test_isolation_delayed_message(self):
         m=InteractingCells()
         m.observe([((0,0,1),1)])
-        self.assertEqual(m.incoming[0],(0,0))  # no current-label routing
+        self.assertEqual(m.incoming[0],((0,0),(0,0)))  # no current-label routing
         m.advance_messages()
-        self.assertNotEqual(m.incoming[0],(0,0))
-        self.assertEqual(m.sent_payload_bytes,16)
-        self.assertEqual(m.delivered_payload_bytes,16)
+        self.assertNotEqual(m.incoming[0],((0,0),(0,0)))
+        self.assertEqual(m.sent_payload_bytes,32)
+        self.assertEqual(m.delivered_payload_bytes,32)
 
     def test_zero_communication_ablation(self):
         m=InteractingCells("disabled")
         m.observe([((0,0,1),1)])
         m.advance_messages()
-        self.assertEqual(m.incoming,[(0,0)]*8)
+        self.assertEqual(m.incoming,[((0,0),(0,0))]*8)
         self.assertEqual(m.sent_payload_bytes,0)
+
+    def test_two_byte_payload_and_counts(self):
+        m=InteractingCells("connected")
+        m.observe([((0,0,1),1)])
+        m.advance_messages()
+        self.assertEqual(m.incoming[0][0][0],1)
+        self.assertTrue(all(len(message)==2 for edges in m.incoming for message in edges))
+        self.assertEqual(m.sent_payload_bytes,8*2*2)
+        self.assertEqual(m.delivered_payload_bytes,8*2*2)
+        m.advance_messages()
+        self.assertEqual(m.sent_payload_bytes,64)
+        self.assertEqual(InteractingCells.restore(m.snapshot()).snapshot(),m.snapshot())
 
     def test_shuffled_topology_not_identical(self):
         a=InteractingCells("connected")
