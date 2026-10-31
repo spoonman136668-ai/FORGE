@@ -1,0 +1,118 @@
+{
+  "schema": "forge.cpu-llm-g89.archive-receipt.v1",
+  "gate": "CPU_G89",
+  "date": "2026-10-31",
+  "status": "ORIGINAL_MEASUREMENT_COMPLETE_ARTIFACT_RECOVERED",
+  "frozen_contract": {
+    "preregistration_commit": "09a5849d63fab89f187a31501335b29886c92f26",
+    "preregistration_blob": "078473d030453b6489c927f691df9e251d883567",
+    "qualified_baseline": "20a540d0241519e2e9d90ace868ffd6db60bd065",
+    "source_commit": "923aaa81901d9cc294977fa8aaf4f5b35d9761a2",
+    "source_blob": "c0e7877629242781569774d0a6ba3abe095dba68",
+    "test_blob": "4c616b2546e341899130076d6b851534b86b887d"
+  },
+  "execution": {
+    "workflow_run_id": 41215980043,
+    "job_id": 124580511409,
+    "artifact_id": 13048815616,
+    "artifact_name": "cpu-g89-original-gpt2-mkldnn-prepack.zip",
+    "artifact_zip_sha256": "3946bbe4aea729620f25fe342158dd7a254f9d17746385d5c60c2c85ce71226a",
+    "artifact_result_json_sha256": "fc35fdc1918a6b82a164dc32b00a1ccfe396174102bcac58f3d0142246bdd3ef",
+    "artifact_recovery": "PASS",
+    "artifact_url": "https://github.com/spoonman136668-ai/FORGE/actions/runs/41215980043/artifacts/13048815616",
+    "frozen_source_admission": "PASS",
+    "focused_tests": "PASS",
+    "pinned_runtime_install": "PASS"
+  },
+  "model": {
+    "repository": "openai-community/gpt2",
+    "revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
+    "weights_sha256": "248dfc3911869ec493c76e65bf2fcf7f615828b0254c12b473182f0f81d3a707",
+    "precision": "FP32",
+    "weights_changed": false
+  },
+  "dataset": {
+    "repository": "openai/grade-school-math",
+    "revision": "3101c7d5072418e28b9008a6636bde82a006892c",
+    "raw_sha256": "3730d312f6e3440559ace48831e51066acaca737f6eabec99bccb9e4b3c39d14",
+    "selected_ranks": [
+      192,
+      203
+    ],
+    "questions": 12
+  },
+  "runtime": {
+    "python": "3.11.17",
+    "torch": "2.5.1+cpu",
+    "transformers": "4.48.3",
+    "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "logical_cpus": 4,
+    "affinity": [
+      0,
+      1,
+      2
+    ],
+    "inter_op_threads": 1,
+    "intra_op_threads": 2,
+    "mkldnn_available": true
+  },
+  "design": {
+    "arms": [
+      "original_conv1d2",
+      "mkldnn_prepacked_linear2"
+    ],
+    "conv1d_conversions": 48,
+    "conversion_bias_and_logical_weight_exactness": "PASS",
+    "actual_profiler_proof": "PASS",
+    "paired_trials": 48,
+    "authentic_full_responses": 96,
+    "generated_tokens": 768,
+    "scientific_acceptance": "NOT_GRANTED",
+    "promotion_allowed": false
+  },
+  "backend_dispatch_evidence": {
+    "baseline_mkldnn_linear_calls": 0,
+    "candidate_mkldnn_linear_calls": 49,
+    "candidate_operator_events": [
+      {
+        "key": "aten::to_mkldnn",
+        "count": 49,
+        "self_cpu_time_total": 5388.959999999715
+      },
+      {
+        "key": "aten::mkldnn_linear",
+        "count": 49,
+        "self_cpu_time_total": 607136.9449999995
+      },
+      {
+        "key": "aten::_mkldnn_reshape",
+        "count": 98,
+        "self_cpu_time_total": 389.18800000026386
+      }
+    ]
+  },
+  "results": {
+    "engineering": "PASS",
+    "correctness": "PASS",
+    "decision": "MKLDNN_PREPACK_NO_GO",
+    "median_speedup_prepacked_vs_original": 0.5652625106321699,
+    "minimum_individual_paired_speedup": 0.533920613543599,
+    "p95_prepacked_over_original_ratio": 1.8227480516551156,
+    "sampled_rss_prepacked_over_original_ratio": 0.9998630407241885,
+    "total_cpu_prepacked_over_original_ratio": 1.8028575017373827,
+    "conversion_and_prepack_seconds": 1.6016994640000064,
+    "break_even_full_responses": null,
+    "amortized_total_wall_ratio_at_1000_responses": 1.7710198474316654,
+    "timed_authentic_responses": 96,
+    "timed_authentic_generated_tokens": 768,
+    "frozen_median_speedup_requirement": 1.15
+  },
+  "interpretation": "Explicit MKLDNN prepacking was proven to execute through 49 aten::mkldnn_linear calls on authentic GPT-2 requests, while the baseline had zero. Exact token equality passed for all 96 full responses and 768 tokens. However candidate median speed was only 0.5653x the baseline, worst paired ratio 0.5339x, p95 latency was 1.8227x, and CPU time was 1.8029x. Candidate was substantially slower. The 1,000-response total wall-time ratio including conversion was 1.7710x. Frozen result is a valid NO-GO for this pinned GPT-2 FP32 CPU workload, not a universal rejection of oneDNN or a cognition result.",
+  "limitations": [
+    "Only pinned GPT-2 FP32, PyTorch 2.5.1 CPU, one Linux x86_64 virtualized runner and three-core process affinity.",
+    "GSM8K source split is deterministic/disjoint within this screen but not proven unseen during GPT-2 pretraining.",
+    "RSS sampled, not physical peak; no energy metric.",
+    "No production-serving, Windows/ARM transfer, alternative-model, native Wingless/Yggdrasil or scientific-acceptance claim."
+  ]
+}
