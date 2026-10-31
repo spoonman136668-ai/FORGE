@@ -1,0 +1,127 @@
+name: FORGE CPU G93 final immutable receipt qualification
+
+on:
+  push:
+    branches: [research/cpu-llm-g93-shared-prefix-kv-gpt2-20261031]
+    paths:
+      - 'docs/research/CPU-G93-GPT2-SHARED-PREFIX-KV-ARTIFACT-RECEIPT-20261031.json'
+      - 'docs/research/CPU-G93-GPT2-SHARED-PREFIX-KV-FINAL-QUALIFICATION-TRIGGER-20261031.md'
+permissions:
+  contents: read
+concurrency:
+  group: forge-cpu-llm-g93-final-qualification
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify archived G93 receipt and exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:docs/research/CPU-G93-GPT2-SHARED-PREFIX-KV-REUSE-PREREG-20261031.md)" = "c7b5ecc3a97d6eb56c3fa7da3fd1ac680ae7c995"
+          test "$(git rev-parse HEAD:research/cpu_g93/g93_shared_prefix_kv_original.py)" = "76272435b9a3cd770256922cffcbe453fcdfc2a5"
+          test "$(git rev-parse HEAD:research/cpu_g93/test_g93_shared_prefix_kv_original.py)" = "301ca9386c5cd6fa9b0483d3aec1f203bff72edf"
+          test "$(git rev-parse HEAD:docs/research/CPU-G93-GPT2-SHARED-PREFIX-KV-ARTIFACT-RECEIPT-20261031.json)" = "6419bbe3bb5bf36517b19f1cab10376ed5af55cb"
+          python - <<'PY'
+          import json
+          r=json.load(open("docs/research/CPU-G93-GPT2-SHARED-PREFIX-KV-ARTIFACT-RECEIPT-20261031.json"))
+          assert r["execution"]["workflow_run_id"] == 41224266651
+          assert r["execution"]["artifact_id"] == 13050794668
+          assert r["execution"]["artifact_zip_sha256"] == "4c89a0885c1c7968c6c367e16557e9aa102203bfdf8ebc52490324a28fccee79"
+          assert r["results"]["decision"] == "SHARED_PREFIX_KV_PASS"
+          assert r["results"]["timed_authentic_responses"] == 96
+          assert r["results"]["timed_authentic_generated_tokens"] == 768
+          assert r["design"]["scientific_acceptance"] == "NOT_GRANTED"
+          assert r["design"]["promotion_allowed"] is False
+          print("G93_ARCHIVED_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g93/g93_shared_prefix_kv_original.py research/cpu_g93/test_g93_shared_prefix_kv_original.py
+          python -B -m unittest discover -s research/cpu_g93 -p 'test_g93_shared_prefix_kv_original.py' -v
+      - name: FORGE isolation and custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+          python3 -B -m unittest discover -s f139 -p 'test_*.py' -v
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go final regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify archived G93 receipt and exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:research/cpu_g93/g93_shared_prefix_kv_original.py)" = "76272435b9a3cd770256922cffcbe453fcdfc2a5"
+          test "$(git rev-parse HEAD:docs/research/CPU-G93-GPT2-SHARED-PREFIX-KV-ARTIFACT-RECEIPT-20261031.json)" = "6419bbe3bb5bf36517b19f1cab10376ed5af55cb"
+          python - <<'PY'
+          import json
+          r=json.load(open("docs/research/CPU-G93-GPT2-SHARED-PREFIX-KV-ARTIFACT-RECEIPT-20261031.json"))
+          assert r["results"]["decision"] == "SHARED_PREFIX_KV_PASS"
+          assert r["results"]["timed_authentic_responses"] == 96
+          assert r["results"]["timed_authentic_generated_tokens"] == 768
+          assert r["design"]["scientific_acceptance"] == "NOT_GRANTED"
+          assert r["design"]["promotion_allowed"] is False
+          print("G93_ARCHIVED_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g93/g93_shared_prefix_kv_original.py research/cpu_g93/test_g93_shared_prefix_kv_original.py
+          python -B -m unittest discover -s research/cpu_g93 -p 'test_g93_shared_prefix_kv_original.py' -v
+      - name: FORGE isolation and custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 native custody regression
+        shell: pwsh
+        run: python -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows Go final regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go test -race -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_RACE_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
