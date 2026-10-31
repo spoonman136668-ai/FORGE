@@ -1,0 +1,3 @@
+# G84 exact-receipt verification retry 2
+
+The previous verifier run stopped on an obsolete shell reference to BASE after the baseline check was converted to immutable G70 tree/blob pins. The stale git diff command has been removed. This is a workflow-only correction; G84's original Windows benchmark receipt, exact outputs and frozen TRANSFER_FAIL remain unchanged. Re-run exact Linux/Windows source qualification.
