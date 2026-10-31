@@ -1,0 +1,126 @@
+name: FORGE CPU G95 final immutable receipt qualification
+on:
+  push:
+    branches: [research/cpu-llm-g95-multiprefix-lru-kv-gpt2-20261031]
+    paths:
+      - 'docs/research/CPU-G95-GPT2-MULTIPREFIX-LRU-ARTIFACT-RECEIPT-20261031.json'
+      - 'docs/research/CPU-G95-GPT2-MULTIPREFIX-LRU-FINAL-QUALIFICATION-TRIGGER-20261031.md'
+permissions:
+  contents: read
+concurrency:
+  group: forge-cpu-g95-final-receipt-qualification
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Verify G95 frozen identities, original artifact and all capacity decisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:docs/research/CPU-G95-GPT2-MULTIPREFIX-LRU-KV-PREREG-20261031.md)" = "248f49e37ec96367890c177d08aa153e545dac68"
+          test "$(git rev-parse HEAD:research/cpu_g95/g95_multiprefix_lru_original.py)" = "b401c86e4dff2f25eb995a47ba58884838f232eb"
+          test "$(git rev-parse HEAD:research/cpu_g95/test_g95_multiprefix_lru_original.py)" = "1a8dcba25ec602c30cbb0baf2a83666a8b734c93"
+          test "$(git rev-parse HEAD:docs/research/CPU-G95-GPT2-MULTIPREFIX-LRU-ARTIFACT-RECEIPT-20261031.json)" = "93984dad99df5aa2981146c312ac6aef82cd4980"
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G95-GPT2-MULTIPREFIX-LRU-ARTIFACT-RECEIPT-20261031.json"
+          r=json.load(open(p,encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g95.archive-receipt.v1"
+          assert r["execution"]["workflow_run_id"]==41228835448
+          assert r["execution"]["artifact_id"]==13052847529
+          assert r["execution"]["artifact_zip_sha256"]=="85de7577fb9dfb8239d62cef6fcddc3be7248ccc72b966a1da5436aa8dec7871"
+          assert r["execution"]["artifact_result_json_sha256"]=="f633bcc821b5c730c65331b8519b6d5ccb3fd2bb0d85f92f29039e736bf429e2"
+          assert r["results"]["engineering"]=="PASS" and r["results"]["correctness"]=="PASS"
+          assert r["results"]["decision"]=="MULTIPREFIX_LRU_NO_GO"
+          assert r["results"]["timed_authentic_responses"]==768
+          assert r["results"]["timed_authentic_generated_tokens"]==6144
+          q=r["results"]["capacity_qualification"]
+          assert [x["capacity"] for x in q]==[1,2,4]
+          assert [x["qualifies"] for x in q]==[False,False,False]
+          assert q[2]["throughput_speedup"]>=1.15 and q[2]["minimum_paired_request_speedup"]<0.90
+          assert r["runtime"]["torch_intraop_threads"]==2 and r["runtime"]["torch_interop_threads"]==1
+          assert r["design"]["scientific_acceptance"]=="NOT_GRANTED" and r["design"]["promotion_allowed"] is False
+          print("G95_IMMUTABLE_RECEIPT_AND_CAPACITY_ADJUDICATION=PASS")
+          PY
+          python -B -m py_compile research/cpu_g95/g95_multiprefix_lru_original.py research/cpu_g95/test_g95_multiprefix_lru_original.py
+          python -B -m unittest discover -s research/cpu_g95 -p 'test_g95_multiprefix_lru_original.py' -v
+      - name: FORGE isolation FSA and F139 custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+          python3 -B -m unittest discover -s f139 -p 'test_*.py' -v
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Go tests race vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Verify G95 immutable receipt and original source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:research/cpu_g95/g95_multiprefix_lru_original.py)" = "b401c86e4dff2f25eb995a47ba58884838f232eb"
+          test "$(git rev-parse HEAD:research/cpu_g95/test_g95_multiprefix_lru_original.py)" = "1a8dcba25ec602c30cbb0baf2a83666a8b734c93"
+          test "$(git rev-parse HEAD:docs/research/CPU-G95-GPT2-MULTIPREFIX-LRU-ARTIFACT-RECEIPT-20261031.json)" = "93984dad99df5aa2981146c312ac6aef82cd4980"
+          python - <<'PY'
+          import json
+          r=json.load(open("docs/research/CPU-G95-GPT2-MULTIPREFIX-LRU-ARTIFACT-RECEIPT-20261031.json",encoding="utf-8"))
+          assert r["results"]["decision"]=="MULTIPREFIX_LRU_NO_GO"
+          assert r["results"]["timed_authentic_responses"]==768
+          assert r["results"]["timed_authentic_generated_tokens"]==6144
+          assert [x["qualifies"] for x in r["results"]["capacity_qualification"]]==[False,False,False]
+          assert r["design"]["scientific_acceptance"]=="NOT_GRANTED"
+          assert r["design"]["promotion_allowed"] is False
+          print("G95_ARCHIVED_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g95/g95_multiprefix_lru_original.py research/cpu_g95/test_g95_multiprefix_lru_original.py
+          python -B -m unittest discover -s research/cpu_g95 -p 'test_g95_multiprefix_lru_original.py' -v
+      - name: FORGE isolation and FSA regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Windows custody regression
+        shell: pwsh
+        run: python -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Native Windows Go final regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go test -race -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_RACE_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
