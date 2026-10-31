@@ -1,0 +1,41 @@
+# INACTIVE H53 one-shot workflow template. This file is deliberately outside .github/workflows.
+# It must not be installed or triggered until an exact audit commit is owner-approved,
+# its audit ref has immutable protection, and all final guard tests have passed.
+name: F139 H53 original Windows read-only successor one-shot
+on:
+  push:
+    branches:
+      - audit/f139-v26-h53-original-successor-ro-once-20261031
+permissions: {}
+concurrency:
+  group: f139-h53-original-owner-one-shot
+  cancel-in-progress: false
+jobs:
+  witness:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.event_name == 'push' &&
+      github.event.created == true &&
+      github.event.deleted == false &&
+      github.event.forced == false &&
+      github.event.before == '0000000000000000000000000000000000000000' &&
+      github.ref == 'refs/heads/audit/f139-v26-h53-original-successor-ro-once-20261031'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fail closed pending immutable owner approval and exact runner verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_RUN_ATTEMPT -cne '1') {
+            throw 'F139_H53_ORIGINAL_RUNNER_OR_ATTEMPT_DRIFT'
+          }
+          throw 'F139_H53_NOT_RELEASED_EXACT_OWNER_APPROVAL_AND_IMMUTABLE_REF_GUARD_REQUIRED'
+# The terminal throw is intentional. A release engineer must implement and qualify
+# the exact-ref immutable ruleset readback, owner SHA approval, original SID/task/
+# installed V26/source and database checks, and pinned witness invocation before
+# replacing this fail-closed template with a reviewed final one-shot workflow.
