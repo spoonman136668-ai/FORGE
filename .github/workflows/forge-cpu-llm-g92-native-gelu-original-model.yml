@@ -1,0 +1,117 @@
+name: FORGE CPU LLM Evaluation G92 original GPT2 native fused NewGELU screen
+
+on:
+  push:
+    branches: [research/cpu-llm-g92-fused-newgelu-gpt2-20261031]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g92-native-gelu-original-model.yml'
+      - 'research/cpu_g92/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-cpu-llm-g92-native-gelu
+  cancel-in-progress: false
+
+jobs:
+  frozen-source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen G70 source, G92 preregistration and source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          PREREG=bdacb37f4614f4de646092089016a452acf06d9e
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git merge-base --is-ancestor "$PREREG" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G92-GPT2-NATIVE-FUSED-NEWGELU-PREREG-20261031.md)" = "76eab273938df2cce95e8b4b560007db21028ca4"
+          test "$(git rev-parse HEAD:research/cpu_g92/g92_native_gelu_original.py)" = "0f4e61e0f5dd28cd6246f462122ba5e794556002"
+          test "$(git rev-parse HEAD:research/cpu_g92/test_g92_native_gelu_original.py)" = "245aeb5d8e1882f1fdaa6b833241dfc36d2c9c2a"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          python -B -m py_compile research/cpu_g92/g92_native_gelu_original.py research/cpu_g92/test_g92_native_gelu_original.py
+          python -B -m unittest discover -s research/cpu_g92 -p 'test_g92_native_gelu_original.py' -v
+          echo CPU_G92_FROZEN_SOURCE_ADMISSION=PASS
+
+  original-model-native-gelu:
+    needs: frozen-source-admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify native CPU host and source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          test "$(git rev-parse HEAD:research/cpu_g92/g92_native_gelu_original.py)" = "0f4e61e0f5dd28cd6246f462122ba5e794556002"
+          python -B -m unittest discover -s research/cpu_g92 -p 'test_g92_native_gelu_original.py' -v
+      - name: Install pinned original CPU GPT2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.48.3 huggingface-hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1 psutil==7.1.3
+          python -m pip check
+          python - <<'PY'
+          import torch,transformers
+          assert torch.__version__=="2.5.1+cpu",torch.__version__
+          assert torch.version.cuda is None
+          assert transformers.__version__=="4.48.3"
+          print("G92_PINNED_CPU_RUNTIME=PASS")
+          PY
+          python -m pip freeze > cpu_g92_environment.txt
+          uname -a >> cpu_g92_environment.txt
+          lscpu >> cpu_g92_environment.txt
+      - name: Run exact original GPT2 NewGELU versus native fused tanh GELU
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/cpu_g92/g92_native_gelu_original.py
+          python - <<'PY'
+          import json
+          r=json.load(open("cpu_g92_original_result.json",encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g92.authentic-native-gelu.v1"
+          assert r["gate"]=="CPU_G92"
+          assert r["preregistration_commit"]=="bdacb37f4614f4de646092089016a452acf06d9e"
+          assert r["engineering"]=="PASS" and r["correctness"]=="PASS"
+          assert r["metrics"]["timed_authentic_responses"]==96
+          assert r["metrics"]["timed_authentic_generated_tokens"]==768
+          assert len(r["paired_trials"])==48
+          assert r["decision"] in ("NATIVE_GELU_PASS","NATIVE_GELU_NO_GO")
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and not r["promotion_allowed"]
+          print("CPU_G92_ORIGINAL_NATIVE_GELU_RESULT="+r["decision"])
+          PY
+      - name: Upload original result and runtime environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g92-original-gpt2-native-gelu
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g92_original_result.json
+            cpu_g92_environment.txt
