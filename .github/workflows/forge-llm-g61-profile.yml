@@ -1,0 +1,82 @@
+name: FORGE research G61 authentic GPT-2 concurrency cost attribution
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g61/**'
+      - 'docs/research/G61-CONCURRENT-CACHE-PROFILE-PREREG.md'
+      - '.github/workflows/forge-llm-g61-profile.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g61-research-readonly
+  cancel-in-progress: false
+jobs:
+  g61-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze prerequisites and run source-only diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor cb2974f99345025c3e08b553e1ceda376dbddbb7 HEAD
+          test "$(git rev-parse cb2974f99345025c3e08b553e1ceda376dbddbb7:docs/research/G61-CONCURRENT-CACHE-PROFILE-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G61-CONCURRENT-CACHE-PROFILE-PREREG.md)"
+          git diff --exit-code 6e7fc9be5c381092c3989afb3d75d6c05ef87644 HEAD -- research/llm_g51 research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60
+          python -m py_compile research/llm_g61/g61_profile.py research/llm_g61/test_g61.py
+          python -m unittest discover -s research/llm_g61 -p test_g61.py -v
+          echo 'G61_FROZEN_SOURCE_AND_PROFILE_TESTS=PASS'
+      - name: Install public reproducible CPU inference environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g61_environment_pip_freeze.txt
+      - name: Execute original GPT-2 concurrency bottleneck profiling
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g61/g61_profile.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g61_result.json'))
+          assert r['correctness']=='PASS'
+          assert r['diagnostic']=='PASS_MEASURED_NOT_ACCEPTANCE'
+          assert r['scientific_acceptance']=='NOT_GRANTED'
+          assert r['promotion_allowed'] is False
+          assert set(r['cohorts'])=={'high_locality','unique_only'}
+          for scenario in r['cohorts'].values():
+              assert set(scenario)=={'workers_1','workers_2'}
+              for row in scenario.values():
+                  assert len(row['trials'])==2
+                  for trial in row['trials']:
+                      assert set(trial['arms'])==set(r['arms'])
+                      assert trial['arms']['adaptive']['rss_sample_count']>=2
+          print('G61_AUTHENTIC_TOKEN_PARITY_AND_TIMING=PASS')
+          print('G61_CAUSAL_ATTRIBUTION_LIMITED_DIAGNOSTIC=RECORDED')
+          print('G61_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Archive full raw phase and memory evidence without acceptance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g61-authentic-gpt2-concurrency-profile
+          if-no-files-found: warn
+          path: |
+            g61_result.json
+            g61_environment_pip_freeze.txt
+          retention-days: 30

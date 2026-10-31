@@ -1,0 +1,79 @@
+name: FORGE G70 independently exported ONNX Runtime original GPT-2 qualification
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g70/**'
+      - 'docs/research/G70-ONNX-INDEPENDENT-GPT2-PREREG.md'
+      - '.github/workflows/forge-llm-g70-onnx-original.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g70-research-readonly
+  cancel-in-progress: false
+jobs:
+  authentic-onnx-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen G70 prereg and prior untouched G54-G69 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 51469831afc16ff1fd320656c2bd3960c4e812d6 HEAD
+          test "$(git rev-parse 51469831afc16ff1fd320656c2bd3960c4e812d6:docs/research/G70-ONNX-INDEPENDENT-GPT2-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G70-ONNX-INDEPENDENT-GPT2-PREREG.md)"
+          git diff --exit-code a3ef4e4d7fb16211367ebbdfa9367cc862ceb02f HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68
+          git diff --check a3ef4e4d7fb16211367ebbdfa9367cc862ceb02f HEAD
+          python -m py_compile research/llm_g70/g70_onnx_compat.py research/llm_g70/test_g70.py
+          python -m unittest discover -s research/llm_g70 -p test_g70.py -v
+          echo G70_IMMUTABLE_SOURCE_AND_PURE_TESTS=PASS
+      - name: Install exact original and independent optimized CPU backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip install --disable-pip-version-check 'optimum[onnxruntime]==1.24.0' 'onnx==1.17.0' 'onnxruntime==1.20.1'
+          python -m pip check
+          python -m pip freeze > g70_environment_pip_freeze.txt
+      - name: Export authenticated GPT-2 to ONNX and compare heldout exact tokens
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g70/g70_onnx_compat.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g70_result.json'))
+          assert r['engineering']=='PASS' and r['backend_feasibility']=='PASS'
+          assert r['export_status']=='PASS'
+          assert len(r['ort_inference_results'])==6
+          assert all(len(x['runs'])==2 for x in r['ort_inference_results'])
+          assert r['performance_acceptance']=='NOT_EVALUATED'
+          assert r['scientific_acceptance']=='NOT_GRANTED'
+          assert r['promotion_allowed'] is False
+          print('G70_INDEPENDENT_ONNXRUNTIME_MODEL_SOURCE_AND_OUTPUT_PARITY=PASS')
+          print('G70_PRODUCTION_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Retain exact-source original compatibility and negative evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g70-original-gpt2-onnx-independent
+          if-no-files-found: warn
+          path: |
+            g70_result.json
+            g70_environment_pip_freeze.txt
+          retention-days: 30

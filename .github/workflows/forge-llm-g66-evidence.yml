@@ -1,0 +1,32 @@
+name: FORGE research G66 source-only GPT2 negative-evidence audit
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g66/**'
+      - 'docs/research/G66-GPT2-CROSS-GATE-RECEIPT-AUDIT.md'
+      - '.github/workflows/forge-llm-g66-evidence.yml'
+permissions:
+  contents: read
+jobs:
+  source-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check G66 prereg and unchanged original source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor e9f3c33491d0b84c760f31106b6a79800bec382d HEAD
+          test "$(git rev-parse e9f3c33491d0b84c760f31106b6a79800bec382d:docs/research/G66-GPT2-CROSS-GATE-RECEIPT-AUDIT.md)" = "$(git rev-parse HEAD:docs/research/G66-GPT2-CROSS-GATE-RECEIPT-AUDIT.md)"
+          git diff --exit-code 81c293922f3545f76368c66f6529d7442b3ff87d HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65
+          python -m unittest discover -s research/llm_g66 -p test_receipt_index.py -v
+          echo G66_HISTORIC_QUALIFICATION_INDEX=PASS
+          echo G66_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED

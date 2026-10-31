@@ -1,0 +1,79 @@
+name: FORGE research G56 GPT-2 cache-hit-rate sensitivity
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g56/**'
+      - '.github/workflows/forge-llm-g56-hitrate.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g56-research-readonly
+  cancel-in-progress: false
+jobs:
+  g56-authentic-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source identity, admission and exact frozen G55 source constants
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m py_compile research/llm_g56/g56_hit_rate.py research/llm_g55/g55_gpt2_controls.py
+          python - <<'PY'
+          import importlib.util
+          def mod(path,name):
+              spec=importlib.util.spec_from_file_location(name,path)
+              x=importlib.util.module_from_spec(spec);spec.loader.exec_module(x);return x
+          a=mod('research/llm_g54/g54_gpt2.py','g54')
+          b=mod('research/llm_g55/g55_gpt2_controls.py','g55')
+          assert (a.REV,a.WEIGHT_SHA,a.PREFIX,a.SUFFIXES,a.TOKENS)==(b.REV,b.WEIGHT_SHA,b.PREFIX,b.SUFFIXES,b.TOKENS)
+          assert a.WEIGHT_SHA=='248dfc3911869ec493c76e65bf2fcf7f615828b0254c12b473182f0f81d3a707'
+          print('G56_UPSTREAM_SOURCE_EQUIVALENCE=PASS')
+          PY
+      - name: Pinned public CPU dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g56_environment_pip_freeze.txt
+      - name: Authentic mixed-request cache-hit-rate experiment
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g56/g56_hit_rate.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g56_result.json'))
+          assert r['correctness']=='PASS' and r['promotion_allowed'] is False
+          assert r['scientific_acceptance']=='NOT_GRANTED'
+          assert len(r['scenarios'])==2
+          assert [r['scenarios'][k]['hits'] for k in ('zero_hit','seventyfive_hit')]==[0,3]
+          assert all(len(v['trials'])==5 for v in r['scenarios'].values())
+          print('G56_AUTHENTIC_MIXED_REQUEST_PARITY=PASS')
+          print('G56_SCREEN='+r['screen'])
+          print('G56_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Upload research-only receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g56-gpt2-cache-hit-sensitivity
+          if-no-files-found: warn
+          path: |
+            g56_result.json
+            g56_environment_pip_freeze.txt
+          retention-days: 30
