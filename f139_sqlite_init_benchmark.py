@@ -1,7 +1,7 @@
 """Opt-in, disposable F139 SQLite initialization comparison; not production code.
 
 Run explicitly in an authorized environment:
-    python -B f139_sqlite_init_benchmark.py --iterations 5
+    python -B f139_sqlite_init_benchmark.py --iterations 20
 
 An experimental result is NOT qualification for a production initializer.
 """
@@ -57,7 +57,7 @@ def snapshot(db):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--iterations", type=int, default=5)
+    parser.add_argument("--iterations", type=int, default=20)
     args = parser.parse_args()
     if not 1 <= args.iterations <= 50:
         parser.error("iterations must be between 1 and 50")
@@ -115,8 +115,15 @@ def main():
         print(f"F139_G114G_SCHEMA_SHA256={hashlib.sha256(schema_bytes).hexdigest()}")
         print(f"F139_G114G_EQUIVALENT_SNAPSHOTS={args.iterations}")
         for method, samples in durations.items():
-            print(f"F139_G114G_{method.upper()}_MEDIAN_SECONDS="
-                  f"{statistics.median(samples):.6f}")
+            ordered = sorted(samples)
+            p95 = ordered[max(0, (len(ordered) * 95 + 99) // 100 - 1)]
+            prefix = f"F139_G114G_{method.upper()}"
+            print(f"{prefix}_SAMPLES_SECONDS="
+                  + ",".join(f"{x:.6f}" for x in samples))
+            print(f"{prefix}_MIN_SECONDS={ordered[0]:.6f}")
+            print(f"{prefix}_MEDIAN_SECONDS={statistics.median(ordered):.6f}")
+            print(f"{prefix}_P95_SECONDS={p95:.6f}")
+            print(f"{prefix}_MAX_SECONDS={ordered[-1]:.6f}")
         print("F139_G114G_OFFLINE_PROBE_ONLY=PASS")
     finally:
         template.close()
