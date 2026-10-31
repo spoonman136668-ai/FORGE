@@ -129,6 +129,82 @@ def episode(seed, remember):
         env.close()
 
 
+def assess_pairs(rows):
+    """Distinguish deterministic harness execution from a real paired junction.
+
+    A successful code path is not evidence of learning or scientific first use.
+    Missing observations, choice points, or terminal outcomes fail closed.
+    """
+    matched = []
+    invalid = []
+    decision_changes = 0
+    reward_gains = 0
+    reward_losses = 0
+    reward_ties = 0
+    for row in rows:
+        erased = row["erased"]
+        retained = row["retained"]
+        same_prechoice = (
+            erased["prechoice_sha256"] is not None
+            and erased["prechoice_sha256"] == retained["prechoice_sha256"]
+        )
+        observable_choice = (
+            erased["west_cue"] in OBJECTS
+            and erased["west_cue"] == retained["west_cue"]
+            and erased["north_object"] in OBJECTS
+            and erased["south_object"] in OBJECTS
+            and erased["north_object"] != erased["south_object"]
+            and erased["north_object"] == retained["north_object"]
+            and erased["south_object"] == retained["south_object"]
+        )
+        completed = all(
+            arm["status"] == "TERMINATED"
+            and arm["terminated"] is True
+            and arm["truncated"] is False
+            and arm["selected"] in ("north", "south")
+            and arm["actions"] <= LIMIT
+            for arm in (erased, retained)
+        )
+        if not (same_prechoice and observable_choice and completed):
+            invalid.append({
+                "seed": row["seed"],
+                "erased_status": erased["status"],
+                "retained_status": retained["status"],
+                "same_prechoice": same_prechoice,
+                "observable_choice": observable_choice,
+                "completed": completed,
+            })
+            continue
+        matched.append(row["seed"])
+        decision_changes += int(erased["selected"] != retained["selected"])
+        delta = row["reward_delta"]
+        reward_gains += int(delta > 0)
+        reward_losses += int(delta < 0)
+        reward_ties += int(delta == 0)
+
+    if not matched:
+        verdict = "INCONCLUSIVE_NO_MATCHED_TERMINAL_JUNCTION"
+    elif len(matched) != len(SEEDS) or len(rows) != len(SEEDS):
+        verdict = "INCONCLUSIVE_INCOMPLETE_MATCHED_JUNCTION"
+    elif decision_changes == 0:
+        verdict = "INCONCLUSIVE_NO_CUE_DEPENDENT_DECISION"
+    else:
+        verdict = "PASS_ENGINEERING_MATCHED_JUNCTION_ONLY"
+    return {
+        "status": verdict,
+        "matched_terminal_pairs": len(matched),
+        "required_pairs": len(SEEDS),
+        "matched_seeds": matched,
+        "invalid_pairs": invalid,
+        "cue_dependent_decision_pairs": decision_changes,
+        "positive_reward_delta_pairs": reward_gains,
+        "negative_reward_delta_pairs": reward_losses,
+        "zero_reward_delta_pairs": reward_ties,
+        "scientific_first_use": "NOT_ACCEPTED",
+        "learned_memory": "NOT_DEMONSTRATED",
+    }
+
+
 def main():
     # A deliberate non-learning causal intervention at the choice boundary.
     assert branch(KEY, KEY, BALL, True) == "north"
@@ -152,14 +228,17 @@ def main():
             "retained": retained,
             "reward_delta": retained["reward"] - erased["reward"],
         })
+    assessment = assess_pairs(rows)
     print(json.dumps({
-        "status": "PASS_ENGINEERING_MEMORY_CAUSAL_JUNCTION_PROBE",
+        **assessment,
         "scope": "EXPOSED_SEEDS_ONLY",
         "environment": ENV,
         "source_version": minigrid.__version__,
         "warning": "ENGINEERED_SOURCE_GEOMETRY_NOT_LEARNING_NOT_INDEPENDENT_CUE_AUTHENTICATION_NOT_SCIENCE",
         "rows": rows,
     }, sort_keys=True))
+    if not assessment["status"].startswith("PASS_ENGINEERING_"):
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
