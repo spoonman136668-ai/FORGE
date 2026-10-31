@@ -85,6 +85,20 @@ class F74(unittest.TestCase):
         self.assertTrue(all(row["last_continuation_run_head_sha"] in ("e"*40, "f"*40)
                             for row in result["lanes"]))
 
+    def test_identical_launcher_source_is_accepted(self):
+        def edit(c, s, api):
+            for lane, repo in m.LANES:
+                main = api[(repo, "/branches/main")]["commit"]["sha"]
+                api[(repo, "/actions/runs/38800000100")]["head_sha"] = main
+                api[(repo, "/compare/" + main + "..." + main)] = {
+                    "status": "identical", "ahead_by": 0,
+                    "base_commit": {"sha": main}, "commits": [],
+                }
+        result = self.work(edit)
+        self.assertEqual(len(result["lanes"]), 2)
+        self.assertTrue(all(row["last_continuation_run_head_sha"] in
+                            ("a"*40, "c"*40) for row in result["lanes"]))
+
     def test_divergent_launcher_source_fails_closed(self):
         def edit(c, s, api):
             repo = m.LANES[1][1]
