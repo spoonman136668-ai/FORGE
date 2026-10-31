@@ -2875,13 +2875,48 @@ class GitHub:
     @staticmethod
     def _command(args):
         require(shutil.which("gh") is not None,"GITHUB_CLI_NOT_INSTALLED")
-        try:
-            p=subprocess.run(["gh","api",*args],check=False,stdin=subprocess.DEVNULL,
-                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=40)
-        except subprocess.TimeoutExpired as exc:
-            raise F139Error("F139_GITHUB_API_TIMEOUT") from exc
-        require(p.returncode==0 and len(p.stdout)<MAX_ZIP_BYTES+100000, "GITHUB_API_FAILED")
-        return p.stdout
+        # Only a single-route, argument-free GET is replay-safe. Every write
+        # remains one-shot because a lost acknowledgement is ambiguous.
+        read_only = (isinstance(args, (list, tuple)) and len(args) == 1
+                     and isinstance(args[0], str) and not args[0].startswith("-"))
+        attempts = 3 if read_only else 1
+        for attempt in range(attempts):
+            try:
+                p=subprocess.run(["gh","api",*args],check=False,stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=40)
+            except subprocess.TimeoutExpired as exc:
+                if read_only and attempt + 1 < attempts:
+                    time.sleep(1 << attempt)
+                    continue
+                raise F139Error("F139_GITHUB_API_TIMEOUT") from exc
+            if p.returncode == 0:
+                require(len(p.stdout) < MAX_ZIP_BYTES + 100000,
+                        "GITHUB_API_RESPONSE_TOO_LARGE")
+                return p.stdout
+            # Classify without retaining raw CLI diagnostics, which can carry
+            # URLs, response data or other sensitive details.
+            diagnostic = (p.stderr or b"").decode("utf-8", "replace").lower()
+            status = re.search(r"\bhttp\s+([45]\d\d)\b", diagnostic)
+            status_code = int(status.group(1)) if status else None
+            if status_code == 429 or "rate limit" in diagnostic:
+                failure = "GITHUB_API_RATE_LIMIT"
+            elif (status_code is not None and 500 <= status_code <= 599) or any(
+                marker in diagnostic for marker in (
+                    "connection reset", "connection refused", "connection timed out",
+                    "temporary failure", "could not resolve", "network is unreachable",
+                    "tls handshake timeout", "unexpected eof", "server closed connection"
+                )
+            ):
+                failure = "GITHUB_API_TRANSIENT"
+            elif status_code in (401, 403):
+                failure = "GITHUB_API_AUTH"
+            else:
+                failure = "GITHUB_API_FAILED"
+            if read_only and failure in ("GITHUB_API_RATE_LIMIT", "GITHUB_API_TRANSIENT") and attempt + 1 < attempts:
+                time.sleep(1 << attempt)
+                continue
+            raise F139Error("F139_" + failure)
+        raise F139Error("F139_GITHUB_API_FAILED")
 
     def get(self,route:str):
         require(route.startswith("repos/"+REPO+"/") and ".." not in route and " " not in route,
@@ -4371,7 +4406,11 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # Provider failures are sticky. An API timeout is epistemically ambiguous;
             # preserve START_RISK and do not transition to a retryable READY.
             code=str(exc).removeprefix("F139_")
-            if code not in {"GITHUB_API_TIMEOUT","GITHUB_API_FAILED","GITHUB_API_INVALID_JSON"}:
+            if code not in {
+                "GITHUB_API_TIMEOUT", "GITHUB_API_FAILED", "GITHUB_API_INVALID_JSON",
+                "GITHUB_API_RATE_LIMIT", "GITHUB_API_TRANSIENT", "GITHUB_API_AUTH",
+                "GITHUB_API_RESPONSE_TOO_LARGE",
+            }:
                 reporter=getattr(api,"failed_native_provider_report",None)
                 if (code=="FAILED_OR_CANCELLED_NO_REPLAY"
                         and active["ticket"].startswith("f139-nci04-")
