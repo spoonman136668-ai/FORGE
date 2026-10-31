@@ -198,7 +198,7 @@ def screen():
         metadata_initialization=setup,cases=cases,summary=summary,
         decision="CONDITIONAL_CPU_FEASIBILITY_ONLY" if passed else "NO_GO_SYNTHETIC_SCREEN",
         caveat="Block preprocessing is excluded from per-query times, optimistically favoring candidate; clustered aligned data does not establish authentic model behavior.")
-    
+
 
 if __name__ == "__main__":
     print("G96_JSON=" + json.dumps(screen(),sort_keys=True,separators=(",",":"),allow_nan=False))
