@@ -5,6 +5,7 @@ database. Every test's setup commits before its test method starts. Production
 Database.transaction and runtime test-method transactions remain unchanged.
 """
 import argparse
+import importlib
 import hashlib
 import json
 import sys
@@ -17,7 +18,15 @@ from unittest.mock import patch
 from f139.local_controller import Database
 
 ROOT = Path(__file__).resolve().parent
-TARGETS = ("test_nci04_owner_ledger.py", "test_nci04_g32_owner_custody.py", "test_nci04_v19_original_attempt_schema.py", "test_nci04_g38_owner_terminal.py", "test_nci04_v19_original_terminal_witness.py")
+# Load only the class defined by each module. unittest discovery over a
+# module also collects imported TestCase classes, duplicating dependencies.
+TARGETS = (
+    ("test_nci04_owner_ledger", "LedgerTests"),
+    ("test_nci04_g32_owner_custody", "OriginalOwnerG32Tests"),
+    ("test_nci04_v19_original_attempt_schema", "OriginalRequestColdVerifierTests"),
+    ("test_nci04_g38_owner_terminal", "G38AtomicOwnerTests"),
+    ("test_nci04_v19_original_terminal_witness", "OriginalWitnessTests"),
+)
 
 
 def database_fingerprint(db):
@@ -135,8 +144,15 @@ def main():
     FixtureResult.mode = args.mode
     suite = unittest.TestSuite()
     loader = unittest.defaultTestLoader
-    for pattern in TARGETS:
-        suite.addTests(loader.discover(start_dir=str(ROOT / "f139"), pattern=pattern))
+    sys.path.insert(0, str(ROOT / "f139"))
+    for module_name, class_name in TARGETS:
+        module = importlib.import_module(f"f139.{module_name}")
+        test_case = getattr(module, class_name)
+        if not isinstance(test_case, type) or not issubclass(test_case, unittest.TestCase):
+            raise TypeError(f"F139_G114L_INVALID_TEST_CLASS:{module_name}:{class_name}")
+        if test_case.__module__ != module.__name__:
+            raise AssertionError(f"F139_G114L_IMPORTED_TEST_CLASS:{module_name}:{class_name}")
+        suite.addTests(loader.loadTestsFromTestCase(test_case))
     discovered = suite.countTestCases()
     started = time.perf_counter()
     runner = unittest.TextTestRunner(verbosity=1, resultclass=FixtureResult)
