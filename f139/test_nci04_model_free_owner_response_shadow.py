@@ -164,5 +164,78 @@ class OwnerResponseShadowTests(unittest.TestCase):
         self.assertFalse(x["scientific_first_use"])
 
 
+    def test_h76_first_negative_allows_distinct_second_only_with_explicit_history(self):
+        """Replay barrier remains intact across frontier and owner identity schemas.
+
+        All records are synthetic and externally supplied; this test does not
+        certify their origin as an authentic original-owner SQLite history.
+        """
+        first_bridge = build_unsigned_native_intents(
+            controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
+            frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
+            original=SOURCE, metadata=META, complete_history=[])
+        first = run()["selected"][0]
+        self.assertEqual(first_bridge["selected"][0]["candidate_identity"],
+                         first["frontier_candidate_identity"])
+        negative = event(first_bridge["selected"][0], 1, "QUARANTINED")
+        original_ids = {first["owner_candidate_identity"]}
+        original_afters = {first["after_sha256"]}
+        second = run(history=[negative], consumed=original_ids,
+                     afters=original_afters)
+        self.assertEqual(len(second["selected"]), 1)
+        later = second["selected"][0]
+        self.assertNotEqual(first["frontier_candidate_identity"],
+                            later["frontier_candidate_identity"])
+        self.assertNotEqual(first["owner_candidate_identity"],
+                            later["owner_candidate_identity"])
+        self.assertNotEqual(first["after_sha256"], later["after_sha256"])
+        checked = validate(
+            later["model_response_bytes"], lane="Yggdrasil",
+            target_commit=T, path="yggdrasil/public_causal_cells.py",
+            before=SOURCE, before_sha256=hashlib.sha256(SOURCE).hexdigest(),
+            history_sha256=OWNER_HEAD,
+            consumed_candidates=original_ids,
+            consumed_after_hashes=original_afters)
+        self.assertEqual(checked["record"]["candidate_identity"],
+                         later["owner_candidate_identity"])
+        self.assertEqual(checked["record"]["after_sha256"],
+                         later["after_sha256"])
+        self.assertFalse(second["publication_authorized"])
+        self.assertFalse(second["original_single_owner_witnessed"])
+        self.assertFalse(second["scientific_first_use"])
+
+    def test_h76_second_original_owner_consumption_rejects_without_fallback(self):
+        first = run()["selected"][0]
+        initial = build_unsigned_native_intents(
+            controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
+            frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
+            original=SOURCE, metadata=META, complete_history=[])
+        negative = event(initial["selected"][0], 1, "NEGATIVE")
+        successor = run(history=[negative])["selected"][0]
+        for pair in (
+            {"consumed": {successor["owner_candidate_identity"]}},
+            {"afters": {successor["after_sha256"]}},
+        ):
+            with self.subTest(pair=pair), self.assertRaisesRegex(
+                    OwnerResponseShadowDenied, "ORIGINAL_OWNER_CONSUMED_NO_REPLAY"):
+                run(history=[negative], **pair)
+        # A complete frontier history explicitly consuming both proposals
+        # exhausts the finite grammar; no third recipe or worker is invented.
+        succ_bridge = build_unsigned_native_intents(
+            controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
+            frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
+            original=SOURCE, metadata=META, complete_history=[negative])
+        complete = [negative, event(succ_bridge["selected"][0], 2, "VERIFIED")]
+        result = run(
+            history=complete,
+            consumed={first["owner_candidate_identity"],
+                      successor["owner_candidate_identity"]},
+            afters={first["after_sha256"], successor["after_sha256"]})
+        self.assertEqual(result["selected"], [])
+        self.assertEqual(len(result["abstentions"]), 2)
+        self.assertFalse(result["original_owner_publication_performed"])
+        self.assertFalse(result["dispatch_authorized"])
+
+
 if __name__ == "__main__":
     unittest.main()
