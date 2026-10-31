@@ -19,7 +19,7 @@ class G80OriginalDiagnosticGuards(unittest.TestCase):
         self.assertEqual(len(selected),132)
         self.assertEqual(len({x["source_row"] for x in selected}),132)
         self.assertTrue({x["source_row"] for x in selected[120:132]}.isdisjoint(
-                        {x["source_row"] for x in selected[:120]))
+                        {x["source_row"] for x in selected[:120]}))
         with self.assertRaisesRegex(RuntimeError,"G80_INSUFFICIENT_ORIGINAL_HELDOUT"):
             g.rank_original([{"instruction":"same","category":"math"}]*140,132)
     def test_frozen_count_and_priority(self):
