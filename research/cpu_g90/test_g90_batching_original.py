@@ -47,7 +47,7 @@ class G90BatchingAdmission(unittest.TestCase):
             for n in g.BATCH_SIZES:
                 # Fixture-only: baseline 100ms; batch candidates 70ms with bounded group completion.
                 wall=100_000_000 if n==1 else (70_000_000 if fast else 105_000_000)
-                glat=10_000_000 if n==1 else (30_000_000 if fast else 50_000_000)
+                glat=10_000_000 if n==1 else (15_000_000 if fast else 50_000_000)
                 arms["batch"+str(n)]=self.make_run(n,rep,wall,glat)
             trials.append({"rep":rep+1,"arms":arms})
         return trials
