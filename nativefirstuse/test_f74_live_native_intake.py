@@ -28,8 +28,8 @@ def fixed():
             "authority": "research-only", "ckb_plane_role": "governance-only",
             "experiment": "R-VALID-01", "github_run_id": "38800000100",
         }
-        data[(repo, "/branches/main")] = {"commit": {"sha": main}}
-        data[(repo, "/branches/" + branch)] = {"commit": {"sha": live}}
+        data[(repo, "/git/ref/heads/main")] = {"object": {"sha": main}}
+        data[(repo, "/git/ref/heads/" + branch)] = {"commit": {"sha": live}}
         data[(repo, "/actions/runs/38800000100")] = {
             "id": 38800000100, "name": lane + " research continuation launcher",
             "status": "completed", "conclusion": "success", "head_sha": main,
@@ -71,7 +71,7 @@ class F74(unittest.TestCase):
     def test_historical_launcher_ancestor_of_current_main_is_accepted(self):
         def edit(c, s, api):
             for lane, repo in m.LANES:
-                main = api[(repo, "/branches/main")]["commit"]["sha"]
+                main = api[(repo, "/git/ref/heads/main")]["commit"]["sha"]
                 old = ("e" if lane == "Wingless" else "f") * 40
                 api[(repo, "/actions/runs/38800000100")]["head_sha"] = old
                 api[(repo, "/compare/" + old + "..." + main + "?per_page=1&page=1")] = {
@@ -90,7 +90,7 @@ class F74(unittest.TestCase):
     def test_identical_launcher_source_is_accepted(self):
         def edit(c, s, api):
             for lane, repo in m.LANES:
-                main = api[(repo, "/branches/main")]["commit"]["sha"]
+                main = api[(repo, "/git/ref/heads/main")]["commit"]["sha"]
                 api[(repo, "/actions/runs/38800000100")]["head_sha"] = main
                 api[(repo, "/compare/" + main + "..." + main + "?per_page=1&page=1")] = {
                     "status": "identical", "ahead_by": 0,
@@ -104,7 +104,7 @@ class F74(unittest.TestCase):
     def test_divergent_launcher_source_fails_closed(self):
         def edit(c, s, api):
             repo = m.LANES[1][1]
-            main = api[(repo, "/branches/main")]["commit"]["sha"]
+            main = api[(repo, "/git/ref/heads/main")]["commit"]["sha"]
             bad = "f" * 40
             api[(repo, "/actions/runs/38800000100")]["head_sha"] = bad
             api[(repo, "/compare/" + bad + "..." + main + "?per_page=1&page=1")] = {
@@ -138,7 +138,7 @@ class F74(unittest.TestCase):
 
     def test_unrecognized_egress_route_denied(self):
         with self.assertRaises(m.Denied):
-            m.get("attacker/foreign", "/branches/main")
+            m.get("attacker/foreign", "/git/ref/heads/main")
         with self.assertRaises(m.Denied):
             m.get(m.LANES[0][1], "/../secret")
         self.assertTrue(m.safe_api_path("/compare/" + "a"*40 + "..." + "b"*40))
