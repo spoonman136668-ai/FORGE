@@ -33,13 +33,18 @@ OWNER_HEAD = "7" * 64
 def run(*, original=SOURCE, metadata=None, history=None, owner_hash=OWNER_HEAD,
         consumed=None, afters=None, before=None, controller=S,
         target=T, tree=TREE):
+    selected_metadata = ({
+        **_semantic_identities(
+            controller, "Yggdrasil", tree, "yggdrasil/public_causal_cells.py"),
+        "frozen_split_sha256": GRAMMAR_META["frozen_split_sha256"],
+    } if metadata is None else metadata)
     return encode_owner_response_shadow(
         controller_source_sha=controller,
         target_commit=target, target_tree_sha=tree,
         frozen_source_sha256=(hashlib.sha256(original).hexdigest()
                               if before is None else before),
         original=original,
-        metadata=TEST_META if metadata is None else metadata,
+        metadata=selected_metadata,
         complete_history=[] if history is None else history,
         owner_history_sha256=owner_hash,
         owner_consumed_candidates=set() if consumed is None else consumed,
