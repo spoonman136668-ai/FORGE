@@ -462,7 +462,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
             frontier_history_sha256=line["frontier_history_sha256"])
         for key, wrong in (
             ("before_sha256", "1"*64),
-            ("frozen_split_sha256", "2"*64),
+            ("frozen_split_sha256", "9"*64),
             ("dependency_sha256", "3"*64),
             ("qualification_harness_sha256", "4"*64),
             ("suite_identity_sha256", "5"*64),
@@ -470,9 +470,11 @@ class OwnerResponseShadowTests(unittest.TestCase):
             ("frontier_history_sha256", "7"*64),
             ("owner_history_sha256", "8"*64),
         ):
-            with self.subTest(key=key), self.assertRaisesRegex(
-                    OwnerResponseShadowDenied, "RESEARCH_LINEAGE_RESPONSE_LINK_MISMATCH"):
-                validate_research_lineage(**dict(args, **{key: wrong}))
+            with self.subTest(key=key):
+                self.assertNotEqual(wrong, args[key], "negative sentinel must differ from fixture")
+                with self.assertRaisesRegex(
+                        OwnerResponseShadowDenied, "RESEARCH_LINEAGE_RESPONSE_LINK_MISMATCH"):
+                    validate_research_lineage(**dict(args, **{key: wrong}))
 
 
 if __name__ == "__main__":
