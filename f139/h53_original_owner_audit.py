@@ -39,7 +39,7 @@ def audit():
                       runner=os.environ["RUNNER_NAME"],sha=sha)
     auth=authority.verify_authority(sha)
     original=owner.inspect_original()
-    ledger=native.verify_native(pathlib.Path(original["database"]))
+    ledger=native.verify_native(pathlib.Path(original["database"]), original_root=pathlib.Path(original["repository_root"]))
     return {"schema":"forge.f139.h53.original-owner-audit.v1",
             "audit_sha":sha,"authority":auth,
             "installed_source_sha":original["source_sha"],"ledger":ledger,
