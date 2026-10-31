@@ -34,7 +34,7 @@ class G95Tests(unittest.TestCase):
  def test_lru_capacity_and_eviction(self):
   self.assertEqual(self.simulate(1)[:3],(0,48,47))
   self.assertEqual(self.simulate(2)[:3],(0,48,46))
-  self.assertEqual(self.simulate(4)[:3],(36,12,8)) # 4 misses per each cycle? first cycle 4 misses, then no misses
+  self.assertEqual(self.simulate(4)[:3],(44,4,0))
  def test_distinct_prefix_templates(self):
   self.assertEqual(len(set(g.PREFIX_TEXTS)),4)
  def test_no_weight_change_or_promotion(self):
