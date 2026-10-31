@@ -8,7 +8,6 @@ from f139 import h53_audit_guards as guard
 from f139 import h53_github_authority as authority
 from f139 import h53_windows_owner as owner
 from f139 import h53_native_readonly as native
-from f139 import h53_release_manifest as manifest
 
 WORKFLOW=".github/workflows/f139-h53-original-owner-one-shot.yml"
 OBSERVER="f139/h53_successor_readonly_observer.py"
@@ -22,7 +21,10 @@ def verify_checkout():
     parents=git("rev-list","--parents","-n","1","HEAD").split()
     changed=git("diff","--name-only",guard.SOURCE,"HEAD").splitlines()
     guard.demand(parents == [sha, guard.SOURCE], "NOT_DIRECT_V26_CHILD")
-    guard.demand(set(changed) == manifest.REQUIRED and len(changed) == len(manifest.REQUIRED), "SOURCE_DIFF")
+    required = {WORKFLOW, OBSERVER, "f139/h53_audit_guards.py",
+                "f139/h53_github_authority.py", "f139/h53_windows_owner.py",
+                "f139/h53_native_readonly.py", "f139/h53_original_owner_audit.py"}
+    guard.demand(set(changed) == required and len(changed) == len(required), "SOURCE_DIFF")
     guard.demand(git("rev-parse","HEAD")==sha,"AUDIT_HEAD")
     guard.demand(not git("status","--porcelain","--untracked-files=all"),"AUDIT_DIRTY")
     return sha
