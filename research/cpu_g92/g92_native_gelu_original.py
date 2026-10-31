@@ -80,6 +80,9 @@ def percentile95(values):
 def decide(trials, dispatch):
     if len(trials) != CASES * REPEATS:
         raise RuntimeError("G92_INCOMPLETE_PAIRED_TRIALS")
+    for row in trials:
+        if row[ARMS[0]]["output_sha256"] != row[ARMS[1]]["output_sha256"]:
+            raise RuntimeError("G92_ORIGINAL_TOKEN_PARITY_ERROR")
     if dispatch["candidate_gelu_events"] <= 0 or dispatch["baseline_gelu_events"] != 0:
         raise RuntimeError("G92_NATIVE_GELU_DISPATCH_NOT_PROVEN")
     if dispatch["candidate_tanh_events"] >= dispatch["baseline_tanh_events"]:
