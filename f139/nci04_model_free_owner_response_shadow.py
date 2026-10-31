@@ -58,7 +58,12 @@ def validate_research_lineage(*, record: dict, declared_sha256: str,
                               controller_source_sha: str,
                               target_commit: str, target_tree_sha: str,
                               mechanism_sha256: str, frozen_split_sha256: str,
-                              owner_history_sha256: str) -> dict:
+                              owner_history_sha256: str, before_sha256: str,
+                              dependency_sha256: str,
+                              qualification_harness_sha256: str,
+                              suite_identity_sha256: str,
+                              training_config_sha256: str,
+                              frontier_history_sha256: str) -> dict:
     """Verify advisory lineage bytes and their links to the containing response.
 
     This checks self-consistency only. Source, split, harness, dependency and
@@ -103,6 +108,12 @@ def validate_research_lineage(*, record: dict, declared_sha256: str,
         "mechanism_sha256": mechanism_sha256,
         "frozen_split_sha256": frozen_split_sha256,
         "owner_history_sha256": owner_history_sha256,
+        "before_sha256": before_sha256,
+        "dependency_sha256": dependency_sha256,
+        "qualification_harness_sha256": qualification_harness_sha256,
+        "suite_identity_sha256": suite_identity_sha256,
+        "training_config_sha256": training_config_sha256,
+        "frontier_history_sha256": frontier_history_sha256,
     }
     need(all(record[key] == value for key, value in expected.items()),
          "RESEARCH_LINEAGE_RESPONSE_LINK_MISMATCH")

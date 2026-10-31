@@ -376,7 +376,13 @@ class OwnerResponseShadowTests(unittest.TestCase):
             controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
             mechanism_sha256=item["mechanism_sha256"],
             frozen_split_sha256=item["frozen_split_sha256"],
-            owner_history_sha256=OWNER_HEAD)
+            owner_history_sha256=OWNER_HEAD,
+            before_sha256=hashlib.sha256(SOURCE).hexdigest(),
+            dependency_sha256=META["dependency_sha256"],
+            qualification_harness_sha256=META["qualification_harness_sha256"],
+            suite_identity_sha256=META["suite_identity_sha256"],
+            training_config_sha256=META["training_config_sha256"],
+            frontier_history_sha256=line["frontier_history_sha256"])
         self.assertEqual(checked["record"], line)
         self.assertTrue(checked["self_consistency_verified"])
         for key in ("source_identity_authenticated",
@@ -399,7 +405,13 @@ class OwnerResponseShadowTests(unittest.TestCase):
             controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
             mechanism_sha256=item["mechanism_sha256"],
             frozen_split_sha256=item["frozen_split_sha256"],
-            owner_history_sha256=OWNER_HEAD)
+            owner_history_sha256=OWNER_HEAD,
+            before_sha256=hashlib.sha256(SOURCE).hexdigest(),
+            dependency_sha256=META["dependency_sha256"],
+            qualification_harness_sha256=META["qualification_harness_sha256"],
+            suite_identity_sha256=META["suite_identity_sha256"],
+            training_config_sha256=META["training_config_sha256"],
+            frontier_history_sha256=line["frontier_history_sha256"])
         bad = dict(line, mechanism_sha256="8"*64)
         import hashlib as _hashlib
         import json as _json
@@ -425,6 +437,42 @@ class OwnerResponseShadowTests(unittest.TestCase):
                     OwnerResponseShadowDenied):
                 validate_research_lineage(**dict(args, record=changed,
                                                   declared_sha256=changed_hash))
+
+
+    def test_h79_lineage_validator_rejects_external_baseline_split_and_history_drift(self):
+        item = run()["selected"][0]
+        line = item["research_lineage_record"]
+        args = dict(
+            record=line, declared_sha256=item["research_lineage_sha256"],
+            model_response_sha256=item["model_response_sha256"],
+            native_intent_sha256=item["native_intent_sha256"],
+            native_qualification_key=item["native_qualification_key"],
+            after_sha256=item["after_sha256"],
+            frontier_candidate_identity=item["frontier_candidate_identity"],
+            owner_candidate_identity=item["owner_candidate_identity"],
+            controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
+            mechanism_sha256=item["mechanism_sha256"],
+            frozen_split_sha256=item["frozen_split_sha256"],
+            owner_history_sha256=OWNER_HEAD,
+            before_sha256=hashlib.sha256(SOURCE).hexdigest(),
+            dependency_sha256=META["dependency_sha256"],
+            qualification_harness_sha256=META["qualification_harness_sha256"],
+            suite_identity_sha256=META["suite_identity_sha256"],
+            training_config_sha256=META["training_config_sha256"],
+            frontier_history_sha256=line["frontier_history_sha256"])
+        for key, wrong in (
+            ("before_sha256", "1"*64),
+            ("frozen_split_sha256", "2"*64),
+            ("dependency_sha256", "3"*64),
+            ("qualification_harness_sha256", "4"*64),
+            ("suite_identity_sha256", "5"*64),
+            ("training_config_sha256", "6"*64),
+            ("frontier_history_sha256", "7"*64),
+            ("owner_history_sha256", "8"*64),
+        ):
+            with self.subTest(key=key), self.assertRaisesRegex(
+                    OwnerResponseShadowDenied, "RESEARCH_LINEAGE_RESPONSE_LINK_MISMATCH"):
+                validate_research_lineage(**dict(args, **{key: wrong}))
 
 
 if __name__ == "__main__":
