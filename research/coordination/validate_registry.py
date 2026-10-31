@@ -90,8 +90,15 @@ def validate(raw):
             raise Invalid("unqualified evidence-route expansion")
         if track["source_status"] != "POINTER_ONLY" or track["scientific_status"] != "UNVERIFIED":
             raise Invalid("unsupported acceptance or source claim")
-        if not isinstance(track["source_pointer"], str) or not URL.fullmatch(track["source_pointer"]):
+        pointer = track["source_pointer"]
+        if not isinstance(pointer, str) or not URL.fullmatch(pointer):
             raise Invalid("untrusted source pointer")
+        if "/blob/" in pointer:
+            # GitHub URLs with traversal, dot segments or repeated separators
+            # are ambiguous provenance even when the repository is allowlisted.
+            relative_path = pointer.split("/blob/", 1)[1].split("/", 1)[1]
+            if any(part in ("", ".", "..") for part in relative_path.split("/")):
+                raise Invalid("noncanonical source pointer path")
         _line(track["next_goal"])
     if not CANONICAL.issubset(seen):
         raise Invalid("lost original evidence lanes")
