@@ -23,18 +23,25 @@ OBJECTS = {KEY, BALL}
 LIMIT = 128
 
 
-def branch(cue, north, south, remember):
-    """The sole policy difference is whether the observed west cue survives."""
+def branch(cue, north, south, remember, *, erased_choice="north", corrupt_cue=False):
+    """Observation-only controls; default retains the frozen E-D116 behavior.
+
+    Auxiliary controls are exposed-engineering-only and not scientific admission.
+    A deliberately wrong cue is a causal intervention, not a model input.
+    """
     if north not in OBJECTS or south not in OBJECTS or north == south:
         return None
     if remember:
         if cue not in OBJECTS:
             return None
-        return "north" if cue == north else "south" if cue == south else None
-    return "north"  # fixed, cue-erased control; no privileged information
+        tested_cue = (KEY if cue == BALL else BALL) if corrupt_cue else cue
+        return "north" if tested_cue == north else "south" if tested_cue == south else None
+    if corrupt_cue:
+        raise ValueError("cannot corrupt a cue in a cue-erased control")
+    return erased_choice if erased_choice in ("north", "south") else None
 
 
-def episode(seed, remember):
+def episode(seed, remember, *, erased_choice="north", corrupt_cue=False):
     env = gym.make(ENV, render_mode=None)
     actions = []
     events = []
@@ -101,7 +108,8 @@ def episode(seed, remember):
                     take(1)  # north -> east -> south
                     south = two_ahead()
                     prechoice = digest(events)
-                    selected = branch(cue, north, south, remember)
+                    selected = branch(cue, north, south, remember,
+                                      erased_choice=erased_choice, corrupt_cue=corrupt_cue)
                     if selected is None:
                         status = "ABSTAIN_BRANCH_UNOBSERVABLE"
                     else:
@@ -210,6 +218,8 @@ def main():
     assert branch(KEY, KEY, BALL, True) == "north"
     assert branch(KEY, BALL, KEY, True) == "south"
     assert branch(KEY, BALL, KEY, False) == "north"
+    assert branch(KEY, BALL, KEY, False, erased_choice="south") == "south"
+    assert branch(KEY, BALL, KEY, True, corrupt_cue=True) == "north"
     assert branch(None, KEY, BALL, True) is None
     assert branch(KEY, BALL, BALL, True) is None
 
