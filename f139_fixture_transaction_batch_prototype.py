@@ -49,9 +49,11 @@ class FixtureResult(unittest.TextTestResult):
         self.transaction_calls = 0
         self.commits = 0
         self.rollbacks = 0
+        self.original_setups = {}
 
     def startTest(self, test):
         original_setup = test.setUp
+        self.original_setups[test] = original_setup
 
         def timed_setup():
             original_initialize = Database.initialize
@@ -64,11 +66,23 @@ class FixtureResult(unittest.TextTestResult):
                 self.initialize_calls += 1
                 return original_initialize(filename, source_sha)
 
+            original_transaction = Database.transaction
             if self.mode == "original":
+                @contextmanager
+                def counted_transaction(db, *args, **kwargs):
+                    self.transaction_calls += 1
+                    try:
+                        with original_transaction(db, *args, **kwargs) as conn:
+                            yield conn
+                    except BaseException:
+                        self.rollbacks += 1
+                        raise
+                    else:
+                        self.commits += 1
                 with patch.object(Database, "initialize", counted_initialize):
-                    original_setup()
+                    with patch.object(Database, "transaction", counted_transaction):
+                        original_setup()
             else:
-                original_transaction = Database.transaction
                 active = {}
                 with ExitStack() as stack:
                     @contextmanager
@@ -106,8 +120,9 @@ class FixtureResult(unittest.TextTestResult):
             super().stopTest(test)
         finally:
             # Restore the instance method so only setUp is affected.
-            if getattr(test, "setUp", None) is not None:
-                test.setUp = getattr(test.__class__, "setUp")
+            original_setup = self.original_setups.pop(test, None)
+            if original_setup is not None:
+                test.setUp = original_setup
 
 
 def main():
