@@ -22,10 +22,15 @@ from f139.test_nci04_genuine_yggdrasil_fixture import (
 from f139.nci04_model_free_grammar import method_for
 from f139.nci04_autonomy_feed import _semantic_identities
 
-TEST_META = {
-    **_semantic_identities(S, "Yggdrasil", TREE, "yggdrasil/public_causal_cells.py"),
-    "frozen_split_sha256": GRAMMAR_META["frozen_split_sha256"],
-}
+def semantic_meta(controller, tree):
+    return {
+        **_semantic_identities(
+            controller, "Yggdrasil", tree, "yggdrasil/public_causal_cells.py"),
+        "frozen_split_sha256": GRAMMAR_META["frozen_split_sha256"],
+    }
+
+
+TEST_META = semantic_meta(S, TREE)
 
 OWNER_HEAD = "7" * 64
 
@@ -33,11 +38,7 @@ OWNER_HEAD = "7" * 64
 def run(*, original=SOURCE, metadata=None, history=None, owner_hash=OWNER_HEAD,
         consumed=None, afters=None, before=None, controller=S,
         target=T, tree=TREE):
-    selected_metadata = ({
-        **_semantic_identities(
-            controller, "Yggdrasil", tree, "yggdrasil/public_causal_cells.py"),
-        "frozen_split_sha256": GRAMMAR_META["frozen_split_sha256"],
-    } if metadata is None else metadata)
+    selected_metadata = semantic_meta(controller, tree) if metadata is None else metadata
     return encode_owner_response_shadow(
         controller_source_sha=controller,
         target_commit=target, target_tree_sha=tree,
@@ -274,7 +275,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         initial = build_unsigned_native_intents(
             controller_source_sha=source, target_commit=target,
             target_tree_sha=tree, frozen_source_sha256=ORIGINAL_SHA256,
-            original=original, metadata=TEST_META, complete_history=[])
+            original=original, metadata=semantic_meta(source, tree), complete_history=[])
         negative = event(initial["selected"][0], 1, "QUARANTINED")
         negative["controller_source_sha"] = source
         ids, afters = {first["owner_candidate_identity"]}, {first["after_sha256"]}
@@ -296,7 +297,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         succ = build_unsigned_native_intents(
             controller_source_sha=source, target_commit=target,
             target_tree_sha=tree, frozen_source_sha256=ORIGINAL_SHA256,
-            original=original, metadata=TEST_META, complete_history=[negative])
+            original=original, metadata=semantic_meta(source, tree), complete_history=[negative])
         verified = event(succ["selected"][0], 2, "VERIFIED")
         verified["controller_source_sha"] = source
         empty = run(history=[negative, verified],
