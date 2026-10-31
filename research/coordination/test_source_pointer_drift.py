@@ -48,17 +48,30 @@ def compare_readback(handoff_raw: bytes, observations_raw: bytes) -> dict:
             raise Invalid("H6_UNTRUSTED_OR_DUPLICATE_OBSERVATION")
         readback[url] = e
     counts = {"PIN_MATCHED": 0, "DRIFT": 0, "UNOBSERVED": 0}
+    lifecycle_counts = {"OPEN_UNMERGED": 0, "CLOSED_UNMERGED": 0,
+                        "MERGED": 0, "UNOBSERVED": 0}
     details = []
     for w in index["workstreams"]:
         for p in w["source_pointers"]:
             seen = readback.get(p["url"])
             status = ("UNOBSERVED" if seen is None else
                       "PIN_MATCHED" if seen["head_sha"] == p["sha"] else "DRIFT")
+            # SHA identity and PR lifecycle are independent. A closed/merged
+            # pointer is not an active research task, even if the SHA matches.
+            lifecycle = ("UNOBSERVED" if seen is None else
+                         "MERGED" if seen["merged"] else
+                         "OPEN_UNMERGED" if seen["state"] == "open" else
+                         "CLOSED_UNMERGED")
             counts[status] += 1
+            lifecycle_counts[lifecycle] += 1
             details.append({"workstream": w["id"], "url": p["url"],
                             "pinned_sha": p["sha"],
                             "observed_sha": seen["head_sha"] if seen else None,
-                            "status": status})
+                            "status": status,
+                            "observed_state": seen["state"] if seen else None,
+                            "observed_merged": seen["merged"] if seen else None,
+                            "lifecycle": lifecycle,
+                            "reported_open_unmerged": lifecycle == "OPEN_UNMERGED"})
     # Even complete exact equality is only comparison against *supplied* metadata,
     # not authenticated ownership transfer, original-byte custody or live autonomy.
     return {
@@ -68,6 +81,7 @@ def compare_readback(handoff_raw: bytes, observations_raw: bytes) -> dict:
         "live_runtime_verified": False,
         "retirement_ready": False,
         "counts": counts,
+        "lifecycle_counts": lifecycle_counts,
         "details": details,
     }
 
@@ -95,6 +109,36 @@ class SourcePointerDriftTests(unittest.TestCase):
         self.assertEqual(r["counts"]["PIN_MATCHED"], 1)
         self.assertFalse(r["live_runtime_verified"])
         self.assertFalse(r["retirement_ready"])
+
+    def test_matching_sha_does_not_hide_closed_or_merged_lifecycle(self):
+        p = self.sources()[0]
+        for state, merged, expected in (
+            ("open", False, "OPEN_UNMERGED"),
+            ("closed", False, "CLOSED_UNMERGED"),
+            ("closed", True, "MERGED"),
+        ):
+            with self.subTest(state=state, merged=merged):
+                r = compare_readback(HANDOFF, self.observations([
+                    dict(url=p["url"], head_sha=p["sha"],
+                         state=state, merged=merged)
+                ]))
+                row = next(x for x in r["details"] if x["url"] == p["url"])
+                self.assertEqual(row["status"], "PIN_MATCHED")
+                self.assertEqual(row["lifecycle"], expected)
+                self.assertEqual(row["observed_state"], state)
+                self.assertIs(row["observed_merged"], merged)
+                self.assertIs(row["reported_open_unmerged"], state == "open")
+                self.assertEqual(r["lifecycle_counts"][expected], 1)
+                self.assertFalse(r["observations_authenticated"])
+                self.assertFalse(r["retirement_ready"])
+
+    def test_missing_pr_has_explicit_unknown_lifecycle(self):
+        r = compare_readback(HANDOFF, self.observations([]))
+        self.assertEqual(r["lifecycle_counts"]["UNOBSERVED"], len(self.sources()))
+        self.assertTrue(all(x["lifecycle"] == "UNOBSERVED" for x in r["details"]))
+        self.assertTrue(all(x["observed_state"] is None and
+                            x["observed_merged"] is None and
+                            not x["reported_open_unmerged"] for x in r["details"]))
 
     def test_actual_stale_e_research_pointer_is_detected(self):
         p = next(p for p in self.sources() if p["url"].endswith("/FORGE/pull/1194"))
