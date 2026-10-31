@@ -3,6 +3,11 @@ import sys
 import time
 import unittest
 from collections import defaultdict
+from contextlib import ExitStack
+from functools import wraps
+from unittest.mock import patch
+
+from f139.local_controller import Database
 
 
 class TimingResult(unittest.TextTestResult):
@@ -50,10 +55,42 @@ def percentile(sorted_values, fraction):
     return sorted_values[min(rank - 1, len(sorted_values) - 1)]
 
 
+class DatabasePhaseTiming:
+    """Observe isolated F139 Database operations; never change their outcomes."""
+    def __init__(self):
+        self.samples = defaultdict(list)
+
+    def enter(self, stack):
+        initialize = Database.initialize
+        verify = Database.verify
+
+        @wraps(initialize)
+        def measured_initialize(cls, *args, **kwargs):
+            start = time.perf_counter()
+            try:
+                return initialize(*args, **kwargs)
+            finally:
+                self.samples["initialize"].append(time.perf_counter() - start)
+
+        @wraps(verify)
+        def measured_verify(db, *args, **kwargs):
+            start = time.perf_counter()
+            try:
+                return verify(db, *args, **kwargs)
+            finally:
+                self.samples["verify"].append(time.perf_counter() - start)
+
+        stack.enter_context(patch.object(Database, "initialize", classmethod(measured_initialize)))
+        stack.enter_context(patch.object(Database, "verify", measured_verify))
+
+
 def main():
     suite = unittest.defaultTestLoader.discover(start_dir="f139", pattern="test_*.py")
     discovered = suite.countTestCases()
-    result = unittest.TextTestRunner(resultclass=TimingResult).run(suite)
+    phases = DatabasePhaseTiming()
+    with ExitStack() as stack:
+        phases.enter(stack)
+        result = unittest.TextTestRunner(resultclass=TimingResult).run(suite)
     durations = sorted(result.durations, reverse=True)
     measured = sum(seconds for seconds, _ in durations)
     print(f"F139_TIMING_DISCOVERED={discovered}", file=sys.stderr)
@@ -72,6 +109,13 @@ def main():
     for seconds, test_id in result.setup_durations:
         setup_by_module[test_id.rsplit(".", 2)[0]].append(seconds)
     print(f"F139_TIMING_SETUP_RECORDED={len(result.setup_durations)}", file=sys.stderr)
+    for name in ("initialize", "verify"):
+        samples = phases.samples[name]
+        print(
+            f"F139_TIMING_DB_{name.upper()}=count={len(samples)} "
+            f"total={sum(samples):.3f}s", file=sys.stderr,
+        )
+    # Initialize may internally verify; phase totals are not additive.
     for rank, (module, samples) in enumerate(
         sorted(setup_by_module.items(), key=lambda item: (-sum(item[1]), item[0])), 1
     ):
