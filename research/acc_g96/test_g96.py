@@ -47,6 +47,22 @@ class G96Guards(unittest.TestCase):
                             self.assertEqual(props["rows_scored"],
                                              props["blocks_scored"]*BLOCK_ROWS)
 
+    def test_no_early_exit_when_unvisited_values_could_dominate(self):
+        # All keys tie, but the final block carries large values. A key-only
+        # bound that ignores unvisited value norms could falsely stop early.
+        with threadpool_limits(limits=1):
+            keys = np.zeros((KEY_ROWS, DIMENSION), dtype=np.float64)
+            values = np.zeros_like(keys)
+            values[-BLOCK_ROWS:, :] = 100.
+            query = np.ones(DIMENSION, dtype=np.float64)
+            centers, radii, max_values = block_metadata(keys, values)
+            estimate, props = certified_attention(keys, values, query,
+                                                 centers, radii, max_values)
+            reference = dense_attention(keys, values, query)
+            self.assertFalse(props["early_certified"])
+            self.assertEqual(props["blocks_scored"], BLOCKS)
+            self.assertTrue(np.allclose(estimate, reference, rtol=1e-12, atol=1e-12))
+
     def test_negative_control_is_independent_gaussian(self):
         keys, values, queries = make_workload(SEEDS[0], "iid")
         self.assertEqual(keys.shape, (1024, 64))
