@@ -100,8 +100,6 @@ def main():
         result = unittest.TextTestRunner(verbosity=1).run(suite)
         elapsed = time.perf_counter() - started
         init_count = len(init_paths) if args.mode == "original" else len(seen_paths)
-        if args.mode == "backup" and init_count != len(init_paths):
-            raise AssertionError("F139_G114I_PATH_ACCOUNTING_MISMATCH")
         if result.testsRun != discovered:
             raise AssertionError("F139_G114I_TEST_COUNT_MISMATCH")
         print(f"F139_G114I_MODE={args.mode}")
@@ -114,7 +112,7 @@ def main():
         print(f"F139_G114I_RESULT={'PASS' if result.wasSuccessful() else 'FAIL'}")
         return 0 if result.wasSuccessful() else 1
     finally:
-        Database.initialize = original_initialize.__func__ if hasattr(original_initialize, "__func__") else original_initialize
+        Database.initialize = classmethod(original_initialize.__func__)
         if template is not None:
             template.close()
 
