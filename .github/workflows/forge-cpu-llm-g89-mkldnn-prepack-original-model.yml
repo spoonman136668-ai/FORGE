@@ -1,0 +1,120 @@
+name: FORGE CPU LLM Evaluation G89 original GPT2 explicit oneDNN prepacked projections
+
+on:
+  push:
+    branches: [research/cpu-llm-g89-mkldnn-prepack-gpt2-20261031]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g89-mkldnn-prepack-original-model.yml'
+      - 'research/cpu_g89/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-cpu-llm-g89-mkldnn-prepack-study
+  cancel-in-progress: false
+
+jobs:
+  frozen-source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact G70 baseline, frozen G89 preregistration and source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          PREREG=09a5849d63fab89f187a31501335b29886c92f26
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git merge-base --is-ancestor "$PREREG" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G89-GPT2-MKLDNN-PREPACK-PREREG-20261031.md)" = "078473d030453b6489c927f691df9e251d883567"
+          test "$(git rev-parse HEAD:research/cpu_g89/g89_mkldnn_prepack_original.py)" = "c0e7877629242781569774d0a6ba3abe095dba68"
+          test "$(git rev-parse HEAD:research/cpu_g89/test_g89_mkldnn_prepack_original.py)" = "4c616b2546e341899130076d6b851534b86b887d"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          python -B -m py_compile research/cpu_g89/g89_mkldnn_prepack_original.py research/cpu_g89/test_g89_mkldnn_prepack_original.py
+          python -B -m unittest discover -s research/cpu_g89 -p 'test_g89_mkldnn_prepack_original.py' -v
+          echo CPU_G89_FROZEN_SOURCE_ADMISSION=PASS
+
+  original-model-mkldnn-prepack:
+    needs: frozen-source-admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      MAX_JOBS: '2'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify native CPU host and exact frozen source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          test "$(git rev-parse HEAD:research/cpu_g89/g89_mkldnn_prepack_original.py)" = "c0e7877629242781569774d0a6ba3abe095dba68"
+          python -B -m unittest discover -s research/cpu_g89 -p 'test_g89_mkldnn_prepack_original.py' -v
+      - name: Install pinned original CPU model and oneDNN runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.48.3 huggingface-hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1 psutil==7.1.3
+          python -m pip check
+          python - <<'PY'
+          import torch,transformers
+          assert torch.__version__=="2.5.1+cpu",torch.__version__
+          assert torch.version.cuda is None
+          assert transformers.__version__=="4.48.3"
+          assert torch.backends.mkldnn.is_available()
+          from torch.utils.mkldnn import to_mkldnn
+          print("G89_PINNED_EXPLICIT_MKLDNN_RUNTIME=PASS")
+          PY
+          python -m pip freeze > cpu_g89_environment.txt
+          uname -a >> cpu_g89_environment.txt
+          lscpu >> cpu_g89_environment.txt
+      - name: Run exact original GPT2 Conv1D to prepacked oneDNN Linear comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/cpu_g89/g89_mkldnn_prepack_original.py
+          python - <<'PY'
+          import json
+          r=json.load(open("cpu_g89_original_result.json",encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g89.authentic-mkldnn-prepack.v1"
+          assert r["gate"]=="CPU_G89"
+          assert r["preregistration_commit"]=="09a5849d63fab89f187a31501335b29886c92f26"
+          assert r["engineering"]=="PASS" and r["correctness"]=="PASS"
+          assert r["summary"]["timed_authentic_responses"]==96
+          assert r["summary"]["timed_authentic_generated_tokens"]==768
+          assert len(r["original_paired_trials"])==48
+          assert r["decision"] in ("MKLDNN_PREPACK_PASS","MKLDNN_PREPACK_NO_GO")
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and not r["promotion_allowed"]
+          print("CPU_G89_ORIGINAL_MKLDNN_PREPACK_RESULT="+r["decision"])
+          PY
+      - name: Upload original measurement and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g89-original-gpt2-mkldnn-prepack
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g89_original_result.json
+            cpu_g89_environment.txt
