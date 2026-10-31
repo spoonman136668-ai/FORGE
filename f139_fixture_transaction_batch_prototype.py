@@ -17,7 +17,7 @@ from unittest.mock import patch
 from f139.local_controller import Database
 
 ROOT = Path(__file__).resolve().parent
-TARGETS = ("test_nci04_owner_ledger.py", "test_nci04_g32_owner_custody.py", "test_nci04_v19_original_attempt_schema.py", "test_nci04_g38_owner_terminal.py")
+TARGETS = ("test_nci04_owner_ledger.py", "test_nci04_g32_owner_custody.py", "test_nci04_v19_original_attempt_schema.py", "test_nci04_g38_owner_terminal.py", "test_nci04_v19_original_terminal_witness.py")
 
 
 def database_fingerprint(db):
