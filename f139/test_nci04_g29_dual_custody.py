@@ -95,9 +95,8 @@ class FrozenAtlasTests(unittest.TestCase):
                 candidate.after_bytes,
             )
             self.assertEqual(
-                (source / YGGDRASIL_G29_SOURCE).read_bytes(),
-                candidate.before_sha256 and
-                (source / YGGDRASIL_G29_SOURCE).read_bytes(),
+                digest((source / YGGDRASIL_G29_SOURCE).read_bytes()),
+                candidate.before_sha256,
             )
             self.assertEqual(git(source, "status", "--porcelain"), "")
 
