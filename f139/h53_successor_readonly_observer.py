@@ -6,6 +6,7 @@ authenticate the original Windows owner and invoke this witness.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import datetime as dt
 import hashlib
 import json
@@ -52,7 +53,7 @@ def ledger_observation(db: pathlib.Path) -> dict:
     # immutable=1 is inappropriate for a live WAL database; use ro/query_only
     # with a single consistent SQLite read transaction.
     uri = db.resolve(strict=True).as_uri() + "?mode=ro"
-    with sqlite3.connect(uri, uri=True, timeout=20) as conn:
+    with closing(sqlite3.connect(uri, uri=True, timeout=20)) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA query_only=ON")
         require(conn.execute("PRAGMA query_only").fetchone()[0] == 1, "NOT_QUERY_ONLY")
