@@ -14,6 +14,23 @@ REQUIRED = {
     'witness': ('independent_run_ref', 'original_logs_sha256'),
 }
 INTEGER_BUDGETS = {'episodes', 'environment_steps', 'peak_rss_bytes', 'train_updates'}
+REFERENCE_FIELDS = {
+    'source': ('runtime_receipt_uri',),
+    'freeze': ('approval_ref', 'reviewer_ref'),
+    'witness': ('independent_run_ref',),
+}
+PLACEHOLDER_WORDS = frozenset({
+    'unverified', 'notverified', 'unknown', 'pending', 'todo', 'tbd',
+    'placeholder', 'dummy', 'none', 'null', 'na', 'undefined', 'example',
+})
+
+
+def _placeholder(value):
+    """Reject obvious stand-in fields; never authenticate evidence by syntax."""
+    if not isinstance(value, str) or not value.strip():
+        return True
+    normalized = re.sub(r'[\s_/-]+', '', value.strip().casefold())
+    return normalized in PLACEHOLDER_WORDS or not normalized.strip('0')
 
 
 def audit(m):
@@ -31,6 +48,20 @@ def audit(m):
             value = obj.get(field)
             if value is None or type(value) is bool or isinstance(value, str) and not value.strip() or isinstance(value, (dict, list)) and not value:
                 problems.append('missing_' + section + '.' + field)
+    # Format-only preflight: disallow obvious non-evidence but never mint
+    # independent approval, reviewer identity, or original-source custody.
+    for section, fields in REFERENCE_FIELDS.items():
+        obj = m.get(section)
+        if not isinstance(obj, dict):
+            continue
+        for field in fields:
+            if field in obj and _placeholder(obj[field]):
+                problems.append('placeholder_' + section + '.' + field)
+    interface = m.get('interface') if isinstance(m.get('interface'), dict) else {}
+    for field in REQUIRED['interface']:
+        value = interface.get(field)
+        if isinstance(value, str) and _placeholder(value):
+            problems.append('placeholder_interface.' + field)
     source = m.get('source') if isinstance(m.get('source'), dict) else {}
     if source.get('commit_sha') != COMMIT:
         problems.append('unverified_source_commit')
@@ -48,7 +79,7 @@ def audit(m):
             problems.append('invalid_budget_' + field)
     for section, field in (('freeze', 'split_registry_sha256'), ('witness', 'original_logs_sha256')):
         obj = m.get(section) if isinstance(m.get(section), dict) else {}
-        if not isinstance(obj.get(field), str) or not re.fullmatch('[0-9a-f]{64}', obj[field]):
+        if (not isinstance(obj.get(field), str) or not re.fullmatch('[0-9a-f]{64}', obj[field]) or obj[field] == '0' * 64):
             problems.append('invalid_digest_' + section + '.' + field)
     return {'verdict': 'NOT_QUALIFIED' if problems else 'SCHEMA_COMPLETE_REQUIRES_INDEPENDENT_VERIFICATION', 'reasons': sorted(set(problems))}
 
