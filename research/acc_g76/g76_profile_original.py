@@ -36,6 +36,14 @@ def sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def load_frozen_text(path: Path) -> bytes:
     if not path.is_file():
         with urllib.request.urlopen(TEXT_URL, timeout=40) as response:
@@ -94,7 +102,7 @@ def run() -> dict:
     weight_path = snapshot / "model.safetensors"
     if not weight_path.is_file() or weight_path.stat().st_size != WEIGHT_BYTES:
         raise RuntimeError("G76_MODEL_WEIGHT_SIZE_DRIFT")
-    weight_hash = sha256(weight_path.read_bytes())
+    weight_hash = sha256_file(weight_path)
     if weight_hash != WEIGHT_SHA256:
         raise RuntimeError("G76_MODEL_WEIGHT_HASH_DRIFT")
 
