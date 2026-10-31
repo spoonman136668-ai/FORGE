@@ -1,0 +1,18 @@
+# ACC-G103 — Shape-adaptive CPU kernel dispatch: preregistered falsifier
+
+**Frozen before implementation, measurement, or any observed G103 result.** GPU-bottleneck research slate G91–G106 in draft FORGE PR #1329. **This is a NumPy single-thread CPU proxy, NOT an authentic model or GPU kernel.** Original main baseline: `0810ecf3df6378bcbfe5239d30df836b7e12a602`. The separate GPT-2 CPU track, accepted model, main branch, FORGE controller and existing workflows' isolation gates remain unchanged.
+
+## Specific hypothesis
+
+Choosing a matvec implementation from *public matrix shape alone* may improve an inference workload that mixes very small, tall/skinny, wide/short and balanced layers. The rule is frozen: use NumPy's `einsum('ij,j->i', W, x, optimize=False)` only when `W.size <=4096`, otherwise the same `W @ x` optimized BLAS as the baseline. Kernel selection and Python dispatch overhead are included in candidate timing. The candidate cannot inspect values, observe baseline output, tune the shape threshold, use a learned table from measured latencies or precompute results. This is a deliberately narrow, falsifiable selection rule rather than a broad survey of fastest kernels.
+
+## Fixed controls and qualification
+
+- Deterministic float64, one BLAS thread via `threadpoolctl`, 4 frozen shapes: `tiny=(32,32)`, `skinny=(2048,32)`, `wide=(64,2048)`, `balanced=(512,512)`; 3 seeds `[10301,10302,10303]`; 8 independent random query vectors per shape/seed. Generate W as `N(0,1/sqrt(n_cols))` and queries `N(0,1)`.
+- Two regimes per shape: `dense_iid` fully independent Gaussian matrix (negative generalization control); `sparse_zero` the same independent dense draw with 90% of entries set **exactly zero** based on independent seeded uniform selection. The sparse regime is a deliberately favorable but **not** compressed-sparse representation: both arms still process dense arrays and cannot skip zeros for free.
+- Exactly **4 shapes ×3 seeds ×2 regimes ×8 queries =192 paired cases**. For each case warm both algorithms once; then run **9 alternating paired wall-clock trials**. Preserve all 192 baseline/candidate median latency measurements, selected path (`einsum` versus `blas`), both output vectors' finite flags, relative L2 error, max absolute error, and overall shape-by-regime summaries.
+- Baseline **always** calls `W @ x` on identical arrays using the same NumPy/BLAS build. Candidate always pays one `rows,cols=W.shape`, integer comparison, Python branch, then executes either `np.einsum(...,optimize=False)` or `W @ x`. No reusable compiled selectors, cached decoded weights, GPU timing or cost-free branch.
+- Each case must satisfy `relative_L2 <=1e-10` with no nonfinite values. The frozen **conditional feasibility** rule is median baseline/candidate speedup >=**1.15× in every shape** separately for **both regimes**, with all **192** cases accurate and present. If any shape/regime fails speed or any case fails accuracy, decision is `NO_GO_SYNTHETIC_SCREEN`. Do not reinterpret favorable tiny-only wins as overall pass.
+- All CPU timings reflect only this artificial static-shape NumPy dispatch; any real GPU candidate requires fusion, kernel launch/synchronization, batch shape distribution, original TinyLlama weights and held-out prompts, quality parity, tuned SDPA baseline, full decode throughput and independent scientific qualification. No production actions or scientific acceptance are authorized.
+
+Source/prereg commit must precede candidate source; preserve immutable CI job SHA and complete 192 case JSON in the existing repository. Any change to threshold, kernel path or acceptance rule requires a newly versioned preregistered experiment, not after-result adjustment.
