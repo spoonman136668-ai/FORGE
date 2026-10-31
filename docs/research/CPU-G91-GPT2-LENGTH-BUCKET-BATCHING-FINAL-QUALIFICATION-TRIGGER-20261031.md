@@ -13,3 +13,5 @@ Receipt-only Linux/Windows final qualification workflow is now committed. Start 
 Regression test fixture whitespace assertions were corrected; restart final receipt-only Linux/Windows qualification against this exact test blob.
 
 Pinned G91 implementation source SHA was corrected to the authenticated Git blob; rerun final qualification.
+
+Corrected the compact-source receipt assertion fixture and pinned its exact test blob; rerun final qualification.
