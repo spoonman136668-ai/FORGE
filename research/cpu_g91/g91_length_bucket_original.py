@@ -49,7 +49,7 @@ def rank_original(records,n):
         seen.add(q);out.append({"source_row":row,"instruction":q,"category":cat,
           "instruction_sha256":hashlib.sha256(q.encode()).hexdigest(),"rank_sha256":digest})
         if len(out)==n:break
-    if len(out)!=n:raise RuntimeError("G90_INSUFFICIENT_ORIGINAL_HELDOUT")
+    if len(out)!=n:raise RuntimeError("G91_INSUFFICIENT_ORIGINAL_HELDOUT")
     return out
 
 def group_schedule(n,rep,lengths,strategy):
@@ -64,7 +64,7 @@ def group_schedule(n,rep,lengths,strategy):
     return [indices[i:i+n] for i in range(0,CASES,n)]
 
 def p95(xs):
-    if not xs:raise RuntimeError("G90_EMPTY_LATENCY_SAMPLE")
+    if not xs:raise RuntimeError("G91_EMPTY_LATENCY_SAMPLE")
     return sorted(xs)[max(0,math.ceil(.95*len(xs))-1)]
 
 def decide(trials):
@@ -176,8 +176,8 @@ def main():
     from transformers import AutoTokenizer,AutoModelForCausalLM
     contract()
     if os.name!="posix" or platform.system()!="Linux" or platform.machine().lower() not in ("x86_64","amd64"):
-        raise RuntimeError("G90_NOT_NATIVE_X86_64_LINUX")
-    if torch.version.cuda is not None:raise RuntimeError("G90_NON_CPU_PYTORCH_BUILD")
+        raise RuntimeError("G91_NOT_NATIVE_X86_64_LINUX")
+    if torch.version.cuda is not None:raise RuntimeError("G91_NON_CPU_PYTORCH_BUILD")
     torch.set_num_threads(1);torch.set_num_interop_threads(1)
     proc=psutil.Process();old_aff=None
     receipt={"schema":"forge.cpu-llm-g91.authentic-length-bucketing.v1","gate":"CPU_G91",
@@ -206,32 +206,32 @@ def main():
                 b=inp.read(1<<20)
                 if not b:break
                 n+=len(b)
-                if n>800000:raise RuntimeError("G90_DATA_SIZE_CAP")
+                if n>800000:raise RuntimeError("G91_DATA_SIZE_CAP")
                 out.write(b)
-        if raw.stat().st_size!=DATA_BYTES or sha_file(raw)!=DATA_SHA:raise RuntimeError("G90_DATA_IDENTITY_DRIFT")
+        if raw.stat().st_size!=DATA_BYTES or sha_file(raw)!=DATA_SHA:raise RuntimeError("G91_DATA_IDENTITY_DRIFT")
         with raw.open(encoding="utf-8") as f:
             records=[{"instruction":x["question"],"category":"math_word_problem"} for x in (json.loads(line) for line in f if line.strip())]
         ranked=rank_original(records,OFFSET+CASES)
         g68=module("g90_g68","llm_g68/g68_gsm8k_http.py")
         g70=module("g90_g70","llm_g70/g70_gsm8k_locality.py")
         if ranked[:12]!=g68.select_heldout(records) or ranked[12:24]!=g70.select_heldout(records):
-            raise RuntimeError("G90_RANK_CONTRACT_DRIFT")
-        if len({x["source_row"] for x in ranked})!=OFFSET+CASES:raise RuntimeError("G90_DUPLICATE_RANK")
+            raise RuntimeError("G91_RANK_CONTRACT_DRIFT")
+        if len({x["source_row"] for x in ranked})!=OFFSET+CASES:raise RuntimeError("G91_DUPLICATE_RANK")
         selected=ranked[OFFSET:OFFSET+CASES]
         receipt["selected"]=[{k:v for k,v in x.items() if k!="instruction"} for x in selected]
         receipt["selected_ranks"]=[OFFSET,OFFSET+CASES-1]
         g55=module("g90_g55","llm_g55/g55_gpt2_controls.py")
-        if (g55.REV,g55.WEIGHT_SHA)!=(MODEL_REV,WEIGHTS_SHA):raise RuntimeError("G90_MODEL_IDENTITY_DRIFT")
+        if (g55.REV,g55.WEIGHT_SHA)!=(MODEL_REV,WEIGHTS_SHA):raise RuntimeError("G91_MODEL_IDENTITY_DRIFT")
         t0=time.perf_counter();root,manifest=g55.stage()
         receipt["model_manifest_sha256"]=sha_file(root/"manifest.json");receipt["model_files"]=manifest
         tok=AutoTokenizer.from_pretrained(str(root),local_files_only=True,trust_remote_code=False)
         model=AutoModelForCausalLM.from_pretrained(str(root),local_files_only=True,
           use_safetensors=True,trust_remote_code=False).eval()
         if model.config.model_type!="gpt2" or next(model.parameters()).dtype!=torch.float32:
-            raise RuntimeError("G90_ORIGINAL_FP32_GPT2_REQUIRED")
-        if not hasattr(proc,"cpu_affinity"):raise RuntimeError("G90_AFFINITY_UNAVAILABLE")
+            raise RuntimeError("G91_ORIGINAL_FP32_GPT2_REQUIRED")
+        if not hasattr(proc,"cpu_affinity"):raise RuntimeError("G91_AFFINITY_UNAVAILABLE")
         old_aff=proc.cpu_affinity()
-        if len(old_aff)<CPU_BUDGET:raise RuntimeError("G90_THREE_CPU_AFFINITY_UNAVAILABLE")
+        if len(old_aff)<CPU_BUDGET:raise RuntimeError("G91_THREE_CPU_AFFINITY_UNAVAILABLE")
         proc.cpu_affinity(old_aff[:CPU_BUDGET]);receipt["fixed_affinity"]=proc.cpu_affinity()
         receipt["fixed_torch_interop"]=torch.get_num_interop_threads()
         inputs=[]
@@ -239,7 +239,7 @@ def main():
             ids=tok(g55.PREFIX,return_tensors="pt",add_special_tokens=False)["input_ids"]
             suffix=tok(item["instruction"],return_tensors="pt",add_special_tokens=False)["input_ids"][:,:64]
             full=torch.cat((ids,suffix),dim=1)
-            if full.shape[1]+TOKENS>model.config.n_positions:raise RuntimeError("G90_CONTEXT_OVERFLOW")
+            if full.shape[1]+TOKENS>model.config.n_positions:raise RuntimeError("G91_CONTEXT_OVERFLOW")
             inputs.append((item["source_row"],full))
         pad_id=tok.eos_token_id
         receipt["input_lengths"]=[{"source_row":row,"tokens":int(t.shape[1])} for row,t in inputs]
@@ -252,7 +252,9 @@ def main():
         measured=[]
         for rep in range(REPEATS):
             arms={}
-            for name,bs,strategy in ARM_SPECS:
+            arm_order=ARM_SPECS[rep%len(ARM_SPECS):]+ARM_SPECS[:rep%len(ARM_SPECS)]
+            if rep%2:arm_order=tuple(reversed(arm_order))
+            for name,bs,strategy in arm_order:
                 out,timing=run_cohort(model,inputs,bs,strategy,pad_id,torch,proc,rep)
                 for i in range(CASES):
                     if out[i]!=references[i]:
