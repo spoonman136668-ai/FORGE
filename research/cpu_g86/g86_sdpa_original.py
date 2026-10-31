@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CPU G86: original GPT2 phase-adaptive thread budget; no model modifications."""
+"""CPU G86: unchanged original GPT2 weights, eager versus real SDPA backend."""
 import hashlib,importlib.util,json,math,os,platform,statistics,time,traceback,urllib.request
 from pathlib import Path
 
@@ -15,10 +15,9 @@ ARMS=("eager1","eager2","eager3","sdpa1","sdpa2","sdpa3")
 ARM_SPEC={"eager1":("eager",1),"eager2":("eager",2),"eager3":("eager",3),"sdpa1":("sdpa",1),"sdpa2":("sdpa",2),"sdpa3":("sdpa",3)}
 THRESHOLDS={"speedup_min":1.15,"min_paired":0.90,"p95_max":1.10,"rss_max":1.10,"cpu_max":1.25}
 def contract():
-    assert (OFFSET,CASES,REPEATS,TOKENS,CPU_BUDGET)==(144,12,5,8,3)
-    assert ARMS=={"uniform1":(1,1),"uniform3":(3,3),"uniform2":(2,2)}
-    assert THRESHOLDS=={"speedup_vs_uniform1_min":1.35,"speedup_vs_uniform3_min":1.05,"min_paired_vs_uniform3":0.90,
-                      "p95_ratio_vs_uniform3_max":1.10,"rss_ratio_vs_uniform3_max":1.10,"cpu_ratio_vs_uniform3_max":1.25}
+    assert (OFFSET,CASES,REPEATS,TOKENS,CPU_BUDGET)==(156,12,4,8,3)
+    assert ARMS==("eager1","eager2","eager3","sdpa1","sdpa2","sdpa3")
+    assert THRESHOLDS=={"speedup_min":1.15,"min_paired":0.90,"p95_max":1.10,"rss_max":1.10,"cpu_max":1.25}
 
 def sha_file(path):
     h=hashlib.sha256()
@@ -57,8 +56,6 @@ def schedule(sample,rep):
     if rep%2:order.reverse()
     return tuple(order)
 
-def p95(vals):
-    return sorted(vals)[max(0,math.ceil(0.95*len(vals))-1)]
 def p95(vals):
     return sorted(vals)[max(0,math.ceil(0.95*len(vals))-1)]
 
@@ -182,20 +179,26 @@ def main():
         proc.cpu_affinity(old_aff[:CPU_BUDGET])
         receipt["fixed_affinity"]=proc.cpu_affinity()
         receipt["fixed_torch_interop"]=torch.get_num_interop_threads()
-        dispatch={"sdpa":0}
+        import transformers.models.gpt2.modeling_gpt2 as gpt2_modeling
+        dispatch={"sdpa":0,"eager":0}
         active_backend=["none"]
         original_sdpa=torch.nn.functional.scaled_dot_product_attention
+        original_eager=gpt2_modeling.eager_attention_forward
         def counted_sdpa(*args,**kwargs):
             if active_backend[0]=="sdpa":dispatch["sdpa"]+=1
             return original_sdpa(*args,**kwargs)
+        def counted_eager(*args,**kwargs):
+            if active_backend[0]=="eager":dispatch["eager"]+=1
+            return original_eager(*args,**kwargs)
         torch.nn.functional.scaled_dot_product_attention=counted_sdpa
+        gpt2_modeling.eager_attention_forward=counted_eager
         models={"eager":eager_model,"sdpa":sdpa_model}
         def ids(s):return tokenizer(s,return_tensors="pt",add_special_tokens=False)["input_ids"]
         def full_decode(arm,full):
             backend,threads=ARM_SPEC[arm]
             model=models[backend]
             active_backend[0]=backend
-            start_sdpa=dispatch["sdpa"]
+            start_sdpa=dispatch["sdpa"];start_eager=dispatch["eager"]
             cpu0=time.process_time_ns();wall0=time.perf_counter_ns()
             torch.set_num_threads(threads)
             with torch.inference_mode():
@@ -213,15 +216,19 @@ def main():
                 result=torch.cat(chosen,dim=1).flatten().tolist()
             wall_ns=time.perf_counter_ns()-wall0
             cpu_ns=time.process_time_ns()-cpu0
-            calls=dispatch["sdpa"]-start_sdpa
+            sdpa_calls=dispatch["sdpa"]-start_sdpa
+            eager_calls=dispatch["eager"]-start_eager
             if len(result)!=TOKENS or int(torch.get_num_threads())!=threads:
                 raise RuntimeError("G86_TOKEN_COUNT_OR_THREAD_DRIFT_"+arm)
-            if backend=="sdpa" and calls<=0:raise RuntimeError("G86_SDPA_BACKEND_NOT_CALLED")
-            if backend=="eager" and calls!=0:raise RuntimeError("G86_EAGER_USED_SDPA")
+            if backend=="sdpa" and (sdpa_calls<=0 or eager_calls!=0):
+                raise RuntimeError("G86_SDPA_BACKEND_NOT_EXCLUSIVELY_DISPATCHED")
+            if backend=="eager" and (eager_calls<=0 or sdpa_calls!=0):
+                raise RuntimeError("G86_EAGER_BACKEND_NOT_EXCLUSIVELY_DISPATCHED")
             return result,{"wall_ns":wall_ns,"process_cpu_ns":cpu_ns,
                 "rss_sampled":proc.memory_info().rss,"output_sha256":
                 hashlib.sha256(json.dumps(result,separators=(",",":")).encode()).hexdigest(),
-                "sdpa_dispatch_calls":calls,"backend_dispatch_calls":calls if backend=="sdpa" else 1}
+                "sdpa_dispatch_calls":sdpa_calls,"eager_dispatch_calls":eager_calls,
+                "backend_dispatch_calls":sdpa_calls+eager_calls}
         public=ids("A public nonheldout example for exact original CPU decoding.")
         for _ in range(2):
             ref,_=full_decode("eager1",public)
@@ -259,9 +266,9 @@ def main():
         receipt["traceback_tail"]=traceback.format_exc()[-2500:]
         raise
     finally:
-        active_backend[0]="none" if "active_backend" in locals() else "none"
-        if "original_sdpa" in locals():
-            torch.nn.functional.scaled_dot_product_attention=original_sdpa
+        if "active_backend" in locals():active_backend[0]="none"
+        if "original_sdpa" in locals():torch.nn.functional.scaled_dot_product_attention=original_sdpa
+        if "original_eager" in locals():gpt2_modeling.eager_attention_forward=original_eager
         if old_aff is not None:
             receipt["cpu_affinity_at_end"]=proc.cpu_affinity()
             proc.cpu_affinity(old_aff)
