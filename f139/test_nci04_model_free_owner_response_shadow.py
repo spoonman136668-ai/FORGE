@@ -290,5 +290,66 @@ class OwnerResponseShadowTests(unittest.TestCase):
         self.assertFalse(empty["scientific_first_use"])
 
 
+    def test_h78_advisory_lineage_binds_split_and_mechanism_beyond_native_v1(self):
+        x = run()
+        self.assertEqual(len(x["selected"]), 1)
+        first = x["selected"][0]
+        line = first["research_lineage_record"]
+        self.assertEqual(line["schema"], "forge.f139.model-free-research-lineage.v1")
+        self.assertEqual(line["mechanism_sha256"], first["mechanism_sha256"])
+        self.assertEqual(line["frozen_split_sha256"], META["frozen_split_sha256"])
+        self.assertEqual(line["owner_history_sha256"], OWNER_HEAD)
+        self.assertEqual(line["frontier_candidate_identity"],
+                         first["frontier_candidate_identity"])
+        self.assertEqual(line["owner_candidate_identity"],
+                         first["owner_candidate_identity"])
+        self.assertEqual(first["research_lineage_sha256"],
+                         hashlib.sha256(json.dumps(
+                             line, sort_keys=True, separators=(",", ":"),
+                             ensure_ascii=True).encode("ascii")).hexdigest())
+        self.assertIs(first["research_lineage_authenticated"], False)
+        self.assertIs(first["native_v1_scientific_lineage_bound"], False)
+        changed = dict(META, frozen_split_sha256="8" * 64)
+        second = run(metadata=changed)["selected"][0]
+        # The native V1 key cannot prove the scientific split identity.
+        self.assertEqual(first["native_qualification_key"],
+                         second["native_qualification_key"])
+        self.assertEqual(first["native_intent_sha256"],
+                         second["native_intent_sha256"])
+        self.assertEqual(first["model_response_sha256"],
+                         second["model_response_sha256"])
+        self.assertNotEqual(first["research_lineage_sha256"],
+                            second["research_lineage_sha256"])
+        self.assertEqual(second["research_lineage_record"]["frozen_split_sha256"],
+                         "8" * 64)
+        moved_history = run(owner_hash="8" * 64)["selected"][0]
+        self.assertEqual(first["native_qualification_key"],
+                         moved_history["native_qualification_key"])
+        self.assertNotEqual(first["research_lineage_sha256"],
+                            moved_history["research_lineage_sha256"])
+
+    def test_h78_lineage_follows_finite_successor_without_claiming_custody(self):
+        first = run()["selected"][0]
+        initial = build_unsigned_native_intents(
+            controller_source_sha=S, target_commit=T, target_tree_sha=TREE,
+            frozen_source_sha256=hashlib.sha256(SOURCE).hexdigest(),
+            original=SOURCE, metadata=META, complete_history=[])
+        negative = event(initial["selected"][0], 1, "QUARANTINED")
+        second = run(history=[negative],
+                     consumed={first["owner_candidate_identity"]},
+                     afters={first["after_sha256"]})["selected"][0]
+        l0, l1 = first["research_lineage_record"], second["research_lineage_record"]
+        self.assertNotEqual(first["research_lineage_sha256"],
+                            second["research_lineage_sha256"])
+        self.assertNotEqual(l0["mechanism_sha256"], l1["mechanism_sha256"])
+        self.assertNotEqual(l0["after_sha256"], l1["after_sha256"])
+        self.assertNotEqual(l0["frontier_history_sha256"],
+                            l1["frontier_history_sha256"])
+        self.assertEqual(l1["frozen_split_sha256"], META["frozen_split_sha256"])
+        self.assertIs(second["research_lineage_authenticated"], False)
+        self.assertIs(second["native_v1_scientific_lineage_bound"], False)
+        self.assertIs(run(history=[negative])["publication_authorized"], False)
+
+
 if __name__ == "__main__":
     unittest.main()

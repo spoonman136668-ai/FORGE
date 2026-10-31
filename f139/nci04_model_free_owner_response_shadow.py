@@ -103,7 +103,39 @@ def encode_owner_response_shadow(*, controller_source_sha: str,
              and checked["record"]["scientific_first_use"] is False
              and checked["record"]["publication_authorized"] is False,
              "OWNER_MODEL_FORMAT_ROUND_TRIP_DRIFT")
+        # Advisory content-addressed scientific lineage only. Native V1
+        # qualification_key does not include mechanism, frozen split, or owner
+        # history; these bytes do not grant scientific or owner authority.
+        lineage = {
+            "schema": "forge.f139.model-free-research-lineage.v1",
+            "controller_source_sha": controller_source_sha,
+            "target_commit": target_commit,
+            "target_tree_sha": target_tree_sha,
+            "lane": candidate.lane,
+            "path": candidate.path,
+            "before_sha256": frozen_source_sha256,
+            "after_sha256": item["after_sha256"],
+            "frontier_candidate_identity": item["candidate_identity"],
+            "owner_candidate_identity": legacy_id,
+            "mechanism_sha256": item["mechanism_sha256"],
+            "frozen_split_sha256": item["frozen_split_sha256"],
+            "dependency_sha256": metadata["dependency_sha256"],
+            "qualification_harness_sha256": metadata["qualification_harness_sha256"],
+            "suite_identity_sha256": metadata["suite_identity_sha256"],
+            "training_config_sha256": metadata["training_config_sha256"],
+            "toolchain_identity": "python3.11.11",
+            "frontier_history_sha256": result["history_sha256"],
+            "owner_history_sha256": owner_history_sha256,
+            "native_intent_sha256": item["intent_sha256"],
+            "native_qualification_key": item["native_qualification_key"],
+            "model_response_sha256": digest(raw),
+            "scientific_first_use": False,
+        }
         responses.append({
+            "research_lineage_record": lineage,
+            "research_lineage_sha256": digest(canonical(lineage)),
+            "research_lineage_authenticated": False,
+            "native_v1_scientific_lineage_bound": False,
             "frontier_candidate_identity": item["candidate_identity"],
             "owner_candidate_identity": legacy_id,
             "mechanism_sha256": item["mechanism_sha256"],
