@@ -51,6 +51,19 @@ class RegistryTests(unittest.TestCase):
             with self.assertRaises(Invalid):
                 validate(self.altered(mutation))
 
+    def test_reject_noncanonical_blob_source_paths(self):
+        # The existing GitHub URL allowlist alone permits ambiguous dot,
+        # traversal and duplicate-separator paths. None can be trusted as
+        # an immutable source pointer, even in an advisory-only inventory.
+        original = json.loads(RAW)["tracks"][2]["source_pointer"]
+        prefix = original.rsplit("/", 1)[0] + "/"
+        for relative in ("../different.md", "./same.md", "child/../other.md",
+                         "child//other.md"):
+            with self.subTest(relative=relative), self.assertRaises(Invalid):
+                validate(self.altered(lambda obj: obj["tracks"][2].__setitem__(
+                    "source_pointer", prefix + relative)))
+        self.assertTrue(validate(RAW)["registry_valid"])
+
     def test_reject_duplicate_casefold_keys(self):
         with self.assertRaises(Invalid):
             validate(RAW[:-2] + b', "Authority": {} }')
