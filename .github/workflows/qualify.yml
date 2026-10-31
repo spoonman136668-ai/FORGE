@@ -38,11 +38,44 @@ jobs:
           python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
           # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
           python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
-      - name: F139 Python controller and native-custody regression
+      - name: RAR-G114M full F139 original-versus-fixture-batched qualification
         shell: bash
         run: |
           set -euo pipefail
-          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+          python3 -B f139_full_fixture_batch_prototype.py
+      - name: RAR-G114I focused fixture baseline (owner ledger and G32)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_sqlite_fixture_prototype.py --mode original
+      - name: RAR-G114I focused fixture backup prototype (owner ledger and G32)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_sqlite_fixture_prototype.py --mode backup
+      - name: RAR-G114L three paired fixture setup replicates
+        shell: bash
+        run: |
+          set -euo pipefail
+          for replicate in 1 2 3; do
+            if (( replicate % 2 )); then
+              python3 -B f139_fixture_transaction_batch_prototype.py --mode original --replicate "$replicate"
+              python3 -B f139_fixture_transaction_batch_prototype.py --mode batch --replicate "$replicate"
+            else
+              python3 -B f139_fixture_transaction_batch_prototype.py --mode batch --replicate "$replicate"
+              python3 -B f139_fixture_transaction_batch_prototype.py --mode original --replicate "$replicate"
+            fi
+          done
+      - name: RAR-G114K disposable WAL durability cost diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_sqlite_durability_cost.py --replicates 10
+      - name: RAR-G114G disposable SQLite initializer comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_sqlite_init_benchmark.py --iterations 20
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -96,11 +129,44 @@ jobs:
           python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
           # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
           python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
-      - name: F139 Python controller and native-custody regression
+      - name: RAR-G114M full F139 original-versus-fixture-batched qualification
         shell: bash
         run: |
           set -euo pipefail
-          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+          python3 -B f139_full_fixture_batch_prototype.py
+      - name: RAR-G114I focused fixture baseline (owner ledger and G32)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_sqlite_fixture_prototype.py --mode original
+      - name: RAR-G114I focused fixture backup prototype (owner ledger and G32)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_sqlite_fixture_prototype.py --mode backup
+      - name: RAR-G114L three paired fixture setup replicates
+        shell: bash
+        run: |
+          set -euo pipefail
+          for replicate in 1 2 3; do
+            if (( replicate % 2 )); then
+              python3 -B f139_fixture_transaction_batch_prototype.py --mode original --replicate "$replicate"
+              python3 -B f139_fixture_transaction_batch_prototype.py --mode batch --replicate "$replicate"
+            else
+              python3 -B f139_fixture_transaction_batch_prototype.py --mode batch --replicate "$replicate"
+              python3 -B f139_fixture_transaction_batch_prototype.py --mode original --replicate "$replicate"
+            fi
+          done
+      - name: RAR-G114K disposable WAL durability cost diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_sqlite_durability_cost.py --replicates 10
+      - name: RAR-G114G disposable SQLite initializer comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_sqlite_init_benchmark.py --iterations 20
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
