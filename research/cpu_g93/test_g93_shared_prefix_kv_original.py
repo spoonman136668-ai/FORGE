@@ -25,18 +25,28 @@ class G93SharedPrefixAdmission(unittest.TestCase):
         return {"source_row":100+i,"request_wall_ns":90_000_000 if fast else 100_000_000,
           "prefix_setup_share_ns":2_000_000 if fast else 20_000_000,"output_sha256":"h"+str(i)}
 
-    def arm(self,fast=True):
-        rows=[self.row(i,fast) for i in range(12)]
+    def arm(self,kind,fast=True):
+        baseline=(kind=="baseline")
+        rows=[]
+        for i in range(12):
+            row=self.row(i,fast and not baseline)
+            if baseline:
+                row["request_wall_ns"]=100_000_000
+                row["prefix_setup_share_ns"]=0
+            elif not fast:
+                row["request_wall_ns"]=105_000_000
+                row["prefix_setup_share_ns"]=20_000_000
+            rows.append(row)
         hashes={str(x["source_row"]):x["output_sha256"] for x in rows}
-        return {"cohort_wall_ns":800_000_000 if fast else 1_100_000_000,
-          "cohort_cpu_ns":800_000_000 if fast else 1_100_000_000,
-          "prefix_setup_ns":24_000_000 if fast else 240_000_000,
+        return {"cohort_wall_ns":1_200_000_000 if baseline else (800_000_000 if fast else 1_500_000_000),
+          "cohort_cpu_ns":1_100_000_000 if baseline else (900_000_000 if fast else 1_400_000_000),
+          "prefix_setup_ns":0 if baseline else (24_000_000 if fast else 240_000_000),
           "request_rows":rows,"output_hashes":hashes,"responses":12,"generated_tokens":96,
-          "max_sampled_rss_bytes":100_000_000}
+          "max_sampled_rss_bytes":100_000_000 if fast or baseline else 120_000_000}
 
     def trials(self,fast=True):
-        return [{"rep":i+1,"arms":{"full_prompt_prefill2":self.arm(True),
-          "shared_prefix_kv_reuse2":self.arm(fast)}} for i in range(g.REPEATS)]
+        return [{"rep":i+1,"arms":{"full_prompt_prefill2":self.arm("baseline",True),
+          "shared_prefix_kv_reuse2":self.arm("candidate",fast)}} for i in range(g.REPEATS)]
 
     def test_positive_fixture_only(self):
         metrics,decision=g.decide(self.trials(True))
