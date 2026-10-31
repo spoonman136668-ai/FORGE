@@ -1,0 +1,130 @@
+name: FORGE CPU LLM Evaluation G86 original GPT2 eager versus SDPA full decode
+on:
+  push:
+    branches: [research/cpu-llm-g86-sdpa-gpt2-20261031]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g86-sdpa-original-model.yml'
+      - 'research/cpu_g86/**'
+permissions:
+  contents: write
+concurrency:
+  group: forge-cpu-llm-g86-original-sdpa-study
+  cancel-in-progress: true
+jobs:
+  frozen-source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact G70 baseline, frozen G86 preregistration and source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          PREREG=30b5e1b7cd6e2df40e2923312120dc5808bb1602
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git merge-base --is-ancestor "$PREREG" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G86-GPT2-SDPA-ATTENTION-PREREG-20261031.md)" = "PLACEHOLDER_PRE_BLOB"
+          test "$(git rev-parse HEAD:research/cpu_g86/g86_sdpa_original.py)" = "02b9d73712db623b9e82733f6902b981d09b98f6"
+          test "$(git rev-parse HEAD:research/cpu_g86/test_g86_sdpa_original.py)" = "2e7e6c766bc7d5c3f5154a7a7f5fc7aa5e510b02"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          python -B -m py_compile research/cpu_g86/g86_sdpa_original.py research/cpu_g86/test_g86_sdpa_original.py
+          python -B -m unittest discover -s research/cpu_g86 -p 'test_g86_sdpa_original.py' -v
+          echo CPU_G86_FROZEN_SOURCE_ADMISSION=PASS
+  original-model-eager-sdpa:
+    needs: frozen-source-admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify native CPU host and source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          test "$(git rev-parse HEAD:research/cpu_g86/g86_sdpa_original.py)" = "02b9d73712db623b9e82733f6902b981d09b98f6"
+          python -B -m unittest discover -s research/cpu_g86 -p 'test_g86_sdpa_original.py' -v
+      - name: Install pinned CPU-only original GPT2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip check
+          python - <<'PY'
+          import torch,transformers,platform
+          assert platform.machine().lower() in ("x86_64","amd64")
+          assert torch.__version__.startswith("2.5.1") and torch.version.cuda is None
+          assert transformers.__version__=="4.48.3"
+          assert hasattr(torch.nn.functional,"scaled_dot_product_attention")
+          print("G86_CPU_RUNTIME=PASS")
+          PY
+          python -m pip freeze > cpu_g86_environment.txt
+      - name: Run original GPT2 eager versus actual SDPA backend comparison
+        shell: bash
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/cpu_g86/g86_sdpa_original.py
+          python - <<'PY'
+          import json
+          r=json.load(open("cpu_g86_original_result.json",encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g86.authentic-sdpa-attention.v1"
+          assert r["gate"]=="CPU_G86"
+          assert r["preregistration_commit"]=="30b5e1b7cd6e2df40e2923312120dc5808bb1602"
+          assert r["engineering"]=="PASS" and r["correctness"]=="PASS"
+          assert r["summary"]["timed_authentic_responses"]==288
+          assert r["summary"]["timed_authentic_generated_tokens"]==2304
+          assert len(r["original_paired_trials"])==48
+          assert r["decision"] in ("SDPA_PASS","SDPA_NO_GO")
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and not r["promotion_allowed"]
+          print("CPU_G86_ORIGINAL_SDPA_RESULT="+r["decision"])
+          PY
+      - name: Upload original measurement and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g86-original-gpt2-eager-sdpa
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g86_original_result.json
+            cpu_g86_environment.txt
+      - name: Commit original immutable receipt to research branch
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -f cpu_g86_original_result.json
+          git fetch origin refs/heads/research/cpu-llm-g86-sdpa-gpt2-20261031
+          git reset --hard FETCH_HEAD
+          git merge-base --is-ancestor "$GITHUB_SHA" HEAD
+          cp cpu_g86_original_result.json docs/research/CPU-G86-GPT2-SDPA-ORIGINAL-RESULT-20261031.json
+          cp cpu_g86_environment.txt docs/research/CPU-G86-GPT2-SDPA-ENVIRONMENT-20261031.txt
+          sha256sum docs/research/CPU-G86-GPT2-SDPA-ORIGINAL-RESULT-20261031.json > docs/research/CPU-G86-GPT2-SDPA-ORIGINAL-RESULT-20261031.json.sha256
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/research/CPU-G86-GPT2-SDPA-ORIGINAL-RESULT-20261031.json docs/research/CPU-G86-GPT2-SDPA-ENVIRONMENT-20261031.txt docs/research/CPU-G86-GPT2-SDPA-ORIGINAL-RESULT-20261031.json.sha256
+          git commit -m 'research(CPU G86): preserve authentic eager versus SDPA result'
+          git push origin HEAD:research/cpu-llm-g86-sdpa-gpt2-20261031
