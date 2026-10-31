@@ -24,7 +24,8 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G76_SOURCE_SHA_DRIFT' }
-          if (-not (git merge-base --is-ancestor e8fde4286fffb326399c1fee148cc69c2935e7ce HEAD)) { throw 'G76_PREREG_NOT_ANCESTOR' }
+          git merge-base --is-ancestor e8fde4286fffb326399c1fee148cc69c2935e7ce HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'G76_PREREG_NOT_ANCESTOR' }
           $prereg=(git rev-parse HEAD:docs/research/ACC-G76-PREEXEC-20261031.md).Trim()
           if ($LASTEXITCODE -ne 0 -or -not $prereg) { throw 'G76_PREEXEC_MISSING' }
           & python -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13),sys.version'
