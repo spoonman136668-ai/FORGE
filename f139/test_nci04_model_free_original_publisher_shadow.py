@@ -111,5 +111,40 @@ class ModelFreeOriginalPublisherShadowTests(unittest.TestCase):
         self.assertEqual(self.db.meta(), self.epoch)
 
 
+    def test_h75_unresolved_legacy_g3_attempt_fails_before_any_write(self):
+        # Original G3 draft history is *separate* from model-free attempts.
+        # An indeterminate earlier G3 remote write must block this new model
+        # publication, even when the candidate/source itself is different.
+        with self.db.transaction():
+            self.db.event("G3_DRAFT_ATTEMPTED",
+                          {"synthetic_unresolved_remote": True})
+        self.db.verify()
+        self.session = self.f.request()
+        self.raw_response = self.f.response(self.session)["selected"][0]["model_response_bytes"]
+        with self.assertRaisesRegex(ModelDraftDenied,
+                                    "UNRESOLVED_G3_REMOTE_WRITE"):
+            self.run_publisher()
+        self.assertEqual(self.api.write_calls, [])
+        self.assertEqual(self.rows(ATTEMPT), [])
+        self.assertEqual(self.rows(SUCCESS), [])
+
+    def test_h75_preexisting_owner_branch_ref_fails_before_any_write(self):
+        # PR/branch identity cannot be inferred solely from a clear local
+        # model history. The existing publisher must independently reject
+        # a remote ref collision, even when the response validates.
+        name = ("f139/auto-model-y-"
+                + self.item["owner_candidate_identity"][:20]
+                + "-" + self.api.parent[:12])
+        self.api.reference = "refs/heads/" + name
+        initial = dict(self.db.meta())
+        with self.assertRaisesRegex(ModelDraftDenied,
+                                    "REF_ALREADY_EXISTS"):
+            self.run_publisher()
+        self.assertEqual(self.db.meta(), initial)
+        self.assertEqual(self.api.write_calls, [])
+        self.assertEqual(self.rows(ATTEMPT), [])
+        self.db.verify()
+
+
 if __name__ == "__main__":
     unittest.main()
