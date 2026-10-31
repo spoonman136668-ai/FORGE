@@ -92,6 +92,32 @@ class GitHubCommandTransportTests(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
         sleep.assert_not_called()
 
+    def test_patch_put_and_delete_timeouts_are_never_retried(self):
+        for method in ("PATCH", "PUT", "DELETE"):
+            with self.subTest(method=method):
+                args = [
+                    "--method", method,
+                    "repos/spoonman136668-ai/FORGE/issues/1",
+                    "-f", "title=bounded test",
+                ]
+                result, error, run, sleep = self.invoke(
+                    args, [subprocess.TimeoutExpired(["gh", "api"], 40)]
+                )
+                self.assertIsNone(result)
+                self.assertEqual(error, "F139_GITHUB_API_TIMEOUT")
+                self.assertEqual(run.call_count, 1)
+                sleep.assert_not_called()
+
+    def test_get_with_extra_cli_options_is_not_retryable(self):
+        args = ["--paginate", self.ROUTE]
+        result, error, run, sleep = self.invoke(
+            args, [subprocess.TimeoutExpired(["gh", "api"], 40)]
+        )
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_TIMEOUT")
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+
     def test_failure_classification_does_not_echo_raw_stderr(self):
         failed = SimpleNamespace(
             returncode=1, stdout=b"", stderr=b"HTTP 403 secret-token=DO_NOT_LEAK"
