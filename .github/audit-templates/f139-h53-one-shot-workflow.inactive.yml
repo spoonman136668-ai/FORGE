@@ -1,8 +1,8 @@
 # INACTIVE RELEASE TEMPLATE: deliberately outside .github/workflows.
 # Release requires a separately owner-approved, immutable one-shot audit SHA.
 # The release branch MUST be a direct child of original V26 and its diff MUST
-# contain exactly this workflow at the path below and the pinned H53 observer.
-# The preflight implementation is engineering source, NOT part of this audit diff.
+# contain the exact seven-file pinned self-contained runtime allowlist.
+# The release includes all five guard/runtime modules plus the pinned observer.
 # Do not install/activate until a self-contained, audited runtime bundle exists.
 name: F139 H53 original Windows read-only successor one-shot
 on:
@@ -51,12 +51,25 @@ jobs:
           if ((git status --porcelain --untracked-files=all)) {
             throw 'F139_H53_AUDIT_CHECKOUT_DIRTY'
           }
-      - name: Release gate — fail closed until exact self-contained audit runtime is qualified
+      - name: Verify exact audit manifest and content pins
         shell: pwsh
         run: |
-          throw 'F139_H53_RELEASE_BLOCKED_RUNTIME_BUNDLE_AND_EXACT_SHA_APPROVAL_NOT_YET_QUALIFIED'
+          $ErrorActionPreference='Stop'
+          $changed=@(git diff --name-only '49c7b15343bea3c201fb52b498d8c0f397384afe' HEAD)
+          $allowed=@('.github/workflows/f139-h53-original-owner-one-shot.yml', 'f139/h53_successor_readonly_observer.py', 'f139/h53_audit_guards.py', 'f139/h53_github_authority.py', 'f139/h53_windows_owner.py', 'f139/h53_native_readonly.py', 'f139/h53_original_owner_audit.py')
+          if (@(Compare-Object ($changed | Sort-Object) ($allowed | Sort-Object)).Count -ne 0) {
+            throw 'F139_H53_RELEASE_MANIFEST_DRIFT'
+          }
+          # SHA-256 content pins must be substituted with qualified immutable values
+          # in the separately reviewed release; absent pins always fail closed.
+          throw 'F139_H53_RELEASE_BLOCKED_IMMUTABLE_CONTENT_PINS_NOT_SET'
+      - name: Execute approved read-only witness (unreachable until release qualified)
+        if: success()
+        shell: pwsh
+        run: |
+          python -m f139.h53_original_owner_audit
 # This is a complete NON-ACTIVATING template, not a released audit.
 # The approved release must bundle its own read-only runtime: GitHub ruleset
 # and issue #807 approval readback, SID/task/source and native SQLite verifier.
 # Engineering modules cannot be imported from an audit branch that contains
-# only the workflow and observer. No release may silently widen that diff.
+# only the explicitly pinned seven-file manifest. No release may silently widen that diff.
