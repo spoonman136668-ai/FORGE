@@ -3,7 +3,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 
-P=Path(__file__).with_name("g84_shakespeare_transfer.py")
+P=Path(__file__).with_name("g84_shakespeare_windows.py")
 S=importlib.util.spec_from_file_location("g84_original",P)
 g=importlib.util.module_from_spec(S);S.loader.exec_module(g)
 
