@@ -1,0 +1,173 @@
+name: FORGE CPU LLM Evaluation G84 exact-receipt Linux Windows final regression
+on:
+  push:
+    branches: [research/cpu-llm-g84-windows-shakespeare-20261031]
+    paths:
+      - 'docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json'
+permissions:
+  contents: read
+concurrency:
+  group: forge-cpu-llm-g84-final-regression
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify exact receipt, G70 baseline, prereg and frozen G84 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-PREREG-20261031.md)" = "1ff4853c3e577becf8bbdff723fd6f7b9a71373d"
+          test "$(git rev-parse HEAD:research/cpu_g84/g84_shakespeare_windows.py)" = "d77b85f25478affb238d8d579c50b2a3c751f829"
+          test "$(git rev-parse HEAD:research/cpu_g84/test_g84_shakespeare_windows.py)" = "f346b269309f579f3b59affc5b20af83a4b9d270"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          ACTUAL="$(sha256sum docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json | cut -d' ' -f1)"
+          EXPECTED="$(awk '{print $1}' docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json.sha256)"
+          test "$ACTUAL" = "$EXPECTED"
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json"
+          r=json.load(open(p,encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g84.windows-shakespeare-replication.v1"
+          assert r["gate"]=="CPU_G84"
+          assert r["preregistration_commit"]=="d914a0e2fcb0653a167158489bf89b3e5bce5af4"
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and r["promotion_allowed"] is False
+          assert r.get("runtime",{}).get("os_name")=="nt"
+          if r.get("engineering")=="PASS" and r.get("correctness")=="PASS":
+              assert r["summary"]["timed_authentic_responses"]==180
+              assert r["summary"]["timed_authentic_generated_tokens"]==1440
+              assert len(r["original_paired_trials"])==60
+              assert r["transfer"] in ("TRANSFER_PASS","TRANSFER_FAIL")
+          else:
+              assert r.get("error") or r.get("transfer")=="UNVERIFIED"
+          print("G84_REPOSITORY_RECEIPT_AND_CLASSIFICATION=PASS")
+          PY
+          python -B -m py_compile research/cpu_g84/g84_shakespeare_windows.py research/cpu_g84/test_g84_shakespeare_windows.py
+          python -B -m unittest discover -s research/cpu_g84 -p 'test_g84_shakespeare_windows.py' -v
+          git diff --check "$BASE" HEAD
+          echo CPU_G84_EXACT_RECEIPT_AND_SOURCE=PASS
+      - name: Enforce FORGE independence from private CKB-plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Public isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e snapshot
+          test ! -e research/successor-builder
+          ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|os.StartProcess|net/http.Post' .
+          python3 -B isolationguard/check_subprocess_sites.py
+          grep -l -E 'exec.Command' subprocesssupervisor/supervise.go subprocesssupervisor/supervise_test.go >/dev/null
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' subprocesssupervisor | wc -l)" -eq 3
+          grep -q -E 'exec.Command' subprocesssupervisor/partial_crash_test.go
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
+          grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
+          ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify exact receipt, G70 baseline, prereg and frozen G84 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-PREREG-20261031.md)" = "1ff4853c3e577becf8bbdff723fd6f7b9a71373d"
+          test "$(git rev-parse HEAD:research/cpu_g84/g84_shakespeare_windows.py)" = "d77b85f25478affb238d8d579c50b2a3c751f829"
+          test "$(git rev-parse HEAD:research/cpu_g84/test_g84_shakespeare_windows.py)" = "f346b269309f579f3b59affc5b20af83a4b9d270"
+          ACTUAL="$(sha256sum docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json | cut -d' ' -f1)"
+          EXPECTED="$(awk '{print $1}' docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json.sha256)"
+          test "$ACTUAL" = "$EXPECTED"
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json"
+          r=json.load(open(p,encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g84.windows-shakespeare-replication.v1"
+          assert r["gate"]=="CPU_G84"
+          assert r["preregistration_commit"]=="d914a0e2fcb0653a167158489bf89b3e5bce5af4"
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and r["promotion_allowed"] is False
+          assert r.get("runtime",{}).get("os_name")=="nt"
+          if r.get("engineering")=="PASS" and r.get("correctness")=="PASS":
+              assert r["summary"]["timed_authentic_responses"]==180
+              assert r["summary"]["timed_authentic_generated_tokens"]==1440
+              assert len(r["original_paired_trials"])==60
+              assert r["transfer"] in ("TRANSFER_PASS","TRANSFER_FAIL")
+          else:
+              assert r.get("error") or r.get("transfer")=="UNVERIFIED"
+          print("G84_REPOSITORY_RECEIPT_AND_CLASSIFICATION=PASS")
+          PY
+          python -B -m py_compile research/cpu_g84/g84_shakespeare_windows.py research/cpu_g84/test_g84_shakespeare_windows.py
+          python -B -m unittest discover -s research/cpu_g84 -p 'test_g84_shakespeare_windows.py' -v
+          git diff --check "$BASE" HEAD
+          echo CPU_G84_EXACT_RECEIPT_AND_SOURCE=PASS
+      - name: FORGE independence and standing isolation enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
