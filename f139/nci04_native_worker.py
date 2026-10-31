@@ -356,7 +356,7 @@ def _g29_capture(argv, cwd: Path, env: dict, runner, timeout_seconds: int):
 
 
 def _unittest_count(output: bytes) -> int:
-    counts = re.findall(rb"Ran\\s+([0-9]+)\\s+tests?\\b", output)
+    counts = re.findall(rb"Ran\s+([0-9]+)\s+tests?\b", output)
     return int(counts[-1]) if counts else 0
 
 
