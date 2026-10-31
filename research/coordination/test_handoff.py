@@ -20,6 +20,57 @@ class HandoffTests(unittest.TestCase):
         self.assertFalse(x["retirement_ready"])
         self.assertGreaterEqual(x["workstreams"],9)
 
+
+    def test_h60_native_and_science_original_pointers_survive_handoff(self):
+        for ident in ("native-intelligence", "n-research", "e-research",
+                      "replay-acceleration", "llm-acceleration",
+                      "independent-science"):
+            row = next(x for x in json.loads(RAW)["workstreams"] if x["id"] == ident)
+            for original_idx in range(len(row["source_pointers"])):
+                def omit(x):
+                    next(w for w in x["workstreams"] if w["id"] == ident)[
+                        "source_pointers"].pop(original_idx)
+                with self.subTest(ident=ident, idx=original_idx, kind="loss"), self.assertRaises(Invalid):
+                    validate_handoff(self.change(omit))
+
+    def test_h60_historical_sha_or_url_substitution_cannot_erase_original(self):
+        for ident in ("native-intelligence", "n-research", "e-research",
+                      "replay-acceleration", "llm-acceleration",
+                      "independent-science"):
+            for key, wrong in (("sha", "0" * 40),
+                               ("url", "https://github.com/spoonman136668-ai/FORGE/pull/999999")):
+                def substitute(x):
+                    ref = next(w for w in x["workstreams"] if w["id"] == ident)[
+                        "source_pointers"][0]
+                    ref[key] = wrong
+                with self.subTest(ident=ident, key=key), self.assertRaises(Invalid):
+                    validate_handoff(self.change(substitute))
+
+    def test_h60_reject_duplicate_or_conflicting_pointer_within_one_lane(self):
+        def duplicate(x, conflict=False):
+            row = next(w for w in x["workstreams"] if w["id"] == "native-intelligence")
+            pointer = dict(row["source_pointers"][0])
+            if conflict:
+                pointer["sha"] = "0" * 40
+            row["source_pointers"].append(pointer)
+        for conflict in (False, True):
+            with self.subTest(conflict=conflict), self.assertRaises(Invalid):
+                validate_handoff(self.change(lambda x: duplicate(x, conflict)))
+
+    def test_h60_preserve_shared_cross_lane_source_and_allow_append_only_advisory(self):
+        baseline = json.loads(RAW)
+        n = next(w for w in baseline["workstreams"] if w["id"] == "n-research")
+        independent = next(w for w in baseline["workstreams"] if w["id"] == "independent-science")
+        self.assertEqual(n["source_pointers"][0], independent["source_pointers"][0])
+        def append_proposal(x):
+            refs = next(w for w in x["workstreams"] if w["id"] == "native-intelligence")[
+                "source_pointers"]
+            refs.append({"url": "https://github.com/spoonman136668-ai/Wingless/pull/999999",
+                         "sha": "0" * 40, "claim": "SOURCE_POINTER_ONLY"})
+        result = validate_handoff(self.change(append_proposal))
+        self.assertTrue(result["handoff_index_valid"])
+        self.assertFalse(result["retirement_ready"])
+
     def test_no_chat_retirement_self_certification(self):
         with self.assertRaises(Invalid):
             validate_handoff(self.change(lambda x: x.__setitem__("chat_retirement_ready",True)))

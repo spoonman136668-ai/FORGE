@@ -16,6 +16,30 @@ ID = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 URL = re.compile(r"^https://github\.com/spoonman136668-ai/(FORGE|Wingless|Yggdrasil)/pull/([1-9][0-9]*)$")
 
+# Historical source witnesses, not mutable live heads or scientific authority.
+# Future proposals may append pointers, never delete original work custody.
+FROZEN_HANDOFF_ANCHORS = {
+    "native-intelligence": {
+        ("https://github.com/spoonman136668-ai/Wingless/pull/438", "ac433699db5e66db798836d10c7dc0488f57ae3c"),
+        ("https://github.com/spoonman136668-ai/Yggdrasil/pull/709", "bc7549dba7d657c6bcb2bd5a4a507a76b3249ad4"),
+    },
+    "n-research": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1254", "f8ced1a48740bcb22a352b47b3c4c00c05f6ec40"),
+    },
+    "e-research": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1194", "0dda935539cd308ace215d59c4e6dfd9d5c866bb"),
+    },
+    "replay-acceleration": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1228", "ce0d4f58178423c3429d605ab138a4f4055b8d8b"),
+    },
+    "llm-acceleration": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1261", "e6cac6b2eb7438d1331bae2ef0dd42f1316cb059"),
+    },
+    "independent-science": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1254", "f8ced1a48740bcb22a352b47b3c4c00c05f6ec40"),
+    },
+}
+
 def _keys(obj, keys):
     if not isinstance(obj, dict) or set(obj) != set(keys):
         raise Invalid("H5_BAD_KEYS")
@@ -70,6 +94,16 @@ def validate_handoff(raw):
                 not isinstance(ref["sha"],str) or not SHA.fullmatch(ref["sha"]) or
                 ref["claim"] != "SOURCE_POINTER_ONLY"):
                 raise Invalid("H5_BAD_SOURCE_POINTER")
+        # Within one lane, two SHA claims for the same PR or a duplicated
+        # original pointer corrupt the inventory. Cross-lane reuse (e.g.
+        # N Research and independent science) is deliberately permitted.
+        if len({ref["url"] for ref in pointers}) != len(pointers):
+            raise Invalid("H60_DUPLICATE_OR_CONFLICTING_LANE_SOURCE")
+        if ident in FROZEN_HANDOFF_ANCHORS:
+            original = FROZEN_HANDOFF_ANCHORS[ident]
+            observed = {(ref["url"], ref["sha"]) for ref in pointers}
+            if not original.issubset(observed):
+                raise Invalid("H60_HISTORICAL_WORKSTREAM_SOURCE_LOSS_OR_SUBSTITUTION")
         if ident=="forge-operations" and not pointers:
             raise Invalid("H5_ORIGINAL_OWNER_WITNESS_MISSING")
         if ident=="forge-operations":
