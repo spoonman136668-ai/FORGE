@@ -74,11 +74,10 @@ class F74(unittest.TestCase):
                 main = api[(repo, "/branches/main")]["commit"]["sha"]
                 old = ("e" if lane == "Wingless" else "f") * 40
                 api[(repo, "/actions/runs/38800000100")]["head_sha"] = old
-                api[(repo, "/compare/" + old + "..." + main)] = {
+                api[(repo, "/compare/" + old + "..." + main + "?per_page=1&page=1")] = {
                     "status": "ahead", "ahead_by": 2,
                     "base_commit": {"sha": old},
-                    "commits": [{"sha": ("e" if lane == "Wingless" else "f") * 39 + "0"},
-                                {"sha": main}],
+                    "commits": [{"sha": ("e" if lane == "Wingless" else "f") * 40}],
                 }
         result = self.work(edit)
         self.assertEqual(len(result["lanes"]), 2)
@@ -90,7 +89,7 @@ class F74(unittest.TestCase):
             for lane, repo in m.LANES:
                 main = api[(repo, "/branches/main")]["commit"]["sha"]
                 api[(repo, "/actions/runs/38800000100")]["head_sha"] = main
-                api[(repo, "/compare/" + main + "..." + main)] = {
+                api[(repo, "/compare/" + main + "..." + main + "?per_page=1&page=1")] = {
                     "status": "identical", "ahead_by": 0,
                     "base_commit": {"sha": main}, "commits": [],
                 }
@@ -105,7 +104,7 @@ class F74(unittest.TestCase):
             main = api[(repo, "/branches/main")]["commit"]["sha"]
             bad = "f" * 40
             api[(repo, "/actions/runs/38800000100")]["head_sha"] = bad
-            api[(repo, "/compare/" + bad + "..." + main)] = {
+            api[(repo, "/compare/" + bad + "..." + main + "?per_page=1&page=1")] = {
                 "status": "diverged", "ahead_by": 1,
                 "base_commit": {"sha": bad},
                 "commits": [{"sha": main}],
