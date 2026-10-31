@@ -22,6 +22,24 @@ class RegistryTests(unittest.TestCase):
         mutation(obj)
         return json.dumps(obj).encode()
 
+
+    def test_three_research_chats_do_not_collapse_scientific_oversight(self):
+        # The two organizational roles and three distinct science conversations
+        # are independent dimensions; neither grants a runtime permission.
+        registry = json.loads(RAW)
+        self.assertEqual(registry["targets"]["research_chat_count"], 3)
+        self.assertEqual({x["id"] for x in registry["oversight"]},
+                         {"forge-operations", "unified-research"})
+        self.assertTrue(registry["advisory_only"])
+        self.assertTrue(all(x is False for x in registry["authority"].values()))
+        self.assertTrue(all(x["status"] == "UNVERIFIED" and x["evidence"] == []
+                            for x in registry["readiness_gates"]))
+        for wrong in (2, 4, True, "3"):
+            with self.subTest(wrong=wrong), self.assertRaises(Invalid):
+                validate(self.altered(
+                    lambda x: x["targets"].__setitem__("research_chat_count", wrong)))
+        self.assertFalse(validate(RAW)["retirement_ready"])
+
     def test_denied_dispatch_and_promotion(self):
         for flag in ("dispatch", "promote", "modify_controller", "first_use"):
             with self.subTest(flag=flag), self.assertRaises(Invalid):

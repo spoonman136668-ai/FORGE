@@ -119,8 +119,10 @@ def validate(raw):
         raise Invalid("readiness gate identities")
     _keys(root["targets"], {"research_chat_count", "qualified_throughput_speedup_target", "learning_speedup_claim"})
     t = root["targets"]
-    if type(t["research_chat_count"]) is not int or t["research_chat_count"] != 2:
-        raise Invalid("two-chat target drift")
+    # The two oversight ROLES are not the number of scientific conversations.
+    # Preserve the three separately scoped research discussions agreed at H54.
+    if type(t["research_chat_count"]) is not int or t["research_chat_count"] != 3:
+        raise Invalid("three-research-chat target drift")
     if type(t["qualified_throughput_speedup_target"]) is not int or t["qualified_throughput_speedup_target"] != 2:
         raise Invalid("unfounded target")
     if t["learning_speedup_claim"] != "UNVERIFIED":

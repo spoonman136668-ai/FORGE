@@ -1,5 +1,7 @@
 # URC-R1 H1 — bounded research-chat handoff inventory (source pointer audit)
 
+**H54 update (2026-10-31):** The two-chat target in historical H1/H5 paragraphs below is **superseded**, not current authority to retire chats. The presently agreed scientific conversation topology retains three separate research discussions: Core Native Intelligence; Mechanism Discovery & Mass Research; and Scientific Evaluation & Research Acceleration. FORGE Operations is a separate operational owner. No source ownership transfer, science promotion, running-job cancellation or chat retirement has been authorized by this correction. See the H54 appendix in `UNIFIED-RESEARCH-COORDINATION-R1.md`.
+
 **Status:** H1 INVENTORY PREPARED / OWNERSHIP TRANSFER **UNVERIFIED**. Read-only advisory snapshot, not an activation, controller handoff, model admission or scientific acceptance.
 
 ## Immutable inspection boundaries
