@@ -9,17 +9,37 @@ class TimingResult(unittest.TextTestResult):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.durations = []
+        self.setup_durations = []
         self._began = None
+        self._original_setup = None
 
     def startTest(self, test):
         self._began = time.perf_counter()
+        # Instrument only this unittest instance; preserve fixture ownership,
+        # call count, exceptions, cleanup and the original test ordering.
+        original = test.setUp
+        self._original_setup = original
+
+        def timed_setup():
+            begin = time.perf_counter()
+            try:
+                return original()
+            finally:
+                self.setup_durations.append((time.perf_counter() - begin, test.id()))
+
+        test.setUp = timed_setup
         super().startTest(test)
 
     def stopTest(self, test):
-        if self._began is not None:
-            self.durations.append((time.perf_counter() - self._began, test.id()))
-            self._began = None
-        super().stopTest(test)
+        try:
+            if self._began is not None:
+                self.durations.append((time.perf_counter() - self._began, test.id()))
+                self._began = None
+        finally:
+            if self._original_setup is not None:
+                test.setUp = self._original_setup
+                self._original_setup = None
+            super().stopTest(test)
 
 
 def percentile(sorted_values, fraction):
@@ -48,6 +68,20 @@ def main():
         by_module[test_id.rsplit(".", 2)[0]].append(seconds)
     print(f"F139_TIMING_MODULE_COUNT={len(by_module)}", file=sys.stderr)
     print(f"F139_TIMING_MODULE_TEST_COUNT={sum(map(len, by_module.values()))}", file=sys.stderr)
+    setup_by_module = defaultdict(list)
+    for seconds, test_id in result.setup_durations:
+        setup_by_module[test_id.rsplit(".", 2)[0]].append(seconds)
+    print(f"F139_TIMING_SETUP_RECORDED={len(result.setup_durations)}", file=sys.stderr)
+    for rank, (module, samples) in enumerate(
+        sorted(setup_by_module.items(), key=lambda item: (-sum(item[1]), item[0])), 1
+    ):
+        if rank > 30:
+            break
+        print(
+            f"F139_TIMING_SETUP_MODULE_{rank:03d}="
+            f"count={len(samples)} total={sum(samples):.3f}s module={module}",
+            file=sys.stderr,
+        )
     for rank, (module, samples) in enumerate(
         sorted(by_module.items(), key=lambda item: (-sum(item[1]), item[0])), 1
     ):
