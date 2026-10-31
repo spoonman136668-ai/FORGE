@@ -139,6 +139,9 @@ class F74(unittest.TestCase):
             m.get("attacker/foreign", "/branches/main")
         with self.assertRaises(m.Denied):
             m.get(m.LANES[0][1], "/../secret")
+        self.assertTrue(m.safe_api_path("/compare/" + "a"*40 + "..." + "b"*40))
+        self.assertFalse(m.safe_api_path("/branches/../secret"))
+        self.assertFalse(m.safe_api_path("/branches/./main"))
 
 
 if __name__ == "__main__":
