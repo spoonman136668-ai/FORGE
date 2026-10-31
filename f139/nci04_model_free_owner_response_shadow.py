@@ -46,7 +46,7 @@ def validate_research_lineage(**kwargs):
         return _validate_research_lineage(**kwargs)
     except ResearchLineageDenied as exc:
         raise OwnerResponseShadowDenied(str(exc).replace(
-            "F139_RESEARCH_LINEAGE_", "F139_H72_")) from exc
+            "F139_RESEARCH_LINEAGE_", "F139_H72_RESEARCH_LINEAGE_")) from exc
 
 
 
