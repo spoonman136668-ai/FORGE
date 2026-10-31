@@ -20,6 +20,13 @@
 5. Repository code searches on FORGE's default branch found no TinyLlama, Llama, tokenizer, CUDA, `CUDA_VISIBLE_DEVICES`, `nvidia-smi`, `AutoModelForCausalLM`, or `model.safetensors` implementation/configuration match. Searches for general `inference`/model terms returned unrelated scientific-autonomy and FSA custody files, not a decoder or model loader. This is bounded search evidence, not proof that no private checkpoint exists elsewhere.
 6. Final G91–G106 workflow run #2735 completed full Linux and Windows jobs successfully. These are hosted source qualification jobs; neither emitted authenticated target-GPU telemetry or an original-model inference trace.
 
+## Additional bounded source search
+
+- GitHub repository list confirms the connected account exposes a dedicated private `spoonman136668-ai/forge-knowledge` repository. Code-index searches in that repository and FORGE's default `main` for `TinyLlama`, `RTX 4070`, `5070Ti`, `ROG Strix`, and `model revision` produced no matching model/device identity source. Search for `inference runtime` in forge-knowledge returned only Graphify/Obsidian index and test-navigation files, not an inference manifest.
+- FORGE `main` search for `TinyLlama`, `llama`, `tokenizer`, `cuda`, `CUDA_VISIBLE_DEVICES`, `nvidia-smi`, `AutoModelForCausalLM`, and `model.safetensors` produced no source configuration/implementation hits. General `inference` results pointed to source-only FSA/autonomy and research custody files, not a decoder or checkpoint loader. The query `4070` matched incidental numeric values in unrelated research artifacts; those matches are not hardware evidence.
+- Search scope is limited to GitHub indexed code in the connected FORGE and forge-knowledge repositories; a zero-result search does not prove that private files, unindexed content, local model caches or workstation state do not exist.
+- The public FORGE README states no private scientific evidence, external-source archives, private backend controller, runner tokens/configuration, or sealed evaluation data are included in the public repository. `PUBLIC_SOURCE_BOUNDARY.md` further says public workflows use GitHub-hosted Ubuntu/Windows with read-only permissions and no private repository checkout. This confirms that run #2735 is hosted software qualification, not the required model/GPU route.
+
 ## Required identity inventory
 
 | Identity item | Result | Evidence / reason |
