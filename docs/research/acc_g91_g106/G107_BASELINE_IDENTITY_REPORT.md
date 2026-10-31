@@ -27,6 +27,14 @@
 - Search scope is limited to GitHub indexed code in the connected FORGE and forge-knowledge repositories; a zero-result search does not prove that private files, unindexed content, local model caches or workstation state do not exist.
 - The public FORGE README states no private scientific evidence, external-source archives, private backend controller, runner tokens/configuration, or sealed evaluation data are included in the public repository. `PUBLIC_SOURCE_BOUNDARY.md` further says public workflows use GitHub-hosted Ubuntu/Windows with read-only permissions and no private repository checkout. This confirms that run #2735 is hosted software qualification, not the required model/GPU route.
 
+## Additional repository-route checks
+
+- Connected repository inventory contains `Qualification-Forge`, `rbackup`, and `forge-knowledge`, but none is evidence of the requested model or target-device manifest.
+- `Qualification-Forge/README.md` blob `636984cadb0fcf9696e27afbc2e970a0f4676223` describes a shared Windows qualification worker whose stated controller and acceptance authority remains CKB-plane. It explicitly disallows independent scheduling, promotion, production activation and accepted-reference mutation. This is **not** proof of a qualified FORGE-owned GPU execution route, and it cannot be repurposed as one.
+- `rbackup/README.md` blob `d690ae611951ff2fe745672e7bcbca07ff1b38f5` defines a private encrypted recovery-backup vault for FORGE scientific evidence. Its status states no D1 backup had been uploaded/restored and no production migration or scientific dispatch was authorized. It is not identified as a model checkpoint registry.
+- `forge-knowledge/README.md` blob `0051858f647fc36f0c323e82b44f15fcf0ab7b2a` identifies generated, code-only advisory navigation (source-main snapshot d8bccc60), explicitly with no scientific, execution, release, or model-training authority.
+- A broader connected-account GitHub code-search attempt was rate-limited (HTTP 429) before scoped scans of all remaining private repositories could finish. Therefore G107 records those repositories as **NOT FULLY SEARCHED**, not as confirmed empty. No retries, alternate controller, or credential escalation was attempted.
+
 ## Required identity inventory
 
 | Identity item | Result | Evidence / reason |
