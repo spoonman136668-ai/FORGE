@@ -309,9 +309,19 @@ class OwnerResponseShadowTests(unittest.TestCase):
                              ensure_ascii=True).encode("ascii")).hexdigest())
         self.assertIs(first["research_lineage_authenticated"], False)
         self.assertIs(first["native_v1_scientific_lineage_bound"], False)
-        changed = dict(META, frozen_split_sha256="8" * 64)
-        second = run(metadata=changed)["selected"][0]
-        # The native V1 key cannot prove the scientific split identity.
+        # Frontier selection itself hashes the split: a changed split may
+        # choose the *other* recipe. Compare the same native candidate before
+        # concluding its V1 qualifier lacks scientific lineage.
+        second, selected_split = None, None
+        for digit in "3456789abcdef0":
+            candidate_split = digit * 64
+            possible = run(metadata=dict(META,
+                         frozen_split_sha256=candidate_split))["selected"][0]
+            if possible["after_sha256"] == first["after_sha256"]:
+                second, selected_split = possible, candidate_split
+                break
+        self.assertIsNotNone(second, "SAME_RECIPE_SPLIT_CONTROL_NOT_FOUND")
+        # Exact source and V1 qualifier match, but their split lineage differs.
         self.assertEqual(first["native_qualification_key"],
                          second["native_qualification_key"])
         self.assertEqual(first["native_intent_sha256"],
@@ -321,7 +331,7 @@ class OwnerResponseShadowTests(unittest.TestCase):
         self.assertNotEqual(first["research_lineage_sha256"],
                             second["research_lineage_sha256"])
         self.assertEqual(second["research_lineage_record"]["frozen_split_sha256"],
-                         "8" * 64)
+                         selected_split)
         moved_history = run(owner_hash="8" * 64)["selected"][0]
         self.assertEqual(first["native_qualification_key"],
                          moved_history["native_qualification_key"])
