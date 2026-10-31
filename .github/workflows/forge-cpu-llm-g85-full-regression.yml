@@ -1,0 +1,159 @@
+name: FORGE CPU LLM Evaluation G85 exact ARM64 receipt full Linux Windows regression
+on:
+  push:
+    branches: [research/cpu-llm-g85-arm64-shakespeare-20261031]
+    paths:
+      - 'docs/research/CPU-G85-GPT2-ARM64-SHAKESPEARE-ORIGINAL-RESULT-20261031.json'
+permissions:
+  contents: read
+concurrency:
+  group: forge-cpu-llm-g85-exact-receipt-regression
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify exact ARM64 receipt, preregistration and immutable G70 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G85-GPT2-ARM64-SHAKESPEARE-PREREG-20261031.md)" = "aee2742c42bf4c24e36ddfa6164e110a0308e999"
+          test "$(git rev-parse HEAD:research/cpu_g85/g85_arm64_shakespeare.py)" = "4fc81d9c8cdba49fd4a7f5dfcf30709563db06f9"
+          test "$(git rev-parse HEAD:research/cpu_g85/test_g85_arm64_shakespeare.py)" = "2d836a9273e6a54dafe4228cc8e07cd6cf05d592"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          ACTUAL="$(sha256sum docs/research/CPU-G85-GPT2-ARM64-SHAKESPEARE-ORIGINAL-RESULT-20261031.json | cut -d' ' -f1)"
+          EXPECTED="$(awk '{print $1}' docs/research/CPU-G85-GPT2-ARM64-SHAKESPEARE-ORIGINAL-RESULT-20261031.json.sha256)"
+          test "$ACTUAL" = "$EXPECTED"
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G85-GPT2-ARM64-SHAKESPEARE-ORIGINAL-RESULT-20261031.json"
+          r=json.load(open(p,encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g85.authentic-shakespeare-transfer.v1"
+          assert r["gate"]=="CPU_G85"
+          assert r["preregistration_commit"]=="275284b5c2fffd8031fe2caaa570793e3fe6941a"
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and r["promotion_allowed"] is False
+          assert r.get("runtime",{}).get("machine","").lower() in ("aarch64","arm64")
+          assert r.get("runtime",{}).get("os_name")=="posix"
+          if r.get("engineering")=="PASS" and r.get("correctness")=="PASS":
+              assert r["summary"]["timed_authentic_responses"]==180
+              assert r["summary"]["timed_authentic_generated_tokens"]==1440
+              assert len(r["original_paired_trials"])==60
+              assert r["transfer"] in ("TRANSFER_PASS","TRANSFER_FAIL")
+          else:
+              assert r.get("error") or r.get("transfer")=="UNVERIFIED"
+          print("G85_ARM64_EXACT_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g85/g85_arm64_shakespeare.py research/cpu_g85/test_g85_arm64_shakespeare.py
+          python -B -m unittest discover -s research/cpu_g85 -p 'test_g85_arm64_shakespeare.py' -v
+          git diff --check "$BASE" HEAD
+      - name: FORGE isolation and authority regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 controller and native custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify exact ARM64 receipt and frozen baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G85-GPT2-ARM64-SHAKESPEARE-PREREG-20261031.md)" = "aee2742c42bf4c24e36ddfa6164e110a0308e999"
+          test "$(git rev-parse HEAD:research/cpu_g85/g85_arm64_shakespeare.py)" = "4fc81d9c8cdba49fd4a7f5dfcf30709563db06f9"
+          test "$(git rev-parse HEAD:research/cpu_g85/test_g85_arm64_shakespeare.py)" = "2d836a9273e6a54dafe4228cc8e07cd6cf05d592"
+          ACTUAL="$(sha256sum docs/research/CPU-G85-GPT2-ARM64-SHAKESPEARE-ORIGINAL-RESULT-20261031.json | cut -d' ' -f1)"
+          EXPECTED="$(awk '{print $1}' docs/research/CPU-G85-GPT2-ARM64-SHAKESPEARE-ORIGINAL-RESULT-20261031.json.sha256)"
+          test "$ACTUAL" = "$EXPECTED"
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G85-GPT2-ARM64-SHAKESPEARE-ORIGINAL-RESULT-20261031.json"
+          r=json.load(open(p,encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g85.authentic-shakespeare-transfer.v1"
+          assert r["gate"]=="CPU_G85"
+          assert r["preregistration_commit"]=="275284b5c2fffd8031fe2caaa570793e3fe6941a"
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and r["promotion_allowed"] is False
+          assert r.get("runtime",{}).get("machine","").lower() in ("aarch64","arm64")
+          assert r.get("runtime",{}).get("os_name")=="posix"
+          if r.get("engineering")=="PASS" and r.get("correctness")=="PASS":
+              assert r["summary"]["timed_authentic_responses"]==180
+              assert r["summary"]["timed_authentic_generated_tokens"]==1440
+              assert len(r["original_paired_trials"])==60
+              assert r["transfer"] in ("TRANSFER_PASS","TRANSFER_FAIL")
+          else:
+              assert r.get("error") or r.get("transfer")=="UNVERIFIED"
+          print("G85_ARM64_EXACT_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g85/g85_arm64_shakespeare.py research/cpu_g85/test_g85_arm64_shakespeare.py
+          python -B -m unittest discover -s research/cpu_g85 -p 'test_g85_arm64_shakespeare.py' -v
+          git diff --check "$BASE" HEAD
+      - name: FORGE isolation and authority regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 controller and native custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
