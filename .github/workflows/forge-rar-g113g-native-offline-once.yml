@@ -1,0 +1,136 @@
+name: FORGE RAR-G113G authorized native Windows offline one-shot
+# Exactly one push-triggered diagnostic on an ephemeral GitHub-hosted runner.
+# No schedule, dispatch, original F139 controller changes, or scientific admission.
+on:
+  push:
+    branches: [research/rar-g113g-native-offline-once-20261030]
+    paths: ['.github/workflows/forge-rar-g113g-native-offline-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-rar-g113g-native-offline-once-20261030
+  cancel-in-progress: false
+jobs:
+  native-fixed-noop-once:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Run one authorized fixed-child offline native probe
+        shell: powershell
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $accepted = '064da946472086d95a44d3b96221b65512a86755'
+          $blobExpected = '785d15e98df63d3021992b31461d545a31a04e4e'
+          $refExpected = 'refs/heads/research/rar-g113g-native-offline-once-20261030'
+          $workflow = '.github/workflows/forge-rar-g113g-native-offline-once.yml'
+          $receiptPath = Join-Path $env:GITHUB_WORKSPACE 'g113g_receipt.json'
+          $receipt = [ordered]@{
+            schema = 'rar.g113g.native-one-shot.v1'
+            accepted_main_sha = $accepted
+            native_source_blob_sha = $blobExpected
+            workflow_commit_sha = $env:GITHUB_SHA
+            runner_environment = $env:RUNNER_ENVIRONMENT
+            runner_os = $env:RUNNER_OS
+            status = 'PREFLIGHT'
+            native_probe_invoked = $false
+            native_training_cost_qualified = $false
+            scientific_first_use_authorized = $false
+            model_or_training_executed = $false
+            original_controller_changed = $false
+          }
+          function Save-Receipt {
+            $receipt | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $receiptPath -Encoding utf8
+          }
+          Save-Receipt
+          try {
+            if ($env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+              throw 'G113G_DISPOSABLE_HOSTED_WINDOWS_REQUIRED'
+            }
+            if ($env:GITHUB_EVENT_NAME -ne 'push' -or $env:GITHUB_REF -ne $refExpected) {
+              throw 'G113G_EXACT_BRANCH_PUSH_REQUIRED'
+            }
+            $parent = (& git rev-parse 'HEAD^').Trim()
+            if ($LASTEXITCODE -ne 0 -or $parent -ne $accepted) {
+              throw 'G113G_SOURCE_PARENT_DRIFT'
+            }
+            $changed = @(& git diff --name-only $accepted HEAD)
+            if ($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -ne $workflow) {
+              throw 'G113G_WORKFLOW_ONLY_CHANGE_REQUIRED'
+            }
+            $blob = (& git hash-object 'f139/RARG113FOneShotWindowsJob.cs').Trim()
+            if ($LASTEXITCODE -ne 0 -or $blob -ne $blobExpected) {
+              throw 'G113G_NATIVE_PROBE_SOURCE_MISMATCH'
+            }
+            Add-Type -Path (Resolve-Path 'f139/RARG113FOneShotWindowsJob.cs').Path -ErrorAction Stop
+            if ($null -eq [RARG113FOneShotWindowsJob].GetMethod('Main')) {
+              throw 'G113G_COMPILED_ENTRY_NOT_FOUND'
+            }
+            Write-Host 'G113G_HOSTED_WINDOWS_EXACT_SOURCE_PREFLIGHT=PASS'
+            $receipt['status'] = 'ONE_SHOT_ATTEMPTED'
+            $receipt['native_probe_invoked'] = $true
+            Save-Receipt
+            # Single native invocation. Fixed cmd.exe /d /q /c exit 0 only;
+            # kernel readback and KILL_ON_JOB_CLOSE are enforced by G113F source.
+            $oldOut = [Console]::Out
+            $oldErr = [Console]::Error
+            $writer = New-Object System.IO.StringWriter
+            try {
+              [Console]::SetOut($writer)
+              [Console]::SetError($writer)
+              $nativeExit = [RARG113FOneShotWindowsJob]::Main([string[]]@('--run-one-shot-offline'))
+            } finally {
+              [Console]::SetOut($oldOut)
+              [Console]::SetError($oldErr)
+            }
+            $raw = $writer.ToString().Trim()
+            Write-Host ('G113G_NATIVE_EXIT_CODE=' + $nativeExit)
+            Write-Host ('G113G_NATIVE_OUTPUT=' + $raw)
+            if ($nativeExit -ne 0) { throw 'G113G_NATIVE_PROBE_FAILED_CLOSED' }
+            $prefix = 'RAR_G113F_NATIVE_OFFLINE_JOB_DIAGNOSTIC='
+            if (-not $raw.StartsWith($prefix) -or $raw.Split([char]10).Count -ne 1) {
+              throw 'G113G_SINGLE_NATIVE_RECORD_MISSING'
+            }
+            $native = ConvertFrom-Json -InputObject $raw.Substring($prefix.Length)
+            if ($native.schema -ne 'rar.winjob-offline-probe.v1' -or
+                $native.classification -ne 'NATIVE_FIXED_NOOP_UNWITNESSED_NOT_TRAINING_COST' -or
+                $native.memory_semantics -ne 'JOB_PEAK_COMMIT_NOT_PHYSICAL_TREE_RSS' -or
+                $native.scope_created -ne $true -or
+                $native.child_created_suspended -ne $true -or
+                $native.assigned_before_resume -ne $true -or
+                $native.child_process_exit_zero -ne $true -or
+                $native.job_active_processes -ne 0 -or
+                $native.job_total_processes -ne 1 -or
+                $native.native_training_cost_qualified -ne $false -or
+                $native.scientific_first_use_authorized -ne $false -or
+                $native.model_or_training_executed -ne $false -or
+                $native.original_controller_changed -ne $false -or
+                $native.experiment_scope_authenticated_externally -ne $false -or
+                $native.all_descendant_lifetimes_independently_witnessed -ne $false) {
+              throw 'G113G_DIAGNOSTIC_FLAGS_INVALID'
+            }
+            if ([long]$native.user_cpu_100ns + [long]$native.kernel_cpu_100ns -ne [long]$native.total_cpu_100ns) {
+              throw 'G113G_CPU_TOTAL_MISMATCH'
+            }
+            $receipt['native_result'] = $native
+            $receipt['status'] = 'NATIVE_NOOP_PASS_UNWITNESSED_NOT_SCIENCE'
+            Save-Receipt
+            Write-Host 'G113G_OFFLINE_NATIVE_JOB_OBJECT_NOOP=PASS_NOT_SCIENCE'
+          } catch {
+            $receipt['status'] = 'FAILED_CLOSED'
+            $receipt['failure_type'] = $_.Exception.GetType().Name
+            Save-Receipt
+            throw
+          }
+      - name: Preserve bounded diagnostic receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g113g-native-fixed-noop-once
+          path: g113g_receipt.json
+          if-no-files-found: error
+          retention-days: 30
