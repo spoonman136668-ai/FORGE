@@ -1,0 +1,15 @@
+# E Research E-D28 — isolated DoorKey smoke preparation (2026-10-30)
+
+**Outcome: SCRIPT COMMITTED; OFFICIAL DOORKEY EXECUTION NOT VERIFIED (BLOCKED).**
+
+Checked the existing `.github/workflows/itd02-r8-fit-only-dispatch.yml`: it runs on GitHub-hosted Ubuntu 24.04 with Python 3.11 and fetches official Farama MiniGrid at commit `7f5853792ea7f04f75614661006d87fcf949f26d`, but its frozen experiment targets `MiniGrid-Empty-8x8-v0` and `MiniGrid-FourRooms-v0`. It cannot qualify DoorKey unchanged, and it was not altered or dispatched. Its frozen source-specific research protocol is independent and must not be repurposed.
+
+Fetched upstream `minigrid/envs/doorkey.py` and `minigrid/__init__.py` at that exact source SHA. Confirmed official `MiniGrid-DoorKey-8x8-v0` registration, the 7-action space, the 7x7x3 partial observation, and key/locked-door/goal mission. Source package `__version__` is `3.2.0`. The current isolated runtime lacks gymnasium/minigrid/pygame; no official environment test has been executed in this gate.
+
+**Artifact committed on draft research branch:** `research/e_research/ed28_official_minigrid_doorkey_smoke.py` at commit `09898291b16b3e66554d2bf793a39452c285314a`. It verifies version, reset observation schema, legal public actions, reward/termination range, four specific deterministic seed traces and two independent same-seed replays; no policy training or privileged map exposure. Commit does not add or change GitHub Actions workflow, ownership, permissions, runner dispatch, scheduling, model selection, or FORGE autonomy. A Python test file in the repository is NOT evidence that it ran.
+
+**Execution preconditions:** on a separately authorized runner install pinned `numpy==1.26.4`, `gymnasium==1.1.1`, `pygame-ce==2.5.3`, and the official MiniGrid source checkout at pinned Git commit using `pip install --no-deps -e <checkout>`; verify actual checkout and required source blobs before running `python -B research/e_research/ed28_official_minigrid_doorkey_smoke.py`. In particular, the smoke script's `__version__` is pinned to the upstream original 3.2.0 and must not be bypassed to accommodate a different package. Record Python/dependency versions, source tree SHA, step/replay output, resource cost and any failures under original source custody. No credentials, API usage, CKB-plane or privileged owner actions needed.
+
+**Next gate E-D29:** execute the committed smoke on an authorized dependency-capable runner via a separately approved *existing* workflow or external execution context; the GitHub connector currently offers no arbitrary new workflow dispatch action. First-use science and model learning remain UNVERIFIED.
+
+Plain English: We found the infrastructure and committed a real DoorKey test, but it has not run. The existing official-MiniGrid workflow runs different environments and should not be hijacked.

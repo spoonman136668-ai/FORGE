@@ -33,11 +33,71 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          # Read-only E-D108 diagnostic: identify the exact Git command failing
+          # inside isolationguard/check.py; do not weaken or skip that gate.
+          git rev-parse --is-shallow-repository
+          if git rev-parse --verify HEAD^1 >/dev/null 2>&1; then
+            echo "ED108_HEAD_FIRST_PARENT=PASS"
+            if git merge-base --is-ancestor HEAD^1 HEAD; then echo "ED108_ANCESTOR=PASS"; else echo "ED108_ANCESTOR=FAIL"; fi
+            if git diff --check HEAD^1 HEAD; then echo "ED108_DIFF_CHECK=PASS"; else echo "ED108_DIFF_CHECK=FAIL"; fi
+            if git diff --no-ext-diff --no-color --no-renames --unified=0 HEAD^1 HEAD -- >/dev/null; then echo "ED108_PATCH_DIFF=PASS"; else echo "ED108_PATCH_DIFF=FAIL"; fi
+          else
+            echo "ED108_HEAD_FIRST_PARENT=FAIL"
+          fi
           python3 -B isolationguard/check.py
           # Exercise the read-only FSA pagination/authority boundaries on both OSes.
           python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
           # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
           python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - uses: actions/setup-python@v5
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 1194 }}
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'research/e_research/ed84_official_minigrid_memory_smoke.py'
+      - name: E Research original MiniGrid Memory smoke (PR 1194 only)
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 1194 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --only-binary=:all: 'numpy==1.26.4' 'gymnasium==1.1.1' 'pygame-ce==2.5.3'
+          git init -q "$RUNNER_TEMP/ed-memory-minigrid"
+          git -C "$RUNNER_TEMP/ed-memory-minigrid" remote add origin https://github.com/Farama-Foundation/Minigrid.git
+          git -C "$RUNNER_TEMP/ed-memory-minigrid" fetch --no-tags --depth=1 origin 7f5853792ea7f04f75614661006d87fcf949f26d
+          git -C "$RUNNER_TEMP/ed-memory-minigrid" checkout -q --detach 7f5853792ea7f04f75614661006d87fcf949f26d
+          test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" rev-parse HEAD)" = 7f5853792ea7f04f75614661006d87fcf949f26d
+          test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" hash-object minigrid/envs/memory.py)" = 660b0a1b769948034c87bb421759c2b9a4f24548
+          # Reuse this exact original-source checkout for the separate DoorKey engineering smoke.
+          test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" hash-object minigrid/envs/empty.py)" = 8810bb0fa156d18475022edd8859b135ef745a5f
+          test "$(git -C "$RUNNER_TEMP/ed-memory-minigrid" hash-object minigrid/envs/doorkey.py)" = df5b29ef063be34e6d83b8b478e092c6e3e01512
+          python3 -m pip install --no-deps -e "$RUNNER_TEMP/ed-memory-minigrid"
+          python3 -B research/e_research/ed84_official_minigrid_memory_smoke.py
+          python3 -B research/e_research/ed125_memory_random_baseline.py
+          python3 -B research/e_research/ed128_visible_cue_retention.py
+          python3 -B research/e_research/ed131_cue_decision_probe.py
+          python3 -B research/e_research/ed133_initial_cue_observability.py
+          python3 -B research/e_research/ed136_spatial_cue_visibility.py
+          python3 -B research/e_research/ed141_spatial_cue_acquisition_guard.py
+          python3 -B research/e_research/ed146_observation_navigation.py
+          python3 -B research/e_research/ed151_paired_heuristic_navigation.py
+          python3 -B research/e_research/ed156_loop_escape_comparison.py
+          python3 -B research/e_research/ed162_loop_escape_cue_ablation.py
+          python3 -B research/e_research/ed167_west_cue_exploration.py
+          python3 -B research/e_research/ed174_landmark_retention.py
+          python3 -B research/e_research/ed116_memory_causal_junction.py
+          python3 -B research/e_research/ed133_exposed_memory_controls.py
+          python3 -B -m unittest discover -s research/e_research/ed103 -p 'test_*.py'
+          # Official DoorKey engineering reset/step replay on four exposed engineering seeds.
+          # No training, scientific first-use, or protected cohort access.
+          python3 -B research/e_research/ed28_official_minigrid_doorkey_smoke.py
+      - name: Preserve E Research DoorKey replay evidence (PR 1194 only)
+        if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.number == 1194 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e-research-ed37-official-doorkey-traces
+          path: ${{ runner.temp }}/ed37-doorkey/
+          if-no-files-found: error
+          retention-days: 45
       - name: F139 Python controller and native-custody regression
         shell: bash
         run: |
@@ -91,6 +151,17 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          # Read-only E-D108 diagnostic: identify the exact Git command failing
+          # inside isolationguard/check.py; do not weaken or skip that gate.
+          git rev-parse --is-shallow-repository
+          if git rev-parse --verify HEAD^1 >/dev/null 2>&1; then
+            echo "ED108_HEAD_FIRST_PARENT=PASS"
+            if git merge-base --is-ancestor HEAD^1 HEAD; then echo "ED108_ANCESTOR=PASS"; else echo "ED108_ANCESTOR=FAIL"; fi
+            if git diff --check HEAD^1 HEAD; then echo "ED108_DIFF_CHECK=PASS"; else echo "ED108_DIFF_CHECK=FAIL"; fi
+            if git diff --no-ext-diff --no-color --no-renames --unified=0 HEAD^1 HEAD -- >/dev/null; then echo "ED108_PATCH_DIFF=PASS"; else echo "ED108_PATCH_DIFF=FAIL"; fi
+          else
+            echo "ED108_HEAD_FIRST_PARENT=FAIL"
+          fi
           python3 -B isolationguard/check.py
           # Exercise the read-only FSA pagination/authority boundaries on both OSes.
           python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v

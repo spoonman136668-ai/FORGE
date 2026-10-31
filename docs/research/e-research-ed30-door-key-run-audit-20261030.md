@@ -1,0 +1,11 @@
+# E Research E-D30 — DoorKey workflow run audit (2026-10-30)
+
+**Official DoorKey runtime result: UNVERIFIED. No DoorKey run found.** This gate inspected real GitHub Actions data rather than assuming a pushed workflow had run.
+
+The research-branch commit `338f6b970a6f9467936c1fba8aa97dd535cfa13c` has an associated completed GitHub Actions run `41021657318`, named **FORGE public Linux and Windows qualification**, with overall conclusion **failure**. Its Linux job `123950130865` failed on step 3, **Enforce FORGE independence from private CKB-plane**, and its Windows job `123950131021` failed on step 3, **FORGE independence and standing isolation enforcement**. Later regression/build steps were skipped. Neither job performed the official DoorKey smoke. These isolation failures should not be attributed to MiniGrid; the precise reason for those failures was not determined by this audit.
+
+Verified that `.github/workflows/e-research-ed29-doorkey-smoke.yml` exists on research branch, blob `aff7b9d3662eb0707ebb44bbd1ff686b92675e6c`, and the original `research/e_research/ed28_official_minigrid_doorkey_smoke.py` exists there, blob `38d866d085b916453ffbebdf8233dc601a7a91a4`. A file being present does not prove it was registered, scheduled or executed by GitHub Actions. The available GitHub integration cannot initiate arbitrary workflow_dispatch; the commit-to-runs query only reports pull-request-triggered runs and might not enumerate standalone push-triggered research runs. Consequently **absence from that limited query is not absolute proof no such run occurred**. Do not claim any DoorKey smoke PASS or failure.
+
+**Engineering disposition:** source and workflow present, actual official environment execution NOT VERIFIED. No changes to workflow permissions, owner status, FORGE autonomy, underlying experiments or native models. Do not rerun unrelated failed FORGE isolation checks merely to acquire DoorKey evidence.
+
+**Next gate E-D31:** obtain the dedicated workflow's run ID (e.g., from Actions or a supported workflow-list endpoint), inspect its job/logs and check deterministic reset/step evidence; if no run exists, use a separately authorized existing research runner with a run-capable interface. Never promote scientific first-use without source-authenticated execution.
