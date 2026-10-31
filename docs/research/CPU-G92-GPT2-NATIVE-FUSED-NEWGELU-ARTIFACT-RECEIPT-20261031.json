@@ -1,0 +1,119 @@
+{
+  "schema": "forge.cpu-llm-g92.archive-receipt.v1",
+  "gate": "CPU_G92",
+  "date": "2026-10-31",
+  "status": "ORIGINAL_MEASUREMENT_COMPLETE_ARTIFACT_RECOVERED",
+  "frozen_contract": {
+    "preregistration_commit": "bdacb37f4614f4de646092089016a452acf06d9e",
+    "preregistration_blob": "76eab273938df2cce95e8b4b560007db21028ca4",
+    "qualified_baseline": "20a540d0241519e2e9d90ace868ffd6db60bd065",
+    "source_commit": "d8a4b571c91082d539f82e9abef5fbac387eec07",
+    "source_blob": "0f4e61e0f5dd28cd6246f462122ba5e794556002",
+    "test_blob": "245aeb5d8e1882f1fdaa6b833241dfc36d2c9c2a"
+  },
+  "execution": {
+    "workflow_run_id": 41221347806,
+    "job_id": 124596406139,
+    "artifact_id": 13050640468,
+    "artifact_name": "cpu-g92-original-gpt2-native-gelu",
+    "artifact_zip_sha256": "646381d59ab1095c75675feb533611190180c8dc3607df10cad2cb509a3e7b78",
+    "artifact_result_json_sha256": "061febfaa8017ece42170de76c3e790113e5d1eeb4cee06a4f7db805523c6946",
+    "artifact_environment_sha256": "0869da338a0799374fdcbe19e3dd78b06422432a433d892ed573b6beac7c880f",
+    "artifact_recovery": "PASS",
+    "artifact_url": "https://github.com/spoonman136668-ai/FORGE/actions/runs/41221347806/artifacts/13050640468",
+    "frozen_source_admission": "PASS",
+    "focused_tests": "PASS",
+    "runtime_install": "PASS",
+    "workflow_conclusion": "SUCCESS"
+  },
+  "model": {
+    "repository": "openai-community/gpt2",
+    "revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
+    "weights_sha256": "248dfc3911869ec493c76e65bf2fcf7f615828b0254c12b473182f0f81d3a707",
+    "precision": "FP32",
+    "weights_changed": false,
+    "parameter_count": 124439808
+  },
+  "dataset": {
+    "repository": "openai/grade-school-math",
+    "revision": "3101c7d5072418e28b9008a6636bde82a006892c",
+    "raw_sha256": "3730d312f6e3440559ace48831e51066acaca737f6eabec99bccb9e4b3c39d14",
+    "selected_ranks": [
+      228,
+      239
+    ],
+    "questions": 12
+  },
+  "runtime": {
+    "python": "3.11.17",
+    "torch": "2.5.1+cpu",
+    "transformers": "4.48.3",
+    "torch_cuda": null,
+    "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "logical_cpus": 4,
+    "affinity": [
+      0,
+      1,
+      2
+    ],
+    "inter_op_threads": 1,
+    "intra_op_threads": 2,
+    "cpu": "AMD EPYC 9V45 virtualized runner"
+  },
+  "design": {
+    "arms": [
+      "original_newgelu2",
+      "native_gelu_tanh2"
+    ],
+    "activation_replacements": 12,
+    "paired_trials": 48,
+    "authentic_full_responses": 96,
+    "generated_tokens": 768,
+    "scientific_acceptance": "NOT_GRANTED",
+    "promotion_allowed": false
+  },
+  "activation_error": {
+    "elements": 970752,
+    "max_absolute": 2.384185791015625e-7,
+    "median_absolute": 0,
+    "max_relative": 1,
+    "interpretation": "max relative error is dominated by near-zero denominator; exact generated token parity remains independently required and passed"
+  },
+  "dispatch": {
+    "baseline_aten_gelu": 0,
+    "baseline_aten_tanh": 12,
+    "baseline_aten_pow": 12,
+    "candidate_aten_gelu": 12,
+    "candidate_aten_tanh": 0,
+    "candidate_aten_pow": 0
+  },
+  "results": {
+    "engineering": "PASS",
+    "correctness": "PASS",
+    "decision": "NATIVE_GELU_NO_GO",
+    "median_prefill_speedup": 1.0354659342050023,
+    "median_full_response_speedup": 1.0217413543288403,
+    "minimum_individual_paired_full_speedup": 0.8985461098659818,
+    "p95_candidate_over_baseline": 1.0202867197380032,
+    "sampled_rss_candidate_over_baseline": 1.0000025173001452,
+    "total_cpu_candidate_over_baseline": 0.977515558284483,
+    "timed_authentic_responses": 96,
+    "timed_authentic_generated_tokens": 768,
+    "frozen_thresholds": {
+      "prefill_speedup_min": 1.15,
+      "full_speedup_min": 1.1,
+      "min_paired": 0.9,
+      "p95_max": 1.1,
+      "rss_max": 1.1,
+      "cpu_max": 1.1
+    }
+  },
+  "interpretation": "Twelve original GPT-2 NewGELU modules were replaced with native F.gelu(approximate='tanh') in an otherwise parameter-identical FP32 model. Separate profiler evidence showed 12 candidate aten::gelu calls and zero baseline; baseline had 12 aten::tanh and 12 aten::pow calls, candidate had zero of each. All 96 full responses and 768 generated tokens passed exact token parity. Prefill speedup 1.0355x and full response speedup 1.0217x miss frozen thresholds; worst individual paired speedup 0.89855x narrowly misses 0.90x. Frozen result NATIVE_GELU_NO_GO. This rejects qualification for this pinned workload; it does not establish native GELU has no value on other workloads.",
+  "limitations": [
+    "One pinned GPT-2 FP32 model, PyTorch 2.5.1 CPU, Transformers 4.48.3, one Linux x86_64 virtualized host and three-core process affinity.",
+    "GSM8K cohort disjoint by deterministic rank from previous screens but not proven unseen during GPT-2 pretraining.",
+    "Sampled RSS is not physical peak; no energy metric.",
+    "No production, other-model, Windows/ARM transfer, intelligence, scientific acceptance or promotion claim."
+  ]
+}
