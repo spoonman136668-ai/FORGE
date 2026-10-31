@@ -125,8 +125,9 @@ class NativeExecutionBoundaryTests(unittest.TestCase):
         scratch.mkdir()
         output.mkdir()
         seen=[]
-        def fixed_run(candidate,stage):
+        def fixed_run(candidate,stage,baseline_checkout=None):
             seen.append(stage)
+            self.assertEqual(Path(baseline_checkout).resolve(),self.source.resolve())
             self.assertFalse((self.source/"cognition"/"native_state.go").exists())
             self.assertTrue((stage/"checkout"/"cognition"/"native_state.go").exists())
             self.assertTrue((stage/"checkout"/"cognition"/"base.go").exists())
