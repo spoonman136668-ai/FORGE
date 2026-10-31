@@ -165,6 +165,10 @@ def stage_candidate(candidate: Candidate, checkout: Path,
                 stdin=subprocess.DEVNULL, timeout=90, check=False)
             require(result.returncode == 0, "SANDBOX_GIT_CLONE_FAILED")
             for command in (
+                # Avoid Windows core.autocrlf rewriting authenticated source
+                # bytes when checking out the candidate into its temp clone.
+                ["git", "-C", str(root), "config", "core.autocrlf", "false"],
+                ["git", "-C", str(root), "config", "core.eol", "lf"],
                 ["git", "-C", str(root), "checkout", "--detach",
                  candidate.target_commit],
                 ["git", "-C", str(root), "remote", "remove", "origin"],
@@ -372,6 +376,9 @@ def _clone_clean_baseline(checkout: Path, candidate: Candidate,
         stdin=subprocess.DEVNULL, timeout=90, check=False)
     require(result.returncode == 0, "G29_BASELINE_CLONE_FAILED")
     for command in (
+        # Preserve byte-exact baseline source on Windows checkouts.
+        ["git", "-C", str(clone), "config", "core.autocrlf", "false"],
+        ["git", "-C", str(clone), "config", "core.eol", "lf"],
         ["git", "-C", str(clone), "checkout", "--detach", candidate.target_commit],
         ["git", "-C", str(clone), "remote", "remove", "origin"],
     ):
