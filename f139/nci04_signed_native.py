@@ -285,4 +285,3 @@ def receipt_from_report(admission: NativeAdmission, report: dict) -> dict:
         "paid_model_calls": 0, "local_custody_verified": False,
         "controller_unattended_verified": False,
     }
-
