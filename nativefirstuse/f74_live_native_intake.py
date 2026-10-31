@@ -94,7 +94,8 @@ def audit():
   summary.append({
    "lane":name,"repository":repo,"main_sha":sha,"active_research_head":active_sha,
    "reported_last_completed_experiment":state["experiment"],
-   "last_continuation_run_confirmed":last_id,\n   "last_continuation_run_head_sha":run_sha,
+   "last_continuation_run_confirmed":last_id,
+   "last_continuation_run_head_sha":run_sha,
    "repo_local_research_workflow_confirmed":True,
    "full_original_seed_lease_ledger_independently_observed":False,
    "current_scientific_owner_independently_authorized":False,
