@@ -497,7 +497,8 @@ def verify_fixed_commands(candidate: Candidate, stage: Path, *,
     require(root.is_dir() and root.parent == stage, "STAGING_ROOT_INVALID")
     require(type(timeout_seconds) is int and 15 <= timeout_seconds <= 900,
             "TIMEOUT_NOT_BOUNDED")
-    if candidate.lane == "Yggdrasil":
+    if (candidate.lane == "Yggdrasil"
+            and candidate.path == "yggdrasil/public_causal_cells.py"):
         return _verify_yggdrasil_dual_custody(
             candidate, stage, baseline_checkout=baseline_checkout,
             runner=runner, timeout_seconds=timeout_seconds)
