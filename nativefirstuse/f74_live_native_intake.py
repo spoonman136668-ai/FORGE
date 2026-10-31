@@ -39,6 +39,28 @@ def get(repo,path):
   raw=r.read(131073)
  need(0<len(raw)<=131072,"GITHUB_RESPONSE_TOO_LARGE")
  return json.loads(raw)
+
+def is_ancestor(repo,ancestor,descendant,max_nodes=256):
+ need(bool(HEX40.fullmatch(ancestor)) and bool(HEX40.fullmatch(descendant)),
+      "COMMIT_LINEAGE_SHA_INVALID")
+ if ancestor==descendant:return True
+ pending=[descendant]
+ seen=set()
+ while pending and len(seen)<max_nodes:
+  current=pending.pop()
+  if current in seen:continue
+  seen.add(current)
+  commit=get(repo,"/git/commits/"+current)
+  need(commit.get("sha")==current,"COMMIT_OBJECT_IDENTITY_DRIFT")
+  parents=commit.get("parents")
+  need(isinstance(parents,list) and len(parents)<=16,"COMMIT_PARENT_SET_INVALID")
+  for parent in parents:
+   parent_sha=parent.get("sha") if isinstance(parent,dict) else None
+   need(isinstance(parent_sha,str) and HEX40.fullmatch(parent_sha),
+        "COMMIT_PARENT_SHA_INVALID")
+   if parent_sha==ancestor:return True
+   if parent_sha not in seen:pending.append(parent_sha)
+ return False
 def doc(repo,sha,path):
  need(bool(HEX40.fullmatch(sha)),"SOURCE_SHA_INVALID")
  item=get(repo,"/contents/"+path+"?ref="+sha)
@@ -88,25 +110,8 @@ def audit():
   # The saved launcher can legitimately predate later main commits. Confirm
   # its exact source is an ancestor of the currently pinned main, not equal
   # to today's main and not merely a successful run from an unrelated commit.
-  compare_path="/compare/"+run_sha+"..."+sha+"?per_page=1&page=1"
-  lineage=get(repo,compare_path)
-  ahead=lineage.get("ahead_by")
-  need(lineage.get("status") in ("ahead","identical") and
-       lineage.get("base_commit",{}).get("sha")==run_sha and
-       isinstance(ahead,int) and 0<=ahead<=10000,
+  need(is_ancestor(repo,run_sha,sha),
        "RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
-  if lineage.get("status")=="identical":
-   need(ahead==0 and run_sha==sha,"RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
-  else:
-   need(ahead>0,"RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
-   last_page=get(repo,"/compare/"+run_sha+"..."+sha+"?per_page=1&page="+str(ahead))
-   last_commits=last_page.get("commits")
-   need(last_page.get("status")=="ahead" and
-        last_page.get("ahead_by")==ahead and
-        last_page.get("base_commit",{}).get("sha")==run_sha and
-        isinstance(last_commits,list) and len(last_commits)==1 and
-        last_commits[0].get("sha")==sha,
-        "RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
   again=get(repo,"/git/ref/heads/"+urllib.parse.quote(active,safe="/"))
   need(again.get("object",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
   main_again=get(repo,"/git/ref/heads/main")
