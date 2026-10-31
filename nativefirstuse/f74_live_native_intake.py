@@ -121,5 +121,10 @@ if __name__=="__main__":
   print(json.dumps(audit(),separators=(",",":"),sort_keys=True))
   print("F74_FORGE_NATIVE_PROTECTED_ORIGINAL=DENIED")
  except (Denied,ValueError,KeyError,TypeError,OSError) as exc:
-  print("F74_LIVE_SOURCE_READBACK=BLOCKED",file=sys.stderr)
+  code=getattr(exc,"code",None)
+  reason=getattr(exc,"reason",None)
+  detail=("http_status="+str(code) if code is not None else
+          "transport_reason="+type(reason).__name__ if reason is not None else
+          str(exc).replace("\\n"," ")[:120])
+  print("F74_LIVE_SOURCE_READBACK=BLOCKED "+type(exc).__name__+":"+detail,file=sys.stderr)
   raise SystemExit(1)
