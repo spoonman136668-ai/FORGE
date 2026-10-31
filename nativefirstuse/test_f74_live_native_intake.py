@@ -3,75 +3,148 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import patch
 import unittest
+
 p=Path(__file__).with_name("f74_live_native_intake.py")
 spec=importlib.util.spec_from_file_location("f74_native_intake",p)
 m=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
+
 def fixed():
- configs={}; states={}; data={}
- for lane,repo in m.LANES:
-  main=("a" if lane=="Wingless" else "c")*40
-  live=("b" if lane=="Wingless" else "d")*40
-  branch="research/autonomy-"+lane.lower()+"-active"
-  configs[repo]={"schema":"research.autonomy.v2","program":lane,
-   "enabled":True,"mode":"repo-local-self-chain",
-   "authority":"research-only","ckb_plane_role":"governance-only",
-   "active_branch":branch,"north_star_sha256":"1"*64}
-  states[repo]={"schema":"research.repo-local-state.v1",
-   "program":lane,"active_branch":branch,"north_star_sha256":"1"*64,
-   "authority":"research-only","ckb_plane_role":"governance-only",
-   "experiment":"R-VALID-01","github_run_id":"38800000100"}
-  data[(repo,"/branches/main")]={"commit":{"sha":main}}
-  data[(repo,"/branches/"+branch)]={"commit":{"sha":live}}
-  data[(repo,"/actions/runs/38800000100")]={
-   "id":38800000100,"name":lane+" research continuation launcher",
-   "status":"completed","conclusion":"success","head_sha":main}
- def gh(repo,path):
-  return data[(repo,path)]
- def d(repo,sha,path):
-  return configs[repo] if path.endswith("config.json") else states[repo]
- return configs,states,data,gh,d
+    configs, states, data = {}, {}, {}
+    for lane, repo in m.LANES:
+        main = ("a" if lane == "Wingless" else "c") * 40
+        live = ("b" if lane == "Wingless" else "d") * 40
+        branch = "research/autonomy-" + lane.lower() + "-active"
+        configs[repo] = {
+            "schema": "research.autonomy.v2", "program": lane,
+            "enabled": True, "mode": "repo-local-self-chain",
+            "authority": "research-only", "ckb_plane_role": "governance-only",
+            "active_branch": branch, "north_star_sha256": "1" * 64,
+        }
+        states[repo] = {
+            "schema": "research.repo-local-state.v1", "program": lane,
+            "active_branch": branch, "north_star_sha256": "1" * 64,
+            "authority": "research-only", "ckb_plane_role": "governance-only",
+            "experiment": "R-VALID-01", "github_run_id": "38800000100",
+        }
+        data[(repo, "/git/ref/heads/main")] = {"object": {"sha": main}}
+        data[(repo, "/git/ref/heads/" + branch)] = {"object": {"sha": live}}
+        data[(repo, "/actions/runs/38800000100")] = {
+            "id": 38800000100, "name": lane + " research continuation launcher",
+            "status": "completed", "conclusion": "success", "head_sha": main,
+        }
+        data[(repo, "/compare/" + main + "..." + main + "?per_page=1&page=1")] = {
+            "status": "identical", "ahead_by": 0,
+            "base_commit": {"sha": main}, "commits": [],
+        }
+
+    def gh(repo, path):
+        return data[(repo, path)]
+
+    def doc(repo, sha, path):
+        return configs[repo] if path.endswith("config.json") else states[repo]
+
+    return configs, states, data, gh, doc
+
 
 class F74(unittest.TestCase):
- def work(self,edit=lambda c,s,r:None):
-  cfg,states,api,get,doc=fixed();edit(cfg,states,api)
-  with patch.object(m,"get",side_effect=get),patch.object(m,"doc",side_effect=doc):
-   return m.audit()
- def test_synthetic_correspondence_still_denies_science(self):
-  d=self.work()
-  self.assertEqual(len(d["lanes"]),2)
-  self.assertEqual({x["lane"] for x in d["lanes"]},{"Wingless","Yggdrasil"})
-  self.assertTrue(all(x["repo_local_research_workflow_confirmed"] for x in d["lanes"]))
-  for row in d["lanes"]:
-   self.assertFalse(row["full_original_seed_lease_ledger_independently_observed"])
-   self.assertFalse(row["current_scientific_owner_independently_authorized"])
-   self.assertFalse(row["prospective_original_firstuse_available"])
-  self.assertFalse(d["private_rbackup_restoration_qualified"])
-  self.assertFalse(d["native_worker_execution_permit_issued"])
-  self.assertEqual(d["new_protected_originals_dispatched"],0)
- def test_forged_current_owner_or_wrong_research_scope_is_denied(self):
-  for key,value in [
-   ("enabled",False),("authority","cloudflare-firstuse-authority"),
-   ("mode","FORGE-research-owner"),("ckb_plane_role","science-controller"),
-   ("program","Yggdrasil"),("schema","untrusted")]:
-   def edit(c,s,r,key=key,value=value):
-    c[m.LANES[0][1]][key]=value
-   with self.subTest(key=key),self.assertRaises(m.Denied):self.work(edit)
- def test_mismatched_repository_run_source_fails_closed(self):
-  def edit(c,s,r):
-   repo=m.LANES[1][1]
-   r[(repo,"/actions/runs/38800000100")]["head_sha"]="f"*40
-  with self.assertRaises(m.Denied):self.work(edit)
- def test_state_claim_cannot_skip_owner_or_history(self):
-  for field,value in [("authority","owner-signed"),
-                      ("north_star_sha256","f"*64),
-                      ("active_branch","research/fake"),
-                      ("program","Wingless")]:
-   def edit(c,s,r,field=field,value=value):
-    s[m.LANES[1][1]][field]=value
-   with self.subTest(field=field),self.assertRaises(m.Denied):self.work(edit)
- def test_unrecognized_egress_route_denied(self):
-  with self.assertRaises(m.Denied):m.get("attacker/foreign","/branches/main")
-  with self.assertRaises(m.Denied):m.get(m.LANES[0][1],"/../secret")
-if __name__=="__main__":unittest.main()
+    def work(self, edit=lambda c, s, r: None):
+        cfg, states, api, get, doc = fixed()
+        edit(cfg, states, api)
+        with patch.object(m, "get", side_effect=get), patch.object(m, "doc", side_effect=doc):
+            return m.audit()
+
+    def test_synthetic_correspondence_still_denies_science(self):
+        d = self.work()
+        self.assertEqual(len(d["lanes"]), 2)
+        self.assertEqual({x["lane"] for x in d["lanes"]}, {"Wingless", "Yggdrasil"})
+        self.assertTrue(all(x["repo_local_research_workflow_confirmed"] for x in d["lanes"]))
+        for row in d["lanes"]:
+            self.assertFalse(row["full_original_seed_lease_ledger_independently_observed"])
+            self.assertFalse(row["current_scientific_owner_independently_authorized"])
+            self.assertFalse(row["prospective_original_firstuse_available"])
+        self.assertFalse(d["private_rbackup_restoration_qualified"])
+        self.assertFalse(d["native_worker_execution_permit_issued"])
+        self.assertEqual(d["new_protected_originals_dispatched"], 0)
+
+    def test_historical_launcher_ancestor_of_current_main_is_accepted(self):
+        def edit(c, s, api):
+            for lane, repo in m.LANES:
+                main = api[(repo, "/git/ref/heads/main")]["object"]["sha"]
+                old = ("e" if lane == "Wingless" else "f") * 40
+                api[(repo, "/actions/runs/38800000100")]["head_sha"] = old
+                middle = ("9" if lane == "Wingless" else "8") * 40
+                api[(repo, "/git/commits/" + main)] = {
+                    "sha": main, "parents": [{"sha": middle}],
+                }
+                api[(repo, "/git/commits/" + middle)] = {
+                    "sha": middle, "parents": [{"sha": old}],
+                }
+        result = self.work(edit)
+        self.assertEqual(len(result["lanes"]), 2)
+        self.assertTrue(all(row["last_continuation_run_head_sha"] in ("e"*40, "f"*40)
+                            for row in result["lanes"]))
+
+    def test_identical_launcher_source_is_accepted(self):
+        def edit(c, s, api):
+            for lane, repo in m.LANES:
+                main = api[(repo, "/git/ref/heads/main")]["object"]["sha"]
+                api[(repo, "/actions/runs/38800000100")]["head_sha"] = main
+                api[(repo, "/compare/" + main + "..." + main + "?per_page=1&page=1")] = {
+                    "status": "identical", "ahead_by": 0,
+                    "base_commit": {"sha": main}, "commits": [],
+                }
+        result = self.work(edit)
+        self.assertEqual(len(result["lanes"]), 2)
+        self.assertTrue(all(row["last_continuation_run_head_sha"] in
+                            ("a"*40, "c"*40) for row in result["lanes"]))
+
+    def test_divergent_launcher_source_fails_closed(self):
+        def edit(c, s, api):
+            repo = m.LANES[1][1]
+            main = api[(repo, "/git/ref/heads/main")]["object"]["sha"]
+            bad = "f" * 40
+            api[(repo, "/actions/runs/38800000100")]["head_sha"] = bad
+            api[(repo, "/git/commits/" + main)] = {
+                "sha": main, "parents": [{"sha": "1" * 40}],
+            }
+            api[(repo, "/git/commits/" + ("1" * 40))] = {
+                "sha": "1" * 40, "parents": [],
+            }
+        with self.assertRaises(m.Denied):
+            self.work(edit)
+
+    def test_forged_current_owner_or_wrong_research_scope_is_denied(self):
+        for key, value in [
+            ("enabled", False), ("authority", "cloudflare-firstuse-authority"),
+            ("mode", "FORGE-research-owner"), ("ckb_plane_role", "science-controller"),
+            ("program", "Yggdrasil"), ("schema", "untrusted"),
+        ]:
+            def edit(c, s, r, key=key, value=value):
+                c[m.LANES[0][1]][key] = value
+            with self.subTest(key=key), self.assertRaises(m.Denied):
+                self.work(edit)
+
+    def test_state_claim_cannot_skip_owner_or_history(self):
+        for field, value in [
+            ("authority", "owner-signed"), ("north_star_sha256", "f"*64),
+            ("active_branch", "research/fake"), ("program", "Wingless"),
+        ]:
+            def edit(c, s, r, field=field, value=value):
+                s[m.LANES[1][1]][field] = value
+            with self.subTest(field=field), self.assertRaises(m.Denied):
+                self.work(edit)
+
+    def test_unrecognized_egress_route_denied(self):
+        with self.assertRaises(m.Denied):
+            m.get("attacker/foreign", "/git/ref/heads/main")
+        with self.assertRaises(m.Denied):
+            m.get(m.LANES[0][1], "/../secret")
+        self.assertTrue(m.safe_api_path("/compare/" + "a"*40 + "..." + "b"*40))
+        self.assertFalse(m.safe_api_path("/branches/../secret"))
+        self.assertFalse(m.safe_api_path("/branches/./main"))
+
+
+if __name__ == "__main__":
+    unittest.main()
