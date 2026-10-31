@@ -1,0 +1,18 @@
+# ACC-G101 — Cross-layer residual forecast with low-rank corrections: frozen pre-screen
+
+**Status:** preregistered **before source, tests or observations**. Exploratory synthetic CPU mechanism in FORGE G91–G106 draft PR #1329; independent of GPT-2 CPU track and actual TinyLlama/GPU qualification. Frozen FORGE main baseline `0810ecf3df6378bcbfe5239d30df836b7e12a602`. No admission, model editing, production execution, new controller or paid API.
+
+## Causal mechanism
+
+Consider a 12-layer residual network `x_{l+1}=x_l+tanh(W_l@x_l)`. Let even layers calculate their residual exactly, including `z_l=W_l@x_l`. For the immediately following odd layer, forecast its preactivation as `z_(l+1)=z_l + (W_(l+1)-W_l)_rank @ x_(l+1)`, where the correction is an **offline truncated SVD** of the *weight difference* at rank `r`. This intentionally **omits** `W_l@(x_(l+1)-x_l)`: that uncharged missing term is a falsifiable source of compounded error. An exact even layer always follows a forecasted odd layer; there is **no use of baseline state, true odd logits or future target** inside candidate evaluation. A forecaster must charge every correction multiply and activation, not claim a skipped layer is free.
+
+## Frozen workloads and controls
+
+- Float64 single-thread NumPy, `D=128`, `L=12`, `r∈{8,16}`, seeds `[10101,10102,10103]`, 8 independent `N(0,1)` inputs per seed/regime. Independent weight matrices in **negative regime `iid`** from `N(0, 0.025)`, each of shape 128×128; six independently sampled even matrices and six independently sampled odd matrices, all ordinary independent weights.
+- **Favorable regime `paired_correlated`:** the six even matrices are `N(0,0.025)`; each odd matrix equals its preceding even matrix **plus independent** `N(0,0.00025)` Gaussian elementwise perturbation. This structure is manufactured for the experiment, not measured in a transformer.
+- Fit the six rank-r SVD corrections using only each frozen pair's weight difference before any query inference; record all setup times. Both models share identical W matrices and initial inputs. The baseline computes all 12 dense matvecs; candidate computes six even dense matvecs plus six rank-r correction two-stage matvecs and nonlinearities, propagating every approximated state to the next layer. No layer-wise teacher forcing.
+- Exactly **3 seeds × 2 regimes × 2 ranks × 8 inputs = 96** paired cases. Warm both arms once, then use **7 alternating paired wall-time trials** per case, charge the entire forward pass. Record original/final output, relative L2 and max-abs errors, speedup, exact dense matvec count, rank correction count, setup time and source/regime.
+- **NO-GO** unless **one fixed rank** has every one of its 48 cases `relative_L2 <= 1e-3` and median dense/candidate speedup **>=1.15× separately in both regimes**. All arithmetic finite; no missing cases or favorable-only admission. Candidate that happens to run fast but compounds error fails. This is a research triage cutoff, not a change to any accepted project qualification threshold.
+- True model claims would require genuine transformer activations, distinct cache/storage accounting, residual architecture fidelity, authentic FP16/FP32 and GPU end-to-end latency, held-out generation accuracy, first-use provenance and separately authorized final scientific qualification. This exploratory residual proxy **cannot demonstrate an actual GPU improvement**.
+
+Retain all negative data with source, OS, job SHA and immutable case JSON in the repository. Any changed cutoff, algorithmic workload or rank is a **new versioned screen**, not a retroactive amendment.
