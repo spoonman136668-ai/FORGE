@@ -44,6 +44,37 @@ jobs:
           Write-Host 'F139_LOCAL_SQLITE_AND_RESTART_PROOF=PASS'
           Write-Host 'F139_CLOUDFLARE_CONTROLLER=ABSENT'
           Write-Host 'F139_SCIENTIFIC_ORIGINALS=ZERO'
+      # G113F source-only qualification: compile but DO NOT invoke the standalone
+      # one-shot native Job Object probe. No Job Object or process is created.
+      - name: RAR-G113F native Windows C# compile only (no execution)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $probeSource = (Resolve-Path 'f139/RARG113FOneShotWindowsJob.cs').Path
+          Add-Type -Path $probeSource -ErrorAction Stop
+          $entry = [RARG113FOneShotWindowsJob].GetMethod('Main')
+          if ($null -eq $entry -or -not $entry.IsStatic) {
+            throw 'RAR_G113F_NATIVE_COMPILE_ENTRY_INVALID'
+          }
+          # Test bounded exception classification by reflection, never call Main/Probe.
+          $flags = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+          $bounded = [RARG113FOneShotWindowsJob].GetMethod('BoundedFailureMarker', $flags)
+          if ($null -eq $bounded) { throw 'RAR_G113H_NO_BOUNDED_MARKER_METHOD' }
+          $known = [System.InvalidOperationException]::new('RAR_G113F_NOT_SINGLE_PROCESS_QUIESCENT')
+          $win32 = [System.ComponentModel.Win32Exception]::new(5, 'RAR_G113F_ASSIGN_BEFORE_RESUME_DENIED')
+          $untrusted = [System.InvalidOperationException]::new('UNTRUSTED_DETAILS_MUST_NOT_LEAK')
+          $otherType = [System.ArgumentException]::new('RAR_G113F_NOT_SINGLE_PROCESS_QUIESCENT')
+          if ($bounded.Invoke($null, [object[]]@($known)) -ne 'RAR_G113F_NOT_SINGLE_PROCESS_QUIESCENT' -or
+              $bounded.Invoke($null, [object[]]@($win32)) -ne 'RAR_G113F_ASSIGN_BEFORE_RESUME_DENIED' -or
+              $bounded.Invoke($null, [object[]]@($untrusted)) -ne 'RAR_G113F_UNCLASSIFIED_NATIVE_FAILURE' -or
+              $bounded.Invoke($null, [object[]]@($otherType)) -ne 'RAR_G113F_UNKNOWN_NATIVE_FAILURE') {
+            throw 'RAR_G113H_BOUNDED_MARKER_NEGATIVE_FAILED'
+          }
+          Write-Host 'RAR_G113H_BOUNDED_NATIVE_ERROR_CLASSIFICATION=PASS_NO_NATIVE_EXECUTION'
+          Write-Host 'RAR_G113F_NATIVE_WINDOWS_CSHARP_COMPILE_ONLY=PASS'
+          Write-Host 'RAR_G113F_ONE_SHOT_NATIVE_EXECUTION=NOT_PERFORMED'
       - name: Verify native Windows PowerShell 5.1 strict-mode dry run
         if: runner.os == 'Windows'
         shell: powershell

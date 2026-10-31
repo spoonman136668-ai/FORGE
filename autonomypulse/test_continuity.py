@@ -92,6 +92,7 @@ class ContinuityTests(unittest.TestCase):
                           ("reason","QUALIFICATION_SOURCE_DRIFT"),
                           ("reason","API_ORIGIN_UNAVAILABLE"),
                           ("reason","SCHEDULE_CADENCE_OR_FRESHNESS_UNVERIFIED"),
+                          ("reason","SCHEDULE_CLOCK_FUTURE_UNVERIFIED"),
                           ("reason","SOURCE_BLOB_UNVERIFIED"),
                           ("science_dispatches",1),
                           ("scientific_first_use_authorized",True),
@@ -103,6 +104,36 @@ class ContinuityTests(unittest.TestCase):
         for invalid in (dict(bad,extra_key=123),{"schema":c.SCHEMA},None,[]):
             with self.assertRaises(c.EvidenceError):
                 c.acknowledge_previous_failed_observation(invalid)
+
+    def test_stale_prior_success_only_acknowledged_as_unqualified_negative(self):
+        # A delayed real schedule can observe an expired prior success.
+        # Its own current observation is not a continuity witness.
+        stale_now = datetime(2026, 10, 17, 5, 0, tzinfo=timezone.utc)
+        with self.assertRaisesRegex(c.EvidenceError,
+                                    "PREVIOUS_SUCCESS_TOO_OLD_FOR_CONTINUITY"):
+            c.report(FakeAPI(), stale_now, CURRENT)
+        negative = {"schema": c.SCHEMA, "qualified": False,
+                    "status": "QUARANTINED_UNVERIFIED",
+                    "reason": "PREVIOUS_SUCCESS_TOO_OLD_FOR_CONTINUITY",
+                    "science_dispatches": 0,
+                    "scientific_first_use_authorized": False,
+                    "ckb_plane_accessed": False}
+        self.assertEqual(c.acknowledge_previous_failed_observation(negative),
+                         "HISTORICAL_SUPERVISION_FAILURE_ACKNOWLEDGED_NO_CONTINUITY_OR_SCIENCE")
+        for change in ({"qualified": True}, {"science_dispatches": 1},
+                       {"reason": "SCHEDULE_CADENCE_OR_FRESHNESS_UNVERIFIED"},
+                       {"reason": "SCHEDULE_CLOCK_FUTURE_UNVERIFIED"},
+                       {"reason": "QUALIFICATION_SOURCE_DRIFT"}):
+            with self.assertRaises(c.EvidenceError):
+                c.acknowledge_previous_failed_observation(dict(negative, **change))
+
+    def test_future_previous_success_never_uses_stale_acknowledgement(self):
+        a = FakeAPI()
+        path = "/actions/workflows/198001/runs?event=schedule&per_page=25"
+        a.items[path]["workflow_runs"][0]["updated_at"] = "2026-10-17T00:00:00Z"
+        with self.assertRaisesRegex(c.EvidenceError,
+                                    "SCHEDULE_CLOCK_FUTURE_UNVERIFIED"):
+            c.report(a, NOW, CURRENT)
 
     def test_historical_failed_attempt_remains_negative_even_with_new_markers(self):
         a=FakeAPI()
