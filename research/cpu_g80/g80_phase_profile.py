@@ -48,7 +48,7 @@ def rank_original(records,n):
         if q in seen:continue
         seen.add(q)
         chosen.append({"source_row":row,"instruction":q,"category":cat,
-            "question_sha256":hashlib.sha256(q.encode()).hexdigest(),"rank_sha256":digest})
+            "instruction_sha256":hashlib.sha256(q.encode()).hexdigest(),"rank_sha256":digest})
         if len(chosen)==n:break
     if len(chosen)!=n:raise RuntimeError("G80_INSUFFICIENT_ORIGINAL_HELDOUT")
     return chosen
