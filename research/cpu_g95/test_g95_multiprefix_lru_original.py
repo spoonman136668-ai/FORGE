@@ -43,4 +43,8 @@ class G95Tests(unittest.TestCase):
   self.assertIn('"promotion_allowed":False',source)
   self.assertIn("copy.deepcopy(entry[\"past\"])",source)
   self.assertIn("G95_RESIDENT_KV_MUTATED",source)
+  self.assertIn("torch.set_num_threads(2)",source)
+  self.assertIn("torch.set_num_interop_threads(1)",source)
+  self.assertIn("torch.get_num_threads()!=2",source)
+  self.assertIn("torch.get_num_interop_threads()!=1",source)
 if __name__=="__main__":unittest.main()
