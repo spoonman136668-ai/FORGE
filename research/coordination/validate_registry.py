@@ -6,6 +6,16 @@ from pathlib import Path
 
 SCHEMA = "forge.unified-research-coordination.v1"
 CANONICAL = {"wingless", "yggdrasil", "bio", "optimizer", "mass-research", "language-research"}
+# Original RSH-01 source custody: six independently owned evidence lanes.
+# A trusted repository is not interchangeable with another trusted owner.
+CANONICAL_OWNERS = {
+    "wingless": ("spoonman136668-ai/Wingless", "native"),
+    "yggdrasil": ("spoonman136668-ai/Yggdrasil", "native"),
+    "bio": ("spoonman136668-ai/FORGE", "support"),
+    "optimizer": ("spoonman136668-ai/FORGE", "support"),
+    "mass-research": ("spoonman136668-ai/FORGE", "support"),
+    "language-research": ("spoonman136668-ai/FORGE", "support"),
+}
 GATES = {"owner-continuity", "research-handoff", "evidence-routing", "unattended-cycles", "science-and-owner-signoff"}
 FALSE_CAPABILITIES = {"execute", "dispatch", "scientific_accept", "first_use", "promote", "deploy",
                       "modify_controller", "create_scheduler", "modify_queues"}
@@ -86,6 +96,11 @@ def validate(raw):
                                            "spoonman136668-ai/Wingless",
                                            "spoonman136668-ai/Yggdrasil"):
             raise Invalid("untrusted custodian")
+        if ident in CANONICAL_OWNERS:
+            # Do not silently move a canonical source owner or reclassify
+            # an independent native architecture as a support science lane.
+            if (track["custodian_repo"], track["scope"]) != CANONICAL_OWNERS[ident]:
+                raise Invalid("original scientific lane owner or scope drift")
         if track["evidence_route"] != ("EXISTING_SIX_LANE" if ident in CANONICAL else "SEPARATE_ADVISORY"):
             raise Invalid("unqualified evidence-route expansion")
         if track["source_status"] != "POINTER_ONLY" or track["scientific_status"] != "UNVERIFIED":
@@ -93,6 +108,11 @@ def validate(raw):
         pointer = track["source_pointer"]
         if not isinstance(pointer, str) or not URL.fullmatch(pointer):
             raise Invalid("untrusted source pointer")
+        # Require the referenced GitHub repository to match declared custody
+        # even for advisory-only added tracks. This does not authenticate
+        # the PR, original source bytes, or permission to use them.
+        if not pointer.startswith("https://github.com/" + track["custodian_repo"] + "/"):
+            raise Invalid("source pointer crosses declared custodian")
         if "/blob/" in pointer:
             # GitHub URLs with traversal, dot segments or repeated separators
             # are ambiguous provenance even when the repository is allowlisted.
