@@ -1,0 +1,155 @@
+"""Offline H5 chat-handoff completeness checks; never converts history into authority."""
+import json
+import re
+import sys
+from pathlib import Path
+
+from validate_registry import Invalid, _unique_object_pairs
+
+HANDOFF_SCHEMA = "forge.research-chat-handoff.v1"
+MANDATORY = {"native-intelligence", "n-research", "e-research", "replay-acceleration",
+             "llm-acceleration", "independent-science", "bio-research", "optimizer-research", "language-research",
+             "mass-research", "forge-operations"}
+RETIREMENT = {"owner-continuity", "research-handoff", "evidence-routing",
+              "unattended-cycles", "science-and-owner-signoff"}
+ID = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
+SHA = re.compile(r"^[0-9a-f]{40}$")
+URL = re.compile(r"^https://github\.com/spoonman136668-ai/(FORGE|Wingless|Yggdrasil)/pull/([1-9][0-9]*)$")
+
+# Historical source witnesses, not mutable live heads or scientific authority.
+# Future proposals may append pointers, never delete original work custody.
+FROZEN_HANDOFF_ANCHORS = {
+    "native-intelligence": {
+        ("https://github.com/spoonman136668-ai/Wingless/pull/438", "ac433699db5e66db798836d10c7dc0488f57ae3c"),
+        ("https://github.com/spoonman136668-ai/Yggdrasil/pull/709", "bc7549dba7d657c6bcb2bd5a4a507a76b3249ad4"),
+    },
+    "n-research": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1254", "f8ced1a48740bcb22a352b47b3c4c00c05f6ec40"),
+    },
+    "e-research": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1194", "0dda935539cd308ace215d59c4e6dfd9d5c866bb"),
+    },
+    "replay-acceleration": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1228", "ce0d4f58178423c3429d605ab138a4f4055b8d8b"),
+    },
+    "llm-acceleration": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1261", "e6cac6b2eb7438d1331bae2ef0dd42f1316cb059"),
+    },
+    "independent-science": {
+        ("https://github.com/spoonman136668-ai/FORGE/pull/1254", "f8ced1a48740bcb22a352b47b3c4c00c05f6ec40"),
+    },
+}
+
+def _keys(obj, keys):
+    if not isinstance(obj, dict) or set(obj) != set(keys):
+        raise Invalid("H5_BAD_KEYS")
+
+def _bounded(value):
+    if not isinstance(value, str) or not value.strip() or len(value) > 700 or any(x in value for x in "\r\n\x00"):
+        raise Invalid("H5_BAD_TEXT")
+
+def validate_handoff(raw):
+    if not isinstance(raw, bytes) or len(raw) < 2 or len(raw) > 65536:
+        raise Invalid("H5_BAD_LENGTH")
+    try:
+        obj = json.loads(raw, object_pairs_hook=_unique_object_pairs)
+    except (ValueError, UnicodeDecodeError) as e:
+        raise Invalid("H5_BAD_JSON") from e
+    _keys(obj, {"schema","observed_on","snapshot_forge_main","advisory_only",
+                "execution_authorized","chat_retirement_ready","inventory_completeness",
+                "protected_boundaries","workstreams","retirement_gates"})
+    if obj["schema"] != HANDOFF_SCHEMA or obj["observed_on"] != "2026-10-30":
+        raise Invalid("H5_UNKNOWN_SCHEMA_OR_SNAPSHOT")
+    if not isinstance(obj["snapshot_forge_main"], str) or not SHA.fullmatch(obj["snapshot_forge_main"]):
+        raise Invalid("H5_UNPINNED_MAIN")
+    if obj["advisory_only"] is not True or obj["execution_authorized"] is not False or obj["chat_retirement_ready"] is not False or obj["inventory_completeness"] != "UNVERIFIED":
+        raise Invalid("H5_FORBIDDEN_AUTHORITY_OR_RETIREMENT")
+    boundaries = obj["protected_boundaries"]
+    if not isinstance(boundaries, list) or not 6 <= len(boundaries) <= 20:
+        raise Invalid("H5_BOUNDARY_COUNT")
+    for x in boundaries: _bounded(x)
+    rows=obj["workstreams"]
+    if not isinstance(rows, list) or not 11 <= len(rows) <= 40:
+        raise Invalid("H5_MISSING_WORKSTREAMS")
+    seen=set()
+    for row in rows:
+        _keys(row, {"id","source_owner","oversight","separate_scientific_lineage",
+                    "source_pointers","unverified_handoff","handoff_status"})
+        ident=row["id"]
+        if not isinstance(ident,str) or not ID.fullmatch(ident) or ident in seen:
+            raise Invalid("H5_DUPLICATE_OR_INVALID_ID")
+        seen.add(ident)
+        _bounded(row["source_owner"])
+        _bounded(row["unverified_handoff"])
+        if row["oversight"] != ("forge-operations" if ident=="forge-operations" else "unified-research"):
+            raise Invalid("H5_WRONG_OVERSIGHT")
+        if row["separate_scientific_lineage"] is not True or row["handoff_status"] != "UNVERIFIED":
+            raise Invalid("H5_CROSS_LANE_OR_FABRICATED_PASS")
+        pointers=row["source_pointers"]
+        if not isinstance(pointers, list) or len(pointers) > 10:
+            raise Invalid("H5_UNBOUNDED_POINTERS")
+        for ref in pointers:
+            _keys(ref, {"url","sha","claim"})
+            if (not isinstance(ref["url"],str) or not URL.fullmatch(ref["url"]) or
+                not isinstance(ref["sha"],str) or not SHA.fullmatch(ref["sha"]) or
+                ref["claim"] != "SOURCE_POINTER_ONLY"):
+                raise Invalid("H5_BAD_SOURCE_POINTER")
+        # Within one lane, two SHA claims for the same PR or a duplicated
+        # original pointer corrupt the inventory. Cross-lane reuse (e.g.
+        # N Research and independent science) is deliberately permitted.
+        if len({ref["url"] for ref in pointers}) != len(pointers):
+            raise Invalid("H60_DUPLICATE_OR_CONFLICTING_LANE_SOURCE")
+        if ident in FROZEN_HANDOFF_ANCHORS:
+            original = FROZEN_HANDOFF_ANCHORS[ident]
+            observed = {(ref["url"], ref["sha"]) for ref in pointers}
+            if not original.issubset(observed):
+                raise Invalid("H60_HISTORICAL_WORKSTREAM_SOURCE_LOSS_OR_SUBSTITUTION")
+        if ident=="forge-operations" and not pointers:
+            raise Invalid("H5_ORIGINAL_OWNER_WITNESS_MISSING")
+        if ident=="forge-operations":
+            # H28: immutable *source pointers*, not proof of model authorship,
+            # original SQLite custody or permission to retire research chats.
+            required_owner = {
+                ("https://github.com/spoonman136668-ai/FORGE/pull/1264", "c2469e2844a9e99ad9cd273898c3113d06468251"),
+                ("https://github.com/spoonman136668-ai/Yggdrasil/pull/703", "ddee0d82a1e37038304fb862ac725240142c840f"),
+                ("https://github.com/spoonman136668-ai/Yggdrasil/pull/715", "356d9a7c9a5e58eab85589d5de31650cbf60cb03"),
+            }
+            observed_owner = {(ref["url"], ref["sha"]) for ref in pointers}
+            if observed_owner != required_owner or len(pointers) != len(required_owner):
+                raise Invalid("H28_OWNER_SOURCE_POINTER_LOSS_SUBSTITUTION_OR_DUPLICATION")
+        if ident=="mass-research" and not any(
+            ref["url"] == "https://github.com/spoonman136668-ai/Yggdrasil/pull/423"
+            and ref["sha"] == "d31c8d00ccc2bb00f098b87097610329637a37f6"
+            for ref in pointers
+        ):
+            raise Invalid("H13_MASS_SYMBOLIC_SOURCE_WITNESS_MISSING")
+        if ident=="language-research":
+            required_language = {
+                ("https://github.com/spoonman136668-ai/FORGE/pull/820", "d15ce497843244894642735ee218a185bb87c1e4"),
+                ("https://github.com/spoonman136668-ai/FORGE/pull/945", "407004e7b962c2baac45bd2ed8c6c1c14868d647"),
+            }
+            observed_language = {(ref["url"], ref["sha"]) for ref in pointers}
+            if observed_language != required_language or len(pointers) != len(required_language):
+                raise Invalid("H17_LANGUAGE_SOURCE_WITNESS_MISSING_OR_SUBSTITUTED")
+    if not MANDATORY.issubset(seen):
+        raise Invalid("H5_REQUIRED_INDEPENDENT_WORKSTREAM_MISSING")
+    if not isinstance(obj["retirement_gates"], list) or set(obj["retirement_gates"]) != RETIREMENT or len(obj["retirement_gates"]) != len(RETIREMENT):
+        raise Invalid("H5_RETIREMENT_GATES_DRIFT")
+    return {"handoff_index_valid":True,"retirement_ready":False,"workstreams":len(rows),
+            "reason":"No signed original-owner or research custody transfer from advisory evidence"}
+
+def main(argv=None):
+    args=sys.argv[1:] if argv is None else argv
+    if len(args)!=1:
+        print("Usage: validate_handoff.py handoff.v1.json",file=sys.stderr)
+        return 2
+    try:
+        result=validate_handoff(Path(args[0]).read_bytes())
+    except (OSError,Invalid) as e:
+        print("INVALID_HANDOFF: "+str(e),file=sys.stderr)
+        return 1
+    print(json.dumps(result,sort_keys=True))
+    return 0
+
+if __name__=="__main__":
+    sys.exit(main())
