@@ -3,7 +3,7 @@ import sys
 import time
 import unittest
 from collections import defaultdict
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from functools import wraps
 from unittest.mock import patch
 
@@ -11,6 +11,8 @@ from f139.local_controller import Database
 
 
 class TimingResult(unittest.TextTestResult):
+    current_test_id = None
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.durations = []
@@ -19,6 +21,7 @@ class TimingResult(unittest.TextTestResult):
         self._original_setup = None
 
     def startTest(self, test):
+        TimingResult.current_test_id = test.id()
         self._began = time.perf_counter()
         # Instrument only this unittest instance; preserve fixture ownership,
         # call count, exceptions, cleanup and the original test ordering.
@@ -41,6 +44,7 @@ class TimingResult(unittest.TextTestResult):
                 self.durations.append((time.perf_counter() - self._began, test.id()))
                 self._began = None
         finally:
+            TimingResult.current_test_id = None
             if self._original_setup is not None:
                 test.setUp = self._original_setup
                 self._original_setup = None
@@ -63,6 +67,8 @@ class DatabasePhaseTiming:
     def enter(self, stack):
         initialize = Database.initialize
         verify = Database.verify
+        transaction = Database.transaction
+        event = Database.event
 
         @wraps(initialize)
         def measured_initialize(cls, *args, **kwargs):
@@ -80,8 +86,30 @@ class DatabasePhaseTiming:
             finally:
                 self.samples["verify"].append(time.perf_counter() - start)
 
+        @contextmanager
+        @wraps(transaction)
+        def measured_transaction(db, *args, **kwargs):
+            start = time.perf_counter()
+            try:
+                with transaction(db, *args, **kwargs) as conn:
+                    yield conn
+            finally:
+                self.samples["transaction"].append(
+                    (time.perf_counter() - start, TimingResult.current_test_id))
+
+        @wraps(event)
+        def measured_event(db, *args, **kwargs):
+            start = time.perf_counter()
+            try:
+                return event(db, *args, **kwargs)
+            finally:
+                self.samples["event"].append(
+                    (time.perf_counter() - start, TimingResult.current_test_id))
+
         stack.enter_context(patch.object(Database, "initialize", classmethod(measured_initialize)))
         stack.enter_context(patch.object(Database, "verify", measured_verify))
+        stack.enter_context(patch.object(Database, "transaction", measured_transaction))
+        stack.enter_context(patch.object(Database, "event", measured_event))
 
 
 def main():
@@ -115,6 +143,25 @@ def main():
             f"F139_TIMING_DB_{name.upper()}=count={len(samples)} "
             f"total={sum(samples):.3f}s", file=sys.stderr,
         )
+    for name in ("transaction", "event"):
+        samples = phases.samples[name]
+        valid = [(seconds, test_id) for seconds, test_id in samples if test_id]
+        by_module_phase = defaultdict(list)
+        for seconds, test_id in valid:
+            by_module_phase[test_id.rsplit(".", 2)[0]].append(seconds)
+        print(
+            f"F139_TIMING_DB_{name.upper()}_COUNT={len(samples)} "
+            f"TOTAL={sum(seconds for seconds, _ in samples):.3f}s",
+            file=sys.stderr,
+        )
+        for rank, (module, values) in enumerate(
+            sorted(by_module_phase.items(), key=lambda item: (-sum(item[1]), item[0]))[:15], 1
+        ):
+            print(
+                f"F139_TIMING_DB_{name.upper()}_MODULE_{rank:02d}="
+                f"count={len(values)} total={sum(values):.3f}s module={module}",
+                file=sys.stderr,
+            )
     # Initialize may internally verify; phase totals are not additive.
     for rank, (module, samples) in enumerate(
         sorted(setup_by_module.items(), key=lambda item: (-sum(item[1]), item[0])), 1
