@@ -1,0 +1,123 @@
+name: FORGE CPU LLM Evaluation G84 authentic Windows GPT2 Shakespeare replication
+on:
+  push:
+    branches: [research/cpu-llm-g84-windows-shakespeare-20261031]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g84-windows-original-model.yml'
+      - 'research/cpu_g84/**'
+permissions:
+  contents: write
+concurrency:
+  group: forge-cpu-llm-g84-windows-original-model
+  cancel-in-progress: false
+jobs:
+  frozen-source-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact G70 base, prereg-before-source, source blobs and untouched baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          PREREG=d914a0e2fcb0653a167158489bf89b3e5bce5af4
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git merge-base --is-ancestor "$PREREG" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-PREREG-20261031.md)" = "1ff4853c3e577becf8bbdff723fd6f7b9a71373d"
+          test "$(git rev-parse HEAD:research/cpu_g84/g84_shakespeare_windows.py)" = "d77b85f25478affb238d8d579c50b2a3c751f829"
+          test "$(git rev-parse HEAD:research/cpu_g84/test_g84_shakespeare_windows.py)" = "f346b269309f579f3b59affc5b20af83a4b9d270"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          python -B -m py_compile research/cpu_g84/g84_shakespeare_windows.py research/cpu_g84/test_g84_shakespeare_windows.py
+          python -B -m unittest discover -s research/cpu_g84 -p 'test_g84_shakespeare_windows.py' -v
+          echo CPU_G84_WINDOWS_FROZEN_SOURCE_ADMISSION=PASS
+  windows-original-model:
+    needs: frozen-source-admission
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify branch source and frozen contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'G84_CHECKOUT_SHA_MISMATCH' }
+          if ((git rev-parse 'HEAD:research/cpu_g84/g84_shakespeare_windows.py') -ne 'd77b85f25478affb238d8d579c50b2a3c751f829') { throw 'G84_SOURCE_BLOB_MISMATCH' }
+          if ((git rev-parse 'HEAD:docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-PREREG-20261031.md') -ne '1ff4853c3e577becf8bbdff723fd6f7b9a71373d') { throw 'G84_PREREG_BLOB_MISMATCH' }
+          python -B -m py_compile research/cpu_g84/g84_shakespeare_windows.py research/cpu_g84/test_g84_shakespeare_windows.py
+          python -B -m unittest discover -s research/cpu_g84 -p 'test_g84_shakespeare_windows.py' -v
+      - name: Install pinned CPU-only original-model runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          if ($LASTEXITCODE -ne 0) { throw 'G84_TORCH_CPU_INSTALL_FAILED' }
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          if ($LASTEXITCODE -ne 0) { throw 'G84_PINNED_RUNTIME_INSTALL_FAILED' }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'G84_PIP_CHECK_FAILED' }
+          python -m pip freeze | Out-File -Encoding utf8 cpu_g84_windows_environment.txt
+      - name: Run original GPT2 full-decode Windows benchmark
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw 'G84_NOT_NATIVE_WINDOWS' }
+          python research/cpu_g84/g84_shakespeare_windows.py
+          if ($LASTEXITCODE -ne 0) { throw 'G84_ORIGINAL_MODEL_BENCHMARK_FAILED' }
+          $r = Get-Content cpu_g84_windows_result.json -Raw | ConvertFrom-Json
+          if ($r.gate -ne 'CPU_G84' -or $r.engineering -ne 'PASS' -or $r.correctness -ne 'PASS') { throw 'G84_ENGINEERING_OR_CORRECTNESS_NOT_PASS' }
+          if ($r.summary.timed_authentic_responses -ne 180 -or $r.summary.timed_authentic_generated_tokens -ne 1440) { throw 'G84_TRIAL_OR_TOKEN_COUNT_MISMATCH' }
+          if ($r.original_paired_trials.Count -ne 60) { throw 'G84_PAIRED_TRIAL_COUNT_MISMATCH' }
+          if ($r.transfer -notin @('TRANSFER_PASS','TRANSFER_FAIL')) { throw 'G84_FROZEN_TRANSFER_DECISION_MISSING' }
+          if ($r.preregistration_commit -ne 'd914a0e2fcb0653a167158489bf89b3e5bce5af4') { throw 'G84_PREREG_IDENTITY_MISMATCH' }
+          Write-Host "G84_WINDOWS_ORIGINAL_MODEL=$($r.transfer)"
+      - name: Upload original raw result and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g84-windows-original-shakespeare
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g84_windows_result.json
+            cpu_g84_windows_environment.txt
+      - name: Persist immutable original result in repository
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!(Test-Path cpu_g84_windows_result.json)) { throw 'G84_RESULT_FILE_NOT_CREATED' }
+          if (!(Test-Path cpu_g84_windows_environment.txt)) { 'ENVIRONMENT_INSTALL_DID_NOT_COMPLETE' | Out-File -Encoding utf8 cpu_g84_windows_environment.txt }
+          $dest = 'docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json'
+          Copy-Item cpu_g84_windows_result.json $dest -Force
+          $envDest = 'docs/research/CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ENVIRONMENT-20261031.txt'
+          Copy-Item cpu_g84_windows_environment.txt $envDest -Force
+          $digest = (Get-FileHash -Algorithm SHA256 $dest).Hash.ToLowerInvariant()
+          "$digest  CPU-G84-GPT2-WINDOWS-SHAKESPEARE-ORIGINAL-RESULT-20261031.json" | Out-File -Encoding ascii "$dest.sha256"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $dest $envDest "$dest.sha256"
+          git commit -m 'research(CPU G84): preserve original Windows benchmark receipt'
+          if ($LASTEXITCODE -ne 0) { throw 'G84_RECEIPT_GIT_COMMIT_FAILED' }
+          git push origin HEAD:research/cpu-llm-g84-windows-shakespeare-20261031
+          if ($LASTEXITCODE -ne 0) { throw 'G84_RECEIPT_PUSH_FAILED' }
