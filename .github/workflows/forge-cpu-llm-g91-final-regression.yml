@@ -1,0 +1,140 @@
+name: FORGE CPU LLM Evaluation G91 archived receipt Linux Windows final qualification
+
+on:
+  push:
+    branches: [research/cpu-llm-g91-length-bucket-batching-gpt2-20261031]
+    paths:
+      - 'docs/research/CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-ARTIFACT-RECEIPT-20261031.json'
+      - 'docs/research/CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-FINAL-QUALIFICATION-TRIGGER-20261031.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-cpu-llm-g91-archived-receipt-regression
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify immutable G91 receipt and source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:docs/research/CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-PREREG-20261031.md)" = "401a976855c560f870c66b7e99eb1941045ec1a8"
+          test "$(git rev-parse HEAD:research/cpu_g91/g91_length_bucket_original.py)" = "f6e81a62e96539a805ef418d27c8bd945abfa301"
+          test "$(git rev-parse HEAD:research/cpu_g91/test_g91_length_bucket_original.py)" = "7161ffc0db917e3f6e190652e08c60247d714bdc"
+          test "$(git rev-parse HEAD:docs/research/CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-ARTIFACT-RECEIPT-20261031.json)" = "257a257d6b5128262a810d91079625ade90c7aec"
+          python - <<'PY'
+          import json
+          p="docs/research/CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-ARTIFACT-RECEIPT-20261031.json"
+          r=json.load(open(p,encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g91.archive-receipt.v1"
+          assert r["execution"]["workflow_run_id"]==41218237089
+          assert r["execution"]["artifact_id"]==13049236298
+          assert r["execution"]["artifact_zip_sha256"]=="964d5ea6fe8e84dc4403e547f6c78af0f52cd2a57b283913e54135efddeecba2"
+          assert r["execution"]["artifact_result_json_sha256"]=="3a55a6f5702165fc9473ec20b6bb8a1f2afdd4491d3cbf1187529f93fa727f0e"
+          assert r["results"]["engineering"]=="PASS" and r["results"]["correctness"]=="PASS"
+          assert r["results"]["decision"]=="LENGTH_BUCKET_NO_GO"
+          assert r["results"]["timed_authentic_responses"]==240
+          assert r["results"]["timed_authentic_generated_tokens"]==1920
+          assert r["results"]["qualification"][1]["throughput_speedup"]<1.20
+          assert r["design"]["scientific_acceptance"]=="NOT_GRANTED" and r["design"]["promotion_allowed"] is False
+          print("G91_ARCHIVED_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g91/g91_length_bucket_original.py research/cpu_g91/test_g91_length_bucket_original.py
+          python -B -m unittest discover -s research/cpu_g91 -p 'test_g91_length_bucket_original.py' -v
+      - name: FORGE isolation and authority regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 controller and native custody regression
+        shell: bash
+        run: python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify immutable G91 receipt and source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:docs/research/CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-PREREG-20261031.md)" = "401a976855c560f870c66b7e99eb1941045ec1a8"
+          test "$(git rev-parse HEAD:research/cpu_g91/g91_length_bucket_original.py)" = "f6e81a62e96539a805ef418d27c8bd945abfa301"
+          test "$(git rev-parse HEAD:research/cpu_g91/test_g91_length_bucket_original.py)" = "7161ffc0db917e3f6e190652e08c60247d714bdc"
+          test "$(git rev-parse HEAD:docs/research/CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-ARTIFACT-RECEIPT-20261031.json)" = "257a257d6b5128262a810d91079625ade90c7aec"
+          python - <<'PY'
+          import json
+          r=json.load(open("docs/research/CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-ARTIFACT-RECEIPT-20261031.json",encoding="utf-8"))
+          assert r["results"]["decision"]=="LENGTH_BUCKET_NO_GO"
+          assert r["results"]["engineering"]=="PASS" and r["results"]["correctness"]=="PASS"
+          assert r["results"]["timed_authentic_responses"]==240
+          assert r["results"]["timed_authentic_generated_tokens"]==1920
+          print("G91_ARCHIVED_RECEIPT=PASS")
+          PY
+          python -B -m py_compile research/cpu_g91/g91_length_bucket_original.py research/cpu_g91/test_g91_length_bucket_original.py
+          python -B -m unittest discover -s research/cpu_g91 -p 'test_g91_length_bucket_original.py' -v
+      - name: FORGE isolation and authority regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 controller and native custody regression
+        shell: pwsh
+        run: python -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows Go qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go test -race -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_RACE_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }

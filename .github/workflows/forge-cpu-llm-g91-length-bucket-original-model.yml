@@ -1,0 +1,116 @@
+name: FORGE CPU LLM Evaluation G91 original GPT2 length-aware batching screen
+
+on:
+  push:
+    branches: [research/cpu-llm-g91-length-bucket-batching-gpt2-20261031]
+    paths:
+      - '.github/workflows/forge-cpu-llm-g91-length-bucket-original-model.yml'
+      - 'research/cpu_g91/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-cpu-llm-g91-length-aware-batching
+  cancel-in-progress: false
+
+jobs:
+  frozen-source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact G70 baseline, G91 preregistration and source identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=20a540d0241519e2e9d90ace868ffd6db60bd065
+          PREREG=e04dfa901e36892ce6c2eea48bdb2e30ec26918a
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git merge-base --is-ancestor "$PREREG" HEAD
+          test "$(git rev-parse HEAD:docs/research/CPU-G91-GPT2-LENGTH-BUCKET-BATCHING-PREREG-20261031.md)" = "401a976855c560f870c66b7e99eb1941045ec1a8"
+          test "$(git rev-parse HEAD:research/cpu_g91/g91_length_bucket_original.py)" = "f6e81a62e96539a805ef418d27c8bd945abfa301"
+          test "$(git rev-parse HEAD:research/cpu_g91/test_g91_length_bucket_original.py)" = "7161ffc0db917e3f6e190652e08c60247d714bdc"
+          git diff --exit-code "$BASE" HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64 research/llm_g65 research/llm_g66 research/llm_g67 research/llm_g68 research/llm_g70
+          python -B -m py_compile research/cpu_g91/g91_length_bucket_original.py research/cpu_g91/test_g91_length_bucket_original.py
+          python -B -m unittest discover -s research/cpu_g91 -p 'test_g91_length_bucket_original.py' -v
+          echo CPU_G91_FROZEN_SOURCE_ADMISSION=PASS
+
+  original-model-length-bucketing:
+    needs: frozen-source-admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify native CPU host and source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          test "$(git rev-parse HEAD:research/cpu_g91/g91_length_bucket_original.py)" = "f6e81a62e96539a805ef418d27c8bd945abfa301"
+          python -B -m unittest discover -s research/cpu_g91 -p 'test_g91_length_bucket_original.py' -v
+      - name: Install pinned original CPU GPT2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.48.3 huggingface-hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1 psutil==7.1.3
+          python -m pip check
+          python - <<'PY'
+          import torch,transformers
+          assert torch.__version__=="2.5.1+cpu",torch.__version__
+          assert torch.version.cuda is None
+          assert transformers.__version__=="4.48.3",transformers.__version__
+          print("G91_PINNED_ORIGINAL_CPU_RUNTIME=PASS")
+          PY
+          python -m pip freeze > cpu_g91_environment.txt
+          uname -a >> cpu_g91_environment.txt
+          lscpu >> cpu_g91_environment.txt
+      - name: Run length-aware original GPT2 independent request grouping
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/cpu_g91/g91_length_bucket_original.py
+          python - <<'PY'
+          import json
+          r=json.load(open("cpu_g91_original_result.json",encoding="utf-8"))
+          assert r["schema"]=="forge.cpu-llm-g91.authentic-length-bucketing.v1"
+          assert r["gate"]=="CPU_G91"
+          assert r["preregistration_commit"]=="e04dfa901e36892ce6c2eea48bdb2e30ec26918a"
+          assert r["engineering"]=="PASS" and r["correctness"]=="PASS"
+          assert r["summary"]["timed_authentic_responses"]==240
+          assert r["summary"]["timed_authentic_generated_tokens"]==1920
+          assert r["decision"] in ("LENGTH_BUCKET_PASS","LENGTH_BUCKET_NO_GO")
+          assert r["scientific_acceptance"]=="NOT_GRANTED" and not r["promotion_allowed"]
+          print("CPU_G91_ORIGINAL_LENGTH_BUCKET_RESULT="+r["decision"])
+          PY
+      - name: Upload original benchmark and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g91-original-gpt2-length-bucketing
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g91_original_result.json
+            cpu_g91_environment.txt
