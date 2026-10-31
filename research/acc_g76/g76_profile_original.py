@@ -49,6 +49,11 @@ def load_frozen_text(path: Path) -> bytes:
 
 
 def run() -> dict:
+    import torch
+    import transformers
+    from huggingface_hub import snapshot_download
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+
     if torch.__version__ != "2.8.0+cu128" or torch.version.cuda != "12.8":
         raise RuntimeError("G76_TORCH_CUDA_RUNTIME_DRIFT")
     if transformers.__version__ != "4.52.3":
