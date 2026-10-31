@@ -84,8 +84,32 @@ def main():
                     finally:
                         db.close()
                     durations[method].append(time.perf_counter() - started)
-                assert snapshots["original"] == snapshots["experimental"], (
-                    "SCHEMA_OR_META_IDENTITY_MISMATCH")
+                if snapshots["original"] != snapshots["experimental"]:
+                    original_meta, original_ddl = snapshots["original"]
+                    experimental_meta, experimental_ddl = snapshots["experimental"]
+                    meta_names = ("schema", "source_sha", "epoch", "enabled",
+                                  "legacy_suspended", "day", "starts",
+                                  "head_seq", "head_hash")
+                    differences = [
+                        f"meta.{name}: original={left!r} experimental={right!r}"
+                        for name, left, right in zip(
+                            meta_names, original_meta, experimental_meta)
+                            if left != right
+                    ]
+                    if original_ddl != experimental_ddl:
+                        differences.append(
+                            f"ddl.length: original={len(original_ddl)} "
+                            f"experimental={len(experimental_ddl)}")
+                        for index, (left, right) in enumerate(
+                                zip(original_ddl, experimental_ddl)):
+                            if left != right:
+                                differences.append(
+                                    f"ddl.first_difference[{index}]: "
+                                    f"original={left!r} experimental={right!r}")
+                                break
+                    raise AssertionError(
+                        "SCHEMA_OR_META_IDENTITY_MISMATCH: "
+                        + " | ".join(differences[:3]))
                 # No SQLite connection or writable database is shared across trials.
         print(f"F139_G114G_SCHEMA_SHA256={hashlib.sha256(schema_bytes).hexdigest()}")
         print(f"F139_G114G_EQUIVALENT_SNAPSHOTS={args.iterations}")
