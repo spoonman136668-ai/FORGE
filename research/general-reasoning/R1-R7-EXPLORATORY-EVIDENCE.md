@@ -37,7 +37,7 @@ These SHA-256 values describe the conversation-session local artifacts; **the or
 | reasoning_r4.py | 62cd6087f6fa254f0e871d1bedcb4ebb98b78d964b6eba33896a9429111c758c |
 | reasoning_r4_results.json | 20fbfb22136f62cbeb7548dec0ea26d32f6072d2595f5cc519e4c7d2a943c02c |
 | reasoning_r5.py | 1b804e77264906f6a459ae2ed7a2a4efc0c03d94ee1479f6be34195155efe99f |
-| reasoning_r5_results.json | 71cfc06f4071f5898004b463d8395bca4eac552be59f83549374c57b2f32e2fa |
+| reasoning_r5_results.json | 551e978496ee5cebdd8df2acff1a232ef06a30150962d62882e66b66347a21a6 |
 | reasoning_r6.py | 1b247cce6a7c6c1028380059f7e765c18845c9e9d1b89020661c1a57958c7c77 |
 | reasoning_r6_results.json | 606d1a110e7eaa59d0b03b19b5f854c213f915680e2e985c363854bbc3c551a9 |
 | reasoning_r7.py | 4983d8dde00ccf8a3123f7706dc6575943cdd074ba75c46255545eefddaa6aed |
@@ -45,3 +45,6 @@ These SHA-256 values describe the conversation-session local artifacts; **the or
 
 ## Next scientific action
 R8: test representation construction on genuinely held-out mechanism families, with source-verified original artifacts, compute-matched Bayesian/program-synthesis controls, frozen splits, explicit costs, and a negative-control check. No production promotion or integration is implied.
+
+## Reproduction check (2026-11-01)
+All seven original local Python scripts were executed again against their corresponding stored JSON. All substantive result fields matched; elapsed/runtime fields were excluded because they are nondeterministic. This does not constitute independent CI qualification. The R5 results SHA-256 in the initial ledger was corrected to the actual local file hash in this revision.
