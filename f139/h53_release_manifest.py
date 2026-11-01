@@ -2,6 +2,8 @@
 from __future__ import annotations
 import pathlib
 import hashlib
+import json
+import re
 from f139 import h53_audit_guards as g
 
 WORKFLOW=".github/workflows/f139-h53-original-owner-one-shot.yml"
@@ -31,3 +33,30 @@ def verify_release_bytes(changed, *, parent, files, expected_hashes):
     return verify_release_manifest(changed,parent=parent,
                                    source_hashes=calculated,
                                    expected_hashes=expected_hashes)
+
+PIN_PREFIX = "          # H53_RUNTIME_PINS "
+
+def template_pins(text):
+    lines = [line[len(PIN_PREFIX):] for line in text.splitlines()
+             if line.startswith(PIN_PREFIX)]
+    g.demand(len(lines) == 1, "TEMPLATE_PIN_RECORD")
+    pins = json.loads(lines[0])
+    g.demand(set(pins) == REQUIRED - {WORKFLOW}, "TEMPLATE_PIN_SET")
+    g.demand(all(isinstance(v, str) and re.fullmatch(r"[a-f0-9]{64}", v)
+                 for v in pins.values()), "TEMPLATE_PIN_FORMAT")
+    return pins
+
+def verify_template(root):
+    """Validate staged bytes without creating an executable ref or workflow."""
+    root = pathlib.Path(root)
+    path = root / ".github/audit-templates/f139-h53-one-shot-workflow.inactive.yml"
+    text = path.read_text(encoding="utf-8")
+    pins = template_pins(text)
+    g.demand(not (root / WORKFLOW).exists(), "TEMPLATE_ALREADY_ACTIVE")
+    for name, expected in pins.items():
+        g.demand(hashlib.sha256((root / name).read_bytes()).hexdigest() == expected,
+                 "TEMPLATE_RUNTIME_DRIFT")
+    g.demand("fetch-depth: 0" in text and "PYTHONDONTWRITEBYTECODE" in text,
+             "TEMPLATE_CHECKOUT_GUARD")
+    return {"runtime_files": len(pins), "runtime_pins_verified": True,
+            "release_authorized": False}
