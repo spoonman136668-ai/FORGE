@@ -40,13 +40,32 @@ def audit():
     auth=authority.verify_authority(sha)
     original=owner.inspect_original()
     ledger=native.verify_native(pathlib.Path(original["database"]), original_root=pathlib.Path(original["repository_root"]))
-    scheduler=native.witness.scheduler_observation()
+    audit_status="PASS"
+    try:
+        scheduler=native.witness.scheduler_observation()
+    except (subprocess.SubprocessError, OSError, ValueError, RuntimeError) as exc:
+        # Preserve completed read-only verification, but never turn missing
+        # scheduler evidence into a passing audit or unattended-cycle claim.
+        audit_status="INCOMPLETE"
+        stderr=getattr(exc,"stderr","") or ""
+        if isinstance(stderr,bytes):
+            stderr=stderr.decode("utf-8",errors="replace")
+        scheduler={"status":"UNVERIFIED","error_type":type(exc).__name__,
+                   "returncode":getattr(exc,"returncode",None),
+                   "stderr_tail":stderr[-2048:]}
     return {"schema":"forge.f139.h53.original-owner-audit.v1",
+            "audit_status":audit_status,
             "audit_sha":sha,"authority":auth,
             "installed_source_sha":original["source_sha"],"ledger":ledger,
             "scheduler":scheduler,
             "original_database_writes":0,"owner_task_mutations":0,
             "unattended_cycle_verified":False,"scientific_first_use_authorized":False}
 
+def main():
+    result=audit()
+    print(json.dumps(result,sort_keys=True))
+    if result["audit_status"]!="PASS":
+        raise SystemExit(1)
+
 if __name__=="__main__":
-    print(json.dumps(audit(),sort_keys=True))
+    main()
