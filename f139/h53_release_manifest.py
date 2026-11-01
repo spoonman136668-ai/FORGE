@@ -6,7 +6,7 @@ import json
 import re
 from f139 import h53_audit_guards as g
 
-WORKFLOW=".github/workflows/f139-h53c-original-owner-one-shot.yml"
+WORKFLOW=".github/workflows/f139-h53d-original-owner-one-shot.yml"
 REQUIRED={
     WORKFLOW,
     "f139/h53_successor_readonly_observer.py",

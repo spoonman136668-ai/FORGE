@@ -9,7 +9,7 @@ from f139 import h53_github_authority as authority
 from f139 import h53_windows_owner as owner
 from f139 import h53_native_readonly as native
 
-WORKFLOW=".github/workflows/f139-h53c-original-owner-one-shot.yml"
+WORKFLOW=".github/workflows/f139-h53d-original-owner-one-shot.yml"
 OBSERVER="f139/h53_successor_readonly_observer.py"
 
 def git(*args):
