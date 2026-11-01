@@ -1,13 +1,8 @@
-"""Bounded, free-only Nemotron proposal transport. SOURCE-ONLY; never dispatched.
+"""Historical Nemotron payload parser; real external inference is disabled.
 
-Only source from an independently verified *public* repo may be sent remotely.
-No owner SQLite, Mind-Palace text, tickets, user secrets, private Git content,
-or full steering documents are transmitted. No model reply is trusted until
-nci04_model_proposal.validate and original-owner publication recheck it.
-
-The caller must separately authorize cadence, credential custody, strict
-original-owner mutex and an at-most-once network request ledger event BEFORE
-using this in a running controller. This module never schedules itself.
+Retained only for cold custody and injected, no-network regression fixtures.
+The owner withdrew model authority. Neither a credential, old receipt, source
+transition nor UTC rollover can enable the built-in network transport.
 """
 from __future__ import annotations
 
@@ -295,34 +290,20 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _post_one(body: bytes, token: str) -> bytes:
-    # Fixed HTTPS destination, no redirects or caller-supplied URL.
-    req = urllib.request.Request(
-        ENDPOINT, data=body, method="POST", headers={
-            "Authorization": "Bearer " + token,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        })
-    try:
-        with urllib.request.build_opener(_NoRedirect()).open(
-                req, timeout=TIMEOUT_SECONDS) as resp:
-            if resp.status != 200:
-                raise FreeReasonerUnavailable("F139_FREE_REASONER_PROVIDER_NOT_READY")
-            raw = resp.read(MAX_RESPONSE_BYTES + 1)
-    except (OSError, TimeoutError, socket.timeout,
-            urllib.error.URLError) as exc:
-        # No error body or token is printed/logged (could contain private data).
-        raise FreeReasonerUnavailable("F139_FREE_REASONER_UNAVAILABLE_NO_RETRY") from None
-    return raw
+    # Operator withdrew model authority. Keep the historical format/parser for
+    # immutable custody, but credentials can never reactivate network inference.
+    raise FreeReasonerUnavailable("F139_EXTERNAL_MODEL_DISABLED_BY_OWNER")
 
 
 def infer_free_once(packet: dict, *, token: str | None = None,
                     transport: Callable[[bytes, str], bytes] | None = None,
                     public_reader: Callable[[str], dict] | None = None) -> dict:
-    """Exactly one request, no paid fallback, no upload of private owner data.
+    """Parse historical responses with an explicit fixture transport only.
 
-    This is not an original-owner authority witness or GitHub write. The
-    caller must use a separately authorized, sealed one-shot cadence gate.
+    No default network call is authorized, even with a valid credential.
     """
+    if transport is None:
+        raise FreeReasonerUnavailable("F139_EXTERNAL_MODEL_DISABLED_BY_OWNER")
     if token is None:
         token = os.environ.get("OPENROUTER_API_KEY")
     if not isinstance(token, str) or not token.strip():

@@ -1,0 +1,181 @@
+name: F139 V28 exact release qualification
+on:
+  push:
+    branches: ['qualification/f139-v28-*']
+permissions:
+  contents: read
+concurrency:
+  group: f139-v28-release-qualification-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify exact V27-rooted candidate and bounded source manifest
+        shell: python
+        run: |
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          import os
+          expected = os.environ['GITHUB_SHA']
+          baseline = 'd9ad5bfb07310cf0cced1b9389be336070178832'
+          assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
+          assert not git('status', '--porcelain', '--untracked-files=all')
+          assert set(git('diff', '--name-only', baseline, 'HEAD').splitlines()) == {
+              '.github/workflows/f139-v27-original-owner-release.yml',
+              '.github/workflows/f139-v28-original-owner-release.yml',
+              '.github/workflows/f139-v28-release-qualification.yml',
+              'f139/local_controller.py',
+              'f139/nci04_owner_ledger.py',
+              'f139/nci04_free_reasoner_provider.py',
+              'f139/nci04_model_owner_publication.py',
+              'f139/nci04_owner_model_free_bootstrap.py',
+              'f139/nci04_model_free_search.py',
+              'f139/fixtures/model_free_yggdrasil_992ef.py',
+              'f139/test_nci04_model_free_search.py',
+              'f139/test_nci04_v23_original_renewal_natural_tick.py',
+              'f139/test_nci04_free_reasoner_natural_owner_loop.py',
+              'f139/test_nci04_v17_steering_witness_terminal.py',
+              'f139/nci04_v28_source_transition.py',
+              'f139/nci04_v28_original_owner_transition_cli.py',
+              'f139/test_nci04_v28_source_transition.py',
+          }
+          print('F139_V28_REPAIR_RELEASE_EXACT_SOURCE=PASS')
+      - name: Enforce FORGE independence from private CKB-plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Public isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e snapshot
+          test ! -e research/successor-builder
+          # Keep imports, arbitrary process creation and network posting denied everywhere.
+          ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|os.StartProcess|net/http.Post' .
+          # Freeze the seven preexisting non-supervisor exec.Command sites;
+          # deny every new, duplicated, moved, or modified source call.
+          # The original bounded supervisor's separate count gates stay intact.
+          python3 -B isolationguard/check_subprocess_sites.py
+          # The exception contains exactly the bounded executor and its integration test.
+          grep -l -E 'exec.Command' subprocesssupervisor/supervise.go subprocesssupervisor/supervise_test.go >/dev/null
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' subprocesssupervisor | wc -l)" -eq 3
+          grep -q -E 'exec.Command' subprocesssupervisor/partial_crash_test.go
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
+          grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
+          ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify exact V27-rooted candidate and bounded source manifest
+        shell: python
+        run: |
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          import os
+          expected = os.environ['GITHUB_SHA']
+          baseline = 'd9ad5bfb07310cf0cced1b9389be336070178832'
+          assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
+          assert not git('status', '--porcelain', '--untracked-files=all')
+          assert set(git('diff', '--name-only', baseline, 'HEAD').splitlines()) == {
+              '.github/workflows/f139-v27-original-owner-release.yml',
+              '.github/workflows/f139-v28-original-owner-release.yml',
+              '.github/workflows/f139-v28-release-qualification.yml',
+              'f139/local_controller.py',
+              'f139/nci04_owner_ledger.py',
+              'f139/nci04_free_reasoner_provider.py',
+              'f139/nci04_model_owner_publication.py',
+              'f139/nci04_owner_model_free_bootstrap.py',
+              'f139/nci04_model_free_search.py',
+              'f139/fixtures/model_free_yggdrasil_992ef.py',
+              'f139/test_nci04_model_free_search.py',
+              'f139/test_nci04_v23_original_renewal_natural_tick.py',
+              'f139/test_nci04_free_reasoner_natural_owner_loop.py',
+              'f139/test_nci04_v17_steering_witness_terminal.py',
+              'f139/nci04_v28_source_transition.py',
+              'f139/nci04_v28_original_owner_transition_cli.py',
+              'f139/test_nci04_v28_source_transition.py',
+          }
+          print('F139_V28_REPAIR_RELEASE_EXACT_SOURCE=PASS')
+      - name: FORGE independence and standing isolation enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: Parse installer PowerShell without executing it
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:F139_PARSE_ONLY='1'
+          python -B -m unittest discover -s f139 -p test_nci04_v28_source_transition.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_V28_INSTALLER_PARSE_OR_SOURCE_TEST_FAILED'}
