@@ -29,6 +29,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
         with:
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -48,3 +52,78 @@ jobs:
         run: python -m unittest discover -s tests -p test_h53_release_manifest.py -v
       - name: Run H53 focused negative controls
         run: python -m unittest discover -s tests -p test_h53_successor_readonly_observer.py -v
+
+  h53-release-source:
+    name: H53 exact staged release regression (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: 1536MiB
+    steps:
+      - uses: actions/checkout@v4
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          ref: 5dc7a65c6568596fef36570650e0f7e66cfcc6ac
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify immutable release identity without invoking audit
+        shell: python
+        run: |
+          import pathlib, subprocess
+          expected = '5dc7a65c6568596fef36570650e0f7e66cfcc6ac'
+          parent = '49c7b15343bea3c201fb52b498d8c0f397384afe'
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, parent]
+          assert not git('status', '--porcelain', '--untracked-files=all')
+          required = {'.github/workflows/f139-h53-original-owner-one-shot.yml',
+                      'f139/h53_audit_guards.py', 'f139/h53_github_authority.py',
+                      'f139/h53_windows_owner.py', 'f139/h53_native_readonly.py',
+                      'f139/h53_original_owner_audit.py', 'f139/h53_successor_readonly_observer.py'}
+          assert set(git('diff', '--name-only', parent, 'HEAD').splitlines()) == required
+          text = pathlib.Path('.github/workflows/f139-h53-original-owner-one-shot.yml').read_text(encoding='utf-8')
+          block = text.split('        shell: python\n        run: |\n', 1)[1].split('      - name:', 1)[0]
+          exec(compile('\n'.join(line[10:] for line in block.splitlines()), '<runtime-pin-preflight>', 'exec'))
+          print('H53_EXACT_RELEASE_IDENTITY_AND_RUNTIME_PINS=PASS')
+      - name: Final original-source Python regression and isolation
+        shell: python
+        run: |
+          import subprocess, sys
+          commands = [
+              [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'isolationguard', '-p', 'test_*.py', '-v'],
+              [sys.executable, '-B', 'isolationguard/check.py'],
+              [sys.executable, '-B', 'isolationguard/check_subprocess_sites.py'],
+              [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_fsa_*py', '-v'],
+              [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'fsad1', '-p', 'test_*.py', '-v'],
+              [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'f139', '-p', 'test_*.py'],
+          ]
+          for command in commands:
+              subprocess.run(command, check=True)
+      - name: Final native tests, race where supported, vet and build
+        shell: python
+        run: |
+          import subprocess, sys
+          commands = [['go', 'test', '-count=1', './...']]
+          if sys.platform != 'win32':
+              commands.append(['go', 'test', '-race', '-count=1', './...'])
+          commands.extend([['go', 'vet', './...'], ['go', 'build', './...']])
+          for command in commands:
+              subprocess.run(command, check=True)
+          print('H53_EXACT_RELEASE_FULL_REGRESSION_BUILD=PASS')
