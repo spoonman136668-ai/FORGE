@@ -16,7 +16,7 @@ jobs:
       CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
     steps:
-      - name: Existing FORGE D1 and Worker metadata GET only
+      - name: Existing metadata and fixed read-only schema SELECT
         shell: python
         run: |
           import os,json,urllib.request,urllib.parse,urllib.error
@@ -39,15 +39,32 @@ jobs:
               return data.get("result")
           dbs=get("/d1/database?per_page=100")
           workers=get("/workers/scripts")
+          def schema(database_id):
+              sql="SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+              req=urllib.request.Request(root+"/d1/database/"+urllib.parse.quote(database_id,safe="")+"/query",data=json.dumps({"sql":sql}).encode(),headers={"Authorization":"Bearer "+token,"Content-Type":"application/json"},method="POST")
+              try:
+                  with urllib.request.urlopen(req,timeout=25) as response:
+                      result=json.load(response)
+                  if result.get("success") is not True:
+                      return {"schema_read":"DENIED"}
+                  return {"tables":[row["name"] for batch in result.get("result",[]) for row in batch.get("results",[])]}
+              except urllib.error.HTTPError as exc:
+                  return {"schema_read_denied_http":exc.code}
+              except Exception:
+                  return {"schema_read":"UNAVAILABLE"}
           report={"schema":"forge.f139.existing-cloudflare-backend-readonly.v1","provider_methods":["GET"],"provider_writes":0,"database_queries":0,"windows_changes":0}
           labels={}
           if isinstance(dbs,list):
               chosen=[d for d in dbs if "forge" in str(d.get("name","")).lower()]
               labels={d.get("uuid"):d.get("name") for d in chosen}
+              report["forge_schema"]=[{"name":d.get("name"),**schema(d["uuid"])} for d in chosen]
+              report["database_queries"]=len(chosen)
+              report["provider_methods"]=["GET","POST: fixed read-only SELECT"]
               report["forge_d1"]=[{"name":d.get("name"),"num_tables":d.get("num_tables"),"created_at":d.get("created_at")} for d in chosen]
           else:
               report["d1_read"]=dbs
           if isinstance(workers,list):
+              report["account_worker_script_count"]=len(workers)
               chosen=[w for w in workers if "forge" in str(w.get("id","")).lower()][:6]
               report["forge_workers"]=[]
               for worker in chosen:
