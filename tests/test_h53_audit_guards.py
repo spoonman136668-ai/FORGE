@@ -26,7 +26,7 @@ class AdmissionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): g.ruleset_guard(bad)
     def test_approval(self):
         sha="a"*40
-        c={"body":"F139-H53-ORIGINAL-READONLY-ONCE "+sha,
+        c={"body":"F139-H53B-ORIGINAL-READONLY-ONCE "+sha,
            "user":{"login":g.OWNER},"author_association":"OWNER"}
         g.approval_guard([c],sha)
         for bad in [[],[c,c],[{**c,"body":"other"}],

@@ -9,7 +9,7 @@ class AuthorityTests(unittest.TestCase):
         detail={"enforcement":"active","target":"branch",
                 "conditions":{"ref_name":{"include":[g.REF],"exclude":[]}},
                 "bypass_actors":[],"rules":[{"type":"update"},{"type":"deletion"}]}
-        comment={"body":"F139-H53-ORIGINAL-READONLY-ONCE "+sha,
+        comment={"body":"F139-H53B-ORIGINAL-READONLY-ONCE "+sha,
                  "user":{"login":g.OWNER},"author_association":"OWNER"}
         def reader(url):
             if "/rulesets?" in url: return [rule]

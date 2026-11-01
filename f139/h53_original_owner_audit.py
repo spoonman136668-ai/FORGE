@@ -9,7 +9,7 @@ from f139 import h53_github_authority as authority
 from f139 import h53_windows_owner as owner
 from f139 import h53_native_readonly as native
 
-WORKFLOW=".github/workflows/f139-h53-original-owner-one-shot.yml"
+WORKFLOW=".github/workflows/f139-h53b-original-owner-one-shot.yml"
 OBSERVER="f139/h53_successor_readonly_observer.py"
 
 def git(*args):
@@ -40,9 +40,11 @@ def audit():
     auth=authority.verify_authority(sha)
     original=owner.inspect_original()
     ledger=native.verify_native(pathlib.Path(original["database"]), original_root=pathlib.Path(original["repository_root"]))
+    scheduler=native.witness.scheduler_observation()
     return {"schema":"forge.f139.h53.original-owner-audit.v1",
             "audit_sha":sha,"authority":auth,
             "installed_source_sha":original["source_sha"],"ledger":ledger,
+            "scheduler":scheduler,
             "original_database_writes":0,"owner_task_mutations":0,
             "unattended_cycle_verified":False,"scientific_first_use_authorized":False}
 
