@@ -164,6 +164,69 @@ class OriginalRenewalCompositionTests(TestCase):
         self.assertEqual(self.reserve.call_args.kwargs["lane"], "Yggdrasil")
         self.assertEqual(self.send.call_count, 1)
 
+    def shadow_witness(self, lane, day, spent_lanes=route.LANES):
+        from f139.nci04_v19_research_renewal_shadow import shadow_decision
+        attempts = [
+            {"day": "2026-10-30", "lane": item,
+             "ticket": "spent-" + item, "terminal_seq": 340 + i,
+             "scope_sha256": str(i + 1) * 64}
+            for i, item in enumerate(spent_lanes)
+        ]
+        shadow = shadow_decision(
+            owner_source_sha="a" * 40, lane=lane, target_commit="b" * 40,
+            native_path="native/source.py",
+            terminal={"ticket": "fresh-" + lane, "lane": lane,
+                      "seq": 365, "source_sha": "a" * 40,
+                      "evidence_sha256": "c" * 64,
+                      "stage": "VERIFIED", "chain_verified": True},
+            attempts=attempts, utc_day=day,
+        )
+        return {"disposition": "AUTHENTIC_FRESH_TERMINAL_SHADOW_ONLY_NOT_AUTHORIZED",
+                "terminal_event_seq": 365, "shadow": shadow}
+
+    def test_real_shadow_daily_budget_is_reported_without_external_work(self):
+        self.native.side_effect = lambda db, **kw: self.shadow_witness(
+            kw["lane"], kw["utc_day"])
+        response = self.cycle()
+        self.assertEqual(response["disposition"],
+                         "BLOCKED_ORIGINAL_PLUS_RENEWAL_ROLLING_BUDGET")
+        self.assertIn(response["lane"], route.LANES)
+        self.assertEqual(self.native.call_count, 2)
+        for method in (self.packet_fn, self.budget, self.reserve, self.handoff,
+                       self.send, self.validate, self.publish):
+            method.assert_not_called()
+
+    def test_real_shadow_next_day_rechecks_same_fresh_terminal_normally(self):
+        self.native.side_effect = lambda db, **kw: self.shadow_witness(
+            kw["lane"], kw["utc_day"])
+        response = self.cycle(utc_day="2026-10-31")
+        self.assertEqual(response["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        self.reserve.assert_called_once()
+        self.send.assert_called_once()
+
+    def test_shadow_budget_in_one_lane_preserves_other_lane_progress(self):
+        self.native.side_effect = [
+            self.shadow_witness("Wingless", "2026-10-30", ("Wingless",)),
+            self.shadow_witness("Yggdrasil", "2026-10-30", ("Wingless",)),
+        ]
+        self.packet_fn.return_value = {"lane": "Yggdrasil"}
+        response = self.cycle()
+        self.assertEqual(response["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        self.assertEqual(response["lane"], "Yggdrasil")
+        self.reserve.assert_called_once()
+        self.assertEqual(self.reserve.call_args.kwargs["lane"], "Yggdrasil")
+
+    def test_consumed_shadow_is_not_reclassified_as_budget_or_retried(self):
+        witness = self.shadow_witness("Wingless", "2026-10-31")
+        witness["shadow"]["disposition"] = "BLOCKED_ALREADY_CONSUMED"
+        self.native.return_value = witness
+        response = self.cycle(utc_day="2026-10-31")
+        self.assertEqual(response["disposition"],
+                         "BLOCKED_NO_FRESH_ELIGIBLE_NATIVE_TERMINAL")
+        self.packet_fn.assert_not_called()
+        self.reserve.assert_not_called()
+        self.send.assert_not_called()
+
     def test_packet_wrong_lane_refused_before_any_original_append(self):
         self.packet_fn.return_value = {"lane": "Yggdrasil"}
         with self.assertRaisesRegex(route.RenewalCycleDenied,
@@ -294,3 +357,38 @@ class OriginalLedgerRenewalNegativeTests(TestCase):
                 result["disposition"],
                 "BLOCKED_NO_FRESH_ELIGIBLE_NATIVE_TERMINAL")
             self.assert_no_external_or_original_mutation(original)
+
+    def test_new_terminal_after_real_renewal_spend_reports_quota_cold(self):
+        from f139.nci04_owner_issue import inspect_owner_issue
+        from f139.nci04_owner_ledger import admit_native_issue
+        from test_nci04_owner_issue import issue as make_issue, MAIN, TARGET, TREE
+        self.fixture.real_native()
+        with SingleOwner(self.mutex):
+            self.fixture.append(self.fixture.payload())
+            raw = make_issue()
+            raw["number"] += 1
+            raw["id"] += 1
+            second = inspect_owner_issue(
+                raw, protected_main=MAIN,
+                authenticated_target_commit=TARGET, authenticated_target_tree=TREE)
+            self.assertTrue(admit_native_issue(
+                self.db, second, "2026-10-28T09:02:00Z"))
+            self.db.claim(second.ticket, "2026-10-28T09:03:00Z")
+            self.db.dispatch_observed(second.ticket)
+            self.db.terminal(second.ticket, 98012345679,
+                             "/tmp/fixture-only-second-receipt", "f" * 64)
+            before = self.db.meta().copy()
+            response = self.run_gate()
+            self.assertEqual(response["disposition"],
+                             "BLOCKED_ORIGINAL_PLUS_RENEWAL_ROLLING_BUDGET")
+            self.assertEqual(response["lane"], "Wingless")
+            self.assertEqual(self.db.meta(), before)
+            for method in (self.packet, self.public_fetch,
+                           self.sender, self.publisher):
+                method.assert_not_called()
+            cold = route.Database(self.db.filename)
+            try:
+                cold.verify()
+                self.assertEqual(cold.meta(), before)
+            finally:
+                cold.close()

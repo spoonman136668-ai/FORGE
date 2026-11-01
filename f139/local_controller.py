@@ -730,14 +730,18 @@ class Database:
                               "last_original_free_event_seq",
                               "last_original_free_event_sha256",
                               "legacy_free_attempts_spent", "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21,
+                from f139.nci04_v27_source_transition import FIELDS as V22_FIELDS
+                is_v22 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v22"
+                          and set(doc) == V22_FIELDS)
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1603,6 +1607,9 @@ class Database:
                         verify_v21_cold_source_event)
                     verify_v21_cold_source_event(self, row, doc,
                                                  source_transitions)
+                if is_v22:
+                    from f139.nci04_v27_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
