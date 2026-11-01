@@ -2,6 +2,7 @@
 """G96 original GPT-2 development-only execution; never reads held-out ranks."""
 import hashlib,json,os,platform,time,traceback
 from pathlib import Path
+import math,statistics
 from g96_original_adapter import _g95,select_cohort,run_policy,assert_parity
 from g96_admission import POLICIES,build_traffic,traffic_digest,BYTE_LIMIT
 
@@ -69,6 +70,8 @@ def main():
   calibration={"prefix_prefill_ns":int(sorted(prefill)[len(prefill)//2]),
     "clone_ns":int(sorted(clone)[len(clone)//2]),"expected_reuses":2}
   receipt["calibration"]=calibration
+  receipt["thresholds"]=g.THRESHOLDS
+  receipt["repetitions"]=4
   receipt["strata"]={}
   for stratum in ("round_robin","bursty","overflow","mixed"):
    layout=build_traffic(stratum,cycles=1)
@@ -83,14 +86,45 @@ def main():
     for i,req in enumerate(stream):
      full=torch.cat((prefixes[req["prefix_id"]],req["suffix"]),dim=1)
      references[i],_=g.baseline_request(model,full,g.TOKENS,torch,proc)
-   arms={}
-   for policy in POLICIES:
-    out,metrics=run_policy(model,stream,prefixes,keys,policy,torch,proc,
-      calibration=calibration if policy=="cost_aware" else None)
-    assert_parity(references,out)
-    arms[policy]=metrics
-   receipt["strata"][stratum]={"traffic_sha256":traffic_digest(layout),"requests":len(stream),
-    "exact_parity":True,"arms":arms}
+   repetitions=[]
+   for rep in range(4):
+    arms={}
+    order=POLICIES if rep%2==0 else tuple(reversed(POLICIES))
+    for policy in order:
+     out,metrics=run_policy(model,stream,prefixes,keys,policy,torch,proc,
+       calibration=calibration if policy=="cost_aware" else None)
+     assert_parity(references,out)
+     arms[policy]=metrics
+    repetitions.append({"rep":rep+1,"order":list(order),"arms":arms})
+   baseline=[r["arms"]["no_cache"] for r in repetitions]
+   verdict={}
+   for policy in POLICIES[1:]:
+    candidate=[r["arms"][policy] for r in repetitions]
+    bt=[x["request_wall_ns"] for r in baseline for x in r["rows"]]
+    ct=[x["request_wall_ns"] for r in candidate for x in r["rows"]]
+    if len(bt)!=192 or len(ct)!=192:raise RuntimeError("G96_INCOMPLETE_PAIRED_REPETITIONS")
+    bps=statistics.median(48*g.TOKENS/(r["wall_ns"]/1e9) for r in baseline)
+    cps=statistics.median(48*g.TOKENS/(r["wall_ns"]/1e9) for r in candidate)
+    p95=lambda x:sorted(x)[math.ceil(.95*len(x))-1]
+    m={"throughput_speedup":cps/bps,
+       "minimum_paired_request_speedup":min(b/c for b,c in zip(bt,ct)),
+       "p95_latency_ratio":p95(ct)/p95(bt),
+       "cpu_ratio":sum(r["cpu_ns"] for r in candidate)/sum(r["cpu_ns"] for r in baseline),
+       "rss_ratio":max(r["max_rss"] for r in candidate)/max(r["max_rss"] for r in baseline),
+       "max_resident_kv_bytes":max(r["max_resident_kv_bytes"] for r in candidate),
+       "hits":sum(r["hits"] for r in candidate),"misses":sum(r["misses"] for r in candidate)}
+    m["qualifies"]=(m["throughput_speedup"]>=g.THRESHOLDS["throughput_min"]
+      and m["minimum_paired_request_speedup"]>=g.THRESHOLDS["min_paired"]
+      and m["p95_latency_ratio"]<=g.THRESHOLDS["p95_max"]
+      and m["cpu_ratio"]<=g.THRESHOLDS["cpu_max"]
+      and m["rss_ratio"]<=g.THRESHOLDS["rss_max"]
+      and m["max_resident_kv_bytes"]<=BYTE_LIMIT)
+    verdict[policy]=m
+   receipt["strata"][stratum]={"traffic_sha256":traffic_digest(layout),"requests_per_rep":len(stream),
+     "repetitions":repetitions,"exact_parity":True,"metrics":verdict}
+  receipt["development_qualifying_policies"]=[p for p in POLICIES[1:] if all(
+    receipt["strata"][s]["metrics"][p]["qualifies"] for s in receipt["strata"])]
+  receipt["decision"]="DEVELOPMENT_CANDIDATE" if receipt["development_qualifying_policies"] else "DEVELOPMENT_NO_GO"
   receipt["engineering"]="PASS";receipt["correctness"]="PASS"
  except BaseException as e:
   receipt["error"]=type(e).__name__+": "+str(e);receipt["traceback_tail"]=traceback.format_exc()[-3000:]
