@@ -94,9 +94,16 @@ def run_original_renewal_source_only(
         if witness["disposition"] != (
                 "AUTHENTIC_FRESH_TERMINAL_SHADOW_ONLY_NOT_AUTHORIZED"):
             continue
-        if (not isinstance(witness.get("shadow"), dict)
-                or witness["shadow"].get("disposition") !=
-                    "ELIGIBLE_SHADOW_ONLY_NOT_AUTHORIZED"):
+        shadow = witness.get("shadow")
+        if not isinstance(shadow, dict):
+            continue
+        if shadow.get("disposition") == "BLOCKED_BOUNDED_FREE_BUDGET":
+            # Fresh authenticated evidence still exists. Preserve the quota
+            # reason rather than falsely reporting that the lane has no work.
+            # Other lanes must retain their independent eligibility check.
+            budget_exhausted_lane = lane
+            continue
+        if shadow.get("disposition") != "ELIGIBLE_SHADOW_ONLY_NOT_AUTHORIZED":
             continue
         if not combined_budget(db, attempts, lane, utc_day):
             # One lane's spent daily slot must not starve a separately
