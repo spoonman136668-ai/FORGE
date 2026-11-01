@@ -94,6 +94,7 @@ class ModelFreeOwnerPublicationTests(unittest.TestCase):
     def setUp(self):
         fixture = LocalG29OriginalOwnerTests("test_one_authentic_source_only_g29_draft_under_original_owner")
         fixture.setUp()
+        self.fixture = fixture
         self.addCleanup(fixture.doCleanups)
         self.db, self.owner, self.steering = fixture.db, fixture.owner, fixture.steering
         self.owner.parent_data = BEFORE
@@ -169,6 +170,49 @@ class ModelFreeOwnerPublicationTests(unittest.TestCase):
             self.publish(witness=lambda: False)
         self.assertEqual(self.db.meta(), head)
         self.assertEqual(self.owner.write_calls, [])
+
+    def invalid_event(self, ticket):
+        # Exact failure shape of the original retained escaped-docstring G29
+        # negative. It is evidence to retain, not a program to parse or repair.
+        source = BEFORE + b'\n    \\"\\"\\"historical invalid negative\n'
+        intent = {"lane": "Yggdrasil", "path": search.PATH,
+                  "after_base64": base64.b64encode(source).decode("ascii")}
+        return {"ticket": ticket, "native_intent_base64": base64.b64encode(
+            search.canonical(intent)).decode("ascii")}
+
+    def test_invalid_quarantined_source_is_preserved_and_does_not_stop_new_search(self):
+        from f139.nci04_owner_ledger import admit_native_issue
+        native = self.fixture.fixture.native
+        admit_native_issue(self.db, native, "2026-11-01T22:00:00Z")
+        self.db.claim(native.ticket, "2026-11-01T22:01:00Z")
+        self.db.quarantine(native.ticket, "EXP_UNSUCCESSFUL")
+        prior = dict(self.db.conn.execute(
+            "SELECT * FROM tasks WHERE ticket=?", (native.ticket,)).fetchone())
+        events = list(self.db.conn.execute("SELECT sha FROM events ORDER BY seq"))
+        with patch.object(search, "native_events", return_value=[self.invalid_event(native.ticket)]):
+            got = self.publish()
+        self.assertEqual(got["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        self.assertEqual(dict(self.db.conn.execute(
+            "SELECT * FROM tasks WHERE ticket=?", (native.ticket,)).fetchone()), prior)
+        self.assertEqual([r["sha"] for r in self.db.conn.execute(
+            "SELECT sha FROM events ORDER BY seq LIMIT ?", (len(events),))],
+            [r["sha"] for r in events])
+        self.db.verify()
+
+    def test_invalid_nonnegative_or_missing_history_fails_closed_without_write(self):
+        for ticket in ("missing-negative", self.db.conn.execute(
+                "SELECT ticket FROM tasks WHERE stage='VERIFIED' LIMIT 1").fetchone()["ticket"]):
+            with self.subTest(ticket=ticket):
+                head = self.db.meta().copy()
+                with patch.object(search, "native_events", return_value=[self.invalid_event(ticket)]):
+                    with self.assertRaisesRegex(ValueError, "INVALID_NONNEGATIVE_HISTORY"):
+                        self.publish()
+                self.assertEqual(self.db.meta(), head)
+                self.assertEqual(self.owner.write_calls, [])
+
+    def test_new_invalid_candidate_is_a_guard_failure_not_uncaught_syntax_error(self):
+        with self.assertRaisesRegex(ValueError, "SOURCE_NOT_PARSEABLE"):
+            search.normalized(b'\\"\\"\\"not Python\n')
 
 
 if __name__ == "__main__":
