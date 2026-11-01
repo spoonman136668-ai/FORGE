@@ -3,7 +3,7 @@ import ntpath
 SOURCE = "49c7b15343bea3c201fb52b498d8c0f397384afe"
 RUNNER = "FORGE-CODEX-REMOTE"
 OWNER = "spoonman136668-ai"
-REF = "refs/heads/audit/f139-v26-h53b-original-successor-ro-once-20261101"
+REF = "refs/heads/audit/f139-v26-h53c-original-successor-ro-once-20261101"
 TASK = "FORGE-F139-UnifiedController"
 DB_SUFFIX = "FORGE-F139/state.sqlite"
 
@@ -30,7 +30,7 @@ def ruleset_guard(rulesets, ref=REF):
     demand(len(valid) == 1, "IMMUTABLE_RULESET")
 
 def approval_guard(comments, sha):
-    token = "F139-H53B-ORIGINAL-READONLY-ONCE " + sha
+    token = "F139-H53C-ORIGINAL-READONLY-ONCE " + sha
     matching = [c for c in comments if c.get("body") == token
                 and c.get("user", {}).get("login") == OWNER
                 and c.get("author_association") == "OWNER"]
