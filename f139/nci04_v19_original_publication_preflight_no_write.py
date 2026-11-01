@@ -11,12 +11,12 @@ import hashlib
 import json
 from typing import Callable
 
-from f139.local_controller import Database, SingleOwner
+from f139.local_controller import Database, GitHub, SingleOwner
 from f139.nci04_autonomy_feed import (
     _semantic_identities, candidate_identity,
 )
 from f139.nci04_candidate_publisher import (
-    _verified_original, _sha1_blob,
+    PublisherDenied, _verified_original, _sha1_blob,
 )
 from f139.nci04_free_reasoner_provider import (
     verify_anonymous_public_source,
@@ -43,6 +43,39 @@ SCHEMA = "forge.f139.v19.original-draft-publication-preflight.v1"
 
 def deny(code: str) -> None:
     raise ShadowDenied("F139_V19_DRAFT_PREFLIGHT_" + code)
+
+
+def _verify_original_publication_source(db: Database, get: Callable) -> None:
+    """Use the controller's existing clean installed-release proof on drift.
+
+    Called only after original Database, held mutex and owner-witness checks.
+    The adapter forwards single GET routes through the caller's existing
+    transport; it has no default CLI credentials or write capability.
+    """
+    source = db.meta()["source_sha"]
+    try:
+        _verified_original(get, source_sha=source)
+        return
+    except PublisherDenied as exc:
+        if str(exc) != "F139_G2_PROTECTED_RUNTIME_SOURCE_DRIFT":
+            raise
+    branch = get("repos/spoonman136668-ai/FORGE/branches/main")
+    if not isinstance(branch, dict) or not isinstance(branch.get("commit"), dict):
+        deny("ORIGINAL_RELEASE_PIN_MAIN_INVALID")
+
+    def read_only(args):
+        if (type(args) is not list or len(args) != 1
+                or type(args[0]) is not str
+                or not args[0].startswith("repos/spoonman136668-ai/FORGE/")):
+            deny("ORIGINAL_RELEASE_PIN_READ_ONLY_ROUTE")
+        return json.dumps(get(args[0])).encode("utf-8")
+
+    # This existing verifier rechecks the real DB/activation, exact clean Git
+    # checkout, owner policy, immutable worker pin and protected ancestry.
+    # It never grants execution rights to any newly merged main bytes.
+    if GitHub(runner=read_only).deployed_release_continuity(
+            db, source, branch["commit"].get("sha")) is not True:
+        deny("ORIGINAL_RELEASE_PIN_CONTINUITY_INVALID")
 
 
 def preflight_original_v19_candidate_without_writing(
@@ -110,7 +143,7 @@ def preflight_original_v19_candidate_without_writing(
         deny("TARGET_PUBLIC_SOURCE_NOT_AUTHENTIC")
     # Full original protected source + enabled owner policy. The public
     # source authentication alone does not give a model publication rights.
-    _verified_original(original_get, source_sha=meta["source_sha"])
+    _verify_original_publication_source(db, original_get)
     parent = validated["target_commit"]
     lane = validated["lane"]
     path = validated["native_path"]
