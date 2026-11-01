@@ -28,6 +28,9 @@ def original_database_class(root: pathlib.Path):
         spec = importlib.util.spec_from_file_location("f139.local_controller", source)
         guard.demand(spec is not None and spec.loader is not None, "NATIVE_IMPORT_SPEC")
         module = importlib.util.module_from_spec(spec)
+        # Native G54 verification imports this canonical name again and requires
+        # exact class identity. Register before execution, as normal import does.
+        sys.modules[spec.name] = module
         spec.loader.exec_module(module)
         yield module.Database
     finally:
