@@ -7,6 +7,8 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+import shutil
+import subprocess
 from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1] / "f139" / "h53_successor_readonly_observer.py"
@@ -68,6 +70,47 @@ class H53NegativeControls(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "OWNER_TASK_DRIFT"):
                 h53.scheduler_observation()
 
+
+@unittest.skipUnless(shutil.which('pwsh'), 'PowerShell runtime required')
+class SchedulerQueryTests(unittest.TestCase):
+    def run_query(self, mode):
+        prelude = r'''
+function Get-ScheduledTask { param($TaskName)
+  [pscustomobject]@{TaskName=$TaskName;State='Ready'}
+}
+function Get-ScheduledTaskInfo { param($TaskName)
+  [pscustomobject]@{LastRunTime=[datetime]'2026-11-01';LastTaskResult=0;NextRunTime=[datetime]'2026-11-02'}
+}
+function Get-WinEvent {
+  [CmdletBinding()]param($ListLog,$FilterHashtable)
+  if ($ListLog) { return [pscustomobject]@{IsEnabled=($mode -ne 'disabled')} }
+  $id=if ($mode -eq 'empty') {'NoMatchingEventsFound'} else {'AccessDenied'}
+  $errorRecord=[System.Management.Automation.ErrorRecord]::new(
+    [System.Exception]::new('fixture '+$id),$id,
+    [System.Management.Automation.ErrorCategory]::ReadError,$null)
+  $PSCmdlet.ThrowTerminatingError($errorRecord)
+}
+'''
+        return subprocess.run(['pwsh','-NoProfile','-NonInteractive','-Command',
+                               "$mode='"+mode+"'\n"+prelude+h53.SCHEDULER_SCRIPT],
+                              capture_output=True,text=True,timeout=30)
+
+    def test_empty_and_disabled_history_preserve_basic_task_observations(self):
+        for mode,status in [('empty','NO_MATCHING_EVENTS'),('disabled','LOG_DISABLED')]:
+            with self.subTest(mode=mode):
+                result=self.run_query(mode)
+                self.assertEqual(result.returncode,0,result.stderr)
+                data=json.loads(result.stdout)
+                self.assertEqual(data['name'],h53.TASK_NAME)
+                self.assertEqual(data['state'],'Ready')
+                self.assertEqual(data['event_count'],0)
+                self.assertEqual(data['event_status'],status)
+                self.assertEqual(data['event_log_enabled'],mode!='disabled')
+
+    def test_permission_failure_remains_a_failure(self):
+        result=self.run_query('denied')
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('AccessDenied',result.stderr)
 
 if __name__ == "__main__":
     unittest.main()

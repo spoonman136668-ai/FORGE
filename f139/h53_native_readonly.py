@@ -74,4 +74,6 @@ def verify_native(db: pathlib.Path, *, original_root: pathlib.Path):
             "head_seq": observed["head_seq"],
             "head_sha256": observed["head_sha256"],
             "new_events_observed": observed["new_events_observed"],
+            "post_baseline_events": observed["post_baseline_events"][-100:],
+            "post_baseline_events_truncated": len(observed["post_baseline_events"]) > 100,
             "unattended_cycle_verified": False}

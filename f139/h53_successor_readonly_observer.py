@@ -29,20 +29,35 @@ def canonical(value: dict) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n").encode("ascii")
 
 
-def scheduler_observation() -> dict:
-    # Read-only PowerShell cmdlets. No task registration, start, stop or change.
-    script = """
+# Read-only PowerShell cmdlets. No task registration, start, stop or change.
+SCHEDULER_SCRIPT = """
 $ErrorActionPreference='Stop'
 $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController'
 $i=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController'
-$events=@(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TaskScheduler/Operational';StartTime=(Get-Date).AddDays(-2)} -ErrorAction Stop |
-  Where-Object {$_.Message -like '*FORGE-F139-UnifiedController*'} |
-  Select-Object -First 100 TimeCreated,Id,RecordId,LevelDisplayName,Message)
-[pscustomobject]@{name=$t.TaskName;state=[string]$t.State;last_run=$i.LastRunTime.ToString('o');last_result=[int64]$i.LastTaskResult;next_run=$i.NextRunTime.ToString('o');event_count=$events.Count;events=@($events | ForEach-Object {
+$channel='Microsoft-Windows-TaskScheduler/Operational'
+$log=Get-WinEvent -ListLog $channel -ErrorAction Stop
+$events=@()
+$eventStatus='LOG_DISABLED'
+if ($log.IsEnabled) {
+  try {
+    $events=@(Get-WinEvent -FilterHashtable @{LogName=$channel;StartTime=(Get-Date).AddDays(-2)} -ErrorAction Stop |
+      Where-Object {$_.Message -like '*FORGE-F139-UnifiedController*'} |
+      Select-Object -First 100 TimeCreated,Id,RecordId,LevelDisplayName,Message)
+    $eventStatus=if ($events.Count -eq 0) {'NO_MATCHING_EVENTS'} else {'OBSERVED'}
+  } catch {
+    if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*') {
+      $eventStatus='NO_MATCHING_EVENTS'
+    } else { throw }
+  }
+}
+[pscustomobject]@{name=$t.TaskName;state=[string]$t.State;last_run=$i.LastRunTime.ToString('o');last_result=[int64]$i.LastTaskResult;next_run=$i.NextRunTime.ToString('o');event_log_enabled=[bool]$log.IsEnabled;event_status=$eventStatus;event_count=$events.Count;events=@($events | ForEach-Object {
  [pscustomobject]@{time=$_.TimeCreated.ToString('o');id=$_.Id;record_id=$_.RecordId;level=$_.LevelDisplayName}
 })} | ConvertTo-Json -Depth 5 -Compress
 """
-    result = subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-Command", script],
+
+
+def scheduler_observation() -> dict:
+    result = subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-Command", SCHEDULER_SCRIPT],
                             capture_output=True, text=True, check=True, timeout=45)
     obj = json.loads(result.stdout)
     require(obj["name"] == TASK_NAME and obj["state"] in ("Running", "Ready"), "OWNER_TASK_DRIFT")
