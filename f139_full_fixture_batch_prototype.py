@@ -166,6 +166,33 @@ def main():
     print(f"F139_G114M_BATCH_COMMITS={batched.batch['commits']}")
     print(f"F139_G114M_BATCH_ROLLBACKS={batched.batch['rollbacks']}")
 
+    if original_receipt != batch_receipt:
+        original_tests = original_receipt["tests"]
+        batch_tests = batch_receipt["tests"]
+        for index in range(max(len(original_tests), len(batch_tests))):
+            before = original_tests[index] if index < len(original_tests) else None
+            after = batch_tests[index] if index < len(batch_tests) else None
+            if before != after:
+                print(f"F139_G114M_FIRST_DIFF_INDEX={index}", flush=True)
+                print("F139_G114M_FIRST_DIFF_TEST_ID_ORIGINAL=" +
+                      str(before["test_id"] if before is not None else None), flush=True)
+                print("F139_G114M_FIRST_DIFF_TEST_ID_BATCH=" +
+                      str(after["test_id"] if after is not None else None), flush=True)
+                print("F139_G114M_FIRST_DIFF_OUTCOME_ORIGINAL=" +
+                      str(before["outcome"] if before is not None else None), flush=True)
+                print("F139_G114M_FIRST_DIFF_OUTCOME_BATCH=" +
+                      str(after["outcome"] if after is not None else None), flush=True)
+                print("F139_G114M_FIRST_DIFF_FINGERPRINTS_ORIGINAL=" +
+                      json.dumps(before["setup_fingerprints"] if before is not None else None), flush=True)
+                print("F139_G114M_FIRST_DIFF_FINGERPRINTS_BATCH=" +
+                      json.dumps(after["setup_fingerprints"] if after is not None else None), flush=True)
+                break
+        else:
+            print("F139_G114M_FIRST_DIFF_METADATA=" +
+                  json.dumps({key: [original_receipt.get(key), batch_receipt.get(key)]
+                              for key in sorted(set(original_receipt) | set(batch_receipt))
+                              if key != "tests" and original_receipt.get(key) != batch_receipt.get(key)},
+                             sort_keys=True), flush=True)
     equal = original_receipt == batch_receipt
     print(f"F139_G114M_RECEIPT_EQUAL={'PASS' if equal else 'FAIL'}")
     print(f"F139_G114M_FULL_REGRESSION={'PASS' if original.wasSuccessful() and batched.wasSuccessful() else 'FAIL'}")
