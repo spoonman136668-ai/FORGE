@@ -114,9 +114,11 @@ class MaintenanceTransitionTests(unittest.TestCase):
             self.db.event('NATIVE_RENEWAL_PROPOSAL_VALIDATED', {'synthetic':'stranded'})
         row={'seq':self.db.meta()['head_seq']+1}
         with patch.object(self.db, 'verified_native_provider_failures',
-                return_value={t:None for t in negatives[4:]}), patch.object(
-                route, 'g54_original_canonical', return_value={'ticket':'g54'}):
+                return_value={t:None for t in negatives[4:]}) as failures, patch.object(
+                route, 'g54_original_canonical', return_value={'ticket':'g54'}) as ambiguous:
             first=route.snapshot(self.db,row,previous)
+            failures.assert_called_once_with(through_seq=row['seq'])
+            ambiguous.assert_called_once_with(self.db,through_seq=row['seq'])
             self.assertEqual(first['custodied_negative_tasks'],17)
             self.assertEqual(first['verified_historical_tasks'],31)
             # A new release's tasks must not corrupt the old frozen task seal.

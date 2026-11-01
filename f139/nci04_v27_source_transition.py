@@ -45,9 +45,9 @@ def snapshot(db, row, previous):
     from f139.nci04_negative_owner_store import TICKET as FIRST
     from f139.nci04_split_negative_owner_store import TICKET as SECOND
     from f139.nci04_g49_prepost_negative import TICKET as PREPOST
-    failures = db.verified_native_provider_failures(through_seq=row["seq"] - 1)
+    failures = db.verified_native_provider_failures(through_seq=row["seq"])
     expected = sorted({FIRST, SECOND, PREPOST,
-                       g54_original_canonical(db, through_seq=row["seq"] - 1)["ticket"]}
+                       g54_original_canonical(db, through_seq=row["seq"])["ticket"]}
                       | set(failures))
     positives = [t for t in tasks if t["stage"] == "VERIFIED"]
     negatives = [t for t in tasks if t["stage"] == "QUARANTINED"]
