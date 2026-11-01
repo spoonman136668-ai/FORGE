@@ -1,0 +1,152 @@
+name: F139 staged V26 publication repair qualification
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'f139/nci04_v19_original_publication_preflight_no_write.py'
+      - 'f139/test_nci04_publication_release_pin.py'
+      - 'f139/nci04_v21_original_renewal_composition.py'
+      - 'f139/test_nci04_v21_original_renewal_composition.py'
+      - '.github/workflows/f139-v26-publication-repair-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f139-v26-publication-repair-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: a27a72e21672bc6f1221547e604a1fb0e193db6d
+          fetch-depth: 2
+      - name: Verify exact V26-rooted candidate and bounded source manifest
+        shell: python
+        run: |
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          expected = 'a27a72e21672bc6f1221547e604a1fb0e193db6d'
+          baseline = '49c7b15343bea3c201fb52b498d8c0f397384afe'
+          assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
+          assert not git('status', '--porcelain', '--untracked-files=all')
+          assert set(git('diff', '--name-only', baseline, 'HEAD').splitlines()) == {
+              'f139/nci04_v19_original_publication_preflight_no_write.py',
+              'f139/test_nci04_publication_release_pin.py',
+              'f139/nci04_v21_original_renewal_composition.py',
+              'f139/test_nci04_v21_original_renewal_composition.py',
+          }
+          print('F139_V26_PUBLICATION_REPAIR_EXACT_SOURCE=PASS')
+      - name: Enforce FORGE independence from private CKB-plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "a27a72e21672bc6f1221547e604a1fb0e193db6d"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Public isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e snapshot
+          test ! -e research/successor-builder
+          # Keep imports, arbitrary process creation and network posting denied everywhere.
+          ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|os.StartProcess|net/http.Post' .
+          # Freeze the seven preexisting non-supervisor exec.Command sites;
+          # deny every new, duplicated, moved, or modified source call.
+          # The original bounded supervisor's separate count gates stay intact.
+          python3 -B isolationguard/check_subprocess_sites.py
+          # The exception contains exactly the bounded executor and its integration test.
+          grep -l -E 'exec.Command' subprocesssupervisor/supervise.go subprocesssupervisor/supervise_test.go >/dev/null
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' subprocesssupervisor | wc -l)" -eq 3
+          grep -q -E 'exec.Command' subprocesssupervisor/partial_crash_test.go
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
+          grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
+          ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: a27a72e21672bc6f1221547e604a1fb0e193db6d
+          fetch-depth: 2
+      - name: Verify exact V26-rooted candidate and bounded source manifest
+        shell: python
+        run: |
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          expected = 'a27a72e21672bc6f1221547e604a1fb0e193db6d'
+          baseline = '49c7b15343bea3c201fb52b498d8c0f397384afe'
+          assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
+          assert not git('status', '--porcelain', '--untracked-files=all')
+          assert set(git('diff', '--name-only', baseline, 'HEAD').splitlines()) == {
+              'f139/nci04_v19_original_publication_preflight_no_write.py',
+              'f139/test_nci04_publication_release_pin.py',
+              'f139/nci04_v21_original_renewal_composition.py',
+              'f139/test_nci04_v21_original_renewal_composition.py',
+          }
+          print('F139_V26_PUBLICATION_REPAIR_EXACT_SOURCE=PASS')
+      - name: FORGE independence and standing isolation enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
