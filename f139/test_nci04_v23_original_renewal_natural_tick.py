@@ -92,12 +92,10 @@ class OriginalNaturalRenewalTests(TestCase):
                 self.cycle(token="bad\nkey")
             self.preserve(before)
 
-    def test_only_after_eight_original_attempts_is_live_tick_route_reachable(self):
+    def test_live_tick_uses_model_free_search_and_never_legacy_inference(self):
         source = inspect.getsource(run_once)
-        self.assertIn("if free_spent >= 8:", source)
-        self.assertIn("run_original_renewal_from_natural_tick(", source)
-        self.assertIn("NATIVE_RENEWAL_GUARD_BLOCKED_FAIL_CLOSED", source)
-        self.assertIn("run_original_free_reasoner_once(", source)
-        # The original G3/G29 finite route and native dispatch remain present.
+        self.assertNotIn("run_original_renewal_from_natural_tick(", source)
+        self.assertNotIn("run_original_free_reasoner_once(", source)
+        self.assertIn("run_original_model_free_once(", source)
         self.assertIn("run_original_g29_once(", source)
         self.assertIn("publish_once(", source)

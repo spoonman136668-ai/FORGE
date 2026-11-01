@@ -734,14 +734,18 @@ class Database:
                 is_v22 = (isinstance(doc, dict)
                           and doc.get("schema") == "forge.f139.source-transition.v22"
                           and set(doc) == V22_FIELDS)
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22,
+                from f139.nci04_v28_source_transition import FIELDS as V23_FIELDS
+                is_v23 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v23"
+                          and set(doc) == V23_FIELDS)
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1609,6 +1613,9 @@ class Database:
                                                  source_transitions)
                 if is_v22:
                     from f139.nci04_v27_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v23:
+                    from f139.nci04_v28_source_transition import verify_cold_event
                     verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
@@ -4518,49 +4525,20 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                         "scientific_first_use":False,
                         "worker_dispatched":False,"paid_model_calls":0}
             if model_successes:
-                # V23 renewable free-only research becomes eligible only AFTER
-                # the original finite V17 lifetime-eight requests are spent.
-                # V21's authentic fresh-native-terminal+rolling-budget guards
-                # remain authoritative; no old terminal, UTC rollover, or new
-                # source SHA repurchases historical model requests.
-                free_spent = db.conn.execute(
-                    "SELECT COUNT(*) FROM events WHERE kind='FREE_REASONER_ATTEMPTED'"
-                ).fetchone()[0]
-                if free_spent >= 8:
-                    from f139.nci04_v23_original_renewal_natural_tick import (
-                        run_original_renewal_from_natural_tick)
-                    try:
-                        renewal_report = run_original_renewal_from_natural_tick(
-                            db, api, db_path, source_sha=meta["source_sha"],
-                            utc_day=dt.datetime.now(
-                                dt.timezone.utc).strftime("%Y-%m-%d"),
-                            owner_witness=lambda:
-                                native_original_running_publisher_profile(db_path))
-                    except (F139Error, ValueError, OSError):
-                        renewal_report = {
-                            "disposition": "NATIVE_RENEWAL_GUARD_BLOCKED_FAIL_CLOSED",
-                            "scientific_first_use": False,
-                            "worker_dispatched": False, "paid_model_calls": 0}
-                    return preserve_verified_steering(
-                        renewal_report, steering_selection)
-                # The one frozen model-free G29 mechanism has completed. The
-                # free reasoner is advisory-only, bounded to public data and
-                # the original SHA-chained terminal outcomes. No credentials:
-                # no request. No inferred science/merge/worker authority.
-                from f139.nci04_owner_free_reasoner_proposal import (
-                    run_original_free_reasoner_once)
+                # Owner withdrew ALL external inference authority. No credential,
+                # daily rollover or old request budget may restore that route.
+                from f139.nci04_model_free_search import run_original_model_free_once
                 try:
-                    reasoner_report = run_original_free_reasoner_once(
+                    result = run_original_model_free_once(
                         db, api, db_path, source_sha=meta["source_sha"],
                         owner_witness=lambda:
                             native_original_running_publisher_profile(db_path))
-                except (F139Error, ValueError):
-                    reasoner_report = {
-                        "disposition":"FREE_REASONER_GUARD_BLOCKED_FAIL_CLOSED",
-                        "scientific_first_use":False,
-                        "worker_dispatched":False,"paid_model_calls":0}
-                return preserve_verified_steering(
-                    reasoner_report, steering_selection)
+                except (F139Error, ValueError, OSError):
+                    result = {"disposition": "MODEL_FREE_SEARCH_BLOCKED_FAIL_CLOSED",
+                              "scientific_first_use": False,
+                              "worker_dispatched": False, "model_calls": 0,
+                              "paid_model_calls": 0}
+                return preserve_verified_steering(result, steering_selection)
             from f139.nci04_owner_model_free_bootstrap import (
                 run_original_g29_once)
             try:
