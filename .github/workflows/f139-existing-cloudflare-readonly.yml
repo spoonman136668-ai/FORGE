@@ -1,0 +1,69 @@
+name: F139 existing Cloudflare backend read only
+on:
+  push:
+    branches: [diagnostic/f139-existing-cloudflare-readonly-20261101]
+permissions:
+  contents: read
+jobs:
+  existing-backend:
+    if: github.actor == 'spoonman136668-ai'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Existing FORGE D1 and Worker metadata GET only
+        shell: python
+        run: |
+          import os,json,urllib.request,urllib.parse,urllib.error
+          token=os.environ.get("CF_TOKEN_PRIMARY") or os.environ.get("CF_TOKEN_ALT")
+          account=os.environ.get("CF_ACCOUNT_SECRET") or os.environ.get("CF_ACCOUNT_VAR") or os.environ.get("CF_ACCOUNT_ALT")
+          if not token or not account:
+              raise SystemExit("F139_EXISTING_CLOUDFLARE_CREDENTIAL_ROUTE_UNAVAILABLE")
+          root="https://api.cloudflare.com/client/v4/accounts/"+urllib.parse.quote(account,safe="")
+          def get(path):
+              request=urllib.request.Request(root+path,headers={"Authorization":"Bearer "+token},method="GET")
+              try:
+                  with urllib.request.urlopen(request,timeout=25) as response:
+                      data=json.load(response)
+              except urllib.error.HTTPError as exc:
+                  return {"read_denied_http":exc.code}
+              except Exception:
+                  return {"read_failed":True}
+              if data.get("success") is not True:
+                  return {"read_denied":True}
+              return data.get("result")
+          dbs=get("/d1/database?per_page=100")
+          workers=get("/workers/scripts")
+          report={"schema":"forge.f139.existing-cloudflare-backend-readonly.v1","provider_methods":["GET"],"provider_writes":0,"database_queries":0,"windows_changes":0}
+          labels={}
+          if isinstance(dbs,list):
+              chosen=[d for d in dbs if "forge" in str(d.get("name","")).lower()]
+              labels={d.get("uuid"):d.get("name") for d in chosen}
+              report["forge_d1"]=[{"name":d.get("name"),"num_tables":d.get("num_tables"),"created_at":d.get("created_at")} for d in chosen]
+          else:
+              report["d1_read"]=dbs
+          if isinstance(workers,list):
+              chosen=[w for w in workers if "forge" in str(w.get("id","")).lower()][:6]
+              report["forge_workers"]=[]
+              for worker in chosen:
+                  name=worker["id"]
+                  settings=get("/workers/scripts/"+urllib.parse.quote(name,safe="")+"/settings")
+                  schedules=get("/workers/scripts/"+urllib.parse.quote(name,safe="")+"/schedules")
+                  entry={"name":name,"modified_on":worker.get("modified_on")}
+                  if isinstance(settings,dict) and isinstance(settings.get("bindings"),list):
+                      entry["d1_bindings"]=[{"binding":b.get("name"),"forge_database":labels.get(b.get("id"))} for b in settings["bindings"] if b.get("type")=="d1"]
+                  else:
+                      entry["settings_read"]=settings if isinstance(settings,dict) and "read_denied_http" in settings else "UNAVAILABLE"
+                  if isinstance(schedules,dict):
+                      entry["cron"]=[s.get("cron") for s in schedules.get("schedules",[])]
+                  else:
+                      entry["schedule_read"]="UNAVAILABLE"
+                  report["forge_workers"].append(entry)
+          else:
+              report["worker_read"]=workers
+          print("F139_EXISTING_CLOUDFLARE_READ_ONLY="+json.dumps(report,sort_keys=True))
