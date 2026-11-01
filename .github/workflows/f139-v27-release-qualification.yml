@@ -1,17 +1,11 @@
-name: F139 staged V26 publication repair qualification
+name: F139 V27 exact release qualification
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'f139/nci04_v19_original_publication_preflight_no_write.py'
-      - 'f139/test_nci04_publication_release_pin.py'
-      - 'f139/nci04_v21_original_renewal_composition.py'
-      - 'f139/test_nci04_v21_original_renewal_composition.py'
-      - '.github/workflows/f139-v26-publication-repair-qualification.yml'
+  push:
+    branches: ['qualification/f139-v27-*']
 permissions:
   contents: read
 concurrency:
-  group: f139-v26-publication-repair-${{ github.ref }}
+  group: f139-v27-release-qualification-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   linux:
@@ -25,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: a27a72e21672bc6f1221547e604a1fb0e193db6d
+          ref: ${{ github.sha }}
           fetch-depth: 2
       - name: Verify exact V26-rooted candidate and bounded source manifest
         shell: python
@@ -33,7 +27,8 @@ jobs:
           import subprocess
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
-          expected = 'a27a72e21672bc6f1221547e604a1fb0e193db6d'
+          import os
+          expected = os.environ['GITHUB_SHA']
           baseline = '49c7b15343bea3c201fb52b498d8c0f397384afe'
           assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
           assert not git('status', '--porcelain', '--untracked-files=all')
@@ -42,13 +37,20 @@ jobs:
               'f139/test_nci04_publication_release_pin.py',
               'f139/nci04_v21_original_renewal_composition.py',
               'f139/test_nci04_v21_original_renewal_composition.py',
+              'f139/local_controller.py',
+              'f139/nci04_owner_ledger.py',
+              'f139/nci04_v27_source_transition.py',
+              'f139/nci04_v27_original_owner_transition_cli.py',
+              'f139/test_nci04_v27_source_transition.py',
+              '.github/workflows/f139-v27-original-owner-release.yml',
+              '.github/workflows/f139-v27-release-qualification.yml',
           }
-          print('F139_V26_PUBLICATION_REPAIR_EXACT_SOURCE=PASS')
+          print('F139_V27_REPAIR_RELEASE_EXACT_SOURCE=PASS')
       - name: Enforce FORGE independence from private CKB-plane
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "a27a72e21672bc6f1221547e604a1fb0e193db6d"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
           python3 -B isolationguard/check.py
           # Exercise the read-only FSA pagination/authority boundaries on both OSes.
@@ -102,7 +104,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: a27a72e21672bc6f1221547e604a1fb0e193db6d
+          ref: ${{ github.sha }}
           fetch-depth: 2
       - name: Verify exact V26-rooted candidate and bounded source manifest
         shell: python
@@ -110,7 +112,8 @@ jobs:
           import subprocess
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
-          expected = 'a27a72e21672bc6f1221547e604a1fb0e193db6d'
+          import os
+          expected = os.environ['GITHUB_SHA']
           baseline = '49c7b15343bea3c201fb52b498d8c0f397384afe'
           assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
           assert not git('status', '--porcelain', '--untracked-files=all')
@@ -119,8 +122,15 @@ jobs:
               'f139/test_nci04_publication_release_pin.py',
               'f139/nci04_v21_original_renewal_composition.py',
               'f139/test_nci04_v21_original_renewal_composition.py',
+              'f139/local_controller.py',
+              'f139/nci04_owner_ledger.py',
+              'f139/nci04_v27_source_transition.py',
+              'f139/nci04_v27_original_owner_transition_cli.py',
+              'f139/test_nci04_v27_source_transition.py',
+              '.github/workflows/f139-v27-original-owner-release.yml',
+              '.github/workflows/f139-v27-release-qualification.yml',
           }
-          print('F139_V26_PUBLICATION_REPAIR_EXACT_SOURCE=PASS')
+          print('F139_V27_REPAIR_RELEASE_EXACT_SOURCE=PASS')
       - name: FORGE independence and standing isolation enforcement
         shell: bash
         run: |
@@ -149,4 +159,10 @@ jobs:
           go vet ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
-          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }      - name: Parse installer PowerShell without executing it
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:F139_PARSE_ONLY='1'
+          python -B -m unittest discover -s f139 -p test_nci04_v27_source_transition.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_V27_INSTALLER_PARSE_OR_SOURCE_TEST_FAILED'}
