@@ -1,0 +1,63 @@
+name: F139 installed owner budget read only
+on:
+  push:
+    branches: [diagnostic/f139-v27-installed-budget-20261101]
+permissions:
+  contents: read
+jobs:
+  original-budget:
+    if: github.actor == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Consistent readonly original budget and next UTC availability
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'F139_BUDGET_READ_ROUTE_DRIFT'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=(New-Object Security.Principal.NTAccount($principal)).Translate([Security.Principal.SecurityIdentifier]).Value
+          if($sid -cne $identity.User.Value -or @($task.Actions).Count -ne 1 -or
+             [string]$task.State -notin @('Running','Ready')){throw 'F139_ORIGINAL_OWNER_TASK_DRIFT'}
+          function Field([string]$name){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_ORIGINAL_ARGUMENT_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $db=Field 'Database'
+          $python=Field 'PythonExe'
+          if((& git -C $root rev-parse HEAD | Out-String).Trim() -cne 'd9ad5bfb07310cf0cced1b9389be336070178832' -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0){throw 'F139_INSTALLED_SOURCE_DRIFT'}
+          Set-Location -LiteralPath $root
+          @'
+          import datetime as dt,json,pathlib,sys
+          from f139.local_controller import Database
+          from f139.nci04_v19_original_atomic_reserve_no_post import original_attempts,combined_budget
+          from f139.nci04_v19_research_renewal_shadow import MAX_DAILY_TOTAL,MAX_DAILY_PER_LANE,MAX_ROLLING_30D_TOTAL,MAX_ROLLING_30D_PER_LANE
+          db=Database.open_readonly(pathlib.Path(sys.argv[1]))
+          try:
+              db.conn.execute("BEGIN")
+              db.verify()
+              before=db.meta().copy()
+              assert before["source_sha"]=="d9ad5bfb07310cf0cced1b9389be336070178832"
+              attempts=original_attempts(db)
+              originals=[json.loads(r["payload"]) for r in db.conn.execute("SELECT payload FROM events WHERE kind='FREE_REASONER_ATTEMPTED' ORDER BY seq")]
+              rows=[{"day":p["utc_day"],"lane":p["lane"],"kind":"original"} for p in originals]
+              rows += [{"day":p["day"],"lane":p["lane"],"kind":"renewal"} for p in attempts]
+              today=dt.datetime.now(dt.timezone.utc).date()
+              lanes={}
+              for lane in ("Wingless","Yggdrasil"):
+                  next_day=next(((today+dt.timedelta(days=i)).isoformat() for i in range(32) if combined_budget(db,attempts,lane,(today+dt.timedelta(days=i)).isoformat())),None)
+                  lanes[lane]={"budget_available_now":combined_budget(db,attempts,lane,today.isoformat()),"next_budget_utc_day":next_day,"spent_today":sum(p["lane"]==lane and p["day"]==today.isoformat() for p in rows)}
+              assert db.meta()==before
+              print("F139_INSTALLED_ORIGINAL_BUDGET_READ_ONLY="+json.dumps({"schema":"forge.f139.installed-owner-budget-readonly.v1","source_sha":before["source_sha"],"head_seq":before["head_seq"],"head_sha256":before["head_hash"],"utc_day":today.isoformat(),"legacy_attempts":len(originals),"renewal_attempts":len(attempts),"limits":{"daily_total":MAX_DAILY_TOTAL,"daily_per_lane":MAX_DAILY_PER_LANE,"rolling_30d_total":MAX_ROLLING_30D_TOTAL,"rolling_30d_per_lane":MAX_ROLLING_30D_PER_LANE},"lanes":lanes,"spent_days":rows,"original_writes":0,"provider_calls":0,"task_mutations":0},sort_keys=True))
+          finally:
+              db.close()
+          '@ | & $python -B - $db
+          if($LASTEXITCODE -ne 0){throw 'F139_READONLY_BUDGET_VERIFICATION_FAILED'}
