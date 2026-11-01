@@ -61,8 +61,12 @@ OPERATORS = (
 
 def normalized(source: bytes) -> str:
     """Reject whitespace/comment replays as well as identical byte hashes."""
-    return digest(ast.dump(ast.parse(source.decode("utf-8", "strict")),
-                           include_attributes=False).encode("utf-8"))
+    try:
+        tree = ast.parse(source.decode("utf-8", "strict"))
+    except (SyntaxError, UnicodeError) as exc:
+        # Candidate validation must fail closed without killing the owner loop.
+        raise ValueError("F139_MODEL_FREE_SEARCH_SOURCE_NOT_PARSEABLE") from exc
+    return digest(ast.dump(tree, include_attributes=False).encode("utf-8"))
 
 
 def candidates(before: bytes):
@@ -97,7 +101,18 @@ def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness
     for event in native_events(db):
         intent = json.loads(base64.b64decode(event["native_intent_base64"], validate=True))
         if intent["lane"] == "Yggdrasil" and intent["path"] == PATH:
-            prior_asts.add(normalized(base64.b64decode(intent["after_base64"], validate=True)))
+            raw = base64.b64decode(intent["after_base64"], validate=True)
+            try:
+                prior_asts.add(normalized(raw))
+            except ValueError:
+                # Original invalid-source negatives are legitimate retained
+                # evidence, not syntax trees. Their raw hashes/identities stay
+                # consumed through owner_history; never repair/replay the source.
+                task = db.conn.execute(
+                    "SELECT stage FROM tasks WHERE ticket=?", (event["ticket"],)).fetchone()
+                if task is None or task["stage"] != "QUARANTINED":
+                    raise ValueError("F139_MODEL_FREE_SEARCH_INVALID_NONNEGATIVE_HISTORY")
+                consumed.add(digest(raw))
     for name, source, question, hypothesis in candidates(prepared["before"]):
         if digest(source) in consumed or normalized(source) in prior_asts:
             continue
