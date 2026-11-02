@@ -22,6 +22,8 @@ from f139.nci04_worker_entry import (
 )
 from f139.nci04_worker_v2 import SOURCE_SHA, SOURCE_TREE
 
+from f139.nci04_v30_source_transition import carried_source
+
 SCHEMA = "forge.f139.nci04.v2-owner-predispatch.v1"
 DOMAIN = b"FORGE-F139-NCI04-PREDISPATCH-V2\0"
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
@@ -116,13 +118,14 @@ def original_owner_v2_fields(db, ticket: str, *, owner_hmac_key: str):
          and verify_native_activation(db),
          "ORIGINAL_NATIVE_ACTIVATION_INVALID")
     issue = frozen_native_issue(db, ticket)
-    need(meta["source_sha"] == issue.source_sha,
+    need(issue.source_sha == meta["source_sha"]
+         or carried_source(db, ticket) == issue.source_sha,
          "ORIGINAL_SOURCE_DRIFT")
     task = db.conn.execute(
         "SELECT stage,source_sha,run_id FROM tasks WHERE ticket=?",
         (ticket,)).fetchone()
     need(task is not None and task["stage"] == "START_RISK"
-         and task["source_sha"] == meta["source_sha"]
+         and task["source_sha"] == issue.source_sha
          and task["run_id"] is None,
          "PRE_DISPATCH_START_RISK_REQUIRED")
     def read_events(kind):
