@@ -181,7 +181,7 @@ class ColdTransitionTests(unittest.TestCase):
 
 class InstallerTests(unittest.TestCase):
     def test_only_current_immutable_release_installer_receives_new_push(self):
-        release='f139-owner-release-'+'f'*40
+        release='f139-owner-release-b419300f61a86d387bc4b630a9850eced8b8bb75'
         routed=[]
         for version in (27,28,29,30):
             text=(ROOT/f'.github/workflows/f139-v{version}-original-owner-release.yml').read_text()
