@@ -154,6 +154,33 @@ def same_ordering(a,b):
         a[p]*denominator == b[p]*numerator for p in b)
 
 
+def constant_forms(height):
+    """Unique fixed-shape spellings of the tiny compile-time constant domain."""
+    need(type(height) is int and 0 <= height <= 2, "TYPED_EMBEDDING")
+    if height == 0:
+        return {0:"zero",1:"one",2:"two"}
+    children = constant_forms(height-1)
+    out = {}
+    for kind in OPERATIONS:
+        for a in sorted(children):
+            for b in sorted(children):
+                value = simplify(kind,("constant",a),("constant",b))[1]
+                out.setdefault(value,kind+" "+children[a]+" "+children[b])
+    return out
+
+
+def embed(term,height):
+    """Recover a canonical mutation parent without a source-identity nonce."""
+    if term[0] == "constant":
+        forms = constant_forms(height)
+        need(term[1] in forms, "CONSTANT_CAPACITY")
+        return forms[term[1]]
+    if term[0] == "observed":
+        return term[1] if height == 0 else "add "+embed(term,height-1)+" "+embed(("constant",0),height-1)
+    need(height > 0, "TYPED_EMBEDDING")
+    return term[0]+" "+embed(term[1],height-1)+" "+embed(term[2],height-1)
+
+
 def source_for_program(before, program):
     # Reuse exact original source and anchor custody; never execute Python.
     tuple(search.candidates(before))
@@ -169,7 +196,12 @@ def source_for_program(before, program):
                simplify("add",("observed","total"),("constant",2)))
     if same_ordering(gap,choice_polynomial(*laplace)):
         return tuple(search.candidates(before))[0][1]
-    code = MARKER+program+"\n"
+    # Canonical source comments are essential while a publication is not yet
+    # admitted: its raw source hash is already consumed, but the older owner
+    # ledger does not yet hold its AST identity. Equivalent token spellings
+    # must therefore produce the very same bytes, including the parent hint.
+    canonical_program = "rate "+embed(numerator,2)+" "+embed(denominator,2)
+    code = MARKER+canonical_program+"\n"
     code += "        numerator0 = "+render(numerator,0)+"\n"
     code += "        numerator1 = "+render(numerator,1)+"\n"
     code += "        denominator0 = "+render(denominator,0)+"\n"

@@ -135,6 +135,18 @@ class TypedProgramTests(unittest.TestCase):
         with self.assertRaises(ProgramRejected):
             recover_program(BEFORE,forged)
 
+    def test_equivalent_tokens_cannot_change_source_identity_before_native_intake(self):
+        child = plan().bindings[0].source.after
+        canonical = recover_program(BEFORE,child)
+        alias = canonical.replace("failure zero","zero failure",1)
+        self.assertNotEqual(alias,canonical)
+        self.assertEqual(source_for_program(BEFORE,alias),child)
+        # Original publication custody has the raw hash before native intake.
+        # The new source's AST is deliberately absent from this fixture.
+        new = plan(consumed_sha256={digest(child)},historical_ast_sha256=set())
+        self.assertNotIn(search.normalized(child),
+                         [search.normalized(b.source.after) for b in new.bindings])
+
     def test_untyped_tokens_capacity_growth_and_invalid_context_fail_closed(self):
         for invalid in (SEED+" zero",SEED.replace("add","__import__",1),
                         SEED.replace("success","42",1),SEED.replace("rate","eval",1)):
