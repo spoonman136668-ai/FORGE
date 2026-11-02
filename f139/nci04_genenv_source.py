@@ -19,7 +19,12 @@ def compile_operator_vectors(raw, *, result_sha256, frozen_sha256,
                              before, historical_sha256, historical_ast_sha256):
     if type(raw) is not bytes or len(raw) > 256_000 or _sha(raw) != result_sha256:
         raise PortfolioSourceRejected("GENENV_RESULT_DRIFT")
-    result = json.loads(raw)
+    envelope = json.loads(raw)
+    if (type(envelope) is not dict or
+            envelope.get("schema") != "forge.f139.genenv-source-output.v1" or
+            envelope.get("source_sha") != PARENT or type(envelope.get("result")) is not dict):
+        raise PortfolioSourceRejected("GENENV_SOURCE_IDENTITY")
+    result = envelope["result"]
     if (result.get("schema") != "forge.genenvironment.advisory.v1" or
             result.get("lane") != "Yggdrasil" or
             result.get("frozen_sha256") != frozen_sha256 or

@@ -18,6 +18,12 @@ type request struct {
  HistorySHA256 string `json:"history_sha256"`
 }
 
+type sourceOutput struct {
+ Schema string `json:"schema"`
+ SourceSHA string `json:"source_sha"`
+ Result genenv.Result `json:"result"`
+}
+
 func generate(input io.Reader, output io.Writer) error {
  limited := &io.LimitedReader{R: input, N: 256001}
  decoder := json.NewDecoder(limited)
@@ -29,7 +35,7 @@ func generate(input io.Reader, output io.Writer) error {
  if limited.N == 0 { return fmt.Errorf("GENENV_INPUT_SIZE") }
  result, err := genenv.Generate(req.Frozen, req.FrozenSHA256, req.History, req.HistorySHA256)
  if err != nil { return err }
- return json.NewEncoder(output).Encode(result)
+ return json.NewEncoder(output).Encode(sourceOutput{Schema: "forge.f139.genenv-source-output.v1", SourceSHA: req.Frozen.SourceSHA, Result: result})
 }
 
 func main() {

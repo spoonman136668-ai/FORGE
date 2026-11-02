@@ -9,12 +9,14 @@ from f139.nci04_portfolio_source_boundary import PortfolioSourceRejected, _sha
 
 class GenEnvSourceTests(unittest.TestCase):
     def result(self):
-        return dict(schema="forge.genenvironment.advisory.v1", lane="Yggdrasil",
+        result = dict(schema="forge.genenvironment.advisory.v1", lane="Yggdrasil",
                     frozen_sha256="a" * 64, history_sha256="b" * 64,
                     scientific_accepted=False, dispatch_authorized=False,
                     sealed_holdout_consumed=False, candidates=[dict(
                         classification="UNTESTED_PROPOSAL", vector=v)
                         for v in ([1,1,0], [1,0,1], [0,1,1], [1,1,1])])
+        return dict(schema="forge.f139.genenv-source-output.v1",
+                    source_sha="992ef142aaa551156749a1de484a971b9a0c092f", result=result)
 
     def compile(self, result, **overrides):
         raw = json.dumps(result).encode()
@@ -33,14 +35,14 @@ class GenEnvSourceTests(unittest.TestCase):
         for key, value in (("lane","Wingless"),("dispatch_authorized",True),
                            ("scientific_accepted",True),("sealed_holdout_consumed",True)):
             result = self.result()
-            result[key] = value
+            result["result"][key] = value
             with self.assertRaisesRegex(PortfolioSourceRejected,"CONTRACT"):
                 self.compile(result)
 
     def test_nonrecipe_vector_and_prompt_cannot_become_source(self):
         for vector in ([1,2,0], [True,0,1], [0,0,0], "choose a better rule"):
             result = self.result()
-            result["candidates"][0]["vector"] = vector
+            result["result"]["candidates"][0]["vector"] = vector
             with self.assertRaisesRegex(PortfolioSourceRejected,"SOURCE_RECIPE"):
                 self.compile(result)
 
@@ -50,3 +52,10 @@ class GenEnvSourceTests(unittest.TestCase):
         receipts = self.compile(self.result())
         with self.assertRaisesRegex(PortfolioSourceRejected,"HISTORICAL_REPLAY"):
             self.compile(self.result(), historical_sha256=frozenset({receipts[0][0].after_sha256}))
+
+
+    def test_foreign_source_identity_rejected(self):
+        result = self.result()
+        result["source_sha"] = "f" * 40
+        with self.assertRaisesRegex(PortfolioSourceRejected,"SOURCE_IDENTITY"):
+            self.compile(result)

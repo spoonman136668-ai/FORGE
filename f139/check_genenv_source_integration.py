@@ -14,7 +14,7 @@ from f139.nci04_portfolio_source_boundary import _sha
 def check(raw):
     before = Path("f139/fixtures/model_free_yggdrasil_992ef.py").read_bytes()
     consumed = tuple(candidates(before))
-    result = json.loads(raw)
+    result = json.loads(raw)["result"]
     # Content identity of the actual existing generator and compiler, not a
     # family name standing in for source. This oracle grants no owner authority.
     paths = ("genenv/genenv.go", "f139/nci04_genenv_source.py",

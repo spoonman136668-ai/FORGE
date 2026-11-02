@@ -37,9 +37,9 @@ func TestRealGenEnvRecipeExport(t *testing.T) {
  if err != nil { t.Fatal(err) }
  var result bytes.Buffer
  if err = generate(bytes.NewReader(raw), &result); err != nil { t.Fatal(err) }
- var decoded genenv.Result
+ var decoded sourceOutput
  if err := json.Unmarshal(result.Bytes(), &decoded); err != nil { t.Fatal(err) }
- if len(decoded.Candidates) != 4 { t.Fatal("missing generated recipes") }
+ if len(decoded.Result.Candidates) != 4 { t.Fatal("missing generated recipes") }
  t.Log("F139_GENENV_RESULT=" + strings.TrimSpace(result.String()))
 }
 
