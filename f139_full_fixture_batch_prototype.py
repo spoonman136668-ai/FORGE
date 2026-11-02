@@ -54,13 +54,18 @@ class ReceiptResult(unittest.TextTestResult):
                       "databases": 0, "commits": 0, "rollbacks": 0}
 
     def startTest(self, test):
-        self.current = {"test_id": test.id(), "setup_fingerprints": [], "outcome": "PASS"}
+        module = test.__class__.__module__.rsplit(".", 1)[-1]
+        eligible = (module, test.__class__.__name__) in ELIGIBLE
+        self.current = {
+            "test_id": test.id(),
+            "eligible_fixture": eligible,
+            "setup_fingerprints": [],
+            "outcome": "PASS",
+        }
         self.records.append(self.current)
         original_setup = test.setUp
 
         def wrapped_setup():
-            module = test.__class__.__module__.rsplit(".", 1)[-1]
-            eligible = (module, test.__class__.__name__) in ELIGIBLE
             try:
                 if self.batch_mode and eligible:
                     self.batch["eligible_tests"] += 1
@@ -88,10 +93,15 @@ class ReceiptResult(unittest.TextTestResult):
                 else:
                     original_setup()
 
-                databases = [value for value in vars(test).values()
-                             if isinstance(value, Database)]
-                self.current["setup_fingerprints"] = sorted(
-                    fingerprint(db) for db in databases)
+                # Compare database contents only for fixtures whose setup
+                # is actually altered by this experiment. Other tests still
+                # contribute exact test-id/outcome parity, but their fresh
+                # temp paths and timestamped evidence are not batch treatment.
+                if eligible:
+                    databases = [value for value in vars(test).values()
+                                 if isinstance(value, Database)]
+                    self.current["setup_fingerprints"] = sorted(
+                        fingerprint(db) for db in databases)
             finally:
                 test.setUp = original_setup
 
