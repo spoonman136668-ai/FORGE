@@ -35,4 +35,12 @@ def check(raw):
 
 
 if __name__ == "__main__":
-    print(json.dumps(check(sys.stdin.buffer.read()), sort_keys=True))
+    raw = sys.stdin.buffer.read() if len(sys.argv) == 1 else b""
+    if len(sys.argv) == 2:
+        lines = Path(sys.argv[1]).read_text("utf-8-sig").splitlines()
+        markers = [line.split("F139_GENENV_RESULT=", 1)[1] for line in lines
+                   if "F139_GENENV_RESULT=" in line]
+        if len(markers) != 1:
+            raise ValueError("GENENV_EXACT_EXPORT_REQUIRED")
+        raw = markers[0].encode("utf-8")
+    print(json.dumps(check(raw), sort_keys=True))
