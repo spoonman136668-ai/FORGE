@@ -8,7 +8,7 @@ from g97_original_adapter import frozen, run_g97, OverflowBypassCache
 class AdapterTests(unittest.TestCase):
     def test_restores_g96_class_after_failure(self):
         original = frozen.AdmissionCache
-        with self.assertRaises(TypeError):
+        with self.assertRaisesRegex(AttributeError, "inference_mode"):
             run_g97(None, None, None, None, None, None)
         self.assertIs(frozen.AdmissionCache, original)
 
