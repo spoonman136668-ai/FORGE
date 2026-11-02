@@ -1,6 +1,7 @@
 """Isolated regression for the observed READY/V2 release-guard stall."""
 from __future__ import annotations
 import ast
+from contextlib import closing
 import fnmatch
 import json
 from pathlib import Path
@@ -95,9 +96,8 @@ class PendingTransferTests(unittest.TestCase):
 
 class ModernV2GuardTests(unittest.TestCase):
     def test_sealed_modern_release_does_not_stall_at_v18(self):
-        with tempfile.TemporaryDirectory() as d:
-            db=Database.initialize(Path(d)/'fixture.sqlite',route.FROM_V29)
-            self.addCleanup(db.close)
+        with tempfile.TemporaryDirectory() as d, closing(
+                Database.initialize(Path(d)/'fixture.sqlite',route.FROM_V29)) as db:
             db.enable(legacy_suspended=True)
             db.event('SOURCE_TRANSITION_ADMITTED',dict(schema='forge.f139.source-transition.v24',
                      to_source_sha=route.FROM_V29,v2_receipt_authorized=False))
