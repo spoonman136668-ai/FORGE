@@ -164,3 +164,79 @@ class OriginalPublisherConnectionTests(unittest.TestCase):
                 self.fixture.publish()
         self.assertEqual(self.db.meta(), original)
         self.assertEqual(self.fixture.owner.write_calls, [])
+
+
+class TypedOriginalPublisherConnectionTests(unittest.TestCase):
+    def setUp(self):
+        OriginalPublisherConnectionTests.setUp(self)
+        self.prepared["consumed_after_hashes"].update(
+            digest(compiler.source_for_vector(BEFORE,v)[0])
+            for v in ((0,0,1),(0,1,0),(1,0,0),(0,1,1),(1,0,1),(1,1,0),(1,1,1)))
+
+    def utility_fixture(self,binary,binary_sha,request):
+        from f139.test_nci04_prompt_source import output_fixture
+        frozen=request["promptbreeder"]["frozen"]
+        doc=output_fixture(frozen)
+        doc["result"]["operations_used"]=len(frozen["operations"])
+        return canonical(doc)
+
+    def test_original_publisher_authenticates_typed_candidate_after_all_seven(self):
+        with patch.object(search,"owner_request",return_value=self.prepared), \
+                patch.object(backend,"executable_custody",return_value=(Path("unused"),"c"*64)), \
+                patch.object(backend,"typed_generation_custody"), \
+                patch.object(backend,"invoke",side_effect=self.utility_fixture), \
+                patch.object(search,"publish_model_once",wraps=search.publish_model_once) as publish:
+            result=self.fixture.publish()
+        self.assertEqual(result["disposition"],"MODEL_DRAFT_AUTHENTICATED")
+        self.assertEqual(result["generator"],"PROMPTBREEDER_TYPED_SOURCE_COMPILER")
+        self.assertEqual(result["model_calls"],0)
+        self.assertNotIn(result["source_after_sha256"],self.prepared["consumed_after_hashes"])
+        doc=json.loads(publish.call_args.kwargs["raw_response"])
+        self.assertLessEqual(len(doc["hypothesis"]),600)
+        marker=" provenance-prompt-v1="
+        self.assertIn(marker,doc["hypothesis"])
+        pins=json.loads(doc["hypothesis"].split(marker)[1])
+        self.assertEqual(set(pins),set("rfhome"))
+        self.assertTrue(all(len(v)==64 for v in pins.values()))
+        self.assertEqual(pins["h"],result["provenance"]["source_bindings_sha256"])
+        self.db.verify()
+
+    def test_typed_missing_release_or_mechanism_drift_cannot_invoke_or_publish(self):
+        original=self.db.meta().copy()
+        with patch.object(search,"owner_request",return_value=self.prepared), \
+                patch.object(backend,"executable_custody",return_value=(Path("unused"),"c"*64)), \
+                patch.object(backend,"invoke",side_effect=AssertionError("must not run")):
+            result=self.fixture.publish()
+            self.assertEqual(result["disposition"],"GENENV_COMPOSITION_SPACE_EXHAUSTED")
+            self.assertIn("TYPED_RELEASE_NOT_BOUND",result["source_backend_blocked"])
+            with patch.object(backend,"typed_generation_custody",
+                    side_effect=backend.BackendUnavailable("F139_GENENV_TYPED_MECHANISM_DRIFT")):
+                with self.assertRaisesRegex(backend.BackendUnavailable,"TYPED_MECHANISM_DRIFT"):
+                    self.fixture.publish()
+        self.assertEqual(self.db.meta(),original)
+        self.assertEqual(self.fixture.owner.write_calls,[])
+
+    def test_typed_publication_ambiguity_remains_sticky(self):
+        self.fixture.owner.fail_after_reference=True
+        with patch.object(search,"owner_request",return_value=self.prepared), \
+                patch.object(backend,"executable_custody",return_value=(Path("unused"),"c"*64)), \
+                patch.object(backend,"typed_generation_custody"), \
+                patch.object(backend,"invoke",side_effect=self.utility_fixture) as invoke:
+            first=self.fixture.publish()
+            second=self.fixture.publish()
+        self.assertEqual(first["disposition"],"MODEL_DRAFT_REMOTE_AMBIGUOUS_NO_RETRY")
+        self.assertEqual(second["disposition"],"MODEL_DRAFT_UNRESOLVED_NO_REPLAY")
+        self.assertEqual(invoke.call_count,1)
+
+    def test_typed_mechanism_changed_during_utility_is_read_only(self):
+        original=self.db.meta().copy()
+        mechanism=backend.generation_mechanism()
+        with patch.object(search,"owner_request",return_value=self.prepared), \
+                patch.object(backend,"executable_custody",return_value=(Path("unused"),"c"*64)), \
+                patch.object(backend,"typed_generation_custody"), \
+                patch.object(backend,"generation_mechanism",side_effect=[mechanism,mechanism+b"drift"]), \
+                patch.object(backend,"invoke",side_effect=self.utility_fixture):
+            with self.assertRaisesRegex(backend.BackendUnavailable,"TYPED_MECHANISM_CHANGED"):
+                self.fixture.publish()
+        self.assertEqual(self.db.meta(),original)
+        self.assertEqual(self.fixture.owner.write_calls,[])
