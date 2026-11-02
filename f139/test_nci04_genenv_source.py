@@ -49,7 +49,7 @@ class GenEnvSourceTests(unittest.TestCase):
     def test_result_pin_and_consumed_composition_rejected(self):
         with self.assertRaisesRegex(PortfolioSourceRejected,"RESULT_DRIFT"):
             self.compile(self.result(),result_sha256="0"*64)
-        receipts = self.compile(self.result())
+        receipts = self.compile(self.result()).candidates
         with self.assertRaisesRegex(PortfolioSourceRejected,"HISTORICAL_REPLAY"):
             self.compile(self.result(), historical_sha256=frozenset({receipts[0][0].after_sha256}))
 
@@ -59,3 +59,12 @@ class GenEnvSourceTests(unittest.TestCase):
         result["source_sha"] = "f" * 40
         with self.assertRaisesRegex(PortfolioSourceRejected,"SOURCE_IDENTITY"):
             self.compile(result)
+
+    def test_upstream_result_and_training_pins_survive_compilation(self):
+        result = self.result()
+        batch = self.compile(result)
+        self.assertEqual(batch.generator_result_sha256, _sha(json.dumps(result).encode()))
+        self.assertEqual(batch.frozen_sha256, "a" * 64)
+        self.assertEqual(batch.history_sha256, "b" * 64)
+        self.assertEqual(batch.mechanism_sha256, _sha(b"mechanism"))
+        self.assertEqual(batch.source_sha, result["source_sha"])

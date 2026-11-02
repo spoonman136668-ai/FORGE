@@ -5,6 +5,7 @@ claim that arbitrary environment vectors or policy scores are source edits.
 Caller pins must come from the separately authenticated generator invocation.
 """
 import json
+from dataclasses import dataclass
 
 from f139.nci04_model_free_search import (
     OPERATORS, PARENT, PATH, candidates,
@@ -12,6 +13,16 @@ from f139.nci04_model_free_search import (
 from f139.nci04_portfolio_source_boundary import (
     PortfolioSourceRejected, SourceCandidate, _sha, validate_generation_batch,
 )
+
+
+@dataclass(frozen=True)
+class CompiledBatch:
+    candidates: tuple
+    generator_result_sha256: str
+    frozen_sha256: str
+    history_sha256: str
+    mechanism_sha256: str
+    source_sha: str
 
 
 def compile_operator_vectors(raw, *, result_sha256, frozen_sha256,
@@ -63,8 +74,10 @@ def compile_operator_vectors(raw, *, result_sha256, frozen_sha256,
             question="Does composing " + ", ".join(names) + " improve public native decisions?",
             hypothesis="The existing operators may interact; retain standalone-parent, coverage, "
                        "stationary-retention and unfamiliar-transfer negative controls.", after=after))
-    return validate_generation_batch(
+    validated = validate_generation_batch(
         tuple(outputs), generator="dgm_genenv", mechanism=mechanism,
         mechanism_sha256=mechanism_sha256, lane="Yggdrasil", path=PATH,
         parent_sha=PARENT, before=before, historical_sha256=historical_sha256,
         historical_ast_sha256=historical_ast_sha256)
+    return CompiledBatch(validated, result_sha256, frozen_sha256,
+                         history_sha256, mechanism_sha256, PARENT)

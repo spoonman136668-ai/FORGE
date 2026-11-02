@@ -20,18 +20,22 @@ def check(raw):
     paths = ("genenv/genenv.go", "f139/nci04_genenv_source.py",
              "f139/nci04_model_free_search.py")
     mechanism = b"".join(p.encode() + b"\0" + Path(p).read_bytes() for p in paths)
-    receipts = compile_operator_vectors(
+    batch = compile_operator_vectors(
         raw, result_sha256=_sha(raw), frozen_sha256=result["frozen_sha256"],
         history_sha256=result["history_sha256"], mechanism=mechanism,
         mechanism_sha256=_sha(mechanism), before=before,
         historical_sha256=frozenset(_sha(x[1]) for x in consumed),
         historical_ast_sha256=frozenset(normalized(x[1]) for x in consumed))
+    receipts = batch.candidates
     assert len(receipts) == 4
     assert len({c.after_sha256 for c, _ in receipts}) == 4
     assert len({ast_id for _, ast_id in receipts}) == 4
     assert all(c.generator == "dgm_genenv" and c.lane == "Yggdrasil" for c, _ in receipts)
     return {"consumed_fixture_candidates": 3, "fresh_source_candidates": 4,
-            "model_calls": 0, "owner_demonstration": False}
+            "model_calls": 0, "owner_demonstration": False,
+            "source_sha": batch.source_sha,
+            "generator_result_sha256": batch.generator_result_sha256,
+            "source_after_sha256": [c.after_sha256 for c, _ in receipts]}
 
 
 if __name__ == "__main__":
