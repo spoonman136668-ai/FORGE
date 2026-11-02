@@ -47,6 +47,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Actual GenEnv output to native source compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_path="$RUNNER_TEMP/f139-genenv-request.json"
+          result_path="$RUNNER_TEMP/f139-genenv-result.json"
+          python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_genenv_source_integration --result "$result_path"
       - name: Tests, race, vet and build
         shell: bash
         run: |
@@ -105,6 +114,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Actual GenEnv output to native source compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_path="$RUNNER_TEMP/f139-genenv-request.json"
+          result_path="$RUNNER_TEMP/f139-genenv-result.json"
+          python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_genenv_source_integration --result "$result_path"
       - name: Native Windows source qualification
         shell: pwsh
         run: |
