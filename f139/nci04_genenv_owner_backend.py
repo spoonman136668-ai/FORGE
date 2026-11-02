@@ -77,7 +77,8 @@ def executable_custody(db, source_sha):
     need(db.meta()["source_sha"] == source_sha, "SOURCE_DRIFT")
     rows = [json.loads(r["payload"]) for r in db.conn.execute(
         "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
-    need(bool(rows) and rows[-1].get("schema") == "forge.f139.source-transition.v27"
+    need(bool(rows) and rows[-1].get("schema") in (
+         "forge.f139.source-transition.v27", "forge.f139.source-transition.v28")
          and rows[-1].get("to_source_sha") == source_sha, "RELEASE_NOT_BOUND")
     expected = rows[-1].get("genenv_executable_sha256")
     need(type(expected) is str and re.fullmatch(r"[0-9a-f]{64}", expected), "BINARY_PIN")
@@ -92,6 +93,51 @@ def executable_custody(db, source_sha):
          "EXECUTABLE_FILE")
     need(digest(binary.read_bytes()) == expected, "EXECUTABLE_DRIFT")
     return binary, expected
+
+
+def generation_mechanism():
+    """Exact source artifacts used by the typed original-owner generator."""
+    root = Path(__file__).resolve().parents[1]
+    names = ("promptlineage/lineage.go", "cmd/f139-genenv-source/main.go",
+        "f139/nci04_prompt_program.py", "f139/nci04_prompt_source.py",
+        "f139/nci04_model_free_search.py", "f139/nci04_genenv_owner_backend.py",
+        "f139/nci04_native_contract.py", "f139/nci04_portfolio_source_boundary.py")
+    return b"".join(n.encode()+b"\0"+(root/n).read_bytes() for n in names)
+
+
+def typed_generation_custody(db, source_sha, mechanism_sha256):
+    db.verify()
+    row = db.conn.execute("SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
+                          "ORDER BY seq DESC LIMIT 1").fetchone()
+    doc = json.loads(row["payload"]) if row else {}
+    need(doc.get("schema") == "forge.f139.source-transition.v28"
+         and doc.get("to_source_sha") == source_sha, "TYPED_RELEASE_NOT_BOUND")
+    need(doc.get("generation_mechanism_sha256") == mechanism_sha256, "TYPED_MECHANISM_DRIFT")
+
+
+def generate_typed_batch(db, *, before, consumed, historical_asts, history_sha256,
+                         source_sha, binary, binary_sha):
+    """Read-only original-history -> actual existing Go mutation -> source."""
+    from f139.nci04_prompt_program import build_plan
+    from f139.nci04_prompt_source import compile_prompt_sources, frozen_digest
+    mechanism = generation_mechanism()
+    typed_generation_custody(db, source_sha, digest(mechanism))
+    consumed, historical_asts, sources = search.consumed_source_identities(
+        db, consumed, with_sources=True)
+    plan = build_plan(before,history_sources=sources,consumed_sha256=consumed,
+        historical_ast_sha256=historical_asts,history_sha256=history_sha256,
+        mechanism_sha256=digest(mechanism))
+    if plan is None:
+        return None
+    raw = invoke(binary,binary_sha,plan.request())
+    need(generation_mechanism() == mechanism, "TYPED_MECHANISM_CHANGED")
+    batch = compile_prompt_sources(raw,result_sha256=digest(raw),frozen=plan.frozen,
+        frozen_sha256=frozen_digest(plan.frozen),bindings=plan.bindings,
+        bindings_sha256=plan.source_bindings_sha256,mechanism=mechanism,
+        mechanism_sha256=digest(mechanism),lane="Yggdrasil",path=search.PATH,
+        parent_sha=search.PARENT,before=before,historical_sha256=frozenset(consumed),
+        historical_ast_sha256=frozenset(historical_asts))
+    return batch
 
 
 def invoke(binary, expected_sha256, request):
@@ -111,6 +157,7 @@ def invoke(binary, expected_sha256, request):
     return completed.stdout
 
 
+
 def publish_after_exhaustion(db, get, steering_get, write, *, prepared, consumed,
                              historical_asts, source_sha, owner_witness):
     try:
@@ -123,34 +170,51 @@ def publish_after_exhaustion(db, get, steering_get, write, *, prepared, consumed
     need(callable(owner_witness) and owner_witness() is True, "OWNER_REVOKED")
     request = build_request(prepared["before"], consumed, historical_asts,
                             prepared["request"]["history_sha256"])
+    generator = "GENENV_NATIVE_SOURCE_COMPILER"
+    marker = " provenance-v1="
     if request is None:
-        return search.report("GENENV_COMPOSITION_SPACE_EXHAUSTED")
-    raw = invoke(binary, binary_sha, request)
-    root = Path(__file__).resolve().parents[1]
-    files = ("genenv/genenv.go", "cmd/f139-genenv-source/main.go",
-             "f139/nci04_genenv_source.py", "f139/nci04_model_free_search.py",
-             "f139/nci04_genenv_owner_backend.py")
-    mechanism = b"".join(name.encode()+b"\0"+(root/name).read_bytes() for name in files)
-    batch = compile_operator_vectors(raw, result_sha256=digest(raw),
-        frozen_sha256=request["frozen_sha256"], history_sha256=request["history_sha256"],
-        mechanism=mechanism, mechanism_sha256=digest(mechanism), before=prepared["before"],
-        historical_sha256=frozenset(consumed), historical_ast_sha256=frozenset(historical_asts))
+        try:
+            batch = generate_typed_batch(db,before=prepared["before"],consumed=consumed,
+                historical_asts=historical_asts,history_sha256=prepared["request"]["history_sha256"],
+                source_sha=source_sha,binary=binary,binary_sha=binary_sha)
+        except BackendUnavailable as exc:
+            if str(exc) != "F139_GENENV_TYPED_RELEASE_NOT_BOUND":
+                raise
+            return {**search.report("GENENV_COMPOSITION_SPACE_EXHAUSTED"),
+                    "source_backend_blocked":str(exc)}
+        if batch is None:
+            return search.report("TYPED_PROGRAM_GRAMMAR_EXHAUSTED")
+        generator = "PROMPTBREEDER_TYPED_SOURCE_COMPILER"
+        marker = " provenance-prompt-v1="
+        projection = batch.bindings_sha256
+        projection_name = "source_bindings_sha256"
+    else:
+        raw = invoke(binary, binary_sha, request)
+        root = Path(__file__).resolve().parents[1]
+        names = ("genenv/genenv.go", "cmd/f139-genenv-source/main.go",
+                 "f139/nci04_genenv_source.py", "f139/nci04_model_free_search.py",
+                 "f139/nci04_genenv_owner_backend.py")
+        mechanism = b"".join(n.encode()+b"\0"+(root/n).read_bytes() for n in names)
+        batch = compile_operator_vectors(raw, result_sha256=digest(raw),
+            frozen_sha256=request["frozen_sha256"], history_sha256=request["history_sha256"],
+            mechanism=mechanism, mechanism_sha256=digest(mechanism), before=prepared["before"],
+            historical_sha256=frozenset(consumed), historical_ast_sha256=frozenset(historical_asts))
+        projection = batch.history_sha256
+        projection_name = "source_use_history_sha256"
     candidate, _ = batch.candidates[0]
     provenance = dict(generator_result_sha256=batch.generator_result_sha256,
-        frozen_sha256=batch.frozen_sha256, source_use_history_sha256=batch.history_sha256,
+        frozen_sha256=batch.frozen_sha256, **{projection_name:projection},
         original_history_sha256=prepared["request"]["history_sha256"],
         mechanism_sha256=batch.mechanism_sha256, executable_sha256=binary_sha)
-    # Compact, explicit key map fits the existing immutable 600-character
-    # research-text contract without dropping any upstream source identity.
-    # r=result, f=frozen, h=source-use history, o=original history,
-    # m=mechanism, e=executable.
+    # h binds source-use history for GenEnv or complete source bindings for
+    # typed Promptbreeder. o always binds the complete original history.
     compact = dict(r=batch.generator_result_sha256, f=batch.frozen_sha256,
-                   h=batch.history_sha256, o=provenance["original_history_sha256"],
+                   h=projection, o=provenance["original_history_sha256"],
                    m=batch.mechanism_sha256, e=binary_sha)
     response = canonical(dict(schema=search.SCHEMA, lane="Yggdrasil", target_commit=search.PARENT,
         path=search.PATH, history_sha256=prepared["request"]["history_sha256"],
         question=candidate.question,
-        hypothesis=candidate.hypothesis+" provenance-v1="+canonical(compact).decode("ascii"),
+        hypothesis=candidate.hypothesis+marker+canonical(compact).decode("ascii"),
         control="Unmodified frozen parent, original native regression and unfamiliar-family controls; "
                 "retain every negative. Source-use projection is not optimizer reward training. "
                 "No holdout, scientific first-use, model or policy promotion.",
@@ -158,7 +222,7 @@ def publish_after_exhaustion(db, get, steering_get, write, *, prepared, consumed
     need(owner_witness() is True, "OWNER_REVOKED")
     result = search.publish_model_once(db, get, steering_get, write,
         session=prepared["session"], raw_response=response, owner_witness=owner_witness)
-    return {**result, "generator": "GENENV_NATIVE_SOURCE_COMPILER", "model_calls": 0,
+    return {**result, "generator": generator, "model_calls": 0,
             "paid_model_calls": 0, "source_after_sha256": candidate.after_sha256,
             "generator_result_sha256": batch.generator_result_sha256,
             "provenance": provenance}
