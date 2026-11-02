@@ -123,6 +123,16 @@ class G35ProviderOriginTests(unittest.TestCase):
         checked=self.read()
         self.assertTrue(checked["both_platforms_development_qualified"])
 
+    def test_current_v2_run_keeps_known_v3_jobs_strictly_skipped(self):
+        for i,name in enumerate(('native-authorize-v3','native-execute-v3')):
+            self.jobs.append(dict(name=name,id=20+i,status='completed',conclusion='skipped'))
+        self.assertTrue(self.read()['both_platforms_development_qualified'])
+        for job in self.jobs[-2:]:
+            job['conclusion']='success'
+            with self.assertRaisesRegex(G35ProviderDenied,'UNEXPECTED_OR_LIVE'):
+                self.read()
+            job['conclusion']='skipped'
+
     def test_any_legacy_v1_execution_on_v2_run_is_denied(self):
         self.jobs.append(
             {"name":"native-authorize","id":11,"status":"completed",
