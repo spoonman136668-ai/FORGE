@@ -97,7 +97,55 @@ def rehearse_generator(db, api, target):
                 model_calls=0, publications=0, native_dispatches=0)
 
 
-def guarded_transition(path, backup, target, event_id, binary, toolchain):
+def rehearse_typed_generator(db, api, target):
+    """Copied original history -> real existing Promptbreeder -> new source."""
+    from f139 import nci04_model_free_search as search
+    from f139.nci04_genenv_owner_backend import executable_custody, generate_typed_batch
+    from f139.nci04_autonomy_feed import _decode_content
+    history = owner_history(db)
+    consumed, asts = search.consumed_source_identities(db,history["consumed_after_hashes"])
+    before, _ = _decode_content(api.native_repo_get(
+        "repos/spoonman136668-ai/Yggdrasil/contents/"+search.PATH+"?ref="+search.PARENT))
+    binary, expected = executable_custody(db,target)
+    batch = generate_typed_batch(db,before=before,consumed=consumed,historical_asts=asts,
+        history_sha256=history["history_sha256"],source_sha=target,binary=binary,binary_sha=expected)
+    need(batch is not None and len(batch.candidates)>0,"NO_GENUINE_TYPED_SOURCE_OUTPUT")
+    return dict(generator_result_sha256=batch.generator_result_sha256,
+        fresh_source_sha256=[c.after_sha256 for c,_ in batch.candidates],
+        executable_sha256=expected,original_history_sha256=history["history_sha256"],
+        frozen_sha256=batch.frozen_sha256,source_bindings_sha256=batch.bindings_sha256,
+        generation_mechanism_sha256=batch.mechanism_sha256,
+        model_calls=0,publications=0,native_dispatches=0)
+
+
+def copy_generation_executable(db, destination, *, copy_files=True):
+    """Back up the previously released utility as well as provider custody."""
+    from f139.nci04_genenv_owner_backend import executable_custody
+    source_sha = db.meta()["source_sha"]
+    binary, expected = executable_custody(db,source_sha)
+    relative = Path("prior-generation-custody")/source_sha/binary.name
+    target = destination/relative
+    if copy_files:
+        target.parent.mkdir(parents=True,exist_ok=False)
+        shutil.copyfile(binary,target)
+    need(target.is_file() and not target.is_symlink()
+         and 0 < target.stat().st_size <= 16_000_000
+         and digest(target.read_bytes()) == expected,"PRIOR_GENERATOR_BACKUP_HASH")
+    return {relative.as_posix():expected}
+
+
+def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _contract=None):
+    # Reuse the qualified original-owner handoff, not another controller.
+    from f139 import nci04_v32_source_transition as v32
+    from f139 import nci04_v33_source_transition as v33
+    globals()["need"](_contract is None or _contract is v33,"UNKNOWN_SOURCE_CONTRACT")
+    contract = v32 if _contract is None else v33
+    FROM_V31 = v32.FROM_V31 if _contract is None else v33.FROM_V32
+    ORIGINAL_SEQ, TOOLCHAIN = contract.ORIGINAL_SEQ, contract.TOOLCHAIN
+    build_proof, commit_transition = contract.build_proof, contract.commit_transition
+    validate_idle, need = contract.validate_idle, contract.need
+    rehearse_generator = globals()["rehearse_generator"] if _contract is None else rehearse_typed_generator
+    version = "V32" if _contract is None else "V33"
     need(os.name == "nt" and re.fullmatch(r"[a-f0-9]{40}", target)
          and type(event_id) is int and event_id > 0 and toolchain == TOOLCHAIN,
          "WINDOWS_EXACT_TARGET_AND_TOOLCHAIN_REQUIRED")
@@ -134,7 +182,9 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain):
             validate_idle(db)
             before = db.meta().copy()
             copy_provider_archives(db, backup.parent, copy_files=False)
-            rehearsal = backup.with_name("v32-source-and-executable-rehearsal.sqlite")
+            if version == "V33":
+                copy_generation_executable(db,backup.parent,copy_files=False)
+            rehearsal = backup.with_name(version.lower()+"-source-and-executable-rehearsal.sqlite")
             need(not rehearsal.exists(), "REHEARSAL_COLLISION")
             cold = Database.open_readonly(backup)
             try:
@@ -164,8 +214,8 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain):
                 need(reopened.meta() == expected_meta, "REHEARSAL_COLD_HEAD_DRIFT")
             finally:
                 reopened.close()
-            print("F139_V32_COPIED_ORIGINAL_HISTORY_AND_ACTUAL_SOURCE_COMPILER=PASS")
-            print("F139_V32_REHEARSAL="+canonical(report).decode("ascii"))
+            print("F139_"+version+"_COPIED_ORIGINAL_HISTORY_AND_ACTUAL_SOURCE_COMPILER=PASS")
+            print("F139_"+version+"_REHEARSAL="+canonical(report).decode("ascii"))
             need(db.meta() == before and native_original_owner_profile(path), "ORIGINAL_OWNER_MOVED")
             need(api.protected_main() == protected and api.native_repo_get(
                 "repos/"+FORGE_REPO+"/issues/"+str(POLICY_ISSUE)).get("body") == policy.get("body"),
