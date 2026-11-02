@@ -21,6 +21,8 @@ from f139.nci04_v2_owner_permit import (
     FIRST_NEW_EVENT, verify_v2_owner_permit,
 )
 
+from f139.nci04_v30_source_transition import carried_source
+
 SCHEMA = "forge.f139.g32.owner-v2-development-custody-readonly.v1"
 OS_LABELS = frozenset(("ubuntu-latest", "windows-latest"))
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
@@ -61,7 +63,8 @@ def authenticate_original_admission(db: Database,
     meta = db.meta()
     need(meta["enabled"] == 1 and meta["legacy_suspended"] == 1
          and verify_native_activation(db)
-         and admission.source_sha == meta["source_sha"]
+         and (admission.source_sha == meta["source_sha"]
+              or carried_source(db, admission.ticket) == admission.source_sha)
          and type(meta["epoch"]) is int and meta["epoch"] > 0,
          "SOURCE_OR_OWNER_ACTIVATION_INVALID")
     found = event_rows(db, KIND, admission.ticket)
@@ -113,14 +116,14 @@ def authenticate_original_admission(db: Database,
         native_signature=signed["native_signature"],
         issue_number=str(issue.number), issue_id=str(issue.issue_id),
         issue_body_sha256=issue.issue_body_sha256,
-        authenticated_main_sha=meta["source_sha"],
+        authenticated_main_sha=admission.source_sha,
         authenticated_target_commit=issue.candidate.target_commit,
         authenticated_target_tree=issue.candidate.target_tree_sha,
     )
     need(reconstructed == admission,
          "RECONSTRUCTED_ORIGINAL_SIGNED_ADMISSION_DRIFT")
     return {
-        "source_sha": meta["source_sha"], "epoch": meta["epoch"],
+        "source_sha": admission.source_sha, "epoch": meta["epoch"],
         "event_seq": row["seq"], "event_sha256": row["sha"],
         "ticket": admission.ticket,
     }
