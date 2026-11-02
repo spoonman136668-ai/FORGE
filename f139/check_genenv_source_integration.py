@@ -38,13 +38,25 @@ def check(raw):
             "source_after_sha256": [c.after_sha256 for c, _ in receipts]}
 
 
+def development_request():
+    from f139.nci04_genenv_owner_backend import build_request
+    before = Path("f139/fixtures/model_free_yggdrasil_992ef.py").read_bytes()
+    consumed = {_sha(x[1]) for x in candidates(before)}
+    return build_request(before, consumed, set(), _sha(b"development-only-source-use-fixture"))
+
+
 if __name__ == "__main__":
-    raw = sys.stdin.buffer.read() if len(sys.argv) == 1 else b""
-    if len(sys.argv) == 2:
-        lines = Path(sys.argv[1]).read_text("utf-8-sig").splitlines()
-        markers = [line.split("F139_GENENV_RESULT=", 1)[1] for line in lines
-                   if "F139_GENENV_RESULT=" in line]
-        if len(markers) != 1:
-            raise ValueError("GENENV_EXACT_EXPORT_REQUIRED")
-        raw = markers[0].encode("utf-8")
-    print(json.dumps(check(raw), sort_keys=True))
+    if sys.argv[1:] == ["--request"]:
+        print(json.dumps(development_request(), separators=(",", ":")))
+    else:
+        raw = sys.stdin.buffer.read() if len(sys.argv) == 1 else b""
+        if len(sys.argv) == 3 and sys.argv[1] == "--result":
+            raw = Path(sys.argv[2]).read_bytes()
+        elif len(sys.argv) == 2:
+            lines = Path(sys.argv[1]).read_text("utf-8-sig").splitlines()
+            markers = [line.split("F139_GENENV_RESULT=", 1)[1] for line in lines
+                       if "F139_GENENV_RESULT=" in line]
+            if len(markers) != 1:
+                raise ValueError("GENENV_EXACT_EXPORT_REQUIRED")
+            raw = markers[0].encode("utf-8")
+        print(json.dumps(check(raw), sort_keys=True))

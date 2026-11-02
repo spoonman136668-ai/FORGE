@@ -25,6 +25,23 @@ class CompiledBatch:
     source_sha: str
 
 
+def source_for_vector(before, vector):
+    """One compiler implementation shared by history projection and output checks."""
+    if (type(vector) not in (list, tuple) or len(vector) != len(OPERATORS) or
+            any(type(x) is not int or x not in (0, 1) for x in vector) or not any(vector)):
+        raise PortfolioSourceRejected("GENENV_SOURCE_RECIPE")
+    tuple(candidates(before))
+    source = before.decode("utf-8")
+    names = []
+    for enabled, (name, anchor, replacement, _, _) in zip(vector, OPERATORS):
+        if enabled:
+            if source.count(anchor) != 1:
+                raise PortfolioSourceRejected("GENENV_OPERATOR_ANCHOR_DRIFT")
+            source = source.replace(anchor, replacement, 1)
+            names.append(name)
+    return source.encode("utf-8"), names
+
+
 def compile_operator_vectors(raw, *, result_sha256, frozen_sha256,
                              history_sha256, mechanism, mechanism_sha256,
                              before, historical_sha256, historical_ast_sha256):
@@ -58,15 +75,7 @@ def compile_operator_vectors(raw, *, result_sha256, frozen_sha256,
                 type(vector) is not list or len(vector) != len(OPERATORS) or
                 any(type(x) is not int or x not in (0, 1) for x in vector) or not any(vector)):
             raise PortfolioSourceRejected("GENENV_SOURCE_RECIPE")
-        source = before.decode("utf-8")
-        names = []
-        for enabled, (name, anchor, replacement, _, _) in zip(vector, OPERATORS):
-            if enabled:
-                if source.count(anchor) != 1:
-                    raise PortfolioSourceRejected("GENENV_OPERATOR_ANCHOR_DRIFT")
-                source = source.replace(anchor, replacement, 1)
-                names.append(name)
-        after = source.encode("utf-8")
+        after, names = source_for_vector(before, vector)
         outputs.append(SourceCandidate(
             generator="dgm_genenv", lane="Yggdrasil", path=PATH, parent_sha=PARENT,
             before_sha256=_sha(before), after_sha256=_sha(after),

@@ -163,13 +163,13 @@ class InstallerWorkflowTests(unittest.TestCase):
         self.assertNotIn('schedule:',s)
 
 class ReceiptMaintenanceBoundaryTests(unittest.TestCase):
-    def test_exact_current_workflow_routes_only_v31_and_no_live_task_dispatch(self):
+    def test_consumed_immutable_v31_route_and_no_live_task_dispatch(self):
         import ast, fnmatch, re
         routed=[]
         for version in (27,28,29,30,31):
             s=(ROOT/f'.github/workflows/f139-v{version}-original-owner-release.yml').read_text()
             patterns=ast.literal_eval(re.findall(r'^    branches: (\[.*\])$',s,re.M)[0])
-            if any(fnmatch.fnmatchcase('f139-owner-release-'+'f'*40,p) for p in patterns):
+            if any(fnmatch.fnmatchcase('f139-owner-release-6fe5b70ed075cbd47fbb14b721e097dd4660c851',p) for p in patterns):
                 routed.append(version)
         self.assertEqual(routed,[31])
         s=(ROOT/'f139/nci04_v31_original_owner_transition_cli.py').read_text()

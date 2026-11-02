@@ -81,19 +81,12 @@ def candidates(before: bytes):
         yield name, source, question, hypothesis
 
 
-def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness):
-    db.verify()
-    # Journal incompleteness remains sticky across source releases and dates.
-    attempts = list(db.conn.execute(
-        "SELECT payload FROM events WHERE kind=? ORDER BY seq", (ATTEMPT,)))
-    successes = list(db.conn.execute(
-        "SELECT payload FROM events WHERE kind=? ORDER BY seq", (SUCCESS,)))
-    if len(attempts) != len(successes):
-        return report("MODEL_DRAFT_UNRESOLVED_NO_REPLAY")
-    prepared = owner_request(
-        db, get, steering_get, source_sha=source_sha, lane="Yggdrasil",
-        target_commit=PARENT, path=PATH, owner_witness=owner_witness)
-    consumed = set(prepared["consumed_after_hashes"])
+def consumed_source_identities(db, consumed_after_hashes, attempts=None):
+    """Reuse complete source-use custody for publication and cold rehearsal."""
+    if attempts is None:
+        attempts = list(db.conn.execute(
+            "SELECT payload FROM events WHERE kind=? ORDER BY seq", (ATTEMPT,)))
+    consumed = set(consumed_after_hashes)
     consumed.update(json.loads(row["payload"])["source_after_sha256"]
                     for row in attempts)
     # Retain every original outcome, including negatives and historical sources.
@@ -113,6 +106,22 @@ def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness
                 if task is None or task["stage"] != "QUARANTINED":
                     raise ValueError("F139_MODEL_FREE_SEARCH_INVALID_NONNEGATIVE_HISTORY")
                 consumed.add(digest(raw))
+    return consumed, prior_asts
+
+
+def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness):
+    db.verify()
+    # Journal incompleteness remains sticky across source releases and dates.
+    attempts = list(db.conn.execute(
+        "SELECT payload FROM events WHERE kind=? ORDER BY seq", (ATTEMPT,)))
+    successes = list(db.conn.execute(
+        "SELECT payload FROM events WHERE kind=? ORDER BY seq", (SUCCESS,)))
+    if len(attempts) != len(successes):
+        return report("MODEL_DRAFT_UNRESOLVED_NO_REPLAY")
+    prepared = owner_request(
+        db, get, steering_get, source_sha=source_sha, lane="Yggdrasil",
+        target_commit=PARENT, path=PATH, owner_witness=owner_witness)
+    consumed, prior_asts = consumed_source_identities(db, prepared["consumed_after_hashes"], attempts)
     for name, source, question, hypothesis in candidates(prepared["before"]):
         if digest(source) in consumed or normalized(source) in prior_asts:
             continue
@@ -130,7 +139,10 @@ def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness
             raw_response=response, owner_witness=owner_witness)
         return {**outcome, "generator": "DETERMINISTIC_SOURCE_SEARCH",
                 "operator": name, "model_calls": 0, "paid_model_calls": 0}
-    return report("MODEL_FREE_SEARCH_EXHAUSTED_NO_FRESH_CANDIDATE")
+    from f139.nci04_genenv_owner_backend import publish_after_exhaustion
+    return publish_after_exhaustion(
+        db, get, steering_get, write, prepared=prepared, consumed=consumed,
+        historical_asts=prior_asts, source_sha=source_sha, owner_witness=owner_witness)
 
 
 def report(disposition):
