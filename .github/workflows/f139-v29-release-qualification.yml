@@ -33,6 +33,7 @@ jobs:
           assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
           assert not git('status', '--porcelain', '--untracked-files=all')
           assert set(git('diff', '--name-only', baseline, 'HEAD').splitlines()) == {
+              '.github/workflows/f139-v27-original-owner-release.yml',
               '.github/workflows/f139-v28-original-owner-release.yml',
               '.github/workflows/f139-v29-original-owner-release.yml',
               '.github/workflows/f139-v29-release-qualification.yml',
@@ -44,6 +45,22 @@ jobs:
               'f139/nci04_v29_original_owner_transition_cli.py',
               'f139/test_nci04_v29_source_transition.py',
           }
+          # A skipped legacy workflow still takes a workflow concurrency slot.
+          # Prove that only the current installer receives this release push.
+          import ast, fnmatch, pathlib, re
+          release = 'f139-owner-release-' + expected
+          routed = []
+          for version in (27, 28, 29):
+              name = f'f139-v{version}-original-owner-release.yml'
+              text = pathlib.Path('.github/workflows', name).read_text()
+              rows = re.findall(r'^    branches: (\[.*\])$', text, re.MULTILINE)
+              assert len(rows) == 1, name
+              patterns = ast.literal_eval(rows[0])
+              assert type(patterns) is list and all(type(p) is str for p in patterns)
+              if any(fnmatch.fnmatchcase(release, p) for p in patterns):
+                  routed.append(version)
+          assert routed == [29], ('competing release workflows', routed)
+          print('F139_V29_SINGLE_RELEASE_PUSH_ROUTE=PASS')
           print('F139_V29_REPAIR_RELEASE_EXACT_SOURCE=PASS')
       - name: Enforce FORGE independence from private CKB-plane
         shell: bash
@@ -117,6 +134,7 @@ jobs:
           assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
           assert not git('status', '--porcelain', '--untracked-files=all')
           assert set(git('diff', '--name-only', baseline, 'HEAD').splitlines()) == {
+              '.github/workflows/f139-v27-original-owner-release.yml',
               '.github/workflows/f139-v28-original-owner-release.yml',
               '.github/workflows/f139-v29-original-owner-release.yml',
               '.github/workflows/f139-v29-release-qualification.yml',
@@ -128,6 +146,22 @@ jobs:
               'f139/nci04_v29_original_owner_transition_cli.py',
               'f139/test_nci04_v29_source_transition.py',
           }
+          # A skipped legacy workflow still takes a workflow concurrency slot.
+          # Prove that only the current installer receives this release push.
+          import ast, fnmatch, pathlib, re
+          release = 'f139-owner-release-' + expected
+          routed = []
+          for version in (27, 28, 29):
+              name = f'f139-v{version}-original-owner-release.yml'
+              text = pathlib.Path('.github/workflows', name).read_text()
+              rows = re.findall(r'^    branches: (\[.*\])$', text, re.MULTILINE)
+              assert len(rows) == 1, name
+              patterns = ast.literal_eval(rows[0])
+              assert type(patterns) is list and all(type(p) is str for p in patterns)
+              if any(fnmatch.fnmatchcase(release, p) for p in patterns):
+                  routed.append(version)
+          assert routed == [29], ('competing release workflows', routed)
+          print('F139_V29_SINGLE_RELEASE_PUSH_ROUTE=PASS')
           print('F139_V29_REPAIR_RELEASE_EXACT_SOURCE=PASS')
       - name: FORGE independence and standing isolation enforcement
         shell: bash
