@@ -4,7 +4,7 @@ import unittest
 from dataclasses import replace
 
 from f139.nci04_portfolio_source_boundary import (
-    PortfolioSourceRejected, SourceCandidate, validate_source_candidate,
+    PortfolioSourceRejected, SourceCandidate, validate_source_candidate, validate_generation_batch,
 )
 
 BEFORE = b"def choose():\n    return 0\n"
@@ -67,6 +67,45 @@ class PortfolioSourceBoundaryTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaises(PortfolioSourceRejected):
                     check(bad)
+
+
+class GenerationBatchTests(unittest.TestCase):
+    def batch(self, outputs, **changes):
+        args = dict(generator="dream_rsi", mechanism=b"qualified mechanism",
+                    mechanism_sha256=SHA(b"qualified mechanism"), lane="Yggdrasil",
+                    path="native/example.py", parent_sha=PARENT, before=BEFORE,
+                    historical_sha256=frozenset(), historical_ast_sha256=frozenset())
+        args.update(changes)
+        return validate_generation_batch(outputs, **args)
+
+    def output(self, **changes):
+        return candidate(mechanism_sha256=SHA(b"qualified mechanism"), **changes)
+
+    def test_actual_source_output_validated(self):
+        self.assertEqual(self.batch((self.output(),))[0][0].after, AFTER)
+
+    def test_advisory_optimizer_result_is_not_source(self):
+        with self.assertRaisesRegex(PortfolioSourceRejected, "UNRECOGNIZED_PROPOSAL"):
+            self.batch(({"weights": [1, 2], "scientific_accepted": False},))
+
+    def test_mechanism_artifact_drift_rejected(self):
+        with self.assertRaisesRegex(PortfolioSourceRejected, "ARTIFACT_DRIFT"):
+            self.batch((self.output(),), mechanism=b"different implementation")
+
+    def test_output_family_must_match_pinned_generator(self):
+        with self.assertRaisesRegex(PortfolioSourceRejected, "OUTPUT_MISMATCH"):
+            self.batch((self.output(generator="theta_evolve"),))
+
+    def test_duplicate_batch_and_retained_negatives_rejected(self):
+        with self.assertRaisesRegex(PortfolioSourceRejected, "HISTORICAL_REPLAY"):
+            self.batch((self.output(), self.output()))
+        with self.assertRaisesRegex(PortfolioSourceRejected, "HISTORICAL_REPLAY"):
+            self.batch((self.output(),), historical_sha256=frozenset({SHA(AFTER)}))
+
+    def test_batch_bound_is_fail_closed(self):
+        for outputs in ((), [self.output()], (self.output(),) * 17):
+            with self.assertRaisesRegex(PortfolioSourceRejected, "BOUNDED_SOURCE_BATCH"):
+                self.batch(outputs)
 
 
 if __name__ == "__main__":

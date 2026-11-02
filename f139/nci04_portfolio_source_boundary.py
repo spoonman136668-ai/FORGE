@@ -80,3 +80,39 @@ def validate_source_candidate(candidate: SourceCandidate, *, lane: str,
     if old_ast == new_ast:
         raise PortfolioSourceRejected("NO_SEMANTIC_CHANGE")
     return new_ast
+
+
+def validate_generation_batch(candidates, *, generator: str, mechanism: bytes,
+                              mechanism_sha256: str, lane: str, path: str,
+                              parent_sha: str, before: bytes,
+                              historical_sha256: frozenset[str],
+                              historical_ast_sha256: frozenset[str]):
+    """Validate actual compiler outputs, never coerce advisory optimizer JSON.
+
+    The caller supplies an independently pinned mechanism artifact. This is a
+    non-executing adapter: it neither invents edits from policy weights nor
+    invokes candidate Python. The original owner still authenticates custody.
+    A whole bounded batch is checked before any candidate is returned.
+    """
+    if generator not in FAMILIES or type(mechanism) is not bytes or not mechanism:
+        raise PortfolioSourceRejected("MECHANISM_ARTIFACT_REQUIRED")
+    if _sha(mechanism) != mechanism_sha256:
+        raise PortfolioSourceRejected("MECHANISM_ARTIFACT_DRIFT")
+    if type(candidates) is not tuple or not 1 <= len(candidates) <= 16:
+        raise PortfolioSourceRejected("BOUNDED_SOURCE_BATCH_REQUIRED")
+    raw_seen = set(historical_sha256)
+    ast_seen = set(historical_ast_sha256)
+    receipts = []
+    for candidate in candidates:
+        if type(candidate) is not SourceCandidate:
+            raise PortfolioSourceRejected("UNRECOGNIZED_PROPOSAL")
+        if candidate.generator != generator or candidate.mechanism_sha256 != mechanism_sha256:
+            raise PortfolioSourceRejected("MECHANISM_OUTPUT_MISMATCH")
+        ast_id = validate_source_candidate(
+            candidate, lane=lane, path=path, parent_sha=parent_sha, before=before,
+            historical_sha256=frozenset(raw_seen),
+            historical_ast_sha256=frozenset(ast_seen))
+        raw_seen.add(candidate.after_sha256)
+        ast_seen.add(ast_id)
+        receipts.append((candidate, ast_id))
+    return tuple(receipts)
