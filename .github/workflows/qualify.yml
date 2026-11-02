@@ -43,6 +43,132 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - name: Set up G91 CPU proxy Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: research/acc_g91/requirements.txt
+      - name: G91 certified-vocabulary synthetic screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r research/acc_g91/requirements.txt
+          python -B -m unittest discover -s research/acc_g91 -p 'test_g91.py' -v
+          python -B research/acc_g91/g91_certified_vocab.py | tee g91-screen-stdout.json
+      - name: G92 self-sketch microtree synthetic screen and exactness guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g92 -p 'test_g92.py' -v
+          python -B research/acc_g92/g92_microtree.py | tee g92-screen-stdout.txt
+      - name: G93 SwiGLU negative-tail pruning screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g93 -p 'test_g93.py' -v
+          python -B research/acc_g93/g93_swiglu_screen.py | tee g93-screen-stdout.txt
+      - name: G94 temporal delta projection screen and exactness guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g94 -p 'test_g94.py' -v
+          python -B research/acc_g94/g94_delta_projection.py | tee g94-screen-stdout.txt
+      - name: G95 RoPE shift-invariant replay and contextual drift guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g95 -p 'test_g95.py' -v
+          python -B research/acc_g95/g95_rope_replay.py | tee g95-screen-stdout.txt
+      - name: G96 certified attention-block omission and error guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g96 -p 'test_g96.py' -v
+          python -B research/acc_g96/g96_attention_bounds.py | tee g96-screen-stdout.txt
+      - name: G97 certified head-budget CPU proxy and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g97 -p 'test_g97.py' -v
+          python -B research/acc_g97/g97_head_budget.py | tee g97-screen-stdout.txt
+      - name: G98 geometric KV subspace synthetic screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g98 -p 'test_g98.py' -v
+          python -B research/acc_g98/g98_kv_subspace.py | tee g98-screen-stdout.txt
+      - name: G99 outlier-preserving INT8 and sparse correction guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g99 -p 'test_g99.py' -v
+          python -B research/acc_g99/g99_outlier_int8.py | tee g99-screen-stdout.txt
+      - name: G100 cold-KV predictive staging cost-model guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g100 -p 'test_g100.py' -v
+          python -B research/acc_g100/g100_kv_staging.py | tee g100-screen-stdout.txt
+      - name: G101 cross-layer residual forecast accuracy and speed screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g101 -p 'test_g101.py' -v
+          python -B research/acc_g101/g101_residual_forecast.py | tee g101-screen-stdout.txt
+      - name: G102 certified early-exit exact greedy and speed screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g102 -p 'test_g102.py' -v
+          python -B research/acc_g102/g102_certified_exit.py | tee g102-screen-stdout.txt
+      - name: G103 fixed shape-adaptive matvec dispatch screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g103 -p 'test_g103.py' -v
+          python -B research/acc_g103/g103_shape_dispatch.py | tee g103-screen-stdout.txt
+      - name: G104 collision-safe activation fingerprint replay screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g104 -p 'test_g104.py' -v
+          python -B research/acc_g104/g104_fingerprint.py | tee g104-screen-stdout.txt
+      - name: G105 token-conditioned precision route and fallback guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g105 -p 'test_g105.py' -v
+          python -B research/acc_g105/g105_precision_route.py | tee g105-screen-stdout.txt
+      - name: G106 shared DMA weight-KV staging cost-model guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g106 -p 'test_g106.py' -v
+          python -B research/acc_g106/g106_dual_staging.py | tee g106-screen-stdout.txt
+      - name: Upload ACC G91-G106 synthetic screening receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g91-g106-${{ runner.os }}-${{ github.sha }}
+          path: |
+            g91-screen-stdout.json
+            g92-screen-stdout.txt
+            g93-screen-stdout.txt
+            g94-screen-stdout.txt
+            g95-screen-stdout.txt
+            g96-screen-stdout.txt
+            g97-screen-stdout.txt
+            g98-screen-stdout.txt
+            g99-screen-stdout.txt
+            g100-screen-stdout.txt
+            g101-screen-stdout.txt
+            g102-screen-stdout.txt
+            g103-screen-stdout.txt
+            g104-screen-stdout.txt
+            g105-screen-stdout.txt
+            g106-screen-stdout.txt
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -101,6 +227,132 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - name: Set up G91 CPU proxy Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: research/acc_g91/requirements.txt
+      - name: G91 certified-vocabulary synthetic screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r research/acc_g91/requirements.txt
+          python -B -m unittest discover -s research/acc_g91 -p 'test_g91.py' -v
+          python -B research/acc_g91/g91_certified_vocab.py | tee g91-screen-stdout.json
+      - name: G92 self-sketch microtree synthetic screen and exactness guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g92 -p 'test_g92.py' -v
+          python -B research/acc_g92/g92_microtree.py | tee g92-screen-stdout.txt
+      - name: G93 SwiGLU negative-tail pruning screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g93 -p 'test_g93.py' -v
+          python -B research/acc_g93/g93_swiglu_screen.py | tee g93-screen-stdout.txt
+      - name: G94 temporal delta projection screen and exactness guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g94 -p 'test_g94.py' -v
+          python -B research/acc_g94/g94_delta_projection.py | tee g94-screen-stdout.txt
+      - name: G95 RoPE shift-invariant replay and contextual drift guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g95 -p 'test_g95.py' -v
+          python -B research/acc_g95/g95_rope_replay.py | tee g95-screen-stdout.txt
+      - name: G96 certified attention-block omission and error guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g96 -p 'test_g96.py' -v
+          python -B research/acc_g96/g96_attention_bounds.py | tee g96-screen-stdout.txt
+      - name: G97 certified head-budget CPU proxy and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g97 -p 'test_g97.py' -v
+          python -B research/acc_g97/g97_head_budget.py | tee g97-screen-stdout.txt
+      - name: G98 geometric KV subspace synthetic screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g98 -p 'test_g98.py' -v
+          python -B research/acc_g98/g98_kv_subspace.py | tee g98-screen-stdout.txt
+      - name: G99 outlier-preserving INT8 and sparse correction guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g99 -p 'test_g99.py' -v
+          python -B research/acc_g99/g99_outlier_int8.py | tee g99-screen-stdout.txt
+      - name: G100 cold-KV predictive staging cost-model guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g100 -p 'test_g100.py' -v
+          python -B research/acc_g100/g100_kv_staging.py | tee g100-screen-stdout.txt
+      - name: G101 cross-layer residual forecast accuracy and speed screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g101 -p 'test_g101.py' -v
+          python -B research/acc_g101/g101_residual_forecast.py | tee g101-screen-stdout.txt
+      - name: G102 certified early-exit exact greedy and speed screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g102 -p 'test_g102.py' -v
+          python -B research/acc_g102/g102_certified_exit.py | tee g102-screen-stdout.txt
+      - name: G103 fixed shape-adaptive matvec dispatch screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g103 -p 'test_g103.py' -v
+          python -B research/acc_g103/g103_shape_dispatch.py | tee g103-screen-stdout.txt
+      - name: G104 collision-safe activation fingerprint replay screen and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g104 -p 'test_g104.py' -v
+          python -B research/acc_g104/g104_fingerprint.py | tee g104-screen-stdout.txt
+      - name: G105 token-conditioned precision route and fallback guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g105 -p 'test_g105.py' -v
+          python -B research/acc_g105/g105_precision_route.py | tee g105-screen-stdout.txt
+      - name: G106 shared DMA weight-KV staging cost-model guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/acc_g106 -p 'test_g106.py' -v
+          python -B research/acc_g106/g106_dual_staging.py | tee g106-screen-stdout.txt
+      - name: Upload ACC G91-G106 synthetic screening receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g91-g106-${{ runner.os }}-${{ github.sha }}
+          path: |
+            g91-screen-stdout.json
+            g92-screen-stdout.txt
+            g93-screen-stdout.txt
+            g94-screen-stdout.txt
+            g95-screen-stdout.txt
+            g96-screen-stdout.txt
+            g97-screen-stdout.txt
+            g98-screen-stdout.txt
+            g99-screen-stdout.txt
+            g100-screen-stdout.txt
+            g101-screen-stdout.txt
+            g102-screen-stdout.txt
+            g103-screen-stdout.txt
+            g104-screen-stdout.txt
+            g105-screen-stdout.txt
+            g106-screen-stdout.txt
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
