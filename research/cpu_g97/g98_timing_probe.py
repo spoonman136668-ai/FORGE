@@ -65,10 +65,18 @@ def run_instrumented(model,stream,prefixes,keys,torch,proc,*,probe=None):
     g95=original_g95()
     g95.baseline_request=probe.wrap("fallback_decode",g95.baseline_request)
     g95.request_decode=probe.wrap("cached_decode",g95.request_decode)
+    original_cat = torch.cat
+    prefix_ids = {id(p) for p in prefixes}
+    suffix_ids = {id(req["suffix"]) for req in stream}
+    timed_cat = probe.wrap("prefix_concatenation", original_cat)
+    def request_cat(tensors, *args, **kwargs):
+        if len(tensors) == 2 and id(tensors[0]) in prefix_ids and id(tensors[1]) in suffix_ids:
+            return timed_cat(tensors, *args, **kwargs)
+        return original_cat(tensors, *args, **kwargs)
     with ExitStack() as stack:
         stack.enter_context(patched(frozen,"AdmissionCache",probe.cache_factory))
         stack.enter_context(patched(frozen,"_g95",lambda:g95))
-        stack.enter_context(patched(torch,"cat",probe.wrap("prefix_concatenation",torch.cat)))
+        stack.enter_context(patched(torch,"cat",request_cat))
         stack.enter_context(patched(copy,"deepcopy",probe.wrap("kv_clone",copy.deepcopy)))
         outputs,metrics=frozen.run_policy(model,stream,prefixes,keys,"lru",torch,proc)
     if len(probe.events["cache_request_inclusive"])!=len(stream):
