@@ -110,10 +110,28 @@ jobs:
              @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
             throw 'F139_V33_DEPLOYED_V31_SOURCE_DRIFT'
           }
-          $policy=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+          function Read-V33OwnerPolicy {
+            # Two independent read transports; never retry a write or owner event.
+            # Keep native failure local so a failed gh GET can reach the fallback.
+            $PSNativeCommandUseErrorActionPreference=$false
+            $raw=(& gh api repos/spoonman136668-ai/FORGE/issues/807 2>$null | Out-String)
+            if($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($raw)) {
+              return ($raw | ConvertFrom-Json -ErrorAction Stop)
+            }
+            Write-Host 'F139_V33_POLICY_READ_TRANSPORT_FALLBACK=READ_ONLY'
+            try {
+              return (Invoke-RestMethod -Method Get -MaximumRedirection 0 -TimeoutSec 30 -ErrorAction Stop `
+                -Uri 'https://api.github.com/repos/spoonman136668-ai/FORGE/issues/807' `
+                -Headers @{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';
+                           'X-GitHub-Api-Version'='2022-11-28'})
+            } catch {
+              throw 'F139_V33_POLICY_READ_UNAVAILABLE_NO_OWNER_MUTATION'
+            }
+          }
+          $policy=Read-V33OwnerPolicy
           $priorBody=[string]$policy.body
           $ownerPolicy=$priorBody | ConvertFrom-Json
-          if($LASTEXITCODE -ne 0 -or $policy.state -cne 'open' -or
+          if($policy.state -cne 'open' -or
              $policy.user.login -cne 'spoonman136668-ai' -or
              $ownerPolicy.schema -cne 'forge.f139.native-autonomy-feed-owner-policy.v1' -or
              $ownerPolicy.enabled -ne $false -or $ownerPolicy.source_sha -cne $old -or
