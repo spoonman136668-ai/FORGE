@@ -113,7 +113,7 @@ class G101AdapterTests(unittest.TestCase):
 
     def test_mismatch_rejected_before_storage_admission(self):
         model = FakeModel(bad=True)
-        with self.assertRaisesRegex(ValueError, "CONTEXT_LENGTH_MISMATCH|EXPECTED_BYTES_DRIFT"):
+        with self.assertRaisesRegex(RuntimeError, "G101_FULL_PREFILL_LENGTH_DRIFT"):
             self.invoke(model=model)
         self.assertEqual(model.full_calls, 1)
         self.assertEqual(model.cached_calls, 0)
@@ -135,7 +135,7 @@ class G101AdapterTests(unittest.TestCase):
 
     def test_failure_does_not_monkeypatch_frozen_controller(self):
         original = candidate.g97.frozen.AdmissionCache
-        with self.assertRaisesRegex(ValueError, "EXPECTED_BYTES_DRIFT|CONTEXT_LENGTH_MISMATCH"):
+        with self.assertRaisesRegex(RuntimeError, "G101_FULL_PREFILL_LENGTH_DRIFT"):
             self.invoke(model=FakeModel(bad=True))
         self.assertIs(candidate.g97.frozen.AdmissionCache, original)
 

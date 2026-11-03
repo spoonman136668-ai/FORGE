@@ -44,8 +44,18 @@ class _FullPrefillCapture:
             # Mark before calling the real model to forbid recursive/repeated capture.
             self.seen = True
             result = self.model(*args, **kwargs)
-            if not hasattr(result, "past_key_values"):
+            past = getattr(result, "past_key_values", None)
+            if not isinstance(past, (tuple, list)) or not past:
                 raise RuntimeError("G101_FULL_PREFILL_MISSING_KV")
+            # In a cold causal prefill every layer must cover the whole input.
+            # A prefix slice alone could hide a model/output length mismatch.
+            for layer in past:
+                if not isinstance(layer, (tuple, list)) or len(layer) != 2:
+                    raise RuntimeError("G101_FULL_PREFILL_LAYOUT_DRIFT")
+                for tensor in layer:
+                    if (not hasattr(tensor, "shape") or len(tensor.shape) != 4
+                            or int(tensor.shape[-2]) != self.total_length):
+                        raise RuntimeError("G101_FULL_PREFILL_LENGTH_DRIFT")
             t0 = time.perf_counter_ns()
             self.prefix_past = capture_prefix_from_full_prefill(
                 result.past_key_values, self.prefix_length,
