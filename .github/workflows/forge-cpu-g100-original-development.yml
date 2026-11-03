@@ -41,7 +41,7 @@ jobs:
           PY
           test "$(git rev-parse HEAD:research/cpu_g95/g95_multiprefix_lru_original.py)" = "b401c86e4dff2f25eb995a47ba58884838f232eb"
           git merge-base --is-ancestor 856da2432ef4163938711bcb6b0369fbfab2ccbd HEAD
-          python -B -m py_compile research/cpu_g97/g100_development_original.py research/cpu_g97/g100_original_adapter.py research/cpu_g97/g100_stream_manifest.py
+          python -B -m py_compile research/cpu_g97/g100_development_original.py research/cpu_g97/g100_original_adapter.py research/cpu_g97/g100_stream_manifest.py research/cpu_g97/g100_receipt_validator.py
           python -B -m unittest discover -s research/cpu_g97 -p 'test_g100*.py' -v
           echo "source_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           echo G100_SOURCE_ADMISSION=PASS
@@ -94,6 +94,10 @@ jobs:
                      for v in receipt["strata"].values() for r in v["repetitions"])
           print("G100_DEVELOPMENT_ONLY=PASS",receipt["decision"])
           PY
+          # Independently reject inconsistent paired rows, metrics, verdicts,
+          # source identity or protected-cohort claims before accepting artifacts.
+          python -B research/cpu_g97/g100_receipt_validator.py \
+            cpu_g100_development_result.json cpu_g100_development_stream.json "$GITHUB_SHA"
       - name: Preserve bounded development evidence
         if: always()
         uses: actions/upload-artifact@v4
