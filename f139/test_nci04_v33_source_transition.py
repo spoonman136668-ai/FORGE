@@ -199,6 +199,99 @@ class V33Tests(unittest.TestCase):
             with self.assertRaisesRegex(route.MaintenanceDenied,"SPENT_HISTORY_DRIFT"):
                 route.snapshot(db,row,previous)
 
+
+    def test_policy_transport_fallback_is_bounded_read_only_and_fail_closed(self):
+        text=(ROOT/".github/workflows/f139-v33-original-owner-release.yml").read_text()
+        start=text.index("          function Read-V33OwnerPolicy {")
+        end=text.index("          $policy=Read-V33OwnerPolicy",start)
+        function="\n".join(line[10:] for line in text[start:end].splitlines())
+        self.assertLess(end,text.index("Disable-ScheduledTask -TaskName $name"))
+        self.assertEqual(function.count("gh api repos/"),1)
+        self.assertEqual(function.count("Invoke-RestMethod -Method Get"),1)
+        for denied in ("-Method Post","-Method Patch","-Method Put",
+                       "Start-ScheduledTask","Stop-ScheduledTask","Disable-ScheduledTask",
+                       "Start-Sleep","while(","for(","F139_WORKER_HMAC_KEY"):
+            self.assertNotIn(denied,function)
+        self.assertIn("-MaximumRedirection 0 -TimeoutSec 30",function)
+        # No stale native exit code may reject a successful independent GET.
+        guard=text[end:text.index("$release=",end)]
+        self.assertNotIn("$LASTEXITCODE",guard)
+        for check in ("$policy.state -cne 'open'","$policy.user.login -cne 'spoonman136668-ai'",
+                      "$ownerPolicy.enabled -ne $false","$ownerPolicy.source_sha -cne $old",
+                      "$ownerPolicy.scientific_first_use -ne $false"):
+            self.assertIn(check,guard)
+        if os.name!="nt":
+            self.skipTest("Windows PowerShell behavioral fallback fixture")
+        executable=shutil.which("powershell.exe")
+        self.assertIsNotNone(executable)
+        fixture=r"""
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
+$env:GH_TOKEN='fixture-only-never-a-credential'
+$script:mode='primary'
+$script:primary=0
+$script:fallback=0
+function gh {
+    $script:primary++
+    if($script:mode -eq 'primary') {
+        $global:LASTEXITCODE=0
+        return '{"marker":"primary"}'
+    }
+    if($script:mode -eq 'malformed') {
+        $global:LASTEXITCODE=0
+        return '{malformed'
+    }
+    $global:LASTEXITCODE=1
+    return ''
+}
+function Invoke-RestMethod {
+    param($Method,$MaximumRedirection,$TimeoutSec,$ErrorAction,$Uri,$Headers)
+    $script:fallback++
+    if($Method -cne 'Get' -or $MaximumRedirection -ne 0 -or $TimeoutSec -ne 30 -or
+       $Uri -cne 'https://api.github.com/repos/spoonman136668-ai/FORGE/issues/807' -or
+       $Headers.Authorization -cne 'Bearer fixture-only-never-a-credential' -or
+       $Headers.Accept -cne 'application/vnd.github+json' -or
+       $Headers['X-GitHub-Api-Version'] -cne '2022-11-28') {throw 'fixture transport drift'}
+    if($script:mode -eq 'both-fail'){throw 'fixture transport unavailable'}
+    return [pscustomobject]@{marker='fallback'}
+}
+"""
+        assertions=r"""
+$result=Read-V33OwnerPolicy
+if($result.marker -cne 'primary' -or $script:primary -ne 1 -or $script:fallback -ne 0) {
+    throw 'primary fixture failed'
+}
+$script:mode='fallback'
+$result=Read-V33OwnerPolicy
+if($result.marker -cne 'fallback' -or $script:primary -ne 2 -or $script:fallback -ne 1) {
+    throw 'independent fallback fixture failed'
+}
+$script:mode='both-fail'
+$denied=$false
+try {Read-V33OwnerPolicy | Out-Null} catch {
+    $denied=($_.Exception.Message -ceq 'F139_V33_POLICY_READ_UNAVAILABLE_NO_OWNER_MUTATION')
+}
+if(-not $denied -or $script:primary -ne 3 -or $script:fallback -ne 2) {
+    throw 'both failures must deny without another request'
+}
+$script:mode='malformed'
+$denied=$false
+try {Read-V33OwnerPolicy | Out-Null} catch {$denied=$true}
+if(-not $denied -or $script:primary -ne 4 -or $script:fallback -ne 2) {
+    throw 'malformed successful response must deny without fallback'
+}
+Remove-Item Env:GH_TOKEN
+Write-Host 'F139_V33_POLICY_TRANSPORT_FIXTURE=PASS'
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/"read-only-policy-fixture.ps1"
+            path.write_text(fixture+"\n"+function+"\n"+assertions,encoding="utf-8")
+            result=subprocess.run([executable,"-NoProfile","-NonInteractive","-File",str(path)],
+                                  capture_output=True,check=False)
+            self.assertEqual(result.returncode,0,result.stdout.decode(errors="replace")+
+                             result.stderr.decode(errors="replace"))
+            self.assertIn(b"F139_V33_POLICY_TRANSPORT_FIXTURE=PASS",result.stdout)
+
     def test_windows_powershell_inert_parse(self):
         if os.name!="nt":
             self.skipTest("Windows PowerShell parser")
