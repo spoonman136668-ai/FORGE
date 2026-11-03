@@ -103,6 +103,8 @@ def main():
                      "clone_ns":int(statistics.median(clone)),"expected_reuses":2}
         receipt["calibration"]=calibration
         receipt["strata"]={}
+        from g98_timing_probe import run_instrumented
+        g98_diagnostics={}
         arms=tuple(POLICIES)+("g97_overflow_bypass",)
         for stratum in STRATA:
             layout=build_traffic(stratum,cycles=1)
@@ -135,7 +137,25 @@ def main():
                     assert_parity(references,outputs)
                     results[policy]=metrics
                 reps.append({"rep":rep+1,"order":order,"arms":results})
-            baseline=[r["arms"]["no_cache"] for r in reps]
+            # Diagnostic-only comparison against the unchanged LRU execution.
+            original_outputs,original_metrics=run_policy(model,stream,prefixes,keys,"lru",torch,proc)
+            assert_parity(references,original_outputs)
+            observed_outputs,observed_metrics,timing=run_instrumented(model,stream,prefixes,keys,torch,proc)
+            assert_parity(original_outputs,observed_outputs)
+            event_fields=("index","prefix_id","source_row","hit","admitted","bypass","resident_kv_bytes","output_sha256")
+            if len(original_metrics["rows"])!=len(observed_metrics["rows"]):
+                raise RuntimeError("G98_REQUEST_COUNT_DRIFT")
+            for before,after in zip(original_metrics["rows"],observed_metrics["rows"]):
+                if any(before[field]!=after[field] for field in event_fields):
+                    raise RuntimeError("G98_CACHE_OR_OUTPUT_DRIFT")
+            for field in ("hits","misses","evictions","admissions","bypasses","max_resident_kv_bytes"):
+                if original_metrics[field]!=observed_metrics[field]:
+                    raise RuntimeError("G98_CACHE_STATE_DRIFT_"+field)
+            if len(timing["durations_ns"]["kv_clone"])!=sum(not r["bypass"] for r in observed_metrics["rows"]):
+                raise RuntimeError("G98_KV_CLONE_COUNT_DRIFT")
+            g98_diagnostics[stratum]={"timing":timing,"exact_output_parity":True,
+                "cache_event_parity":True,"kv_state_invariants":True,
+                "request_count":len(stream)}
             metrics={p:evaluate(baseline,[r["arms"][p] for r in reps],g.TOKENS) for p in arms[1:]}
             for p,m in metrics.items():
                 m["qualifies"]=(m["throughput_speedup"]>=1.15
@@ -151,6 +171,14 @@ def main():
         qualifies=all(receipt["strata"][s]["metrics"]["g97_overflow_bypass"]["qualifies"] for s in STRATA)
         qualifies=qualifies and receipt["strata"]["overflow"]["metrics"]["g97_overflow_bypass"]["improves_overflow_lru"]
         receipt["decision"]="DEVELOPMENT_CANDIDATE" if qualifies else "DEVELOPMENT_NO_GO"
+        Path("cpu_g98_development_timing.json").write_text(json.dumps({
+            "schema":"forge.cpu-g98.original-development-timing.v1",
+            "phase":"DEVELOPMENT_ONLY","source_sha":receipt["source_sha"],
+            "development_stream_sha256":receipt["development_stream_sha256"],
+            "model_revision":receipt["model_revision"],"weights_sha256":receipt["weights_sha256"],
+            "heldout_executed":False,"promotion_allowed":False,
+            "performance_verdict":"NOT_EVALUATED",
+            "diagnostic_only":True,"strata":g98_diagnostics},sort_keys=True,indent=2)+"\n")
         receipt["engineering"]="PASS";receipt["correctness"]="PASS"
     except BaseException as e:
         receipt["error"]=type(e).__name__+": "+str(e)
