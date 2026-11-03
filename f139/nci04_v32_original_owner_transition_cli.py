@@ -138,14 +138,17 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
     # Reuse the qualified original-owner handoff, not another controller.
     from f139 import nci04_v32_source_transition as v32
     from f139 import nci04_v33_source_transition as v33
-    globals()["need"](_contract is None or _contract is v33,"UNKNOWN_SOURCE_CONTRACT")
-    contract = v32 if _contract is None else v33
-    FROM_V31 = v32.FROM_V31 if _contract is None else v33.FROM_V32
-    ORIGINAL_SEQ, TOOLCHAIN = contract.ORIGINAL_SEQ, contract.TOOLCHAIN
+    from f139 import nci04_v34_source_transition as v34
+    globals()["need"](_contract is None or _contract is v33 or _contract is v34,
+                      "UNKNOWN_SOURCE_CONTRACT")
+    contract = v32 if _contract is None else _contract
+    FROM_V31 = (v32.FROM_V31 if contract is v32 else
+                v33.FROM_V32 if contract is v33 else v34.FROM_V33)
+    ORIGINAL_SEQ, TOOLCHAIN = getattr(contract, "ORIGINAL_SEQ", None), contract.TOOLCHAIN
     build_proof, commit_transition = contract.build_proof, contract.commit_transition
     validate_idle, need = contract.validate_idle, contract.need
     rehearse_generator = globals()["rehearse_generator"] if _contract is None else rehearse_typed_generator
-    version = "V32" if _contract is None else "V33"
+    version = "V32" if contract is v32 else "V33" if contract is v33 else "V34"
     need(os.name == "nt" and re.fullmatch(r"[a-f0-9]{40}", target)
          and type(event_id) is int and event_id > 0 and toolchain == TOOLCHAIN,
          "WINDOWS_EXACT_TARGET_AND_TOOLCHAIN_REQUIRED")
@@ -181,8 +184,10 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
         with SingleOwner(path.with_suffix(".lock")):
             validate_idle(db)
             before = db.meta().copy()
+            if contract is v34:
+                ORIGINAL_SEQ = before["head_seq"]
             copy_provider_archives(db, backup.parent, copy_files=False)
-            if version == "V33":
+            if version in ("V33", "V34"):
                 copy_generation_executable(db,backup.parent,copy_files=False)
             rehearsal = backup.with_name(version.lower()+"-source-and-executable-rehearsal.sqlite")
             need(not rehearsal.exists(), "REHEARSAL_COLLISION")

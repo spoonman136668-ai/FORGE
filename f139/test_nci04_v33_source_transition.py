@@ -138,14 +138,14 @@ class V33Tests(unittest.TestCase):
                 guarded_transition(None,None,None,None,None,None,_contract=object())
             witness.assert_not_called()
 
-    def test_only_v33_receives_new_release_pushes(self):
+    def test_only_current_installer_receives_new_release_pushes(self):
         routed=[]
-        for version in range(27,34):
+        for version in range(27,35):
             text=(ROOT/f".github/workflows/f139-v{version}-original-owner-release.yml").read_text()
             patterns=ast.literal_eval(re.findall(r"^    branches: (\[.*\])$",text,re.M)[0])
             if any(fnmatch.fnmatchcase("f139-owner-release-"+"f"*40,p) for p in patterns):
                 routed.append(version)
-        self.assertEqual(routed,[33])
+        self.assertEqual(routed,[34])
         text=(ROOT/".github/workflows/f139-v33-original-owner-release.yml").read_text()
         for token in ("EXACT_QUALIFICATION_REQUIRED","FINAL_LINUX_WINDOWS_RECEIPTS_REQUIRED",
                 "bypass_actors","ZeroFreeBSTR($ptr)","Remove-Item Env:F139_WORKER_HMAC_KEY",
