@@ -100,3 +100,56 @@ def verify_v2_provider_zip(raw, meta, signed: NativeAdmission, *,
          "INCOMPLETE_NEGATIVE_CANNOT_BE_PROMOTED")
     return {"receipt":receipt,"report":report,"qualified":qualified,
             "artifact_sha256":digest(raw),"version":"v2"}
+
+
+def development_feedback_v2(raw, meta, signed: NativeAdmission):
+    """Read observed DEV feedback through the existing provider verifier.
+
+    The caller still authenticates the original admission and provider identity.
+    This is neither scientific training evidence nor a complete cost meter.
+    Unexecuted modules stay missing; no score, reward or propensity is inferred.
+    """
+    review = verify_v2_provider_zip(raw, meta, signed, require_qualified=False)
+    report = review["report"]
+    commands = [("pristine_source_atlas", report["pristine_source_atlas"])]
+    commands.extend(("candidate_behavior", row) for row in report["candidate_behavior"])
+    if report["candidate_compile"] is not None:
+        commands.append(("candidate_compile", report["candidate_compile"]))
+    observed = []
+    executed_modules = []
+    for phase, row in commands:
+        argv = row["argv"]
+        module = argv[argv.index("-p")+1] if "-p" in argv else None
+        if phase == "candidate_behavior":
+            executed_modules.append(module)
+        observed.append({
+            "phase": phase, "module": module, "outcome": row["outcome"],
+            "returncode": row["returncode"], "tests_run": row["test_count"],
+            "elapsed_ms": row["elapsed_ms"], "output_bytes": row["output_bytes"],
+            "output_sha256": row["output_sha256"],
+        })
+    return {
+        "schema": "forge.f139.native-development-feedback.v1",
+        "mode": "OBSERVED_TEST_DIAGNOSTICS_ONLY",
+        "ticket": signed.ticket, "run_id": signed.run_id, "os": signed.runner_os,
+        "owner_source_sha": signed.source_sha,
+        "target_commit": report["target_commit"],
+        "candidate_sha256": report["candidate_sha256"],
+        "artifact_sha256": review["artifact_sha256"],
+        "report_sha256": digest(canonical(report)),
+        "original_signed_admission_sha256": signed.authorization_sha256,
+        "native_qualification_complete": review["qualified"],
+        "observed_commands": observed,
+        "observed_command_elapsed_ms": sum(row["elapsed_ms"] for _, row in commands),
+        "behavior_modules_not_run": [
+            module for module in report["supported_behavior_modules"]
+            if module not in executed_modules],
+        "unsupported_behavior_modules": list(report["explicit_unsupported_modules"]),
+        "candidate_compile_observed": report["candidate_compile"] is not None,
+        "complete_experiment_cost_measured": False,
+        "quality_score": None, "decision_time_menu": None,
+        "selection_probability": None, "theta_direction": None,
+        "development_only": True, "scientific_accepted": False,
+        "optimizer_training_authorized": False, "dispatch_authorized": False,
+        "scientific_first_use": False,
+    }
