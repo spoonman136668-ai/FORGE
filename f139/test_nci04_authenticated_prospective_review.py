@@ -20,6 +20,17 @@ class AuthenticatedReviewTests(unittest.TestCase):
             review_authenticated_prospective_development(
                 b"fake", {}, {"ticket": "fake"}, {}, expected_eligible_hashes=[])
 
+    def test_cross_lane_assignment_denied_before_provider(self):
+        from f139.nci04_signed_native import NativeAdmission
+        signed = NativeAdmission("ticket", "Wingless", "a"*40, 1, "linux",
+                                 1, 1, None, "b"*64)
+        with patch("f139.nci04_authenticated_prospective_review.development_feedback_v2") as provider:
+            with self.assertRaisesRegex(ValueError, "LANE_MISMATCH"):
+                review_authenticated_prospective_development(
+                    b"zip", {}, signed, {"lane": "Yggdrasil"},
+                    expected_eligible_hashes=[])
+            provider.assert_not_called()
+
     def test_untrusted_raw_bytes_denied(self):
         # Construct without calling admission validators; provider still rejects
         # an invalid ZIP before any assignment claim is joined.
@@ -28,7 +39,7 @@ class AuthenticatedReviewTests(unittest.TestCase):
                                  1, 1, None, "b"*64)
         with self.assertRaises((ValueError, TypeError)):
             review_authenticated_prospective_development(
-                b"not a provider ZIP", {}, signed, {},
+                b"not a provider ZIP", {}, signed, {"lane": "Wingless"},
                 expected_eligible_hashes=[])
 
     def test_valid_provider_still_cannot_upgrade_authority(self):
@@ -42,7 +53,7 @@ class AuthenticatedReviewTests(unittest.TestCase):
             with patch("f139.nci04_authenticated_prospective_review.join_prospective_development",
                        return_value=review):
                 result = review_authenticated_prospective_development(
-                    b"zip", {}, signed, {}, expected_eligible_hashes=[])
+                    b"zip", {}, signed, {"lane": "Wingless"}, expected_eligible_hashes=[])
         provider.assert_called_once()
         self.assertTrue(result["provider_receipt_checked"])
         self.assertFalse(result["original_owner_custody_independently_proven"])
