@@ -1,6 +1,13 @@
 name: FORGE CPU G100 original GPT2 development comparison
 on:
   workflow_dispatch:
+  push:
+    branches: [research/cpu-llm-g96-admission-policy-20261031]
+    paths: ['.github/workflows/forge-cpu-g100-original-development.yml']
+# One-shot science evaluation using qualified immutable source. The push trigger
+# is removed after the recorded development run; no schedule or controller.
+env:
+  G100_FROZEN_SHA: d7134d1284d19ab94bd93b74972546630fda5736
 permissions: {contents: read, actions: read}
 concurrency:
   group: cpu-g100-original-development
@@ -13,7 +20,10 @@ jobs:
       source_sha: ${{ steps.admit.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0, persist-credentials: false}
+        with:
+          ref: d7134d1284d19ab94bd93b74972546630fda5736
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with: {python-version: '3.11'}
       - name: Exact-source and full mandatory Linux Windows regression admission
@@ -24,11 +34,16 @@ jobs:
           GH_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          # A branch-file push is the only one-shot execution authority.
+          # Pin execution to the already fully-qualified model source.
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "${{ github.event.before }}" = "$G100_FROZEN_SHA"
+          test "${{ github.event.forced }}" = "false"
+          test "$(git rev-parse HEAD)" = "$G100_FROZEN_SHA"
           test "$GITHUB_REF_NAME" = "research/cpu-llm-g96-admission-policy-20261031"
           python - <<'PY'
           import json,os,urllib.request
-          sha=os.environ["GITHUB_SHA"]
+          sha=os.environ["G100_FROZEN_SHA"]
           url=f"https://api.github.com/repos/{os.environ['GH_REPOSITORY']}/actions/runs?head_sha={sha}&per_page=100"
           request=urllib.request.Request(url,headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],
               "Accept":"application/vnd.github+json","User-Agent":"FORGE-G100-EXACT-HEAD"})
@@ -43,7 +58,7 @@ jobs:
           git merge-base --is-ancestor 856da2432ef4163938711bcb6b0369fbfab2ccbd HEAD
           python -B -m py_compile research/cpu_g97/g100_development_original.py research/cpu_g97/g100_original_adapter.py research/cpu_g97/g100_stream_manifest.py research/cpu_g97/g100_receipt_validator.py
           python -B -m unittest discover -s research/cpu_g97 -p 'test_g100*.py' -v
-          echo "source_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$G100_FROZEN_SHA" >> "$GITHUB_OUTPUT"
           echo G100_SOURCE_ADMISSION=PASS
   original-model-development:
     needs: source-admission
@@ -77,7 +92,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python research/cpu_g97/g100_development_original.py
+          GITHUB_SHA="$G100_FROZEN_SHA" python research/cpu_g97/g100_development_original.py
           python - <<'PY'
           import hashlib,json,os
           from pathlib import Path
@@ -85,7 +100,7 @@ jobs:
           data=Path("cpu_g100_development_stream.json").read_bytes()
           assert hashlib.sha256(data).hexdigest()==receipt["development_stream_sha256"]
           assert receipt["phase"]=="DEVELOPMENT_ONLY" and not receipt["heldout_executed"] and not receipt["promotion_allowed"]
-          assert receipt["source_sha"]==os.environ["GITHUB_SHA"]
+          assert receipt["source_sha"]==os.environ["G100_FROZEN_SHA"]
           assert receipt["engineering"]=="PASS" and receipt["correctness"]=="PASS"
           assert receipt["decision"] in ("DEVELOPMENT_CANDIDATE","DEVELOPMENT_NO_GO")
           assert set(receipt["strata"])=={"round_robin","bursty","mixed","overflow"}
@@ -97,7 +112,7 @@ jobs:
           # Independently reject inconsistent paired rows, metrics, verdicts,
           # source identity or protected-cohort claims before accepting artifacts.
           python -B research/cpu_g97/g100_receipt_validator.py \
-            cpu_g100_development_result.json cpu_g100_development_stream.json "$GITHUB_SHA"
+            cpu_g100_development_result.json cpu_g100_development_stream.json "$G100_FROZEN_SHA"
       - name: Preserve bounded development evidence
         if: always()
         uses: actions/upload-artifact@v4
