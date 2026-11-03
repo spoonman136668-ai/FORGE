@@ -6,6 +6,7 @@ on:
       - '.github/workflows/forge-cpu-g97-original-development.yml'
       - 'research/cpu_g97/g97_development_original.py'
       - 'research/cpu_g97/g98_timing_probe.py'
+      - 'research/cpu_g97/g98_original_parity.py'
   workflow_dispatch:
 permissions: {contents: read, actions: read}
 concurrency:
@@ -64,6 +65,7 @@ jobs:
       MKL_NUM_THREADS: '1'
       TOKENIZERS_PARALLELISM: 'false'
       PYTHONPATH: .
+      G98_DEVELOPMENT_ONLY: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -106,8 +108,10 @@ jobs:
           assert t["phase"]=="DEVELOPMENT_ONLY" and not t["heldout_executed"] and not t["promotion_allowed"]
           assert t["diagnostic_only"] and t["performance_verdict"]=="NOT_EVALUATED"
           assert set(t["strata"])==set(r["strata"])
-          assert all(v["exact_output_parity"] and v["cache_event_parity"] and v["kv_state_invariants"]
-                     and v["request_count"]==48 for v in t["strata"].values())
+          assert all(v["parity"]=="PASS" and v["timing_accepted"] and not v["heldout_executed"]
+                     and not v["promotion_allowed"] and v["source_sha"]==r["source_sha"]
+                     and v["development_stream_sha256"]==r["development_stream_sha256"]
+                     for v in t["strata"].values())
           print("G98_ORIGINAL_MODEL_PARITY=PASS")
           print("G97_DEVELOPMENT_ONLY=PASS",r["decision"])
           PY
@@ -123,3 +127,4 @@ jobs:
             cpu_g97_development_stream.json
             cpu_g97_development_environment.txt
             cpu_g98_development_timing.json
+            cpu_g98_*_parity.json
