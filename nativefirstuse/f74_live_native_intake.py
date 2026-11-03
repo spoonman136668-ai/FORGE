@@ -20,8 +20,14 @@ class Denied(ValueError):pass
 
 def need(ok,msg):
  if not ok:raise Denied("F74_"+msg)
+def safe_api_path(path):
+ if not isinstance(path,str) or not path.startswith("/"):
+  return False
+ route=path.split("?",1)[0]
+ return all(segment not in (".","..") for segment in route.split("/"))
+
 def get(repo,path):
- need(repo in [r for _,r in LANES] and path.startswith("/") and ".." not in path,
+ need(repo in [r for _,r in LANES] and safe_api_path(path),
       "ROUTE_UNSAFE")
  url=API+repo+path
  headers={"Accept":"application/vnd.github+json","User-Agent":"FORGE-F74-NATIVE-SCIENCE-SOURCE-READONLY"}
@@ -33,6 +39,28 @@ def get(repo,path):
   raw=r.read(131073)
  need(0<len(raw)<=131072,"GITHUB_RESPONSE_TOO_LARGE")
  return json.loads(raw)
+
+def is_ancestor(repo,ancestor,descendant,max_nodes=256):
+ need(bool(HEX40.fullmatch(ancestor)) and bool(HEX40.fullmatch(descendant)),
+      "COMMIT_LINEAGE_SHA_INVALID")
+ if ancestor==descendant:return True
+ pending=[descendant]
+ seen=set()
+ while pending and len(seen)<max_nodes:
+  current=pending.pop()
+  if current in seen:continue
+  seen.add(current)
+  commit=get(repo,"/git/commits/"+current)
+  need(commit.get("sha")==current,"COMMIT_OBJECT_IDENTITY_DRIFT")
+  parents=commit.get("parents")
+  need(isinstance(parents,list) and len(parents)<=16,"COMMIT_PARENT_SET_INVALID")
+  for parent in parents:
+   parent_sha=parent.get("sha") if isinstance(parent,dict) else None
+   need(isinstance(parent_sha,str) and HEX40.fullmatch(parent_sha),
+        "COMMIT_PARENT_SHA_INVALID")
+   if parent_sha==ancestor:return True
+   if parent_sha not in seen:pending.append(parent_sha)
+ return False
 def doc(repo,sha,path):
  need(bool(HEX40.fullmatch(sha)),"SOURCE_SHA_INVALID")
  item=get(repo,"/contents/"+path+"?ref="+sha)
@@ -46,8 +74,8 @@ def doc(repo,sha,path):
 def audit():
  summary=[]
  for name,repo in LANES:
-  m=get(repo,"/branches/main")
-  sha=m.get("commit",{}).get("sha")
+  m=get(repo,"/git/ref/heads/main")
+  sha=m.get("object",{}).get("sha")
   need(isinstance(sha,str) and HEX40.fullmatch(sha),"MAIN_SHA_INVALID")
   cfg=doc(repo,sha,".research-autonomy/config.json")
   need(cfg.get("schema")=="research.autonomy.v2" and
@@ -59,8 +87,8 @@ def audit():
   need(isinstance(active,str) and active.startswith("research/autonomy-")
        and len(active)<140 and re.fullmatch("[a-z0-9/_-]+",active),
        "ACTIVE_BRANCH_INVALID")
-  b=get(repo,"/branches/"+urllib.parse.quote(active,safe="/"))
-  active_sha=b.get("commit",{}).get("sha")
+  b=get(repo,"/git/ref/heads/"+urllib.parse.quote(active,safe="/"))
+  active_sha=b.get("object",{}).get("sha")
   need(isinstance(active_sha,str) and HEX40.fullmatch(active_sha),"ACTIVE_SHA_INVALID")
   state=doc(repo,active_sha,".research-autonomy/state.json")
   need(state.get("schema")=="research.repo-local-state.v1" and
@@ -74,15 +102,25 @@ def audit():
   last_id=int(state.get("github_run_id",0))
   need(last_id>0,"LAST_RUN_NOT_IDENTIFIED")
   run=get(repo,"/actions/runs/"+str(last_id))
+  run_sha=run.get("head_sha")
   need(run.get("id")==last_id and run.get("name")==name+" research continuation launcher" and
        run.get("status")=="completed" and run.get("conclusion")=="success" and
-       run.get("head_sha")==sha,"RESEARCH_RUN_SOURCE_UNCONFIRMED")
-  again=get(repo,"/branches/"+urllib.parse.quote(active,safe="/"))
-  need(again.get("commit",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
+       isinstance(run_sha,str) and HEX40.fullmatch(run_sha),
+       "RESEARCH_RUN_SOURCE_UNCONFIRMED")
+  # The saved launcher can legitimately predate later main commits. Confirm
+  # its exact source is an ancestor of the currently pinned main, not equal
+  # to today's main and not merely a successful run from an unrelated commit.
+  need(is_ancestor(repo,run_sha,sha),
+       "RESEARCH_RUN_SOURCE_NOT_ANCESTOR")
+  again=get(repo,"/git/ref/heads/"+urllib.parse.quote(active,safe="/"))
+  need(again.get("object",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
+  main_again=get(repo,"/git/ref/heads/main")
+  need(main_again.get("object",{}).get("sha")==sha,"MAIN_MOVED_DURING_READ")
   summary.append({
    "lane":name,"repository":repo,"main_sha":sha,"active_research_head":active_sha,
    "reported_last_completed_experiment":state["experiment"],
    "last_continuation_run_confirmed":last_id,
+   "last_continuation_run_head_sha":run_sha,
    "repo_local_research_workflow_confirmed":True,
    "full_original_seed_lease_ledger_independently_observed":False,
    "current_scientific_owner_independently_authorized":False,
@@ -102,5 +140,10 @@ if __name__=="__main__":
   print(json.dumps(audit(),separators=(",",":"),sort_keys=True))
   print("F74_FORGE_NATIVE_PROTECTED_ORIGINAL=DENIED")
  except (Denied,ValueError,KeyError,TypeError,OSError) as exc:
-  print("F74_LIVE_SOURCE_READBACK=BLOCKED",file=sys.stderr)
+  code=getattr(exc,"code",None)
+  reason=getattr(exc,"reason",None)
+  detail=("http_status="+str(code) if code is not None else
+          "transport_reason="+type(reason).__name__ if reason is not None else
+          str(exc).replace("\\n"," ")[:120])
+  print("F74_LIVE_SOURCE_READBACK=BLOCKED "+type(exc).__name__+":"+detail,file=sys.stderr)
   raise SystemExit(1)
