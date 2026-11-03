@@ -4,6 +4,8 @@ on:
     branches: [research/cpu-llm-g96-admission-policy-20261031]
     paths:
       - '.github/workflows/forge-cpu-g97-original-development.yml'
+      - 'research/cpu_g97/g97_development_original.py'
+      - 'research/cpu_g97/g98_timing_probe.py'
   workflow_dispatch:
 permissions: {contents: read, actions: read}
 concurrency:
@@ -50,6 +52,7 @@ jobs:
           git merge-base --is-ancestor 856da2432ef4163938711bcb6b0369fbfab2ccbd HEAD
           python -B -m py_compile research/cpu_g97/g97_development_original.py research/cpu_g97/g97_stream_manifest.py research/cpu_g97/g97_original_adapter.py
           python -B -m unittest discover -s research/cpu_g97 -p 'test_g97*.py' -v
+          python -B -m unittest discover -s research/cpu_g97 -p 'test_g98*.py' -v
           echo "source_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           echo G97_DEVELOPMENT_SOURCE_ADMISSION=PASS
   original-model-development:
@@ -96,6 +99,16 @@ jobs:
           assert len(r["strata"])==4
           assert all(v["exact_parity"] and len(v["repetitions"])==4 for v in r["strata"].values())
           assert r["decision"] in ("DEVELOPMENT_CANDIDATE","DEVELOPMENT_NO_GO")
+          t=json.loads(Path("cpu_g98_development_timing.json").read_text())
+          assert t["schema"]=="forge.cpu-g98.original-development-timing.v1"
+          assert t["source_sha"]==r["source_sha"]==__import__("os").environ["GITHUB_SHA"]
+          assert t["development_stream_sha256"]==r["development_stream_sha256"]
+          assert t["phase"]=="DEVELOPMENT_ONLY" and not t["heldout_executed"] and not t["promotion_allowed"]
+          assert t["diagnostic_only"] and t["performance_verdict"]=="NOT_EVALUATED"
+          assert set(t["strata"])==set(r["strata"])
+          assert all(v["exact_output_parity"] and v["cache_event_parity"] and v["kv_state_invariants"]
+                     and v["request_count"]==48 for v in t["strata"].values())
+          print("G98_ORIGINAL_MODEL_PARITY=PASS")
           print("G97_DEVELOPMENT_ONLY=PASS",r["decision"])
           PY
       - name: Preserve original development evidence
@@ -109,3 +122,4 @@ jobs:
             cpu_g97_development_result.json
             cpu_g97_development_stream.json
             cpu_g97_development_environment.txt
+            cpu_g98_development_timing.json
