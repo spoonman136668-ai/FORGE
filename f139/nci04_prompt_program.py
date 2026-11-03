@@ -248,13 +248,17 @@ class ProgramPlan:
 
 
 def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha256,
-               history_sha256, mechanism_sha256, max_candidates=16):
+               history_sha256, mechanism_sha256, max_candidates=16,
+               eligible_parent_sha256=None):
     """Build one complete, bounded mutation plan from retained original history.
 
     The caller authenticates complete history outside this pure adapter. It
     must include negative, invalid and consumed/indeterminate source identities.
-    No negative becomes a positive reward; parent order is an exploration
-    frontier, not optimizer outcome learning or scientific selection.
+    Live callers supply the engineering-qualified parent identities separately.
+    All sources still enter the consumed sets before parent filtering. The None
+    default preserves historical pure-adapter rehearsal; the original-owner
+    backend always passes its explicit verified-ledger eligibility set.
+    Parent qualification is not a task-quality reward or scientific selection.
     """
     need(type(history_sources) is tuple and len(history_sources) <= MAX_PARENTS,
          "HISTORY_SOURCE_BUDGET")
@@ -264,6 +268,10 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
     need(all(type(values) in (set,frozenset) and all(type(x) is str
              and re.fullmatch(r"[0-9a-f]{64}",x) for x in values)
              for values in (consumed_sha256,historical_ast_sha256)), "CONSUMED_IDENTITIES")
+    need(eligible_parent_sha256 is None or (
+        type(eligible_parent_sha256) in (set, frozenset)
+        and all(type(x) is str and re.fullmatch(r"[0-9a-f]{64}", x)
+                for x in eligible_parent_sha256)), "PARENT_ELIGIBILITY")
     tuple(search.candidates(before))
     raw_seen, ast_seen = set(consumed_sha256), set(historical_ast_sha256)
     # Never omit a historical negative just because it is not this grammar.
@@ -276,6 +284,8 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
             ast_seen.add(search.normalized(source))
         except ValueError:
             pass  # Original caller separately verifies invalid-negative custody.
+        if eligible_parent_sha256 is not None and digest(source) not in eligible_parent_sha256:
+            continue
         program = recover_program(before,source)
         if program is not None and program not in parents:
             parents.append(program)
