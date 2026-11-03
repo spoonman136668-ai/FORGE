@@ -3634,4 +3634,31 @@ jobs:
           Write-Host ('F139_G54_OWNER_TASK_LAST_RUN=' + [string]$taskInfo.LastRunTime)
           Write-Host ('F139_G54_OWNER_TASK_NEXT_RUN=' + [string]$taskInfo.NextRunTime)
           Write-Host ('F139_G54_DEPLOYED_SOURCE_SHA=' + $deployedSource)
+          # One GET using the original Windows user's existing gh custody.
+          # Workflow GH_TOKEN is excluded only from this child; no auth writes.
+          $ownerApiProbe = @'
+          import json, os, re, subprocess
+          env=dict(os.environ)
+          for key in ("GH_TOKEN", "GITHUB_TOKEN"):
+              env.pop(key, None)
+          report={"schema":"forge.f139.owner-api-readonly-diagnostic.v1","method":"GET","route":"repos/spoonman136668-ai/FORGE/issues/1432","requests":1,"credential_changed":False,"runtime_changed":False}
+          try:
+              result=subprocess.run(["gh","api","--include",report["route"]],env=env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=40,check=False)
+              raw=result.stdout.decode("utf-8",errors="replace")
+              status=re.search(r"(?m)^HTTP/[^\r\n ]+ ([0-9]{3})",raw)
+              report["exit_code"]=result.returncode
+              report["http_status"]=int(status.group(1)) if status else None
+              for name in ("x-ratelimit-limit","x-ratelimit-remaining","x-ratelimit-reset","retry-after"):
+                  match=re.search(r"(?im)^"+name+r":\s*([0-9]+)\s*$",raw)
+                  report[name]=int(match.group(1)) if match else None
+              text=(raw+"\n"+result.stderr.decode("utf-8",errors="replace")).lower()
+              report["failure_class"]=("NONE" if result.returncode==0 else "RATE_LIMIT" if "rate limit" in text else "CREDENTIAL_REJECTED" if "bad credentials" in text or "authentication" in text else "HTTP_OR_TRANSPORT")
+          except subprocess.TimeoutExpired:
+              report["failure_class"]="TIMEOUT"
+          except OSError:
+              report["failure_class"]="EXECUTION_UNAVAILABLE"
+          print("F139_G54_OWNER_API_READ_ONLY="+json.dumps(report,sort_keys=True))
+          '@
+          $ownerApiProbe | & $python -B -
+          if($LASTEXITCODE -ne 0){throw 'F139_G54_STATUS_API_DIAGNOSTIC_FAILED'}
           Write-Host 'F139_G54_STATUS_READ_ONLY=PASS'
