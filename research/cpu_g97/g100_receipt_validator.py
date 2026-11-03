@@ -174,7 +174,8 @@ def main():
     manifest_raw = Path(manifest_path).read_bytes()
     manifest = json.loads(manifest_raw)
     receipt = json.loads(Path(result_path).read_bytes())
-    from research.cpu_g96.g96_development_original import _g95
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cpu_g96"))
+    from g96_original_adapter import _g95
     model_spec = _g95()
     print("G100_INDEPENDENT_RECEIPT_VALIDATION=PASS",
           validate(receipt, manifest, manifest_raw, source_sha, tokens=model_spec.TOKENS))
