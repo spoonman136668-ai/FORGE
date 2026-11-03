@@ -33,7 +33,7 @@ class G100OriginalAdapterTests(unittest.TestCase):
     def test_g97_runner_still_uses_distinct_cache_class(self):
         frozen = adapter.g97.frozen
         original = frozen.AdmissionCache
-        from research.cpu_g97.g97_overflow_bypass import OverflowBypassCache
+        from g97_overflow_bypass import OverflowBypassCache
         def fake(model, stream, prefixes, keys, policy, torch, proc):
             candidate = frozen.AdmissionCache(policy)
             self.assertIs(type(candidate), OverflowBypassCache)
