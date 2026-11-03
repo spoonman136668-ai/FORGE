@@ -33,3 +33,24 @@ generation and continued unattended worker custody need original-owner receipts.
 Any failure before possible mutation restores only the exact leased policy.
 After possible mutation, retain the existing disabled/quiescent hold. Never
 replay an ambiguous transition or create a replacement execution loop.
+
+## One-shot admission collision and new-source recovery
+
+The original-owner release run [41736035946](https://github.com/spoonman136668-ai/FORGE/actions/runs/41736035946)
+for frozen target `d930f32555a73e7dd715b7fe48f5ff0caebf2986` failed with
+`F139_V35_OWNER_TICK_BUSY_NO_MUTATION` immediately after passing exact
+qualification and release-ref immutability checks. This was a **pre-mutation**
+file-byte-range lock contention, not a regression failure. Original owner policy
+#807 remained enabled and pinned to V34 after the failure; the original ledger
+was not independently re-audited afterward. The failed immutable reference
+must not be updated, deleted, re-created or rerun.
+
+A recovery attempt needs a **new independently qualified exact-source commit**
+that preserves the accepted V34 root, complete terminal negatives, owner mutex,
+no-retry single admission, fixed test/Go toolchains, and original scheduler.
+Its distinct immutable release branch may only be created after qualification,
+protected-main inclusion and a fresh read-only original-owner status check.
+If the owner byte lock is busy, the new release must again fail closed without
+stopping the task, changing policy or touching the ledger. Neither a new
+controller nor a polling/retry loop is permitted. Source equivalence does not
+prove V35 installation; subsequent original-owner receipts remain mandatory.

@@ -156,6 +156,26 @@ class V35Tests(unittest.TestCase):
         patterns=ast.literal_eval(re.findall(r'^    branches: (\[.*\])$',old,re.M)[0])
         self.assertEqual(patterns,['f139-owner-release-'+route.FROM_V34])
 
+    def test_busy_owner_refuses_before_any_controller_mutation_and_never_retries(self):
+        """Frozen release rule: one nonblocking owner lock admission before all writes."""
+        text=(ROOT/'.github/workflows/f139-v35-original-owner-release.yml').read_text()
+        self.assertIn("github.event.created == true",text)
+        self.assertIn("GITHUB_RUN_ATTEMPT -cne '1'",text)
+        self.assertEqual(text.count('$ownerLock.Lock(0,1)'),1)
+        lock=text.index('$ownerLock.Lock(0,1)')
+        busy=text.index("throw 'F139_V35_OWNER_TICK_BUSY_NO_MUTATION'")
+        disable=text.index('Disable-ScheduledTask -TaskName $name')
+        stop=text.index('Stop-ScheduledTask -TaskName $name')
+        policy_write=text.index('gh api -X PATCH')
+        self.assertLess(lock,busy)
+        self.assertLess(busy,disable)
+        self.assertLess(disable,policy_write)
+        self.assertLess(disable,stop)
+        self.assertNotIn('Start-Sleep',text[:lock])
+        self.assertNotIn('Disable-ScheduledTask',text[:lock])
+        self.assertNotIn('gh api -X PATCH',text[:lock])
+        self.assertEqual(text.count('group: forge-f139-original-owner-release'),1)
+
     @unittest.skipUnless(os.name=='nt','Windows PowerShell parsing only')
     def test_new_installer_parses_in_both_shells_without_execution(self):
         text=(ROOT/'.github/workflows/f139-v35-original-owner-release.yml').read_text()
