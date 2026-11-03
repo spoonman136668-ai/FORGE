@@ -5,7 +5,12 @@ No new model inference, generation, traffic selection or timing harness is
 implemented here. The substitution is process-local and must not run alongside
 another G96/G97 adapter in the same interpreter.
 """
-from research.cpu_g97 import g97_original_adapter as g97
+import sys
+from pathlib import Path
+HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import g97_original_adapter as g97
 from research.cpu_g97.g100_deferred_admission import DeferredFirstAdmissionCache
 
 
