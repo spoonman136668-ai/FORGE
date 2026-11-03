@@ -18,7 +18,9 @@ def review_authenticated_prospective_development(raw, meta, signed, assignment, 
     """
     if not isinstance(signed, NativeAdmission):
         raise ValueError("F139_PROSPECTIVE_SIGNED_ADMISSION_REQUIRED")
-    if not isinstance(assignment, dict) or assignment.get("lane") != signed.lane:\n        raise ValueError("F139_PROSPECTIVE_LANE_MISMATCH")\n    feedback = development_feedback_v2(raw, meta, signed)
+    if not isinstance(assignment, dict) or assignment.get("lane") != signed.lane:
+        raise ValueError("F139_PROSPECTIVE_LANE_MISMATCH")
+    feedback = development_feedback_v2(raw, meta, signed)
     result = join_prospective_development(
         assignment, feedback, expected_eligible_hashes=expected_eligible_hashes)
     return {
