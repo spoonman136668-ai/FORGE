@@ -81,8 +81,13 @@ def candidates(before: bytes):
         yield name, source, question, hypothesis
 
 
-def consumed_source_identities(db, consumed_after_hashes, attempts=None, *, with_sources=False):
+def consumed_source_identities(db, consumed_after_hashes, attempts=None, *,
+                               with_sources=False, with_parent_eligibility=False):
     """Reuse complete source-use custody for publication and cold rehearsal."""
+    if with_parent_eligibility:
+        if not with_sources:
+            raise ValueError("F139_MODEL_FREE_SEARCH_PARENT_SOURCES_REQUIRED")
+        db.verify()
     if attempts is None:
         attempts = list(db.conn.execute(
             "SELECT payload FROM events WHERE kind=? ORDER BY seq", (ATTEMPT,)))
@@ -92,11 +97,19 @@ def consumed_source_identities(db, consumed_after_hashes, attempts=None, *, with
     # Retain every original outcome, including negatives and historical sources.
     prior_asts = set()
     sources = []
+    parent_stages = {}
     for event in native_events(db):
         intent = json.loads(base64.b64decode(event["native_intent_base64"], validate=True))
         if intent["lane"] == "Yggdrasil" and intent["path"] == PATH:
             raw = base64.b64decode(intent["after_base64"], validate=True)
             sources.append(raw)
+            if with_parent_eligibility:
+                task = db.conn.execute(
+                    "SELECT stage FROM tasks WHERE ticket=?", (event["ticket"],)).fetchone()
+                if task is None or task["stage"] not in {
+                        "READY", "START_RISK", "WAIT_PROVIDER", "VERIFIED", "QUARANTINED"}:
+                    raise ValueError("F139_MODEL_FREE_SEARCH_PARENT_TASK_DRIFT")
+                parent_stages.setdefault(digest(raw), set()).add(task["stage"])
             try:
                 prior_asts.add(normalized(raw))
             except ValueError:
@@ -108,6 +121,12 @@ def consumed_source_identities(db, consumed_after_hashes, attempts=None, *, with
                 if task is None or task["stage"] != "QUARANTINED":
                     raise ValueError("F139_MODEL_FREE_SEARCH_INVALID_NONNEGATIVE_HISTORY")
                 consumed.add(digest(raw))
+    if with_parent_eligibility:
+        # Engineering qualification only, never task utility or a science reward.
+        # Conflicting/nonterminal histories cannot rehabilitate a failed source.
+        eligible = frozenset(key for key, stages in parent_stages.items()
+                             if stages == {"VERIFIED"})
+        return consumed, prior_asts, tuple(sources), eligible
     return (consumed, prior_asts, tuple(sources)) if with_sources else (consumed, prior_asts)
 
 

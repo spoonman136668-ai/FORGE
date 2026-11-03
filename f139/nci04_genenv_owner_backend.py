@@ -123,11 +123,11 @@ def generate_typed_batch(db, *, before, consumed, historical_asts, history_sha25
     from f139.nci04_prompt_source import compile_prompt_sources, frozen_digest
     mechanism = generation_mechanism()
     typed_generation_custody(db, source_sha, digest(mechanism))
-    consumed, historical_asts, sources = search.consumed_source_identities(
-        db, consumed, with_sources=True)
+    consumed, historical_asts, sources, eligible_parents = search.consumed_source_identities(
+        db, consumed, with_sources=True, with_parent_eligibility=True)
     plan = build_plan(before,history_sources=sources,consumed_sha256=consumed,
         historical_ast_sha256=historical_asts,history_sha256=history_sha256,
-        mechanism_sha256=digest(mechanism))
+        mechanism_sha256=digest(mechanism), eligible_parent_sha256=eligible_parents)
     if plan is None:
         return None
     raw = invoke(binary,binary_sha,plan.request())
