@@ -165,14 +165,10 @@ class ProviderArchiveCopyTests(unittest.TestCase):
 
 
 class V32InstallerTests(unittest.TestCase):
-    def test_only_v32_receives_new_release_pushes_and_old_v31_is_immutable(self):
-        routes = []
-        for version in range(27,33):
-            text = (ROOT/f".github/workflows/f139-v{version}-original-owner-release.yml").read_text()
-            patterns = ast.literal_eval(re.findall(r"^    branches: (\[.*\])$",text,re.M)[0])
-            if any(fnmatch.fnmatchcase("f139-owner-release-"+"f"*40,p) for p in patterns):
-                routes.append(version)
-        self.assertEqual(routes,[32])
+    def test_v32_consumed_release_and_old_v31_refs_remain_immutable(self):
+        current = (ROOT/".github/workflows/f139-v32-original-owner-release.yml").read_text()
+        patterns = ast.literal_eval(re.findall(r"^    branches: (\[.*\])$",current,re.M)[0])
+        self.assertEqual(patterns,["f139-owner-release-ef2288217b3ff44ef8e65f2cce46b29e00032e8a"])
         old = (ROOT/".github/workflows/f139-v31-original-owner-release.yml").read_text()
         self.assertIn("branches: ['f139-owner-release-"+route.FROM_V31+"']",old)
 

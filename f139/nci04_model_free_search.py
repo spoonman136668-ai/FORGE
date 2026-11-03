@@ -81,7 +81,7 @@ def candidates(before: bytes):
         yield name, source, question, hypothesis
 
 
-def consumed_source_identities(db, consumed_after_hashes, attempts=None):
+def consumed_source_identities(db, consumed_after_hashes, attempts=None, *, with_sources=False):
     """Reuse complete source-use custody for publication and cold rehearsal."""
     if attempts is None:
         attempts = list(db.conn.execute(
@@ -91,10 +91,12 @@ def consumed_source_identities(db, consumed_after_hashes, attempts=None):
                     for row in attempts)
     # Retain every original outcome, including negatives and historical sources.
     prior_asts = set()
+    sources = []
     for event in native_events(db):
         intent = json.loads(base64.b64decode(event["native_intent_base64"], validate=True))
         if intent["lane"] == "Yggdrasil" and intent["path"] == PATH:
             raw = base64.b64decode(intent["after_base64"], validate=True)
+            sources.append(raw)
             try:
                 prior_asts.add(normalized(raw))
             except ValueError:
@@ -106,7 +108,7 @@ def consumed_source_identities(db, consumed_after_hashes, attempts=None):
                 if task is None or task["stage"] != "QUARANTINED":
                     raise ValueError("F139_MODEL_FREE_SEARCH_INVALID_NONNEGATIVE_HISTORY")
                 consumed.add(digest(raw))
-    return consumed, prior_asts
+    return (consumed, prior_asts, tuple(sources)) if with_sources else (consumed, prior_asts)
 
 
 def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness):
