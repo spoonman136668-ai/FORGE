@@ -11,6 +11,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 G96=Path(__file__).resolve().parents[1]/"cpu_g96"
 if str(G96) not in sys.path:sys.path.insert(0,str(G96))
@@ -62,7 +63,7 @@ def run_instrumented(model,stream,prefixes,keys,torch,proc,*,probe=None):
     from contextlib import ExitStack
     probe=probe or Probe()
     original_g95=frozen._g95
-    g95=original_g95()
+    g95=SimpleNamespace(**vars(original_g95()))
     g95.baseline_request=probe.wrap("fallback_decode",g95.baseline_request)
     g95.request_decode=probe.wrap("cached_decode",g95.request_decode)
     original_cat = torch.cat
