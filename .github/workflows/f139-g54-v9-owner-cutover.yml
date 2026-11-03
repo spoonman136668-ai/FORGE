@@ -3589,7 +3589,8 @@ jobs:
               assert source_hash==event["after_sha256"]
               task=con.execute("SELECT stage FROM tasks WHERE ticket=?",(event["ticket"],)).fetchone()
               assert task is not None
-              matches=re.findall(rb"^        # F139_TYPED_RATE_PROGRAM=([^\\r\\n]+)$",raw,re.MULTILINE)
+              marker=b"        # F139_TYPED_RATE_PROGRAM="
+              matches=[line[len(marker):] for line in raw.splitlines() if line.startswith(marker)]
               assert len(matches)<=1
               try:
                   normalized=hashlib.sha256(ast.dump(ast.parse(raw.decode("utf-8")),include_attributes=False).encode("utf-8")).hexdigest()
