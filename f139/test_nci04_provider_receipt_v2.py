@@ -13,7 +13,7 @@ from f139.nci04_worker_v2 import (
     unit_argv, receipt_v2,
 )
 from f139.nci04_provider_receipt_v2 import (
-    V2ProviderDenied, verify_v2_provider_zip,
+    V2ProviderDenied, verify_v2_provider_zip, development_feedback_v2,
 )
 
 
@@ -144,6 +144,86 @@ class V2ProviderCustodyTests(unittest.TestCase):
         self.assertEqual(receipt["original_signed_admission_sha256"],"f"*64)
         self.assertTrue(receipt["development_only"])
         self.assertFalse(receipt["scientific_first_use_authorized"])
+
+
+
+class DevelopmentFeedbackTests(unittest.TestCase):
+    def test_measurements_are_observed_not_science_or_total_cost(self):
+        signed, report = positive_fixture()
+        report["candidate_behavior"][0]["elapsed_ms"] = 0
+        raw, meta = bundle(signed, report)
+        result = development_feedback_v2(raw, meta, signed)
+        self.assertEqual(result["observed_command_elapsed_ms"], 8)
+        self.assertEqual(result["observed_commands"][1]["elapsed_ms"], 0)
+        self.assertEqual(result["artifact_sha256"], digest(raw))
+        self.assertEqual(result["report_sha256"], digest(canonical(report)))
+        self.assertEqual(result["original_signed_admission_sha256"], signed.authorization_sha256)
+        self.assertEqual(result["behavior_modules_not_run"], [])
+        self.assertTrue(result["native_qualification_complete"])
+        for key in ("quality_score", "decision_time_menu", "selection_probability", "theta_direction"):
+            self.assertIsNone(result[key])
+        for key in ("scientific_accepted", "optimizer_training_authorized",
+                    "dispatch_authorized", "scientific_first_use",
+                    "complete_experiment_cost_measured"):
+            self.assertFalse(result[key])
+
+    def test_negative_keeps_failure_and_unexecuted_modules_unknown(self):
+        signed, report = positive_fixture()
+        first = report["candidate_behavior"][0]
+        first.update(outcome="TEST_FAILURE", returncode=1)
+        report["candidate_behavior"] = [first]
+        report["candidate_compile"] = None
+        report["qualification_complete"] = False
+        raw, meta = bundle(signed, report)
+        result = development_feedback_v2(raw, meta, signed)
+        self.assertEqual(result["observed_command_elapsed_ms"], 4)
+        self.assertEqual(result["observed_commands"][-1]["outcome"], "TEST_FAILURE")
+        self.assertEqual(result["behavior_modules_not_run"],
+                         report["supported_behavior_modules"][1:])
+        self.assertFalse(result["candidate_compile_observed"])
+        self.assertFalse(result["native_qualification_complete"])
+        self.assertFalse(result["optimizer_training_authorized"])
+
+    def test_pristine_failure_never_infers_candidate_measurements(self):
+        signed, report = positive_fixture()
+        report["pristine_source_atlas"].update(outcome="TIMEOUT", returncode=-1)
+        report["candidate_behavior"] = []
+        report["candidate_compile"] = None
+        report["qualification_complete"] = False
+        raw, meta = bundle(signed, report)
+        result = development_feedback_v2(raw, meta, signed)
+        self.assertEqual(len(result["observed_commands"]), 1)
+        self.assertEqual(result["behavior_modules_not_run"], report["supported_behavior_modules"])
+        self.assertFalse(result["candidate_compile_observed"])
+
+    def test_windows_exclusions_are_not_unexecuted_or_zero_cost(self):
+        from dataclasses import replace
+        signed, report = positive_fixture()
+        signed = replace(signed, runner_os="windows-latest")
+        report["os"] = signed.runner_os
+        report["supported_behavior_modules"] = list(supported_modules(signed.runner_os)[0])
+        report["explicit_unsupported_modules"] = list(supported_modules(signed.runner_os)[1])
+        report["candidate_behavior"] = [row for row in report["candidate_behavior"]
+            if row["argv"][row["argv"].index("-p")+1] in report["supported_behavior_modules"]]
+        raw, meta = bundle(signed, report)
+        result = development_feedback_v2(raw, meta, signed)
+        self.assertEqual(result["unsupported_behavior_modules"], ["test_free_fanout_sidecar.py"])
+        self.assertEqual(result["behavior_modules_not_run"], [])
+        self.assertEqual(result["observed_command_elapsed_ms"], 8)
+
+    def test_no_feedback_on_wrong_provider_or_forged_positive(self):
+        signed, report = positive_fixture()
+        raw, meta = bundle(signed, report)
+        with self.assertRaises(V2ProviderDenied):
+            development_feedback_v2(raw, dict(meta, run_id=999), signed)
+        old_receipt = receipt_v2(signed, report)
+        report["candidate_behavior"][0].update(outcome="TEST_FAILURE", returncode=1)
+        report["candidate_behavior"] = report["candidate_behavior"][:1]
+        report["candidate_compile"] = None
+        report["qualification_complete"] = False
+        raw, meta = bundle(signed, report, old_receipt)
+        with self.assertRaises(V2ProviderDenied):
+            development_feedback_v2(raw, meta, signed)
 
 
 if __name__=="__main__":
