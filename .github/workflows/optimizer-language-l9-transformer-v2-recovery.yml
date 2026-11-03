@@ -1,0 +1,173 @@
+name: L9 Transformer v2 SELECT recovery after proven original timeout
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-transformer-v2-recovery.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-transformer-v2-recovery-frozen-20261024
+  cancel-in-progress: false
+jobs:
+  recovered-select:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed: 1701
+            original_run: 40045716995
+            original_job: 120726845017
+            train_artifact: 12540689608
+            train_zip_sha: 17a90a22f1659a572f6987b73ff7e36bdf92d9f14b87a839f5d50a0cadc3adbc
+          - seed: 1702
+            original_run: 40046319723
+            original_job: 120728754198
+            train_artifact: 12540798385
+            train_zip_sha: 24bb0277b30fc90d69372ab25542379897a4c543a8b0010a2c9d8230972b733d
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: '${{ github.token }}'
+      L9_SEED: '${{ matrix.seed }}'
+      L9_ORIGINAL_RUN: '${{ matrix.original_run }}'
+      L9_ORIGINAL_JOB: '${{ matrix.original_job }}'
+      L9_TRAIN_ARTIFACT: '${{ matrix.train_artifact }}'
+      L9_TRAIN_ZIP_SHA: '${{ matrix.train_zip_sha }}'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Verify exact recovery code and sealed science identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'b8d4ddf7483f058919f91974e90ca31d7aa71ab9'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-transformer-v2-recovery.yml'
+          p=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$p/l9_transformer_select_reuse_v2.py)" = 'e934b48ea1ab8df3c1f65554b02d240b0c57f811'
+          test "$(git rev-parse HEAD:$p/test_l9_transformer_select_reuse_v2.py)" = '2bcc0d6b66826df95243abb71e00f90d1e8a3e8f'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/l9_neural_select_only.py)" = '91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e'
+          test "$(git rev-parse HEAD:$p/L9_MODEL_CONTRACT.json)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
+          test "$(git rev-parse HEAD:$p/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          (cd "$p" && python -m unittest -q test_l9_transformer_select_reuse_v2.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_V2_FROZEN_SOURCE_AND_NEGATIVE_CONTROLS=PASS
+      - name: Admit only authenticated original 90-minute timeout, no original SELECT artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          api=https://api.github.com/repos/spoonman136668-ai/FORGE
+          mkdir -p "$RUNNER_TEMP/l9-custody"
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$api/actions/jobs/$L9_ORIGINAL_JOB" -o "$RUNNER_TEMP/l9-custody/job.json"
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$api/actions/runs/$L9_ORIGINAL_RUN" -o "$RUNNER_TEMP/l9-custody/run.json"
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$api/actions/runs/40050110176" -o "$RUNNER_TEMP/l9-custody/prefit.json"
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$api/actions/runs/40054162427" -o "$RUNNER_TEMP/l9-custody/guards.json"
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$api/actions/runs/$L9_ORIGINAL_RUN/artifacts?per_page=100" -o "$RUNNER_TEMP/l9-custody/artifacts.json"
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$api/actions/jobs/$L9_ORIGINAL_JOB/logs" -o "$RUNNER_TEMP/l9-custody/original.log"
+          python - "$RUNNER_TEMP/l9-custody" "$L9_SEED" <<'PY'
+          import json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); seed=int(sys.argv[2])
+          sys.path.insert(0,str(pathlib.Path.cwd()/"research/optimizer_language_l9"))
+          import l9_transformer_select_reuse_v2 as v2
+          get=lambda s: json.loads((p/s).read_text(encoding="utf-8"))
+          assert get("artifacts.json")["total_count"]==0, "ORIGINAL_SELECT_ARTIFACT_ALREADY_EXISTS"
+          guard=get("guards.json")
+          assert guard["id"]==40054162427
+          assert guard["head_sha"]=="b8d4ddf7483f058919f91974e90ca31d7aa71ab9"
+          assert guard["status"]=="completed" and guard["conclusion"]=="success"
+          assert v2.assert_admission(seed,get("job.json"),get("run.json"),get("prefit.json"),
+                  (p/"original.log").read_text(encoding="utf-8"))
+          print("L9_ORIGINAL_90MIN_TIMEOUT_PROOF=PASS",flush=True)
+          print("L9_NO_ORIGINAL_SELECT_ARTIFACT=PASS",flush=True)
+          print("L9_SYNTHETIC_EQUIVALENCE_AND_OS_NEGATIVE_QUALIFICATION=PASS",flush=True)
+          PY
+      - name: Install pinned CPU runtime and verify both original train checkpoint file identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -c 'import torch;assert torch.__version__.split("+")[0]=="2.5.1"' >/dev/null 2>&1; then
+            python -m pip install --disable-pip-version-check --no-cache-dir \
+              --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1'
+          fi
+          python - <<'PY'
+          import torch
+          assert torch.__version__.split("+")[0]=="2.5.1" and not torch.cuda.is_available()
+          torch.set_num_threads(2)
+          print("L9_V2_PINNED_TORCH="+torch.__version__)
+          PY
+          mkdir -p "$RUNNER_TEMP/l9-ckpt"
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/$L9_TRAIN_ARTIFACT/zip" \
+            -o "$RUNNER_TEMP/l9-ckpt.zip"
+          python - "$RUNNER_TEMP/l9-ckpt.zip" "$L9_TRAIN_ZIP_SHA" <<'PY'
+          import hashlib,sys
+          b=open(sys.argv[1],"rb").read()
+          assert hashlib.sha256(b).hexdigest()==sys.argv[2], "FROZEN_CHECKPOINT_ARTIFACT_SHA_DRIFT"
+          print("L9_V2_TRAIN_ARCHIVE_EXACT_SHA=PASS")
+          PY
+          unzip -q "$RUNNER_TEMP/l9-ckpt.zip" -d "$RUNNER_TEMP/l9-ckpt"
+      - name: Full prospectively distinct V2 SELECT, no audit or TEST
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext="$RUNNER_TEMP/webnlg-l9"
+          git clone --quiet --filter=blob:none --no-checkout https://gitlab.com/shimorina/webnlg-dataset.git "$ext"
+          test "$(git -C "$ext" rev-parse 'a7ea49b5ffa5011edf81e8530c59b3552a965023^{commit}')" = 'a7ea49b5ffa5011edf81e8530c59b3552a965023'
+          out="$RUNNER_TEMP/l9-transformer-recovered-v2-$L9_SEED.json"
+          python -u research/optimizer_language_l9/l9_transformer_select_reuse_v2.py \
+            --webnlg-repo "$ext" \
+            --checkpoint-artifact "$RUNNER_TEMP/l9-ckpt" \
+            --seed "$L9_SEED" \
+            --original-job-json "$RUNNER_TEMP/l9-custody/job.json" \
+            --original-run-json "$RUNNER_TEMP/l9-custody/run.json" \
+            --prefit-run-json "$RUNNER_TEMP/l9-custody/prefit.json" \
+            --original-job-log "$RUNNER_TEMP/l9-custody/original.log" \
+            --out "$out"
+          python - "$out" "$L9_SEED" <<'PY'
+          import hashlib,json,sys
+          p=sys.argv[1];s=int(sys.argv[2]);raw=open(p,"rb").read();r=json.loads(raw)
+          assert r["schema"]=="forge.optimizer.language.l9.transformer-select-encoder-reuse-v2-development-only"
+          assert r["status"]=="PROSPECTIVE_RECOVERY_SELECT_NOT_V1_EVIDENCE"
+          assert r["arm"]=="SMALL_TRANSFORMER" and r["seed"]==s
+          assert r["source_role_sha256"]=="b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726"
+          assert r["model_suite_git_blob"]=="710ce648a30ffc55647f689c5f4aa3ac13b07066"
+          assert r["train_count"]==8480 and r["select_count"]==2154
+          assert [e["epoch"] for e in r["all_epoch_metrics"]]==[4,8,12]
+          assert len(r["development_equivalence_fixtures"])==30
+          assert all(e["identical"] for e in r["development_equivalence_fixtures"])
+          assert all(e["records"]==2154 and e["role"]=="L9_SELECT" and e["triple_denominator"]==6135 for e in r["all_epoch_metrics"])
+          expected=min(r["all_epoch_metrics"],key=lambda x:(-x["requested_content_proxy_coverage"],
+                    -x["chrf_single_reference_proxy"],x["missing_triples_proxy"],
+                    x["retained_model_bytes"],x["epoch"]))
+          assert r["selected_epoch"]==expected["epoch"] and r["selected_checkpoint_sha256"]==expected["checkpoint_sha256"]
+          assert r["audit_dev_reference_consumed"] is False and r["official_test_consumed"] is False
+          assert r["not_interchangeable_with_frozen_v1_receipt"] and r["new_independent_seal_and_acceptance_required"]
+          assert r["scientific_go"] is False
+          print("L9_V2_SELECT_FULL_3_EPOCHS=PASS")
+          print("L9_V2_RECEIPT_SHA256="+hashlib.sha256(raw).hexdigest())
+          print("L9_SELECTED_DEVELOPMENT_EPOCH="+str(r["selected_epoch"]))
+          print("L9_UNFAMILIAR_AUDIT_UNCONSUMED=TRUE")
+          PY
+      - name: Preserve numerical development receipt only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l9-transformer-recovered-v2-${{ matrix.seed }}'
+          path: '${{ runner.temp }}/l9-transformer-recovered-v2-${{ matrix.seed }}.json'
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,44 @@
+name: L9 independent numeric-only audit verifier synthetic qualification
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-independent-audit-verifier-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l9-independent-audit-verify-no-source-20261024
+  cancel-in-progress: false
+jobs:
+  synthetic-only:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Prove separately frozen numeric verifier and no heldout source access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'b002806c485d735e3d2c5850704b1fe748a3570b'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-independent-audit-verifier-qualify.yml'
+          p=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$p/l9_independent_numeric_evidence.py)" = 'd9d3036b6d0f5c996353282b554af7c77f99d47b'
+          test "$(git rev-parse HEAD:$p/test_l9_independent_numeric_evidence.py)" = '3299a5eafeeb65c53cf0288b94a914609686cd93'
+          test "$(git rev-parse HEAD:$p/l9_first_use_one_shot.py)" = '4df23fd86435bba094909dd90a17bda8575d8ba8'
+          test "$(git rev-parse HEAD:$p/l9_first_use_scoring_core.py)" = '484172758201699fe3ef5481cda03b9ea8e6d0ab'
+          test "$(git rev-parse HEAD:$p/L9_AUDIT_ADMISSION_CONTRACT.json)" = 'b5b51c1cc954830374cbf1d667c57fb5e31a8827'
+          python -m py_compile "$p/l9_independent_numeric_evidence.py" "$p/test_l9_independent_numeric_evidence.py"
+          (cd "$p" && python -m unittest -v test_l9_independent_numeric_evidence.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_INDEPENDENT_SEVEN_ARM_NUMERIC_CHECKER=QUALIFIED
+          echo L9_HELDOUT_DATA_ACCESSED=FALSE
+          echo L9_NO_REPEAT_FIRST_USE=TRUE
+          echo L9_SCIENTIFIC_GO=FALSE

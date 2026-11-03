@@ -1,0 +1,75 @@
+name: L9 TRAIN-SELECT candidate and retrieval public-development run
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-train-select.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l9-train-select-once
+  cancel-in-progress: false
+jobs:
+  train-select-public-development:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Confirm fully frozen source, tests and split before fit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'f97438126d9731ada9276153f0953c386bc48714'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-train-select.yml'
+          p='research/optimizer_language_l9'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/l9_train_select_candidate.py)" = '0d2b10cbf9879dd168be1dfc954dfca2928e841e'
+          test "$(git rev-parse HEAD:$p/test_l9_train_select_candidate.py)" = 'f8ab54c8edd32cb1c158d5c83b7a72c11e3d05bf'
+          test "$(git rev-parse HEAD:$p/L9_MODEL_CONTRACT.json)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
+          test "$(git rev-parse HEAD:$p/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          (cd "$p" && python -m unittest -v test_l9_train_select_candidate.py test_l9_model_suite.py test_l9_split_builder.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_FROZEN_PREFIT_CANDIDATE_RETRIEVAL=PASS
+      - name: Source birth custody and TRAIN-SELECT only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext="$RUNNER_TEMP/webnlg-l9"
+          git clone --quiet --filter=blob:none --no-checkout https://gitlab.com/shimorina/webnlg-dataset.git "$ext"
+          test "$(git -C "$ext" rev-parse 'a7ea49b5ffa5011edf81e8530c59b3552a965023^{commit}')" = 'a7ea49b5ffa5011edf81e8530c59b3552a965023'
+          python research/optimizer_language_l9/l9_train_select_candidate.py \
+            --webnlg-repo "$ext" \
+            --receipt-out "$RUNNER_TEMP/l9-train-select-candidate.json"
+          test -s "$RUNNER_TEMP/l9-train-select-candidate.json"
+          python - "$RUNNER_TEMP/l9-train-select-candidate.json" <<'PY'
+          import json,sys,hashlib,pathlib
+          p=pathlib.Path(sys.argv[1]); r=json.loads(p.read_text())
+          assert r["schema"]=="forge.optimizer.language.l9.train-select-development-v1"
+          assert r["status"]=="DEVELOPMENT_TRAIN_SELECT_NOT_AUDIT"
+          assert r["split_role_sha256"]=="b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726"
+          assert r["split_counts"]["train"]==8480 and r["split_counts"]["select"]==2154
+          assert r["split_counts"]["audit_dev_model_consumption"]==0
+          assert r["official_test_consumed"] is False and r["scientific_go"] is False
+          assert len(r["candidate_selection"])==8
+          assert r["state_bytes"]["candidate"]<=3145728 and r["state_bytes"]["retrieval"]<=3145728
+          print("L9_TRAIN_SELECT_RECEIPT_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          print("L9_TRAIN_SELECT_CANDIDATE_CONFIG="+json.dumps(r["candidate_config_selected"],sort_keys=True))
+          print("L9_TRAIN_SELECT_CANDIDATE_COVERAGE="+str(r["candidate_selection"][0]["requested_content_proxy_coverage"]))
+          print("L9_TRAIN_SELECT_RETRIEVAL_COVERAGE="+str(r["retrieval_select"]["requested_content_proxy_coverage"]))
+          print("L9_AUDIT_REFERENCE_CONSUMPTION=FALSE")
+          print("L9_OFFICIAL_TEST_CONSUMED=FALSE")
+          print("L9_SCIENTIFIC_GO=FALSE")
+          PY
+          rm -rf "$ext"
+      - name: Preserve summary metrics only, no dataset/reference text
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l9-train-select-candidate-receipt
+          path: ${{ runner.temp }}/l9-train-select-candidate.json
+          if-no-files-found: ignore
+          retention-days: 30

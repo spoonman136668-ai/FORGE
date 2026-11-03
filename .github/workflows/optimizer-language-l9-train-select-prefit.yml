@@ -1,0 +1,42 @@
+name: L9 TRAIN-SELECT prefit cross-OS qualification
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-train-select-prefit.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l9-train-select-prefit
+  cancel-in-progress: false
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Frozen identities and focused tests; no corpus reads or fitting
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = f346e33701b6f0b1f50b4b9b35da8fb325991a29
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-train-select-prefit.yml'
+          p='research/optimizer_language_l9'
+          test "$(git rev-parse HEAD:$p/l9_train_select_candidate.py)" = 0d2b10cbf9879dd168be1dfc954dfca2928e841e
+          test "$(git rev-parse HEAD:$p/test_l9_train_select_candidate.py)" = f8ab54c8edd32cb1c158d5c83b7a72c11e3d05bf
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = 710ce648a30ffc55647f689c5f4aa3ac13b07066
+          python -m py_compile "$p/l9_train_select_candidate.py" "$p/test_l9_train_select_candidate.py"
+          (cd "$p" && python -m unittest -v test_l9_train_select_candidate.py test_l9_model_suite.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_TRAIN_SELECT_PREFIT=PASS
+          echo L9_FITTING_PERFORMED=FALSE
+          echo L9_AUDIT_REFERENCE_CONSUMPTION=FALSE
+          echo L9_OFFICIAL_TEST_CONSUMED=FALSE

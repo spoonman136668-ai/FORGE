@@ -1,0 +1,91 @@
+name: L9 sealed full recovered SELECT numerical evidence (no audit)
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-mixed-v2-full-seal.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-mixed-v2-full-select-seal-self-verified-20261024
+  cancel-in-progress: false
+jobs:
+  verified-full-select-seal:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Validate frozen numeric seal source and original real artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '08d28650f52d6653215d494956a5ad26effc6cae'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-mixed-v2-full-seal.yml'
+          base=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$base/l9_seal_recovered_v2.py)" = '79ec9d4a86df77afebecd115140cfe60eb10dbac'
+          test "$(git rev-parse HEAD:$base/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$base/l9_neural_select_only.py)" = '91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e'
+          for entry in             '12539318731:262cec449479b429fb04e93b304237a131209294f405813796b3477bd89b80ec:l9-train-select-candidate.json:candidate.json:01f08870677067ca0f0dcfdff004d1ef04cea8465da0d025f904634e2bcd5d47'             '12541361319:8f78cbcecb899f98cbed89ceda4b4e659c61fbc12d7ed685bf65182777c7cae9:l9-gru-select-1701.json:GRU_SEQ2SEQ-1701.json:762d7471d0e3f7b24f8789c6b323624f0c86996614d477b5f354651ba19d5474'             '12541590196:7567051cc25308a3c9b1ab240a6e33a18a3179d180944631fe3ff9e61859e817:l9-gru-select-1702.json:GRU_SEQ2SEQ-1702.json:511ad147152fd7e45eab915da2bdd74d2872a50cc6b4a20fe4ab9c5b677bc1e6'             '12549494626:cd6081d42cb514bf5f489e737a9a3ca80c3aefd63b416b619ed488c6dbea7b00:l9-transformer-recovered-v2-1702.json:SMALL_TRANSFORMER-1702.json:e7da6758df045fbbfdff4b4b024fafcc886bd5a6c309f9d4b35a85cf163f9c3f' '12552199545:3a1500bf731d7075634d7babef4b2d027598886672c03ad6251ba099018b5572:l9-transformer-recovered-v2-1701.json:SMALL_TRANSFORMER-1701.json:d17ffdf04aa8c38a77d23baab2d68219183a599ace8e920aab0cf0f89e83d539'; do
+            IFS=':' read -r id zip_sha inner target raw_sha <<<"$entry"
+            curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN"               -H "Accept: application/vnd.github+json"               "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/$id/zip"               -o "$RUNNER_TEMP/l9-prefit-$id.zip"
+            python - "$RUNNER_TEMP/l9-prefit-$id.zip" "$zip_sha" "$inner" "$RUNNER_TEMP" "$target" "$raw_sha" <<'PY'
+          import hashlib,sys,zipfile,pathlib
+          archive=pathlib.Path(sys.argv[1]); actual_archive=archive.read_bytes()
+          assert hashlib.sha256(actual_archive).hexdigest()==sys.argv[2], "ARTIFACT_ZIP_IDENTITY_DRIFT"
+          with zipfile.ZipFile(archive) as z:
+              assert z.namelist()==[sys.argv[3]], "ARTIFACT_MEMBER_DRIFT"
+              raw=z.read(sys.argv[3])
+          assert hashlib.sha256(raw).hexdigest()==sys.argv[6], "RAW_RECEIPT_IDENTITY_DRIFT"
+          dest=pathlib.Path(sys.argv[4])/"l9-numeric-receipts"
+          dest.mkdir(exist_ok=True)
+          (dest/sys.argv[5]).write_bytes(raw)
+          print("L9_EXACT_ARCHIVE_AND_RECEIPT_SHA_PASS="+sys.argv[5])
+          PY
+          done
+          python - "$RUNNER_TEMP/l9-numeric-receipts" <<'PY'
+          import pathlib,sys
+          sys.path.insert(0,str(pathlib.Path.cwd()/"research/optimizer_language_l9"))
+          import l9_seal_recovered_v2 as s
+          p=pathlib.Path(sys.argv[1])
+          c=s.validate_candidate((p/"candidate.json").read_bytes())
+          assert abs(c["requested_content_proxy_coverage"]-0.573594132)<1e-12
+          for arm,seed in (("GRU_SEQ2SEQ",1701),("GRU_SEQ2SEQ",1702),
+                           ("SMALL_TRANSFORMER",1701),("SMALL_TRANSFORMER",1702)):
+              case=s.validate_neural((p/f"{arm}-{seed}.json").read_bytes(),arm,seed)
+              assert case["selected"]["epoch"]==12
+              print("L9_FOUR_CASE_AUTHENTIC_SELECT_RECEIPT_PASS="+arm+"-"+str(seed))
+          out=p/"complete-seal.json"
+          result=s.seal(p/"candidate.json",p,out)
+          assert out.exists()
+          assert result["schema"]=="forge.optimizer.language.l9.select-seal-mixed-recovery-v2-development-only"
+          assert result["status"]=="ALL_FOUR_NUMERIC_DEV_CHOICES_VALIDATED_MIXED_V1_GRU_V2_TRANSFORMER"
+          assert len(result["neural_cases"])==4
+          assert all(x["selected"]["epoch"]==12 for x in result["neural_cases"])
+          assert not result["audit_dev_reference_consumed"] and not result["official_test_consumed"]
+          assert not result["scientific_go"] and result["separate_semantic_audit_admission_required"]
+          import hashlib
+          print("L9_FULL_AUTHENTIC_MIXED_V2_SELECT_SEAL=PASS")
+          print("L9_FULL_SEAL_RAW_SHA256="+hashlib.sha256(out.read_bytes()).hexdigest())
+          print("L9_UNFAMILIAR_AUDIT_UNCONSUMED=TRUE")
+          print("L9_OFFICIAL_TEST_UNCONSUMED=TRUE")
+          print("L9_SCIENTIFIC_GO=FALSE")
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+      - name: Preserve full numeric SELECT seal only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l9-mixed-v2-select-seal-${{ matrix.os }}
+          path: '${{ runner.temp }}/l9-numeric-receipts/complete-seal.json'
+          if-no-files-found: error
+          retention-days: 30

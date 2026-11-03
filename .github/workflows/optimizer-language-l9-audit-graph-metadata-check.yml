@@ -1,0 +1,76 @@
+name: L9 audit graph-only metadata shape qualification
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-audit-graph-metadata-check.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l9-first-use-graph-only-metadata-20261024
+  cancel-in-progress: false
+jobs:
+  graph-metadata-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Verify static source, contract and exact one-time identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'af7a27096fa1c6177755d69188994d1345fee259'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-audit-graph-metadata-check.yml'
+          p=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$p/l9_first_use_source_pipeline.py)" = 'b26ea752197d027a43822dd499896054eb10413a'
+          test "$(git rev-parse HEAD:$p/l9_first_use_scoring_core.py)" = '484172758201699fe3ef5481cda03b9ea8e6d0ab'
+          test "$(git rev-parse HEAD:$p/l9_first_use_one_shot.py)" = '4df23fd86435bba094909dd90a17bda8575d8ba8'
+          test "$(git rev-parse HEAD:$p/L9_AUDIT_ADMISSION_CONTRACT.json)" = 'b5b51c1cc954830374cbf1d667c57fb5e31a8827'
+          test "$(git rev-parse HEAD:$p/L9_BLOB_MANIFEST.json)" = '7b76033f39fa002e2b69adccedcfca3ae826fa41'
+          test "$(git rev-parse HEAD:$p/l9_split_builder.py)" = '79aa0384fe3fb220e83efdaf0f87d468a076b735'
+      - name: Validate protected graph metadata without reading reference fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext="$RUNNER_TEMP/l9-original-webnlg"
+          git clone --quiet --filter=blob:none --no-checkout https://gitlab.com/shimorina/webnlg-dataset.git "$ext"
+          test "$(git -C "$ext" rev-parse 'a7ea49b5ffa5011edf81e8530c59b3552a965023^{commit}')" = 'a7ea49b5ffa5011edf81e8530c59b3552a965023'
+          python - "$ext" <<'PY'
+          import pathlib,sys,collections
+          sys.path.insert(0,str(pathlib.Path.cwd()/"research/optimizer_language_l9"))
+          import l9_split_builder as split
+          import l9_first_use_source_pipeline as pipe
+          import l9_train_select_candidate as development
+          repo=pathlib.Path(sys.argv[1])
+          manifest=pathlib.Path.cwd()/"research/optimizer_language_l9/L9_BLOB_MANIFEST.json"
+          metadata=split.build(repo,manifest)
+          assert metadata["role_identity_sha256"]=="b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726"
+          counts=metadata["counts"]
+          assert counts["roles"]["L9_TRAIN"]==8480 and counts["roles"]["L9_SELECT"]==2154
+          assert counts["roles"]["L9_AUDIT_DEV"]==319
+          assert counts["audit_categories_present_in_dev"]==3 and counts["train_audit_graph_overlap"]==0
+          _,entries=split.load_manifest(manifest)
+          rows=[]
+          for blob in entries:
+              if blob["role"]=="DEV":
+                  rows.extend(pipe.graph_only_xml(development.git_bytes(repo,blob["oid"]),blob["oid"]))
+          assert len(rows)==319
+          unique={r.graph_sha256 for r in rows}
+          assert len(unique)==counts["audit_unique_graphs"],"SPLIT_GRAPH_IDENTITY_INCONSISTENCY"
+          cat_counts=collections.Counter(r.category for r in rows)
+          cat_hash_counts=sorted((split.sha256_hex(k),v) for k,v in cat_counts.items())
+          print("L9_GRAPH_ONLY_AUDIT_ENTRIES="+str(len(rows)))
+          print("L9_GRAPH_ONLY_UNIQUE_GRAPH_COUNT="+str(len(unique)))
+          print("L9_GRAPH_ONLY_DUPLICATE_GRAPH_ENTRIES="+str(len(rows)-len(unique)))
+          print("L9_GRAPH_ONLY_CATEGORY_HASH_COUNTS="+str(cat_hash_counts))
+          print("L9_GRAPH_ONLY_CATEGORIES="+str(len(cat_counts)))
+          print("L9_REFERENCE_FIELDS_NOT_EXTRACTED=TRUE")
+          print("L9_AUDIT_LEXICAL_SCORING=FALSE")
+          print("L9_OFFICIAL_TEST_CONTENT_READ=FALSE")
+          print("L9_SCIENTIFIC_GO=FALSE")
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"

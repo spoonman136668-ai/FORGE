@@ -1,0 +1,46 @@
+{
+  "schema": "forge.optimizer.language.l9.protocol-amendment-v1",
+  "parent_protocol_commit": "3e74d5825d6cd7f2d0ef064841b4103fcef3c6dc",
+  "trigger_run": 40036428093,
+  "trigger_linux_job": 120696929709,
+  "trigger_windows_job": 120696929506,
+  "status": "FROZEN_AFTER_CROSS_OS_STRUCTURAL_LEAKAGE_DETECTION_BEFORE_ANY_MODEL_FIT",
+  "observed_structural_fact": {
+    "canonical_graph_overlap_count": 5,
+    "reproduced_on": [
+      "ubuntu-24.04",
+      "windows-2025"
+    ],
+    "model_fit_count": 0,
+    "model_quality_metrics_exposed": 0,
+    "official_test_content_consumed": false,
+    "raw_reference_text_logged": false
+  },
+  "unchanged": [
+    "WebNLG release SHA and exact TRAIN/DEV blob manifest",
+    "category partition SHA256(lowercase(trim(category))) first byte modulo 4",
+    "all official DEV examples in L9_AUDIT_CATEGORY remain L9_AUDIT_DEV",
+    "official TEST remains prohibited",
+    "selection uses TRAIN only",
+    "all preregistered minimums and scientific advancement criteria"
+  ],
+  "amendment": {
+    "name": "prefit semantic graph leakage quarantine",
+    "canonical_graph_identity": "Existing L9 graph SHA256 over sorted normalized modified RDF triples.",
+    "rule": [
+      "Construct the complete L9_AUDIT_DEV graph-hash set first from official DEV examples in held-out audit categories.",
+      "For official TRAIN examples in L9_TRAIN_CATEGORY categories, if canonical graph SHA256 occurs in the audit graph-hash set, assign QUARANTINED_TRAIN_GRAPH_OVERLAP and exclude from both L9_TRAIN and L9_SELECT.",
+      "Apply the frozen first-byte-modulo-5 TRAIN/SELECT rule only to remaining nonquarantined TRAIN graphs.",
+      "Do not remove, downsample, relabel, or tune on any L9_AUDIT_DEV example.",
+      "If post-quarantine TRAIN/SELECT/AUDIT minimums fail, stop and create a new protocol version before model fitting."
+    ]
+  },
+  "rationale": "The original category-level partition was prospectively frozen, but the pre-fit adversarial identity audit found five identical semantic graphs crossing category partitions on both operating systems. Quarantining only duplicated TRAIN graphs preserves the untouched audit set and prevents direct semantic leakage without using model outcomes or audit language quality.",
+  "forbidden": [
+    "model fitting before amended split passes cross-OS identity reconciliation",
+    "dropping audit examples to improve counts",
+    "using reference text, filenames, entry IDs, or model outputs to choose quarantines",
+    "changing category hashes or minimums",
+    "official TEST access"
+  ]
+}
