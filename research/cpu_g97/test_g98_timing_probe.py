@@ -1,5 +1,5 @@
 """G98 probe contract tests; no model, network or held-out data."""
-import sys, unittest
+import sys, unittest, copy
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import g98_timing_probe as m
@@ -20,6 +20,19 @@ class G98TimingTests(unittest.TestCase):
         self.assertEqual(len(p.events["cache_request_inclusive"]),2)
         self.assertEqual(len(p.events["kv_build"]),1)
         self.assertFalse(p.receipt()["promotion_allowed"])
+    def test_cache_policy_and_only_resident_kv_copy_counted(self):
+        p=m.Probe(clock=iter(range(100)).__next__)
+        cache=p.cache_factory("lru")
+        self.assertIsInstance(cache,m.ORIGINAL_ADMISSION_CACHE)
+        value,_,_=cache.request("a",1,lambda:{"past":("kv",)})
+        original=copy.deepcopy
+        with m.patched(copy,"deepcopy",p.kv_deepcopy(original)):
+            copy.deepcopy({"unrelated": 1})
+            copy.deepcopy(value["past"])
+        self.assertEqual(len(p.events["kv_clone"]),1)
+        bypass=m.Probe()
+        bypass.cache_policy="g97_overflow_bypass"
+        self.assertIsInstance(bypass.cache_factory("lru"),m.OverflowBypassCache)
     def test_restore_on_exception(self):
         class Target: value=7
         with self.assertRaisesRegex(RuntimeError,"sentinel"):

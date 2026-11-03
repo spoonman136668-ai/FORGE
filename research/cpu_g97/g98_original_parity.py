@@ -30,7 +30,7 @@ def compare(model,stream,prefixes,keys,torch,proc,*,model_revision,weights_sha25
     try:
         with torch.inference_mode():
             plain,baseline=run_g97(model,stream,prefixes,keys,torch,proc)
-            instrumented,measured,timing=run_instrumented(model,stream,prefixes,keys,torch,proc)
+            instrumented,measured,timing=run_instrumented(model,stream,prefixes,keys,torch,proc,cache_policy="g97_overflow_bypass")
         if plain!=reference_outputs or instrumented!=plain:
             raise RuntimeError("G98_EXACT_TOKEN_PARITY_FAIL")
         if any(baseline[k]!=measured[k] for k in COUNTERS):
