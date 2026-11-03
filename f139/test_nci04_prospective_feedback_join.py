@@ -5,7 +5,7 @@ from f139.nci04_prospective_assignment import SCHEMA, sha256
 from f139.nci04_prospective_feedback_join import join_prospective_development
 
 A, B = sha256(b"A"), sha256(b"B")
-OWNER = sha256(b"owner")
+OWNER = "a" * 40
 
 
 def assignment():

@@ -7,11 +7,13 @@ It never reads or mutates the original F139 owner ledger.
 from __future__ import annotations
 
 import hashlib
+import datetime as dt
 import json
 import re
 
 SCHEMA = "forge.f139.prospective-assignment.v1"
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 FIELDS = frozenset({
     "schema", "lane", "ticket", "owner_source_sha", "candidate_sha256",
     "eligible_candidate_sha256", "policy_sha256", "selection_mode",
@@ -34,7 +36,10 @@ def validate_assignment(record, *, expected_ticket, expected_source_sha,
     """Check internal consistency; never confer provenance or authorization."""
     if not isinstance(record, dict) or set(record) != FIELDS:
         raise ValueError("F139_PROSPECTIVE_ASSIGNMENT_FIELDS")
-    for field in ("owner_source_sha", "candidate_sha256",
+    if (not isinstance(record["owner_source_sha"], str) or
+            not HEX40.fullmatch(record["owner_source_sha"])):
+        raise ValueError("F139_PROSPECTIVE_ASSIGNMENT_SOURCE_SHA")
+    for field in ("candidate_sha256",
                   "policy_sha256", "assignment_event_sha256"):
         if not isinstance(record[field], str) or not HEX64.fullmatch(record[field]):
             raise ValueError("F139_PROSPECTIVE_ASSIGNMENT_DIGEST")
@@ -59,8 +64,12 @@ def validate_assignment(record, *, expected_ticket, expected_source_sha,
         raise ValueError("F139_PROSPECTIVE_ASSIGNMENT_POLICY")
     timestamp = record["decision_utc"]
     if (not isinstance(timestamp, str) or
-            re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", timestamp) is None):
+            re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z", timestamp) is None):
         raise ValueError("F139_PROSPECTIVE_ASSIGNMENT_TIMESTAMP")
+    try:
+        dt.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError("F139_PROSPECTIVE_ASSIGNMENT_TIMESTAMP") from None
     if record["outcome_available_at_decision"] is not False:
         raise ValueError("F139_PROSPECTIVE_ASSIGNMENT_RETROSPECTIVE")
     return {

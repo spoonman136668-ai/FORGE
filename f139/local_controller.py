@@ -1654,6 +1654,8 @@ class Database:
                     verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
+        from f139.nci04_prospective_journal import audit_assignment_events
+        audit_assignment_events(self)
         historical_sources = set()
         if source_transitions:
             for index, transition in enumerate(source_transitions):
@@ -2786,7 +2788,9 @@ class Database:
     def ready(self):
         return self.conn.execute("SELECT * FROM tasks WHERE stage='READY' ORDER BY ticket LIMIT 1").fetchone()
 
-    def claim(self, ticket: str, now: str):
+    def claim(self, ticket: str, now: str, *, archive_native_decision=False):
+        require(type(archive_native_decision) is bool,
+                "NATIVE_ASSIGNMENT_FLAG_INVALID")
         day = now[:10]
         with self.transaction():
             m = self.meta()
@@ -2808,6 +2812,10 @@ class Database:
                     native_recent_starts, MAX_STARTS_PER_WINDOW)
                 require(native_recent_starts(self, now) < MAX_STARTS_PER_WINDOW,
                         "NATIVE_TWO_PER_TEN_MINUTES_LIMIT")
+            if archive_native_decision:
+                require(native, "NATIVE_ASSIGNMENT_REQUIRES_NATIVE_TICKET")
+                from f139.nci04_prospective_journal import journal_native_assignment
+                journal_native_assignment(self, ticket, now)
             self.conn.execute("UPDATE tasks SET stage='START_RISK',started_at=? WHERE ticket=?",(now,ticket))
             self.conn.execute("UPDATE meta SET starts=?,day=? WHERE id=1",(starts+1,day))
             self.event("BEFORE_DISPATCH_INTENT",{"ticket":ticket,"started_at":now,"starts":starts+1})
@@ -4663,7 +4671,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             return {"disposition":"V3_ORIGINAL_OWNER_OR_SOURCE_NOT_ACTIVATED",
                     "ticket":task["ticket"],"claimed":False,
                     "live_v3_dispatched":False,"science_authorized":False}
-    db.claim(task["ticket"],timestamp)
+    db.claim(task["ticket"],timestamp,
+             archive_native_decision=task["ticket"].startswith("f139-nci04-"))
     from f139.verify_ticket import signature as sign_worker_ticket
     d2k=db.d2k_fields(task["ticket"])
     native = task["ticket"].startswith("f139-nci04-")
