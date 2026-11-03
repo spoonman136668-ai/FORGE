@@ -3571,6 +3571,36 @@ jobs:
           assert len(tail)<=8 and all(set(row)=={"seq","kind","sha"} for row in tail)
           print("F139_G54_RENEWAL_READ_ONLY="+json.dumps({"source_sha":meta["source_sha"],"head_seq":meta["head_seq"],"head_sha256":meta["head_hash"],"event_counts":reasoner_counts,"last_eight_event_kinds":tail},sort_keys=True))
           print(json.dumps({"quick_check":check,"meta":meta,"task_counts":counts,"active_or_ready":active,"relevant_events":latest},sort_keys=True))
+          # Advisory parent inventory only; parse source as data, never execute it.
+          import ast, base64, hashlib, re
+          con.execute("BEGIN")
+          inventory_meta=dict(con.execute("SELECT head_seq,head_hash,source_sha FROM meta WHERE id=1").fetchone())
+          rows=list(con.execute("SELECT payload FROM events WHERE kind='NATIVE_DEVELOPMENT_ADMITTED' ORDER BY seq"))
+          assert len(rows)<=4096
+          inventory=[]
+          for row in rows:
+              event=json.loads(row["payload"])
+              intent=json.loads(base64.b64decode(event["native_intent_base64"],validate=True))
+              if intent["lane"]!="Yggdrasil" or intent["path"]!="yggdrasil/public_causal_cells.py":
+                  continue
+              raw=base64.b64decode(intent["after_base64"],validate=True)
+              assert 0<len(raw)<=256000
+              source_hash=hashlib.sha256(raw).hexdigest()
+              assert source_hash==event["after_sha256"]
+              task=con.execute("SELECT stage FROM tasks WHERE ticket=?",(event["ticket"],)).fetchone()
+              assert task is not None
+              matches=re.findall(rb"^        # F139_TYPED_RATE_PROGRAM=([^\\r\\n]+)$",raw,re.MULTILINE)
+              assert len(matches)<=1
+              try:
+                  normalized=hashlib.sha256(ast.dump(ast.parse(raw.decode("utf-8")),include_attributes=False).encode("utf-8")).hexdigest()
+              except (SyntaxError,UnicodeError):
+                  assert task["stage"]=="QUARANTINED"
+                  normalized=None
+              inventory.append({"source_sha256":source_hash,"ast_sha256":normalized,
+                  "stage":task["stage"],"program":matches[0].decode("ascii") if matches else None})
+          attempted=[json.loads(row["payload"])["source_after_sha256"] for row in con.execute("SELECT payload FROM events WHERE kind='MODEL_DRAFT_ATTEMPTED' ORDER BY seq")]
+          print("F139_G54_TYPED_PARENT_READ_ONLY="+json.dumps({"schema":"forge.f139.typed-parent-readonly-inventory.v1","advisory_only":True,"meta":inventory_meta,"sources":inventory,"attempted_source_sha256":attempted},sort_keys=True))
+          con.rollback()
           '@
           $dbReport | & $python -B - $db $deployedSource
           if($LASTEXITCODE -ne 0){throw 'F139_G54_STATUS_SQLITE_READ_FAILED'}
