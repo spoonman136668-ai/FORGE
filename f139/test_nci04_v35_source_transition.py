@@ -224,6 +224,69 @@ class V35Tests(unittest.TestCase):
                 route.validate_idle(db)
             native_check.assert_not_called()
 
+    def test_idle_diagnostic_is_readonly_and_does_not_authorize(self):
+        """The report describes seven guards; validation still rejects each failure."""
+        baseline = dict(source_sha=route.FROM_V34, head_seq=922,
+                        enabled=1, legacy_suspended=1)
+        cases = (
+            ("v34_source", {"source_sha": "0"*40}, None, (), True),
+            ("history_floor", {"head_seq": 855}, None, (), True),
+            ("owner_enabled", {"enabled": 0}, None, (), True),
+            ("legacy_suspended", {"legacy_suspended": 0}, None, (), True),
+            ("no_ready", {}, object(), (), True),
+            ("no_active", {}, None, (object(),), True),
+            ("native_activation", {}, None, (), False),
+        )
+        for rejected, overrides, ready, active, activated in cases:
+            with self.subTest(failed_predicate=rejected):
+                verified = []
+                record = {**baseline, **overrides}
+                db = SimpleNamespace(
+                    filename=Path("f139-diagnostic-fixture.sqlite"),
+                    verify=lambda: verified.append("verified"),
+                    meta=lambda: dict(record), ready=lambda: ready,
+                    actives=lambda: list(active))
+                with patch.object(route, "Database", SimpleNamespace), \
+                     patch.object(route.SingleOwner, "held", return_value=True), \
+                     patch.object(route, "verify_native_activation",
+                                  return_value=activated):
+                    diagnostic = route.idle_gate_predicates(db)
+                    self.assertEqual(len(diagnostic), 7)
+                    self.assertFalse(diagnostic[rejected])
+                    self.assertTrue(all(value for key, value in diagnostic.items()
+                                        if key != rejected))
+                    with self.assertRaisesRegex(route.MaintenanceDenied,
+                                                "IDLE_GENUINE_V34_REQUIRED"):
+                        route.validate_idle(db)
+                self.assertEqual(verified, ["verified", "verified"])
+        self.assertEqual(baseline["source_sha"], route.FROM_V34)
+
+    def test_idle_diagnostic_denies_unlocked_or_invalid_database(self):
+        db = SimpleNamespace(filename=Path("f139-diagnostic-fixture.sqlite"),
+                             verify=lambda: None)
+        with patch.object(route, "Database", SimpleNamespace), \
+             patch.object(route.SingleOwner, "held", return_value=False):
+            with self.assertRaisesRegex(route.MaintenanceDenied,
+                                        "ORIGINAL_DATABASE_MUTEX_REQUIRED"):
+                route.idle_gate_predicates(db)
+        with patch.object(route, "Database", SimpleNamespace), \
+             patch.object(route.SingleOwner, "held", return_value=True), \
+             patch.object(db, "verify", side_effect=ValueError("integrity failure")):
+            with self.assertRaisesRegex(ValueError, "integrity failure"):
+                route.idle_gate_predicates(db)
+
+    def test_failed_idle_workflow_reports_predicates_but_always_reraises(self):
+        text=(ROOT/'.github/workflows/f139-v35-original-owner-release.yml').read_text()
+        self.assertEqual(text.count("                  validate_idle(db)"), 1)
+        self.assertIn("except MaintenanceDenied as exc:", text)
+        self.assertIn("if str(exc) == \"F139_V35_IDLE_GENUINE_V34_REQUIRED\":", text)
+        self.assertIn("diagnostic = idle_gate_predicates(db)", text)
+        self.assertIn("F139_V35_IDLE_GATE_READONLY=", text)
+        self.assertIn("F139_V35_IDLE_GATE_DIAGNOSTIC=UNAVAILABLE", text)
+        self.assertIn("                      raise\n                  original=db.meta().copy()", text)
+        self.assertNotIn("Start-Sleep", text[:text.index("$ownerLock.Lock(0,1)")])
+        self.assertEqual(text.count('$ownerLock.Lock(0,1)'), 1)
+
     @unittest.skipUnless(os.name=='nt','Windows PowerShell parsing only')
     def test_new_installer_parses_in_both_shells_without_execution(self):
         text=(ROOT/'.github/workflows/f139-v35-original-owner-release.yml').read_text()

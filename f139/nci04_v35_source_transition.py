@@ -41,6 +41,25 @@ def preserved_counters_valid(counts):
             and counts["MODEL_DRAFT_AUTHENTICATED"] >= 62)
 
 
+
+def idle_gate_predicates(db):
+    """Read-only guard evidence only; NEVER admission or owner authority."""
+    need(type(db) is Database
+         and SingleOwner.held(db.filename.with_suffix(".lock")),
+         "ORIGINAL_DATABASE_MUTEX_REQUIRED")
+    db.verify()
+    meta = db.meta()
+    return {
+        "v34_source": meta["source_sha"] == FROM_V34,
+        "history_floor": meta["head_seq"] >= 856,
+        "owner_enabled": meta["enabled"] == 1,
+        "legacy_suspended": meta["legacy_suspended"] == 1,
+        "no_ready": db.ready() is None,
+        "no_active": not db.actives(),
+        "native_activation": verify_native_activation(db),
+    }
+
+
 def validate_idle(db):
     db.verify()
     meta = db.meta()
