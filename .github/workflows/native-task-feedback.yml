@@ -1,0 +1,24 @@
+name: Native task feedback qualification
+on:
+  pull_request:
+    paths: ['nativeevidence/native_task_feedback.py', 'nativeevidence/test_native_task_feedback.py', '.github/workflows/native-task-feedback.yml']
+permissions:
+  contents: read
+jobs:
+  task-feedback:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Receipt integrity, incomplete outcomes and heldout isolation
+        run: python -B -m unittest discover -s nativeevidence -p test_native_task_feedback.py -v
+      - name: Existing native evidence interface regression
+        run: python -B -m unittest discover -s nativeevidence -p test_*.py

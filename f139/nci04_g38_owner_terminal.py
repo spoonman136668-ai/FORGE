@@ -23,6 +23,8 @@ from f139.nci04_v2_owner_permit import issue_v2_owner_permit
 from f139.nci04_g36_v2_dispatch import verify_claim
 
 KIND = "NATIVE_V_TWO_PROVIDER_CUSTODY"
+from f139.nci04_v30_source_transition import carried_source
+
 SCHEMA = "forge.f139.g38.original-v2-provider-custody.v1"
 OS = ("ubuntu-latest", "windows-latest")
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
@@ -64,7 +66,8 @@ def _original_admissions(db: Database, ticket: str, run_id: int,
     """Reconstruct both existing V1/native HMACs and G36 V2 claim HMAC."""
     meta = db.meta()
     issue = frozen_native_issue(db, ticket)
-    need(issue.source_sha == meta["source_sha"]
+    need((issue.source_sha == meta["source_sha"]
+          or carried_source(db, ticket) == issue.source_sha)
          and issue.lane == "Yggdrasil"
          and type(run_id) is int and run_id > 0,
          "ORIGINAL_SOURCE_OR_RUN_DRIFT")
@@ -85,7 +88,7 @@ def _original_admissions(db: Database, ticket: str, run_id: int,
             "signature": signed["signature"],
             "repository": "spoonman136668-ai/FORGE",
             "ref": "refs/heads/main", "event": "workflow_dispatch",
-            "head_sha": meta["source_sha"], "run_attempt": "1",
+            "head_sha": issue.source_sha, "run_attempt": "1",
             "run_id": str(run_id), "os": label,
         }
         record = admit_native_intent(
@@ -93,7 +96,7 @@ def _original_admissions(db: Database, ticket: str, run_id: int,
             native_signature=signed["native_signature"],
             issue_number=str(issue.number), issue_id=str(issue.issue_id),
             issue_body_sha256=issue.issue_body_sha256,
-            authenticated_main_sha=meta["source_sha"],
+            authenticated_main_sha=issue.source_sha,
             authenticated_target_commit=issue.candidate.target_commit,
             authenticated_target_tree=issue.candidate.target_tree_sha)
         admissions[label] = record
@@ -101,7 +104,7 @@ def _original_admissions(db: Database, ticket: str, run_id: int,
             record, owner_key=owner_key, epoch=meta["epoch"],
             admission_event_seq=a["seq"],
             admission_event_sha256=a["sha"],
-            authenticated_source_sha=meta["source_sha"])
+            authenticated_source_sha=issue.source_sha)
     return admissions, permits, a, claim
 
 
@@ -150,7 +153,8 @@ def settle_original_v2(db: Database, api: GitHub, db_path: Path, *,
         "SELECT * FROM tasks WHERE ticket=?", (ticket,)).fetchone()
     need(task is not None and task["stage"] == "WAIT_PROVIDER"
          and task["run_id"] is None
-         and task["source_sha"] == db.meta()["source_sha"]
+         and (task["source_sha"] == db.meta()["source_sha"]
+              or carried_source(db, ticket) == task["source_sha"])
          and task["started_at"] == started_at,
          "EXACT_WAIT_PROVIDER_NO_REPLAY")
     admissions, permits, admission_event, claim_event = _original_admissions(

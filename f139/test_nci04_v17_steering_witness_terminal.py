@@ -58,17 +58,15 @@ class VerifiedSteeringTerminalWitnessTests(unittest.TestCase):
         with self.assertRaisesRegex(F139Error, "STEERING_REPORT_INVALID"):
             preserve_verified_steering("not a controller report", None)
 
-    def test_real_owner_reasoner_return_preserves_selection_after_custody(self):
+    def test_real_owner_model_free_return_preserves_selection_after_custody(self):
         source = inspect.getsource(run_once)
-        self.assertIn("reasoner_report = run_original_free_reasoner_once(", source)
-        self.assertIn(
-            "return preserve_verified_steering(\n"
-            "                    reasoner_report, steering_selection)", source)
+        self.assertIn("result = run_original_model_free_once(", source)
+        self.assertIn("return preserve_verified_steering(result, steering_selection)", source)
         self.assertLess(source.index("eligible = api.native_eligible_issues("),
-                        source.index("reasoner_report = run_original_free_reasoner_once("))
+                        source.index("result = run_original_model_free_once("))
         self.assertLess(source.index("feed = feeder("),
                         source.index("return preserve_verified_steering("))
-        self.assertIn("FREE_REASONER_GUARD_BLOCKED_FAIL_CLOSED", source)
+        self.assertIn("MODEL_FREE_SEARCH_BLOCKED_FAIL_CLOSED", source)
         self.assertNotIn("scientific_first_use=True", source)
 
 

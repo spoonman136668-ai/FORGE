@@ -134,7 +134,11 @@ def _preflight(db: Database, get: Callable, steering_get: Callable,
     note = outcome["record"]
     proposal = outcome["proposal"]
     source_sha = session["source_sha"]
-    _verified_original(get, source_sha=source_sha)
+    # Same deployed-release proof used by the qualified original publisher.
+    # Read-only source validation does not confer experiment authority.
+    from f139.nci04_v19_original_publication_preflight_no_write import (
+        _verify_original_publication_source)
+    _verify_original_publication_source(db, get)
     repository = REPOS[session["lane"]][0]
     path = session["path"]
     parent = session["target_commit"]

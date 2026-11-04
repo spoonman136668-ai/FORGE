@@ -105,13 +105,20 @@ jobs:
             # stuck red solely because an earlier supervisor observation failed.
             # Admit ONLY this precise historic-negative report as a quarantined
             # diagnostic. Any other integrity error fails the workflow.
+            # Preserve the original negative before the narrow recovery guard
+            # can reject it. Failed recovery must retain forensic evidence too.
+            head -n 1 "$RUNNER_TEMP/forge-native-pulse/continuity.stdout" > "$RUNNER_TEMP/forge-native-pulse/continuity.json"
+            (cd "$RUNNER_TEMP/forge-native-pulse" && sha256sum continuity.json > continuity.sha256 && sha256sum -c continuity.sha256)
             python3 - "$RUNNER_TEMP/forge-native-pulse/continuity.stdout" <<'PYRECOVERY'
-          import json,sys
+          import json,re,sys
           from autonomypulse import continuity
           with open(sys.argv[1],encoding="utf-8") as file:
               lines=file.readlines()
           assert len(lines)==1,"F134_UNEXPECTED_NEGATIVE_OUTPUT"
           report=json.loads(lines[0])
+          reason=report.get("reason")
+          assert isinstance(reason,str) and re.fullmatch(r"[A-Z0-9_]{1,96}",reason),"F134_UNSAFE_NEGATIVE_REASON"
+          print("FORGE_NATIVE_CONTINUITY_NEGATIVE_REASON="+reason,flush=True)
           result=continuity.acknowledge_previous_failed_observation(report)
           assert result=="HISTORICAL_SUPERVISION_FAILURE_ACKNOWLEDGED_NO_CONTINUITY_OR_SCIENCE"
           print("::warning title=FORGE native schedule continuity unqualified::"+

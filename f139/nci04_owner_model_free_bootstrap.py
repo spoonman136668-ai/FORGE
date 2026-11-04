@@ -135,6 +135,12 @@ def local_proposal_once(db: Database, get: Callable, steering_get: Callable,
 def run_original_g29_once(db, api, db_path: Path, source_sha: str,
                           owner_witness: Callable[[], bool]) -> dict:
     """Called only from existing run_once, while SingleOwner remains held."""
+    return _run_original_local_proposal(
+        db, api, db_path, source_sha, owner_witness, local_proposal_once)
+
+
+def _run_original_local_proposal(db, api, db_path, source_sha,
+                                  owner_witness, proposal):
     from f139.local_controller import GitHub, SingleOwner
     canonical_api = type(api) is GitHub
     main = sys.modules.get("__main__")
@@ -159,7 +165,7 @@ def run_original_g29_once(db, api, db_path: Path, source_sha: str,
          "ORIGINAL_RUNNING_SINGLE_OWNER_REQUIRED")
     canonical_db, close = original_canonical_db(db, db_path)
     try:
-        return local_proposal_once(
+        return proposal(
             canonical_db, api.native_repo_get, api.native_repo_get,
             api.owner_model_write, source_sha=source_sha,
             owner_witness=owner_witness)
