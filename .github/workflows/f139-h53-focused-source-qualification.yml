@@ -1,0 +1,28 @@
+name: F139 H53 focused source qualification
+on:
+  pull_request:
+    paths:
+      - 'f139/h53_successor_readonly_observer.py'
+      - 'tests/test_h53_successor_readonly_observer.py'
+      - '.github/workflows/f139-h53-focused-source-qualification.yml'
+permissions:
+  contents: read
+jobs:
+  h53-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile H53 observer and negative controls
+        run: python -m py_compile f139/h53_successor_readonly_observer.py tests/test_h53_successor_readonly_observer.py
+      - name: Run H53 focused negative controls
+        run: python -m unittest discover -s tests -p test_h53_successor_readonly_observer.py -v
