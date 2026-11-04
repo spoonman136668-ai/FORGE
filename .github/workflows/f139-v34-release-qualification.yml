@@ -1,0 +1,243 @@
+name: F139 V34 exact release qualification
+on:
+  push:
+    branches: ['qualification/f139-v34-*']
+permissions:
+  contents: read
+concurrency:
+  group: f139-v34-release-qualification-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify exact accepted-main-rooted candidate and bounded source manifest
+        shell: python
+        run: |
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          import os
+          expected = os.environ['GITHUB_SHA']
+          baseline = '517228adbae7e00740a74db4282d8565f7ad83ed'
+          assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
+          assert not git('status', '--porcelain', '--untracked-files=all')
+          expected_paths = {
+              '.github/workflows/f139-v33-original-owner-release.yml',
+              '.github/workflows/f139-v34-original-owner-release.yml',
+              '.github/workflows/f139-v34-release-qualification.yml',
+              'docs/F139-V34-ORIGINAL-OWNER-JOURNAL-RELEASE.md',
+              'f139/local_controller.py',
+              'f139/nci04_genenv_owner_backend.py',
+              'f139/nci04_owner_ledger.py',
+              'f139/nci04_v32_original_owner_transition_cli.py',
+              'f139/nci04_v34_original_owner_transition_cli.py',
+              'f139/nci04_v34_source_transition.py',
+              'f139/test_nci04_v33_source_transition.py',
+              'f139/test_nci04_v34_source_transition.py',
+          }
+          assert set(git('diff', '--name-only', baseline, 'HEAD').splitlines()) == expected_paths
+          # A skipped legacy workflow still takes a workflow concurrency slot.
+          # Prove that only the current installer receives this release push.
+          import ast, fnmatch, pathlib, re
+          release = 'f139-owner-release-' + expected
+          routed = []
+          for version in (27, 28, 29, 30, 31, 32, 33, 34):
+              name = f'f139-v{version}-original-owner-release.yml'
+              text = pathlib.Path('.github/workflows', name).read_text()
+              rows = re.findall(r'^    branches: (\[.*\])$', text, re.MULTILINE)
+              assert len(rows) == 1, name
+              patterns = ast.literal_eval(rows[0])
+              assert type(patterns) is list and all(type(p) is str for p in patterns)
+              if any(fnmatch.fnmatchcase(release, p) for p in patterns):
+                  routed.append(version)
+          assert routed == [34], ('competing release workflows', routed)
+          print('F139_V34_SINGLE_RELEASE_PUSH_ROUTE=PASS')
+          print('F139_V34_REPAIR_RELEASE_EXACT_SOURCE=PASS')
+      - name: Enforce FORGE independence from private CKB-plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.12'
+          cache: false
+      - name: Actual GenEnv and Promptbreeder outputs to bound source
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_path="$RUNNER_TEMP/f139-genenv-request.json"
+          result_path="$RUNNER_TEMP/f139-genenv-result.json"
+          python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_genenv_source_integration --result "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --result "$result_path"
+          previous_path="$RUNNER_TEMP/f139-typed-program-first-result.json"
+          python3 -B -m f139.check_prompt_program_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
+      - name: Tests, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Public isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e snapshot
+          test ! -e research/successor-builder
+          # Keep imports, arbitrary process creation and network posting denied everywhere.
+          ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|os.StartProcess|net/http.Post' .
+          # Freeze the seven preexisting non-supervisor exec.Command sites;
+          # deny every new, duplicated, moved, or modified source call.
+          # The original bounded supervisor's separate count gates stay intact.
+          python3 -B isolationguard/check_subprocess_sites.py
+          # The exception contains exactly the bounded executor and its integration test.
+          grep -l -E 'exec.Command' subprocesssupervisor/supervise.go subprocesssupervisor/supervise_test.go >/dev/null
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' subprocesssupervisor | wc -l)" -eq 3
+          grep -q -E 'exec.Command' subprocesssupervisor/partial_crash_test.go
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
+          grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
+          ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify exact accepted-main-rooted candidate and bounded source manifest
+        shell: python
+        run: |
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          import os
+          expected = os.environ['GITHUB_SHA']
+          baseline = '517228adbae7e00740a74db4282d8565f7ad83ed'
+          assert git('rev-list', '--parents', '-n', '1', 'HEAD').split() == [expected, baseline]
+          assert not git('status', '--porcelain', '--untracked-files=all')
+          expected_paths = {
+              '.github/workflows/f139-v33-original-owner-release.yml',
+              '.github/workflows/f139-v34-original-owner-release.yml',
+              '.github/workflows/f139-v34-release-qualification.yml',
+              'docs/F139-V34-ORIGINAL-OWNER-JOURNAL-RELEASE.md',
+              'f139/local_controller.py',
+              'f139/nci04_genenv_owner_backend.py',
+              'f139/nci04_owner_ledger.py',
+              'f139/nci04_v32_original_owner_transition_cli.py',
+              'f139/nci04_v34_original_owner_transition_cli.py',
+              'f139/nci04_v34_source_transition.py',
+              'f139/test_nci04_v33_source_transition.py',
+              'f139/test_nci04_v34_source_transition.py',
+          }
+          assert set(git('diff', '--name-only', baseline, 'HEAD').splitlines()) == expected_paths
+          # A skipped legacy workflow still takes a workflow concurrency slot.
+          # Prove that only the current installer receives this release push.
+          import ast, fnmatch, pathlib, re
+          release = 'f139-owner-release-' + expected
+          routed = []
+          for version in (27, 28, 29, 30, 31, 32, 33, 34):
+              name = f'f139-v{version}-original-owner-release.yml'
+              text = pathlib.Path('.github/workflows', name).read_text()
+              rows = re.findall(r'^    branches: (\[.*\])$', text, re.MULTILINE)
+              assert len(rows) == 1, name
+              patterns = ast.literal_eval(rows[0])
+              assert type(patterns) is list and all(type(p) is str for p in patterns)
+              if any(fnmatch.fnmatchcase(release, p) for p in patterns):
+                  routed.append(version)
+          assert routed == [34], ('competing release workflows', routed)
+          print('F139_V34_SINGLE_RELEASE_PUSH_ROUTE=PASS')
+          print('F139_V34_REPAIR_RELEASE_EXACT_SOURCE=PASS')
+      - name: FORGE independence and standing isolation enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.12'
+          cache: false
+      - name: Actual GenEnv and Promptbreeder outputs to bound source
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_path="$RUNNER_TEMP/f139-genenv-request.json"
+          result_path="$RUNNER_TEMP/f139-genenv-result.json"
+          python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_genenv_source_integration --result "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --result "$result_path"
+          previous_path="$RUNNER_TEMP/f139-typed-program-first-result.json"
+          python3 -B -m f139.check_prompt_program_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: Parse installer PowerShell without executing it
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:F139_PARSE_ONLY='1'
+          python -B -m unittest discover -s f139 -p test_nci04_v34_source_transition.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_V34_INSTALLER_PARSE_OR_SOURCE_TEST_FAILED'}

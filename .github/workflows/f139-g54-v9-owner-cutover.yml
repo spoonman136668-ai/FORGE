@@ -3571,37 +3571,6 @@ jobs:
           assert len(tail)<=8 and all(set(row)=={"seq","kind","sha"} for row in tail)
           print("F139_G54_RENEWAL_READ_ONLY="+json.dumps({"source_sha":meta["source_sha"],"head_seq":meta["head_seq"],"head_sha256":meta["head_hash"],"event_counts":reasoner_counts,"last_eight_event_kinds":tail},sort_keys=True))
           print(json.dumps({"quick_check":check,"meta":meta,"task_counts":counts,"active_or_ready":active,"relevant_events":latest},sort_keys=True))
-          # Advisory parent inventory only; parse source as data, never execute it.
-          import ast, base64, hashlib, re
-          con.execute("BEGIN")
-          inventory_meta=dict(con.execute("SELECT head_seq,head_hash,source_sha FROM meta WHERE id=1").fetchone())
-          rows=list(con.execute("SELECT payload FROM events WHERE kind='NATIVE_DEVELOPMENT_ADMITTED' ORDER BY seq"))
-          assert len(rows)<=4096
-          inventory=[]
-          for row in rows:
-              event=json.loads(row["payload"])
-              intent=json.loads(base64.b64decode(event["native_intent_base64"],validate=True))
-              if intent["lane"]!="Yggdrasil" or intent["path"]!="yggdrasil/public_causal_cells.py":
-                  continue
-              raw=base64.b64decode(intent["after_base64"],validate=True)
-              assert 0<len(raw)<=256000
-              source_hash=hashlib.sha256(raw).hexdigest()
-              assert source_hash==event["after_sha256"]
-              task=con.execute("SELECT stage FROM tasks WHERE ticket=?",(event["ticket"],)).fetchone()
-              assert task is not None
-              marker=b"        # F139_TYPED_RATE_PROGRAM="
-              matches=[line[len(marker):] for line in raw.splitlines() if line.startswith(marker)]
-              assert len(matches)<=1
-              try:
-                  normalized=hashlib.sha256(ast.dump(ast.parse(raw.decode("utf-8")),include_attributes=False).encode("utf-8")).hexdigest()
-              except (SyntaxError,UnicodeError):
-                  assert task["stage"]=="QUARANTINED"
-                  normalized=None
-              inventory.append({"source_sha256":source_hash,"ast_sha256":normalized,
-                  "stage":task["stage"],"program":matches[0].decode("ascii") if matches else None})
-          attempted=[json.loads(row["payload"])["source_after_sha256"] for row in con.execute("SELECT payload FROM events WHERE kind='MODEL_DRAFT_ATTEMPTED' ORDER BY seq")]
-          print("F139_G54_TYPED_PARENT_READ_ONLY="+json.dumps({"schema":"forge.f139.typed-parent-readonly-inventory.v1","advisory_only":True,"meta":inventory_meta,"sources":inventory,"attempted_source_sha256":attempted},sort_keys=True))
-          con.rollback()
           '@
           $dbReport | & $python -B - $db $deployedSource
           if($LASTEXITCODE -ne 0){throw 'F139_G54_STATUS_SQLITE_READ_FAILED'}
@@ -3665,72 +3634,4 @@ jobs:
           Write-Host ('F139_G54_OWNER_TASK_LAST_RUN=' + [string]$taskInfo.LastRunTime)
           Write-Host ('F139_G54_OWNER_TASK_NEXT_RUN=' + [string]$taskInfo.NextRunTime)
           Write-Host ('F139_G54_DEPLOYED_SOURCE_SHA=' + $deployedSource)
-          # One GET using the original Windows user's existing gh custody.
-          # Workflow GH_TOKEN is excluded only from this child; no auth writes.
-          $ownerApiProbe = @'
-          import json, os, re, subprocess
-          env=dict(os.environ)
-          for key in ("GH_TOKEN", "GITHUB_TOKEN"):
-              env.pop(key, None)
-          report={"schema":"forge.f139.owner-api-readonly-diagnostic.v1","method":"GET","route":"repos/spoonman136668-ai/FORGE/issues/1432","requests":1,"credential_changed":False,"runtime_changed":False}
-          try:
-              result=subprocess.run(["gh","api","--include",report["route"]],env=env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=40,check=False)
-              raw=result.stdout.decode("utf-8",errors="replace")
-              status=re.search(r"(?m)^HTTP/[^\r\n ]+ ([0-9]{3})",raw)
-              report["exit_code"]=result.returncode
-              report["http_status"]=int(status.group(1)) if status else None
-              for name in ("x-ratelimit-limit","x-ratelimit-remaining","x-ratelimit-reset","retry-after"):
-                  match=re.search(r"(?im)^"+name+r":\s*([0-9]+)\s*$",raw)
-                  report[name]=int(match.group(1)) if match else None
-              text=(raw+"\n"+result.stderr.decode("utf-8",errors="replace")).lower()
-              report["failure_class"]=("NONE" if result.returncode==0 else "RATE_LIMIT" if "rate limit" in text else "CREDENTIAL_REJECTED" if "bad credentials" in text or "authentication" in text else "HTTP_OR_TRANSPORT")
-          except subprocess.TimeoutExpired:
-              report["failure_class"]="TIMEOUT"
-          except OSError:
-              report["failure_class"]="EXECUTION_UNAVAILABLE"
-          print("F139_G54_OWNER_API_READ_ONLY="+json.dumps(report,sort_keys=True))
-          '@
-          $ownerApiProbe | & $python -B -
-          if($LASTEXITCODE -ne 0){throw 'F139_G54_STATUS_API_DIAGNOSTIC_FAILED'}
-          # Load only the immutable, qualified maintenance helper; never candidate source.
-          & git -C $env:GITHUB_WORKSPACE fetch --no-tags --depth=1 origin 98d2d5f7231de1b6f070ae97aebafd6b2dc9dcfc
-          if($LASTEXITCODE -ne 0){throw 'F139_IDLE_PREFLIGHT_QUALIFIED_SOURCE_FETCH_FAILED'}
-          $idleProbe = @'
-          import json, pathlib, subprocess, sys, types
-          installed, path, workspace = sys.argv[1:]
-          sys.path.insert(0, installed)
-          from f139.local_controller import Database, SingleOwner, F139Error
-          reference="98d2d5f7231de1b6f070ae97aebafd6b2dc9dcfc"
-          actual=subprocess.check_output(["git","-C",workspace,"rev-parse","FETCH_HEAD"],text=True).strip()
-          assert actual==reference
-          raw=subprocess.check_output(["git","-C",workspace,"show",reference+":f139/nci04_v35_source_transition.py"])
-          module=types.ModuleType("qualified_v35_idle_reference")
-          exec(compile(raw,"qualified-v35-idle-reference","exec"),module.__dict__)
-          filename=pathlib.Path(path).resolve()
-          lock=filename.with_suffix(".lock")
-          assert lock.is_file() and not lock.is_symlink() and lock.stat().st_size>=1
-          try:
-              with SingleOwner(lock):
-                  db=Database.open_readonly(filename)
-                  try:
-                      before=db.meta().copy()
-                      predicates=module.idle_gate_predicates(db)
-                      assert db.conn.execute("PRAGMA query_only").fetchone()[0]==1
-                      assert db.meta()==before
-                      print("F139_V35_IDLE_PREFLIGHT_READONLY="+json.dumps({
-                          "schema":"forge.f139.v35-idle-readonly-preflight.v1",
-                          "reference_sha":reference,"source_sha":before["source_sha"],
-                          "head_seq":before["head_seq"],"head_sha256":before["head_hash"],
-                          "predicates":predicates,"all_pass":all(predicates.values()),
-                          "task_changed":False,"policy_changed":False,"ledger_changed":False,
-                          "admission_authorized":False},sort_keys=True))
-                  finally:
-                      db.close()
-          except F139Error as exc:
-              if str(exc)!="F139_CONTROLLER_ALREADY_RUNNING":
-                  raise
-              print("F139_V35_IDLE_PREFLIGHT_READONLY=BUSY_NO_MUTATION")
-          '@
-          $idleProbe | & $python -B - $root $db $env:GITHUB_WORKSPACE
-          if($LASTEXITCODE -ne 0){throw 'F139_IDLE_PREFLIGHT_READONLY_FAILED'}
           Write-Host 'F139_G54_STATUS_READ_ONLY=PASS'

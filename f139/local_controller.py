@@ -738,14 +738,42 @@ class Database:
                 is_v23 = (isinstance(doc, dict)
                           and doc.get("schema") == "forge.f139.source-transition.v23"
                           and set(doc) == V23_FIELDS)
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23,
+                from f139.nci04_v29_source_transition import FIELDS as V24_FIELDS
+                is_v24 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v24"
+                          and set(doc) == V24_FIELDS)
+                from f139.nci04_v30_source_transition import FIELDS as V25_FIELDS
+                is_v25 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v25"
+                          and set(doc) == V25_FIELDS)
+                from f139.nci04_v31_source_transition import FIELDS as V26_FIELDS
+                is_v26 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v26"
+                          and set(doc) == V26_FIELDS)
+                from f139.nci04_v32_source_transition import FIELDS as V27_FIELDS
+                is_v27 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v27"
+                          and set(doc) == V27_FIELDS)
+                from f139.nci04_v33_source_transition import FIELDS as V28_FIELDS
+                is_v28 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v28"
+                          and set(doc) == V28_FIELDS)
+                from f139.nci04_v34_source_transition import FIELDS as V29_FIELDS
+                is_v29 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v29"
+                          and set(doc) == V29_FIELDS)
+                from f139.nci04_v35_source_transition import FIELDS as V30_FIELDS
+                is_v30 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v30"
+                          and set(doc) == V30_FIELDS)
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1617,8 +1645,31 @@ class Database:
                 if is_v23:
                     from f139.nci04_v28_source_transition import verify_cold_event
                     verify_cold_event(self, row, doc, source_transitions)
+                if is_v24:
+                    from f139.nci04_v29_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v25:
+                    from f139.nci04_v30_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v26:
+                    from f139.nci04_v31_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v27:
+                    from f139.nci04_v32_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v28:
+                    from f139.nci04_v33_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v29:
+                    from f139.nci04_v34_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v30:
+                    from f139.nci04_v35_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
+        from f139.nci04_prospective_journal import audit_assignment_events
+        audit_assignment_events(self)
         historical_sources = set()
         if source_transitions:
             for index, transition in enumerate(source_transitions):
@@ -1715,9 +1766,12 @@ class Database:
                 and row["run_id"] is None
                 and row["evidence_sha"] is None
                 and not row["evidence_dir"])
+            from f139.nci04_v30_source_transition import carried_source
+            carried_pending = (carried_source(self, row["ticket"]) == row["source_sha"]
+                               and row["source_sha"] in historical_sources)
             historical = (prior_verified or prior_certified_negative
                           or prior_certified_second or prior_provider_failure
-                          or prior_prepost_negative or prior_g54_ambiguous)
+                          or prior_prepost_negative or prior_g54_ambiguous or carried_pending)
             require(TICKET.fullmatch(row["ticket"]) and row["lane"] in LANES and
                     (row["source_sha"] == meta["source_sha"] or historical) and
                     row["stage"] in ALLOWED_STAGES,
@@ -2748,7 +2802,9 @@ class Database:
     def ready(self):
         return self.conn.execute("SELECT * FROM tasks WHERE stage='READY' ORDER BY ticket LIMIT 1").fetchone()
 
-    def claim(self, ticket: str, now: str):
+    def claim(self, ticket: str, now: str, *, archive_native_decision=False):
+        require(type(archive_native_decision) is bool,
+                "NATIVE_ASSIGNMENT_FLAG_INVALID")
         day = now[:10]
         with self.transaction():
             m = self.meta()
@@ -2770,6 +2826,10 @@ class Database:
                     native_recent_starts, MAX_STARTS_PER_WINDOW)
                 require(native_recent_starts(self, now) < MAX_STARTS_PER_WINDOW,
                         "NATIVE_TWO_PER_TEN_MINUTES_LIMIT")
+            if archive_native_decision:
+                require(native, "NATIVE_ASSIGNMENT_REQUIRES_NATIVE_TICKET")
+                from f139.nci04_prospective_journal import journal_native_assignment
+                journal_native_assignment(self, ticket, now)
             self.conn.execute("UPDATE tasks SET stage='START_RISK',started_at=? WHERE ticket=?",(now,ticket))
             self.conn.execute("UPDATE meta SET starts=?,day=? WHERE id=1",(starts+1,day))
             self.event("BEFORE_DISPATCH_INTENT",{"ticket":ticket,"started_at":now,"starts":starts+1})
@@ -4087,13 +4147,48 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                      json.loads(v17_rows[0]["payload"]).get("to_source_sha")
                  and event.get("v17_terminal_event_sha256")==v17_rows[0]["sha"]
                  and verify_g49_custody(db))
-        if not ((v7 or v8 or v9 or v10 or v11 or v12 or v13 or v14 or v15 or v16 or v17 or v18) and event.get("to_source_sha")==source_sha
+        # Later sealed releases retain the original G49/G54 custody and the
+        # distinct V2 pre-dispatch signature. They grant no retroactive receipt.
+        modern = False
+        if event.get("schema") in {
+                "forge.f139.source-transition.v19", "forge.f139.source-transition.v20",
+                "forge.f139.source-transition.v21", "forge.f139.source-transition.v22",
+                "forge.f139.source-transition.v23", "forge.f139.source-transition.v24",
+                "forge.f139.source-transition.v25", "forge.f139.source-transition.v26",
+                "forge.f139.source-transition.v27"}:
+            db.verify()  # Includes each version's exact predecessor/custody seal.
+            g54_original_canonical(db)
+            modern = verify_g49_custody(db)
+        if event.get("schema") == "forge.f139.source-transition.v28":
+            from f139.nci04_v33_source_transition import FIELDS
+            if set(event) == FIELDS:
+                db.verify()
+                g54_original_canonical(db)
+                modern = verify_g49_custody(db)
+        if event.get("schema") == "forge.f139.source-transition.v29":
+            from f139.nci04_v34_source_transition import FIELDS
+            if set(event) == FIELDS:
+                db.verify()
+                g54_original_canonical(db)
+                modern = verify_g49_custody(db)
+        if event.get("schema") == "forge.f139.source-transition.v30":
+            from f139.nci04_v35_source_transition import FIELDS
+            if set(event) == FIELDS:
+                db.verify()
+                g54_original_canonical(db)
+                modern = verify_g49_custody(db)
+        if not ((v7 or v8 or v9 or v10 or v11 or v12 or v13 or v14 or v15 or v16 or v17 or v18 or modern) and event.get("to_source_sha")==source_sha
                 and event.get("v2_receipt_authorized") is False):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
         return verify_native_activation(db)
     except (F139Error, sqlite3.DatabaseError, ValueError, TypeError, KeyError):
         return False
+
+
+def carried_native_source(db, ticket):
+    from f139.nci04_v30_source_transition import carried_source
+    return carried_source(db, ticket)
 
 
 def original_owner_v2_guard_canonical(db, db_path: Path,
@@ -4287,7 +4382,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             pinned_lookup=getattr(api,"candidates_for_source",None)
             if (callable(pinned_lookup) and native_enabled
                     and active["ticket"].startswith("f139-nci04-")
-                    and active["source_sha"]==meta["source_sha"]):
+                    and (active["source_sha"]==meta["source_sha"]
+                         or carried_native_source(db, active["ticket"]) == active["source_sha"])):
                 run=pinned_lookup(active["ticket"],active["started_at"],
                                   active["source_sha"])
             else:
@@ -4601,7 +4697,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             return {"disposition":"V3_ORIGINAL_OWNER_OR_SOURCE_NOT_ACTIVATED",
                     "ticket":task["ticket"],"claimed":False,
                     "live_v3_dispatched":False,"science_authorized":False}
-    db.claim(task["ticket"],timestamp)
+    db.claim(task["ticket"],timestamp,
+             archive_native_decision=task["ticket"].startswith("f139-nci04-"))
     from f139.verify_ticket import signature as sign_worker_ticket
     d2k=db.d2k_fields(task["ticket"])
     native = task["ticket"].startswith("f139-nci04-")

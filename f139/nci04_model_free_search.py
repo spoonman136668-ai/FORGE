@@ -61,8 +61,12 @@ OPERATORS = (
 
 def normalized(source: bytes) -> str:
     """Reject whitespace/comment replays as well as identical byte hashes."""
-    return digest(ast.dump(ast.parse(source.decode("utf-8", "strict")),
-                           include_attributes=False).encode("utf-8"))
+    try:
+        tree = ast.parse(source.decode("utf-8", "strict"))
+    except (SyntaxError, UnicodeError) as exc:
+        # Candidate validation must fail closed without killing the owner loop.
+        raise ValueError("F139_MODEL_FREE_SEARCH_SOURCE_NOT_PARSEABLE") from exc
+    return digest(ast.dump(tree, include_attributes=False).encode("utf-8"))
 
 
 def candidates(before: bytes):
@@ -77,6 +81,55 @@ def candidates(before: bytes):
         yield name, source, question, hypothesis
 
 
+def consumed_source_identities(db, consumed_after_hashes, attempts=None, *,
+                               with_sources=False, with_parent_eligibility=False):
+    """Reuse complete source-use custody for publication and cold rehearsal."""
+    if with_parent_eligibility:
+        if not with_sources:
+            raise ValueError("F139_MODEL_FREE_SEARCH_PARENT_SOURCES_REQUIRED")
+        db.verify()
+    if attempts is None:
+        attempts = list(db.conn.execute(
+            "SELECT payload FROM events WHERE kind=? ORDER BY seq", (ATTEMPT,)))
+    consumed = set(consumed_after_hashes)
+    consumed.update(json.loads(row["payload"])["source_after_sha256"]
+                    for row in attempts)
+    # Retain every original outcome, including negatives and historical sources.
+    prior_asts = set()
+    sources = []
+    parent_stages = {}
+    for event in native_events(db):
+        intent = json.loads(base64.b64decode(event["native_intent_base64"], validate=True))
+        if intent["lane"] == "Yggdrasil" and intent["path"] == PATH:
+            raw = base64.b64decode(intent["after_base64"], validate=True)
+            sources.append(raw)
+            if with_parent_eligibility:
+                task = db.conn.execute(
+                    "SELECT stage FROM tasks WHERE ticket=?", (event["ticket"],)).fetchone()
+                if task is None or task["stage"] not in {
+                        "READY", "START_RISK", "WAIT_PROVIDER", "VERIFIED", "QUARANTINED"}:
+                    raise ValueError("F139_MODEL_FREE_SEARCH_PARENT_TASK_DRIFT")
+                parent_stages.setdefault(digest(raw), set()).add(task["stage"])
+            try:
+                prior_asts.add(normalized(raw))
+            except ValueError:
+                # Original invalid-source negatives are legitimate retained
+                # evidence, not syntax trees. Their raw hashes/identities stay
+                # consumed through owner_history; never repair/replay the source.
+                task = db.conn.execute(
+                    "SELECT stage FROM tasks WHERE ticket=?", (event["ticket"],)).fetchone()
+                if task is None or task["stage"] != "QUARANTINED":
+                    raise ValueError("F139_MODEL_FREE_SEARCH_INVALID_NONNEGATIVE_HISTORY")
+                consumed.add(digest(raw))
+    if with_parent_eligibility:
+        # Engineering qualification only, never task utility or a science reward.
+        # Conflicting/nonterminal histories cannot rehabilitate a failed source.
+        eligible = frozenset(key for key, stages in parent_stages.items()
+                             if stages == {"VERIFIED"})
+        return consumed, prior_asts, tuple(sources), eligible
+    return (consumed, prior_asts, tuple(sources)) if with_sources else (consumed, prior_asts)
+
+
 def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness):
     db.verify()
     # Journal incompleteness remains sticky across source releases and dates.
@@ -89,15 +142,7 @@ def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness
     prepared = owner_request(
         db, get, steering_get, source_sha=source_sha, lane="Yggdrasil",
         target_commit=PARENT, path=PATH, owner_witness=owner_witness)
-    consumed = set(prepared["consumed_after_hashes"])
-    consumed.update(json.loads(row["payload"])["source_after_sha256"]
-                    for row in attempts)
-    # Retain every original outcome, including negatives and historical sources.
-    prior_asts = set()
-    for event in native_events(db):
-        intent = json.loads(base64.b64decode(event["native_intent_base64"], validate=True))
-        if intent["lane"] == "Yggdrasil" and intent["path"] == PATH:
-            prior_asts.add(normalized(base64.b64decode(intent["after_base64"], validate=True)))
+    consumed, prior_asts = consumed_source_identities(db, prepared["consumed_after_hashes"], attempts)
     for name, source, question, hypothesis in candidates(prepared["before"]):
         if digest(source) in consumed or normalized(source) in prior_asts:
             continue
@@ -115,7 +160,10 @@ def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness
             raw_response=response, owner_witness=owner_witness)
         return {**outcome, "generator": "DETERMINISTIC_SOURCE_SEARCH",
                 "operator": name, "model_calls": 0, "paid_model_calls": 0}
-    return report("MODEL_FREE_SEARCH_EXHAUSTED_NO_FRESH_CANDIDATE")
+    from f139.nci04_genenv_owner_backend import publish_after_exhaustion
+    return publish_after_exhaustion(
+        db, get, steering_get, write, prepared=prepared, consumed=consumed,
+        historical_asts=prior_asts, source_sha=source_sha, owner_witness=owner_witness)
 
 
 def report(disposition):
