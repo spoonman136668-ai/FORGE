@@ -11,10 +11,20 @@ import os
 import re
 import subprocess
 
+OWNER_SOURCE = "5680e7448276a9f257413570e0283fcab7e392ec"
+OWNER_API_STDOUT_LIMIT = 2_100_000
 ROUTES = (
     "repos/spoonman136668-ai/FORGE/branches/main",
     "repos/spoonman136668-ai/FORGE/actions/runs?per_page=1",
     "repos/spoonman136668-ai/Yggdrasil/pulls?state=open&per_page=1",
+    "repos/spoonman136668-ai/FORGE/issues/807",
+    "repos/spoonman136668-ai/FORGE/branches/f139-owner-release-" + OWNER_SOURCE,
+    "repos/spoonman136668-ai/FORGE/compare/" + OWNER_SOURCE + "...80ae30719bcd9f179da4aa4e8f14dc36fd15818e",
+    "repos/spoonman136668-ai/FORGE/actions/workflows/forge-development-succession.yml",
+    "repos/spoonman136668-ai/FORGE/actions/workflows/forge-development-succession.yml/runs?per_page=100",
+    "repos/spoonman136668-ai/FORGE/actions/workflows/forge-integrated-synthetic-cycle.yml",
+    "repos/spoonman136668-ai/FORGE/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?per_page=100",
+    "repos/spoonman136668-ai/FORGE/actions/workflows/forge-f139-development-worker.yml/runs?branch=f139-owner-release-" + OWNER_SOURCE + "&event=workflow_dispatch&per_page=100&page=1",
 )
 ENV_KEYS = frozenset({
     "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "COMSPEC",
@@ -59,7 +69,11 @@ def probe(*, environment=None, runner=subprocess.run):
             remaining = re.search(rb"(?im)^x-ratelimit-remaining:\s*([0-9]+)\s*$", raw)
             if status == 403 and remaining and int(remaining[1]) == 0:
                 classification = "RATE_LIMITED"
+            separator = b"\r\n\r\n" if b"\r\n\r\n" in raw else b"\n\n"
+            body_bytes = len(raw.split(separator, 1)[1]) if separator in raw else None
             rows.append({"route": route, "classification": classification,
+                         "response_body_bytes": body_bytes,
+                         "original_stdout_limit_exceeded": body_bytes >= OWNER_API_STDOUT_LIMIT if body_bytes is not None else None,
                          "http_status": status, "exit_code": result.returncode,
                          "rate_limit_remaining": int(remaining[1]) if remaining else None})
         except subprocess.TimeoutExpired:
@@ -71,6 +85,8 @@ def probe(*, environment=None, runner=subprocess.run):
                          "http_status": None, "exit_code": None,
                          "rate_limit_remaining": None})
     return {"schema": "forge.f139.owner-gh-config-readonly-probe.v1",
+            "owner_source_scope": OWNER_SOURCE,
+            "original_stdout_limit": OWNER_API_STDOUT_LIMIT,
             "credential_context": "same-owner-gh-config-without-job-tokens",
             "controller_inherited_environment_verified": False,
             "raw_output_retained": False, "credential_mutations": 0,

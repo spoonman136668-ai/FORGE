@@ -1,7 +1,7 @@
 import json
 import subprocess
 import unittest
-from scripts.f139_owner_github_readonly_probe import probe, ROUTES
+from scripts.f139_owner_github_readonly_probe import probe, ROUTES, OWNER_API_STDOUT_LIMIT
 
 
 class OwnerReadOnlyProbeTests(unittest.TestCase):
@@ -52,6 +52,14 @@ class OwnerReadOnlyProbeTests(unittest.TestCase):
     def test_timeout_has_no_retry_or_exception_leak(self):
         error = subprocess.TimeoutExpired("RAW_SECRET_MARKER", 20)
         self.assertEqual(self.run_probe(exception=error)["classification"], "READ_TIMEOUT")
+
+    def test_original_stdout_bound_is_measured_without_exporting_body(self):
+        from f139.local_controller import MAX_ZIP_BYTES
+        self.assertEqual(OWNER_API_STDOUT_LIMIT, MAX_ZIP_BYTES + 100000)
+        row = self.run_probe(b"HTTP/2.0 200 OK\r\n\r\n" + b"x" * OWNER_API_STDOUT_LIMIT, code=0)
+        self.assertTrue(row["original_stdout_limit_exceeded"])
+        self.assertEqual(row["response_body_bytes"], OWNER_API_STDOUT_LIMIT)
+        self.assertEqual(row["classification"], "READ_OK")
 
     def test_missing_cli_is_explicit(self):
         self.assertEqual(self.run_probe(exception=FileNotFoundError("RAW_SECRET_MARKER"))["classification"], "CLI_NOT_FOUND")
