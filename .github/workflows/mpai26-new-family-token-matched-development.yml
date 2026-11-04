@@ -189,22 +189,8 @@ jobs:
           ARTIFACT_DIGEST: ${{ steps.development-receipt.outputs.artifact-digest }}
         run: |
           $ErrorActionPreference='Stop'
-          if($env:ARTIFACT_ID -notmatch '^[0-9]+
-        if: always()
-        shell: pwsh
-        run: |
-          $receipt=Join-Path $env:RUNNER_TEMP ('mpai26-development-receipt-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
-          if(Test-Path -LiteralPath $receipt){Remove-Item -LiteralPath $receipt -Force -ErrorAction Stop}
-          Write-Output 'MPAI26_RECEIPT_TRANSIENT_CLEANUP=PASS'
- -or
-             $env:ARTIFACT_DIGEST -notmatch '^sha256:[a-f0-9]{64}
-        if: always()
-        shell: pwsh
-        run: |
-          $receipt=Join-Path $env:RUNNER_TEMP ('mpai26-development-receipt-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
-          if(Test-Path -LiteralPath $receipt){Remove-Item -LiteralPath $receipt -Force -ErrorAction Stop}
-          Write-Output 'MPAI26_RECEIPT_TRANSIENT_CLEANUP=PASS'
-){
+          if($env:ARTIFACT_ID -notmatch '^[0-9]+$' -or
+             $env:ARTIFACT_DIGEST -notmatch '^sha256:[a-f0-9]{64}$'){
             throw 'MPAI26_ARTIFACT_IDENTITY_MISSING'
           }
           Write-Output ('MPAI26_DEVELOPMENT_ARTIFACT_ID='+$env:ARTIFACT_ID)
