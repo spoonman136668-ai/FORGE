@@ -10,7 +10,7 @@ def wire(report):
     return json.dumps(report, sort_keys=True, separators=(",", ":")).encode()
 
 def ledger(reward):
-    return [{"reward": reward}]
+    return [{"reward": reward, "terminal": True}]
 
 def fixture():
     rows=[]

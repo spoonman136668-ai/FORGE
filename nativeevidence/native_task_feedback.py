@@ -68,6 +68,9 @@ def episode(row, lane):
              "SOURCE_LEDGER_DIGEST")
         need(all(type(e) is dict and number(e.get("reward")) for e in ledger),
              "SOURCE_REWARD_REQUIRED")
+        need(all(type(e.get("terminal")) is bool for e in ledger)
+             and positives == sum(e["reward"] > 0 and e["terminal"] for e in ledger),
+             "SOURCE_GOAL_MISMATCH")
         need(math.isclose(sum(e["reward"] for e in ledger), reward, abs_tol=1e-9),
              "SOURCE_RETURN_MISMATCH")
         wall = row.get("elapsed_wall_seconds")
