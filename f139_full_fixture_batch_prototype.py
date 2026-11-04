@@ -24,6 +24,11 @@ ELIGIBLE = {
 }
 
 
+# Accepted protected main 80ae3071... completed 1,704 real F139 tests on
+# Linux and Windows; reject reduced discovery without relabeling a shorter run.
+MINIMUM_COMPLETE_DISCOVERY = 1704
+
+
 def fingerprint(db):
     if not hasattr(db, "conn"):
         return "DATABASE_CLOSED_OR_UNINITIALIZED"
@@ -203,10 +208,13 @@ def main():
                               for key in sorted(set(original_receipt) | set(batch_receipt))
                               if key != "tests" and original_receipt.get(key) != batch_receipt.get(key)},
                              sort_keys=True), flush=True)
+    minimum_complete = (original_receipt["discovered"] >= MINIMUM_COMPLETE_DISCOVERY
+                        and batch_receipt["discovered"] >= MINIMUM_COMPLETE_DISCOVERY)
+    print(f"F139_G114M_ACCEPTED_TEST_COUNT_FLOOR={'PASS' if minimum_complete else 'FAIL'}")
     equal = original_receipt == batch_receipt
     print(f"F139_G114M_RECEIPT_EQUAL={'PASS' if equal else 'FAIL'}")
     print(f"F139_G114M_FULL_REGRESSION={'PASS' if original.wasSuccessful() and batched.wasSuccessful() else 'FAIL'}")
-    if (not original.wasSuccessful() or not batched.wasSuccessful()
+    if (not minimum_complete or not original.wasSuccessful() or not batched.wasSuccessful()
             or not equal or original.testsRun != original_receipt["discovered"]
             or batched.testsRun != batch_receipt["discovered"]
             or original.batch["rollbacks"] or batched.batch["rollbacks"]
