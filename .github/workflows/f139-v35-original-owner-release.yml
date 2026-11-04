@@ -287,10 +287,10 @@ jobs:
             }
             New-Item -ItemType Directory -Path $backupDir -ErrorAction Stop | Out-Null
             @'
-          import hashlib, pathlib, shutil, sqlite3, sys
+          import hashlib, json, pathlib, shutil, sqlite3, sys
           from f139.local_controller import Database, SingleOwner
           from f139.nci04_native_contract import canonical
-          from f139.nci04_v35_source_transition import validate_idle, preserved_counters_valid
+          from f139.nci04_v35_source_transition import validate_idle, idle_gate_predicates, MaintenanceDenied, preserved_counters_valid
           from f139.nci04_v32_original_owner_transition_cli import copy_provider_archives, copy_generation_executable
           from f139.nci04_negative_owner_store import (
               TICKET as FIRST_TICKET, RUN_ID as FIRST_RUN, ARTIFACT_SHA as FIRST_SHA)
@@ -318,7 +318,18 @@ jobs:
                       "MODEL_DRAFT_AUTHENTICATED":model_success,
                       "FREE_REASONER_ATTEMPTED":free_attempt,
                   }), "F139_V35_ORIGINAL_BOUNDED_MODEL_HISTORY_DRIFT"
-                  validate_idle(db)
+                  try:
+                      validate_idle(db)
+                  except MaintenanceDenied as exc:
+                      if str(exc) == "F139_V35_IDLE_GENUINE_V34_REQUIRED":
+                          try:
+                              diagnostic = idle_gate_predicates(db)
+                          except Exception:
+                              print("F139_V35_IDLE_GATE_DIAGNOSTIC=UNAVAILABLE", flush=True)
+                          else:
+                              print("F139_V35_IDLE_GATE_READONLY=" +
+                                    json.dumps(diagnostic, sort_keys=True), flush=True)
+                      raise
                   original=db.meta().copy()
                   # Copy the historical provider bytes to the NEW backup root;
                   # an on-host SQLite-only clone can accidentally pass by
