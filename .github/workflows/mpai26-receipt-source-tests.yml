@@ -5,6 +5,8 @@ on:
     paths:
       - 'tools/mpai26_development_trial_receipts.py'
       - 'tests/test_mpai26_development_trial_receipts.py'
+      - 'tests/test_mpai26_receipt_workflow_wiring.py'
+      - '.github/workflows/mpai26-new-family-token-matched-development.yml'
       - '.github/workflows/mpai26-receipt-source-tests.yml'
   workflow_dispatch:
 permissions:
@@ -26,11 +28,12 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          python -B -m py_compile tools/mpai26_development_trial_receipts.py tests/test_mpai26_development_trial_receipts.py
+          python -B -m py_compile tools/mpai26_development_trial_receipts.py tests/test_mpai26_development_trial_receipts.py tests/test_mpai26_receipt_workflow_wiring.py
           echo "MPAI26_RECEIPT_EXACT_HEAD=PASS sha=$EXPECTED_SHA"
       - name: Validate development receipt export and hostile input rejection
         shell: bash
         run: |
           set -euo pipefail
           python -B -m unittest discover -s tests -p test_mpai26_development_trial_receipts.py -v
+          python -B -m unittest discover -s tests -p test_mpai26_receipt_workflow_wiring.py -v
           echo "MPAI26_RECEIPT_SOURCE_TESTS=PASS"
