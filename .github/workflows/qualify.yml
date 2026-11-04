@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      rar_g114l_batch:
+        description: "Run original-versus-batched complete F139 regression (diagnostic only)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -43,6 +49,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - name: RAR-G114L existing opt-in full-suite fixture comparison
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.rar_g114l_batch) || (github.event_name == 'pull_request' && github.head_ref == 'research/rar-g114-f139-timing-20261031') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_full_fixture_batch_prototype.py
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -120,6 +132,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - name: RAR-G114L existing opt-in full-suite fixture comparison
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.rar_g114l_batch) || (github.event_name == 'pull_request' && github.head_ref == 'research/rar-g114-f139-timing-20261031') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139_full_fixture_batch_prototype.py
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
