@@ -80,7 +80,7 @@ class ReceiptContractTest(unittest.TestCase):
 
     def test_changed_decision_without_outcome_update(self):
         data = fake_trial()
-        data["trials"][2]["decision"] = "NO"
+        data["trials"][2]["decision"] = "YES"
         rejects(data, "OUTCOME_INCONSISTENT")
 
     def test_tampered_hash_and_context(self):
