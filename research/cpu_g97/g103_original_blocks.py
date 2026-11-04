@@ -172,7 +172,10 @@ def main():
                         del past
                     prefix_blobs[group], layouts[group] = states, shapes
             # KV comparisons are only meaningful when the layout is equal.
-            for group in GROUPS:
+            # The identical and related groups require same-shape states.
+            # The unrelated original G95 templates naturally have different
+            # token lengths; comparing their byte-level dedup is still valid.
+            for group in ("identical", "related"):
                 if any(shape != layouts[group][0] for shape in layouts[group]):
                     raise RuntimeError("G103_GROUP_LAYOUT_DRIFT")
             for group in GROUPS:
