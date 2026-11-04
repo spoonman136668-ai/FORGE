@@ -173,13 +173,43 @@ jobs:
             Write-Output ('MPAI26_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
           }
       - name: Upload redacted development trial receipt (not independent custody)
+        id: development-receipt
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: mpai26-development-trials-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/mpai26-development-receipt-${{ github.run_id }}-${{ github.run_attempt }}.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
+      - name: Report GitHub artifact integrity identity (not scientific witness)
+        if: success()
+        shell: pwsh
+        env:
+          ARTIFACT_ID: ${{ steps.development-receipt.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.development-receipt.outputs.artifact-digest }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:ARTIFACT_ID -notmatch '^[0-9]+
+        if: always()
+        shell: pwsh
+        run: |
+          $receipt=Join-Path $env:RUNNER_TEMP ('mpai26-development-receipt-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
+          if(Test-Path -LiteralPath $receipt){Remove-Item -LiteralPath $receipt -Force -ErrorAction Stop}
+          Write-Output 'MPAI26_RECEIPT_TRANSIENT_CLEANUP=PASS'
+ -or
+             $env:ARTIFACT_DIGEST -notmatch '^sha256:[a-f0-9]{64}
+        if: always()
+        shell: pwsh
+        run: |
+          $receipt=Join-Path $env:RUNNER_TEMP ('mpai26-development-receipt-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
+          if(Test-Path -LiteralPath $receipt){Remove-Item -LiteralPath $receipt -Force -ErrorAction Stop}
+          Write-Output 'MPAI26_RECEIPT_TRANSIENT_CLEANUP=PASS'
+){
+            throw 'MPAI26_ARTIFACT_IDENTITY_MISSING'
+          }
+          Write-Output ('MPAI26_DEVELOPMENT_ARTIFACT_ID='+$env:ARTIFACT_ID)
+          Write-Output ('MPAI26_DEVELOPMENT_ARTIFACT_DIGEST='+$env:ARTIFACT_DIGEST)
+          Write-Output 'MPAI26_ARTIFACT_GITHUB_INTEGRITY=PASS_NOT_INDEPENDENT_CUSTODY'
       - name: Remove transient development receipt after upload
         if: always()
         shell: pwsh
