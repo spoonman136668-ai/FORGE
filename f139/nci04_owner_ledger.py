@@ -355,7 +355,12 @@ def activate_native(db, approval: dict) -> bool:
                 and re.fullmatch(r"[a-f0-9]{64}",
                                  approval["expected_event_head_sha256"]),
                 "APPROVAL_LEDGER_OR_SOURCE_DRIFT")
-        require(db.active() is None and db.ready() is None,
+        from f139.nci04_v30_source_transition import carried_source
+        ready = db.ready()
+        carried_ready = (ready is not None
+                         and carried_source(db, ready["ticket"]) == ready["source_sha"]
+                         and db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='READY'").fetchone()[0] == 1)
+        require(db.active() is None and (ready is None or carried_ready),
                 "PREEXISTING_PENDING_WORK")
         activations=[
             json.loads(row["payload"]) for row in db.conn.execute(
@@ -372,7 +377,9 @@ def activate_native(db, approval: dict) -> bool:
                 "NATIVE_ALREADY_ACTIVATED")
         failures=[
             r for r in db.conn.execute("SELECT ticket,stage FROM tasks")
-            if r["stage"] != "VERIFIED"]
+            if r["stage"] != "VERIFIED"
+            and not (carried_ready and r["ticket"] == ready["ticket"]
+                     and r["stage"] == "READY")]
         if failures:
             from f139.nci04_negative_owner_store import (
                 verify_original_negative_custody, TICKET as NEGATIVE_TICKET)
@@ -425,7 +432,15 @@ def activate_native(db, approval: dict) -> bool:
                     "forge.f139.source-transition.v18",
                     "forge.f139.source-transition.v19",
                      "forge.f139.source-transition.v20",
-                    "forge.f139.source-transition.v21")]
+                    "forge.f139.source-transition.v21",
+                    "forge.f139.source-transition.v22",
+                    "forge.f139.source-transition.v23",
+                    "forge.f139.source-transition.v24",
+                    "forge.f139.source-transition.v25",
+                    "forge.f139.source-transition.v26",
+                    "forge.f139.source-transition.v27",
+                    "forge.f139.source-transition.v28",
+                    "forge.f139.source-transition.v29", "forge.f139.source-transition.v30")]
             provider_failures=db.verified_native_provider_failures()
             from f139.nci04_g49_prepost_negative import (
                 verify_g49_custody, TICKET as PREPOST)
@@ -442,7 +457,15 @@ def activate_native(db, approval: dict) -> bool:
                      "forge.f139.source-transition.v18",
                      "forge.f139.source-transition.v19",
                      "forge.f139.source-transition.v20",
-                    "forge.f139.source-transition.v21")):
+                    "forge.f139.source-transition.v21",
+                    "forge.f139.source-transition.v22",
+                    "forge.f139.source-transition.v23",
+                    "forge.f139.source-transition.v24",
+                    "forge.f139.source-transition.v25",
+                    "forge.f139.source-transition.v26",
+                    "forge.f139.source-transition.v27",
+                    "forge.f139.source-transition.v28",
+                    "forge.f139.source-transition.v29", "forge.f139.source-transition.v30")):
                 from f139.local_controller import g54_original_canonical
                 v11_ambiguous.add(g54_original_canonical(db)["ticket"])
             all_certified=({NEGATIVE_TICKET,SECOND_TICKET}

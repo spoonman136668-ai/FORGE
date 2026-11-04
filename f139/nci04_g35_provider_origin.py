@@ -137,6 +137,7 @@ def inspect_v2_provider_run(api: GitHub, *, run_id: int, ticket: str,
     legacy_skipped = {
         "execute", "execute (ubuntu-latest)", "execute (windows-latest)",
         "native-authorize", "native-execute",
+        "native-authorize-v3", "native-execute-v3",
         "native-execute (ubuntu-latest)",
         "native-execute (windows-latest)",
     }
