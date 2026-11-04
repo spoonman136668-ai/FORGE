@@ -47,7 +47,7 @@ class ArtifactWiringTest(unittest.TestCase):
         self.assertIn("private_trial.json", self.source)
         self.assertIn("--forge-sha $env:GITHUB_SHA", self.source)
         self.assertIn("if-no-files-found: error", self.source)
-        self.assertIn("retention-days: 7", self.source)
+        self.assertIn("retention-days: 30", self.source)
         self.assertIn("if: success()", self.source)
         self.assertIn("if: always()", self.source)
         self.assertIn("TASK_RECEIPT_EXPORT_FAILED", self.source)
@@ -65,6 +65,19 @@ class ArtifactWiringTest(unittest.TestCase):
         reconcile = source.index("RECEIPT_AGGREGATE_DRIFT_")
         upload = source.index("uses: actions/upload-artifact@v4")
         self.assertLess(reconcile, upload)
+
+    def test_uploaded_artifact_identity_logged_without_claiming_science(self):
+        source = self.source
+        self.assertIn("id: development-receipt", source)
+        self.assertIn("steps.development-receipt.outputs.artifact-id", source)
+        self.assertIn("steps.development-receipt.outputs.artifact-digest", source)
+        self.assertIn("MPAI26_ARTIFACT_IDENTITY_MISSING", source)
+        self.assertIn("MPAI26_ARTIFACT_GITHUB_INTEGRITY=PASS_NOT_INDEPENDENT_CUSTODY", source)
+        self.assertTrue(
+            source.index("uses: actions/upload-artifact@v4") <
+            source.index("MPAI26_ARTIFACT_GITHUB_INTEGRITY=PASS_NOT_INDEPENDENT_CUSTODY") <
+            source.index("MPAI26_RECEIPT_TRANSIENT_CLEANUP=PASS")
+        )
 
     def test_never_promote_or_self_attest(self):
         self.assertIn('"recursive_improvement_proven": False', self.exporter)
