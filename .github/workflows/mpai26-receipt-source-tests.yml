@@ -81,3 +81,99 @@ jobs:
           & python -B -m unittest discover -s tests -p test_mpai26_receipt_workflow_wiring.py -v
           if($LASTEXITCODE -ne 0){throw 'MPAI26_WINDOWS_WIRING_TEST_FAILED'}
           Write-Output 'MPAI26_WINDOWS_SOURCE_QUALIFICATION=PASS'
+  full-linux:
+    needs: source-only
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Exact SHA and original FORGE isolation suites
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Mandatory original FORGE Linux test race vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Original full Linux subprocess and isolation guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e snapshot
+          test ! -e research/successor-builder
+          ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|os.StartProcess|net/http.Post' .
+          python3 -B isolationguard/check_subprocess_sites.py
+          grep -l -E 'exec.Command' subprocesssupervisor/supervise.go subprocesssupervisor/supervise_test.go >/dev/null
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' subprocesssupervisor | wc -l)" -eq 3
+          grep -q -E 'exec.Command' subprocesssupervisor/partial_crash_test.go
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
+          grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
+          ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+          echo 'MPAI26_G270_FULL_LINUX=PASS'
+  full-windows:
+    needs: windows-source-parser
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Exact SHA, original isolation and native custody
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Mandatory original FORGE Windows test vet build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'MPAI26_G270_WINDOWS_TEST_FAIL' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'MPAI26_G270_WINDOWS_VET_FAIL' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'MPAI26_G270_WINDOWS_BUILD_FAIL' }
+          Write-Output 'MPAI26_G270_FULL_WINDOWS=PASS'
