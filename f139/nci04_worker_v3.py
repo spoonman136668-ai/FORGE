@@ -29,6 +29,12 @@ CLOSED = "G29_CHANGED_SOURCE_EXPECTED_REJECTION"
 COMMAND = ("python", "-B", "-m", "unittest", "discover", "-s", "tests")
 BUILD = ("python", "-B", "-m", "compileall", "-q", "yggdrasil", "scripts")
 MAX_OUTPUT = 1_000_000
+# Independent prospective behavioral negative control. Unlike the source
+# repository's frozen tests, this command cannot be changed by the candidate.
+# It uses only public observed outcomes and never touches protected holdouts.
+RATE_ORACLE = "# This fixed public-outcome oracle is owned by FORGE, not the staged candidate.\nfrom yggdrasil.public_causal_cells import PublicCausalCells\nfor retained in (False, True):\n    for t0 in range(1, 11):\n        for s0 in range(t0 + 1):\n            for t1 in range(1, 11):\n                for s1 in range(t1 + 1):\n                    cells = PublicCausalCells()\n                    for i in range(t0):\n                        cells.observe(0, 0, int(i < s0), retained=retained)\n                    for i in range(t1):\n                        cells.observe(0, 1, int(i < s1), retained=retained)\n                    left, right = s0 * t1, s1 * t0\n                    expected = None if left == right else (0 if left > right else 1)\n                    if cells.choose(0, retained=retained) != expected:\n                        raise SystemExit(\"F139_PROSPECTIVE_RATE_ORACLE_MISMATCH\")\n                    if cells.choose(0, retained=not retained) is not None:\n                        raise SystemExit(\"F139_PROSPECTIVE_RATE_BANK_LEAK\")\ncells = PublicCausalCells()\nif cells.choose(0) is not None or cells.choose(0, retained=True) is not None:\n    raise SystemExit(\"F139_PROSPECTIVE_RATE_UNTRAINED_NOT_ABSTAINING\")\ncells.observe(0, 0, 1)\nif cells.choose(0) is not None:\n    raise SystemExit(\"F139_PROSPECTIVE_RATE_UNMATCHED_NOT_ABSTAINING\")\nprint(\"F139_PROSPECTIVE_RATE_ORACLE=PASS\")\n"
+RATE_COMMAND = ("python", "-B", "-c", RATE_ORACLE)
+
 BUDGET_MIN_MS = 1
 BUDGET_MAX_MS = 180_000
 
@@ -89,7 +95,7 @@ def unit(module):
 
 
 def invoke(argv, root, *, module=None, expected_rejection=False, runner=None):
-    need(tuple(argv) == BUILD or
+    need(tuple(argv) in (BUILD, RATE_COMMAND) or
          (module=="test_*.py" and tuple(argv)==COMMAND+("-p","test_*.py","-v")) or
          (module is not None and module!="test_*.py" and tuple(argv)==unit(module)),
          "ARBITRARY_COMMAND_REJECTED")
@@ -115,6 +121,9 @@ def invoke(argv, root, *, module=None, expected_rejection=False, runner=None):
         found = re.findall(rb"Ran\s+([0-9]+)\s+tests?\s+in\b",raw)
         count = int(found[-1]) if found else 0
     need(module is None or count>0,"ZERO_DISCOVERED_TESTS")
+    if tuple(argv) == RATE_COMMAND:
+        need(raw.strip() == b"F139_PROSPECTIVE_RATE_ORACLE=PASS",
+             "RATE_ORACLE_OUTPUT_NOT_AUTHENTIC")
     if expected_rejection:
         exact = (outcome=="TEST_FAILURE" and exitcode>0
                  and module==ATLAS
@@ -167,6 +176,7 @@ def run_v3(candidate, original, scratch, *, oslabel, runner=None):
             if name!=ATLAS:
                 positive.append((name,invoke(unit(name),modified,
                                              module=name,runner=runner)))
+        rate=invoke(RATE_COMMAND,modified,runner=runner)
         build=invoke(BUILD,modified,runner=runner)
         need(_git(modified,"diff","--name-only")==TARGET,
              "CANDIDATE_OVERLAY_MUTATED")
@@ -180,7 +190,7 @@ def run_v3(candidate, original, scratch, *, oslabel, runner=None):
     need(tuple(x[0] for x in positive)==tuple(x for x in modules if x!=ATLAS)
          and all(e["discovered_tests"]>0 and e["status"]=="PASS"
                  for _,e in positive), "BEHAVIOR_INVENTORY_INCOMPLETE")
-    all_results=[pristine,full,g29,*dict(positive).values(),build]
+    all_results=[pristine,full,g29,*dict(positive).values(),rate,build]
     budget_pass=all(row["resource_budget_verified"] is True
                     and type(row["child_cpu_ms"]) is int
                     and row["child_cpu_ms"]>0
@@ -196,7 +206,8 @@ def run_v3(candidate, original, scratch, *, oslabel, runner=None):
         "os":oslabel, "source_module_inventory":list(modules),
         "baseline_g29":pristine, "baseline_full":full,
         "candidate_g29_negative":g29,
-        "candidate_nonatlas":dict(positive), "candidate_compile":build,
+        "candidate_nonatlas":dict(positive), "candidate_rate_oracle":rate,
+        "candidate_compile":build,
         "baseline_full_pass":True, "all_candidate_modules_pass":True,
         "g29_modified_source_expected_negative":True,
         "source_split_pass":True, "child_cpu_rss_verified":budget_pass,
@@ -249,6 +260,7 @@ def receipt_v3(admission:NativeAdmission, report:dict):
             "baseline_full":(COMMAND+("-p","test_*.py","-v"),"PASS"),
             "candidate_g29_negative":(unit(ATLAS),CLOSED),
             "candidate_compile":(BUILD,"PASS"),
+            "candidate_rate_oracle":(RATE_COMMAND,"PASS"),
         }
         entries=[(report[k],argv,state) for k,(argv,state) in expected.items()]
         entries.extend((report["candidate_nonatlas"][name],unit(name),"PASS")
@@ -259,7 +271,7 @@ def receipt_v3(admission:NativeAdmission, report:dict):
                     and type(row.get("returncode")) is int
                     and ((state=="PASS" and row["returncode"]==0)
                          or (state==CLOSED and row["returncode"]>0))
-                    and (argv==BUILD or
+                    and (argv in (BUILD, RATE_COMMAND) or
                          (type(row.get("discovered_tests")) is int
                           and row["discovered_tests"]>0))
                     and row.get("resource_budget_verified") is True

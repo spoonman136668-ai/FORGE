@@ -179,5 +179,55 @@ class V3WorkerContractTests(unittest.TestCase):
         self.assertEqual(actual["native_qualified"],False)
 
 
+    def test_prospective_rate_oracle_rejects_raw_counts(self):
+        """A frozen candidate's own tests cannot replace independent rate checks."""
+        import subprocess
+        import sys
+        package = self.root / "yggdrasil"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        good = """class PublicCausalCells:
+    def __init__(self):
+        self.banks = [[[[0, 0] for _ in range(2)] for _ in range(1)] for _ in range(2)]
+    def observe(self, address, action, public_outcome, *, retained=False):
+        self.banks[int(retained)][0][action][public_outcome] += 1
+    def choose(self, address, *, retained=False):
+        (f0, s0), (f1, s1) = self.banks[int(retained)][0]
+        t0, t1 = f0 + s0, f1 + s1
+        if not t0 or not t1:
+            return None
+        lhs, rhs = s0 * t1, s1 * t0
+        return None if lhs == rhs else (0 if lhs > rhs else 1)
+"""
+        module = package / "public_causal_cells.py"
+        def check(source):
+            module.write_text(source, encoding="utf-8")
+            return subprocess.run([sys.executable, "-B", "-c", v3.RATE_ORACLE],
+                                  cwd=self.root, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=30,
+                                  check=False)
+        accepted = check(good)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr[-600:])
+        self.assertEqual(accepted.stdout.strip(),
+                         b"F139_PROSPECTIVE_RATE_ORACLE=PASS")
+        wrong = good.replace("s0 * t1, s1 * t0", "s0, s1")
+        self.assertNotEqual(good, wrong)
+        rejected = check(wrong)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertNotIn(b"F139_PROSPECTIVE_RATE_ORACLE=PASS",
+                         rejected.stdout)
+
+    def test_rate_oracle_command_and_output_are_fixed(self):
+        accepted = v3.invoke(v3.RATE_COMMAND, self.root,
+                             runner=self.runner(b"F139_PROSPECTIVE_RATE_ORACLE=PASS\n"))
+        self.assertEqual(accepted["status"], "PASS")
+        self.assertIsNone(accepted["discovered_tests"])
+        with self.assertRaises(v3.V3Denied):
+            v3.invoke(v3.RATE_COMMAND, self.root, runner=self.runner(b"fake success\n"))
+        with self.assertRaises(v3.V3Denied):
+            v3.invoke(("python", "-B", "-c", "print('PASS')"), self.root,
+                      runner=self.runner(b"F139_PROSPECTIVE_RATE_ORACLE=PASS\n"))
+
+
 if __name__=="__main__":
     unittest.main()
