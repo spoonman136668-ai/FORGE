@@ -186,19 +186,10 @@ class V3WorkerContractTests(unittest.TestCase):
         package = self.root / "yggdrasil"
         package.mkdir()
         (package / "__init__.py").write_text("", encoding="utf-8")
-        good = """class PublicCausalCells:
-    def __init__(self):
-        self.banks = [[[[0, 0] for _ in range(2)] for _ in range(1)] for _ in range(2)]
-    def observe(self, address, action, public_outcome, *, retained=False):
-        self.banks[int(retained)][0][action][public_outcome] += 1
-    def choose(self, address, *, retained=False):
-        (f0, s0), (f1, s1) = self.banks[int(retained)][0]
-        t0, t1 = f0 + s0, f1 + s1
-        if not t0 or not t1:
-            return None
-        lhs, rhs = s0 * t1, s1 * t0
-        return None if lhs == rhs else (0 if lhs > rhs else 1)
-"""
+        # Use the real frozen native implementation, including checkpoint
+        # integrity and bounded counters, rather than a toy comparator.
+        good = Path(__file__).with_name("fixtures").joinpath(
+            "model_free_yggdrasil_992ef.py").read_text(encoding="utf-8")
         module = package / "public_causal_cells.py"
         def check(source):
             module.write_text(source, encoding="utf-8")
@@ -210,12 +201,22 @@ class V3WorkerContractTests(unittest.TestCase):
         self.assertEqual(accepted.returncode, 0, accepted.stderr[-600:])
         self.assertEqual(accepted.stdout.strip(),
                          b"F139_PROSPECTIVE_RATE_ORACLE=PASS")
-        wrong = good.replace("s0 * t1, s1 * t0", "s0, s1")
-        self.assertNotEqual(good, wrong)
-        rejected = check(wrong)
-        self.assertNotEqual(rejected.returncode, 0)
-        self.assertNotIn(b"F139_PROSPECTIVE_RATE_ORACLE=PASS",
-                         rejected.stdout)
+        mutations = {
+            "raw_counts": good.replace("one0 * trials1, one1 * trials0", "one0, one1"),
+            "mutating_choice": good.replace(
+                "        (zero0, one0), (zero1, one1) = self._counts[cell]",
+                "        self._counts[15][0][0] ^= 1\n"
+                "        (zero0, one0), (zero1, one1) = self._counts[cell]"),
+            "lost_checkpoint": good.replace("        return cells\n", "        return cls()\n"),
+        }
+        for name, source in mutations.items():
+            with self.subTest(mutation=name):
+                self.assertNotEqual(good, source)
+                rejected = check(source)
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertNotIn(b"F139_PROSPECTIVE_RATE_ORACLE=PASS", rejected.stdout)
+                self.assertIn(b"F139_PROSPECTIVE_RATE_", rejected.stderr)
+
 
     def test_rate_oracle_command_and_output_are_fixed(self):
         accepted = v3.invoke(v3.RATE_COMMAND, self.root,
