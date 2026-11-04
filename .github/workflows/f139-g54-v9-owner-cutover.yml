@@ -3692,4 +3692,45 @@ jobs:
           '@
           $ownerApiProbe | & $python -B -
           if($LASTEXITCODE -ne 0){throw 'F139_G54_STATUS_API_DIAGNOSTIC_FAILED'}
+          # Load only the immutable, qualified maintenance helper; never candidate source.
+          & git -C $env:GITHUB_WORKSPACE fetch --no-tags --depth=1 origin 98d2d5f7231de1b6f070ae97aebafd6b2dc9dcfc
+          if($LASTEXITCODE -ne 0){throw 'F139_IDLE_PREFLIGHT_QUALIFIED_SOURCE_FETCH_FAILED'}
+          $idleProbe = @'
+          import json, pathlib, subprocess, sys, types
+          installed, path, workspace = sys.argv[1:]
+          sys.path.insert(0, installed)
+          from f139.local_controller import Database, SingleOwner, F139Error
+          reference="98d2d5f7231de1b6f070ae97aebafd6b2dc9dcfc"
+          actual=subprocess.check_output(["git","-C",workspace,"rev-parse","FETCH_HEAD"],text=True).strip()
+          assert actual==reference
+          raw=subprocess.check_output(["git","-C",workspace,"show",reference+":f139/nci04_v35_source_transition.py"])
+          module=types.ModuleType("qualified_v35_idle_reference")
+          exec(compile(raw,"qualified-v35-idle-reference","exec"),module.__dict__)
+          filename=pathlib.Path(path).resolve()
+          lock=filename.with_suffix(".lock")
+          assert lock.is_file() and not lock.is_symlink() and lock.stat().st_size>=1
+          try:
+              with SingleOwner(lock):
+                  db=Database.open_readonly(filename)
+                  try:
+                      before=db.meta().copy()
+                      predicates=module.idle_gate_predicates(db)
+                      assert db.conn.execute("PRAGMA query_only").fetchone()[0]==1
+                      assert db.meta()==before
+                      print("F139_V35_IDLE_PREFLIGHT_READONLY="+json.dumps({
+                          "schema":"forge.f139.v35-idle-readonly-preflight.v1",
+                          "reference_sha":reference,"source_sha":before["source_sha"],
+                          "head_seq":before["head_seq"],"head_sha256":before["head_hash"],
+                          "predicates":predicates,"all_pass":all(predicates.values()),
+                          "task_changed":False,"policy_changed":False,"ledger_changed":False,
+                          "admission_authorized":False},sort_keys=True))
+                  finally:
+                      db.close()
+          except F139Error as exc:
+              if str(exc)!="F139_CONTROLLER_ALREADY_RUNNING":
+                  raise
+              print("F139_V35_IDLE_PREFLIGHT_READONLY=BUSY_NO_MUTATION")
+          '@
+          $idleProbe | & $python -B - $root $db $env:GITHUB_WORKSPACE
+          if($LASTEXITCODE -ne 0){throw 'F139_IDLE_PREFLIGHT_READONLY_FAILED'}
           Write-Host 'F139_G54_STATUS_READ_ONLY=PASS'
