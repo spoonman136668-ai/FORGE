@@ -176,6 +176,54 @@ class V35Tests(unittest.TestCase):
         self.assertNotIn('gh api -X PATCH',text[:lock])
         self.assertEqual(text.count('group: forge-f139-original-owner-release'),1)
 
+    def test_idle_gate_denies_each_single_unsatisfied_prerequisite(self):
+        """Development fixture: V35 admission remains strict for every idle condition."""
+        base = dict(source_sha=route.FROM_V34, head_seq=922,
+                    enabled=1, legacy_suspended=1)
+        cases = (
+            ("source", {"source_sha": "0"*40}, None, (), True),
+            ("ledger_floor", {"head_seq": 855}, None, (), True),
+            ("enabled", {"enabled": 0}, None, (), True),
+            ("legacy_suspended", {"legacy_suspended": 0}, None, (), True),
+            ("ready", {}, object(), (), True),
+            ("active", {}, None, (object(),), True),
+            ("activation", {}, None, (), False),
+        )
+        for name, overrides, ready, active, activation in cases:
+            with self.subTest(prerequisite=name):
+                readings = []
+                meta = {**base, **overrides}
+                db = SimpleNamespace(
+                    verify=lambda: readings.append("verify"),
+                    meta=lambda: dict(meta),
+                    ready=lambda: ready,
+                    actives=lambda: list(active))
+                with patch.object(route, "verify_native_activation",
+                                  return_value=activation):
+                    with self.assertRaisesRegex(
+                            route.MaintenanceDenied,
+                            "F139_V35_IDLE_GENUINE_V34_REQUIRED"):
+                        route.validate_idle(db)
+                self.assertEqual(readings, ["verify"])
+        readings = []
+        good = SimpleNamespace(verify=lambda: readings.append("verify"),
+            meta=lambda: dict(base), ready=lambda: None, actives=lambda: [])
+        with patch.object(route, "verify_native_activation",
+                          return_value=True) as native_check:
+            route.validate_idle(good)
+            native_check.assert_called_once_with(good)
+        self.assertEqual(readings, ["verify"])
+
+    def test_idle_gate_stops_on_database_integrity_failure(self):
+        """A failed original SQLite verification cannot be treated as idle."""
+        def deny_verification():
+            raise ValueError("integrity failed")
+        db = SimpleNamespace(verify=deny_verification)
+        with patch.object(route, "verify_native_activation") as native_check:
+            with self.assertRaisesRegex(ValueError, "integrity failed"):
+                route.validate_idle(db)
+            native_check.assert_not_called()
+
     @unittest.skipUnless(os.name=='nt','Windows PowerShell parsing only')
     def test_new_installer_parses_in_both_shells_without_execution(self):
         text=(ROOT/'.github/workflows/f139-v35-original-owner-release.yml').read_text()
