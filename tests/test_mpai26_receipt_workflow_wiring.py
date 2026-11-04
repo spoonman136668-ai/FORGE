@@ -52,6 +52,20 @@ class ArtifactWiringTest(unittest.TestCase):
         self.assertIn("if: always()", self.source)
         self.assertIn("TASK_RECEIPT_EXPORT_FAILED", self.source)
 
+    def test_exported_rows_reconciled_against_original_model_log(self):
+        source = self.source
+        # Fail-closed structural check for the owner-workflow receipt boundary.
+        self.assertIn("$reported=@{}", source)
+        self.assertIn("$reported[$arm]=$v", source)
+        self.assertIn("Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json", source)
+        self.assertIn("Assert ($exported.trial_count -eq 24)", source)
+        self.assertIn("('calls','correct','abstentions','unparseable','tokens','wall_ms')", source)
+        self.assertIn("RECEIPT_AGGREGATE_DRIFT_", source)
+        self.assertIn("MPAI26_TASK_RECEIPT_ORIGINAL_AGGREGATE=PASS", source)
+        reconcile = source.index("RECEIPT_AGGREGATE_DRIFT_")
+        upload = source.index("uses: actions/upload-artifact@v4")
+        self.assertLess(reconcile, upload)
+
     def test_never_promote_or_self_attest(self):
         self.assertIn('"recursive_improvement_proven": False', self.exporter)
         self.assertIn('"actual_execution_authenticated_by_this_receipt": False', self.exporter)
