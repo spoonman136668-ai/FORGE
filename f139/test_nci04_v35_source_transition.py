@@ -145,11 +145,15 @@ class V35Tests(unittest.TestCase):
     def test_both_exact_guards_have_identical_baseline_manifest_and_unique_route(self):
         text=(ROOT/'.github/workflows/f139-v35-release-qualification.yml').read_text()
         self.assertEqual(re.findall(r"baseline = '([a-f0-9]{40})'",text),
-                         ['3943ea613096609504de2222f3cb0f1418813655']*2)
+                         ['98d2d5f7231de1b6f070ae97aebafd6b2dc9dcfc']*2)
         manifests=[ast.literal_eval(s) for s in re.findall(
             r'expected_paths = (\{.*?\n          \})',text,re.S)]
         self.assertEqual(len(manifests),2); self.assertEqual(manifests[0],manifests[1])
-        self.assertEqual(len(manifests[0]),13)
+        self.assertEqual(manifests[0], {
+            '.github/workflows/f139-v35-release-qualification.yml',
+            'docs/F139-V35-ORIGINAL-OWNER-FEEDBACK-RELEASE.md',
+            'f139/test_nci04_v35_source_transition.py',
+        })
         self.assertEqual(text.count('assert routed == [35]'),2)
         self.assertEqual(text.count('for version in (27, 28, 29, 30, 31, 32, 33, 34, 35):'),2)
         old=(ROOT/'.github/workflows/f139-v34-original-owner-release.yml').read_text()
