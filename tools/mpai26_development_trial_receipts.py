@@ -17,8 +17,8 @@ SCHEMA = "mind-palace.mpai26-development-trial-receipts.v1"
 FIELDS = {"case", "family", "arm", "decision", "correct", "abstained",
           "unparseable", "prompt_tokens", "completion_tokens", "latency_ms",
           "context_chars", "context_sha256", "response_sha256"}
-HEX40 = re.compile(r"[0-9a-f]{40}\\Z")
-HEX64 = re.compile(r"[0-9a-f]{64}\\Z")
+HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 ARMS_EXPECTED = tuple(ARMS)
 CASES = {case_id: (index // 2, gold) for index, (case_id, _, _, gold) in enumerate(QUESTIONS)}
 
@@ -135,7 +135,7 @@ def main():
     receipt = export_receipt(original, run_id=args.run_id,
                             run_attempt=args.run_attempt, job=args.job,
                             forge_sha=args.forge_sha)
-    output.write_bytes(canonical(receipt) + b"\\n")
+    output.write_bytes(canonical(receipt) + b"\n")
     print("MPAI26_TASK_RECEIPTS_EXPORTED=PASS count=24 custody=NOT_AUTHENTICATED")
     print("MPAI26_TASK_RECEIPT_SHA256=" +
           hashlib.sha256(output.read_bytes()).hexdigest())
