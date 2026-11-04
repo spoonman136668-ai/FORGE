@@ -112,7 +112,6 @@ class OriginalV3CustodyTests(unittest.TestCase):
             lambda r:r["candidate_nonatlas"]["test_native_cells.py"].update(child_cpu_ms=0),
             lambda r:r["candidate_g29_negative"].update(status="PASS"),
             lambda r:r["baseline_full"].update(discovered_tests=0),
-            lambda r:r.pop("candidate_rate_oracle"),
             lambda r:r["candidate_rate_oracle"].update(status="TEST_FAILURE"),
             lambda r:r["candidate_rate_oracle"].update(child_cpu_ms=0),
         ]
@@ -121,6 +120,14 @@ class OriginalV3CustodyTests(unittest.TestCase):
             change(report)
             with self.subTest(i=i),self.assertRaises(ValueError):
                 self.verify(self.zipbytes(report))
+
+    def test_historical_v3_positive_without_new_oracle_keeps_custody(self):
+        # Old V3 reports cannot be rewritten or retroactively rejected.
+        historical=copy.deepcopy(self.report)
+        historical.pop("candidate_rate_oracle")
+        historical_receipt=receipt_v3(self.admission,historical)
+        self.assertEqual(historical_receipt["schema"],self.receipt["schema"])
+        self.assertEqual(len(self.verify(self.zipbytes(historical,historical_receipt))["receipt_sha256"]),64)
 
     def test_outer_provider_zip_digest_and_member_inventory_enforced(self):
         blob=self.zipbytes()

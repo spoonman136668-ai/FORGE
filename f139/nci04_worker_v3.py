@@ -260,8 +260,12 @@ def receipt_v3(admission:NativeAdmission, report:dict):
             "baseline_full":(COMMAND+("-p","test_*.py","-v"),"PASS"),
             "candidate_g29_negative":(unit(ATLAS),CLOSED),
             "candidate_compile":(BUILD,"PASS"),
-            "candidate_rate_oracle":(RATE_COMMAND,"PASS"),
         }
+        # Backward-compatible custody: historical signed V3 reports preceded
+        # this prospective worker-owned negative control. New run_v3 emits it
+        # unconditionally; validate the fixed command whenever it is present.
+        if "candidate_rate_oracle" in report:
+            expected["candidate_rate_oracle"]=(RATE_COMMAND,"PASS")
         entries=[(report[k],argv,state) for k,(argv,state) in expected.items()]
         entries.extend((report["candidate_nonatlas"][name],unit(name),"PASS")
                        for name in inventory if name!=ATLAS)
