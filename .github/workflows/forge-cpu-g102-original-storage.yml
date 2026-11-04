@@ -1,0 +1,124 @@
+name: FORGE CPU G102 original GPT2 exact-state storage diagnostic
+on:
+  workflow_dispatch:
+permissions: {contents: read, actions: read}
+concurrency:
+  group: cpu-g102-original-storage-one-shot
+  cancel-in-progress: false
+env:
+  G102_FROZEN_SHA: 1f359022f38fe680191422bec3b5ff75cf46f78e
+jobs:
+  source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      source_sha: ${{ steps.admit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.G102_FROZEN_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Admit one-shot exact-head and mandatory qualification
+        id: admit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_FORCED: ${{ github.event.forced }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$EVENT_NAME" = "push"
+          test "$EVENT_BRANCH" = "research/cpu-llm-g96-admission-policy-20261031"
+          test "$EVENT_BEFORE" = "$G102_FROZEN_SHA"
+          test "$EVENT_FORCED" = "false"
+          test "$(git rev-parse HEAD)" = "$G102_FROZEN_SHA"
+          test "$(git rev-parse HEAD:research/cpu_g95/g95_multiprefix_lru_original.py)" = "b401c86e4dff2f25eb995a47ba58884838f232eb"
+          python - <<'PY'
+          import json,os,urllib.request
+          sha=os.environ["G102_FROZEN_SHA"]
+          req=urllib.request.Request(
+            f"https://api.github.com/repos/{os.environ['GH_REPOSITORY']}/actions/runs?head_sha={sha}&per_page=100",
+            headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],
+              "Accept":"application/vnd.github+json","User-Agent":"FORGE-G102-EXACT-SOURCE"})
+          with urllib.request.urlopen(req,timeout=30) as f:
+              runs=json.load(f)["workflow_runs"]
+          if not any(r["id"]==41748028235 and r["name"]=="FORGE public Linux and Windows qualification"
+                     and r["head_sha"]==sha and r["status"]=="completed"
+                     and r["conclusion"]=="success" for r in runs):
+              raise SystemExit("G102_MANDATORY_EXACT_HEAD_REGRESSION_MISSING")
+          print("G102_EXACT_HEAD_FULL_REGRESSION=PASS")
+          PY
+          python -B -m py_compile research/cpu_g97/g102_xor_state.py research/cpu_g97/g102_original_storage.py
+          python -B -m unittest discover -s research/cpu_g97 -p 'test_g102*.py' -v
+          echo "source_sha=$G102_FROZEN_SHA" >> "$GITHUB_OUTPUT"
+          echo G102_DEVELOPMENT_SOURCE_ADMISSION=PASS
+  original-model-development:
+    needs: source-admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      PYTHONPATH: .
+      G102_DEVELOPMENT_ONLY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source-admission.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU GPT2 environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G102_FROZEN_SHA"
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.48.3 huggingface-hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1 psutil==7.1.3
+          python -m pip check
+          python -m pip freeze > cpu_g102_environment.txt
+          uname -a >> cpu_g102_environment.txt
+          lscpu >> cpu_g102_environment.txt
+      - name: Original GPT2 exact reconstruction and storage feasibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITHUB_SHA="$G102_FROZEN_SHA" python research/cpu_g97/g102_original_storage.py
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads(Path("cpu_g102_kv_storage_result.json").read_text())
+          assert r["schema"]=="forge.cpu-g102.original-kv-storage-p1.v1"
+          assert r["source_sha"]==os.environ["G102_FROZEN_SHA"]
+          assert r["phase"]=="DEVELOPMENT_ONLY"
+          assert r["heldout_executed"] is False and r["promotion_allowed"] is False
+          assert r["performance_verdict"]=="NOT_EVALUATED"
+          assert r["engineering"]=="PASS" and len(r["variants"])==4
+          assert r["original_forward_count"]==5
+          assert all(x["exact"] for x in r["variants"])
+          a=r["accounting"]
+          assert a["residual_with_base_bytes"] == r["base_bytes"] + sum(x["xor_residual_bytes"] for x in r["variants"])
+          assert a["raw_bytes"]==sum(x["raw_bytes"] for x in r["variants"])
+          assert a["standalone_zlib_bytes"]==sum(x["independent_zlib_bytes"] for x in r["variants"])
+          assert (r["decision"]=="STORAGE_FEASIBLE_DIAGNOSTIC") == (
+              10*a["residual_with_base_bytes"] <= 9*min(a["raw_bytes"],a["standalone_zlib_bytes"]))
+          print("G102_ORIGINAL_STORAGE=" + r["decision"])
+          PY
+      - name: Preserve authentic original-model storage receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g102-original-gpt2-storage
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g102_kv_storage_result.json
+            cpu_g102_environment.txt

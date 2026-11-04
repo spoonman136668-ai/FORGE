@@ -1,0 +1,22 @@
+name: CPU G96 admission policy focused qualification
+on:
+  push:
+    branches: [research/cpu-llm-g96-admission-policy-20261031]
+    paths: ['research/cpu_g96/**','.github/workflows/forge-cpu-g96-admission-unit.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  focused:
+    strategy: {fail-fast: false, matrix: {os: [ubuntu-latest, windows-latest]}}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Focused G96 adversarial qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m py_compile research/cpu_g96/g96_admission.py research/cpu_g96/test_g96_admission.py research/cpu_g96/g96_original_adapter.py research/cpu_g96/test_g96_original_adapter.py
+          python -B -m unittest discover -s research/cpu_g96 -p 'test_g96*.py' -v
