@@ -162,6 +162,12 @@ class ContinuityTests(unittest.TestCase):
         self.assertIn("acknowledge_previous_failed_observation(report)",workflow)
         self.assertIn("FORGE_NATIVE_CONTINUITY=QUARANTINED_UNVERIFIED",workflow)
         self.assertIn("FORGE_AUTONOMY_FIRSTUSE_OR_SCIENCE_DISPATCH=DENIED",workflow)
+        recovery=workflow.split("# A genuinely healthy",1)[1]
+        self.assertLess(recovery.index('> "$RUNNER_TEMP/forge-native-pulse/continuity.json"'),
+                        recovery.index("acknowledge_previous_failed_observation(report)"))
+        self.assertLess(recovery.index("FORGE_NATIVE_CONTINUITY_NEGATIVE_REASON="),
+                        recovery.index("acknowledge_previous_failed_observation(report)"))
+        self.assertIn('re.fullmatch(r"[A-Z0-9_]{1,96}",reason)',recovery)
 
     def test_no_or_one_schedule_stays_pending_not_qualified(self):
         for retained in (0, 1):
