@@ -72,6 +72,10 @@ class ArtifactWiringTest(unittest.TestCase):
         self.assertIn("steps.development-receipt.outputs.artifact-id", source)
         self.assertIn("steps.development-receipt.outputs.artifact-digest", source)
         self.assertIn("MPAI26_ARTIFACT_IDENTITY_MISSING", source)
+        self.assertEqual(source.count("MPAI26_RECEIPT_TRANSIENT_CLEANUP=PASS"), 1)
+        self.assertEqual(source.count("uses: actions/upload-artifact@v4"), 1)
+        self.assertIn("ARTIFACT_ID -notmatch '^[0-9]+$'", source)
+        self.assertIn("ARTIFACT_DIGEST -notmatch '^sha256:[a-f0-9]{64}$'", source)
         self.assertIn("MPAI26_ARTIFACT_GITHUB_INTEGRITY=PASS_NOT_INDEPENDENT_CUSTODY", source)
         self.assertTrue(
             source.index("uses: actions/upload-artifact@v4") <
