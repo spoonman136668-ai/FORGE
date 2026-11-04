@@ -64,13 +64,21 @@ jobs:
           if($LASTEXITCODE -ne 0 -or $script -cne '1d919799482731caf77bc25ee404407dbd0a4f5d'){
             throw 'MPAI26_PREREG_SOURCE_BLOB_DRIFT'
           }
+          $receiptBlob=(git rev-parse 'HEAD:tools/mpai26_development_trial_receipts.py').Trim()
+          if($LASTEXITCODE -ne 0 -or $receiptBlob -cne 'fae7191202e5547b36e762991c3d6d42ea9c14fe'){
+            throw 'MPAI26_RECEIPT_EXPORTER_SOURCE_DRIFT'
+          }
           $scratch=Join-Path $env:RUNNER_TEMP ('mpai26-private-'+$env:GITHUB_RUN_ID)
           $source=Join-Path $scratch 'private-source'
           $trial=Join-Path $scratch 'private-trial'
           $log=Join-Path $scratch 'private-results.log'
+          # Receipt is outside private scratch so only its sanitized development
+          # evidence survives the pre-existing guaranteed cleanup.
+          $receipt=Join-Path $env:RUNNER_TEMP ('mpai26-development-receipt-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
           function Assert([bool]$ok,[string]$code){
             if(-not $ok){throw ('MPAI26_'+$code)}
           }
+          Assert (-not(Test-Path -LiteralPath $receipt)) 'RECEIPT_COLLISION'
           Assert (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
           New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
           $env:MPAI26_PRIVATE_SCRATCH=$trial
@@ -121,6 +129,19 @@ jobs:
               }
             }
             Assert ($seen.Count -eq 3) 'ARM_COUNT'
+            # Export after genuine original run succeeds and arm aggregation is
+            # validated, before private scratch deletion. No new inference.
+            $privateTrial=Join-Path $trial 'private_trial.json'
+            Assert (Test-Path -LiteralPath $privateTrial -PathType Leaf) 'PRIVATE_TRIAL_MISSING'
+            & python.exe -B tools/mpai26_development_trial_receipts.py `
+              --private-trials $privateTrial `
+              --output $receipt `
+              --run-id $env:GITHUB_RUN_ID `
+              --run-attempt $env:GITHUB_RUN_ATTEMPT `
+              --job 'original-windows' `
+              --forge-sha $env:GITHUB_SHA
+            Assert ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $receipt -PathType Leaf)) 'TASK_RECEIPT_EXPORT_FAILED'
+            Write-Output 'MPAI26_TASK_LEVEL_DEVELOPMENT_RECEIPT=EXPORTED_NOT_AUTHENTICATED'
             $dirty=@(& git.exe -C $source status --porcelain --untracked-files=all)
             Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'PRIVATE_SOURCE_MODIFIED'
             $mainDirty=@(& git.exe status --porcelain --untracked-files=all)
@@ -134,3 +155,18 @@ jobs:
             }
             Write-Output ('MPAI26_PRIVATE_SCRATCH_CLEAN='+[string](-not(Test-Path -LiteralPath $scratch)))
           }
+      - name: Upload redacted development trial receipt (not independent custody)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpai26-development-trials-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mpai26-development-receipt-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove transient development receipt after upload
+        if: always()
+        shell: pwsh
+        run: |
+          $receipt=Join-Path $env:RUNNER_TEMP ('mpai26-development-receipt-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
+          if(Test-Path -LiteralPath $receipt){Remove-Item -LiteralPath $receipt -Force -ErrorAction Stop}
+          Write-Output 'MPAI26_RECEIPT_TRANSIENT_CLEANUP=PASS'
