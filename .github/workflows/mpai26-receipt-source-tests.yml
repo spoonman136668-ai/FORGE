@@ -1,0 +1,36 @@
+name: MP-AI26 per-task receipt source qualification (no inference)
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'tools/mpai26_development_trial_receipts.py'
+      - 'tests/test_mpai26_development_trial_receipts.py'
+      - '.github/workflows/mpai26-receipt-source-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-only:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Exact source and model-call prohibition
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python -B -m py_compile tools/mpai26_development_trial_receipts.py tests/test_mpai26_development_trial_receipts.py
+          echo "MPAI26_RECEIPT_EXACT_HEAD=PASS sha=$EXPECTED_SHA"
+      - name: Validate development receipt export and hostile input rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s tests -p test_mpai26_development_trial_receipts.py -v
+          echo "MPAI26_RECEIPT_SOURCE_TESTS=PASS"
