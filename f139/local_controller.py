@@ -770,14 +770,18 @@ class Database:
                 is_v31 = (isinstance(doc, dict)
                           and doc.get("schema") == "forge.f139.source-transition.v31"
                           and set(doc) == V31_FIELDS)
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31,
+                from f139.nci04_v37_source_transition import FIELDS as V32_FIELDS
+                is_v32 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v32"
+                          and set(doc) == V32_FIELDS)
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1672,6 +1676,9 @@ class Database:
                     verify_cold_event(self, row, doc, source_transitions)
                 if is_v31:
                     from f139.nci04_v36_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v32:
+                    from f139.nci04_v37_source_transition import verify_cold_event
                     verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
@@ -4239,6 +4246,12 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                 db.verify()
                 g54_original_canonical(db)
                 modern = verify_g49_custody(db)
+        if event.get("schema") == "forge.f139.source-transition.v32":
+            from f139.nci04_v37_source_transition import FIELDS
+            if set(event) == FIELDS:
+                db.verify()
+                g54_original_canonical(db)
+                modern = verify_g49_custody(db)
         if not ((v7 or v8 or v9 or v10 or v11 or v12 or v13 or v14 or v15 or v16 or v17 or v18 or modern) and event.get("to_source_sha")==source_sha
                 and event.get("v2_receipt_authorized") is False):
             return False
@@ -4616,6 +4629,12 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         }
         eligible = api.native_eligible_issues(
             meta["source_sha"], historical_issues=historical_issues)
+        from f139.nci04_partial_publication_custody import custodied_ids
+        from f139.nci04_autonomy_feed import candidate_identity
+        retired_publications = custodied_ids(db)
+        eligible = [item for item in eligible if candidate_identity(
+            item.lane, item.candidate.target_commit, item.candidate.path,
+            item.candidate.after_sha256) not in retired_publications]
         for native_issue in eligible:
             if native_issue.ticket in known:
                 continue
@@ -4631,6 +4650,7 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 for event in events
                 if isinstance(event.get("native_intent_base64"), str)
             }
+            existing_candidates.update(retired_publications)
             # No unauthenticated owner issue is inferred: the feed policy
             # itself is owner-authored and exact-source pinned, and every PR
             # candidate is independently rebound to an immutable commit/tree.
@@ -4672,8 +4692,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             "SELECT COUNT(*) FROM events WHERE kind='G3_DRAFT_ATTEMPTED'"
         ).fetchone()[0]
         if prior_g3:
-            # Every model draft, including G29, must have a separately
-            # authenticated terminal publication before another model call.
+            # Every draft must have an authenticated publication or an exact
+            # cold-validated negative seal before any new publication.
             # A lost GitHub ACK or partial remote write is NEVER retryable,
             # even with fresh native outcomes.
             model_attempts=db.conn.execute(
@@ -4682,7 +4702,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             model_successes=db.conn.execute(
                 "SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_AUTHENTICATED'"
             ).fetchone()[0]
-            if model_attempts != model_successes:
+            from f139.nci04_partial_publication_custody import custodied_ids
+            if model_attempts != model_successes + len(custodied_ids(db)):
                 return {"disposition":"MODEL_DRAFT_UNRESOLVED_NO_REPLAY",
                         "scientific_first_use":False,
                         "worker_dispatched":False,"paid_model_calls":0}

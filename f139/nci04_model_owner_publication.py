@@ -74,7 +74,10 @@ def _publication_history(db: Database, candidate_id: str,
                  "SUCCESS_ORPHAN_OR_DRIFT")
             successes[key] = item
     # A remote ref/PR may have been created even if POST's response was lost.
-    need(set(attempts) == set(successes), "UNRESOLVED_REMOTE_WRITE_NO_RETRY")
+    from f139.nci04_partial_publication_custody import custodied_ids
+    negative = custodied_ids(db)
+    need(negative <= set(attempts) and not negative.intersection(successes)
+         and set(attempts) == set(successes) | negative, "UNRESOLVED_REMOTE_WRITE_NO_RETRY")
     need(candidate_id not in attempts and
          after_sha256 not in {v["source_after_sha256"] for v in attempts.values()},
          "PREVIOUSLY_ATTEMPTED_NO_REPLAY")

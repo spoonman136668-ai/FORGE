@@ -271,7 +271,8 @@ class V36ContractTests(unittest.TestCase):
 
 class V36ReleaseSurfaceTests(unittest.TestCase):
     def test_only_new_installer_routes_future_refs_and_old_route_is_frozen(self):
-        source_guard.verify(ROOT,get=self.git_fixture)
+        with self.assertRaisesRegex(ValueError, "COMPETING_RELEASE_ROUTE"):
+            source_guard.verify(ROOT,get=self.git_fixture)
         old=(ROOT/'.github/workflows/f139-v35-original-owner-release.yml').read_text()
         self.assertIn("branches: ['f139-owner-release-"+route.FROM_V35+"']",old)
 

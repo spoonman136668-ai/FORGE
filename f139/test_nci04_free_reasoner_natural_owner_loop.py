@@ -14,7 +14,8 @@ class OriginalOwnerFreeReasonerRoutingTests(unittest.TestCase):
         self.assertIn("SELECT COUNT(*) FROM events WHERE kind='G3_DRAFT_ATTEMPTED'",src)
         self.assertIn("SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_ATTEMPTED'",src)
         self.assertIn("SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_AUTHENTICATED'",src)
-        self.assertIn("if model_attempts != model_successes:",src)
+        self.assertIn("if model_attempts != model_successes + len(custodied_ids(db)):",src)
+        self.assertIn("from f139.nci04_partial_publication_custody import custodied_ids",src)
         self.assertIn("MODEL_DRAFT_UNRESOLVED_NO_REPLAY",src)
         self.assertIn("if model_successes:",src)
         self.assertIn("run_original_model_free_once(",src)
@@ -34,7 +35,7 @@ class OriginalOwnerFreeReasonerRoutingTests(unittest.TestCase):
                         src.index("run_original_model_free_once("))
         self.assertLess(src.index("publication_slot_empty"),
                         src.index("run_original_model_free_once("))
-        self.assertLess(src.index("if model_attempts != model_successes:"),
+        self.assertLess(src.index("if model_attempts != model_successes + len(custodied_ids(db)):"),
                         src.index("run_original_model_free_once("))
         self.assertLess(src.index("if model_successes:"),
                         src.index("run_original_model_free_once("))

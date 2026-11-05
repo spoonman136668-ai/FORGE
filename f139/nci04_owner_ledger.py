@@ -219,6 +219,11 @@ def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
             and re.fullmatch(r"\d{4}-\d{2}-\d{2}", now[:10])
             and len(issue.intent_raw) <= 44000,
             "SOURCE_OR_DAY_DRIFT")
+    from f139.nci04_partial_publication_custody import custodied_ids
+    from f139.nci04_autonomy_feed import candidate_identity
+    if candidate_identity(issue.lane, issue.candidate.target_commit,
+            issue.candidate.path, issue.candidate.after_sha256) in custodied_ids(db):
+        return False
     with db.transaction():
         db.verify()
         rows = native_events(db)
@@ -441,7 +446,7 @@ def activate_native(db, approval: dict) -> bool:
                     "forge.f139.source-transition.v27",
                     "forge.f139.source-transition.v28",
                     "forge.f139.source-transition.v29", "forge.f139.source-transition.v30",
-                    "forge.f139.source-transition.v31")]
+                    "forge.f139.source-transition.v31", "forge.f139.source-transition.v32")]
             provider_failures=db.verified_native_provider_failures()
             from f139.nci04_g49_prepost_negative import (
                 verify_g49_custody, TICKET as PREPOST)
@@ -467,10 +472,10 @@ def activate_native(db, approval: dict) -> bool:
                     "forge.f139.source-transition.v27",
                     "forge.f139.source-transition.v28",
                     "forge.f139.source-transition.v29", "forge.f139.source-transition.v30",
-                    "forge.f139.source-transition.v31")):
+                    "forge.f139.source-transition.v31", "forge.f139.source-transition.v32")):
                 from f139.local_controller import g54_original_canonical
                 v11_ambiguous.add(g54_original_canonical(db)["ticket"])
-            if negative_successors and negative_successors[-1]["schema"] == "forge.f139.source-transition.v31":
+            if negative_successors and negative_successors[-1]["schema"] in ("forge.f139.source-transition.v31", "forge.f139.source-transition.v32"):
                 from f139.nci04_v36_source_transition import i1464_negative_anchor
                 v11_ambiguous.add(i1464_negative_anchor(db, db.meta()["head_seq"]+1))
             all_certified=({NEGATIVE_TICKET,SECOND_TICKET}
