@@ -1,161 +1,196 @@
-name: FORGE K-Terminal original observer regression
+name: FORGE K-Terminal PR73 P5 exact-head hosted Windows qualification
 on:
   push:
-    branches: [qualification/kterminal-p7ir-observer-hosted-20261019]
+    branches: [qualification/kterminal-p5-pr73-forge-hosted-20261105]
 permissions:
   contents: read
 concurrency:
-  group: forge-kterm-observer-${{ github.sha }}
+  group: forge-kterminal-p5-pr73-${{ github.sha }}
   cancel-in-progress: false
 jobs:
-  original-windows-observer:
-    runs-on: windows-latest
-    timeout-minutes: 26
+  kterminal-p5-windows:
+    runs-on: windows-2022
+    timeout-minutes: 95
     env:
       GOTOOLCHAIN: local
       GOTELEMETRY: 'off'
       CGO_ENABLED: '0'
-      GOMAXPROCS: '1'
+      GOMAXPROCS: '2'
       GOFLAGS: '-p=1'
       GOMEMLIMIT: '1536MiB'
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
-      PYTHONDONTWRITEBYTECODE: '1'
+      KTERM_HEAD: bcebdc1a7a0487f9d6061a8e643c76069335d896
+      FORGE_QUAL_BASE: eb31df857423e14a8319b244d2417d1ee740c27f
     steps:
-      - name: Verify exact FORGE branch on isolated hosted Windows runner
+      - name: Checkout exact FORGE qualification source without credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Verify FORGE source scope and runner identity
-        shell: bash
+      - name: Check qualified source-only scope and isolated Windows admission
+        shell: pwsh
         run: |
-          set -euo pipefail
-          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
-          test "$GITHUB_REF" = refs/heads/qualification/kterminal-p7ir-observer-hosted-20261019
-          test "$GITHUB_EVENT_NAME" = push
-          test "$RUNNER_ENVIRONMENT" = github-hosted
-          test "$RUNNER_OS" = Windows
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git merge-base --is-ancestor e8166b1ef2f52ad935029ee583a5a0827b8a25d8 HEAD
-          test "$(git diff --name-only e8166b1ef2f52ad935029ee583a5a0827b8a25d8 HEAD)" = .github/workflows/forge-kterminal-p7ir-observer-hosted.yml
-          test -z "$(git status --porcelain)"
-          echo P7IR_FORGE_HOSTED_RUNNER=PASS
-      - name: Read exact K-Terminal frozen private source without persisted token
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'FORGE_KTERM_REPO_DRIFT' }
+          if ($env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-pr73-forge-hosted-20261105') { throw 'FORGE_KTERM_BRANCH_DRIFT' }
+          if ($env:GITHUB_EVENT_NAME -cne 'push' -or $env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') { throw 'FORGE_KTERM_RUNNER_DRIFT' }
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'FORGE_KTERM_SHA_DRIFT' }
+          git merge-base --is-ancestor $env:FORGE_QUAL_BASE HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_KTERM_QUAL_BASE_DRIFT' }
+          $changed=@(git diff --name-only $env:FORGE_QUAL_BASE HEAD)
+          if ($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/forge-kterminal-p7ir-observer-hosted.yml') { throw 'FORGE_KTERM_SOURCE_SCOPE_DRIFT' }
+          if (@(git status --porcelain).Count -ne 0) { throw 'FORGE_KTERM_DIRTY_CHECKOUT' }
+          Write-Host 'FORGE_KTERM_ISOLATED_WINDOWS_SOURCE_SCOPE=PASS'
+      - name: Checkout pinned private K-Terminal PR73 without retained token
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: ba11a398586df9fe5233624d9cf115aeec76d11a
+          ref: bcebdc1a7a0487f9d6061a8e643c76069335d896
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
           token: ${{ secrets.FORGE_KTERM_QUAL }}
-      - name: Provision pinned original Go 1.26.5 on Windows
+      - name: Use pinned original Go 1.26.5 Windows toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Run original six recovery cases with no raw log export
-        shell: bash
+      - name: Verify exact private source and no broker credentials
+        shell: pwsh
         working-directory: kterminal-private
         run: |
-          set -euo pipefail
-          test "$RUNNER_ENVIRONMENT" = github-hosted
-          test "$RUNNER_OS" = Windows
-          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
-          test "$GOMAXPROCS" = 1
-          test "$(git rev-parse HEAD)" = ba11a398586df9fe5233624d9cf115aeec76d11a
-          test "$(git rev-parse HEAD:pkg/stage3-original-observer-forced-cuts_test.go)" = bee85ee3441b0f66399ab6c42f8b09635ba44c6b
-          test "$(git rev-parse HEAD:pkg/stage3-native-authenticated-sell-post-crash_test.go)" = 8fc5727f722510b2bfff0cfe9d4eb0565c6cb5fc
-          test "$(git rev-parse HEAD:go.mod)" = b3ede0d8444c08b3e7b23f1396374359b54134c6
-          test -z "$(git status --porcelain)"
-          go version | grep 'go1.26.5 windows/amd64' > /dev/null
-          for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
-            if [[ -n "${!name:-}" ]]; then
-              echo P7IR_CREDENTIAL_ENV_BLOCKED
-              exit 2
-            fi
-          done
-          export K_TERMINAL_TEST_WORKSPACE="$RUNNER_TEMP/p7ir-test-root"
-          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$RUNNER_TEMP/p7ir-test-root/tail"
-          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$RUNNER_TEMP/p7ir-test-root/post"
-          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$RUNNER_TEMP/p7ir-test-root/private"
-          mkdir -p "$KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT" "$KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT" "$KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT"
-          set +e
-          go test -json -count=1 -p=1 -parallel=1 -timeout=18m \
-            '-run=^TestStage3OriginalObserverForcedBoundaries$/(BTC-USDC|XRP-USDC)/(initial_summary_second|due_history|partial_completion)$' \
-            ./pkg > "$RUNNER_TEMP/p7ir-go-private.jsonl" 2> "$RUNNER_TEMP/p7ir-go-private-stderr"
-          rc=$?
-          set -e
-          export P7IR_GO_EXIT="$rc"
-          python -B - <<'PY'
-          import hashlib,json,os,pathlib,sys
-          cases=[f"{p}/{s}" for p in ("BTC-USDC","XRP-USDC")
-                 for s in ("initial_summary_second","due_history","partial_completion")]
-          counts={case:{"run":0,"pass":0,"fail":0} for case in cases}
-          stem="TestStage3OriginalObserverForcedBoundaries/"
-          source=pathlib.Path(os.environ["RUNNER_TEMP"])/"p7ir-go-private.jsonl"
-          errors=0
-          package_fail=False
-          if source.is_file() and source.stat().st_size <= 40*1024*1024:
-              for line in source.read_text(encoding="utf-8-sig",errors="replace").splitlines():
-                  try: evt=json.loads(line)
-                  except ValueError:
-                      errors+=1
-                      continue
-                  if not isinstance(evt,dict):
-                      errors+=1
-                      continue
-                  action,name=evt.get("Action"),evt.get("Test")
-                  if action=="fail" and name is None: package_fail=True
-                  if isinstance(name,str) and name.startswith(stem):
-                      case=name[len(stem):]
-                      if case in counts and action in counts[case]: counts[case][action]+=1
-          else: errors+=1
-          complete=(errors==0 and all(v["run"]==1 and v["pass"]+v["fail"]==1 for v in counts.values()))
-          exit_code=int(os.environ["P7IR_GO_EXIT"])
-          failed=[c for c,v in counts.items() if v["fail"]]
-          outcome=("P7IR_TARGETS_INCOMPLETE" if not complete else
-                   "P7IR_ORIGINAL_FAILURE_REPRODUCED" if exit_code or failed or package_fail else
-                   "P7IR_SIX_CASES_PASS_FULL_SUITE_STILL_BLOCKED")
-          receipt={
-              "schema":"forge.kterminal.p7ir.hosted-original.v1",
-              "forge_head_sha":os.environ["GITHUB_SHA"],
-              "kterminal_head_sha":"ba11a398586df9fe5233624d9cf115aeec76d11a",
-              "observer_original_test_blob":"bee85ee3441b0f66399ab6c42f8b09635ba44c6b",
-              "scheduler":"GOMAXPROCS=1 p=1 parallel=1 count=1",
-              "cases":counts,
-              "failed_cases":failed,
-              "go_exit":exit_code,
-              "package_fail":package_fail,
-              "parse_errors":errors,
-              "disposition":outcome,
-              "previous_full_regression":"FAILED_NOT_WAIVED",
-              "private_source_or_test_logs_exported":False,
-              "user_data_accessed":False,
-              "research_or_workstation_runner_used":False,
-              "broker_orders":0,
-              "field_timing_measured":False
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:KTERM_HEAD) { throw 'FORGE_KTERM_PRIVATE_SHA_DRIFT' }
+          if ((git rev-parse 'HEAD:pkg/native-canceled-buy-stage2_test.go').Trim() -cne '2b7985e2e92a5df69e1db35d499d98c12dcc978c') { throw 'FORGE_KTERM_ORIGINAL_TEST_BLOB_DRIFT' }
+          if ((go version) -notmatch 'go1\.26\.5 windows/amd64') { throw 'FORGE_KTERM_GO_DRIFT' }
+          if ($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER') { throw 'FORGE_KTERM_PAPER_MODE_DRIFT' }
+          if (@(git status --porcelain).Count -ne 0) { throw 'FORGE_KTERM_PRIVATE_DIRTY' }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if ([Environment]::GetEnvironmentVariable($key)) { throw 'FORGE_KTERM_BROKER_CREDENTIAL_PRESENT' }
           }
-          out=pathlib.Path(os.environ["RUNNER_TEMP"])/"p7ir-public-receipt"
-          out.mkdir(exist_ok=False)
-          body=json.dumps(receipt,sort_keys=True,separators=(",",":")).encode()
-          (out/"receipt.json").write_bytes(body)
-          (out/"receipt.sha256").write_text(hashlib.sha256(body).hexdigest(),encoding="ascii")
-          for case,val in counts.items():
-              print(f"P7IR_CASE={case};RUN={val['run']};PASS={val['pass']};FAIL={val['fail']}")
-          print("P7IR_DISPOSITION="+outcome)
-          print("P7IR_RECEIPT_SHA256="+hashlib.sha256(body).hexdigest())
-          if outcome!="P7IR_SIX_CASES_PASS_FULL_SUITE_STILL_BLOCKED": sys.exit(2)
-          PY
-      - name: Preserve only redacted original test disposition
+          Write-Host 'FORGE_KTERM_PINNED_PRIVATE_SOURCE=PASS;NO_BROKER_POSTS=TRUE'
+      - name: Repeat original two-second native maker window as focused diagnosis
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          $drive=[IO.Path]::GetPathRoot($env:RUNNER_TEMP)
+          $root=Join-Path $drive ('ktforge-'+$env:GITHUB_RUN_ID)
+          if (-not [IO.Path]::IsPathRooted($root) -or $root.Length -gt 60 -or (Test-Path -LiteralPath $root)) { throw 'FORGE_KTERM_TEST_ROOT_UNSAFE' }
+          $env:K_TERMINAL_TEST_WORKSPACE=$root
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'tail'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'post'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'private'
+          foreach ($dir in @($root,$env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,$env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)) { [void][IO.Directory]::CreateDirectory($dir) }
+          $name='TestCanceledBuyRetryActualAllNineMakerAttemptsWithinOriginalWindow'
+          $out=Join-Path $env:RUNNER_TEMP 'forge-kterminal-focused-private.jsonl'
+          $stderr=Join-Path $env:RUNNER_TEMP 'forge-kterminal-focused-private.stderr'
+          & go test -json -p 1 -parallel 1 -count=3 -timeout 12m "-run=^$name$" ./pkg 2> $stderr | Out-File -LiteralPath $out -Encoding utf8
+          $rc=$LASTEXITCODE
+          $events=@(Get-Content -LiteralPath $out | ForEach-Object { try { $_ | ConvertFrom-Json -ErrorAction Stop } catch {$null} })
+          $passes=@($events | Where-Object { $_.Action -ceq 'pass' -and $_.Test -ceq $name }).Count
+          if ($rc -ne 0 -or $passes -ne 3) {
+            $class='UNCLASSIFIED'
+            foreach ($evt in @($events | Where-Object { $_.Action -ceq 'output' -and $_.Test -ceq $name })) {
+              if ([string]$evt.Output -match 'full original native maker budget failed: posts=([0-9]+)') {
+                if ([int]$Matches[1] -eq 9) {$class='TWO_SECOND_WINDOW_OVERRUN'}else{$class='ATTEMPT_BUDGET_TRUNCATED'}
+                break
+              }
+            }
+            Write-Host ('FORGE_KTERM_FOCUSED_FAILURE_CLASS='+$class)
+            Write-Host ('FORGE_KTERM_FOCUSED_PASS_REPETITIONS='+$passes)
+            throw 'FORGE_KTERM_FOCUSED_WINDOW_FAILED'
+          }
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-window.ok') -Value 'PASS' -NoNewline
+          Write-Host 'FORGE_KTERM_ORIGINAL_TWO_SECOND_WINDOW_X3=PASS'
+      - name: Run pinned Windows PowerShell 5.1 privacy recorder test
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          $powershell51=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $test=Join-Path (Get-Location).Path 'verification\test-kterminal-recorder-v1.2.ps1'
+          $rec=Join-Path (Get-Location).Path 'verification\KTerminal-Live-Session-Recorder-v1.2.ps1'
+          if (-not (Test-Path -LiteralPath $powershell51) -or -not (Test-Path -LiteralPath $test) -or -not (Test-Path -LiteralPath $rec)) { throw 'FORGE_KTERM_RECORDER_SOURCE_MISSING' }
+          & $powershell51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Recorder $rec
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_KTERM_RECORDER_PRIVACY_FAILED' }
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-recorder.ok') -Value 'PASS' -NoNewline
+          Write-Host 'FORGE_KTERM_POWERSHELL51_PRIVACY_RECORDER=PASS'
+      - name: Mandatory exact private SHA complete Windows Go regression
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:KTERM_HEAD) { throw 'FORGE_KTERM_FULL_SHA_DRIFT' }
+          $out=Join-Path $env:RUNNER_TEMP 'forge-kterm-full-private.jsonl'
+          $stderr=Join-Path $env:RUNNER_TEMP 'forge-kterm-full-private.stderr'
+          $sw=[Diagnostics.Stopwatch]::StartNew()
+          & go test -json -p 1 -parallel 1 -count=1 -timeout 65m ./... 2> $stderr | Out-File -LiteralPath $out -Encoding utf8
+          $rc=$LASTEXITCODE
+          $sw.Stop()
+          $fail=@(Get-Content -LiteralPath $out | ForEach-Object { try { $_ | ConvertFrom-Json -ErrorAction Stop } catch { $null } } | Where-Object { $_.Action -ceq 'fail' })
+          Write-Host ('FORGE_KTERM_FULL_ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          Write-Host ('FORGE_KTERM_FULL_FAILED_EVENT_COUNT='+$fail.Count)
+          $maker=@($fail | Where-Object { $_.Test -ceq 'TestCanceledBuyRetryActualAllNineMakerAttemptsWithinOriginalWindow' }).Count
+          if($maker){Write-Host 'FORGE_KTERM_FULL_FAILURE_CLASS=ORIGINAL_TWO_SECOND_MAKER_WINDOW'}
+          if($rc -ne 0 -or $fail.Count -gt 0){throw 'FORGE_KTERM_MANDATORY_FULL_REGRESSION_FAILED'}
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-full.ok') -Value 'PASS' -NoNewline
+          Write-Host 'FORGE_KTERM_MANDATORY_EXACT_SHA_FULL_WINDOWS=PASS'
+      - name: Vet and build without publication
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          & go vet ./... *> (Join-Path $env:RUNNER_TEMP 'forge-kterm-private-vet.log')
+          if($LASTEXITCODE -ne 0){throw 'FORGE_KTERM_VET_FAILED'}
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-vet.ok') -Value 'PASS' -NoNewline
+          & go build -trimpath -o (Join-Path $env:RUNNER_TEMP 'KTerm-Unpromoted.exe') . *> (Join-Path $env:RUNNER_TEMP 'forge-kterm-private-build.log')
+          if($LASTEXITCODE -ne 0){throw 'FORGE_KTERM_BUILD_FAILED'}
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-build.ok') -Value 'PASS' -NoNewline
+          Write-Host 'FORGE_KTERM_VET_BUILD_UNPROMOTED=PASS'
+      - name: Seal only a privacy-safe exact-SHA receipt
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'forge-kterm-receipt'
+          [void][IO.Directory]::CreateDirectory($dir)
+          $checks=[ordered]@{}
+          foreach($k in @('window','recorder','full','vet','build')) {
+            $checks[$k]=if(Test-Path (Join-Path $env:RUNNER_TEMP ('forge-kterm-'+$k+'.ok'))){'PASS'}else{'NOT_QUALIFIED'}
+          }
+          $qualified=@($checks.Values|Where-Object {$_ -ne 'PASS'}).Count -eq 0
+          $receipt=[ordered]@{
+            schema='forge.kterminal.p5.pr73.exact-head.v1'
+            forge_source_sha=$env:GITHUB_SHA
+            kterminal_source_sha=$env:KTERM_HEAD
+            original_test_blob='2b7985e2e92a5df69e1db35d499d98c12dcc978c'
+            windows_runner='github-hosted-windows-2022'
+            checks=$checks
+            result=if($qualified){'OFFLINE_WINDOWS_QUALIFIED'}else{'QUALIFICATION_BLOCKED'}
+            original_owner_execution=$false
+            real_broker_posts=0
+            private_logs_uploaded=$false
+            credentials_exported=$false
+            installed=$false
+            merged_or_promoted=$false
+          }
+          $p=Join-Path $dir 'receipt.json'
+          $body=$receipt|ConvertTo-Json -Compress -Depth 5
+          [IO.File]::WriteAllText($p,$body,[Text.UTF8Encoding]::new($false))
+          $digest=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $dir 'receipt.sha256'),$digest,[Text.UTF8Encoding]::new($false))
+          Write-Host ('FORGE_KTERM_DISPOSITION='+$receipt.result)
+          Write-Host ('FORGE_KTERM_RECEIPT_SHA256='+$digest)
+      - name: Upload only sanitized acceptance receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: forge-kterminal-p7ir-${{ github.run_id }}
+          name: forge-kterminal-p5-pr73-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/p7ir-public-receipt/receipt.json
-            ${{ runner.temp }}/p7ir-public-receipt/receipt.sha256
+            ${{ runner.temp }}/forge-kterm-receipt/receipt.json
+            ${{ runner.temp }}/forge-kterm-receipt/receipt.sha256
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
