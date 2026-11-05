@@ -1,0 +1,75 @@
+name: FORGE research G62 GPT-2 single-flight overlapped prefill
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g62/**'
+      - 'docs/research/G62-SINGLEFLIGHT-PREFILL-PREREG.md'
+      - '.github/workflows/forge-llm-g62-singleflight.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g62-research-readonly
+  cancel-in-progress: false
+jobs:
+  pinned-gpt2-singleflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify preregistration before executable source and prior source integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor d4103586279946381b91d6636100c508591adb1b HEAD
+          test "$(git rev-parse d4103586279946381b91d6636100c508591adb1b:docs/research/G62-SINGLEFLIGHT-PREFILL-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G62-SINGLEFLIGHT-PREFILL-PREREG.md)"
+          git diff --exit-code f41d93ecee46827e76fd74ad061b8efe52f58d94 HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61
+          python -m py_compile research/llm_g62/g62_singleflight.py research/llm_g62/test_g62.py
+          python -m unittest discover -s research/llm_g62 -p test_g62.py -v
+          echo 'G62_FROZEN_SOURCE_AND_PURE_POLICY_TESTS=PASS'
+      - name: Install pinned public pretrained CPU inference dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g62_environment_pip_freeze.txt
+      - name: Test authentic GPT-2 singleflight overlap and exact output parity
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g62/g62_singleflight.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g62_result.json'))
+          assert r['correctness']=='PASS'
+          assert r['scientific_acceptance']=='NOT_GRANTED' and r['promotion_allowed'] is False
+          assert set(r['cohorts'])=={'high_locality','unique_only','thrash'}
+          assert all(len(row['pairs'])==3 for row in r['cohorts'].values())
+          assert r['overlap_observed'] is True
+          print('G62_AUTHENTIC_GREEDY_PARITY_AND_SINGLEFLIGHT=PASS')
+          print('G62_FROZEN_ACCELERATION_SCREEN='+r['screen'])
+          print('G62_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Preserve full raw negative and positive results without acceptance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g62-authentic-gpt2-singleflight
+          if-no-files-found: warn
+          path: |
+            g62_result.json
+            g62_environment_pip_freeze.txt
+          retention-days: 30

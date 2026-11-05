@@ -1,0 +1,80 @@
+name: FORGE research G55 authentic GPT-2 two-baseline comparison
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g55/**'
+      - '.github/workflows/forge-llm-g55-controls.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g55-readonly
+  cancel-in-progress: false
+jobs:
+  g55-cpu-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify source and identical frozen model/inputs against G54
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m py_compile research/llm_g55/g55_gpt2_controls.py
+          python - <<'PY'
+          import importlib.util
+          def load(path,name):
+              s=importlib.util.spec_from_file_location(name,path)
+              m=importlib.util.module_from_spec(s)
+              s.loader.exec_module(m)
+              return m
+          a=load('research/llm_g54/g54_gpt2.py','g54')
+          b=load('research/llm_g55/g55_gpt2_controls.py','g55')
+          assert (a.REV, a.WEIGHT_SHA, a.PREFIX, a.SUFFIXES, a.TOKENS)==(b.REV,b.WEIGHT_SHA,b.PREFIX,b.SUFFIXES,b.TOKENS)
+          assert b.TRIALS==5
+          print('G55_FROZEN_MODEL_INPUT_EQUIVALENCE=PASS')
+          PY
+      - name: Install pinned public CPU inference dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          python -m pip freeze > g55_environment_pip_freeze.txt
+      - name: Run authentic pinned comparison, strict token parity and frozen screen
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g55/g55_gpt2_controls.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g55_result.json'))
+          assert r['correctness']=='PASS'
+          assert r['promotion_allowed'] is False
+          assert r['scientific_acceptance']=='NOT_GRANTED'
+          assert len(r['trials'])==5
+          print('G55_AUTHENTIC_TOKEN_PARITY=PASS')
+          print('G55_SCREEN='+r['acceleration'])
+          print('G55_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Upload research-only reproducibility artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g55-authentic-gpt2-controls
+          if-no-files-found: warn
+          path: |
+            g55_result.json
+            g55_environment_pip_freeze.txt
+          retention-days: 30

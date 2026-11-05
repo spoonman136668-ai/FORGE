@@ -1,0 +1,85 @@
+name: FORGE research G65 matched CPU shared-forward-pool prefill release
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g65/**'
+      - 'docs/research/G65-SHARED-FORWARD-POOL-PREREG.md'
+      - '.github/workflows/forge-llm-g65-shared-pool.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g65-research-readonly
+  cancel-in-progress: false
+jobs:
+  original-gpt2-shared-pool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify distinct frozen prereg and unchanged G51-G64 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor c5c9ad2b8f08b561bd7d077366707554b9e436a1 HEAD
+          test "$(git rev-parse c5c9ad2b8f08b561bd7d077366707554b9e436a1:docs/research/G65-SHARED-FORWARD-POOL-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G65-SHARED-FORWARD-POOL-PREREG.md)"
+          git diff --exit-code 70a9d31f41333afe9fb958e11773f9ddbf406246 HEAD -- research/llm_g51 research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63 research/llm_g64
+          python -m py_compile research/llm_g65/g65_shared_pool.py research/llm_g65/test_g65.py
+          python -m unittest discover -s research/llm_g65 -p test_g65.py -v
+          echo 'G65_FROZEN_PROTOCOL_AND_SOURCE_CONTROLS=PASS'
+      - name: Install authenticated original GPT-2 CPU inference dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g65_environment_pip_freeze.txt
+      - name: Run pinned GPT-2 prefill slot-release performance and parity
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g65/g65_shared_pool.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g65_result.json'))
+          assert r['correctness']=='PASS'
+          assert r['scientific_acceptance']=='NOT_GRANTED'
+          assert r['promotion_allowed'] is False
+          assert set(r['cohorts'])=={'high_locality','unique_only','thrash'}
+          for cohort in r['cohorts'].values():
+              assert set(cohort)=={'budget_2','budget_3'}
+              for budget,row in cohort.items():
+                  assert len(row['trials'])==2
+                  for trial in row['trials']:
+                      assert set(trial['arms'])==set(r['arms'])
+                      for arm,detail in trial['arms'].items():
+                          assert len(detail['affinity'])==detail['forward_worker_budget']
+                          assert detail['maximum_observed_active_forward_tasks']<=detail['forward_worker_budget']
+                          assert detail['max_retained_prefix_kv_bytes']<=42000000
+          print('G65_MODEL_IDENTITIES_AND_EXACT_GREEDY_PARITY=PASS')
+          print('G65_SHARED_POOL_ENGINEERING='+r['engineering'])
+          print('G65_FROZEN_ACCELERATION_SCREEN='+r['performance_screen'])
+          print('G65_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Retain original model run, negative results and dependency freeze
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g65-authentic-gpt2-shared-pool-equal-resources
+          if-no-files-found: warn
+          path: |
+            g65_result.json
+            g65_environment_pip_freeze.txt
+          retention-days: 30

@@ -1,0 +1,81 @@
+name: FORGE CPU G98 original GPT2 development parity
+on:
+  workflow_dispatch:
+permissions: {contents: read, actions: read}
+concurrency:
+  group: cpu-g98-original-development
+  cancel-in-progress: false
+jobs:
+  guarded-original-development:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      PYTHONPATH: .
+      G98_DEVELOPMENT_ONLY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Admit exact source and full Linux Windows qualification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = "research/cpu-llm-g96-admission-policy-20261031"
+          python - <<'PY'
+          import json,os,urllib.request
+          sha=os.environ["GITHUB_SHA"]
+          url=f"https://api.github.com/repos/{os.environ['GH_REPOSITORY']}/actions/runs?head_sha={sha}&per_page=100"
+          req=urllib.request.Request(url,headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","User-Agent":"FORGE-G98-EXACT-HEAD"})
+          with urllib.request.urlopen(req,timeout=30) as response:runs=json.load(response)["workflow_runs"]
+          if not any(r["name"]=="FORGE public Linux and Windows qualification" and r["head_sha"]==sha and r["status"]=="completed" and r["conclusion"]=="success" for r in runs):
+              raise SystemExit("G98_EXACT_HEAD_FULL_REGRESSION_NOT_PASSED")
+          print("G98_EXACT_HEAD_FULL_REGRESSION=PASS")
+          PY
+          test "$(git rev-parse HEAD:research/cpu_g95/g95_multiprefix_lru_original.py)" = "b401c86e4dff2f25eb995a47ba58884838f232eb"
+          python -B -m py_compile research/cpu_g97/g98_original_development.py research/cpu_g97/g98_original_parity.py research/cpu_g97/g98_timing_probe.py
+          python -B -m unittest discover -s research/cpu_g97 -p 'test_g98*.py' -v
+      - name: Install pinned original CPU GPT2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.48.3 huggingface-hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1 psutil==7.1.3
+          python -m pip check
+          python -m pip freeze > cpu_g98_environment.txt
+          uname -a >> cpu_g98_environment.txt
+          lscpu >> cpu_g98_environment.txt
+      - name: Execute guarded original-model development comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/cpu_g97/g98_original_development.py
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads(Path("cpu_g98_original_parity_receipt.json").read_text())
+          assert r["source_sha"]==os.environ["GITHUB_SHA"]
+          assert r["parity"]=="PASS" and r["timing_accepted"]
+          assert not r["heldout_executed"] and not r["promotion_allowed"]
+          print("G98_ORIGINAL_PARITY=PASS")
+          PY
+      - name: Preserve development-only parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g98-original-parity-development
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g98_original_parity_receipt.json
+            cpu_g97_development_result.json
+            cpu_g97_development_stream.json
+            cpu_g98_environment.txt

@@ -1,0 +1,91 @@
+name: FORGE research G58 authentic GPT-2 selective LRU screen
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g58/**'
+      - 'docs/research/G58-GPT2-SELECTIVE-LRU-FROZEN-PROTOCOL.md'
+      - '.github/workflows/forge-llm-g58-selective-lru.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g58-source-only
+  cancel-in-progress: false
+jobs:
+  authentic-gpt2-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin original G55 identities and preregistered G58 protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m py_compile research/llm_g55/g55_gpt2_controls.py research/llm_g58/g58_selective_cache.py
+          python - <<'PY'
+          import ast, pathlib
+          f=pathlib.Path('research/llm_g58/g58_selective_cache.py')
+          tree=ast.parse(f.read_text())
+          ast.assignments = {}
+          for x in tree.body:
+              if isinstance(x,ast.Assign) and len(x.targets)==1 and isinstance(x.targets[0],ast.Name):
+                  try: ast.assignments[x.targets[0].id]=ast.literal_eval(x.value)
+                  except (ValueError, TypeError): pass
+          v=ast.assignments
+          assert v['TRIALS']==5 and v['CAPACITY']==2 and v['OUTPUT_TOKENS']==16
+          assert 'high_locality_75pct' in f.read_text() and 'unique_0pct' in f.read_text()
+          assert 'thrash_four_families' in f.read_text()
+          assert v['ARMS']==('no_cache','eager_lru2','second_seen_lru2')
+          assert v['MODEL_SHA']=='248dfc3911869ec493c76e65bf2fcf7f615828b0254c12b473182f0f81d3a707'
+          proto=pathlib.Path('docs/research/G58-GPT2-SELECTIVE-LRU-FROZEN-PROTOCOL.md').read_text()
+          assert '>=1.15x' in proto and '>=0.98x' in proto
+          print('G58_PREREGISTRATION_AND_CONSTANT_IDENTITY=PASS')
+          PY
+      - name: Install existing qualified CPU model dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g58_pip_freeze.txt
+      - name: Execute authentic source-pinned policy benchmark
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g58/g58_selective_cache.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('g58_result.json').read_text())
+          assert d['engineering']=='PASS'
+          assert d['promotion_allowed'] is False
+          assert d['scientific']=='UNVERIFIED'
+          assert all(len(x['paired_trials'])==5 for x in d['scenarios'].values())
+          for name, row in d['scenarios'].items():
+              assert row['eager_lru2']['max_cache_entries']<=2
+              assert row['second_seen_lru2']['max_cache_entries']<=2
+          print('G58_REAL_MODEL_POLICY_CORRECTNESS=PASS')
+          print('G58_ADMISSION_SCREEN='+d['policy_screen'])
+          print('G58_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Upload exact-source research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g58-authentic-gpt2-selective-lru
+          if-no-files-found: warn
+          path: |
+            g58_result.json
+            g58_pip_freeze.txt
+          retention-days: 30

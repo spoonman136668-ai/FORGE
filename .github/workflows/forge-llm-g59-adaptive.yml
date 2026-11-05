@@ -1,0 +1,76 @@
+name: FORGE research G59 adaptive GPT-2 policy screen
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g59/**'
+      - 'docs/research/G59-GPT2-ADAPTIVE-CACHE-PREREG.md'
+      - '.github/workflows/forge-llm-g59-adaptive.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g59-source-only
+  cancel-in-progress: false
+jobs:
+  g59-authentic-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate preregistration and frozen upstream sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor a5280ca7a77ca6e3a2d819d08a05e7a67cba7eb7 HEAD
+          test "$(git rev-parse a5280ca7a77ca6e3a2d819d08a05e7a67cba7eb7:docs/research/G59-GPT2-ADAPTIVE-CACHE-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G59-GPT2-ADAPTIVE-CACHE-PREREG.md)"
+          git diff --exit-code f45f9022dd3cc9c430cb815418bb0efd74ae3e3e HEAD -- research/llm_g55 research/llm_g58 research/llm_g57
+          python -m py_compile research/llm_g59/g59_adaptive.py research/llm_g59/test_g59.py
+          python -m unittest discover -s research/llm_g59 -p test_g59.py -v
+          echo 'G59_FROZEN_PREEXECUTION_CONTRACT_AND_PURE_POLICY=PASS'
+      - name: Install verified public CPU dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g59_pip_freeze.txt
+      - name: Execute pinned GPT-2 adaptive and matched controls
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g59/g59_adaptive.py
+          python - <<'PY'
+          import json
+          d=json.load(open('g59_result.json'))
+          assert d['engineering']=='PASS'
+          assert d['promotion_allowed'] is False
+          assert d['scientific_acceptance']=='NOT_GRANTED'
+          assert len(d['scenarios'])==5
+          assert all(len(s['trials'])==3 for s in d['scenarios'].values())
+          assert d['model_revision']=='607a30d783dfa663caf39e06633721c8d4cfcd7e'
+          print('G59_AUTHENTIC_GPT2_EXACT_OUTPUT_POLICY_PARITY=PASS')
+          print('G59_ADAPTIVE_SCREEN='+d['screen'])
+          print('G59_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Preserve measured negatives and source identity in artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g59-authentic-gpt2-adaptive
+          if-no-files-found: warn
+          path: |
+            g59_result.json
+            g59_pip_freeze.txt
+          retention-days: 30

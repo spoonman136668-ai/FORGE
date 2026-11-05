@@ -1,0 +1,116 @@
+name: FORGE CPU G101 final SDPA eager falsification
+on:
+  workflow_dispatch:
+permissions: {contents: read, actions: read}
+concurrency:
+  group: cpu-g101-final-falsification-one-shot
+  cancel-in-progress: false
+env:
+  G101_FROZEN_SHA: 82448631ca25b25ce275d5d21f735791125af802
+jobs:
+  source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      source_sha: ${{ steps.admit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.G101_FROZEN_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: One-shot source admission and immutable qualification
+        id: admit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_FORCED: ${{ github.event.forced }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$EVENT_NAME" = "push"
+          test "$EVENT_BRANCH" = "research/cpu-llm-g96-admission-policy-20261031"
+          test "$EVENT_BEFORE" = "$G101_FROZEN_SHA"
+          test "$EVENT_FORCED" = "false"
+          test "$(git rev-parse HEAD)" = "$G101_FROZEN_SHA"
+          test "$(git rev-parse HEAD:research/cpu_g95/g95_multiprefix_lru_original.py)" = "b401c86e4dff2f25eb995a47ba58884838f232eb"
+          python - <<'PY'
+          import json,os,urllib.request
+          sha=os.environ["G101_FROZEN_SHA"]
+          req=urllib.request.Request(
+            f"https://api.github.com/repos/{os.environ['GH_REPOSITORY']}/actions/runs?head_sha={sha}&per_page=100",
+            headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],
+              "Accept":"application/vnd.github+json","User-Agent":"FORGE-G101-FINAL-SOURCE-ADMISSION"})
+          with urllib.request.urlopen(req,timeout=30) as f:
+              runs=json.load(f)["workflow_runs"]
+          if not any(r["id"]==41735798560 and
+                     r["name"]=="FORGE public Linux and Windows qualification" and
+                     r["head_sha"]==sha and r["status"]=="completed" and
+                     r["conclusion"]=="success" for r in runs):
+              raise SystemExit("G101_EXACT_HEAD_FULL_REGRESSION_MISSING")
+          print("G101_FINAL_EXACT_HEAD_REGRESSION=PASS")
+          PY
+          python -B -m py_compile research/cpu_g97/g101_final_diagnostic.py research/cpu_g97/g101_final_validator.py
+          python -B -m unittest discover -s research/cpu_g97 -p 'test_g101*.py' -v
+          echo "source_sha=$G101_FROZEN_SHA" >> "$GITHUB_OUTPUT"
+          echo G101_FINAL_SOURCE_ADMISSION=PASS
+  original-model-falsification:
+    needs: source-admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      PYTHONPATH: .
+      G101_FINAL_DEVELOPMENT_ONLY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source-admission.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Install pinned original-model CPU runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G101_FROZEN_SHA"
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.48.3 huggingface-hub==0.30.2 safetensors==0.5.3 tokenizers==0.21.1 psutil==7.1.3
+          python -m pip check
+          python -m pip freeze > cpu_g101_final_environment.txt
+          uname -a >> cpu_g101_final_environment.txt
+          lscpu >> cpu_g101_final_environment.txt
+      - name: Execute both frozen original-model backend arms and independent receipt validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITHUB_SHA="$G101_FROZEN_SHA" python research/cpu_g97/g101_final_diagnostic.py
+          python -B research/cpu_g97/g101_final_validator.py cpu_g101_final_diagnostic.json "$G101_FROZEN_SHA"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads(Path("cpu_g101_final_diagnostic.json").read_text())
+          assert r["source_sha"]==os.environ["G101_FROZEN_SHA"]
+          assert r["phase"]=="DEVELOPMENT_ONLY" and r["heldout_executed"] is False
+          assert r["promotion_allowed"] is False and r["performance_verdict"]=="NOT_EVALUATED"
+          assert r["decision"] in ("EXACT_CAPTURE_FEASIBLE","RETIRE_G101_EXACT_CAPTURE")
+          print("G101_FINAL_FROZEN_DECISION="+r["decision"])
+          PY
+      - name: Preserve immutable numerical diagnostic and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-g101-final-original-gpt2-falsification
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cpu_g101_final_diagnostic.json
+            cpu_g101_final_environment.txt
