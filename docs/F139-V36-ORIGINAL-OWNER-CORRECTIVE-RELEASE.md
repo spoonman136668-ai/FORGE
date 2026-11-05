@@ -58,3 +58,9 @@ reused solely as a development compatibility control, not as proof of a newly
 built production executable. Only hashes and bounded witness metadata are
 uploaded; the private database/archive copy is deleted. Production retains its
 separate exact-source build and identical-history rehearsal before commit.
+
+General qualification retains a bounded shallow checkout (depth eight), including
+the immutable transport comparison ancestors. The dedicated G61 deep-history
+atlas lane and its frozen source allowlist are unchanged; general qualification
+does not claim a new G61 immutable-atlas proof. Release/preflight checkouts retain
+full history for accepted-main and immutable-release ancestry verification.
