@@ -2972,18 +2972,26 @@ class GitHub:
             diagnostic = (p.stderr or b"").decode("utf-8", "replace").lower()
             status = re.search(r"\bhttp\s+([45]\d\d)\b", diagnostic)
             status_code = int(status.group(1)) if status else None
-            if status_code == 429 or "rate limit" in diagnostic:
+            explicit_rate_limit = any(marker in diagnostic for marker in (
+                "api rate limit exceeded", "secondary rate limit",
+            ))
+            # A definite HTTP rejection outranks incidental transport words.
+            # Only an explicitly identified 403 throttle may be retried.
+            if status_code == 401:
+                failure = "GITHUB_API_AUTH"
+            elif status_code == 429 or (
+                    status_code in (None, 403) and explicit_rate_limit):
                 failure = "GITHUB_API_RATE_LIMIT"
-            elif (status_code is not None and 500 <= status_code <= 599) or any(
+            elif status_code == 403:
+                failure = "GITHUB_API_AUTH"
+            elif (status_code is not None and 500 <= status_code <= 599) or (status_code is None and any(
                 marker in diagnostic for marker in (
                     "connection reset", "connection refused", "connection timed out",
                     "temporary failure", "could not resolve", "network is unreachable",
                     "tls handshake timeout", "unexpected eof", "server closed connection"
                 )
-            ):
+            )):
                 failure = "GITHUB_API_TRANSIENT"
-            elif status_code in (401, 403):
-                failure = "GITHUB_API_AUTH"
             else:
                 failure = "GITHUB_API_FAILED"
             if read_only and failure in ("GITHUB_API_RATE_LIMIT", "GITHUB_API_TRANSIENT") and attempt + 1 < attempts:
