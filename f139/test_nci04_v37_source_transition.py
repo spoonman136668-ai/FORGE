@@ -169,6 +169,22 @@ class V37ContractTests(unittest.TestCase):
                 with self.assertRaises(sqlite3.OperationalError):db.conn.execute("DELETE FROM events")
             self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
 
+    def test_readonly_diagnostic_never_grants_resolution_or_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)/"fixture.sqlite"
+            with closing(Database.initialize(path, route.FROM_V36)) as writer:
+                with self.assertRaisesRegex(route.MaintenanceDenied, "READONLY_ORIGINAL"):
+                    cli.readonly_publication_diagnostic(writer)
+            before = hashlib.sha256(path.read_bytes()).hexdigest()
+            with closing(Database.open_readonly(path)) as db:
+                report = cli.readonly_publication_diagnostic(db)
+                self.assertIsNone(report["latest_attempt"])
+                self.assertEqual(sum(report["counts"].values()), 0)
+                self.assertEqual(report["owner_mutations"], 0)
+                self.assertFalse(report["retry_authorized"])
+                self.assertFalse(report["source_transition_authorized"])
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), before)
+
     def test_preflight_cli_never_calls_transition_and_always_closes(self):
         fake=SimpleNamespace(close=Mock(),conn=Mock())
         report={'source_transition_authorized':False}

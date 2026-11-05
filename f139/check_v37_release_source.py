@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 BASELINE = 'b5172a047efa7a1d630c15c13a2b7eba14c997fe'
-PATHS = frozenset({'f139/local_controller.py', 'f139/check_v37_release_source.py', 'f139/test_nci04_v37_source_transition.py', 'f139/nci04_v37_original_owner_transition_cli.py', '.github/workflows/f139-v37-original-owner-release.yml', '.github/workflows/qualify.yml', 'f139/nci04_v37_source_transition.py', 'f139/nci04_v32_original_owner_transition_cli.py', '.github/workflows/f139-v36-original-owner-release.yml', 'f139/nci04_owner_ledger.py', 'f139/test_nci04_v36_source_transition.py', '.github/workflows/forge-f139-source-qualification.yml', 'f139/nci04_genenv_owner_backend.py', 'docs/F139-V37-PUBLIC-ORDER-OWNER-HANDOFF.md'})
+PATHS = frozenset({'f139/test_nci04_v33_source_transition.py', 'f139/test_nci04_v34_source_transition.py', 'f139/local_controller.py', 'f139/check_v37_release_source.py', 'f139/test_nci04_v37_source_transition.py', 'f139/nci04_v37_original_owner_transition_cli.py', '.github/workflows/f139-v37-original-owner-release.yml', '.github/workflows/qualify.yml', 'f139/nci04_v37_source_transition.py', 'f139/nci04_v32_original_owner_transition_cli.py', '.github/workflows/f139-v36-original-owner-release.yml', 'f139/nci04_owner_ledger.py', 'f139/test_nci04_v36_source_transition.py', '.github/workflows/forge-f139-source-qualification.yml', 'f139/nci04_genenv_owner_backend.py', 'docs/F139-V37-PUBLIC-ORDER-OWNER-HANDOFF.md'})
 
 
 def verify(root, *, get=None):

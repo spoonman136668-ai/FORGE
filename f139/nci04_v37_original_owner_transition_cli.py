@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import sys
 import tempfile
 
 from f139.nci04_native_contract import canonical
@@ -82,6 +83,32 @@ def rehearse_private_history(db, target, event_id):
             new_dispatches=0, scientific_first_use=False)
 
 
+
+def readonly_publication_diagnostic(db):
+    """Bounded original-history evidence only; never resolve or retry a write."""
+    contract.need(getattr(db, "_readonly_opened", False) is True
+        and db.conn.execute("PRAGMA query_only").fetchone()[0] == 1,
+        "READONLY_ORIGINAL_REQUIRED")
+    kinds = ("MODEL_DRAFT_ATTEMPTED", "MODEL_DRAFT_AUTHENTICATED")
+    counts = {kind: db.conn.execute("SELECT COUNT(*) FROM events WHERE kind=?",
+                                  (kind,)).fetchone()[0] for kind in kinds}
+    row = db.conn.execute("SELECT seq,sha,payload FROM events WHERE kind=? ORDER BY seq DESC LIMIT 1",
+                          (kinds[0],)).fetchone()
+    latest = None
+    if row is not None:
+        doc = json.loads(row["payload"])
+        keys = ("schema", "candidate_identity", "source_after_sha256", "source_sha",
+                "parent_commit", "branch", "prior_event_head_sha256",
+                "scientific_first_use", "retry_allowed")
+        latest = dict(seq=row["seq"], sha=row["sha"],
+                      attempt={k:doc[k] for k in keys if k in doc})
+    meta = db.meta()
+    return dict(schema="forge.f139.v37.readonly-publication-diagnostic.v1",
+        source_sha=meta["source_sha"], original_head_seq=meta["head_seq"],
+        original_head_sha256=meta["head_hash"], counts=counts, latest_attempt=latest,
+        owner_mutations=0, remote_writes=0, retry_authorized=False,
+        source_transition_authorized=False, scientific_first_use=False)
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, required=True)
@@ -101,7 +128,12 @@ def main(argv=None):
         try:
             # A consistent read snapshot; never a source/owner mutation lease.
             db.conn.execute("BEGIN")
-            report = contract.readonly_snapshot(db)
+            try:
+                report = contract.readonly_snapshot(db)
+            except contract.MaintenanceDenied:
+                print("F139_V37_READONLY_DIAGNOSTIC=" + canonical(
+                    readonly_publication_diagnostic(db)).decode("ascii"), file=sys.stderr)
+                raise
             report["candidate_source_sha"] = args.target
             if args.rehearse_copy:
                 report["copied_history_rehearsal"] = rehearse_private_history(
