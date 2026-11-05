@@ -124,6 +124,18 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if ((git rev-parse HEAD).Trim() -cne $env:KTERM_HEAD) { throw 'FORGE_KTERM_FULL_SHA_DRIFT' }
+          # Step-local PowerShell environments do not persist; establish the
+          # same bounded Windows short-root retention layout used by P5.
+          $drive=[IO.Path]::GetPathRoot($env:RUNNER_TEMP)
+          if ([string]::IsNullOrWhiteSpace($drive)) { throw 'FORGE_KTERM_FULL_ROOT_DRIVE_ABSENT' }
+          $root=Join-Path $drive ('ktp5full-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if (-not [IO.Path]::IsPathRooted($root) -or $root.Length -gt 65 -or (Test-Path -LiteralPath $root)) { throw 'FORGE_KTERM_FULL_ROOT_UNSAFE_OR_STALE' }
+          $env:K_TERMINAL_TEST_WORKSPACE=$root
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'tail'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'post'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'private'
+          foreach ($dir in @($root,$env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,$env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)) { [void][IO.Directory]::CreateDirectory($dir) }
+          Write-Host 'FORGE_KTERM_FULL_SHORT_ROOT=CONFIGURED'
           $out=Join-Path $env:RUNNER_TEMP 'forge-kterm-full-private.jsonl'
           $stderr=Join-Path $env:RUNNER_TEMP 'forge-kterm-full-private.stderr'
           $sw=[Diagnostics.Stopwatch]::StartNew()
