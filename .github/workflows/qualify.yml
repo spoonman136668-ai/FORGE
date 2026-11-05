@@ -39,6 +39,20 @@ jobs:
           python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
           # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
           python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: Prepare frozen transport sources and run affected controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate=$(git rev-parse HEAD)
+          for source in 80ae30719bcd9f179da4aa4e8f14dc36fd15818e 556d61f795cab1a042d26b46bbc1087dd436f52d; do
+            if ! git cat-file -e "$source:f139/local_controller.py" 2>/dev/null; then
+              git fetch --no-tags --depth=1 https://github.com/spoonman136668-ai/FORGE.git "$source"
+            fi
+            git cat-file -e "$source:f139/local_controller.py"
+          done
+          test "$(git rev-parse HEAD)" = "$candidate"
+          test "$(git rev-parse --is-shallow-repository)" = true
+          python3 -B -m unittest discover -s f139 -p 'test_github_command_transport.py' -v
       - name: F139 Python controller and native-custody regression
         shell: bash
         run: |
@@ -125,6 +139,20 @@ jobs:
           $ErrorActionPreference='Stop'
           python -B -m unittest discover -s f139 -p 'test_nci04_original_owner_mutex.py' -v
           if($LASTEXITCODE -ne 0){throw 'F139_V36_MUTEX_INTEROPERABILITY_FAILED'}
+      - name: Prepare frozen transport sources and run affected controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate=$(git rev-parse HEAD)
+          for source in 80ae30719bcd9f179da4aa4e8f14dc36fd15818e 556d61f795cab1a042d26b46bbc1087dd436f52d; do
+            if ! git cat-file -e "$source:f139/local_controller.py" 2>/dev/null; then
+              git fetch --no-tags --depth=1 https://github.com/spoonman136668-ai/FORGE.git "$source"
+            fi
+            git cat-file -e "$source:f139/local_controller.py"
+          done
+          test "$(git rev-parse HEAD)" = "$candidate"
+          test "$(git rev-parse --is-shallow-repository)" = true
+          python3 -B -m unittest discover -s f139 -p 'test_github_command_transport.py' -v
       - name: F139 Python controller and native-custody regression
         shell: bash
         run: |
