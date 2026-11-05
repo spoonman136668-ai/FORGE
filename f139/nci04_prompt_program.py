@@ -154,6 +154,52 @@ def same_ordering(a,b):
         a[p]*denominator == b[p]*numerator for p in b)
 
 
+
+def _public_counter_value(term, success, failure):
+    """Evaluate trusted integer grammar nodes, never candidate Python."""
+    if term[0] == "constant":
+        return term[1]
+    if term[0] == "observed":
+        return {"success": success, "failure": failure,
+                "total": success + failure}[term[1]]
+    left = _public_counter_value(term[1], success, failure)
+    right = _public_counter_value(term[2], success, failure)
+    return {"add": lambda: left + right, "mul": lambda: left * right,
+            "min": lambda: min(left, right),
+            "max": lambda: max(left, right)}[term[0]]()
+
+
+def public_rate_preflight(program):
+    """Development-only public-evidence control for NEW proposed programs.
+
+    Equal arm exposure must preserve the ordering of observed success rates,
+    including both directions and explicit abstention checks. This prevents
+    tautological rate ties and reversed failure-rate choices before a worker
+    is dispatched. It does NOT certify unequal exposure, learning or science.
+    Historic source decoding deliberately does not call this preflight.
+    """
+    numerator, denominator = parse(program)
+    for trials in (2, 4, 8):
+        for success0 in range(trials + 1):
+            for success1 in range(trials + 1):
+                if success0 == success1:
+                    continue
+                numerator0 = _public_counter_value(
+                    numerator, success0, trials - success0)
+                numerator1 = _public_counter_value(
+                    numerator, success1, trials - success1)
+                denominator0 = _public_counter_value(
+                    denominator, success0, trials - success0)
+                denominator1 = _public_counter_value(
+                    denominator, success1, trials - success1)
+                if denominator0 <= 0 or denominator1 <= 0:
+                    return False
+                difference = numerator0 * denominator1 - numerator1 * denominator0
+                if difference == 0 or (difference > 0) != (success0 > success1):
+                    return False
+    return True
+
+
 def constant_forms(height):
     """Unique fixed-shape spellings of the tiny compile-time constant domain."""
     need(type(height) is int and 0 <= height <= 2, "TYPED_EMBEDDING")
@@ -303,6 +349,8 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
                 changed[pos] = replacement
                 program = " ".join(changed)
                 try:
+                    if not public_rate_preflight(program):
+                        continue
                     after = source_for_program(before,program)
                 except ProgramRejected:
                     continue

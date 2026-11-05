@@ -8,7 +8,8 @@ from f139 import nci04_model_free_search as search
 from f139.nci04_genenv_source import source_for_vector
 from f139.nci04_native_contract import digest
 from f139.nci04_prompt_program import (
-    BRANCHES,MARKER,SEED,ProgramRejected,build_plan,recover_program,source_for_program,
+    BRANCHES,MARKER,SEED,ProgramRejected,build_plan,recover_program,
+    public_rate_preflight,source_for_program,
 )
 from f139.nci04_prompt_source import frozen_digest
 
@@ -71,6 +72,47 @@ class TypedProgramTests(unittest.TestCase):
             sources += (child,)
         self.assertEqual(len(consumed),19)
         self.assertTrue({digest(x) for x in LEGACY} <= consumed)
+
+    def test_public_rate_preflight_rejects_real_v36_negatives_but_keeps_history(self):
+        # Exact public-counter programs from original V36 task negatives
+        # i1483 (tautological tie) and i1484 (failure-rate inversion).
+        negatives = (
+            "rate min max success total add total zero add add total zero add zero zero",
+            "rate min min failure total add total zero add add total zero add zero zero",
+            "rate add add failure zero add zero zero add add total zero add zero zero",
+        )
+        for program in negatives:
+            with self.subTest(program=program):
+                self.assertFalse(public_rate_preflight(program))
+                # Existing source identities stay reconstructible for custody.
+                # Historical decoding is never requalified by this new filter.
+                historical = source_for_program(BEFORE, program)
+                reconstructed = recover_program(BEFORE, historical)
+                self.assertIsNotNone(reconstructed)
+                self.assertEqual(source_for_program(BEFORE, reconstructed), historical)
+        self.assertTrue(public_rate_preflight(SEED))
+        laplace = "rate add add success one add zero zero add add total two add zero zero"
+        self.assertTrue(public_rate_preflight(laplace))
+
+    def test_new_proposals_preserve_public_matched_exposure_order(self):
+        proposal = plan()
+        self.assertIsNotNone(proposal)
+        self.assertGreater(len(proposal.bindings), 0)
+        self.assertTrue(all(public_rate_preflight(
+            binding.prompt.split(" history ", 1)[0])
+            for binding in proposal.bindings))
+        # Negative candidates remain consumed, never eligible as parents.
+        negatives = (
+            source_for_program(BEFORE,
+                "rate min max success total add total zero add add total zero add zero zero"),
+            source_for_program(BEFORE,
+                "rate min min failure total add total zero add add total zero add zero zero"),
+        )
+        later = plan(LEGACY + negatives, eligible_parent_sha256=set())
+        self.assertIsNotNone(later)
+        self.assertEqual(later.parent_program, SEED)
+        self.assertTrue({digest(x) for x in negatives}.isdisjoint(
+            {b.source.after_sha256 for b in later.bindings}))
 
     def test_generated_arithmetic_matches_independent_fraction_oracle_and_keeps_memory(self):
         for binding in plan().bindings:
@@ -136,11 +178,29 @@ class TypedProgramTests(unittest.TestCase):
             recover_program(BEFORE,forged)
 
     def test_equivalent_tokens_cannot_change_source_identity_before_native_intake(self):
-        child = plan().bindings[0].source.after
-        canonical = recover_program(BEFORE,child)
-        alias = canonical.replace("failure zero","zero failure",1)
-        self.assertNotEqual(alias,canonical)
-        self.assertEqual(source_for_program(BEFORE,alias),child)
+        # The public-rate prefilter may reorder the first fresh candidate.
+        # Find a real commutative spelling alias instead of assuming that
+        # candidate zero contains a particular "failure zero" token pair.
+        child = alias = canonical = None
+        for binding in plan().bindings:
+            original = binding.source.after
+            program = recover_program(BEFORE, original)
+            words = program.split(" ")
+            for pos in sorted(BRANCHES):
+                if (pos + 2 >= len(words) or pos + 1 in BRANCHES
+                        or pos + 2 in BRANCHES or words[pos+1] == words[pos+2]):
+                    continue
+                swapped = words.copy()
+                swapped[pos+1], swapped[pos+2] = swapped[pos+2], swapped[pos+1]
+                candidate_alias = " ".join(swapped)
+                if source_for_program(BEFORE, candidate_alias) == original:
+                    child, canonical, alias = original, program, candidate_alias
+                    break
+            if alias is not None:
+                break
+        self.assertIsNotNone(alias, "NO_EQUIVALENT_TOKEN_ALIAS_IN_FRESH_BATCH")
+        self.assertNotEqual(alias, canonical)
+        self.assertEqual(source_for_program(BEFORE, alias), child)
         # Original publication custody has the raw hash before native intake.
         # The new source's AST is deliberately absent from this fixture.
         new = plan(consumed_sha256={digest(child)},historical_ast_sha256=set())
