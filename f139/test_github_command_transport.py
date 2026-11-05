@@ -1,0 +1,268 @@
+"""Bounded GitHub CLI transport policy for the original F139 owner client."""
+import subprocess
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from local_controller import F139Error, GitHub
+
+
+class GitHubCommandTransportTests(unittest.TestCase):
+    ROUTE = "repos/spoonman136668-ai/FORGE/branches/main"
+
+    def invoke(self, args, responses, command=None):
+        with patch("local_controller.shutil.which", return_value="gh"), \
+             patch("local_controller.subprocess.run", side_effect=responses) as run, \
+             patch("local_controller.time.sleep") as sleep:
+            result = None
+            error = None
+            try:
+                result = (command or GitHub._command)(args)
+            except F139Error as exc:
+                error = str(exc)
+            return result, error, run, sleep
+
+    def test_read_only_get_retries_timeout_then_succeeds(self):
+        ok = SimpleNamespace(returncode=0, stdout=b'{"ok":true}', stderr=b"")
+        result, error, run, sleep = self.invoke(
+            [self.ROUTE], [subprocess.TimeoutExpired(["gh", "api"], 40), ok]
+        )
+        self.assertEqual(result, b'{"ok":true}')
+        self.assertIsNone(error)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [1])
+
+    def test_read_only_get_retries_server_error_then_succeeds(self):
+        failed = SimpleNamespace(
+            returncode=1, stdout=b"", stderr=b"gh: HTTP 503: Service Unavailable"
+        )
+        ok = SimpleNamespace(returncode=0, stdout=b'{"ok":true}', stderr=b"")
+        result, error, run, sleep = self.invoke([self.ROUTE], [failed, ok])
+        self.assertEqual(result, b'{"ok":true}')
+        self.assertIsNone(error)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [1])
+
+    def test_read_only_get_stops_after_three_rate_limited_attempts(self):
+        failed = SimpleNamespace(
+            returncode=1, stdout=b"", stderr=b"HTTP 429: API rate limit exceeded"
+        )
+        result, error, run, sleep = self.invoke(
+            [self.ROUTE], [failed, failed, failed]
+        )
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_RATE_LIMIT")
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [1, 2])
+
+    def test_authentication_failure_is_not_retried(self):
+        failed = SimpleNamespace(
+            returncode=1, stdout=b"", stderr=b"HTTP 403: Resource not accessible"
+        )
+        result, error, run, sleep = self.invoke([self.ROUTE], [failed])
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_AUTH")
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_post_timeout_is_never_retried(self):
+        args = [
+            "--method", "POST", "repos/spoonman136668-ai/FORGE/issues",
+            "-f", "title=bounded test",
+        ]
+        result, error, run, sleep = self.invoke(
+            args, [subprocess.TimeoutExpired(["gh", "api"], 40)]
+        )
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_TIMEOUT")
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_post_server_error_is_never_retried(self):
+        args = [
+            "--method", "POST", "repos/spoonman136668-ai/FORGE/issues",
+            "-f", "title=bounded test",
+        ]
+        failed = SimpleNamespace(
+            returncode=1, stdout=b"", stderr=b"HTTP 502: Bad Gateway"
+        )
+        result, error, run, sleep = self.invoke(args, [failed])
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_TRANSIENT")
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_patch_put_and_delete_timeouts_are_never_retried(self):
+        for method in ("PATCH", "PUT", "DELETE"):
+            with self.subTest(method=method):
+                args = [
+                    "--method", method,
+                    "repos/spoonman136668-ai/FORGE/issues/1",
+                    "-f", "title=bounded test",
+                ]
+                result, error, run, sleep = self.invoke(
+                    args, [subprocess.TimeoutExpired(["gh", "api"], 40)]
+                )
+                self.assertIsNone(result)
+                self.assertEqual(error, "F139_GITHUB_API_TIMEOUT")
+                self.assertEqual(run.call_count, 1)
+                sleep.assert_not_called()
+
+    def test_get_with_extra_cli_options_is_not_retryable(self):
+        args = ["--paginate", self.ROUTE]
+        result, error, run, sleep = self.invoke(
+            args, [subprocess.TimeoutExpired(["gh", "api"], 40)]
+        )
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_TIMEOUT")
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_failure_classification_does_not_echo_raw_stderr(self):
+        failed = SimpleNamespace(
+            returncode=1, stdout=b"", stderr=b"HTTP 403 secret-token=DO_NOT_LEAK"
+        )
+        result, error, run, sleep = self.invoke([self.ROUTE], [failed])
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_AUTH")
+        self.assertNotIn("DO_NOT_LEAK", error)
+        self.assertEqual(run.call_count, 1)
+
+    def test_definite_http_rejections_override_transient_words(self):
+        cases = (
+            (401, "API rate limit exceeded", "AUTH"),
+            (401, "connection reset", "AUTH"),
+            (403, "connection reset", "AUTH"),
+            (403, "missing rate limit permission", "AUTH"),
+            (404, "API rate limit exceeded", "FAILED"),
+            (404, "connection reset", "FAILED"),
+            (422, "temporary failure", "FAILED"),
+        )
+        for status, text, expected in cases:
+            with self.subTest(status=status, text=text):
+                failed = SimpleNamespace(returncode=1, stdout=b"",
+                    stderr=f"HTTP {status}: {text}; DO_NOT_LEAK".encode())
+                result, error, run, sleep = self.invoke([self.ROUTE], [failed] * 3)
+                self.assertIsNone(result)
+                self.assertEqual(error, "F139_GITHUB_API_" + expected)
+                self.assertEqual(run.call_count, 1)
+                sleep.assert_not_called()
+                self.assertNotIn("DO_NOT_LEAK", error)
+
+    def test_explicit_403_rate_limit_keeps_bounded_read_recovery(self):
+        for text in ("API rate limit exceeded", "secondary rate limit"):
+            with self.subTest(text=text):
+                failed = SimpleNamespace(returncode=1, stdout=b"",
+                    stderr=f"HTTP 403: {text}".encode())
+                ok = SimpleNamespace(returncode=0, stdout=b"{}", stderr=b"")
+                result, error, run, sleep = self.invoke([self.ROUTE], [failed, ok])
+                self.assertEqual(result, b"{}")
+                self.assertIsNone(error)
+                self.assertEqual(run.call_count, 2)
+                self.assertEqual([c.args[0] for c in sleep.call_args_list], [1])
+
+    def test_frozen_engine_before_after_comparison(self):
+        """Exercise real FORGE functions; faults are synthetic, not live evidence."""
+        import ast
+        import copy
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import local_controller as controller
+
+        root = Path(__file__).resolve().parents[1]
+        baseline = "80ae30719bcd9f179da4aa4e8f14dc36fd15818e"
+        previous = "556d61f795cab1a042d26b46bbc1087dd436f52d"
+        def source_at(commit):
+            return subprocess.check_output(
+                ["git", "show", commit + ":f139/local_controller.py"], cwd=root)
+        def function(raw):
+            cls = next(x for x in ast.parse(raw).body
+                       if isinstance(x, ast.ClassDef) and x.name == "GitHub")
+            node = copy.deepcopy(next(x for x in cls.body
+                if isinstance(x, ast.FunctionDef) and x.name == "_command"))
+            node.decorator_list = []
+            return node
+        def load(raw):
+            node = function(raw)
+            namespace = {name: getattr(controller, name) for name in
+                ("require", "F139Error", "shutil", "subprocess", "time", "re", "MAX_ZIP_BYTES")}
+            exec(compile(ast.Module(body=[node], type_ignores=[]),
+                         "<pinned-forge-transport>", "exec"), namespace)
+            return namespace["_command"]
+        candidate_source = Path(controller.__file__).read_bytes()
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root,
+                                       text=True).strip()
+        clean = candidate_source.replace(b"\r\n", b"\n") == source_at("HEAD").replace(b"\r\n", b"\n")
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            self.assertTrue(clean, "candidate function source drift")
+        sources = {"single_attempt": source_at(baseline),
+                   "prior_retry": source_at(previous),
+                   "status_first_retry": candidate_source}
+        ok = SimpleNamespace(returncode=0, stdout=b"{}", stderr=b"")
+        def fail(text):
+            return SimpleNamespace(returncode=1, stdout=b"", stderr=text.encode())
+        recoveries = [subprocess.TimeoutExpired(["gh", "api"], 40),
+                      fail("HTTP 503"), fail("HTTP 429"), fail("connection reset")]
+        rejections = [fail(text) for text in (
+            "HTTP 401: API rate limit exceeded", "HTTP 401: connection reset",
+            "HTTP 403: connection reset", "HTTP 403: missing rate limit permission",
+            "HTTP 404: API rate limit exceeded", "HTTP 404: connection reset",
+            "HTTP 422: temporary failure")]
+        metrics = {}
+        for name, raw in sources.items():
+            command = load(raw)
+            row = dict(recovered_reads=0, terminal_read_extra_calls=0,
+                       mutation_extra_calls=0, total_calls=0)
+            for failure in recoveries:
+                result, error, run, sleep = self.invoke([self.ROUTE], [failure, ok], command)
+                row["recovered_reads"] += int(result == b"{}" and error is None)
+                row["total_calls"] += run.call_count
+                self.assertLessEqual(run.call_count, 3)
+                self.assertLessEqual(sum(c.args[0] for c in sleep.call_args_list), 3)
+            for failure in rejections:
+                result, error, run, sleep = self.invoke([self.ROUTE], [failure] * 3, command)
+                self.assertIsNone(result)
+                self.assertIsNotNone(error)
+                row["terminal_read_extra_calls"] += run.call_count - 1
+                row["total_calls"] += run.call_count
+            for method in ("POST", "PATCH", "PUT", "DELETE"):
+                for failure in (subprocess.TimeoutExpired(["gh", "api"], 40), fail("HTTP 503")):
+                    result, error, run, sleep = self.invoke(
+                        ["--method", method, self.ROUTE], [failure] * 3, command)
+                    self.assertIsNone(result)
+                    self.assertIsNotNone(error)
+                    row["mutation_extra_calls"] += run.call_count - 1
+                    row["total_calls"] += run.call_count
+                    sleep.assert_not_called()
+            result, error, run, sleep = self.invoke([self.ROUTE], [ok], command)
+            self.assertEqual(result, b"{}")
+            self.assertEqual(run.call_count, 1)
+            row["total_calls"] += run.call_count
+            metrics[name] = row
+        self.assertEqual(metrics["single_attempt"]["recovered_reads"], 0)
+        self.assertEqual(metrics["prior_retry"]["recovered_reads"], 4)
+        self.assertEqual(metrics["prior_retry"]["terminal_read_extra_calls"], 14)
+        self.assertEqual(metrics["status_first_retry"], dict(
+            recovered_reads=4, terminal_read_extra_calls=0,
+            mutation_extra_calls=0, total_calls=24))
+        self.assertTrue(all(row["mutation_extra_calls"] == 0 for row in metrics.values()))
+        def function_hash(raw):
+            node = function(raw)
+            lines = raw.replace(b"\r\n", b"\n").splitlines(keepends=True)
+            return hashlib.sha256(b"".join(lines[node.lineno - 1:node.end_lineno])).hexdigest()
+        receipt = {"schema": "forge.engine.transport-development.v1",
+            "baseline_sha": baseline, "previous_sha": previous,
+            "candidate_sha": head if clean else None,
+            "candidate_source_clean": clean, "fault_injection_only": True,
+            "autonomous_self_improvement_proven": False, "promotion_authority": False,
+            "line_endings_normalized": True,
+            "harness_sha256": hashlib.sha256(Path(__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
+            "function_sha256": {name: function_hash(raw) for name, raw in sources.items()},
+            "metrics": metrics}
+        print("FORGE_ENGINE_TRANSPORT_DEV_COMPARISON=" + json.dumps(receipt, sort_keys=True))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -8,7 +8,7 @@ import unittest
 from f139.nci04_native_contract import Candidate, canonical, digest
 from f139.nci04_signed_native import NativeAdmission
 from f139.nci04_worker_v3 import (
-    unit, COMMAND, BUILD, ATLAS, TARGET, CLOSED,
+    unit, COMMAND, BUILD, RATE_COMMAND, ATLAS, TARGET, CLOSED,
     SCHEMA as R_SCHEMA, receipt_v3)
 from f139.nci04_original_v3_terminal import (
     inner_zip, V3TerminalDenied, MEMBERS,
@@ -56,6 +56,7 @@ class OriginalV3CustodyTests(unittest.TestCase):
             "baseline_full":row(COMMAND+("-p","test_*.py","-v"),"PASS",54),
             "candidate_g29_negative":row(unit(ATLAS),CLOSED,4),
             "candidate_compile":row(BUILD,"PASS",None),
+            "candidate_rate_oracle":row(RATE_COMMAND,"PASS",None),
             "candidate_nonatlas":{
                 name:row(unit(name),"PASS",5)
                 for name in names if name!=ATLAS},
@@ -111,12 +112,22 @@ class OriginalV3CustodyTests(unittest.TestCase):
             lambda r:r["candidate_nonatlas"]["test_native_cells.py"].update(child_cpu_ms=0),
             lambda r:r["candidate_g29_negative"].update(status="PASS"),
             lambda r:r["baseline_full"].update(discovered_tests=0),
+            lambda r:r["candidate_rate_oracle"].update(status="TEST_FAILURE"),
+            lambda r:r["candidate_rate_oracle"].update(child_cpu_ms=0),
         ]
         for i,change in enumerate(changes):
             report=copy.deepcopy(self.report)
             change(report)
             with self.subTest(i=i),self.assertRaises(ValueError):
                 self.verify(self.zipbytes(report))
+
+    def test_historical_v3_positive_without_new_oracle_keeps_custody(self):
+        # Old V3 reports cannot be rewritten or retroactively rejected.
+        historical=copy.deepcopy(self.report)
+        historical.pop("candidate_rate_oracle")
+        historical_receipt=receipt_v3(self.admission,historical)
+        self.assertEqual(historical_receipt["schema"],self.receipt["schema"])
+        self.assertEqual(len(self.verify(self.zipbytes(historical,historical_receipt))["receipt_sha256"]),64)
 
     def test_outer_provider_zip_digest_and_member_inventory_enforced(self):
         blob=self.zipbytes()

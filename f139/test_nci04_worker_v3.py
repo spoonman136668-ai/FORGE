@@ -179,5 +179,102 @@ class V3WorkerContractTests(unittest.TestCase):
         self.assertEqual(actual["native_qualified"],False)
 
 
+    def test_prospective_rate_oracle_rejects_raw_counts(self):
+        """A frozen candidate's own tests cannot replace independent rate checks."""
+        import subprocess
+        import sys
+        package = self.root / "yggdrasil"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        # Use the real frozen native implementation, including checkpoint
+        # integrity and bounded counters, rather than a toy comparator.
+        good = Path(__file__).with_name("fixtures").joinpath(
+            "model_free_yggdrasil_992ef.py").read_text(encoding="utf-8")
+        module = package / "public_causal_cells.py"
+        def check(source):
+            module.write_text(source, encoding="utf-8")
+            return subprocess.run([sys.executable, "-B", "-c", v3.RATE_ORACLE],
+                                  cwd=self.root, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=30,
+                                  check=False)
+        accepted = check(good)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr[-600:])
+        self.assertEqual(accepted.stdout.strip(),
+                         b"F139_PROSPECTIVE_RATE_ORACLE=PASS")
+        mutations = {
+            "raw_counts": good.replace("one0 * trials1, one1 * trials0", "one0, one1"),
+            "mutating_choice": good.replace(
+                "        (zero0, one0), (zero1, one1) = self._counts[cell]",
+                "        self._counts[15][0][0] ^= 1\n"
+                "        (zero0, one0), (zero1, one1) = self._counts[cell]"),
+            "lost_checkpoint": good.replace("        return cells\n", "        return cls()\n"),
+        }
+        for name, source in mutations.items():
+            with self.subTest(mutation=name):
+                self.assertNotEqual(good, source)
+                rejected = check(source)
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertNotIn(b"F139_PROSPECTIVE_RATE_ORACLE=PASS", rejected.stdout)
+                self.assertIn(b"F139_PROSPECTIVE_RATE_", rejected.stderr)
+
+
+    def test_rate_oracle_command_and_output_are_fixed(self):
+        accepted = v3.invoke(v3.RATE_COMMAND, self.root,
+                             runner=self.runner(b"F139_PROSPECTIVE_RATE_ORACLE=PASS\n"))
+        self.assertEqual(accepted["status"], "PASS")
+        self.assertIsNone(accepted["discovered_tests"])
+        with self.assertRaises(v3.V3Denied):
+            v3.invoke(v3.RATE_COMMAND, self.root, runner=self.runner(b"fake success\n"))
+        with self.assertRaises(v3.V3Denied):
+            v3.invoke(("python", "-B", "-c", "print('PASS')"), self.root,
+                      runner=self.runner(b"F139_PROSPECTIVE_RATE_ORACLE=PASS\n"))
+
+    def test_exact_legacy_v2_positive_is_rejected_without_replaying_its_scope(self):
+        """Offline retained fixture only; no original worker or owner is invoked."""
+        import hashlib
+        import json
+        import subprocess
+        import sys
+        fixture = Path(__file__).with_name("fixtures") / "legacy_v2_i1475_rate_false_positive.py"
+        source = fixture.read_bytes()
+        origin = json.loads(fixture.with_suffix(".json").read_text())
+        self.assertEqual(hashlib.sha256(source).hexdigest(),
+                         "d14b02611504cbbea82f99c536d5ecacbf7126c02311cd02e0fbc822e68887fe")
+        self.assertEqual(origin["candidate_sha256"], hashlib.sha256(source).hexdigest())
+        self.assertEqual(origin["native_run_id"], 41980047291)
+        self.assertEqual({x["os"] for x in origin["artifacts"]},
+                         {"ubuntu-latest", "windows-latest"})
+        self.assertFalse(origin["scientific_acceptance"])
+        package = self.root / "yggdrasil"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        module = package / "public_causal_cells.py"
+        module.write_bytes(source)
+        def run(script):
+            return subprocess.run([sys.executable, "-B", "-c", script], cwd=self.root,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, check=False)
+        counterexample = run("from yggdrasil.public_causal_cells import PublicCausalCells\n"
+            "c=PublicCausalCells()\n"
+            "for arm,successes,trials in ((0,2,2),(1,3,10)):\n"
+            "    for i in range(trials): c.observe(0,arm,int(i<successes))\n"
+            "print(c.choose(0))\n")
+        self.assertEqual(counterexample.returncode, 0, counterexample.stderr[-600:])
+        self.assertEqual(counterexample.stdout.strip(), b"1")
+        rejected = run(v3.RATE_ORACLE)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn(b"F139_PROSPECTIVE_RATE_ORACLE_MISMATCH", rejected.stderr)
+        self.assertNotIn(b"F139_PROSPECTIVE_RATE_ORACLE=PASS", rejected.stdout)
+        # Test-only corrected control, never a published candidate or a repair
+        # of the consumed scope. It proves rejection is about rate semantics.
+        corrected = source.decode("utf-8").replace(
+            "numerator0 = ((one0 * trials0) * trials0)", "numerator0 = one0").replace(
+            "numerator1 = ((one1 * trials1) * trials1)", "numerator1 = one1")
+        self.assertNotEqual(corrected.encode(), source)
+        module.write_text(corrected, encoding="utf-8")
+        accepted = run(v3.RATE_ORACLE)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr[-600:])
+        self.assertEqual(accepted.stdout.strip(), b"F139_PROSPECTIVE_RATE_ORACLE=PASS")
+
+
 if __name__=="__main__":
     unittest.main()
