@@ -63,6 +63,22 @@ class V36ContractTests(unittest.TestCase):
             with self.assertRaises(route.MaintenanceDenied):
                 route.verify_cold_event(None, row, doc, self.previous()+[doc])
 
+    def test_historical_i1464_requires_the_new_seal_and_original_negative(self):
+        db, _ = self.history()
+        doc = proof()
+        self.assertIsNone(route.historical_i1464_ticket(db, self.previous()))
+        self.assertEqual(route.historical_i1464_ticket(db, self.previous()+[doc]), route.I1464_TICKET)
+        for delta in ({'i1464_negative_event_sha256':'0'*64},
+                      {'i1464_original_receipt_sha256':'0'*64},
+                      {'from_source_sha':'e'*40}, {'original_head_seq':True}, {'extra':False}):
+            with self.subTest(delta=delta), self.assertRaises(route.MaintenanceDenied):
+                route.historical_i1464_ticket(db, self.previous()+[{**doc, **delta}])
+        with self.assertRaises(route.MaintenanceDenied):
+            route.historical_i1464_ticket(db, self.previous()+[doc, doc])
+        db.conn.execute("UPDATE tasks SET source_sha=? WHERE ticket=?", ('e'*40,route.I1464_TICKET))
+        with self.assertRaises(route.MaintenanceDenied):
+            route.historical_i1464_ticket(db, self.previous()+[doc])
+
     def test_lifetime_spend_and_unfinished_publication_never_reset(self):
         counts=proof()['preserved_counters']; self.assertTrue(route.preserved_counters_valid(counts))
         self.assertTrue(route.preserved_counters_valid({**counts,'MODEL_DRAFT_ATTEMPTED':200,'MODEL_DRAFT_AUTHENTICATED':200}))

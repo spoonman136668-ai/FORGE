@@ -66,3 +66,5 @@ does not claim a new G61 immutable-atlas proof. Release/preflight checkouts reta
 full history for accepted-main and immutable-release ancestry verification.
 
 The hosted exact-manifest test applies to this V36 engineering branch. It must not freeze unrelated future development against this release's 15-path delta. Both release and read-only workflow entry points still execute the source-manifest guard unconditionally before accessing original-owner state.
+
+The first authentic-history private-copy rehearsal (run 42014078952, job 127200065305, source f092a1fae0b8d65b1bd099ac451ae81126e15933) rejected the transition with F139_TASK_STATE_CORRUPT. The cold seal preserved i1464, but the final historical-task classifier did not recognize that distinct quarantine after the source changed. The correction carries only the exact anchored i1464 negative after a validated V36 seal; unknown negatives and older schemas retain their existing rejection. The original owner was never mutated.

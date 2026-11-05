@@ -1714,6 +1714,8 @@ class Database:
         # A special original owner quarantine does not have a provider run.
         # It cannot be misclassified as a failed-provider receipt or erased.
         g54_custody = g54_original_canonical(self) if negative_v11 else None
+        from f139.nci04_v36_source_transition import historical_i1464_ticket
+        i1464_custody = historical_i1464_ticket(self, source_transitions)
         from f139.nci04_g49_prepost_negative import (
             verify_g49_custody, TICKET as PREPOST, SOURCE_V7)
         prepost_verified = verify_g49_custody(self)
@@ -1773,12 +1775,16 @@ class Database:
                 and row["run_id"] is None
                 and row["evidence_sha"] is None
                 and not row["evidence_dir"])
+            prior_i1464_ambiguous = (i1464_custody is not None
+                and row["ticket"] == i1464_custody
+                and row["source_sha"] in historical_sources)
             from f139.nci04_v30_source_transition import carried_source
             carried_pending = (carried_source(self, row["ticket"]) == row["source_sha"]
                                and row["source_sha"] in historical_sources)
             historical = (prior_verified or prior_certified_negative
                           or prior_certified_second or prior_provider_failure
-                          or prior_prepost_negative or prior_g54_ambiguous or carried_pending)
+                          or prior_prepost_negative or prior_g54_ambiguous
+                          or prior_i1464_ambiguous or carried_pending)
             require(TICKET.fullmatch(row["ticket"]) and row["lane"] in LANES and
                     (row["source_sha"] == meta["source_sha"] or historical) and
                     row["stage"] in ALLOWED_STAGES,

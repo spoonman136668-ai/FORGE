@@ -62,6 +62,22 @@ def i1464_negative_anchor(db, boundary):
     return I1464_TICKET
 
 
+
+def historical_i1464_ticket(db, transitions):
+    """Only a cold-validated V36 seal can carry this exact historical negative."""
+    seals = [t for t in transitions if t.get("schema") == SCHEMA]
+    if not seals:
+        return None
+    need(len(seals) == 1, "I1464_TRANSITION_NOT_UNIQUE")
+    seal = seals[0]
+    need(set(seal) == FIELDS and seal["from_source_sha"] == FROM_V35
+         and type(seal["original_head_seq"]) is int and seal["original_head_seq"] >= 1170
+         and seal["i1464_negative_event_sha256"] == I1464_EVENT
+         and seal["i1464_original_receipt_sha256"] == I1464_RECEIPT,
+         "I1464_TRANSITION_CUSTODY_DRIFT")
+    return i1464_negative_anchor(db, seal["original_head_seq"] + 1)
+
+
 def preserved_counters_valid(counts):
     keys = {"G3_DRAFT_ATTEMPTED", "G3_DRAFT_AUTHENTICATED", "MODEL_DRAFT_ATTEMPTED",
             "MODEL_DRAFT_AUTHENTICATED", "FREE_REASONER_ATTEMPTED"}
