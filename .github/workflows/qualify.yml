@@ -118,6 +118,13 @@ jobs:
           python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
           # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
           python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: Focused original-owner Windows mutex interoperability
+        if: runner.os == 'Windows' && github.head_ref == 'engineering/f139-v36-original-owner-corrective-release-20261105'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s f139 -p 'test_nci04_original_owner_mutex.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F139_V36_MUTEX_INTEROPERABILITY_FAILED'}
       - name: F139 Python controller and native-custody regression
         shell: bash
         run: |

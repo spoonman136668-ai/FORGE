@@ -8,6 +8,8 @@ from pathlib import Path
 
 BASELINE = '6e0921e58316810676edd734f42c32eef2afebc7'
 PATHS = frozenset({
+    '.github/workflows/qualify.yml',
+    '.github/workflows/forge-f139-source-qualification.yml',
     '.github/workflows/f139-v36-original-owner-release.yml',
     'docs/F139-V36-ORIGINAL-OWNER-CORRECTIVE-RELEASE.md',
     'f139/check_v36_release_source.py',

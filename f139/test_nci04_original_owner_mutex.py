@@ -65,8 +65,10 @@ public static class ReleaseOwner {
     def test_timeout_cannot_unlock_the_original_python_owner(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp); path=root/'original.lock'; path.write_bytes(b'L-original')
-            with SingleOwner(path):
-                self.run_shells(root, r'''
+            for content in (b'L', b'L-original', b'L'*8193):
+                path.write_bytes(content)
+                with SingleOwner(path):
+                    self.run_shells(root, r'''
 $denied=$false
 try {$lease=[F139OriginalOwnerMutex]::Acquire($p,80);$lease.Dispose()}
 catch {if($_.Exception.GetBaseException() -is [TimeoutException]){$denied=$true}else{throw}}
@@ -78,9 +80,9 @@ try {
  if(-not $stillHeld){throw 'Timeout released someone else''s lock'}
 }finally{$probe.Dispose()}
 ''')
-            with SingleOwner(path):
-                pass
-            self.assertEqual(path.read_bytes(), b'L-original')
+                with SingleOwner(path):
+                    pass
+                self.assertEqual(path.read_bytes(), content)
 
     def test_disposal_and_exceptions_release_the_same_python_mutex(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -150,6 +152,7 @@ public static class ReleaseOwner {
    }
   }
  }
+}
 }
 ''')
             self.assertEqual(path.read_bytes(), b'L-original')

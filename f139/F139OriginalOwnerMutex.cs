@@ -1,4 +1,4 @@
-// One bounded kernel wait for the EXISTING byte-zero owner mutex.
+// One bounded kernel wait for the EXISTING owner mutex file.
 // No task, policy, database, scheduler, dispatch or retry operations.
 using System;
 using System.ComponentModel;
@@ -71,8 +71,10 @@ public sealed class F139OriginalOwnerMutex : IDisposable
                 Overlapped request = new Overlapped();
                 request.Event = signal.SafeWaitHandle.DangerousGetHandle();
                 Marshal.StructureToPtr(request, memory, false);
+                // Cover the legacy CRT descriptor position as well as byte zero.
+                // Buffered Python seeks need not move that descriptor to zero.
                 // LOCKFILE_EXCLUSIVE_LOCK only: do NOT fail immediately.
-                if (!LockFileEx(file, 2, 0, 1, 0, memory))
+                if (!LockFileEx(file, 2, 0, 0xFFFFFFFF, 0x7FFFFFFF, memory))
                 {
                     int error = Marshal.GetLastWin32Error();
                     if (error != 997) throw new Win32Exception(error);
