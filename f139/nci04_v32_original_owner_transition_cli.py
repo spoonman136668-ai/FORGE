@@ -1,4 +1,5 @@
 """Guarded source/binary custody handoff; never calls the live research tick."""
+from contextlib import closing
 import argparse
 import json
 import os
@@ -140,17 +141,19 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
     from f139 import nci04_v33_source_transition as v33
     from f139 import nci04_v34_source_transition as v34
     from f139 import nci04_v35_source_transition as v35
-    globals()["need"](_contract is None or _contract is v33 or _contract is v34 or _contract is v35,
+    from f139 import nci04_v36_source_transition as v36
+    globals()["need"](_contract is None or _contract is v33 or _contract is v34 or _contract is v35 or _contract is v36,
                       "UNKNOWN_SOURCE_CONTRACT")
     contract = v32 if _contract is None else _contract
     FROM_V31 = (v32.FROM_V31 if contract is v32 else
                 v33.FROM_V32 if contract is v33 else
-                v34.FROM_V33 if contract is v34 else v35.FROM_V34)
+                v34.FROM_V33 if contract is v34 else
+                v35.FROM_V34 if contract is v35 else v36.FROM_V35)
     ORIGINAL_SEQ, TOOLCHAIN = getattr(contract, "ORIGINAL_SEQ", None), contract.TOOLCHAIN
     build_proof, commit_transition = contract.build_proof, contract.commit_transition
     validate_idle, need = contract.validate_idle, contract.need
     rehearse_generator = globals()["rehearse_generator"] if _contract is None else rehearse_typed_generator
-    version = "V32" if contract is v32 else "V33" if contract is v33 else "V34" if contract is v34 else "V35"
+    version = "V32" if contract is v32 else "V33" if contract is v33 else "V34" if contract is v34 else "V35" if contract is v35 else "V36"
     need(os.name == "nt" and re.fullmatch(r"[a-f0-9]{40}", target)
          and type(event_id) is int and event_id > 0 and toolchain == TOOLCHAIN,
          "WINDOWS_EXACT_TARGET_AND_TOOLCHAIN_REQUIRED")
@@ -186,10 +189,10 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
         with SingleOwner(path.with_suffix(".lock")):
             validate_idle(db)
             before = db.meta().copy()
-            if contract in (v34, v35):
+            if contract in (v34, v35, v36):
                 ORIGINAL_SEQ = before["head_seq"]
             copy_provider_archives(db, backup.parent, copy_files=False)
-            if version in ("V33", "V34", "V35"):
+            if version in ("V33", "V34", "V35", "V36"):
                 copy_generation_executable(db,backup.parent,copy_files=False)
             rehearsal = backup.with_name(version.lower()+"-source-and-executable-rehearsal.sqlite")
             need(not rehearsal.exists(), "REHEARSAL_COLLISION")
@@ -197,7 +200,7 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
             try:
                 cold.verify()
                 need(cold.meta() == before, "BACKUP_HEAD_DRIFT")
-                with sqlite3.connect(str(rehearsal)) as destination:
+                with closing(sqlite3.connect(str(rehearsal))) as destination:
                     cold.conn.backup(destination)
             finally:
                 cold.close()

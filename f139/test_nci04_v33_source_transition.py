@@ -140,12 +140,12 @@ class V33Tests(unittest.TestCase):
 
     def test_only_current_installer_receives_new_release_pushes(self):
         routed=[]
-        for version in range(27,36):
+        for version in range(27,37):
             text=(ROOT/f".github/workflows/f139-v{version}-original-owner-release.yml").read_text()
             patterns=ast.literal_eval(re.findall(r"^    branches: (\[.*\])$",text,re.M)[0])
             if any(fnmatch.fnmatchcase("f139-owner-release-"+"f"*40,p) for p in patterns):
                 routed.append(version)
-        self.assertEqual(routed,[35])
+        self.assertEqual(routed,[36])
         text=(ROOT/".github/workflows/f139-v33-original-owner-release.yml").read_text()
         for token in ("EXACT_QUALIFICATION_REQUIRED","FINAL_LINUX_WINDOWS_RECEIPTS_REQUIRED",
                 "bypass_actors","ZeroFreeBSTR($ptr)","Remove-Item Env:F139_WORKER_HMAC_KEY",

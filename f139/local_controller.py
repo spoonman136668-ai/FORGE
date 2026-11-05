@@ -766,14 +766,18 @@ class Database:
                 is_v30 = (isinstance(doc, dict)
                           and doc.get("schema") == "forge.f139.source-transition.v30"
                           and set(doc) == V30_FIELDS)
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30,
+                from f139.nci04_v36_source_transition import FIELDS as V31_FIELDS
+                is_v31 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v31"
+                          and set(doc) == V31_FIELDS)
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1666,6 +1670,9 @@ class Database:
                 if is_v30:
                     from f139.nci04_v35_source_transition import verify_cold_event
                     verify_cold_event(self, row, doc, source_transitions)
+                if is_v31:
+                    from f139.nci04_v36_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         from f139.nci04_prospective_journal import audit_assignment_events
@@ -1707,6 +1714,8 @@ class Database:
         # A special original owner quarantine does not have a provider run.
         # It cannot be misclassified as a failed-provider receipt or erased.
         g54_custody = g54_original_canonical(self) if negative_v11 else None
+        from f139.nci04_v36_source_transition import historical_i1464_ticket
+        i1464_custody = historical_i1464_ticket(self, source_transitions)
         from f139.nci04_g49_prepost_negative import (
             verify_g49_custody, TICKET as PREPOST, SOURCE_V7)
         prepost_verified = verify_g49_custody(self)
@@ -1766,12 +1775,16 @@ class Database:
                 and row["run_id"] is None
                 and row["evidence_sha"] is None
                 and not row["evidence_dir"])
+            prior_i1464_ambiguous = (i1464_custody is not None
+                and row["ticket"] == i1464_custody
+                and row["source_sha"] in historical_sources)
             from f139.nci04_v30_source_transition import carried_source
             carried_pending = (carried_source(self, row["ticket"]) == row["source_sha"]
                                and row["source_sha"] in historical_sources)
             historical = (prior_verified or prior_certified_negative
                           or prior_certified_second or prior_provider_failure
-                          or prior_prepost_negative or prior_g54_ambiguous or carried_pending)
+                          or prior_prepost_negative or prior_g54_ambiguous
+                          or prior_i1464_ambiguous or carried_pending)
             require(TICKET.fullmatch(row["ticket"]) and row["lane"] in LANES and
                     (row["source_sha"] == meta["source_sha"] or historical) and
                     row["stage"] in ALLOWED_STAGES,
@@ -4216,6 +4229,12 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                 modern = verify_g49_custody(db)
         if event.get("schema") == "forge.f139.source-transition.v30":
             from f139.nci04_v35_source_transition import FIELDS
+            if set(event) == FIELDS:
+                db.verify()
+                g54_original_canonical(db)
+                modern = verify_g49_custody(db)
+        if event.get("schema") == "forge.f139.source-transition.v31":
+            from f139.nci04_v36_source_transition import FIELDS
             if set(event) == FIELDS:
                 db.verify()
                 g54_original_canonical(db)
