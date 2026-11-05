@@ -64,3 +64,5 @@ the immutable transport comparison ancestors. The dedicated G61 deep-history
 atlas lane and its frozen source allowlist are unchanged; general qualification
 does not claim a new G61 immutable-atlas proof. Release/preflight checkouts retain
 full history for accepted-main and immutable-release ancestry verification.
+
+The hosted exact-manifest test applies to this V36 engineering branch. It must not freeze unrelated future development against this release's 15-path delta. Both release and read-only workflow entry points still execute the source-manifest guard unconditionally before accessing original-owner state.

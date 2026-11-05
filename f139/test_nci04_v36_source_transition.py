@@ -273,7 +273,9 @@ class V36ReleaseSurfaceTests(unittest.TestCase):
                 return self.git_fixture(*args)
             with self.subTest(kind=kind),self.assertRaises(ValueError):source_guard.verify(ROOT,get=bad)
 
-    @unittest.skipUnless(os.environ.get('GITHUB_ACTIONS')=='true','Exact release Git source checked in hosted qualification')
+    @unittest.skipUnless(os.environ.get('GITHUB_ACTIONS')=='true' and
+        os.environ.get('GITHUB_HEAD_REF')=='engineering/f139-v36-original-owner-corrective-release-20261105',
+        'Exact V36 release branch manifest; installed-source guard remains unconditional')
     def test_real_ci_source_manifest_and_ancestry(self):source_guard.verify(ROOT)
 
     def test_running_owner_preflight_precedes_every_stop_and_policy_write(self):
