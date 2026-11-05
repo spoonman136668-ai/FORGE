@@ -80,9 +80,9 @@ jobs:
           $root=Join-Path $drive ('ktforge-'+$env:GITHUB_RUN_ID)
           if (-not [IO.Path]::IsPathRooted($root) -or $root.Length -gt 60 -or (Test-Path -LiteralPath $root)) { throw 'FORGE_KTERM_TEST_ROOT_UNSAFE' }
           $env:K_TERMINAL_TEST_WORKSPACE=$root
-          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'tail'
-          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'post'
-          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'private'
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 't'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'p'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'v'
           foreach ($dir in @($root,$env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,$env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)) { [void][IO.Directory]::CreateDirectory($dir) }
           $name='TestCanceledBuyRetryActualAllNineMakerAttemptsWithinOriginalWindow'
           $out=Join-Path $env:RUNNER_TEMP 'forge-kterminal-focused-private.jsonl'
@@ -126,12 +126,13 @@ jobs:
           if ((git rev-parse HEAD).Trim() -cne $env:KTERM_HEAD) { throw 'FORGE_KTERM_BOUNDARY_SHA_DRIFT' }
           $drive=[IO.Path]::GetPathRoot($env:RUNNER_TEMP)
           if (-not $drive) { throw 'FORGE_KTERM_BOUNDARY_DRIVE_ABSENT' }
-          $root=Join-Path $drive ('kc'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          $suffix=$env:GITHUB_RUN_ID.Substring([Math]::Max(0,$env:GITHUB_RUN_ID.Length-8))
+          $root=Join-Path $drive ('c'+$suffix+'-'+$env:GITHUB_RUN_ATTEMPT)
           if (-not [IO.Path]::IsPathRooted($root) -or $root.Length -gt 65 -or (Test-Path -LiteralPath $root)) { throw 'FORGE_KTERM_BOUNDARY_ROOT_UNSAFE_OR_STALE' }
           $env:K_TERMINAL_TEST_WORKSPACE=$root
-          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'tail'
-          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'post'
-          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'private'
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 't'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'p'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'v'
           foreach ($d in @($root,$env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,$env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)) { [void][IO.Directory]::CreateDirectory($d) }
           $out=Join-Path $env:RUNNER_TEMP 'forge-kterm-boundary-private.jsonl'
           $err=Join-Path $env:RUNNER_TEMP 'forge-kterm-boundary-private.stderr'
@@ -166,6 +167,16 @@ jobs:
                 if ([string]$evt.Output -match [regex]::Escape($phrase)) { $classes[$known[$phrase]]=$true }
               }
             }
+            # Only source-file basenames and assertion line numbers from the
+            # two fixed original tests; no failure text or retained child output.
+            $locations=@{}
+            foreach ($evt in @(Get-Content -LiteralPath $out | ForEach-Object { try { $_ | ConvertFrom-Json -ErrorAction Stop } catch { $null } } | Where-Object { $_.Action -ceq 'output' -and [string]$_.Test -match '^TestStage3(OriginalObserverForcedBoundaries|AuthenticatedNativeSellPostBoundaries)(/|$)' })) {
+              if ([string]$evt.Output -match '(stage3-(?:native-authenticated-sell-post-crash|original-observer-forced-cuts)_test\.go):([0-9]{1,5}):') {
+                $location=$Matches[1]+':'+$Matches[2]
+                $locations[$location]=$true
+              }
+            }
+            foreach($location in @($locations.Keys | Sort-Object | Select-Object -First 12)) { Write-Host ('FORGE_KTERM_BOUNDARY_SOURCE_SITE='+$location) }
             if ($classes.Count -eq 0) { Write-Host 'FORGE_KTERM_BOUNDARY_FAILURE_CLASS=UNCLASSIFIED' }
             foreach ($class in @($classes.Keys | Sort-Object)) { Write-Host ('FORGE_KTERM_BOUNDARY_FAILURE_CLASS='+$class) }
             throw 'FORGE_KTERM_FOCUSED_BOUNDARY_FAILED'
@@ -182,12 +193,13 @@ jobs:
           # same bounded Windows short-root retention layout used by P5.
           $drive=[IO.Path]::GetPathRoot($env:RUNNER_TEMP)
           if ([string]::IsNullOrWhiteSpace($drive)) { throw 'FORGE_KTERM_FULL_ROOT_DRIVE_ABSENT' }
-          $root=Join-Path $drive ('kf'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          $suffix=$env:GITHUB_RUN_ID.Substring([Math]::Max(0,$env:GITHUB_RUN_ID.Length-8))
+          $root=Join-Path $drive ('f'+$suffix+'-'+$env:GITHUB_RUN_ATTEMPT)
           if (-not [IO.Path]::IsPathRooted($root) -or $root.Length -gt 65 -or (Test-Path -LiteralPath $root)) { throw 'FORGE_KTERM_FULL_ROOT_UNSAFE_OR_STALE' }
           $env:K_TERMINAL_TEST_WORKSPACE=$root
-          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'tail'
-          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'post'
-          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'private'
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 't'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'p'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'v'
           foreach ($dir in @($root,$env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,$env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)) { [void][IO.Directory]::CreateDirectory($dir) }
           Write-Host 'FORGE_KTERM_FULL_SHORT_ROOT=CONFIGURED'
           $out=Join-Path $env:RUNNER_TEMP 'forge-kterm-full-private.jsonl'
