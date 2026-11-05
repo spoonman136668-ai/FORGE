@@ -2,6 +2,8 @@ name: FORGE G54 quarantine exact ambiguous start
 on:
   issue_comment:
     types: [created]
+  push:
+    branches: ['recovery/f139-i1464-negative-*']
 permissions:
   actions: read
   contents: read
@@ -282,3 +284,120 @@ jobs:
           [IO.File]::WriteAllText($path,$payload,[Text.UTF8Encoding]::new($false))
           & gh api --method POST repos/spoonman136668-ai/FORGE/issues/807/comments --input $path --silent
           if($LASTEXITCODE -ne 0){throw 'F139_G54_RELEASE_RESULT_COMMENT_FAILED'}
+
+  quarantine-i1464:
+    if: github.actor == 'spoonman136668-ai' && github.event_name == 'push' && github.event.created == true
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+          ref: ${{ github.sha }}
+      - name: Validate one-shot event, qualification and original owner
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $candidate=$env:GITHUB_SHA
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $candidate -cnotmatch '^[a-f0-9]{40}$' -or
+             $env:GITHUB_REF -cne ('refs/heads/recovery/f139-i1464-negative-'+$candidate) -or
+             (& git rev-parse HEAD | Out-String).Trim() -cne $candidate -or
+             @(& git status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_I1464_EXECUTION_IDENTITY_DRIFT'
+          }
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          if($event.created -ne $true -or $event.deleted -ne $false -or
+             $event.forced -ne $false -or $event.before -cne ('0'*40) -or
+             $event.after -cne $candidate -or $event.sender.login -cne 'spoonman136668-ai') {
+            throw 'F139_I1464_INITIAL_CREATE_EVENT_REQUIRED'
+          }
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $main.protected -ne $true -or
+             $main.commit.sha -cne '80ae30719bcd9f179da4aa4e8f14dc36fd15818e') {
+            throw 'F139_I1464_PROTECTED_MAIN_DRIFT'
+          }
+          $runs=(& gh api "repos/spoonman136668-ai/FORGE/actions/runs?head_sha=$candidate&event=pull_request&per_page=100" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'F139_I1464_QUALIFICATION_READ_FAILED'}
+          $required=@{
+            'FORGE public Linux and Windows qualification'=@('linux','windows');
+            'FORGE F139 native Windows controller qualification'=@('source (ubuntu-latest)','source (windows-latest)');
+            'FORGE F139-D hosted development rehearsal'=@('development-rehearsal (ubuntu-latest)','development-rehearsal (windows-latest)')
+          }
+          foreach($name in $required.Keys) {
+            $found=@($runs.workflow_runs | Where-Object {
+              $_.name -ceq $name -and $_.head_sha -ceq $candidate -and $_.event -ceq 'pull_request' -and
+              $_.status -ceq 'completed' -and $_.conclusion -ceq 'success' -and $_.run_attempt -eq 1
+            })
+            if($found.Count -ne 1){throw 'F139_I1464_EXACT_QUALIFICATION_REQUIRED'}
+            $jobs=(& gh api $found[0].jobs_url | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or $jobs.total_count -ne 2 -or
+               @($jobs.jobs | Where-Object {$_.conclusion -cne 'success'}).Count -ne 0 -or
+               ((@($jobs.jobs.name | Sort-Object) -join '|') -cne (@($required[$name] | Sort-Object) -join '|'))) {
+              throw 'F139_I1464_BOTH_PLATFORM_RECEIPTS_REQUIRED'
+            }
+            Write-Host ('F139_I1464_QUALIFIED_RUN='+$found[0].id)
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+             [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'F139_I1464_ORIGINAL_OWNER_ESCALATION_REQUIRED'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Ready','Running') -or $task.Settings.Enabled -ne $true -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {
+            throw 'F139_I1464_ORIGINAL_TASK_DRIFT'
+          }
+          $principal=[string]$task.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate([Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne $identity.User.Value){throw 'F139_I1464_OWNER_SID_DRIFT'}
+          function Field([string]$key) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$key+'\s+"([^\"]+)"')
+            if(-not $m.Success){throw 'F139_I1464_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $db=Field 'Database'
+          $python=Field 'PythonExe'
+          $expectedDb=Join-Path (Join-Path $env:LOCALAPPDATA 'FORGE-F139') 'state.sqlite'
+          if([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+             -not(Test-Path -LiteralPath $db -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne '5680e7448276a9f257413570e0283fcab7e392ec' -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_I1464_INSTALLED_ROUTE_DRIFT'
+          }
+          $policy=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $policy.user.login -cne 'spoonman136668-ai') {throw 'F139_I1464_POLICY_READ_FAILED'}
+          $p=$policy.body | ConvertFrom-Json
+          if($p.schema -cne 'forge.f139.native-autonomy-feed-owner-policy.v1' -or
+             $p.source_sha -cne '5680e7448276a9f257413570e0283fcab7e392ec' -or
+             $p.enabled -ne $true -or $p.scientific_first_use -ne $false -or
+             $p.paid_model_calls -ne 0 -or $p.new_controller -ne $false -or
+             $p.new_scheduler -ne $false -or $p.new_queue -ne $false -or $p.accepted_ref_mutations -ne 0) {
+            throw 'F139_I1464_POLICY_DRIFT'
+          }
+          $output=Join-Path $env:RUNNER_TEMP ('f139-i1464-receipt-'+$env:GITHUB_RUN_ID+'.json')
+          $script=Join-Path $env:GITHUB_WORKSPACE 'scripts/f139_i1464_negative_once.py'
+          Write-Host ('F139_I1464_SCRIPT_SHA256='+(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant())
+          & $python -B $script $root $db $output
+          if($LASTEXITCODE -ne 0){throw 'F139_I1464_RECOVERY_FAILED_PRESERVE_EVIDENCE'}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f139-i1464-negative-custody
+          path: ${{ runner.temp }}/f139-i1464-receipt-${{ github.run_id }}.json
+          if-no-files-found: error
