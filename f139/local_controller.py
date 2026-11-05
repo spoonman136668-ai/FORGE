@@ -3408,6 +3408,10 @@ class GitHub:
                         for number, identity in historical_issues.items()),
                 "NATIVE_HISTORICAL_CATALOG_INVALID")
         items, seen_numbers, seen_ids = [], set(), set()
+        # Commit IDs are immutable, but the issue catalog is not. Reuse only
+        # validated repository+commit tree identities within this one read;
+        # every issue still passes its complete body/history checks below.
+        target_trees = {}
         for page in (1, 2):
             docs = self.get(
                 "repos/" + REPO + "/issues?state=open&labels=" + LABEL +
@@ -3442,18 +3446,21 @@ class GitHub:
                     require(isinstance(sha,str) and SHA.fullmatch(sha) is not None,
                             "NATIVE_TARGET_COMMIT_INVALID")
                     native_repo = "spoonman136668-ai/" + lane
-                    raw_commit = self.runner([
-                        "repos/" + native_repo + "/git/commits/" + sha])
-                    commit = json.loads(raw_commit)
-                    require(commit.get("sha")==sha
-                            and isinstance(commit.get("tree"),dict)
-                            and isinstance(commit["tree"].get("sha"),str)
-                            and SHA.fullmatch(commit["tree"]["sha"]) is not None,
-                            "NATIVE_TARGET_GIT_PROVIDER_DRIFT")
+                    key = (native_repo, sha)
+                    if key not in target_trees:
+                        raw_commit = self.runner([
+                            "repos/" + native_repo + "/git/commits/" + sha])
+                        commit = json.loads(raw_commit)
+                        require(isinstance(commit, dict) and commit.get("sha")==sha
+                                and isinstance(commit.get("tree"),dict)
+                                and isinstance(commit["tree"].get("sha"),str)
+                                and SHA.fullmatch(commit["tree"]["sha"]) is not None,
+                                "NATIVE_TARGET_GIT_PROVIDER_DRIFT")
+                        target_trees[key] = commit["tree"]["sha"]
                     doc=inspect_owner_issue(
                         raw, protected_main=(historical[1] if historical else source),
                         authenticated_target_commit=sha,
-                        authenticated_target_tree=commit["tree"]["sha"])
+                        authenticated_target_tree=target_trees[key])
                 except (ValueError,UnicodeError,KeyError,TypeError,
                         NativeIssueDenied,NativeContractError) as exc:
                     raise F139Error("F139_NATIVE_ISSUE_OR_SOURCE_REJECTED") from exc
