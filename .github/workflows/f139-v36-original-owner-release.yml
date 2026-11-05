@@ -207,17 +207,16 @@ jobs:
              $finalMain.commit.sha -cne $protected){throw 'F139_V36_PROTECTED_MAIN_MOVED'}
           Write-Host 'F139_V36_RELEASE_REF_IMMUTABILITY=VERIFIED'
           Write-Host 'F139_V36_ORIGINAL_OWNER_PROTECTED_PREFLIGHT=PASS'
-          # Same original byte-range mutex, acquired once before stopping an idle tick.
-          # A busy tick rejects this release without task/policy/ledger mutation.
+          # One bounded kernel wait for the EXISTING byte-range mutex.
+          # Never stop a busy tick, poll/retry acquisition, or replay a release.
+          Add-Type -Path (Join-Path $env:GITHUB_WORKSPACE 'f139/F139OriginalOwnerMutex.cs') -ErrorAction Stop
           $ownerLock=$null
           try {
-            $ownerLock=[IO.FileStream]::new(
-              [IO.Path]::ChangeExtension($dbPath,'.lock'),[IO.FileMode]::Open,
-              [IO.FileAccess]::ReadWrite,[IO.FileShare]::ReadWrite)
-            $ownerLock.Lock(0,1)
+            $ownerLock=[F139OriginalOwnerMutex]::Acquire(
+              [IO.Path]::ChangeExtension($dbPath,'.lock'),900000)
           } catch {
             if($ownerLock){$ownerLock.Dispose()}
-            throw 'F139_V36_OWNER_TICK_BUSY_NO_MUTATION'
+            throw
           }
           # Parent holds the actual original byte-range mutex here. The child
           # opens SQLite mode=ro/query_only and grants no mutation authority.
@@ -233,7 +232,6 @@ jobs:
             }
             Write-Host ('F139_V36_RUNNING_OWNER_READONLY_PREFLIGHT='+($preflight | ConvertTo-Json -Depth 12 -Compress))
           } catch {
-            $ownerLock.Unlock(0,1)
             $ownerLock.Dispose()
             $ownerLock=$null
             throw
@@ -264,8 +262,7 @@ jobs:
                 throw 'F139_V36_ORIGINAL_OWNER_NOT_QUIESCENT'
               }
             } finally {
-              $ownerLock.Unlock(0,1)
-              $ownerLock.Dispose()
+                $ownerLock.Dispose()
               $ownerLock=$null
             }
             & git -C $root fetch --no-tags origin $target

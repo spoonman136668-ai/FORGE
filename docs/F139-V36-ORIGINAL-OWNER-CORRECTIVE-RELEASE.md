@@ -68,3 +68,13 @@ full history for accepted-main and immutable-release ancestry verification.
 The hosted exact-manifest test applies to this V36 engineering branch. It must not freeze unrelated future development against this release's 15-path delta. Both release and read-only workflow entry points still execute the source-manifest guard unconditionally before accessing original-owner state.
 
 The first authentic-history private-copy rehearsal (run 42014078952, job 127200065305, source f092a1fae0b8d65b1bd099ac451ae81126e15933) rejected the transition with F139_TASK_STATE_CORRUPT. The cold seal preserved i1464, but the final historical-task classifier did not recognize that distinct quarantine after the source changed. The correction carries only the exact anchored i1464 negative after a validated V36 seal; unknown negatives and older schemas retain their existing rejection. The original owner was never mutated.
+
+## Busy-owner release follow-up
+
+PR #1479 merged as 6e0921e58316810676edd734f42c32eef2afebc7. The authorized exact-source release dbd8a6059f2d1f551a64744194e9d08f5d8150ea failed safely in run 42017256708 / job 127210766457: F139_V36_OWNER_TICK_BUSY_NO_MUTATION. The immutable create-only release scope remains consumed, with no replay, deletion or history rewrite. It never reached task stop, source/policy changes, backup or database mutation.
+
+The follow-up keeps the same installer and same original byte-zero file mutex. One Windows overlapped LockFileEx request waits in the kernel for at most 900 seconds; there is no lock polling, acquisition retry, scheduler or additional owner. A timeout cancels and acknowledges the outstanding request before releasing native memory and closing its handle; a racing successful grant is released by that close. The owner continues its natural tick while the installer waits. Only successful acquisition reaches the existing fresh read-only preflight, and all prior installation/custody/one-shot controls remain mandatory. The exact new source is qualified before a new release decision; the previous release is not replayed.
+
+Windows tests use disposable files and the real original Python SingleOwner mutex plus .NET FileStream locks under both PowerShell 5.1 and pwsh. They exercise contention, deadlines, cancellation, missing files, cross-process exclusion, cleanup and unchanged file bytes. No test opens the original database or mutex. Source scope is six explicit paths against the merged #1479 baseline.
+
+Windows API contract references: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex ; https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-getoverlappedresultex ; https://learn.microsoft.com/en-us/windows/win32/fileio/cancelioex-func .

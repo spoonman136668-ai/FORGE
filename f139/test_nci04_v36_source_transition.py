@@ -296,12 +296,12 @@ class V36ReleaseSurfaceTests(unittest.TestCase):
 
     def test_running_owner_preflight_precedes_every_stop_and_policy_write(self):
         text=(ROOT/'.github/workflows/f139-v36-original-owner-release.yml').read_text()
-        lock=text.index('$ownerLock.Lock(0,1)');preflight=text.index('--preflight-only')
+        lock=text.index('[F139OriginalOwnerMutex]::Acquire(');preflight=text.index('--preflight-only')
         self.assertLess(lock,preflight);self.assertLess(preflight,text.index('Disable-ScheduledTask -TaskName $name'))
         self.assertLess(preflight,text.index('gh api -X PATCH'))
         self.assertIn('F139_V36_PREFLIGHT_LEASE_MOVED',text)
         self.assertIn('with closing(sqlite3.connect(str(backup))) as out:',text)
-        self.assertNotIn('Start-Sleep',text[:lock]);self.assertEqual(text.count('$ownerLock.Lock(0,1)'),1)
+        self.assertNotIn('Start-Sleep',text[:lock]);self.assertEqual(text.count('[F139OriginalOwnerMutex]::Acquire('),1)
         self.assertIn("GITHUB_RUN_ATTEMPT -cne '1'",text)
         self.assertNotIn('\n  schedule:',text);self.assertNotIn('\n  workflow_dispatch:',text)
         self.assertIn('NATIVE_WINDOWS', (ROOT/'.github/workflows/forge-f139-source-qualification.yml').read_text())
