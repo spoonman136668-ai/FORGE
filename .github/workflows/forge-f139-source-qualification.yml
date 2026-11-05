@@ -38,6 +38,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Focused original-owner Windows mutex interoperability
+        if: runner.os == 'Windows' && github.head_ref == 'engineering/f139-v36-original-owner-corrective-release-20261105'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s f139 -p 'test_nci04_original_owner_mutex.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F139_V36_MUTEX_INTEROPERABILITY_FAILED'}
       - name: Native SQLite persistence, automatic two-ticket succession and crash safety
         shell: pwsh
         run: |

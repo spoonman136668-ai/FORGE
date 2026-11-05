@@ -6,23 +6,16 @@ import re
 import subprocess
 from pathlib import Path
 
-BASELINE = 'da60c5e7a6bc253332e164cddc47c8f0c6ce21d5'
+BASELINE = '6e0921e58316810676edd734f42c32eef2afebc7'
 PATHS = frozenset({
-    '.github/workflows/f139-v35-original-owner-release.yml',
-    '.github/workflows/f139-v36-original-owner-release.yml',
     '.github/workflows/qualify.yml',
     '.github/workflows/forge-f139-source-qualification.yml',
+    '.github/workflows/f139-v36-original-owner-release.yml',
     'docs/F139-V36-ORIGINAL-OWNER-CORRECTIVE-RELEASE.md',
     'f139/check_v36_release_source.py',
-    'f139/local_controller.py',
-    'f139/nci04_owner_ledger.py',
-    'f139/nci04_genenv_owner_backend.py',
-    'f139/nci04_v32_original_owner_transition_cli.py',
-    'f139/nci04_v36_source_transition.py',
-    'f139/nci04_v36_original_owner_transition_cli.py',
+    'f139/F139OriginalOwnerMutex.cs',
+    'f139/test_nci04_original_owner_mutex.py',
     'f139/test_nci04_v36_source_transition.py',
-    'f139/test_nci04_v33_source_transition.py',
-    'f139/test_nci04_v34_source_transition.py',
 })
 
 
