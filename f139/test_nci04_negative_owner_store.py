@@ -15,7 +15,7 @@ from f139.nci04_owner_ledger import admit_native_issue
 from f139.nci04_negative_owner_store import (
     OwnerNegativeCustodyDenied, admit_original_negative_custody,
     verify_original_negative_custody, KIND, _paths)
-from test_nci04_owner_ledger import LedgerTests
+import test_nci04_owner_ledger as fixture_owner_ledger
 from test_nci04_provider_receipt import bundle, zipper
 from test_nci04_owner_issue import MAIN, HMAC
 
@@ -24,7 +24,7 @@ class OwnerNegativeStoreTests(unittest.TestCase):
     def setUp(self):
         # Reuse the existing isolated original 40-event fixture with original
         # prefix pin already patched to the synthetic event23 hash.
-        LedgerTests.setUp(self)
+        fixture_owner_ledger.LedgerTests.setUp(self)
         self.assertTrue(admit_native_issue(self.db,self.native,
                                           "2026-10-21T10:00:00Z"))
         self.db.conn.execute(

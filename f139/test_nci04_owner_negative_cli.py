@@ -13,13 +13,13 @@ import unittest
 
 from f139.local_controller import cli
 from f139.nci04_negative_owner_store import KIND
-from test_nci04_negative_owner_store import OwnerNegativeStoreTests
+import test_nci04_negative_owner_store as fixture_negative_owner_store
 from test_nci04_owner_issue import HMAC
 
 
 class ExactNegativeCli(unittest.TestCase):
     def setUp(self):
-        OwnerNegativeStoreTests.setUp(self)
+        fixture_negative_owner_store.OwnerNegativeStoreTests.setUp(self)
 
     def test_original_provider_read_only_and_single_custody_event(self):
         fields = []

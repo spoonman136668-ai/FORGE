@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from f139.local_controller import Database, SingleOwner
 from f139 import nci04_v24_v20_renewable_readonly_preflight as gate
-from test_nci04_v19_original_attempt_schema import OriginalRequestColdVerifierTests
+import test_nci04_v19_original_attempt_schema as fixture_v19_original_attempt_schema
 
 
 class V24V20ReleaseReadOnlyTests(unittest.TestCase):
@@ -92,7 +92,7 @@ class V24V20ReleaseReadOnlyTests(unittest.TestCase):
                 gate.verify_v24_readonly_preflight(self.db, {**p, "secret": "x"})
 
     def test_original_v19_fixture_cannot_pose_as_v20_release(self):
-        source = OriginalRequestColdVerifierTests(
+        source = fixture_v19_original_attempt_schema.OriginalRequestColdVerifierTests(
             "test_no_new_events_original_behavior_and_original_head_unchanged")
         source.setUp()
         self.addCleanup(source.doCleanups)

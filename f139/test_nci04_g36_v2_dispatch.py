@@ -11,14 +11,14 @@ from f139.nci04_g36_v2_dispatch import (
 )
 from f139.nci04_worker_v2 import SOURCE_SHA, SOURCE_TREE
 from f139.test_nci04_owner_issue import HMAC
-from f139.test_nci04_worker_v2 import V2ContractTests
+import f139.test_nci04_worker_v2 as fixture_worker_v2
 
 SOURCE = "e"*40
 
 
 class G36OwnerV2Tests(unittest.TestCase):
     def setUp(self):
-        f = V2ContractTests()
+        f = fixture_worker_v2.V2ContractTests()
         f.setUp()
         self.c = f.c
         self.issue = NativeIssue(

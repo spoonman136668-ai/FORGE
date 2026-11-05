@@ -11,7 +11,7 @@ from f139.local_controller import (
 from f139.nci04_g36_v2_dispatch import (
     G36Denied, original_owner_v2_fields,
 )
-from f139.test_nci04_g32_owner_custody import OriginalOwnerG32Tests
+import f139.test_nci04_g32_owner_custody as fixture_g32_owner_custody
 from f139.test_nci04_owner_issue import HMAC
 
 
@@ -29,7 +29,7 @@ class MainModuleDatabaseFacade:
 
 class G47ExactOwnerTypeBoundaryTests(unittest.TestCase):
     def setUp(self):
-        fixture = OriginalOwnerG32Tests()
+        fixture = fixture_g32_owner_custody.OriginalOwnerG32Tests()
         # Retain the disposable fixture's original START_RISK event, not POST.
         with mock.patch.object(Database, "dispatch_observed", return_value=None):
             fixture.setUp()

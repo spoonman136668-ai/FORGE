@@ -8,7 +8,7 @@ import inspect
 
 from f139 import nci04_v21_original_renewal_composition as route
 from f139.local_controller import run_once, SingleOwner
-from test_nci04_v19_original_attempt_schema import OriginalRequestColdVerifierTests
+import test_nci04_v19_original_attempt_schema as fixture_v19_original_attempt_schema
 
 
 class DummyOriginal:
@@ -277,7 +277,7 @@ class OriginalLedgerRenewalNegativeTests(TestCase):
     """Real isolated original Database/SHA chain, not simulated ledger mocks."""
 
     def setUp(self):
-        fixture = OriginalRequestColdVerifierTests(
+        fixture = fixture_v19_original_attempt_schema.OriginalRequestColdVerifierTests(
             "test_no_new_events_original_behavior_and_original_head_unchanged")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)

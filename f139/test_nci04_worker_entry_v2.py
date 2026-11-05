@@ -12,12 +12,12 @@ from unittest import mock
 from f139.nci04_signed_native import NativeAdmission
 from f139.nci04_worker_entry import execute_v2_development, NativeWorkerBlocked, cli
 from f139.nci04_worker_v2 import RECEIPT_SCHEMA, SOURCE_SHA, SOURCE_TREE
-from f139.test_nci04_worker_v2 import V2ContractTests
+import f139.test_nci04_worker_v2 as fixture_worker_v2
 
 
 class SignedV2BridgeTests(unittest.TestCase):
     def setUp(self):
-        f = V2ContractTests()
+        f = fixture_worker_v2.V2ContractTests()
         f.setUp()
         self.f = f
         self.label = "windows-latest" if os.name == "nt" else "ubuntu-latest"

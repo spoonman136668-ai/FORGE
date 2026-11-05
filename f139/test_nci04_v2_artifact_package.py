@@ -19,12 +19,12 @@ from f139.nci04_v2_artifact_package import (
     package_v2_development_output,
 )
 from f139.nci04_worker_entry import execute_v2_development
-from f139.test_nci04_worker_v2 import V2ContractTests
+import f139.test_nci04_worker_v2 as fixture_worker_v2
 
 
 class G33V2ArtifactTests(unittest.TestCase):
     def setUp(self):
-        v2 = V2ContractTests()
+        v2 = fixture_worker_v2.V2ContractTests()
         v2.setUp()
         self.fixture = v2
         self.oslabel = "windows-latest" if os.name == "nt" else "ubuntu-latest"

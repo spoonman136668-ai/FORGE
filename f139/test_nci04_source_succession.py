@@ -13,7 +13,7 @@ from f139.nci04_owner_ledger import (
     NativeLedgerDenied)
 from f139.nci04_negative_owner_store import (
     OwnerNegativeCustodyDenied, KIND)
-from test_nci04_negative_owner_store import OwnerNegativeStoreTests
+import test_nci04_negative_owner_store as fixture_negative_owner_store
 from test_nci04_owner_issue import MAIN
 
 NEW = "e"*40
@@ -23,10 +23,10 @@ THIRD = "f"*40
 class SuccessionFromCertifiedNegative(unittest.TestCase):
     def setUp(self):
         # The A8B test fixture is isolated and pins synthetic original heads.
-        OwnerNegativeStoreTests.setUp(self)
+        fixture_negative_owner_store.OwnerNegativeStoreTests.setUp(self)
 
     def admit(self, **kw):
-        return OwnerNegativeStoreTests.admit(self, **kw)
+        return fixture_negative_owner_store.OwnerNegativeStoreTests.admit(self, **kw)
 
     def approve(self, source):
         return {

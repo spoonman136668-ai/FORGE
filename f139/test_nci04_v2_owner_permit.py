@@ -14,7 +14,7 @@ from f139.nci04_v2_owner_permit import (
     DOMAIN, SCHEMA, V2OwnerPermitDenied,
     issue_v2_owner_permit, verify_v2_owner_permit,
 )
-from f139.test_nci04_worker_v2 import V2ContractTests
+import f139.test_nci04_worker_v2 as fixture_worker_v2
 
 KEY = "G31-offline-owner-fixture-not-production-0123456789012345"
 SOURCE = "e" * 40
@@ -23,7 +23,7 @@ HEAD = "c" * 64
 
 class OwnerV2AuthorizationTests(unittest.TestCase):
     def setUp(self):
-        f = V2ContractTests()
+        f = fixture_worker_v2.V2ContractTests()
         f.setUp()
         self.c = f.c
         self.a = NativeAdmission(
@@ -171,7 +171,7 @@ class OwnerV2AuthorizationTests(unittest.TestCase):
 
     def test_existing_v2_result_receipt_is_not_owner_execution_permission(self):
         from f139.nci04_worker_v2 import receipt_v2
-        fixture = V2ContractTests()
+        fixture = fixture_worker_v2.V2ContractTests()
         fixture.setUp()
         ordinary_dev_receipt = receipt_v2(self.a, fixture.report())
         self.assertEqual(ordinary_dev_receipt["schema"], RECEIPT_SCHEMA)

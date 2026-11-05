@@ -6,12 +6,12 @@ import unittest
 from unittest.mock import patch
 
 import f139.nci04_g54_ambiguous_start_custody as custody
-from test_nci04_owner_ledger import LedgerTests
+import test_nci04_owner_ledger as fixture_owner_ledger
 
 
 class G54AmbiguousCustodyTests(unittest.TestCase):
     def setUp(self):
-        fixture = LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
+        fixture = fixture_owner_ledger.LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         self.db = fixture.db
