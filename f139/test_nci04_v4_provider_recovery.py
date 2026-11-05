@@ -4,10 +4,11 @@ from unittest import mock
 
 from f139.local_controller import F139Error, hash_bytes, canonical
 from f139.nci04_owner_ledger import activate_native
-from test_nci04_two_negative_transition import TwoNegativeControllerIntegration, NEW_SOURCE
+import test_nci04_two_negative_transition as fixture_two_negative_transition
+from test_nci04_two_negative_transition import NEW_SOURCE
 
 
-class OwnerProviderV4(TwoNegativeControllerIntegration):
+class OwnerProviderV4(fixture_two_negative_transition.TwoNegativeControllerIntegration):
     def bootstrap(self):
         self.append_second()
         self.transition()

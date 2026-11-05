@@ -13,12 +13,12 @@ from f139.nci04_v19_original_attempt_schema import (
 from f139.nci04_v19_original_terminal_witness import (
     project_original_native_terminal,
 )
-from test_nci04_v19_original_terminal_witness import OriginalWitnessTests
+import test_nci04_v19_original_terminal_witness as fixture_v19_original_terminal_witness
 
 
 class OriginalRequestColdVerifierTests(unittest.TestCase):
     def setUp(self):
-        fixture = OriginalWitnessTests(
+        fixture = fixture_v19_original_terminal_witness.OriginalWitnessTests(
             "test_empty_history_is_no_request_and_no_event_changes")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)

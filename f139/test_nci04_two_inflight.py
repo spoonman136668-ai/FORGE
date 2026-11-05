@@ -10,12 +10,12 @@ from f139.nci04_owner_issue import inspect_owner_issue
 from f139.nci04_owner_ledger import (
     activate_native, native_recent_starts, verify_native_activation)
 from test_nci04_owner_issue import issue as make_issue, MAIN, TARGET, TREE, HMAC
-from test_nci04_owner_ledger import LedgerTests
+import test_nci04_owner_ledger as fixture_owner_ledger
 
 
 class NativeDualInFlightTests(unittest.TestCase):
     def setUp(self):
-        self.original=LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
+        self.original=fixture_owner_ledger.LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
         self.original.setUp()
         self.addCleanup(self.original.doCleanups)
         self.db=self.original.db

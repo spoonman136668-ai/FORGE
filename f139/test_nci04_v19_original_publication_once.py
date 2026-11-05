@@ -9,14 +9,12 @@ from f139.local_controller import Database, SingleOwner
 from f139.nci04_v19_original_publication_once import (
     ShadowDenied, publish_original_v19_candidate_once,
 )
-from test_nci04_v19_original_publication_preflight_no_write import (
-    OriginalDraftPreflightTests,
-)
+import test_nci04_v19_original_publication_preflight_no_write as fixture_v19_original_publication_preflight_no_write
 
 
 class OriginalV19OnceWriterTests(unittest.TestCase):
     def setUp(self):
-        base = OriginalDraftPreflightTests(
+        base = fixture_v19_original_publication_preflight_no_write.OriginalDraftPreflightTests(
             "test_exact_original_candidate_compiles_native_draft_no_write")
         base.setUp()
         self.addCleanup(base.doCleanups)

@@ -17,11 +17,10 @@ from f139.nci04_native_contract import digest
 from f139.nci04_g38_owner_terminal import (
     G38Denied, KIND, settle_original_v2, verify_g38_custody,
 )
-from f139.test_nci04_g32_owner_custody import (
-    OriginalOwnerG32Tests, RUN,
-)
+import f139.test_nci04_g32_owner_custody as fixture_g32_owner_custody
+from f139.test_nci04_g32_owner_custody import RUN
 from f139.test_nci04_owner_issue import HMAC
-from f139.test_nci04_worker_v2 import V2ContractTests
+import f139.test_nci04_worker_v2 as fixture_worker_v2
 from f139.test_nci04_provider_receipt_v2 import bundle
 
 OS = ("ubuntu-latest", "windows-latest")
@@ -29,7 +28,7 @@ OS = ("ubuntu-latest", "windows-latest")
 
 class G38AtomicOwnerTests(unittest.TestCase):
     def setUp(self):
-        fx = OriginalOwnerG32Tests()
+        fx = fixture_g32_owner_custody.OriginalOwnerG32Tests()
         fx.setUp()
         self.addCleanup(fx.doCleanups)
         self.fx = fx
@@ -96,7 +95,7 @@ class G38AtomicOwnerTests(unittest.TestCase):
 
     def test_all_v2_negative_receipts_retained_without_replay(self):
         label="windows-latest"
-        fixture=V2ContractTests()
+        fixture=fixture_worker_v2.V2ContractTests()
         fixture.setUp()
         report=fixture.report(label)
         admission=self.fx.admissions[label]

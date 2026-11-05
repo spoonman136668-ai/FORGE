@@ -9,16 +9,14 @@ from f139.local_controller import Database, SingleOwner
 from f139.nci04_v19_original_one_shot_free_send import (
     KIND, SCHEMA, ShadowDenied, one_original_free_send_source_only,
 )
-from test_nci04_v19_original_one_post_handoff import (
-    V19OnePostHandoffCustodyTests,
-)
+import test_nci04_v19_original_one_post_handoff as fixture_v19_original_one_post_handoff
 
 TOKEN = "offline-fake-sentinel-do-not-send"
 
 
 class OriginalOneShotSendTests(unittest.TestCase):
     def setUp(self):
-        source = V19OnePostHandoffCustodyTests(
+        source = fixture_v19_original_one_post_handoff.V19OnePostHandoffCustodyTests(
             "test_atomic_handoff_is_distinct_cold_verifiable_original_event")
         source.setUp()
         self.addCleanup(source.doCleanups)

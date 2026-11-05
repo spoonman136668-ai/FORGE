@@ -12,13 +12,13 @@ from f139.local_controller import (
     Database, GitHub, SingleOwner, original_owner_v2_guard_canonical,
     settle_original_v2_canonical,
 )
-from f139.test_nci04_g32_owner_custody import OriginalOwnerG32Tests
+import f139.test_nci04_g32_owner_custody as fixture_g32_owner_custody
 from f139.test_nci04_owner_issue import HMAC
 
 
 class OriginalModuleEntrypointTypeTests(unittest.TestCase):
     def setUp(self):
-        fx=OriginalOwnerG32Tests()
+        fx=fixture_g32_owner_custody.OriginalOwnerG32Tests()
         with mock.patch.object(Database, "dispatch_observed", return_value=None):
             fx.setUp()
         self.addCleanup(fx.doCleanups)

@@ -9,10 +9,10 @@ from unittest import mock
 
 from f139.local_controller import F139Error
 from f139.nci04_owner_ledger import activate_native, verify_native_activation
-from test_nci04_v4_provider_recovery import OwnerProviderV4
+import test_nci04_v4_provider_recovery as fixture_v4_provider_recovery
 
 
-class V5SealedOriginalHistory(OwnerProviderV4):
+class V5SealedOriginalHistory(fixture_v4_provider_recovery.OwnerProviderV4):
     def saturated_v4(self):
         self.bootstrap()
         for n in range(10):

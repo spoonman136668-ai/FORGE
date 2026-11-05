@@ -16,15 +16,13 @@ from f139.nci04_model_proposal import validate
 from f139.nci04_v19_original_one_post_handoff import (
     KIND, SCHEMA, ShadowDenied, custody_original_post_handoff_without_post,
 )
-from test_nci04_v19_original_atomic_reserve_no_post import (
-    OriginalAtomicNoPostTests,
-)
-from test_nci04_free_reasoner_provider import FreeReasonerSourceOnlyTests
+import test_nci04_v19_original_atomic_reserve_no_post as fixture_v19_original_atomic_reserve_no_post
+import test_nci04_free_reasoner_provider as fixture_free_reasoner_provider
 
 
 class V19OnePostHandoffCustodyTests(unittest.TestCase):
     def setUp(self):
-        base = OriginalAtomicNoPostTests(
+        base = fixture_v19_original_atomic_reserve_no_post.OriginalAtomicNoPostTests(
             "test_no_native_terminal_means_no_original_event")
         base.setUp()
         self.addCleanup(base.doCleanups)
@@ -32,7 +30,7 @@ class V19OnePostHandoffCustodyTests(unittest.TestCase):
         self.db = base.db
         self.mutex = base.mutex
 
-        source = FreeReasonerSourceOnlyTests(
+        source = fixture_free_reasoner_provider.FreeReasonerSourceOnlyTests(
             "test_exact_free_model_and_bounded_prompt")
         source.setUp()
         self.reader_fixture = source

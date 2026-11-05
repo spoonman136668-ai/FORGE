@@ -11,12 +11,12 @@ import f139.local_controller as canonical
 from f139.nci04_v22_original_cli_bridge_sourceonly import (
     OriginalCLIBridgeDenied, run_original_cli_v21_source_only,
 )
-from test_nci04_v19_original_attempt_schema import OriginalRequestColdVerifierTests
+import test_nci04_v19_original_attempt_schema as fixture_v19_original_attempt_schema
 
 
 class OriginalCLIIdentityBridgeTests(TestCase):
     def setUp(self):
-        fixture = OriginalRequestColdVerifierTests(
+        fixture = fixture_v19_original_attempt_schema.OriginalRequestColdVerifierTests(
             "test_no_new_events_original_behavior_and_original_head_unchanged")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)

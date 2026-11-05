@@ -7,12 +7,12 @@ from unittest.mock import Mock, patch
 
 from f139 import nci04_v23_original_renewal_natural_tick as runtime
 from f139.local_controller import Database, GitHub, SingleOwner, run_once
-from test_nci04_v19_original_attempt_schema import OriginalRequestColdVerifierTests
+import test_nci04_v19_original_attempt_schema as fixture_v19_original_attempt_schema
 
 
 class OriginalNaturalRenewalTests(TestCase):
     def setUp(self):
-        fixture = OriginalRequestColdVerifierTests(
+        fixture = fixture_v19_original_attempt_schema.OriginalRequestColdVerifierTests(
             "test_no_new_events_original_behavior_and_original_head_unchanged")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)

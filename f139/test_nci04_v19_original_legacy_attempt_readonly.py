@@ -9,16 +9,14 @@ from f139.nci04_v19_original_legacy_attempt_readonly import (
     original_legacy_attempt_snapshot, ShadowDenied, FREE,
 )
 from f139.nci04_free_reasoner_provider import FreeReasonerUnavailable
-from test_nci04_owner_free_reasoner_proposal import (
-    NativeFreeReasonerCustodyTests,
-)
+import test_nci04_owner_free_reasoner_proposal as fixture_owner_free_reasoner_proposal
 
 
 class V19OriginalLegacyHistoryTests(unittest.TestCase):
     def setUp(self):
         # Reuse the prior native-owner original SQLite fixture; all provider
         # responses are local test doubles, never live model/network calls.
-        fixture = NativeFreeReasonerCustodyTests(
+        fixture = fixture_owner_free_reasoner_proposal.NativeFreeReasonerCustodyTests(
             "test_one_external_free_model_proposal_with_authenticated_draft")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)

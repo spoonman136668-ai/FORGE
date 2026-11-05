@@ -10,12 +10,12 @@ from f139.nci04_owner_ledger import activate_native, admit_native_issue
 from f139.nci04_v19_atomic_reservation_rehearsal import (
     ShadowDenied, new_rehearsal, reserve_simulated, rows,
 )
-from test_nci04_v19_original_terminal_witness import OriginalWitnessTests
+import test_nci04_v19_original_terminal_witness as fixture_v19_original_terminal_witness
 
 
 class V19AtomicRehearsalTests(unittest.TestCase):
     def setUp(self):
-        source = OriginalWitnessTests(
+        source = fixture_v19_original_terminal_witness.OriginalWitnessTests(
             "test_empty_history_is_no_request_and_no_event_changes")
         source.setUp()
         self.addCleanup(source.doCleanups)

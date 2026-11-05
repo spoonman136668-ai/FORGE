@@ -12,12 +12,12 @@ from unittest import mock
 
 from f139.local_controller import cli
 from f139.nci04_split_negative_owner_store import KIND, RUN_ID, ARTIFACT_ID
-from test_nci04_split_negative_owner_store import SecondNegativeSyntheticOwnerTests
+import test_nci04_split_negative_owner_store as fixture_split_negative_owner_store
 
 
 class OriginalSplitNegativeCli(unittest.TestCase):
     def setUp(self):
-        SecondNegativeSyntheticOwnerTests.setUp(self)
+        fixture_split_negative_owner_store.SecondNegativeSyntheticOwnerTests.setUp(self)
         self.routes = []
         fixture = self
 
