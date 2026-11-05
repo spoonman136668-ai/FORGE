@@ -136,7 +136,7 @@ jobs:
           foreach ($d in @($root,$env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,$env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)) { [void][IO.Directory]::CreateDirectory($d) }
           $out=Join-Path $env:RUNNER_TEMP 'forge-kterm-boundary-private.jsonl'
           $err=Join-Path $env:RUNNER_TEMP 'forge-kterm-boundary-private.stderr'
-          $pattern='^(TestStage3AuthenticatedNativeSellPostBoundaries|TestStage3OriginalObserverForcedBoundaries)$'
+          $pattern='^(TestStage3AuthenticatedNativeSellPostBoundaries|TestStage3OriginalObserverForcedBoundaries)$/^(BTC-USDC|XRP-USDC)$/^(before_post|initial_summary_second)$'
           & go test -json -p 1 -parallel 1 -count=1 -timeout 24m "-run=$pattern" ./pkg 2> $err | Out-File -LiteralPath $out -Encoding utf8
           $rc=$LASTEXITCODE
           $failed=@(Get-Content -LiteralPath $out | ForEach-Object { try { $_ | ConvertFrom-Json -ErrorAction Stop } catch { $null } } | Where-Object { $_.Action -ceq 'fail' })
@@ -177,6 +177,42 @@ jobs:
               }
             }
             foreach($location in @($locations.Keys | Sort-Object | Select-Object -First 12)) { Write-Host ('FORGE_KTERM_BOUNDARY_SOURCE_SITE='+$location) }
+            # Keep child stdout/stderr private. Emit only known error classes
+            # and source-file line numbers, never logs or account information.
+            $childClasses=@{}
+            $childSites=@{}
+            $signatures=[ordered]@{
+              'panic: test timed out after'='CHILD_TIMEOUT'
+              '--- FAIL:'='CHILD_TEST_FAILURE'
+              'panic:'='CHILD_PANIC'
+              'fatal error:'='CHILD_FATAL'
+              'The directory name is invalid'='CHILD_PATH_INVALID'
+              'The system cannot find the path specified'='CHILD_PATH_MISSING'
+              'The system cannot find the file specified'='CHILD_FILE_MISSING'
+              'Access is denied'='CHILD_ACCESS_DENIED'
+              'filename or extension is too long'='CHILD_PATH_TOO_LONG'
+              'original cold observer replay'='CHILD_COLD_PREFLIGHT'
+              'actual original observer source failed'='CHILD_OBSERVER_PRODUCER'
+              'requested original source boundary was not reached'='CHILD_BOUNDARY_UNREACHED'
+              'constructed observer differs from exact source original oracle'='CHILD_RECOVERY_PARITY'
+            }
+            $childRoot=$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT
+            if ([IO.Path]::IsPathRooted($childRoot) -and (Test-Path -LiteralPath $childRoot -PathType Container)) {
+              foreach($file in @(Get-ChildItem -LiteralPath $childRoot -Filter '*.raw.log' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40)) {
+                if ($file.Length -gt 1048576) { $childClasses['CHILD_LOG_OVERSIZE']=$true; continue }
+                foreach($phrase in $signatures.Keys) {
+                  if (Select-String -LiteralPath $file.FullName -Pattern $phrase -SimpleMatch -Quiet -ErrorAction SilentlyContinue) { $childClasses[$signatures[$phrase]]=$true }
+                }
+                foreach($line in @(Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue | Select-Object -Last 60)) {
+                  if ([string]$line -match '(stage3-(?:native-authenticated-sell-post-crash|original-observer-forced-cuts)_test\.go):([0-9]{1,5}):') {
+                    $childSites[$Matches[1]+':'+$Matches[2]]=$true
+                  }
+                }
+              }
+            }
+            if ($childClasses.Count -eq 0) { Write-Host 'FORGE_KTERM_CHILD_FAILURE_CLASS=UNCLASSIFIED' }
+            foreach($class in @($childClasses.Keys | Sort-Object | Select-Object -First 15)) { Write-Host ('FORGE_KTERM_CHILD_FAILURE_CLASS='+$class) }
+            foreach($location in @($childSites.Keys | Sort-Object | Select-Object -First 15)) { Write-Host ('FORGE_KTERM_CHILD_SOURCE_SITE='+$location) }
             if ($classes.Count -eq 0) { Write-Host 'FORGE_KTERM_BOUNDARY_FAILURE_CLASS=UNCLASSIFIED' }
             foreach ($class in @($classes.Keys | Sort-Object)) { Write-Host ('FORGE_KTERM_BOUNDARY_FAILURE_CLASS='+$class) }
             throw 'FORGE_KTERM_FOCUSED_BOUNDARY_FAILED'
