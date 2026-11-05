@@ -766,14 +766,18 @@ class Database:
                 is_v30 = (isinstance(doc, dict)
                           and doc.get("schema") == "forge.f139.source-transition.v30"
                           and set(doc) == V30_FIELDS)
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30,
+                from f139.nci04_v36_source_transition import FIELDS as V31_FIELDS
+                is_v31 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v31"
+                          and set(doc) == V31_FIELDS)
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1665,6 +1669,9 @@ class Database:
                     verify_cold_event(self, row, doc, source_transitions)
                 if is_v30:
                     from f139.nci04_v35_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v31:
+                    from f139.nci04_v36_source_transition import verify_cold_event
                     verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
@@ -4216,6 +4223,12 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                 modern = verify_g49_custody(db)
         if event.get("schema") == "forge.f139.source-transition.v30":
             from f139.nci04_v35_source_transition import FIELDS
+            if set(event) == FIELDS:
+                db.verify()
+                g54_original_canonical(db)
+                modern = verify_g49_custody(db)
+        if event.get("schema") == "forge.f139.source-transition.v31":
+            from f139.nci04_v36_source_transition import FIELDS
             if set(event) == FIELDS:
                 db.verify()
                 g54_original_canonical(db)

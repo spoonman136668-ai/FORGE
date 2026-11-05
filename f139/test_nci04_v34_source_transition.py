@@ -185,12 +185,12 @@ class V34Tests(unittest.TestCase):
 
     def test_only_one_current_release_route_and_no_schedule_or_comment(self):
         routed=[]
-        for version in range(27,36):
+        for version in range(27,37):
             text=(ROOT/f".github/workflows/f139-v{version}-original-owner-release.yml").read_text()
             patterns=ast.literal_eval(re.findall(r"^    branches: (\[.*\])$",text,re.M)[0])
             if any(fnmatch.fnmatchcase("f139-owner-release-"+"f"*40,p) for p in patterns):
                 routed.append(version)
-        self.assertEqual(routed,[35])
+        self.assertEqual(routed,[36])
         text=(ROOT/".github/workflows/f139-v35-original-owner-release.yml").read_text()
         self.assertNotIn("schedule:",text)
         self.assertNotIn("issue_comment:",text)

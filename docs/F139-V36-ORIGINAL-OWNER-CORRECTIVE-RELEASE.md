@@ -1,0 +1,60 @@
+# V36 original-owner corrective release
+
+This source prepares one guarded transition from installed source
+`5680e7448276a9f257413570e0283fcab7e392ec`. It reuses the original task, database,
+SID, DPAPI key, byte-range mutex, existing native worker, source compiler and
+handoff CLI. It does not create a controller, scheduler, consumer or research
+permit. Source qualification and a preflight report grant no installation rights.
+
+The V35 installer is frozen to its already-consumed immutable source ref. Only
+V36 selects a future release ref. V36 requires an owner-authored initial branch
+creation, attempt one, protected accepted-main ancestry, the bounded source
+manifest, all three existing exact-head dual-platform qualifications, and an
+active immutable update/delete ruleset with no bypass actors.
+
+Before any task, source, policy or ledger mutation, the installer acquires the
+original mutex nonblocking and obtains a mode=ro/query_only preflight. Busy,
+non-idle, incomplete-publication or integrity failures leave the loop untouched.
+The preflight head is checked again before the cold backup. After authorized
+quiescence it preserves every original custody archive and prior executable,
+rehearses the transition and actual typed source compiler on a private copy,
+cold-verifies that copy, and only then performs the identical original transition.
+Writes are single-attempt. A possible post-transition failure holds the existing
+task disabled rather than restoring an old database over new evidence.
+
+The cold event binds the complete predecessor, task and event prefix, lifetime
+counters, executable/toolchain and generation mechanism. It additionally retains
+the acknowledged i1464 negative at event 1084:
+
+- Event SHA256: `5807fe42a4b35884db9a89019196bf6743b6367618d34bdcf44ad2b0d7ae88ea`.
+- Original-host run: `41949526251`, artifact `13380896017`.
+- Original receipt SHA256: `fdfabb460fb567820d3e496dfe0dd606da53aa36fae6f83c6d45625f391ef25d`.
+- ZIP SHA256: `da115754fea6d3d6a38dd34bea9d89f3f271cfbd266420849817f55a3b5041d7`.
+
+That scope stays quarantined and non-replayable; a changed or later-bound task
+requires explicit reconciliation rather than implicit rehabilitation. All other
+provider positives and negatives remain authenticated by their original custody.
+
+The accepted read-recovery repair becomes installed only after the source
+transition. The rate oracle remains a prospective V3 control; this release does
+not retrofit frozen V1/V2 evaluations, authorize a new protocol or claim that
+legacy unit-test positives demonstrate learning. Scientific first use, paid
+inference, optimizer promotion and accepted research-ref mutations remain denied.
+
+No live installation has been performed by preparing this change. A fresh passing
+original-owner preflight and specific installation authority remain necessary.
+
+The existing read-only status ref may also run the qualified V36 snapshot job.
+That job requires all three exact-head platform qualifications, verifies the
+original running task/SID/source, opens the original database read-only and uploads
+only the bounded JSON witness. It does not acquire a release permit, stop the
+owner, change policy, decrypt keys or install source. It is a snapshot rather
+than a lasting lease; the installer repeats preflight under the real owner lock.
+
+The read-only job also rehearses the new transition, activation and actual typed
+source compiler on a disposable copy of authentic original history. It preserves
+original custody bytes and cold-verifies that copy. Its prior custodied utility is
+reused solely as a development compatibility control, not as proof of a newly
+built production executable. Only hashes and bounded witness metadata are
+uploaded; the private database/archive copy is deleted. Production retains its
+separate exact-source build and identical-history rehearsal before commit.
