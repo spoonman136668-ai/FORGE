@@ -64,7 +64,20 @@ public static class ReleaseOwner {
 
     def test_timeout_cannot_unlock_the_original_python_owner(self):
         with tempfile.TemporaryDirectory() as temp:
-            root=Path(temp); path=root/'original.lock'; path.write_bytes(b'L-original')
+            root=Path(temp); path=root/'original.lock'
+            probe=root/'held_owner_probe.py'
+            probe.write_text('''import sys
+from pathlib import Path
+from f139.local_controller import SingleOwner, F139Error
+try:
+    with SingleOwner(Path(sys.argv[1])): pass
+except F139Error:
+    pass
+else:
+    raise AssertionError('Original Python owner was unlocked')
+''')
+            py=str(Path(sys.executable)).replace("'", "''")
+            probe_ps=str(probe).replace("'", "''")
             for content in (b'L', b'L-original', b'L'*8193):
                 path.write_bytes(content)
                 with SingleOwner(path):
@@ -73,12 +86,8 @@ $denied=$false
 try {$lease=[F139OriginalOwnerMutex]::Acquire($p,80);$lease.Dispose()}
 catch {if($_.Exception.GetBaseException() -is [TimeoutException]){$denied=$true}else{throw}}
 if(-not $denied){throw 'Original Python owner was bypassed'}
-$probe=[IO.FileStream]::new($p,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::ReadWrite)
-try {
- $stillHeld=$false
- try {$probe.Lock(0,1);$probe.Unlock(0,1)}catch [IO.IOException] {$stillHeld=$true}
- if(-not $stillHeld){throw 'Timeout released someone else''s lock'}
-}finally{$probe.Dispose()}
+''' + "& '"+py+"' -B '"+probe_ps+"' $p\n" + r'''
+if($LASTEXITCODE -ne 0){throw 'Timeout released the original Python owner'}
 ''')
                 with SingleOwner(path):
                     pass
