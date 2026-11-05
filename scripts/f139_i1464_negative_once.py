@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import closing
 import datetime as dt
 import json
 import os
@@ -113,7 +114,7 @@ def reconcile(db, api, scope, backup, *, clock=None, pause=time.sleep,
          and backup.resolve() != Path(db.filename).resolve(), "PRIVATE_BACKUP_ROUTE_REQUIRED")
     with backup.open("xb"):
         pass
-    with sqlite3.connect(str(backup)) as out:
+    with closing(sqlite3.connect(str(backup))) as out:
         db.conn.backup(out)
         need(out.execute("PRAGMA quick_check").fetchone()[0] == "ok", "BACKUP_INVALID")
     others = [tuple(x) for x in db.conn.execute(
@@ -125,16 +126,19 @@ def reconcile(db, api, scope, backup, *, clock=None, pause=time.sleep,
     preview = Path(name)
     shadow = None
     try:
-        with sqlite3.connect(str(preview)) as out:
+        with closing(sqlite3.connect(str(preview))) as out:
             db.conn.backup(out)
-        shadow = Database(preview)
+        # Keep the instance reachable even if constructor verification fails,
+        # so its SQLite handle is closed before deleting the private copy.
+        shadow = Database.__new__(Database)
+        Database.__init__(shadow, preview)
         shadow.verify()
         shadow.quarantine(scope.ticket, REASON)
         shadow.verify()
         expected = seal(shadow)
         need(expected[0] == scope.sequence + 1, "PREVIEW_EVENT_COUNT_DRIFT")
     finally:
-        if shadow is not None:
+        if shadow is not None and getattr(shadow, "conn", None) is not None:
             shadow.close()
         for path in (preview, Path(str(preview) + "-wal"), Path(str(preview) + "-shm")):
             path.unlink(missing_ok=True)

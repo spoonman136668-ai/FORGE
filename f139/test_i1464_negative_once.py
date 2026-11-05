@@ -170,6 +170,22 @@ class ExactNegativeCustodyTests(unittest.TestCase):
             with self.assertRaisesRegex(recovery.RecoveryDenied, "PREVIEW_REJECTED"):
                 self.execute()
         self.assert_unspent()
+        self.assertEqual(list(self.path.parent.glob("f139-i1464-preview-*")), [])
+
+    def test_all_private_connections_close_before_return(self):
+        connect = sqlite3.connect
+        opened = []
+        def tracked(*args, **kwargs):
+            connection = connect(*args, **kwargs)
+            opened.append(connection)
+            return connection
+        with SingleOwner(self.path.with_suffix(".lock")), mock.patch.object(sqlite3, "connect", tracked):
+            self.execute()
+        self.assertEqual(len(opened), 3)
+        for connection in opened:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                connection.execute("SELECT 1")
+        self.assertEqual(list(self.path.parent.glob("f139-i1464-preview-*")), [])
 
     def test_ledger_drift_during_observations_is_not_overwritten(self):
         def drift(seconds):
