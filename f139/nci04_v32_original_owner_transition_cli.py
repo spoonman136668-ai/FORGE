@@ -175,6 +175,9 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
     key = os.environ.get("F139_WORKER_HMAC_KEY", "")
     need(32 <= len(key) <= 4096, "ORIGINAL_DPAPI_KEY_REQUIRED")
     api = GitHub()
+    if contract is v37:
+        from f139.nci04_partial_publication_custody import verify_remote_readback
+        verify_remote_readback(api.native_repo_get)
     protected = api.protected_main()
     compare = api.native_repo_get("repos/"+FORGE_REPO+"/compare/"+target+"..."+protected)
     need(compare.get("status") in ("ahead", "identical") and compare.get("behind_by") == 0
@@ -232,6 +235,8 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
                 "repos/"+FORGE_REPO+"/issues/"+str(POLICY_ISSUE)).get("body") == policy.get("body"),
                 "MAIN_OR_POLICY_MOVED_DURING_REHEARSAL")
             need(digest(binary.read_bytes()) == binary_sha, "ORIGINAL_UTILITY_CHANGED")
+            if contract is v37:
+                verify_remote_readback(api.native_repo_get)
             proof = build_proof(db, target, event_id, binary_sha, toolchain)
             result = commit_transition(db, proof, owner_witness=lambda: native_original_owner_profile(path))
             reactivate(db, target)

@@ -12,14 +12,14 @@ from f139.nci04_owner_ledger import (
     NativeLedgerDenied, admit_native_issue, native_recent_starts,
     MAX_DAILY, MAX_STARTS_PER_WINDOW)
 from test_nci04_owner_issue import issue as make_issue, MAIN, TARGET, TREE
-from test_nci04_owner_ledger import LedgerTests
+import test_nci04_owner_ledger as fixture_owner_ledger
 
 
 class CadenceTests(unittest.TestCase):
     def setUp(self):
         # The established native ledger test fixture has six authentic sealed
         # historical development-task identities and no LIVE controller.
-        self.owner = LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
+        self.owner = fixture_owner_ledger.LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
         self.owner.setUp()
         self.addCleanup(self.owner.doCleanups)
         self.db = self.owner.db

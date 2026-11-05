@@ -18,7 +18,7 @@ FIELDS = frozenset({"schema", "from_source_sha", "to_source_sha", "owner_event_i
     "custodied_negative_tasks", "custodied_negative_tickets", "terminal_tasks_sha256",
     "history_sha256", "v36_transition_sha256", "preserved_counters",
     "i1464_negative_event_sha256", "i1464_original_receipt_sha256",
-    "genenv_executable_sha256", "genenv_toolchain", "generation_mechanism_sha256",
+    "genenv_executable_sha256", "genenv_toolchain", "generation_mechanism_sha256", "partial_publication_custody",
     "new_dispatches", "scientific_first_use", "v2_receipt_authorized"})
 
 
@@ -38,8 +38,8 @@ def preserved_counters_valid(counts):
             and all(type(n) is int and n >= 0 for n in counts.values())
             and counts["G3_DRAFT_ATTEMPTED"] == counts["G3_DRAFT_AUTHENTICATED"] == 1
             and counts["FREE_REASONER_ATTEMPTED"] == 8
-            and counts["MODEL_DRAFT_ATTEMPTED"] == counts["MODEL_DRAFT_AUTHENTICATED"]
-            and counts["MODEL_DRAFT_AUTHENTICATED"] >= 95)
+            and counts["MODEL_DRAFT_ATTEMPTED"] == 102
+            and counts["MODEL_DRAFT_AUTHENTICATED"] == 101)
 
 
 
@@ -52,7 +52,7 @@ def idle_gate_predicates(db):
     meta = db.meta()
     return {
         "v36_source": meta["source_sha"] == FROM_V36,
-        "history_floor": meta["head_seq"] >= 1238,
+        "history_floor": meta["head_seq"] >= 1239,
         "owner_enabled": meta["enabled"] == 1,
         "legacy_suspended": meta["legacy_suspended"] == 1,
         "no_ready": db.ready() is None,
@@ -64,7 +64,7 @@ def idle_gate_predicates(db):
 def validate_idle(db):
     db.verify()
     meta = db.meta()
-    need(meta["source_sha"] == FROM_V36 and meta["head_seq"] >= 1238
+    need(meta["source_sha"] == FROM_V36 and meta["head_seq"] >= 1239
          and meta["enabled"] == 1 and meta["legacy_suspended"] == 1
          and db.ready() is None and not db.actives() and verify_native_activation(db),
          "IDLE_GENUINE_V36_REQUIRED")
@@ -97,8 +97,13 @@ def snapshot(db, row, previous):
          "ORIGINAL_TERMINAL_CUSTODY_DRIFT")
     history = [dict(e) for e in db.conn.execute(
         "SELECT seq,kind,sha FROM events WHERE seq<? ORDER BY seq", (row["seq"],))]
-    need(len(history) == row["seq"] - 1 and len(history) >= 1238
+    need(len(history) == row["seq"] - 1 and len(history) >= 1239
          and history[-1]["sha"] == row["prior_sha"], "EXACT_PREFIX_DRIFT")
+    from f139.nci04_partial_publication_custody import validate_original, PartialPublicationDenied
+    try:
+        partial = validate_original(db, row["seq"])
+    except PartialPublicationDenied as exc:
+        raise MaintenanceDenied("F139_V37_PARTIAL_PUBLICATION_CUSTODY_DRIFT") from exc
     counters = {k:sum(e["kind"] == k for e in history) for k in (
         "G3_DRAFT_ATTEMPTED", "G3_DRAFT_AUTHENTICATED", "MODEL_DRAFT_ATTEMPTED",
         "MODEL_DRAFT_AUTHENTICATED", "FREE_REASONER_ATTEMPTED")}
@@ -108,12 +113,13 @@ def snapshot(db, row, previous):
         history_sha256=digest(canonical(history)), v36_transition_sha256=seal["sha"],
         preserved_counters=counters,
         i1464_negative_event_sha256=I1464_EVENT,
-        i1464_original_receipt_sha256=I1464_RECEIPT)
+        i1464_original_receipt_sha256=I1464_RECEIPT,
+        partial_publication_custody=partial)
 
 
 def verify_cold_event(db, row, doc, previous):
     need(type(doc) is dict and set(doc) == FIELDS and doc["schema"] == SCHEMA
-         and type(doc["original_head_seq"]) is int and doc["original_head_seq"] >= 1238
+         and type(doc["original_head_seq"]) is int and doc["original_head_seq"] >= 1239
          and row["seq"] == doc["original_head_seq"] + 1
          and doc["prior_event_head_sha256"] == row["prior_sha"]
          and doc["from_source_sha"] == FROM_V36

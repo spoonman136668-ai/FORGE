@@ -128,6 +128,9 @@ def main(argv=None):
         try:
             # A consistent read snapshot; never a source/owner mutation lease.
             db.conn.execute("BEGIN")
+            from f139.local_controller import GitHub
+            from f139.nci04_partial_publication_custody import verify_remote_readback
+            verify_remote_readback(GitHub().native_repo_get)
             try:
                 report = contract.readonly_snapshot(db)
             except contract.MaintenanceDenied:

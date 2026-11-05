@@ -10,12 +10,12 @@ from f139.nci04_model_proposal import ProposalDenied
 from f139.nci04_v19_original_proposal_validation_custody import (
     KIND, SCHEMA, ShadowDenied, validate_original_response_without_publication,
 )
-from test_nci04_v19_original_one_shot_free_send import OriginalOneShotSendTests
+import test_nci04_v19_original_one_shot_free_send as fixture_v19_original_one_shot_free_send
 
 
 class OriginalProposalValidationCustodyTests(unittest.TestCase):
     def setUp(self):
-        fixture = OriginalOneShotSendTests(
+        fixture = fixture_v19_original_one_shot_free_send.OriginalOneShotSendTests(
             "test_one_response_has_original_pre_send_event_and_zero_authority")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)

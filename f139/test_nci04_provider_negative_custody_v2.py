@@ -4,12 +4,12 @@ import unittest
 from f139.nci04_owner_issue import inspect_owner_issue
 from f139.nci04_owner_ledger import admit_native_issue
 from test_nci04_owner_issue import issue as make_issue, MAIN, TARGET, TREE
-from test_nci04_owner_ledger import LedgerTests
+import test_nci04_owner_ledger as fixture_owner_ledger
 
 
 class ProviderNegativeCustodyTests(unittest.TestCase):
     def setUp(self):
-        self.owner=LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
+        self.owner=fixture_owner_ledger.LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
         self.owner.setUp()
         self.addCleanup(self.owner.doCleanups)
         self.db=self.owner.db

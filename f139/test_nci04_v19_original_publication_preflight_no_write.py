@@ -13,14 +13,12 @@ from f139.nci04_model_owner_publication import ModelDraftDenied
 from f139.nci04_v19_original_publication_preflight_no_write import (
     ShadowDenied, preflight_original_v19_candidate_without_writing,
 )
-from test_nci04_v19_original_proposal_validation_custody import (
-    OriginalProposalValidationCustodyTests,
-)
+import test_nci04_v19_original_proposal_validation_custody as fixture_v19_original_proposal_validation_custody
 
 
 class OriginalDraftPreflightTests(unittest.TestCase):
     def setUp(self):
-        source = OriginalProposalValidationCustodyTests(
+        source = fixture_v19_original_proposal_validation_custody.OriginalProposalValidationCustodyTests(
             "test_real_original_send_to_validated_candidate_and_cold_reopen")
         source.setUp()
         self.addCleanup(source.doCleanups)

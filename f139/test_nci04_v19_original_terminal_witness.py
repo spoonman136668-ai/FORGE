@@ -18,14 +18,14 @@ from f139.nci04_v19_original_terminal_witness import (
     ShadowDenied, project_original_native_terminal,
 )
 from f139.nci04_owner_ledger import activate_native, admit_native_issue
-from test_nci04_owner_ledger import LedgerTests
+import test_nci04_owner_ledger as fixture_owner_ledger
 
 
 class OriginalWitnessTests(unittest.TestCase):
     def setUp(self):
         # Existing sealed-native-ledger test fixture; production original
         # SQLite is NEVER opened by the hosted CI acceptance path.
-        fixture = LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
+        fixture = fixture_owner_ledger.LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         self.fixture = fixture

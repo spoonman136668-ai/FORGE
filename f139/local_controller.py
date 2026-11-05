@@ -4695,7 +4695,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             model_successes=db.conn.execute(
                 "SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_AUTHENTICATED'"
             ).fetchone()[0]
-            if model_attempts != model_successes:
+            from f139.nci04_partial_publication_custody import custodied_ids
+            if model_attempts != model_successes + len(custodied_ids(db)):
                 return {"disposition":"MODEL_DRAFT_UNRESOLVED_NO_REPLAY",
                         "scientific_first_use":False,
                         "worker_dispatched":False,"paid_model_calls":0}

@@ -10,12 +10,13 @@ from f139.nci04_owner_ledger import activate_native, admit_native_issue
 from f139 import nci04_research_steering as steering
 from f139.test_nci04_autonomy_feed import FakeProvider
 from f139.test_nci04_research_steering import SteeringProvider
-from test_nci04_owner_ledger import LedgerTests, MAIN
+import test_nci04_owner_ledger as fixture_owner_ledger
+from test_nci04_owner_ledger import MAIN
 
 
 class OriginalOwnerModelBridgeTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
+        self.fixture = fixture_owner_ledger.LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.db = self.fixture.db

@@ -137,7 +137,8 @@ def local_search_once(db, get, steering_get, write, *, source_sha, owner_witness
         "SELECT payload FROM events WHERE kind=? ORDER BY seq", (ATTEMPT,)))
     successes = list(db.conn.execute(
         "SELECT payload FROM events WHERE kind=? ORDER BY seq", (SUCCESS,)))
-    if len(attempts) != len(successes):
+    from f139.nci04_partial_publication_custody import custodied_ids
+    if len(attempts) != len(successes) + len(custodied_ids(db)):
         return report("MODEL_DRAFT_UNRESOLVED_NO_REPLAY")
     prepared = owner_request(
         db, get, steering_get, source_sha=source_sha, lane="Yggdrasil",

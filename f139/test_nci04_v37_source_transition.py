@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+from f139 import nci04_partial_publication_custody as route_partial
 from f139 import nci04_v37_source_transition as route
 from f139 import nci04_v37_original_owner_transition_cli as cli
 from f139 import check_v37_release_source as source_guard
@@ -25,10 +26,10 @@ from f139 import nci04_genenv_owner_backend as backend
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ('verified_historical_tasks', 'custodied_negative_tasks', 'custodied_negative_tickets',
          'terminal_tasks_sha256', 'history_sha256', 'v36_transition_sha256', 'preserved_counters',
-         'i1464_negative_event_sha256', 'i1464_original_receipt_sha256')
+         'i1464_negative_event_sha256', 'i1464_original_receipt_sha256', 'partial_publication_custody')
 
 
-def proof(seq=1238):
+def proof(seq=1239):
     doc = prior.proof(seq)
     doc.update(schema=route.SCHEMA, from_source_sha=route.FROM_V36,
                verified_historical_tasks=89, custodied_negative_tasks=56,
@@ -36,7 +37,8 @@ def proof(seq=1238):
                i1464_negative_event_sha256=route.I1464_EVENT,
                i1464_original_receipt_sha256=route.I1464_RECEIPT)
     doc['v36_transition_sha256'] = doc.pop('v35_transition_sha256')
-    doc['preserved_counters'].update(MODEL_DRAFT_ATTEMPTED=95, MODEL_DRAFT_AUTHENTICATED=95)
+    doc['preserved_counters'].update(MODEL_DRAFT_ATTEMPTED=102, MODEL_DRAFT_AUTHENTICATED=101)
+    doc["partial_publication_custody"] = route_partial.custody_packet()
     return doc
 
 
@@ -46,7 +48,7 @@ class V37ContractTests(unittest.TestCase):
                      to_source_sha=route.FROM_V36)]
 
     def test_cold_event_binds_predecessor_prefix_receipt_and_every_authority_fence(self):
-        doc = proof(); row = dict(seq=1239, prior_sha=doc['prior_event_head_sha256'])
+        doc = proof(); row = dict(seq=1240, prior_sha=doc['prior_event_head_sha256'])
         with patch.object(route, 'snapshot', return_value={k:doc[k] for k in STATE}):
             route.verify_cold_event(None, row, doc, self.previous())
             for delta in ({'schema':prior.route.SCHEMA}, {'original_head_seq':1237},
@@ -65,7 +67,7 @@ class V37ContractTests(unittest.TestCase):
 
     def test_lifetime_spend_and_unfinished_publication_never_reset(self):
         counts=proof()['preserved_counters']; self.assertTrue(route.preserved_counters_valid(counts))
-        self.assertTrue(route.preserved_counters_valid({**counts,'MODEL_DRAFT_ATTEMPTED':200,'MODEL_DRAFT_AUTHENTICATED':200}))
+        self.assertFalse(route.preserved_counters_valid({**counts,'MODEL_DRAFT_ATTEMPTED':200,'MODEL_DRAFT_AUTHENTICATED':200}))
         for delta in ({'FREE_REASONER_ATTEMPTED':7},{'FREE_REASONER_ATTEMPTED':9},
                       {'MODEL_DRAFT_AUTHENTICATED':94}, {'MODEL_DRAFT_ATTEMPTED':94,'MODEL_DRAFT_AUTHENTICATED':94},
                       {'G3_DRAFT_ATTEMPTED':True},{'extra':0}):
@@ -81,11 +83,22 @@ class V37ContractTests(unittest.TestCase):
         from f139.nci04_g49_prepost_negative import TICKET as PREPOST
         failures=['provider-negative-%02d'%i for i in range(51)]
         negatives=sorted([FIRST,SECOND,PREPOST,'fixture-g54',route.I1464_TICKET]+failures)
-        for i in range(1,1239):
-            kind=('FREE_REASONER_ATTEMPTED' if i<=8 else 'MODEL_DRAFT_ATTEMPTED' if i<=103
-                  else 'MODEL_DRAFT_AUTHENTICATED' if i<=198 else 'G3_DRAFT_ATTEMPTED' if i==199
-                  else 'G3_DRAFT_AUTHENTICATED' if i==200 else 'FIXTURE')
+        for i in range(1,1240):
+            kind=('FREE_REASONER_ATTEMPTED' if i<=8 else 'G3_DRAFT_ATTEMPTED' if i==211
+                  else 'G3_DRAFT_AUTHENTICATED' if i==212 else 'FIXTURE')
             sha=prior_sha='a'*64; payload='{}'
+            if 9 <= i <= 109:
+                kind='MODEL_DRAFT_ATTEMPTED'; key=f'{i:064x}'
+                payload=json.dumps(dict(schema=route_partial.PUBLICATION,candidate_identity=key,
+                    source_after_sha256=key,retry_allowed=False,scientific_first_use=False))
+            if 110 <= i <= 210:
+                kind='MODEL_DRAFT_AUTHENTICATED'; key=f'{i-101:064x}'
+                payload=json.dumps(dict(schema=route_partial.PUBLICATION,candidate_identity=key,
+                    source_after_sha256=key,pr_number=i,head_commit='b'*40,
+                    worker_dispatched=False,scientific_first_use=False))
+            if i==1239:
+                kind='MODEL_DRAFT_ATTEMPTED';sha=route_partial.EVENT;prior_sha=route_partial.PRIOR
+                payload=json.dumps(route_partial.original_payload())
             if i==945:kind,payload='SOURCE_TRANSITION_ADMITTED',json.dumps(self.previous()[-1])
             if i==1084:
                 kind,sha,prior_sha='ATTEMPT_QUARANTINED',route.I1464_EVENT,prior.route.I1464_PRIOR
@@ -102,7 +115,7 @@ class V37ContractTests(unittest.TestCase):
         return db,negatives
 
     def test_full_terminal_history_and_exact_negative_are_preserved(self):
-        db,negatives=self.history();row=dict(seq=1239,prior_sha='a'*64)
+        db,negatives=self.history();row=dict(seq=1240,prior_sha=route_partial.EVENT)
         with patch.object(route,'g54_original_canonical',return_value={'ticket':'fixture-g54'}):
             result=route.snapshot(db,row,self.previous())
             self.assertEqual(result['verified_historical_tasks'],89)
@@ -113,14 +126,14 @@ class V37ContractTests(unittest.TestCase):
                 "DELETE FROM tasks WHERE ticket='provider-negative-00'",
                 "UPDATE events SET payload='{}' WHERE seq=945",
                 "UPDATE events SET kind='FIXTURE' WHERE seq=103",
-                "UPDATE events SET sha='bad' WHERE seq=1238"):
+                "UPDATE events SET sha='bad' WHERE seq=1239"):
                 with self.subTest(statement=statement):
                     db.conn.execute('SAVEPOINT falsify');db.conn.execute(statement)
                     with self.assertRaises(route.MaintenanceDenied):route.snapshot(db,row,self.previous())
                     db.conn.execute('ROLLBACK TO falsify');db.conn.execute('RELEASE falsify')
 
     def test_ambiguous_negative_cannot_be_rebound_replayed_or_have_forged_receipt(self):
-        db,_=self.history();self.assertEqual(route.i1464_negative_anchor(db,1239),route.I1464_TICKET)
+        db,_=self.history();self.assertEqual(route.i1464_negative_anchor(db,1240),route.I1464_TICKET)
         statements=(
             "UPDATE events SET sha='wrong' WHERE seq=1084",
             "UPDATE events SET prior_sha='wrong' WHERE seq=1084",
@@ -132,11 +145,11 @@ class V37ContractTests(unittest.TestCase):
         for sql in statements:
             with self.subTest(sql=sql):
                 db.conn.execute('SAVEPOINT falsify');db.conn.execute(sql,(route.I1464_TICKET,) if '?' in sql else ())
-                with self.assertRaises(route.MaintenanceDenied):route.i1464_negative_anchor(db,1239)
+                with self.assertRaises(route.MaintenanceDenied):route.i1464_negative_anchor(db,1240)
                 db.conn.execute('ROLLBACK TO falsify');db.conn.execute('RELEASE falsify')
         payload=json.dumps({'ticket':route.I1464_TICKET,'reason':'AMBIGUOUS_START_NO_PROVIDER_RUN'})
         db.conn.execute("UPDATE events SET kind='ATTEMPT_QUARANTINED',payload=? WHERE seq=1238",(payload,))
-        with self.assertRaisesRegex(route.MaintenanceDenied,'NOT_UNIQUE'):route.i1464_negative_anchor(db,1239)
+        with self.assertRaisesRegex(route.MaintenanceDenied,'NOT_UNIQUE'):route.i1464_negative_anchor(db,1240)
 
     def test_unsealed_real_database_and_revoked_proof_cannot_mutate(self):
         with tempfile.TemporaryDirectory() as temp,closing(Database.initialize(Path(temp)/'fixture.sqlite',route.FROM_V36)) as db:
@@ -188,7 +201,7 @@ class V37ContractTests(unittest.TestCase):
     def test_preflight_cli_never_calls_transition_and_always_closes(self):
         fake=SimpleNamespace(close=Mock(),conn=Mock())
         report={'source_transition_authorized':False}
-        with patch.object(cli,'guarded_transition') as commit,patch.object(Database,'open_readonly',return_value=fake),\
+        with patch('f139.nci04_partial_publication_custody.verify_remote_readback'),patch.object(cli,'guarded_transition') as commit,patch.object(Database,'open_readonly',return_value=fake),\
              patch.object(route,'readonly_snapshot',return_value=report),patch('sys.stdout',new_callable=io.StringIO) as out:
             cli.main(['--db','fixture.sqlite','--target','f'*40,'--preflight-only'])
             self.assertFalse(json.loads(out.getvalue())['source_transition_authorized']);commit.assert_not_called();fake.close.assert_called_once()
@@ -204,7 +217,7 @@ class V37ContractTests(unittest.TestCase):
                 cli.rehearse_private_history(db,'f'*40,42)
             self.assertEqual(db.meta(),before)
         fake=SimpleNamespace(close=Mock(),conn=Mock())
-        with patch.object(cli,'guarded_transition') as commit,patch.object(Database,'open_readonly',return_value=fake),\
+        with patch('f139.nci04_partial_publication_custody.verify_remote_readback'),patch.object(cli,'guarded_transition') as commit,patch.object(Database,'open_readonly',return_value=fake),\
              patch.object(route,'readonly_snapshot',side_effect=ValueError('snapshot rejected')):
             with self.assertRaisesRegex(ValueError,'snapshot rejected'):
                 cli.main(['--db','fixture.sqlite','--target','f'*40,'--preflight-only','--rehearse-copy'])

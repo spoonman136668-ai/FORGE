@@ -9,13 +9,13 @@ from unittest import mock
 from f139.local_controller import Database, GitHub
 from f139.nci04_g36_v2_dispatch import original_owner_v2_fields
 from f139.nci04_owner_issue import make_signed_dispatch_inputs
-from f139.test_nci04_g32_owner_custody import OriginalOwnerG32Tests
+import f139.test_nci04_g32_owner_custody as fixture_g32_owner_custody
 from f139.test_nci04_owner_issue import HMAC
 
 
 class OriginalG37PayloadTests(unittest.TestCase):
     def setUp(self):
-        fx = OriginalOwnerG32Tests()
+        fx = fixture_g32_owner_custody.OriginalOwnerG32Tests()
         with mock.patch.object(Database, "dispatch_observed", return_value=None):
             fx.setUp()
         self.addCleanup(fx.doCleanups)

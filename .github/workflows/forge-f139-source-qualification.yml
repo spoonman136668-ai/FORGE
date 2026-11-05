@@ -59,6 +59,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "$candidate"
           test "$(git rev-parse --is-shallow-repository)" = true
           python -B -m unittest discover -s f139 -p 'test_github_command_transport.py' -v
+      - name: Verify preserved test identities and fixture bodies
+        if: github.head_ref == 'engineering/f139-unique-test-discovery-20261105'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B f139/check_test_discovery_inventory.py --baseline b5172a047efa7a1d630c15c13a2b7eba14c997fe --output "$RUNNER_TEMP/f139-discovery-native.json"
       - name: Native SQLite persistence, automatic two-ticket succession and crash safety
         shell: pwsh
         run: |
@@ -247,3 +253,10 @@ jobs:
           & ./scripts/Install-FORGE-F139.ps1
           if (-not $?) { throw 'F139_INERT_INSTALL_CHECK_FAILED' }
           Write-Host 'F139_WINDOWS_TASK_INSTALL_DEFAULT_INERT=PASS'
+      - name: Retain exact-source discovery and native regression receipt
+        if: ${{ always() && github.head_ref == 'engineering/f139-unique-test-discovery-20261105' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: f139-discovery-native-${{ runner.os }}
+          path: ${{ runner.temp }}/f139-discovery-native.json
+          if-no-files-found: error

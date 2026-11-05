@@ -15,12 +15,13 @@ from f139 import nci04_research_steering as steering
 from f139.test_nci04_candidate_producer import SOURCE
 from f139.test_nci04_candidate_publisher import FakeOriginalOwner
 from f139.test_nci04_research_steering import SteeringProvider
-from test_nci04_owner_ledger import LedgerTests, MAIN
+import test_nci04_owner_ledger as fixture_owner_ledger
+from test_nci04_owner_ledger import MAIN
 
 
 class OwnerModelPublicationTests(unittest.TestCase):
     def setUp(self):
-        fixture = LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
+        fixture = fixture_owner_ledger.LedgerTests("test_admit_exactly_once_and_verify_original_ledger")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         self.fixture = fixture
