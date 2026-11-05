@@ -17,8 +17,8 @@ from test_nci04_owner_issue import issue, MAIN, TARGET, TREE
 NEW_MAIN = "9" * 40
 
 
-def source_issue(source: str, number: int, issue_id: int):
-    raw = copy.deepcopy(issue())
+def source_issue(source: str, number: int, issue_id: int, lane="Wingless"):
+    raw = copy.deepcopy(issue(lane))
     raw["number"], raw["id"] = number, issue_id
     body = json.loads(raw["body"])
     candidate = json.loads(base64.b64decode(body["intent_base64"], validate=True))
@@ -43,6 +43,7 @@ class NativeSuccessionCatalogTests(unittest.TestCase):
         }
         self.calls = []
         self.docs = [self.original, self.successor]
+        self.trees = {("Wingless", TARGET): TREE}
 
     def api(self):
         def runner(args):
@@ -51,11 +52,16 @@ class NativeSuccessionCatalogTests(unittest.TestCase):
             if route == (
                 "repos/spoonman136668-ai/FORGE/issues?state=open&labels="
                 "f139-native-development-eligible&per_page=100&page=1"):
-                return json.dumps(self.docs).encode("utf-8")
+                return json.dumps(self.docs[:100]).encode("utf-8")
             if route == (
-                "repos/spoonman136668-ai/Wingless/git/commits/" + TARGET):
+                "repos/spoonman136668-ai/FORGE/issues?state=open&labels="
+                "f139-native-development-eligible&per_page=100&page=2"):
+                return json.dumps(self.docs[100:]).encode("utf-8")
+            for (lane, sha), tree in self.trees.items():
+                if route != "repos/spoonman136668-ai/" + lane + "/git/commits/" + sha:
+                    continue
                 return json.dumps({
-                    "sha": TARGET, "tree": {"sha": TREE}
+                    "sha": sha, "tree": {"sha": tree}
                 }).encode("utf-8")
             raise AssertionError("UNEXPECTED_READ_ONLY_ROUTE " + route)
         return GitHub(runner=runner)
@@ -69,6 +75,67 @@ class NativeSuccessionCatalogTests(unittest.TestCase):
         self.assertEqual(result[0].ticket.split("-")[2], "i703")
         self.assertTrue(all(
             not any("POST" in word for word in args) for args in self.calls))
+        self.assertEqual(sum('/git/commits/' in args[0] for args in self.calls), 1)
+
+    def test_reuse_expires_after_each_catalog_call(self):
+        api = self.api()
+        for _ in range(2):
+            self.assertEqual(len(api.native_eligible_issues(
+                NEW_MAIN, historical_issues=self.history)), 1)
+        self.assertEqual(sum('/git/commits/' in args[0] for args in self.calls), 2)
+
+    def test_two_page_catalog_shape_reads_fourteen_commits_for_135_issues(self):
+        # Synthetic valid bodies with the observed public catalog's multiplicity;
+        # this is a GET-count control, not an original-owner admission replay.
+        sizes = (111, 3, 2, 1, 2, 1, 4, 1, 1, 1, 1, 3, 1, 3)
+        self.docs, self.trees = [], {}
+        for index, size in enumerate(sizes):
+            sha = format(index + 100, '040x')
+            for _ in range(size):
+                n = len(self.docs)
+                doc = source_issue(NEW_MAIN, 1000 + n, 5951240000 + n)
+                body = json.loads(doc['body'])
+                intent = json.loads(base64.b64decode(body['intent_base64']))
+                intent['target_commit'] = sha
+                body['intent_base64'] = base64.b64encode(canonical(intent)).decode('ascii')
+                doc['body'] = json.dumps(body, sort_keys=True)
+                self.docs.append(doc)
+            self.trees[("Wingless", sha)] = TREE
+        result = self.api().native_eligible_issues(NEW_MAIN)
+        self.assertEqual([item.number for item in result], list(range(1000, 1135)))
+        self.assertEqual(sum('/git/commits/' in args[0] for args in self.calls), 14)
+        self.assertEqual(len(self.calls), 16)
+
+    def test_identical_sha_in_other_repository_cannot_reuse_tree(self):
+        other = source_issue(NEW_MAIN, 704, 5951234569, lane="Yggdrasil")
+        self.docs = [self.successor, other]
+        self.trees[("Yggdrasil", TARGET)] = 'd' * 40
+        with self.assertRaisesRegex(F139Error, 'NATIVE_ISSUE_OR_SOURCE_REJECTED'):
+            self.api().native_eligible_issues(NEW_MAIN)
+        self.assertEqual(sum('/git/commits/' in args[0] for args in self.calls), 2)
+
+    def test_different_commit_in_same_repository_is_independently_read(self):
+        other = source_issue(NEW_MAIN, 704, 5951234569)
+        body = json.loads(other['body'])
+        intent = json.loads(base64.b64decode(body['intent_base64']))
+        intent['target_commit'] = 'e' * 40
+        body['intent_base64'] = base64.b64encode(canonical(intent)).decode('ascii')
+        other['body'] = json.dumps(body, sort_keys=True)
+        self.docs = [self.successor, other]
+        self.trees[("Wingless", 'e' * 40)] = TREE
+        self.assertEqual(len(self.api().native_eligible_issues(NEW_MAIN)), 2)
+        self.assertEqual(sum('/git/commits/' in args[0] for args in self.calls), 2)
+
+    def test_changed_body_after_reused_target_is_still_rejected(self):
+        bad = copy.deepcopy(self.successor)
+        bad['number'], bad['id'] = 704, 5951234569
+        body = json.loads(bad['body'])
+        body['scientific_first_use'] = True
+        bad['body'] = json.dumps(body, sort_keys=True)
+        self.docs = [self.successor, bad]
+        with self.assertRaisesRegex(F139Error, 'NATIVE_ISSUE_OR_SOURCE_REJECTED'):
+            self.api().native_eligible_issues(NEW_MAIN)
+        self.assertEqual(sum('/git/commits/' in args[0] for args in self.calls), 1)
 
     def test_only_original_still_labeled_yields_empty_successor_catalog(self):
         self.docs = [self.original]
