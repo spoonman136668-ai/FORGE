@@ -229,6 +229,52 @@ class V3WorkerContractTests(unittest.TestCase):
             v3.invoke(("python", "-B", "-c", "print('PASS')"), self.root,
                       runner=self.runner(b"F139_PROSPECTIVE_RATE_ORACLE=PASS\n"))
 
+    def test_exact_legacy_v2_positive_is_rejected_without_replaying_its_scope(self):
+        """Offline retained fixture only; no original worker or owner is invoked."""
+        import hashlib
+        import json
+        import subprocess
+        import sys
+        fixture = Path(__file__).with_name("fixtures") / "legacy_v2_i1475_rate_false_positive.py"
+        source = fixture.read_bytes()
+        origin = json.loads(fixture.with_suffix(".json").read_text())
+        self.assertEqual(hashlib.sha256(source).hexdigest(),
+                         "d14b02611504cbbea82f99c536d5ecacbf7126c02311cd02e0fbc822e68887fe")
+        self.assertEqual(origin["candidate_sha256"], hashlib.sha256(source).hexdigest())
+        self.assertEqual(origin["native_run_id"], 41980047291)
+        self.assertEqual({x["os"] for x in origin["artifacts"]},
+                         {"ubuntu-latest", "windows-latest"})
+        self.assertFalse(origin["scientific_acceptance"])
+        package = self.root / "yggdrasil"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        module = package / "public_causal_cells.py"
+        module.write_bytes(source)
+        def run(script):
+            return subprocess.run([sys.executable, "-B", "-c", script], cwd=self.root,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, check=False)
+        counterexample = run("from yggdrasil.public_causal_cells import PublicCausalCells\n"
+            "c=PublicCausalCells()\n"
+            "for arm,successes,trials in ((0,2,2),(1,3,10)):\n"
+            "    for i in range(trials): c.observe(0,arm,int(i<successes))\n"
+            "print(c.choose(0))\n")
+        self.assertEqual(counterexample.returncode, 0, counterexample.stderr[-600:])
+        self.assertEqual(counterexample.stdout.strip(), b"1")
+        rejected = run(v3.RATE_ORACLE)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn(b"F139_PROSPECTIVE_RATE_ORACLE_MISMATCH", rejected.stderr)
+        self.assertNotIn(b"F139_PROSPECTIVE_RATE_ORACLE=PASS", rejected.stdout)
+        # Test-only corrected control, never a published candidate or a repair
+        # of the consumed scope. It proves rejection is about rate semantics.
+        corrected = source.decode("utf-8").replace(
+            "numerator0 = ((one0 * trials0) * trials0)", "numerator0 = one0").replace(
+            "numerator1 = ((one1 * trials1) * trials1)", "numerator1 = one1")
+        self.assertNotEqual(corrected.encode(), source)
+        module.write_text(corrected, encoding="utf-8")
+        accepted = run(v3.RATE_ORACLE)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr[-600:])
+        self.assertEqual(accepted.stdout.strip(), b"F139_PROSPECTIVE_RATE_ORACLE=PASS")
+
 
 if __name__=="__main__":
     unittest.main()
