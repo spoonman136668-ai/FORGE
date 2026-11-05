@@ -1,0 +1,9 @@
+# Original-owner public-order prefilter handoff
+
+Deploy the accepted PR #1485 public matched-exposure prefilter through the existing F139 original-owner handoff. This successor contract starts exclusively at installed 4f241d64ce8d9b2d8636eab56f5cc436c5d3b0ca and preserves the complete growing original ledger, prior V36 seal, 89 or more verified tasks, all 56 or more custodied negatives, and the exact i1464 event and original receipt. Historical contracts and consumed release references remain immutable.
+
+The existing installer is reused with a new strict source-transition.v32 contract and a single future release route. Its original mutex, frozen toolchain, six exact-head Linux/Windows qualifications, protected-main ancestry, immutable create-only release ref, attempt-one enforcement, cold backup, read-only original-history preflight and private-copy rehearsal remain mandatory. Qualification changes no runtime; no release ref is created by this PR. Operator approval covers the proposed owner handoff but never waives failed readiness or scientific controls.
+
+The prefilter checks only deterministic public matched-exposure ordering. It grants no scientific first use, unequal-exposure certification, optimizer promotion or learning claim. Existing owner task, runner, SID, database, cadence, native worker authorization, negative retention and scientific isolation remain unchanged. No new controller, scheduler, queue, worker, paid API or worker replay.
+
+Release sequence: qualify exact candidate; read-only running-owner preflight plus copied-history cold transition and actual typed-generator rehearsal; merge accepted source; create one immutable release ref only after successful fresh readiness and authority; verify original policy/source/ledger readback and same task resumed. Stop without mutation if any prerequisite fails. Retain failures and never replay a consumed release scope.
