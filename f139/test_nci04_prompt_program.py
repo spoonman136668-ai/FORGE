@@ -178,11 +178,29 @@ class TypedProgramTests(unittest.TestCase):
             recover_program(BEFORE,forged)
 
     def test_equivalent_tokens_cannot_change_source_identity_before_native_intake(self):
-        child = plan().bindings[0].source.after
-        canonical = recover_program(BEFORE,child)
-        alias = canonical.replace("failure zero","zero failure",1)
-        self.assertNotEqual(alias,canonical)
-        self.assertEqual(source_for_program(BEFORE,alias),child)
+        # The public-rate prefilter may reorder the first fresh candidate.
+        # Find a real commutative spelling alias instead of assuming that
+        # candidate zero contains a particular "failure zero" token pair.
+        child = alias = canonical = None
+        for binding in plan().bindings:
+            original = binding.source.after
+            program = recover_program(BEFORE, original)
+            words = program.split(" ")
+            for pos in sorted(BRANCHES):
+                if (pos + 2 >= len(words) or pos + 1 in BRANCHES
+                        or pos + 2 in BRANCHES or words[pos+1] == words[pos+2]):
+                    continue
+                swapped = words.copy()
+                swapped[pos+1], swapped[pos+2] = swapped[pos+2], swapped[pos+1]
+                candidate_alias = " ".join(swapped)
+                if source_for_program(BEFORE, candidate_alias) == original:
+                    child, canonical, alias = original, program, candidate_alias
+                    break
+            if alias is not None:
+                break
+        self.assertIsNotNone(alias, "NO_EQUIVALENT_TOKEN_ALIAS_IN_FRESH_BATCH")
+        self.assertNotEqual(alias, canonical)
+        self.assertEqual(source_for_program(BEFORE, alias), child)
         # Original publication custody has the raw hash before native intake.
         # The new source's AST is deliberately absent from this fixture.
         new = plan(consumed_sha256={digest(child)},historical_ast_sha256=set())
