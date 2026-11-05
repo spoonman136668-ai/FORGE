@@ -219,6 +219,11 @@ def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
             and re.fullmatch(r"\d{4}-\d{2}-\d{2}", now[:10])
             and len(issue.intent_raw) <= 44000,
             "SOURCE_OR_DAY_DRIFT")
+    from f139.nci04_partial_publication_custody import custodied_ids
+    from f139.nci04_autonomy_feed import candidate_identity
+    if candidate_identity(issue.lane, issue.candidate.target_commit,
+            issue.candidate.path, issue.candidate.after_sha256) in custodied_ids(db):
+        return False
     with db.transaction():
         db.verify()
         rows = native_events(db)

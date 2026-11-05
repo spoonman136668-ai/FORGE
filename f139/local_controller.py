@@ -4629,6 +4629,12 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         }
         eligible = api.native_eligible_issues(
             meta["source_sha"], historical_issues=historical_issues)
+        from f139.nci04_partial_publication_custody import custodied_ids
+        from f139.nci04_autonomy_feed import candidate_identity
+        retired_publications = custodied_ids(db)
+        eligible = [item for item in eligible if candidate_identity(
+            item.lane, item.candidate.target_commit, item.candidate.path,
+            item.candidate.after_sha256) not in retired_publications]
         for native_issue in eligible:
             if native_issue.ticket in known:
                 continue
@@ -4644,6 +4650,7 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 for event in events
                 if isinstance(event.get("native_intent_base64"), str)
             }
+            existing_candidates.update(retired_publications)
             # No unauthenticated owner issue is inferred: the feed policy
             # itself is owner-authored and exact-source pinned, and every PR
             # candidate is independently rebound to an immutable commit/tree.
@@ -4685,8 +4692,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             "SELECT COUNT(*) FROM events WHERE kind='G3_DRAFT_ATTEMPTED'"
         ).fetchone()[0]
         if prior_g3:
-            # Every model draft, including G29, must have a separately
-            # authenticated terminal publication before another model call.
+            # Every draft must have an authenticated publication or an exact
+            # cold-validated negative seal before any new publication.
             # A lost GitHub ACK or partial remote write is NEVER retryable,
             # even with fresh native outcomes.
             model_attempts=db.conn.execute(

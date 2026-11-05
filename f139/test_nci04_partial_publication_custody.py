@@ -92,6 +92,21 @@ class PartialPublicationTests(unittest.TestCase):
         packet=custody.custody_packet();packet['original_attempt']['retry_allowed']=True
         self.assertFalse(custody.custody_packet()['original_attempt']['retry_allowed'])
 
+    def test_late_issue_cannot_readmit_a_custodied_publication(self):
+        import test_nci04_owner_ledger as fixture
+        from f139.nci04_owner_ledger import admit_native_issue
+        from f139.nci04_autonomy_feed import candidate_identity
+        f=fixture.LedgerTests('test_admit_exactly_once_and_verify_original_ledger')
+        f.setUp();self.addCleanup(f.doCleanups)
+        issue=f.native
+        key=candidate_identity(issue.lane,issue.candidate.target_commit,
+            issue.candidate.path,issue.candidate.after_sha256)
+        before=f.db.meta().copy()
+        with patch.object(custody,'custodied_ids',return_value=frozenset({key})):
+            self.assertFalse(admit_native_issue(f.db,issue,'2026-11-05T10:00:00Z'))
+        self.assertEqual(f.db.meta(),before)
+        self.assertIsNone(f.db.ready())
+
     def test_remote_drift_and_existing_pr_fail_without_any_write(self):
         # Real frozen source bytes are separately SHA-bound, not executed.
         root='repos/'+custody.REPO+'/'
