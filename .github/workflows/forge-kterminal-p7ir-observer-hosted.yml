@@ -133,6 +133,139 @@ jobs:
           $fail=@(Get-Content -LiteralPath $out | ForEach-Object { try { $_ | ConvertFrom-Json -ErrorAction Stop } catch { $null } } | Where-Object { $_.Action -ceq 'fail' })
           Write-Host ('FORGE_KTERM_FULL_ELAPSED_MS='+$sw.ElapsedMilliseconds)
           Write-Host ('FORGE_KTERM_FULL_FAILED_EVENT_COUNT='+$fail.Count)
+          # Publish only bounded, syntax-validated Go test identifiers. Never print
+          # private test output, fixture contents, raw errors, account data or logs.
+          $validFailures=@($fail | Where-Object { [string]$_.Test -cmatch '^Test[A-Za-z0-9_]+(/[A-Za-z0-9_.-]+)*          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-full.ok') -Value 'PASS' -NoNewline
+          Write-Host 'FORGE_KTERM_MANDATORY_EXACT_SHA_FULL_WINDOWS=PASS'
+      - name: Vet and build without publication
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          & go vet ./... *> (Join-Path $env:RUNNER_TEMP 'forge-kterm-private-vet.log')
+          if($LASTEXITCODE -ne 0){throw 'FORGE_KTERM_VET_FAILED'}
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-vet.ok') -Value 'PASS' -NoNewline
+          & go build -trimpath -o (Join-Path $env:RUNNER_TEMP 'KTerm-Unpromoted.exe') . *> (Join-Path $env:RUNNER_TEMP 'forge-kterm-private-build.log')
+          if($LASTEXITCODE -ne 0){throw 'FORGE_KTERM_BUILD_FAILED'}
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-build.ok') -Value 'PASS' -NoNewline
+          Write-Host 'FORGE_KTERM_VET_BUILD_UNPROMOTED=PASS'
+      - name: Seal only a privacy-safe exact-SHA receipt
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'forge-kterm-receipt'
+          [void][IO.Directory]::CreateDirectory($dir)
+          $checks=[ordered]@{}
+          foreach($k in @('window','recorder','full','vet','build')) {
+            $checks[$k]=if(Test-Path (Join-Path $env:RUNNER_TEMP ('forge-kterm-'+$k+'.ok'))){'PASS'}else{'NOT_QUALIFIED'}
+          }
+          $qualified=@($checks.Values|Where-Object {$_ -ne 'PASS'}).Count -eq 0
+          $receipt=[ordered]@{
+            schema='forge.kterminal.p5.pr73.exact-head.v1'
+            forge_source_sha=$env:GITHUB_SHA
+            kterminal_source_sha=$env:KTERM_HEAD
+            original_test_blob='2b7985e2e92a5df69e1db35d499d98c12dcc978c'
+            windows_runner='github-hosted-windows-2022'
+            checks=$checks
+            result=if($qualified){'OFFLINE_WINDOWS_QUALIFIED'}else{'QUALIFICATION_BLOCKED'}
+            original_owner_execution=$false
+            real_broker_posts=0
+            private_logs_uploaded=$false
+            credentials_exported=$false
+            installed=$false
+            merged_or_promoted=$false
+          }
+          $p=Join-Path $dir 'receipt.json'
+          $body=$receipt|ConvertTo-Json -Compress -Depth 5
+          [IO.File]::WriteAllText($p,$body,[Text.UTF8Encoding]::new($false))
+          $digest=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $dir 'receipt.sha256'),$digest,[Text.UTF8Encoding]::new($false))
+          Write-Host ('FORGE_KTERM_DISPOSITION='+$receipt.result)
+          Write-Host ('FORGE_KTERM_RECEIPT_SHA256='+$digest)
+      - name: Upload only sanitized acceptance receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-kterminal-p5-pr73-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/forge-kterm-receipt/receipt.json
+            ${{ runner.temp }}/forge-kterm-receipt/receipt.sha256
+          retention-days: 30
+          if-no-files-found: error
+ })
+          $rootTests=@($validFailures | ForEach-Object { ([string]$_.Test -split '/')[0] } | Sort-Object -Unique)
+          $packages=@($fail | Where-Object { [string]$_.Package -cmatch '^k-terminal(/[A-Za-z0-9_.-]+)*          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-full.ok') -Value 'PASS' -NoNewline
+          Write-Host 'FORGE_KTERM_MANDATORY_EXACT_SHA_FULL_WINDOWS=PASS'
+      - name: Vet and build without publication
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          & go vet ./... *> (Join-Path $env:RUNNER_TEMP 'forge-kterm-private-vet.log')
+          if($LASTEXITCODE -ne 0){throw 'FORGE_KTERM_VET_FAILED'}
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-vet.ok') -Value 'PASS' -NoNewline
+          & go build -trimpath -o (Join-Path $env:RUNNER_TEMP 'KTerm-Unpromoted.exe') . *> (Join-Path $env:RUNNER_TEMP 'forge-kterm-private-build.log')
+          if($LASTEXITCODE -ne 0){throw 'FORGE_KTERM_BUILD_FAILED'}
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'forge-kterm-build.ok') -Value 'PASS' -NoNewline
+          Write-Host 'FORGE_KTERM_VET_BUILD_UNPROMOTED=PASS'
+      - name: Seal only a privacy-safe exact-SHA receipt
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'forge-kterm-receipt'
+          [void][IO.Directory]::CreateDirectory($dir)
+          $checks=[ordered]@{}
+          foreach($k in @('window','recorder','full','vet','build')) {
+            $checks[$k]=if(Test-Path (Join-Path $env:RUNNER_TEMP ('forge-kterm-'+$k+'.ok'))){'PASS'}else{'NOT_QUALIFIED'}
+          }
+          $qualified=@($checks.Values|Where-Object {$_ -ne 'PASS'}).Count -eq 0
+          $receipt=[ordered]@{
+            schema='forge.kterminal.p5.pr73.exact-head.v1'
+            forge_source_sha=$env:GITHUB_SHA
+            kterminal_source_sha=$env:KTERM_HEAD
+            original_test_blob='2b7985e2e92a5df69e1db35d499d98c12dcc978c'
+            windows_runner='github-hosted-windows-2022'
+            checks=$checks
+            result=if($qualified){'OFFLINE_WINDOWS_QUALIFIED'}else{'QUALIFICATION_BLOCKED'}
+            original_owner_execution=$false
+            real_broker_posts=0
+            private_logs_uploaded=$false
+            credentials_exported=$false
+            installed=$false
+            merged_or_promoted=$false
+          }
+          $p=Join-Path $dir 'receipt.json'
+          $body=$receipt|ConvertTo-Json -Compress -Depth 5
+          [IO.File]::WriteAllText($p,$body,[Text.UTF8Encoding]::new($false))
+          $digest=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $dir 'receipt.sha256'),$digest,[Text.UTF8Encoding]::new($false))
+          Write-Host ('FORGE_KTERM_DISPOSITION='+$receipt.result)
+          Write-Host ('FORGE_KTERM_RECEIPT_SHA256='+$digest)
+      - name: Upload only sanitized acceptance receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-kterminal-p5-pr73-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/forge-kterm-receipt/receipt.json
+            ${{ runner.temp }}/forge-kterm-receipt/receipt.sha256
+          retention-days: 30
+          if-no-files-found: error
+ } |
+            ForEach-Object { [string]$_.Package } | Sort-Object -Unique)
+          Write-Host ('FORGE_KTERM_FULL_FAILED_ROOT_TEST_COUNT='+$rootTests.Count)
+          Write-Host ('FORGE_KTERM_FULL_FAILED_PACKAGE_COUNT='+$packages.Count)
+          foreach($name in @($rootTests | Select-Object -First 30)) {
+            Write-Host ('FORGE_KTERM_FULL_FAILED_ROOT_TEST='+$name)
+          }
+          foreach($package in @($packages | Select-Object -First 10)) {
+            Write-Host ('FORGE_KTERM_FULL_FAILED_PACKAGE='+$package)
+          }
+          if($rootTests.Count -gt 30) {
+            Write-Host ('FORGE_KTERM_FULL_FAILED_ROOT_TESTS_OMITTED='+($rootTests.Count-30))
+          }
           $maker=@($fail | Where-Object { $_.Test -ceq 'TestCanceledBuyRetryActualAllNineMakerAttemptsWithinOriginalWindow' }).Count
           if($maker){Write-Host 'FORGE_KTERM_FULL_FAILURE_CLASS=ORIGINAL_TWO_SECOND_MAKER_WINDOW'}
           if($rc -ne 0 -or $fail.Count -gt 0){throw 'FORGE_KTERM_MANDATORY_FULL_REGRESSION_FAILED'}
