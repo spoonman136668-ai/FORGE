@@ -284,7 +284,10 @@ class V37ContractTests(unittest.TestCase):
 
 class V37ReleaseSurfaceTests(unittest.TestCase):
     def test_only_new_installer_routes_future_refs_and_old_route_is_frozen(self):
-        source_guard.verify(ROOT,get=self.git_fixture)
+        # V37 is consumed. Its historical manifest now correctly refuses
+        # future V38 release patterns, rather than accepting V38 as V37.
+        with self.assertRaisesRegex(ValueError, 'F139_V37_COMPETING_RELEASE_ROUTE'):
+            source_guard.verify(ROOT,get=self.git_fixture)
         old=(ROOT/'.github/workflows/f139-v36-original-owner-release.yml').read_text()
         self.assertIn("branches: ['f139-owner-release-"+route.FROM_V36+"']",old)
 
