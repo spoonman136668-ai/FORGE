@@ -220,6 +220,14 @@ class V38ReleaseGuardTests(unittest.TestCase):
         result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',checker],
             input=script,text=True,capture_output=True,timeout=30)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+    def test_copied_generator_compatibility_is_checked_before_owner_pause(self):
+        from pathlib import Path
+        source=(Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
+        install=source.split('  install-v38:',1)[1].split('  recover-pretransition-v38:',1)[0]
+        self.assertIn('--preflight-only --rehearse-copy',install)
+        self.assertLess(install.index('--preflight-only --rehearse-copy'),install.index('Disable-ScheduledTask'))
+        self.assertIn('--genenv-executable $genenv',install)
+
     def test_restore_admits_only_two_exact_failed_scopes(self):
         from pathlib import Path
         import tempfile

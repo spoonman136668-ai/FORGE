@@ -126,3 +126,9 @@ ref to its exact installed source and exact matching backup directory. Unknown
 scopes remain denied. Query-only cold equality of every schema/table/row at
 original1304 is mandatory before restoring acceptedV37. Recovery proof binds
 failed_run_id; this is not permission to replay any original installation.
+
+The installer now invokes its already-existing --preflight-only --rehearse-copy
+compatibility control BEFORE disabling the original task. It copies authentic
+read-only history and reuses the existing custodied utility for development
+compatibility only. Failure leaves the original untouched. Exact-source
+production build and mandatory later isolated rehearsal remain required.
