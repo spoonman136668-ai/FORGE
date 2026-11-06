@@ -108,5 +108,44 @@ class V38SuccessorTests(unittest.TestCase):
             contract.commit_transition(None, {}, owner_witness=lambda: True)
 
 
+class V38ReleaseGuardTests(unittest.TestCase):
+    def git_fixture(self, *args):
+        from f139 import check_v38_release_source as guard
+        if args == ("rev-parse", "HEAD"):
+            return "e" * 40
+        if args[0] == "status":
+            return ""
+        if args[0] == "merge-base":
+            return guard.BASELINE
+        if args[0] == "diff":
+            return "\\n".join(sorted(guard.PATHS))
+        raise AssertionError(args)
+
+    def test_unique_v38_release_and_frozen_v37_route(self):
+        from pathlib import Path
+        from f139 import check_v38_release_source as guard
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(guard.verify(root, get=self.git_fixture), "e" * 40)
+        historical = (root / ".github/workflows/f139-v37-original-owner-release.yml").read_text()
+        self.assertIn("&& github.sha == '3dd63467d649a347692b6b42cd5074ff1038d3de'",
+                      historical)
+
+    def test_drift_in_branch_source_or_manifest_fails_closed(self):
+        from pathlib import Path
+        from f139 import check_v38_release_source as guard
+        root = Path(__file__).resolve().parents[1]
+        for field in ("status", "merge-base", "diff"):
+            def bad(*args):
+                if args[0] == field:
+                    if field == "status":
+                        return "DIRTY"
+                    if field == "merge-base":
+                        return "0" * 40
+                    return self.git_fixture(*args) + "\\nf139/nci04_worker_v2.py"
+                return self.git_fixture(*args)
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                guard.verify(root, get=bad)
+
+
 if __name__ == "__main__":
     unittest.main()
