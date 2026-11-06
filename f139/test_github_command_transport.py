@@ -1,6 +1,9 @@
 """Bounded GitHub CLI transport policy for the original F139 owner client."""
+import io
+import json
 import subprocess
 import unittest
+from contextlib import redirect_stderr
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -160,6 +163,92 @@ class GitHubCommandTransportTests(unittest.TestCase):
                 self.assertIsNone(error)
                 self.assertEqual(run.call_count, 2)
                 self.assertEqual([c.args[0] for c in sleep.call_args_list], [1])
+
+    def test_terminal_http_failure_identifies_route_without_opaque_data(self):
+        route = ("repos/spoonman136668-ai/Yggdrasil/git/commits/" +
+                 "a" * 40 + "?access_token=DO_NOT_LEAK_ROUTE")
+        failed = SimpleNamespace(
+            returncode=1, stdout=b"NEVER_ECHO_STDOUT",
+            stderr=b"HTTP 404: missing; DO_NOT_LEAK_STDERR")
+        capture = io.StringIO()
+        with redirect_stderr(capture):
+            result, error, run, sleep = self.invoke([route], [failed])
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_FAILED")
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+        lines = capture.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("F139_GITHUB_READ_TERMINAL="))
+        report = json.loads(lines[0].split("=", 1)[1])
+        self.assertEqual(report["schema"],
+                         "forge.f139.github-read-terminal-diagnostic.v1")
+        self.assertEqual(report["repository"], "Yggdrasil")
+        self.assertEqual(report["route_family"], "COMMIT_IDENTITY")
+        self.assertEqual(report["failure"], "GITHUB_API_FAILED")
+        self.assertEqual(report["http_status"], 404)
+        self.assertEqual(report["exit_code"], 1)
+        self.assertEqual(report["attempts"], 1)
+        self.assertTrue(report["read_only"])
+        self.assertFalse(report["raw_route_or_output_retained"])
+        for secret in ("DO_NOT_LEAK_ROUTE", "DO_NOT_LEAK_STDERR",
+                       "NEVER_ECHO_STDOUT", "a" * 40):
+            self.assertNotIn(secret, capture.getvalue())
+
+    def test_terminal_unknown_cli_error_preserves_exact_failure_and_family(self):
+        route = ("repos/spoonman136668-ai/FORGE/actions/workflows/" +
+                 "private-id/runs?token=DO_NOT_LEAK")
+        failed = SimpleNamespace(
+            returncode=4, stdout=b"", stderr=b"secret=DO_NOT_LEAK")
+        capture = io.StringIO()
+        with redirect_stderr(capture):
+            result, error, run, sleep = self.invoke([route], [failed])
+        report = json.loads(capture.getvalue().split("=", 1)[1])
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_FAILED")
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+        self.assertEqual(report["repository"], "FORGE")
+        self.assertEqual(report["route_family"], "WORKFLOW_RUNS")
+        self.assertIsNone(report["http_status"])
+        self.assertEqual(report["exit_code"], 4)
+        self.assertNotIn("DO_NOT_LEAK", capture.getvalue())
+        self.assertNotIn("private-id", capture.getvalue())
+
+    def test_terminal_timeout_logs_once_after_original_read_retry_budget(self):
+        timeout = subprocess.TimeoutExpired(["gh", "api"], 40)
+        capture = io.StringIO()
+        with redirect_stderr(capture):
+            result, error, run, sleep = self.invoke(
+                [self.ROUTE], [timeout] * 3)
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_TIMEOUT")
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [1, 2])
+        lines = capture.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        report = json.loads(lines[0].split("=", 1)[1])
+        self.assertEqual(report["route_family"], "BRANCH")
+        self.assertEqual(report["failure"], "GITHUB_API_TIMEOUT")
+        self.assertEqual(report["attempts"], 3)
+        self.assertIsNone(report["http_status"])
+
+    def test_successful_recovery_or_write_never_emits_read_diagnostic(self):
+        failed = SimpleNamespace(
+            returncode=1, stdout=b"", stderr=b"HTTP 503")
+        success = SimpleNamespace(returncode=0, stdout=b"{}", stderr=b"")
+        capture = io.StringIO()
+        with redirect_stderr(capture):
+            result, error, read, _ = self.invoke(
+                [self.ROUTE], [failed, success])
+            _, post_error, write, _ = self.invoke(
+                ["--method", "POST", self.ROUTE], [failed])
+        self.assertEqual(result, b"{}")
+        self.assertIsNone(error)
+        self.assertEqual(post_error, "F139_GITHUB_API_TRANSIENT")
+        self.assertEqual(read.call_count, 2)
+        self.assertEqual(write.call_count, 1)
+        self.assertEqual(capture.getvalue(), "")
 
     def test_frozen_engine_before_after_comparison(self):
         """Exercise real FORGE functions; faults are synthetic, not live evidence."""
