@@ -17,6 +17,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import unittest
 
 COLLECT = r'''
 import json, unittest
@@ -124,16 +125,175 @@ def full_regression(root, verbose):
     return dict(returncode=result.returncode, seconds=time.perf_counter()-start)
 
 
+def case_ids(suite):
+    result=[]
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            result.extend(case_ids(item))
+        else:
+            if isinstance(item, unittest.loader._FailedTest):
+                raise ValueError('Profile cannot qualify import failure: '+item.id()) from item._exception
+            result.append(item.id())
+    return result
+
+
+class ProfileResult(unittest.TextTestResult):
+    """Time the unchanged serial unittest lifecycle; never select or reorder."""
+    def __init__(self, *args, clock=time.perf_counter, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.clock=clock
+        self.rows=[]
+        self.outcomes={}
+
+    def startTest(self, test):
+        super().startTest(test)
+        self.started=self.clock()
+
+    def stopTest(self, test):
+        elapsed=self.clock()-self.started
+        self.rows.append(dict(id=test.id(), module=type(test).__module__, seconds=elapsed,
+                              outcome=self.outcomes.get(test.id(), 'unknown')))
+        super().stopTest(test)
+
+    def addSuccess(self, test):
+        self.outcomes.setdefault(test.id(), 'success')
+        super().addSuccess(test)
+
+    def addFailure(self, test, err):
+        self.outcomes[test.id()]='failure'
+        super().addFailure(test, err)
+
+    def addError(self, test, err):
+        self.outcomes[test.id()]='error'
+        super().addError(test, err)
+
+    def addSkip(self, test, reason):
+        self.outcomes[test.id()]='skipped'
+        super().addSkip(test, reason)
+
+    def addExpectedFailure(self, test, err):
+        self.outcomes[test.id()]='expected_failure'
+        super().addExpectedFailure(test, err)
+
+    def addUnexpectedSuccess(self, test):
+        self.outcomes[test.id()]='unexpected_success'
+        super().addUnexpectedSuccess(test)
+
+    def addSubTest(self, test, subtest, err):
+        if err is not None:
+            self.outcomes[test.id()]='subtest_failure'
+        super().addSubTest(test, subtest, err)
+
+
+def profile_suite(suite, expected_ids, *, stream=None, clock=time.perf_counter):
+    observed=case_ids(suite)
+    if observed != expected_ids or len(observed) != len(set(observed)):
+        raise ValueError('Profile inventory/order mismatch or duplicate identities')
+    started=clock()
+    runner=unittest.TextTestRunner(stream=stream, verbosity=1,
+        resultclass=lambda *a, **kw: ProfileResult(*a, clock=clock, **kw))
+    result=runner.run(suite)
+    elapsed=clock()-started
+    seen=[row['id'] for row in result.rows]
+    complete=(seen == expected_ids and result.testsRun == len(expected_ids))
+    modules={}
+    for row in result.rows:
+        module=row['module']
+        record=modules.setdefault(module, dict(module=module, cases=0, seconds=0.0))
+        record['cases']+=1
+        record['seconds']+=row['seconds']
+    return dict(successful=result.wasSuccessful() and complete,
+        complete_inventory_and_order=complete, tests_run=result.testsRun,
+        failures=len(result.failures), errors=len(result.errors),
+        skipped_ids=[test.id() for test, _reason in result.skipped],
+        unexpected_successes=len(result.unexpectedSuccesses),
+        expected_failures=len(result.expectedFailures),
+        suite_seconds=elapsed,
+        outside_case_seconds=max(0.0, elapsed-sum(row['seconds'] for row in result.rows)),
+        cases=result.rows,
+        modules=sorted(modules.values(), key=lambda row: (-row['seconds'], row['module'])))
+
+
+def discover_profile_suite(root):
+    # A file entry point starts with f139/ on sys.path, whereas the ordinary
+    # `python -m unittest` starts with the repository root. Preserve both paths
+    # so package imports and flat discovery imports retain their usual meaning.
+    root=Path(root).resolve()
+    start=str(root/'f139')
+    # Let discover insert the start directory first, just as the ordinary
+    # module entry point does. The root must follow it, before other paths.
+    sys.path[:]=[entry for entry in sys.path if entry not in (str(root), start)]
+    sys.path.insert(0, str(root))
+    return unittest.defaultTestLoader.discover(str(root/'f139'), pattern='test_*.py')
+
+
+def profile_current(root, args):
+    """A single instrumented full regression in the existing hosted job."""
+    if (os.environ.get('GITHUB_ACTIONS') != 'true' or
+            os.environ.get('GITHUB_REPOSITORY') != 'spoonman136668-ai/FORGE'):
+        raise ValueError('Full profile requires existing FORGE hosted qualification')
+    candidate=git(root, 'rev-parse', 'HEAD').decode().strip()
+    if args.expected_source != candidate:
+        raise ValueError('Profile requires the exact independently supplied candidate SHA')
+    if git(root, 'status', '--porcelain', '--untracked-files=all').strip():
+        raise ValueError('Exact clean source required before profiling')
+    output=args.output.resolve()
+    output.relative_to(Path(os.environ['RUNNER_TEMP']).resolve())
+    # -B applies to this process; preserve the same no-bytecode behavior in
+    # subprocess fixtures too, without editing or deleting their outputs.
+    os.environ['PYTHONDONTWRITEBYTECODE']='1'
+    inventory=collect(root)
+    began=time.perf_counter()
+    suite=discover_profile_suite(root)
+    collection_seconds=time.perf_counter()-began
+    report=profile_suite(suite, inventory['ids'])
+    source_stable=(git(root, 'rev-parse', 'HEAD').decode().strip() == candidate and
+                   not git(root, 'status', '--porcelain', '--untracked-files=all').strip())
+    report.update(schema='forge.f139.serial-test-profile.v1',
+        candidate_sha=candidate, candidate_tree=git(root, 'rev-parse', 'HEAD^{tree}').decode().strip(),
+        source_stable=source_stable, python=sys.version, platform=platform.platform(),
+        checker_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        unique_test_ids_sha256=hashlib.sha256(('\n'.join(sorted(inventory['ids']))+'\n').encode()).hexdigest(),
+        execution_order_sha256=hashlib.sha256(('\n'.join(inventory['ids'])+'\n').encode()).hexdigest(),
+        declared_skipped_ids=inventory['skipped'], collection_seconds=collection_seconds,
+        workflow_run=os.environ.get('GITHUB_RUN_ID'), workflow_attempt=os.environ.get('GITHUB_RUN_ATTEMPT'),
+        test_selection_performed=False, test_reordering_performed=False,
+        additional_full_suite_executions=0, profiling_overhead_independently_measured=False,
+        speedup_proven=False, autonomous_proposal=False, controller_mutations=0,
+        scientific_first_use=False)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open('x', encoding='utf-8') as stream:
+        json.dump(report, stream, sort_keys=True, indent=2); stream.write('\n')
+    print('F139_SERIAL_PROFILE='+json.dumps({key:report[key] for key in
+        ('candidate_sha','source_stable','successful','tests_run','suite_seconds','outside_case_seconds',
+         'complete_inventory_and_order','speedup_proven','autonomous_proposal')}, sort_keys=True))
+    for row in report['modules'][:15]:
+        print('F139_PROFILE_MODULE='+json.dumps(row, sort_keys=True))
+    if not source_stable or not report['successful']:
+        raise SystemExit('F139_PROFILE_FULL_REGRESSION_FAILED_SEE_RETAINED_RECEIPT')
+
+
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--baseline', required=True)
+    parser.add_argument('--baseline')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--full-regression', action='store_true')
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--profile-current', action='store_true')
+    parser.add_argument('--expected-source')
     args=parser.parse_args()
+    root=Path(__file__).resolve().parents[1]
+    if args.profile_current:
+        if args.baseline or args.full_regression or args.verbose:
+            raise ValueError('Current profile cannot be mixed with historical comparison')
+        profile_current(root, args)
+        return
+    if args.expected_source is not None:
+        raise ValueError('Expected source is only valid for the current profile')
+    if args.baseline is None:
+        raise ValueError('Exact baseline SHA required')
     if re.fullmatch('[a-f0-9]{40}', args.baseline) is None:
         raise ValueError('Exact baseline SHA required')
-    root=Path(__file__).resolve().parents[1]
     candidate_sha=git(root, 'rev-parse', 'HEAD').decode().strip()
     started=time.perf_counter()
     if args.full_regression and os.environ.get('GITHUB_ACTIONS')!='true':
