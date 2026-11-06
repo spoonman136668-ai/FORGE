@@ -18,7 +18,7 @@ BEFORE = fixtures.BEFORE
 
 
 class SourceUseRequestTests(unittest.TestCase):
-    def test_v38_binary_custody_accepts_only_cold_verified_known_source_schema(self):
+    def test_v39_binary_and_typed_custody_accepts_only_cold_verified_known_source_schema(self):
         import sqlite3
         with tempfile.TemporaryDirectory() as temp:
             source = 'a'*40
@@ -30,7 +30,7 @@ class SourceUseRequestTests(unittest.TestCase):
             verified=[]
             db=SimpleNamespace(conn=conn,filename=Path(temp)/'state.sqlite',
                 verify=lambda:verified.append(True),meta=lambda:{'source_sha':source})
-            for schema, accepted in (('v32',True),('v33',True),('v34',False)):
+            for schema, accepted in (('v32',True),('v33',True),('v34',True),('v35',False)):
                 conn.execute('DELETE FROM events')
                 doc=dict(schema='forge.f139.source-transition.'+schema,
                          to_source_sha=source,genenv_executable_sha256=digest(raw),
@@ -44,8 +44,8 @@ class SourceUseRequestTests(unittest.TestCase):
                         backend.executable_custody(db,source)
                     with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_RELEASE_NOT_BOUND'):
                         backend.typed_generation_custody(db,source,digest(backend.generation_mechanism()))
-            self.assertEqual(len(verified),6)
-            doc['schema']='forge.f139.source-transition.v33'
+            self.assertEqual(len(verified),8)
+            doc['schema']='forge.f139.source-transition.v34'
             conn.execute('UPDATE events SET payload=?',(json.dumps(doc),))
             with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_MECHANISM_DRIFT'):
                 backend.typed_generation_custody(db,source,'f'*64)

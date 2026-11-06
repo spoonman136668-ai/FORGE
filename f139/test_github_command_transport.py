@@ -69,21 +69,21 @@ class GitHubCommandTransportTests(unittest.TestCase):
     def test_installer_reads_share_transport_and_writes_remain_one_shot(self):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
-        installer = source.split('  install-v38:',1)[1].split('  recover-pretransition-v38:',1)[0]
+        installer = source.split('  install-v39:',1)[1].split('  recover-pretransition-v38:',1)[0]
         calls = [line.strip() for line in installer.splitlines() if '& gh api ' in line]
         self.assertEqual(len(calls), 3)
         self.assertTrue(all(' -X PATCH ' in line for line in calls))
         self.assertIn('GitHub._command([sys.argv[1]])', installer)
-        self.assertIn('F139_V38_READ_ROUTE_DENIED', installer)
-        self.assertIn("$localOwner=[string](Read-V38GitHub 'user').login", installer)
-        self.assertIn('F139_V38_POLICY_READ_TRANSPORT_FALLBACK=READ_ONLY', installer)
+        self.assertIn('F139_V39_READ_ROUTE_DENIED', installer)
+        self.assertIn("$localOwner=[string](Read-V39GitHub 'user').login", installer)
+        self.assertIn('F139_V39_POLICY_READ_TRANSPORT_FALLBACK=READ_ONLY', installer)
 
     @unittest.skipUnless(__import__('os').name == 'nt', 'Windows PowerShell helper execution')
     def test_installer_bounded_read_helper_parses_executes_and_denies_foreign_routes(self):
         from pathlib import Path
         import textwrap
         source = (Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
-        helper = 'function Read-V38GitHub'+source.split('function Read-V38GitHub',1)[1].split('          $main=',1)[0]
+        helper = 'function Read-V39GitHub'+source.split('function Read-V39GitHub',1)[1].split('          $main=',1)[0]
         helper = '\n'.join(line[10:] if line.startswith('          ') else line for line in helper.splitlines())
         script = textwrap.dedent("""
             $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
@@ -95,17 +95,17 @@ class GitHubCommandTransportTests(unittest.TestCase):
               $global:LASTEXITCODE=0
             }
         """) + helper + textwrap.dedent("""
-            $v=Read-V38GitHub 'https://api.github.com/repos/spoonman136668-ai/FORGE/actions/runs/123/jobs'
+            $v=Read-V39GitHub 'https://api.github.com/repos/spoonman136668-ai/FORGE/actions/runs/123/jobs'
             if(-not $v.ok -or $global:lastRoute -cne 'repos/spoonman136668-ai/FORGE/actions/runs/123/jobs'){throw 'ROUTE_OR_JSON_DRIFT'}
-            if((Read-V38GitHub 'user').login -cne 'spoonman136668-ai'){throw 'IDENTITY_DRIFT'}
+            if((Read-V39GitHub 'user').login -cne 'spoonman136668-ai'){throw 'IDENTITY_DRIFT'}
             foreach($bad in @('https://evil.test/path','repos/other/FORGE/issues','--method')) {
-              try {Read-V38GitHub $bad;throw 'UNEXPECTED_ACCEPTANCE'}
-              catch {if($_.Exception.Message -cne 'F139_V38_READ_ROUTE_DENIED'){throw}}
+              try {Read-V39GitHub $bad;throw 'UNEXPECTED_ACCEPTANCE'}
+              catch {if($_.Exception.Message -cne 'F139_V39_READ_ROUTE_DENIED'){throw}}
             }
             if($global:calls -ne 2){throw 'DENIED_ROUTE_EXECUTED'}
             function python {$global:LASTEXITCODE=1}
-            try {Read-V38GitHub 'user';throw 'UNEXPECTED_ACCEPTANCE'}
-            catch {if($_.Exception.Message -cne 'F139_V38_BOUNDED_READ_UNAVAILABLE'){throw}}
+            try {Read-V39GitHub 'user';throw 'UNEXPECTED_ACCEPTANCE'}
+            catch {if($_.Exception.Message -cne 'F139_V39_BOUNDED_READ_UNAVAILABLE'){throw}}
             exit 0
         """)
         result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],
