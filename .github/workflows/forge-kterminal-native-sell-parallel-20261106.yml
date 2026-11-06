@@ -14,10 +14,10 @@ jobs:
     timeout-minutes: 100
     env:
       FORGE_BASE: 6988f1ebfe53fe54b13c5decbd58246b74ac2ad7
-      KTERM_SHA: e7cf517a8b282ff8da7903b4aca985ad5adb81de
+      KTERM_SHA: ea30bed768d6492c8d797af877fb4774cc6e96b6
       KTERM_BASE_SHA: 35ac33f85073c7521fb74c050bf92e7e35484ca3
       KTERM_BASE_TREE: 9c63b23fa30f6b927525fd2e32682f330bcd7c5e
-      KTERM_TREE: 2dd3dd0a8613859c1526f1de96f6a02cfc9c19f6
+      KTERM_TREE: 96c9e6f5b9c328b7a0354d335f83b2574de3eb64
       KTERM_BASELINE: fc2c35998f8e917577aa9c80db6b970e82b9bd01
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
@@ -42,14 +42,16 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git merge-base --is-ancestor "$FORGE_BASE" HEAD
-          test "$(git diff --name-only "$FORGE_BASE" HEAD)" = '.github/workflows/forge-kterminal-native-sell-parallel-20261106.yml'
+          actual="$(git diff --name-only "$FORGE_BASE" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' '.github/workflows/forge-kterminal-native-sell-parallel-20261106.yml' '.github/workflows/forge-kterminal-native-sell-vet-isolation-20261106.yml' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
           test -z "$(git status --porcelain)"
           echo KTERM_RC2_FORGE_SCOPE=PASS
       - name: Checkout private K-Terminal exact source without retained credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Kboomllc/K-Terminal
-          ref: e7cf517a8b282ff8da7903b4aca985ad5adb81de
+          ref: ea30bed768d6492c8d797af877fb4774cc6e96b6
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -151,13 +153,20 @@ jobs:
               return {'exit_code':rc,'events':events,'malformed':bad,'seconds':passed,'failed_test_names':sorted(failed),'pass':good}
           base=inspect('baseline');candidate=inspect('candidate')
           ok=base['pass'] and candidate['pass']
-          x=base['seconds'].get(top);y=candidate['seconds'].get(top)
-          ratio=round(x/y,4) if ok and y and y>0 else None
+          # Go test reports 0s for a parent whose children call t.Parallel().
+          # Compare sequential sum of the two baseline children with the
+          # parallel critical-path maximum of the two candidate children.
+          products=(top+'/BTC-USDC',top+'/XRP-USDC')
+          x=round(sum(base['seconds'].get(n,0) for n in products),5)
+          y=round(max(candidate['seconds'].get(n,0) for n in products),5)
+          ratio=round(x/y,4) if ok and x>0 and y>0 else None
           data={'schema':'kterminal.native-sell-parallel.same-runner.v1',
                 'baseline_sha':os.environ['KTERM_BASE_SHA'],'candidate_sha':os.environ['KTERM_SHA'],
                 'forge_sha':os.environ['GITHUB_SHA'],'toolchain':'go1.26.5 windows/amd64',
                 'command':'go test -json -p 1 -parallel 2 -count=1 -timeout 18m -run=<native-sell-boundaries> ./pkg',
                 'gomaxprocs':2,'matched_single_pair':True,'baseline':base,'candidate':candidate,
+                'baseline_sum_product_seconds':x,
+                'candidate_max_product_seconds':y,
                 'speedup_ratio':ratio,'disposition':'VALID_PAIRED_MEASUREMENT' if ok else 'INVALID_PAIRED_MEASUREMENT',
                 'live_orders':0,'production_changed':False,'raw_logs_exported':False}
           raw=json.dumps(data,sort_keys=True,separators=(',',':')).encode()
