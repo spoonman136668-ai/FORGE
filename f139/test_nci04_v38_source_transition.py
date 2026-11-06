@@ -118,7 +118,7 @@ class V38ReleaseGuardTests(unittest.TestCase):
         if args[0] == "merge-base":
             return guard.BASELINE
         if args[0] == "diff":
-            return "\\n".join(sorted(guard.PATHS))
+            return "\n".join(sorted(guard.PATHS))
         raise AssertionError(args)
 
     def test_unique_v38_release_and_frozen_v37_route(self):
@@ -141,7 +141,7 @@ class V38ReleaseGuardTests(unittest.TestCase):
                         return "DIRTY"
                     if field == "merge-base":
                         return "0" * 40
-                    return self.git_fixture(*args) + "\\nf139/nci04_worker_v2.py"
+                    return self.git_fixture(*args) + "\nf139/nci04_worker_v2.py"
                 return self.git_fixture(*args)
             with self.subTest(field=field), self.assertRaises(ValueError):
                 guard.verify(root, get=bad)
