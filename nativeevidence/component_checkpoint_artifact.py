@@ -138,7 +138,7 @@ def wingless(path, source_sha):
     # A source-matched probe coupled with a substituted module is also
     # insufficient evidence of the claimed generated native fixture.
     need(all(z[name] ==
-             b"module wingless.nci04g5.privateprobe\\n\\ngo 1.20\\n"
+             b"module wingless.nci04g5.privateprobe\n\ngo 1.20\n"
              for name in ("full/go.mod", "resumed/go.mod")),
          "WING_MODULE_SOURCE")
     fields = (("prefix.snapshot", "prefix_checkpoint_sha256"),
