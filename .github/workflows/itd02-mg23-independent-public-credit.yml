@@ -1,0 +1,83 @@
+name: ITD-02 MG23 independent conventional selected effect control
+on:
+  push:
+    branches: [research/itd02-mg23-independent-credit-control-20261029]
+permissions:
+  contents: read
+jobs:
+  original-source-public-conventional-control:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Source identity with universal line endings
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Exact isolated research candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prospective immutable MG23 source/control scope verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 8d49604b25c46708162e50076974878a64561446 "$GITHUB_SHA"
+          git merge-base --is-ancestor d830141dae197cb0210958cb401ca7637cb977ba "$GITHUB_SHA"
+          test "$(git hash-object research/lcrm01/mg23_native_target_delayed_credit_prereg.json)" = aca29bd174deba82377c81244e0a13f2501cd381
+          test "$(git hash-object research/lcrm01/mg23_independent_control_prereg.json)" = 1fa39c0c41fc05d93c8f93a1b5613c2aac0e9a70
+          test "$(git hash-object research/lcrm01/mg23_independent_public_credit.py)" = 356c16d5dc1c259e34a6fca3bb75f6c9be786b0c
+          test "$(git hash-object research/lcrm01/test_mg23_independent_public_credit.py)" = 5105e09682e319760a352ffe88e8291832f497ea
+          expected="$(printf '%s\n' \
+            .github/workflows/itd02-mg23-independent-public-credit.yml \
+            research/lcrm01/mg23_independent_control_prereg.json \
+            research/lcrm01/mg23_independent_public_credit.py \
+            research/lcrm01/test_mg23_independent_public_credit.py | sort)"
+          actual="$(git diff --name-only 8d49604b25c46708162e50076974878a64561446 "$GITHUB_SHA" | sort)"
+          test "$expected" = "$actual"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo MG23C_INDEPENDENT_PRECODE_PREREG_AND_NO_NATIVE_PARENTS_CHANGED_PASS
+      - name: Portable Python 3.11 exact runtime
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Independent original-public control and adversarial ablation tests
+        working-directory: research/lcrm01
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest -v test_mg23_independent_public_credit
+          python -B -c '
+          import hashlib
+          from mg23_independent_public_credit import Conventional,digest
+          from test_mg23_independent_public_credit import view,add
+          outcomes=[]
+          for target,delayed in [(True,True),(False,True),(True,False),(False,False)]:
+              m=Conventional(target,delayed)
+              before=view()
+              after=view(front=(1,0,0))
+              m.begin_episode()
+              add(m,before,3,after,reward=1,terminal=True)
+              result={"target":target,"delayed":delayed,
+                      "samples":m.samples,"choice":m.choose(before)[0],
+                      "snapshot_sha256":hashlib.sha256(m.snapshot()).hexdigest()}
+              outcomes.append(result)
+          print("MG23C_INDEPENDENT_ORIGINAL_PUBLIC_SELECTED_CREDIT_CROSS_OS_SHA256 "+digest(outcomes))
+          '
+          echo MG23C_SOURCE_ONLY_CONVENTIONAL_TARGET_DELAYED_ABLATION_PASS_NO_SCIENCE
+      - name: Verify no original-world resets or unscoped source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo MG23C_CONVENTIONAL_ENGINEERING_QUALIFIED_NO_SOURCE_FIRST_USE_NO_SCIENCE
