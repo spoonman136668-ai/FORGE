@@ -20,21 +20,26 @@ import time
 import unittest
 
 COLLECT = r'''
-import json, unittest
+import inspect, json, pathlib, unittest
 suite=unittest.defaultTestLoader.discover('f139', pattern='test_*.py')
 def cases(suite):
     for item in suite:
         if isinstance(item, unittest.TestSuite): yield from cases(item)
         else: yield item
-ids=[]; skipped=[]
+ids=[]; skipped=[]; physical=[]; skipped_physical=[]
 for case in cases(suite):
     if isinstance(case, unittest.loader._FailedTest):
         raise RuntimeError('Inventory cannot qualify an import failure: '+case.id())
     identity=case.id(); ids.append(identity)
+    source=pathlib.Path(inspect.getsourcefile(type(case))).resolve().relative_to(pathlib.Path.cwd().resolve()).as_posix()
+    key=source+':'+type(case).__qualname__+'.'+case._testMethodName
+    physical.append(key)
     method=getattr(case, case._testMethodName)
     if getattr(type(case), '__unittest_skip__', False) or getattr(method, '__unittest_skip__', False):
         skipped.append(identity)
-print(json.dumps(dict(ids=ids, skipped=sorted(set(skipped))), sort_keys=True))
+        skipped_physical.append(key)
+print(json.dumps(dict(ids=ids, skipped=sorted(set(skipped)), physical=physical,
+                     skipped_physical=sorted(set(skipped_physical))), sort_keys=True))
 '''
 
 
@@ -227,6 +232,135 @@ def discover_profile_suite(root):
     return unittest.defaultTestLoader.discover(str(root/'f139'), pattern='test_*.py')
 
 
+def compare_physical_coverage(before, after, expected_removed):
+    if (len(before['ids']) != len(set(before['ids'])) or
+            len(after['ids']) != len(set(after['ids'])) or
+            len(before['physical']) != len(before['ids']) or
+            len(after['physical']) != len(after['ids']) or
+            set(before['physical']) != set(after['physical']) or
+            set(before['skipped_physical']) != set(after['skipped_physical']) or
+            len(before['ids'])-len(after['ids']) != expected_removed or
+            len(after['physical']) != len(set(after['physical']))):
+        raise ValueError('Physical test coverage, fixture repetition or skip contract changed')
+    return hashlib.sha256(('\n'.join(sorted(set(after['physical'])))+'\n').encode()).hexdigest()
+
+
+FIXTURE_BENCH_RUN = r'''
+import json, pathlib, sys
+from f139.check_test_discovery_inventory import collect, discover_profile_suite, profile_suite
+root=pathlib.Path.cwd()
+inventory=collect(root)
+report=profile_suite(discover_profile_suite(root), inventory['ids'])
+keys=dict(zip(inventory['ids'],inventory['physical']))
+report['runtime_skipped_physical']=sorted({keys[k] for k in report['skipped_ids']})
+pathlib.Path(sys.argv[1]).write_text(json.dumps(report,sort_keys=True),encoding='utf-8')
+raise SystemExit(not report['successful'])
+'''
+
+
+def evaluate_fixture_aliases(root, args):
+    """Generate and evaluate data in disposable existing-CI checkouts only."""
+    if (os.environ.get('GITHUB_ACTIONS') != 'true' or
+            os.environ.get('GITHUB_REPOSITORY') != 'spoonman136668-ai/FORGE' or
+            os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'):
+        raise ValueError('Fixture proposal evaluation requires existing hosted FORGE qualification')
+    source=git(root, 'rev-parse', 'HEAD').decode().strip()
+    if source != args.expected_source or git(root, 'status', '--porcelain', '--untracked-files=all').strip():
+        raise ValueError('Exact clean independently pinned evaluation source required')
+    tree=git(root, 'rev-parse', 'HEAD^{tree}').decode().strip()
+    sys.path.insert(0, str(root))
+    from f139.self_qualification_candidate import (
+        RULES, EXPECTED_REPEATED_CASES, MINIMUM_SPEEDUP, propose, inspect_proposal, assess_times,
+    )
+    originals={p:(root/p).read_bytes() for p in RULES}
+    proposal=propose(originals, source_sha=source, source_tree=tree)
+    changes=inspect_proposal(proposal, originals, source_sha=source, source_tree=tree)
+    output=args.output.resolve()
+    output.relative_to(Path(os.environ['RUNNER_TEMP']).resolve())
+    # ABBA freezes two opposite-order pairs before observing performance.
+    order=['baseline','proposal','proposal','baseline']
+    runs=[]; paths=[]; coverage=None; semantics=None; before=None; after=None; failure=None; failure_reason=None
+    env={**os.environ, 'PYTHONDONTWRITEBYTECODE':'1'}
+    for name in ('GH_TOKEN','GITHUB_TOKEN','OPENAI_API_KEY','ANTHROPIC_API_KEY',
+                 'OPENROUTER_API_KEY','HF_TOKEN','HUGGING_FACE_HUB_TOKEN'):
+        env.pop(name, None)
+    try:
+        with tempfile.TemporaryDirectory(prefix='f139-self-qual-', dir=os.environ['RUNNER_TEMP']) as d:
+            work={label:Path(d)/label for label in ('baseline','proposal')}
+            try:
+                for path in work.values():
+                    git(root, 'worktree', 'add', '--detach', str(path), source)
+                    paths.append(path)
+                for name, data in changes.items():
+                    (work['proposal']/name).write_bytes(data)
+                delta=set(git(work['proposal'], 'diff', '--name-only').decode().splitlines())
+                if delta != set(RULES):
+                    raise ValueError('Generated proposal changed unapproved files')
+                semantics=compare_test_bodies(work['baseline'], work['proposal'])
+                before=collect(work['baseline']); after=collect(work['proposal'])
+                coverage=compare_physical_coverage(before, after, EXPECTED_REPEATED_CASES)
+                expected_skips=None
+                for index, label in enumerate(order):
+                    report_path=Path(d)/('result-'+str(index)+'.json')
+                    print('F139_SELF_QUALIFICATION_START='+str(index)+':'+label, flush=True)
+                    started=time.perf_counter()
+                    proc=subprocess.run([sys.executable,'-B','-c',FIXTURE_BENCH_RUN,str(report_path)],
+                        cwd=work[label], env=env, timeout=1100)
+                    elapsed=time.perf_counter()-started
+                    report=json.loads(report_path.read_text(encoding='utf-8'))
+                    skips=report['runtime_skipped_physical']
+                    if expected_skips is None:
+                        expected_skips=skips
+                    runs.append(dict(index=index, arm=label, seconds=elapsed,
+                        suite_seconds=report['suite_seconds'], tests_run=report['tests_run'],
+                        runtime_skipped_physical=skips, failures=report['failures'], errors=report['errors']))
+                    print('F139_SELF_QUALIFICATION_RESULT='+json.dumps(runs[-1],sort_keys=True), flush=True)
+                    if (proc.returncode != 0 or not report['successful'] or
+                            not report['complete_inventory_and_order'] or skips != expected_skips):
+                        raise ValueError('Paired full regression or actual skip equivalence failed')
+                for label, path in work.items():
+                    if git(path,'rev-parse','HEAD').decode().strip()!=source:
+                        raise ValueError('Evaluation source moved')
+                    actual={p:(path/p).read_bytes() for p in RULES}
+                    if actual != (originals if label=='baseline' else changes):
+                        raise ValueError('Evaluated target source changed during tests')
+                    changed=set(git(path,'diff','--name-only').decode().splitlines())
+                    if changed != (set() if label=='baseline' else set(RULES)):
+                        raise ValueError('Additional tracked evaluation source changed')
+            finally:
+                for path in reversed(paths):
+                    git(root,'worktree','remove','--force',str(path))
+        if git(root,'status','--porcelain','--untracked-files=all').strip():
+            raise ValueError('Qualification checkout changed during evaluation')
+    except Exception as exc:
+        failure=type(exc).__name__
+        failure_reason=str(exc)[:200] if isinstance(exc,ValueError) else failure
+    assessment=assess_times(runs) if failure is None else dict(
+        paired_speedups=None,aggregate_speedup=None,development_threshold_met=False)
+    receipt=dict(schema='forge.f139.self-qualification-evaluation.v1', source_sha=source,
+        source_tree=tree, proposal=json.loads(proposal), proposal_sha256=hashlib.sha256(proposal).hexdigest(),
+        before_inventory=before, after_inventory=after,
+        physical_test_ids_sha256=coverage, normalized_test_bodies_sha256=semantics,
+        execution_order=order, runs=runs, **assessment,
+        minimum_speedup=MINIMUM_SPEEDUP,
+        evaluation_complete=failure is None, failure_type=failure, failure_reason=failure_reason,
+        disposable_copies_clean=not any(path.exists() for path in paths),
+        same_host=True, serial_workers=1, cpu_count=os.cpu_count(), python=sys.version,
+        platform=platform.platform(), resource_accounting_complete=False,
+        profiling_overhead_independently_measured=False, independent_acceptance=False,
+        original_owner_invoked=False, controller_mutations=0, dispatches=0,
+        scientific_first_use=False, optimizer_reward=False,
+        workflow_run=os.environ.get('GITHUB_RUN_ID'), workflow_attempt=os.environ.get('GITHUB_RUN_ATTEMPT'))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open('x',encoding='utf-8') as stream:
+        json.dump(receipt,stream,sort_keys=True,indent=2); stream.write('\n')
+    print('F139_SELF_QUALIFICATION_EVALUATION='+json.dumps({k:receipt[k] for k in
+        ('source_sha','proposal_sha256','aggregate_speedup','paired_speedups',
+         'development_threshold_met','independent_acceptance','original_owner_invoked','failure_type','failure_reason')},sort_keys=True))
+    if failure is not None:
+        raise SystemExit('F139_SELF_QUALIFICATION_INVALID_SEE_RETAINED_RECEIPT')
+
+
 def profile_current(root, args):
     """A single instrumented full regression in the existing hosted job."""
     if (os.environ.get('GITHUB_ACTIONS') != 'true' or
@@ -281,8 +415,14 @@ def main():
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--profile-current', action='store_true')
     parser.add_argument('--expected-source')
+    parser.add_argument('--fixture-alias-evaluation', action='store_true')
     args=parser.parse_args()
     root=Path(__file__).resolve().parents[1]
+    if args.fixture_alias_evaluation:
+        if args.profile_current or args.baseline or args.full_regression or args.verbose:
+            raise ValueError('Fixture evaluation cannot be mixed with other modes')
+        evaluate_fixture_aliases(root,args)
+        return
     if args.profile_current:
         if args.baseline or args.full_regression or args.verbose:
             raise ValueError('Current profile cannot be mixed with historical comparison')
