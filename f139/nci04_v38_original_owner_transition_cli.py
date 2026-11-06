@@ -134,7 +134,11 @@ def verify_pretransition_rollback(path, backup):
     """No writes. Admit recovery ONLY for the exact unmutated failed scope."""
     from f139.local_controller import Database
     from f139.nci04_native_contract import digest
-    contract.need(backup == path.parent/'f139-v38-before-42188092420'/'state.sqlite'
+    failed_scopes = {'f139-v38-before-42188092420':42188092420,
+                     'f139-v38-before-42195953740':42195953740}
+    failed_run = failed_scopes.get(backup.parent.name)
+    contract.need(failed_run is not None
+        and backup == path.parent/('f139-v38-before-'+str(failed_run))/'state.sqlite'
         and backup.is_file() and not backup.is_symlink() and not backup.parent.is_symlink()
         and not path.is_symlink(), 'ROLLBACK_BACKUP_SCOPE')
     pin = Path(str(backup)+'.sha256')
@@ -163,7 +167,7 @@ def verify_pretransition_rollback(path, backup):
             source_sha=contract.FROM_V37, original_head_seq=1304,
             original_head_sha256=meta['head_hash'], backup_sha256=digest(backup.read_bytes()),
             logical_state_sha256=digest(canonical(view)), original_owner_mutations=0,
-            no_original_source_transition=True)
+            no_original_source_transition=True, failed_run_id=failed_run)
 
 
 def main(argv=None):

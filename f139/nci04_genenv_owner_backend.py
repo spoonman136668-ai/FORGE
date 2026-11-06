@@ -111,7 +111,7 @@ def typed_generation_custody(db, source_sha, mechanism_sha256):
     row = db.conn.execute("SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
                           "ORDER BY seq DESC LIMIT 1").fetchone()
     doc = json.loads(row["payload"]) if row else {}
-    need(doc.get("schema") in ("forge.f139.source-transition.v28", "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32")
+    need(doc.get("schema") in ("forge.f139.source-transition.v28", "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33")
          and doc.get("to_source_sha") == source_sha, "TYPED_RELEASE_NOT_BOUND")
     need(doc.get("generation_mechanism_sha256") == mechanism_sha256, "TYPED_MECHANISM_DRIFT")
 

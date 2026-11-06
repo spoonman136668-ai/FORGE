@@ -220,6 +220,37 @@ class V38ReleaseGuardTests(unittest.TestCase):
         result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',checker],
             input=script,text=True,capture_output=True,timeout=30)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+    def test_copied_generator_compatibility_is_checked_before_owner_pause(self):
+        from pathlib import Path
+        source=(Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
+        install=source.split('  install-v38:',1)[1].split('  recover-pretransition-v38:',1)[0]
+        self.assertIn('--preflight-only --rehearse-copy',install)
+        self.assertLess(install.index('--preflight-only --rehearse-copy'),install.index('Disable-ScheduledTask'))
+        self.assertIn('--genenv-executable $genenv',install)
+
+    def test_restore_admits_only_two_exact_failed_scopes(self):
+        from pathlib import Path
+        import tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'state.sqlite'
+            for run_id in (42188092420,42195953740):
+                backup=path.parent/('f139-v38-before-'+str(run_id))/'state.sqlite'
+                backup.parent.mkdir();backup.write_bytes(b'exact-backup')
+                Path(str(backup)+'.sha256').write_text(__import__('hashlib').sha256(b'exact-backup').hexdigest())
+                # Reaching the opener proves scope admission, without a real owner DB.
+                with patch('f139.local_controller.Database.open_readonly',side_effect=RuntimeError('OPEN_ADMITTED')):
+                    with self.assertRaisesRegex(RuntimeError,'OPEN_ADMITTED'):
+                        cli.verify_pretransition_rollback(path,backup)
+            unknown=path.parent/'f139-v38-before-99999999999'/'state.sqlite'
+            with self.assertRaisesRegex(contract.MaintenanceDenied,'ROLLBACK_BACKUP_SCOPE'):
+                cli.verify_pretransition_rollback(path,unknown)
+        source=(Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
+        recovery=source.split('  recover-pretransition-v38:',1)[1]
+        self.assertIn("'42195953740'='904e955380c0fe29a3d0297df17cd86a2e57a5e9'",recovery)
+        self.assertIn('[string]$proof.failed_run_id -cne $failedRun',recovery)
+        self.assertIn('F139_V38_RESTORE_UNKNOWN_FAILED_SCOPE',recovery)
+
     def test_rollback_view_binds_every_table_schema_and_row(self):
         import sqlite3
         from contextlib import closing

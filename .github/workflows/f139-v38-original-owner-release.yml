@@ -230,7 +230,7 @@ jobs:
           # Parent holds the actual original byte-range mutex here. The child
           # opens SQLite mode=ro/query_only and grants no mutation authority.
           try {
-            $preflightLines=& $python -B -m f139.nci04_v38_original_owner_transition_cli --db $dbPath --target $target --preflight-only
+            $preflightLines=& $python -B -m f139.nci04_v38_original_owner_transition_cli --db $dbPath --target $target --preflight-only --rehearse-copy
             if($LASTEXITCODE -ne 0){throw 'F139_V38_RUNNING_OWNER_READONLY_PREFLIGHT_FAILED'}
             $preflight=($preflightLines -join "`n") | ConvertFrom-Json
             if($preflight.schema -cne 'forge.f139.v38.readonly-preflight.v1' -or
@@ -576,7 +576,7 @@ jobs:
   recover-pretransition-v38:
     # Restore the previously accepted V37 only when the original DB is proven
     # identical to the failed scope's verified backup. Never replay its install.
-    if: github.actor == 'spoonman136668-ai' && github.event.created == true && github.ref == format('refs/heads/f139-owner-release-restore-42188092420-{0}', github.sha)
+    if: github.actor == 'spoonman136668-ai' && github.event.created == true && (github.ref == format('refs/heads/f139-owner-release-restore-42188092420-{0}', github.sha) || github.ref == format('refs/heads/f139-owner-release-restore-42195953740-{0}', github.sha))
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 12
     steps:
@@ -592,14 +592,21 @@ jobs:
           $ErrorActionPreference='Stop'
           Set-StrictMode -Version Latest
           $old='3dd63467d649a347692b6b42cd5074ff1038d3de'
-          $failed='eb8ef637e76ac1a4816b023a27bd932ec906192e'
+          $failedScopes=@{
+            '42188092420'='eb8ef637e76ac1a4816b023a27bd932ec906192e';
+            '42195953740'='904e955380c0fe29a3d0297df17cd86a2e57a5e9'
+          }
+          $scope=[regex]::Match($env:GITHUB_REF,'^refs/heads/f139-owner-release-restore-(42188092420|42195953740)-[a-f0-9]{40}$')
+          if(-not $scope.Success){throw 'F139_V38_RESTORE_UNKNOWN_FAILED_SCOPE'}
+          $failedRun=$scope.Groups[1].Value
+          $failed=$failedScopes[$failedRun]
           $name='FORGE-F139-UnifiedController'
           $target=$env:GITHUB_SHA
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
              $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
-             $env:GITHUB_REF -cne ('refs/heads/f139-owner-release-restore-42188092420-'+$target) -or
+             $env:GITHUB_REF -cne ('refs/heads/f139-owner-release-restore-'+$failedRun+'-'+$target) -or
              (& git rev-parse HEAD | Out-String).Trim() -cne $target -or
              @(& git status --porcelain --untracked-files=all).Count -ne 0) {
             throw 'F139_V38_RESTORE_EVENT_OR_SOURCE_DENIED'
@@ -718,12 +725,13 @@ jobs:
             $children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object {
               $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
             if($children.Count -ne 0){throw 'F139_V38_RESTORE_LIVE_CHILD_DENIED'}
-            $backup=Join-Path (Split-Path $db -Parent) 'f139-v38-before-42188092420/state.sqlite'
+            $backup=Join-Path (Split-Path $db -Parent) ('f139-v38-before-'+$failedRun+'/state.sqlite')
             $proofLines=& $python -B -m f139.nci04_v38_original_owner_transition_cli --db $db --backup $backup --target $old --verify-pretransition-rollback
             if($LASTEXITCODE -ne 0){throw 'F139_V38_RESTORE_UNMUTATED_BACKUP_PROOF_FAILED'}
             $proof=($proofLines -join "`n") | ConvertFrom-Json
             if($proof.schema -cne 'forge.f139.v38.pretransition-rollback-readonly.v1' -or
                $proof.source_sha -cne $old -or $proof.original_head_seq -ne 1304 -or
+               [string]$proof.failed_run_id -cne $failedRun -or
                $proof.no_original_source_transition -ne $true -or $proof.original_owner_mutations -ne 0) {
               throw 'F139_V38_RESTORE_PROOF_DRIFT'
             }
