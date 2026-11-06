@@ -106,6 +106,7 @@ class GitHubCommandTransportTests(unittest.TestCase):
             function python {$global:LASTEXITCODE=1}
             try {Read-V38GitHub 'user';throw 'UNEXPECTED_ACCEPTANCE'}
             catch {if($_.Exception.Message -cne 'F139_V38_BOUNDED_READ_UNAVAILABLE'){throw}}
+            exit 0
         """)
         result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],
                               capture_output=True,text=True,timeout=30)
