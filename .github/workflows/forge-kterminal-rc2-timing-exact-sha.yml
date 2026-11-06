@@ -40,7 +40,9 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git merge-base --is-ancestor "$FORGE_BASE" HEAD
-          test "$(git diff --name-only "$FORGE_BASE" HEAD)" = '.github/workflows/forge-kterminal-rc2-timing-exact-sha.yml'
+          actual="$(git diff --name-only "$FORGE_BASE" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' '.github/workflows/forge-kterminal-rc2-focused-negative-20261106.yml' '.github/workflows/forge-kterminal-rc2-timing-exact-sha.yml' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
           test -z "$(git status --porcelain)"
           echo KTERM_RC2_FORGE_SCOPE=PASS
       - name: Checkout private K-Terminal exact source without retained credentials
@@ -119,6 +121,17 @@ jobs:
           test_pat = re.compile(r'^Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_.#-]+)*$')
           package_pat = re.compile(r'^k-terminal/[A-Za-z0-9_./-]+$')
           tests, packages, failed_tests, failed_packages = [], [], set(), set()
+          failure_classes = set()
+          target = 'TestPrototypeConsumedInitialNativeProtectedAuthorityNegatives/BTC-USDC/foreign_signal_session'
+          classes = {
+              'expired_quote_snapshot': 'stale or future quote snapshot',
+              'expired_account_snapshot': 'stale or future account snapshot',
+              'expired_product_snapshot': 'stale or future product snapshot',
+              'snapshot_premise': 'foreign authority control failed an unrelated snapshot premise',
+              'authority_premise': 'original current authority premise is invalid',
+              'incorrect_foreign_rejection': 'actual protected native authority did not specifically reject foreign evidence',
+              'changed_financial_or_journal_bytes': 'foreign authority rejection changed exact financial/journal/claim bytes',
+          }
           event_count = malformed_count = 0
           if raw.is_file():
               with raw.open('r', encoding='utf-8-sig', errors='replace') as src:
@@ -132,6 +145,11 @@ jobs:
                           continue
                       event_count += 1
                       action, test, package, elapsed = (e.get(x) for x in ('Action','Test','Package','Elapsed'))
+                      if action == 'output' and test == target:
+                          output = e.get('Output')
+                          if isinstance(output,str):
+                              for category, phrase in classes.items():
+                                  if phrase in output: failure_classes.add(category)
                       if action == 'fail':
                           if isinstance(test,str) and test_pat.fullmatch(test): failed_tests.add(test)
                           elif test is None and isinstance(package,str) and package_pat.fullmatch(package): failed_packages.add(package)
@@ -156,6 +174,7 @@ jobs:
               'top_tests':sorted(tests,key=lambda z:z['seconds'],reverse=True)[:12],
               'top_packages':sorted(packages,key=lambda z:z['seconds'],reverse=True)[:12],
               'failed_tests':sorted(failed_tests),
+              'failure_classes':sorted(failure_classes),
               'failed_packages':sorted(failed_packages),
               'private_logs_exported':False,
               'broker_orders':0,
@@ -170,6 +189,7 @@ jobs:
               (safe/'full.ok').write_text('PASS',encoding='ascii')
           print('KTERM_RC2_FULL_DISPOSITION='+('PASS' if qualified else 'FAIL'))
           print('KTERM_RC2_FULL_EVENT_COUNT='+str(event_count))
+          print('KTERM_RC2_FAILURE_CLASSES='+','.join(sorted(failure_classes)))
           print('KTERM_RC2_TIMING_DIGEST='+hashlib.sha256(contents).hexdigest())
           if not qualified: sys.exit(2)
           PY
