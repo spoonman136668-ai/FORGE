@@ -36,6 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s nativefirstuse -p 'test_f74_*.py' -v
           PYTHONPATH=nativefirstuse:research/f80 python3 -B -m unittest discover -s nativefirstuse -p 'test_f81_*.py' -v
           PYTHONPATH=research/f80 python3 -B -m unittest discover -s research/f80 -p 'test_*.py' -v
           go test -count=1 ./nativefirstuse ./originalclaim ./workerlease
@@ -59,6 +60,7 @@ jobs:
           assert r["schema"]=="forge.f81.native-live-dual-lane-evidence-review.v1"
           assert r["two_live_lanes_verified"] and r["two_real_fit_archive_metadata_identities_verified"]
           assert r["fresh_independently_accepted_originals"]==0
+          assert r["current_research_continuity_verified"] is False
           for k in ("policy_training_qualified","dream_rsi_pareto_promoted",
                     "cloudflare_firstuse_permit_issued","new_original_dispatched",
                     "scientific_execution_authorized"):
@@ -66,6 +68,7 @@ jobs:
           assert lines[1:] == ["F81_NEW_PROSPECTIVE_SCIENCE=DENIED","F81_DREAM_PARETO_POLICY_PROMOTION=DENIED"]
           print("F81_REAL_BOTH_LANES_AND_ARCHIVES=VERIFIED")
           print("F81_AUTONOMOUS_ORIGINAL_FIRSTUSE=BLOCKED")
+          print("::warning::F81 verifies source and archived evidence only; current research continuity remains UNVERIFIED.")
           PY
           sha256sum "$RUNNER_TEMP/f81.jsonl" > "$RUNNER_TEMP/f81.sha256"
           sha256sum -c "$RUNNER_TEMP/f81.sha256"
