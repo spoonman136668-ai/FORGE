@@ -21,8 +21,8 @@ jobs:
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
-      KTERM_SHA: 03a1f8f081766e1c68e4af45dd7cd67eae365dc7
-      KTERM_TREE: e8196e8110aed87033b0a0820246e37a95b456e6
+      KTERM_SHA: 372b63927a1ed1b6f0d4b1afbe3824c111961d5f
+      KTERM_TREE: a4e785e914ed51aa9c94b916b6853402d6995295
       FORGE_BASE: eb31df857423e14a8319b244d2417d1ee740c27f
     steps:
       - name: Checkout exact FORGE qualification scope
@@ -48,7 +48,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: 03a1f8f081766e1c68e4af45dd7cd67eae365dc7
+          ref: 372b63927a1ed1b6f0d4b1afbe3824c111961d5f
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -72,6 +72,7 @@ jobs:
           test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard_test.go)" = "b0e229e2ace153deead952fac37879f921f80a18"
           test "$(git rev-parse HEAD:pkg/countdown-activation_test.go)" = "aeff5060f47e4359439a4397d2dcf357c647e26f"
           test "$(git rev-parse HEAD:pkg/countdown-activation.go)" = "be19dba058f581222e35474b20d69c8a428b0dc3"
+          test "$(git rev-parse HEAD:pkg/stage3-report-full-root-v2_test.go)" = "faad284741466f8efd2f58055bbf25039d8ad42c"
           test -z "$(git status --porcelain)"
           test ! -e .env
           test ! -e config.json
@@ -98,9 +99,27 @@ jobs:
           test "$(git rev-parse HEAD)" = "$KTERM_SHA"
           test "$(git rev-parse HEAD:pkg/countdown-activation_test.go)" = aeff5060f47e4359439a4397d2dcf357c647e26f
           test "$(git rev-parse HEAD:pkg/countdown-activation.go)" = be19dba058f581222e35474b20d69c8a428b0dc3
+          test "$(git rev-parse HEAD:pkg/stage3-report-full-root-v2_test.go)" = faad284741466f8efd2f58055bbf25039d8ad42c
           test -z "$(git status --porcelain)"
           test ! -e .env
           go test -json -mod=readonly -p 1 -count=1 -timeout 8m '-run=^(TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts|TestCountdownManualLaunchInvalidatesReadyAutoActivation|TestCountdownTimeoutAndLateSuccessfulResultCannotActivate|TestCountdownBoundedCheckWindow|TestStage3ReportFullRootPublicAliasFallback)$' ./pkg > "$RUNNER_TEMP/kterm-countdown-focused-private.jsonl"
+          python - <<'PY'
+          import json, os, pathlib
+          event_file=pathlib.Path(os.environ["RUNNER_TEMP"])/"kterm-countdown-focused-private.jsonl"
+          expected=("TestStage3ReportFullRootPublicAliasFallback/"+product+"/"+order
+              for product in ("BTC-USDC","XRP-USDC")
+              for order in ("natural-order","forced-clock-first"))
+          counts={name:{"run":0,"pass":0,"fail":0} for name in expected}
+          for line in event_file.read_text(encoding="utf-8-sig",errors="replace").splitlines():
+              try: e=json.loads(line)
+              except ValueError: raise SystemExit("KTERM_REPORT_ALIAS_INVALID_JSON")
+              name,action=e.get("Test"),e.get("Action")
+              if name in counts and action in counts[name]:
+                  counts[name][action]+=1
+          if any(v["run"]!=1 or v["pass"]!=1 or v["fail"] for v in counts.values()):
+              raise SystemExit("KTERM_REPORT_ALIAS_ORDER_COVERAGE_FAIL")
+          print("KTERM_REPORT_ALIAS_BTC_XRP_BOTH_RESPONSE_ORDERS=PASS")
+          PY
           echo KTERM_COUNTDOWN_FOCUSED_NEGATIVE_CONTROLS_AND_ALIAS=PASS
       - name: Reproduce exact PR79 mandatory all-test Windows suite with static failure classification
         shell: bash
@@ -181,8 +200,8 @@ jobs:
           outcome="PASS" if rc==0 and total>0 and invalid==0 and top_fail==0 and package_fail==0 and len(guard_runs)==4 and len(guard_pass)==4 and len(guard_fail)==0 else "FAIL"
           receipt={
             "schema":"kterminal.pr79.reproduction-all-original-tests.v1",
-            "candidate_sha":"03a1f8f081766e1c68e4af45dd7cd67eae365dc7",
-            "candidate_tree":"e8196e8110aed87033b0a0820246e37a95b456e6",
+            "candidate_sha":"372b63927a1ed1b6f0d4b1afbe3824c111961d5f",
+            "candidate_tree":"a4e785e914ed51aa9c94b916b6853402d6995295",
             "frozen_baseline_sha":"bcebdc1a7a0487f9d6061a8e643c76069335d896",
             "baseline_full_result":"PASS",
             "candidate_previous_full_results":["FAIL","FAIL"],
