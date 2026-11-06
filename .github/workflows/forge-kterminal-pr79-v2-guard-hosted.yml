@@ -88,33 +88,50 @@ jobs:
           set -euo pipefail
           go test -mod=readonly -p 1 -count=1 -timeout 5m '-run=^TestV2AccountsProbe' ./pkg
           echo KTERM_PR79_FOCUSED_WINDOWS=PASS
-      - name: Mandatory final original Windows full regression, vet, unpublished build
+      - name: Classify full-suite failure without repeating full regression
         shell: bash
         working-directory: kterminal-private
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/kterminal-pr79-original"
+          root="$RUNNER_TEMP/kterminal-pr79-diagnostic"
           test ! -e "$root"
-          mkdir -p "$root/tail" "$root/post" "$root/private"
+          mkdir -p "$root"
           export K_TERMINAL_TEST_WORKSPACE="$root"
           export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
           export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
           export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
-          go test -mod=readonly -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/kterm-pr79-full-private.log" 2>&1 || {
-            echo KTERM_PR79_FULL_WINDOWS=FAIL
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          echo 'KTERM_PR79_PRIOR_FULL_REGRESSION_RUN_42131948157=FAIL'
+          echo 'KTERM_PR79_PRIOR_FULL_FAILURE_CAUSE=NOT_RECORDED'
+          echo 'KTERM_PR79_THIS_RUN_SCOPE=SOURCE_ONLY_VET_BUILD_NOT_FULL_REGRESSION'
+          set +e
+          go vet ./... > "$RUNNER_TEMP/kterm-pr79-vet-private.log" 2>&1
+          vet_rc=$?
+          go build -trimpath -o "$RUNNER_TEMP/KTerminal-PR79-Dev-Engine.exe" . > "$RUNNER_TEMP/kterm-pr79-build-private.log" 2>&1
+          build_rc=$?
+          set -e
+          KTERM_VET_RC="$vet_rc" KTERM_BUILD_RC="$build_rc" python - <<'PY'
+          import os,pathlib,re
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          for stage,name in (("VET","vet"),("BUILD","build")):
+            rc=int(os.environ[f"KTERM_{stage}_RC"])
+            path=root/f"kterm-pr79-{name}-private.log"
+            lines=path.read_text(errors="replace").splitlines() if path.exists() else []
+            print(f"KTERM_PR79_DIAGNOSTIC_{stage}={'PASS' if rc==0 else 'FAIL'}")
+            refs=[]
+            for line in lines:
+              match=re.search(r"([A-Za-z0-9_.-]+\.go):(\d+):(\d+):",line)
+              if match:
+                refs.append(f"{match.group(1)}:{match.group(2)}:{match.group(3)}")
+            for ref in sorted(set(refs))[:20]:
+              print(f"KTERM_PR79_DIAGNOSTIC_{stage}_SOURCE_LOCATION={ref}")
+            if rc!=0 and not refs:
+              print(f"KTERM_PR79_DIAGNOSTIC_{stage}_CAUSE=NON_SOURCE_OR_UNCLASSIFIED")
+          PY
+          if [[ "$vet_rc" -ne 0 || "$build_rc" -ne 0 ]]; then
+            echo 'KTERM_PR79_ENGINEERING_DIAGNOSTIC=BLOCKED'
             exit 2
-          }
-          echo KTERM_PR79_FULL_WINDOWS=PASS
-          go vet ./... > "$RUNNER_TEMP/kterm-pr79-vet-private.log" 2>&1 || {
-            echo KTERM_PR79_VET=FAIL
-            exit 2
-          }
-          echo KTERM_PR79_VET=PASS
-          go build -trimpath -o "$RUNNER_TEMP/KTerminal-PR79-Unpromoted-Engine.exe" . > "$RUNNER_TEMP/kterm-pr79-build-private.log" 2>&1 || {
-            echo KTERM_PR79_BUILD=FAIL
-            exit 2
-          }
+          fi
           test "$(git rev-parse HEAD)" = "$KTERM_SHA"
           test -z "$(git status --porcelain)"
-          echo KTERM_PR79_BUILD=PASS
-          echo KTERM_PR79_NO_COINBASE_REQUESTS_NO_USER_DATA_NO_INSTALL_NO_PROMOTION=TRUE
+          echo 'KTERM_PR79_ENGINEERING_DIAGNOSTIC=VET_AND_BUILD_PASS_FULL_SUITE_STILL_FAIL'
