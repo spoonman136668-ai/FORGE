@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 BASELINE = '08b2fed1ac8b91fb45f4dbd5704b05d7fc5f6978'
-PATHS = frozenset(['f139/local_controller.py','f139/nci04_owner_ledger.py','f139/nci04_v32_original_owner_transition_cli.py','f139/nci04_v38_original_owner_transition_cli.py','f139/nci04_v38_source_transition.py','f139/test_nci04_v38_source_transition.py', 'f139/test_nci04_v37_source_transition.py','f139/check_v38_release_source.py','.github/workflows/f139-v37-original-owner-release.yml','.github/workflows/f139-v38-original-owner-release.yml','docs/F139-V38-DIAGNOSTIC-OWNER-RELEASE.md'])
+PATHS = frozenset(['f139/local_controller.py','f139/nci04_owner_ledger.py','f139/nci04_v32_original_owner_transition_cli.py','f139/nci04_v38_original_owner_transition_cli.py','f139/nci04_v38_source_transition.py','f139/test_nci04_v38_source_transition.py', 'f139/test_nci04_v37_source_transition.py','f139/check_v38_release_source.py','f139/nci04_partial_publication_custody.py','.github/workflows/f139-v37-original-owner-release.yml','.github/workflows/f139-v38-original-owner-release.yml','docs/F139-V38-DIAGNOSTIC-OWNER-RELEASE.md'])
 
 
 def verify(root, *, get=None):

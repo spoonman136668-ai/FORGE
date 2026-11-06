@@ -3,6 +3,7 @@
 Synthetic fixtures do not authorize a live owner installation.
 """
 import inspect
+import json
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +15,104 @@ from f139.local_controller import Database
 
 
 class V38SuccessorTests(unittest.TestCase):
+    def growing_history(self, pairs=7):
+        from f139 import test_nci04_v37_source_transition as fixture_module
+        from f139 import nci04_partial_publication_custody as custody
+        fixture = fixture_module.V37ContractTests(
+            'test_full_terminal_history_and_exact_negative_are_preserved')
+        self.addCleanup(fixture.doCleanups)
+        db, _ = fixture.history()
+        seal = fixture_module.proof()
+        seal['to_source_sha'] = contract.FROM_V37
+        previous = fixture.previous() + [seal]
+        db.conn.execute('INSERT INTO events VALUES(?,?,?,?,?)',
+            (1240, 'SOURCE_TRANSITION_ADMITTED', 'd'*64, custody.EVENT, json.dumps(seal)))
+        db.conn.execute('INSERT INTO events VALUES(?,?,?,?,?)',
+            (1241, 'NATIVE_DEVELOPMENT_ACTIVATED', 'a'*64, 'd'*64, '{}'))
+        for index in range(pairs):
+            identity = format(10000 + index, '064x')
+            attempt = {**custody.original_payload(), 'candidate_identity': identity,
+                'source_after_sha256': identity, 'source_sha': contract.FROM_V37,
+                'branch': 'f139/auto-model-y-' + identity[:20] + '-992ef142aaa5'}
+            success = dict(schema=custody.PUBLICATION, candidate_identity=identity,
+                source_after_sha256=identity, pr_number=900+index, head_commit='b'*40,
+                scientific_first_use=False, worker_dispatched=False)
+            for seq, kind, payload in (
+                (1242+2*index, 'MODEL_DRAFT_ATTEMPTED', attempt),
+                (1243+2*index, 'MODEL_DRAFT_AUTHENTICATED', success)):
+                db.conn.execute('INSERT INTO events VALUES(?,?,?,?,?)',
+                    (seq, kind, 'a'*64, 'a'*64, json.dumps(payload)))
+            db.conn.execute('INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?,?,?)',
+                ('grown-positive-%02d'%index, 'VERIFIED', 2000+index, 'a'*64,
+                 '/fixture-only', contract.FROM_V37, 'Yggdrasil', None, None, None))
+        for seq in range(1242+2*pairs, 1305):
+            db.conn.execute('INSERT INTO events VALUES(?,?,?,?,?)',
+                            (seq, 'FIXTURE', 'a'*64, 'a'*64, '{}'))
+        return db, dict(seq=1305, prior_sha='a'*64), previous
+
+    def test_frozen_negative_and_grown_prefix_survive_full_cold_validation(self):
+        from f139 import nci04_partial_publication_custody as custody
+        for pairs in (0, 7):
+            with self.subTest(pairs=pairs):
+                db, row, previous = self.growing_history(pairs)
+                with patch.object(contract, 'g54_original_canonical',
+                                  return_value={'ticket':'fixture-g54'}):
+                    state = contract.snapshot(db, row, previous)
+                    self.assertEqual(state['partial_publication_custody'], custody.custody_packet())
+                    self.assertEqual(state['verified_historical_tasks'], 89+pairs)
+                    self.assertEqual(state['custodied_negative_tasks'], 56)
+                    self.assertEqual(state['preserved_counters']['MODEL_DRAFT_ATTEMPTED'], 102+pairs)
+                    self.assertEqual(state['preserved_counters']['MODEL_DRAFT_AUTHENTICATED'], 101+pairs)
+                    doc = {**self.proof(), **state, 'original_head_seq':1304,
+                           'prior_event_head_sha256':row['prior_sha']}
+                    contract.verify_cold_event(db, row, doc, previous)
+                self.assertEqual(custody.validate_original(db,1240),custody.custody_packet())
+                if pairs:
+                    # Reproduces the former bug: frozen102/101 cannot describe
+                    # the current109/108 prefix. Neither counter is reset.
+                    with self.assertRaises(custody.PartialPublicationDenied):
+                        custody.validate_original(db,row['seq'])
+
+    def test_growth_never_retires_unknown_or_replays_original_scope(self):
+        from f139 import nci04_partial_publication_custody as custody
+        db, row, previous = self.growing_history()
+        attempt = json.loads(db.conn.execute('SELECT payload FROM events WHERE seq=1242').fetchone()[0])
+        success = json.loads(db.conn.execute('SELECT payload FROM events WHERE seq=1243').fetchone()[0])
+        cases = (
+            ('unresolved', "DELETE FROM events WHERE seq=1243", ()),
+            ('source drift', 'UPDATE events SET payload=? WHERE seq=1242',
+             (json.dumps({**attempt,'source_sha':'f'*40}),)),
+            ('duplicate identity', 'UPDATE events SET payload=? WHERE seq=1242',
+             (json.dumps({**attempt,'candidate_identity':format(9,'064x')}),)),
+            ('mismatched success', 'UPDATE events SET payload=? WHERE seq=1243',
+             (json.dumps({**success,'source_after_sha256':'f'*64}),)),
+            ('original anchor drift', "UPDATE events SET sha='bad' WHERE seq=1239", ()),
+        )
+        for name, statement, args in cases:
+            with self.subTest(name=name):
+                db.conn.execute('SAVEPOINT negative')
+                db.conn.execute(statement,args)
+                with patch.object(contract,'g54_original_canonical',return_value={'ticket':'fixture-g54'}):
+                    with self.assertRaises(contract.MaintenanceDenied):
+                        contract.snapshot(db,row,previous)
+                db.conn.execute('ROLLBACK TO negative');db.conn.execute('RELEASE negative')
+        db.conn.execute('SAVEPOINT hash_replay')
+        for seq, doc in ((1242,attempt),(1243,success)):
+            db.conn.execute('UPDATE events SET payload=? WHERE seq=?',
+                (json.dumps({**doc,'source_after_sha256':custody.AFTER}),seq))
+        with patch.object(contract,'g54_original_canonical',return_value={'ticket':'fixture-g54'}):
+            with self.assertRaises(contract.MaintenanceDenied):contract.snapshot(db,row,previous)
+        db.conn.execute('ROLLBACK TO hash_replay');db.conn.execute('RELEASE hash_replay')
+        # Equal net counts cannot exchange the old negative for a new one.
+        db.conn.execute('DELETE FROM events WHERE seq IN (1303,1304)')
+        unknown = {**attempt,'candidate_identity':'e'*64,'source_after_sha256':'d'*64}
+        false_success = {**success,'candidate_identity':custody.IDENTITY,'source_after_sha256':custody.AFTER}
+        for seq,kind,doc in ((1303,'MODEL_DRAFT_ATTEMPTED',unknown),
+                             (1304,'MODEL_DRAFT_AUTHENTICATED',false_success)):
+            db.conn.execute('INSERT INTO events VALUES(?,?,?,?,?)',(seq,kind,'a'*64,'a'*64,json.dumps(doc)))
+        with patch.object(contract,'g54_original_canonical',return_value={'ticket':'fixture-g54'}):
+            with self.assertRaises(contract.MaintenanceDenied):contract.snapshot(db,row,previous)
+
     def previous(self):
         return [{"schema": predecessor.SCHEMA,
                  "from_source_sha": predecessor.FROM_V36,
