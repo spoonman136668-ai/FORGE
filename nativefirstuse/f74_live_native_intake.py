@@ -31,10 +31,13 @@ def get(repo,path):
  token=os.environ.get("GH_TOKEN","")
  if token:headers["Authorization"]="Bearer "+token
  req=urllib.request.Request(url,headers=headers,method="GET")
+ # Compare includes bounded commit/file metadata in addition to ancestry.
+ # Match the existing native pulse ceiling only for this exact SHA route.
+ limit=600000 if compare else 131072
  with urllib.request.urlopen(req,timeout=18) as r:
   need(r.status==200 and r.url==url,"GITHUB_HTTP_UNTRUSTED")
-  raw=r.read(131073)
- need(0<len(raw)<=131072,"GITHUB_RESPONSE_TOO_LARGE")
+  raw=r.read(limit+1)
+ need(0<len(raw)<=limit,"GITHUB_RESPONSE_TOO_LARGE")
  return json.loads(raw)
 def doc(repo,sha,path):
  need(bool(HEX40.fullmatch(sha)),"SOURCE_SHA_INVALID")

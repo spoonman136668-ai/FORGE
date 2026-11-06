@@ -120,4 +120,18 @@ class F74(unittest.TestCase):
  def test_unrecognized_egress_route_denied(self):
   with self.assertRaises(m.Denied):m.get("attacker/foreign","/branches/main")
   with self.assertRaises(m.Denied):m.get(m.LANES[0][1],"/../secret")
+  for route in ("/compare/"+"a"*40+"...evil", "//foreign/path", "/branches/main#bad"):
+   with self.assertRaises(m.Denied):m.get(m.LANES[0][1],route)
+ def test_compare_metadata_has_finite_route_specific_response_budget(self):
+  repo=m.LANES[0][1];route="/compare/"+"a"*40+"..."+"b"*40
+  class Response:
+   status=200
+   def __init__(self,path,size):self.url=m.API+repo+path;self.size=size
+   def __enter__(self):return self
+   def __exit__(self,*args):pass
+   def read(self,limit):return (b'{"padding":"'+b'x'*self.size+b'"}')[:limit]
+  with patch.object(m.urllib.request,"urlopen",return_value=Response(route,200000)):
+   self.assertEqual(len(m.get(repo,route)["padding"]),200000)
+  for path,size in [(route,600001),("/branches/main",200000)]:
+   with self.subTest(path=path),patch.object(m.urllib.request,"urlopen",return_value=Response(path,size)),self.assertRaises(m.Denied):m.get(repo,path)
 if __name__=="__main__":unittest.main()
