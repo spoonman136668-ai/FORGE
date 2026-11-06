@@ -33,7 +33,8 @@ def wing_fixture():
     }
     return {"evidence.json": c.canonical(e), "prefix.snapshot": before,
             "full/final.snapshot": after, "resumed/final.snapshot": after,
-            "full/go.mod": b"module fixture", "resumed/go.mod": b"module fixture",
+            "full/go.mod": b"module wingless.nci04g5.privateprobe\\n\\ngo 1.20\\n",
+            "resumed/go.mod": b"module wingless.nci04g5.privateprobe\\n\\ngo 1.20\\n",
             "full/probe.go": b"package fixture", "resumed/probe.go": b"package fixture"}
 
 def make_journal(episode, checkpoint_sha):
@@ -150,6 +151,22 @@ class ComponentArchiveTests(unittest.TestCase):
         d["matched_baseline_superiority"] = "PASS"
         f["evidence.json"] = c.canonical(d)
         self.rejected(f, "Wingless", "WING_RECEIPT")
+
+    def test_wing_substituted_probe_and_module_rejected(self):
+        for name in ("full/probe.go", "resumed/probe.go",
+                     "full/go.mod", "resumed/go.mod"):
+            with self.subTest(path=name):
+                f = wing_fixture()
+                f[name] += b"tampered"
+                self.rejected(f, "Wingless",
+                              "WING_PROBE_HASH" if name.endswith("probe.go")
+                              else "WING_MODULE_SOURCE")
+        f = wing_fixture()
+        f["resumed/probe.go"] = f["full/probe.go"] + b"changed"
+        d = c.decode(f["evidence.json"])
+        d["source_probe_sha256"] = c.sha(f["full/probe.go"])
+        f["evidence.json"] = c.canonical(d)
+        self.rejected(f, "Wingless", "WING_PROBE_HASH")
 
     def test_ygg_corrupt_checkpoint_journal_and_lineage(self):
         f = ygg_fixture()
