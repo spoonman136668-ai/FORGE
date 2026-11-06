@@ -61,9 +61,16 @@ jobs:
           python3 -B f139/check_test_discovery_inventory.py --baseline b5172a047efa7a1d630c15c13a2b7eba14c997fe --output "$RUNNER_TEMP/f139-discovery-public.json"
       - name: F139 Python controller and native-custody regression
         shell: bash
+        env:
+          FORGE_PROFILE_BRANCH: ${{ github.head_ref }}
+          FORGE_PROFILE_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+          if [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-qualification-profile-20261106' ]; then
+            python3 -B f139/check_test_discovery_inventory.py --profile-current --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
+          else
+            python3 -B -m unittest discover -s f139 -p 'test_*.py'
+          fi
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -114,8 +121,8 @@ jobs:
           test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
           grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
           ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
-      - name: Retain exact-source discovery receipt
-        if: ${{ always() && github.head_ref == 'engineering/f139-unique-test-discovery-20261105' }}
+      - name: Retain exact-source qualification receipt
+        if: ${{ always() && (github.head_ref == 'engineering/f139-unique-test-discovery-20261105' || github.head_ref == 'engineering/f139-qualification-profile-20261106') }}
         uses: actions/upload-artifact@v4
         with:
           name: f139-discovery-public-${{ runner.os }}
@@ -175,9 +182,16 @@ jobs:
           python3 -B f139/check_test_discovery_inventory.py --baseline b5172a047efa7a1d630c15c13a2b7eba14c997fe --output "$RUNNER_TEMP/f139-discovery-public.json"
       - name: F139 Python controller and native-custody regression
         shell: bash
+        env:
+          FORGE_PROFILE_BRANCH: ${{ github.head_ref }}
+          FORGE_PROFILE_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          python3 -B -m unittest discover -s f139 -p 'test_*.py'
+          if [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-qualification-profile-20261106' ]; then
+            python3 -B f139/check_test_discovery_inventory.py --profile-current --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
+          else
+            python3 -B -m unittest discover -s f139 -p 'test_*.py'
+          fi
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -211,8 +225,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
-      - name: Retain exact-source discovery receipt
-        if: ${{ always() && github.head_ref == 'engineering/f139-unique-test-discovery-20261105' }}
+      - name: Retain exact-source qualification receipt
+        if: ${{ always() && (github.head_ref == 'engineering/f139-unique-test-discovery-20261105' || github.head_ref == 'engineering/f139-qualification-profile-20261106') }}
         uses: actions/upload-artifact@v4
         with:
           name: f139-discovery-public-${{ runner.os }}
