@@ -1684,6 +1684,9 @@ class Database:
                 if is_v32:
                     from f139.nci04_v37_source_transition import verify_cold_event
                     verify_cold_event(self, row, doc, source_transitions)
+                if is_v33:
+                    from f139.nci04_v38_source_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         from f139.nci04_prospective_journal import audit_assignment_events
