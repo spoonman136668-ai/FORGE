@@ -121,6 +121,20 @@ def snapshot(db, row, previous):
 
 
 def verify_cold_event(db, row, doc, previous):
+    # Confirm a UNIQUE genuine V37 predecessor before iterating source
+    # identities or relying on a later snapshot. This also prevents malformed
+    # historical data from raising an unclassified KeyError.
+    need(type(previous) is list and len(previous) > 0
+         and all(type(item) is dict
+                 and type(item.get("from_source_sha")) is str
+                 and type(item.get("to_source_sha")) is str
+                 and type(item.get("schema")) is str
+                 for item in previous)
+         and previous[-1]["schema"] == "forge.f139.source-transition.v32"
+         and previous[-1]["to_source_sha"] == FROM_V37
+         and sum(item["schema"] == "forge.f139.source-transition.v32"
+                 for item in previous) == 1,
+         "GENUINE_UNIQUE_V37_PREDECESSOR_REQUIRED")
     need(type(doc) is dict and set(doc) == FIELDS and doc["schema"] == SCHEMA
          and type(doc["original_head_seq"]) is int and doc["original_head_seq"] >= 1241
          and row["seq"] == doc["original_head_seq"] + 1
