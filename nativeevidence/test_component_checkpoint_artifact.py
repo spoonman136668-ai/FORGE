@@ -26,15 +26,15 @@ def wing_fixture():
         "accepted_model_or_portable_state_former": False,
         "independent_source_first_use": False,
         "matched_baseline_superiority": "UNVERIFIED", "unfamiliar_transfer": "UNVERIFIED",
-        "learned_observations": 2, "source_probe_sha256": "b" * 64,
+        "learned_observations": 2, "source_probe_sha256": c.sha(b"package fixture"),
         "prefix_checkpoint_sha256": c.sha(before),
         "uninterrupted_checkpoint_sha256": c.sha(after),
         "continued_checkpoint_sha256": c.sha(after),
     }
     return {"evidence.json": c.canonical(e), "prefix.snapshot": before,
             "full/final.snapshot": after, "resumed/final.snapshot": after,
-            "full/go.mod": b"module wingless.nci04g5.privateprobe\\n\\ngo 1.20\\n",
-            "resumed/go.mod": b"module wingless.nci04g5.privateprobe\\n\\ngo 1.20\\n",
+            "full/go.mod": b"module wingless.nci04g5.privateprobe\n\ngo 1.20\n",
+            "resumed/go.mod": b"module wingless.nci04g5.privateprobe\n\ngo 1.20\n",
             "full/probe.go": b"package fixture", "resumed/probe.go": b"package fixture"}
 
 def make_journal(episode, checkpoint_sha):
