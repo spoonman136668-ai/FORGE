@@ -235,6 +235,13 @@ class V38ReleaseGuardTests(unittest.TestCase):
             self.assertNotEqual(original,cli.rollback_view(right))
             right.execute('DROP TABLE unknown_private_state')
             self.assertEqual(original,cli.rollback_view(right))
+            right.execute('CREATE TRIGGER unexpected_write AFTER INSERT ON tasks BEGIN DELETE FROM events; END;')
+            self.assertNotEqual(original,cli.rollback_view(right))
+            right.execute('DROP TRIGGER unexpected_write')
+            right.execute('CREATE UNIQUE INDEX unexpected_index ON tasks(ticket)')
+            self.assertNotEqual(original,cli.rollback_view(right))
+            right.execute('DROP INDEX unexpected_index')
+            self.assertEqual(original,cli.rollback_view(right))
             left.execute('PRAGMA query_only=ON');before=left.total_changes
             self.assertEqual(original,cli.rollback_view(left))
             self.assertEqual(left.total_changes,before)

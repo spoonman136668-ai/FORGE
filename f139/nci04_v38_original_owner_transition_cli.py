@@ -114,12 +114,14 @@ def rollback_view(connection):
     import re
     from f139.nci04_native_contract import digest
     schema = [tuple(r) for r in connection.execute(
-        "SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name")]
+        "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name")]
     tables = {}
     def encode_blob(value):
         contract.need(isinstance(value,bytes),'ROLLBACK_SQLITE_VALUE_TYPE')
         return {'bytes_sha256':digest(value),'size':len(value)}
-    for name, _ in schema:
+    for kind, name, _, _ in schema:
+        if kind != 'table':
+            continue
         contract.need(re.fullmatch('[A-Za-z_][A-Za-z0-9_]*', name) is not None,
                       'ROLLBACK_TABLE_NAME_DENIED')
         rows = [list(r) for r in connection.execute('SELECT * FROM "'+name+'"')]
