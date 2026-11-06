@@ -26,7 +26,13 @@ def verify(root, *, get=None):
     release = 'f139-owner-release-' + head
     selected = []
     for path in sorted((root/'.github/workflows').glob('f139-v*-original-owner-release*.yml')):
-        rows = re.findall(r'^    branches: (\[.*\])$', path.read_text(), re.M)
+        source = path.read_text()
+        if path.name == 'f139-v37-original-owner-release.yml':
+            # Existing historical V37 installer must not process V38 releases.
+            if "&& github.sha == '3dd63467d649a347692b6b42cd5074ff1038d3de'" not in source:
+                raise ValueError('F139_V38_CONSUMED_V37_NOT_SEALED')
+            continue
+        rows = re.findall(r'^    branches: (\[.*\])$', source, re.M)
         for row in rows:
             patterns = ast.literal_eval(row)
             if not isinstance(patterns, list) or not all(isinstance(p, str) for p in patterns):
