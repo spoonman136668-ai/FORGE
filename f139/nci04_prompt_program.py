@@ -229,9 +229,12 @@ def public_rate_preflight(program):
     Historic source decoding deliberately does not call this preflight.
     """
     numerator, denominator = parse(program)
-    # Only prospective admission uses this stronger domain-aware identity
-    # check. Historical source reconstruction and its SHA custody are intact.
-    if _same_baseline_public_choice(numerator, denominator):
+    # Target only min/max proposals that the historical polynomial guard
+    # could not prove equivalent. Preserve the legacy SEED preflight result;
+    # source_for_program already maps ordinary polynomial aliases to before.
+    # Historical source reconstruction and SHA custody remain untouched.
+    if (("min" in program.split(" ") or "max" in program.split(" "))
+            and _same_baseline_public_choice(numerator, denominator)):
         return False
     for trials in (2, 4, 8):
         for success0 in range(trials + 1):
