@@ -135,6 +135,35 @@ def copy_generation_executable(db, destination, *, copy_files=True):
     return {relative.as_posix():expected}
 
 
+def require_no_unadmitted_native_issues(db, api, contract):
+    """Read-only remote intake check; never withdraw, rebind or admit an issue.
+
+    An empty local task table does not prove empty remote intake. Reuse the
+    existing authenticated catalog and exact already-admitted ledger identities,
+    so old terminal issues remain historical but unknown pending proposals block.
+    The caller holds the original mutex / disabled-owner maintenance lease.
+    """
+    from f139.nci04_owner_ledger import native_events
+    contract.need(type(db) is Database and type(api) is GitHub,
+                  "GENUINE_DATABASE_AND_READ_PROVIDER_REQUIRED")
+    db.verify()
+    before = db.meta().copy()
+    changes = db.conn.total_changes
+    historical = {
+        event["issue_number"]: (event["issue_id"], event["source_sha"],
+            event["issue_body_sha256"], event["ticket"])
+        for event in native_events(db)
+    }
+    pending = api.native_eligible_issues(before["source_sha"], historical_issues=historical)
+    contract.need(type(pending) is list and not pending,
+                  "UNADMITTED_NATIVE_ISSUE_AT_HANDOFF")
+    contract.need(db.meta() == before and db.conn.total_changes == changes,
+                  "CATALOG_CHECK_CHANGED_ORIGINAL")
+    return dict(schema="forge.f139.handoff-native-catalog-readonly.v1",
+        source_sha=before["source_sha"], unadmitted_issues=0,
+        owner_mutations=0, remote_writes=0, dispatch_authorized=False)
+
+
 def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _contract=None):
     # Reuse the qualified original-owner handoff, not another controller.
     from f139 import nci04_v32_source_transition as v32
@@ -239,6 +268,10 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
             need(digest(binary.read_bytes()) == binary_sha, "ORIGINAL_UTILITY_CHANGED")
             if contract in (v37, v38, v39):
                 verify_remote_readback(api.native_repo_get)
+            if contract in (v38, v39):
+                # Recheck after the production-copy rehearsal, before the
+                # original source event. The task remains disabled on this lease.
+                require_no_unadmitted_native_issues(db, api, contract)
             proof = build_proof(db, target, event_id, binary_sha, toolchain)
             result = commit_transition(db, proof, owner_witness=lambda: native_original_owner_profile(path))
             reactivate(db, target)
