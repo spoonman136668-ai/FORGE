@@ -563,3 +563,189 @@ jobs:
             }
             throw
           }
+
+  recover-pretransition-v38:
+    # Restore the previously accepted V37 only when the original DB is proven
+    # identical to the failed scope's verified backup. Never replay its install.
+    if: github.actor == 'spoonman136668-ai' && github.event.created == true && github.ref == format('refs/heads/f139-owner-release-restore-42188092420-{0}', github.sha)
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact unmutated original and resume only accepted V37
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $old='3dd63467d649a347692b6b42cd5074ff1038d3de'
+          $failed='eb8ef637e76ac1a4816b023a27bd932ec906192e'
+          $name='FORGE-F139-UnifiedController'
+          $target=$env:GITHUB_SHA
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne ('refs/heads/f139-owner-release-restore-42188092420-'+$target) -or
+             (& git rev-parse HEAD | Out-String).Trim() -cne $target -or
+             @(& git status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_V38_RESTORE_EVENT_OR_SOURCE_DENIED'
+          }
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          if($event.created -ne $true -or $event.deleted -ne $false -or $event.forced -ne $false -or
+             $event.before -cne ('0'*40) -or $event.after -cne $target -or
+             $event.sender.login -cne 'spoonman136668-ai') {throw 'F139_V38_RESTORE_CREATE_ONLY_REQUIRED'}
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+             [Security.Principal.WindowsBuiltInRole]::Administrator)) {throw 'F139_V38_RESTORE_OWNER_REQUIRED'}
+          $runs=(& gh api "repos/spoonman136668-ai/FORGE/actions/runs?head_sha=$target&event=pull_request&per_page=100" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'F139_V38_RESTORE_QUALIFICATION_READ_FAILED'}
+          $required=@{
+            'FORGE public Linux and Windows qualification'=@('linux','windows');
+            'FORGE F139 native Windows controller qualification'=@('source (ubuntu-latest)','source (windows-latest)');
+            'FORGE F139-D hosted development rehearsal'=@('development-rehearsal (ubuntu-latest)','development-rehearsal (windows-latest)')
+          }
+          foreach($workflow in $required.Keys) {
+            $found=@($runs.workflow_runs | Where-Object {$_.name -ceq $workflow -and
+              $_.head_sha -ceq $target -and $_.event -ceq 'pull_request' -and
+              $_.status -ceq 'completed' -and $_.conclusion -ceq 'success' -and $_.run_attempt -eq 1})
+            if($found.Count -ne 1){throw 'F139_V38_RESTORE_EXACT_QUALIFICATION_REQUIRED'}
+            $jobs=(& gh api $found[0].jobs_url | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or $jobs.total_count -ne 2 -or
+               @($jobs.jobs | Where-Object {$_.conclusion -cne 'success'}).Count -ne 0 -or
+               ((@($jobs.jobs.name | Sort-Object) -join '|') -cne (@($required[$workflow] | Sort-Object) -join '|'))) {
+              throw 'F139_V38_RESTORE_BOTH_PLATFORMS_REQUIRED'
+            }
+          }
+          & python -B f139/check_v38_release_source.py
+          if($LASTEXITCODE -ne 0){throw 'F139_V38_RESTORE_MANIFEST_DENIED'}
+          function Read-Policy {
+            $PSNativeCommandUseErrorActionPreference=$false
+            $raw=(& gh api repos/spoonman136668-ai/FORGE/issues/807 2>$null | Out-String)
+            if($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($raw)) {return ($raw | ConvertFrom-Json)}
+            return (Invoke-RestMethod -Method Get -MaximumRedirection 0 -TimeoutSec 30 `
+              -Uri 'https://api.github.com/repos/spoonman136668-ai/FORGE/issues/807' `
+              -Headers @{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json'})
+          }
+          $release=(& gh api ('repos/spoonman136668-ai/FORGE/branches/'+$env:GITHUB_REF_NAME) | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $release.protected -ne $true -or
+             $release.commit.sha -cne $target){throw 'F139_V38_RESTORE_IMMUTABLE_REF_REQUIRED'}
+          $workflowToken=$env:GH_TOKEN
+          try {
+            Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+            $localOwner=(& gh api user --jq .login | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $localOwner -cne 'spoonman136668-ai') {
+              throw 'F139_V38_RESTORE_LOCAL_OWNER_SESSION_DENIED'
+            }
+            $rule=(& gh api repos/spoonman136668-ai/FORGE/rulesets/26049392 | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or $null -eq $rule -or
+               @($rule.PSObject.Properties.Name) -cnotcontains 'bypass_actors' -or
+               $rule.enforcement -cne 'active' -or @($rule.bypass_actors).Count -ne 0 -or
+               @($rule.conditions.ref_name.include).Count -ne 1 -or
+               $rule.conditions.ref_name.include[0] -cne 'refs/heads/f139-owner-release-*' -or
+               @($rule.conditions.ref_name.exclude).Count -ne 0 -or
+               ((@($rule.rules.type | Sort-Object) -join ',') -cne 'deletion,update')) {
+              throw 'F139_V38_RESTORE_IMMUTABILITY_DRIFT'
+            }
+          } finally {$env:GH_TOKEN=$workflowToken}
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          $compare=(& gh api ('repos/spoonman136668-ai/FORGE/compare/'+$old+'...'+$main.commit.sha) | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $main.protected -ne $true -or $compare.behind_by -ne 0 -or
+             $compare.merge_base_commit.sha -cne $old){throw 'F139_V38_RESTORE_PRIOR_SOURCE_NOT_ACCEPTED'}
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$task.State -cne 'Disabled' -or $task.Settings.Enabled -ne $false -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {
+            throw 'F139_V38_RESTORE_ORIGINAL_HOLD_REQUIRED'
+          }
+          $principal=[string]$task.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate([Security.Principal.SecurityIdentifier]).Value}
+          if($sid -cne $identity.User.Value){throw 'F139_V38_RESTORE_SID_DRIFT'}
+          function Field([string]$key) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_V38_RESTORE_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'; $db=Field 'Database'; $python=Field 'PythonExe'
+          $expectedDb=Join-Path (Join-Path $env:LOCALAPPDATA 'FORGE-F139') 'state.sqlite'
+          if([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $failed -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_V38_RESTORE_INSTALLED_ROUTE_DRIFT'
+          }
+          $policy=Read-Policy; $priorBody=[string]$policy.body; $body=$priorBody | ConvertFrom-Json
+          if($policy.user.login -cne 'spoonman136668-ai' -or $policy.state -cne 'open' -or
+             $body.schema -cne 'forge.f139.native-autonomy-feed-owner-policy.v1' -or
+             $body.enabled -ne $false -or $body.source_sha -cne $old -or
+             $body.scientific_first_use -ne $false -or $body.paid_model_calls -ne 0 -or
+             $body.new_controller -ne $false -or $body.new_scheduler -ne $false -or
+             $body.new_queue -ne $false -or $body.accepted_ref_mutations -ne 0) {
+            throw 'F139_V38_RESTORE_PAUSED_POLICY_DRIFT'
+          }
+          $policyFields=@('schema','enabled','source_sha','title_prefix','lanes',
+            'max_issue_creations_per_cycle','require_owner_authored_pr',
+            'require_single_head_commit_delta','require_single_allowed_source_file',
+            'scientific_first_use','paid_model_calls','accepted_ref_mutations',
+            'new_controller','new_scheduler','new_queue')
+          if(((@($body.PSObject.Properties.Name | Sort-Object) -join '|') -cne
+              (@($policyFields | Sort-Object) -join '|')) -or
+             $body.title_prefix -cne 'F139 autonomy DEV:' -or
+             (@($body.lanes) -join ',') -cne 'Wingless,Yggdrasil' -or
+             $body.max_issue_creations_per_cycle -ne 2 -or
+             $body.require_owner_authored_pr -ne $true -or
+             $body.require_single_head_commit_delta -ne $true -or
+             $body.require_single_allowed_source_file -ne $true) {
+            throw 'F139_V38_RESTORE_POLICY_SCOPE_DRIFT'
+          }
+          Add-Type -Path (Join-Path $env:GITHUB_WORKSPACE 'f139/F139OriginalOwnerMutex.cs') -ErrorAction Stop
+          $ownerLock=[F139OriginalOwnerMutex]::Acquire([IO.Path]::ChangeExtension($db,'.lock'),30000)
+          $resumePossible=$false
+          try {
+            $children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object {
+              $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+            if($children.Count -ne 0){throw 'F139_V38_RESTORE_LIVE_CHILD_DENIED'}
+            $backup=Join-Path (Split-Path $db -Parent) 'f139-v38-before-42188092420/state.sqlite'
+            $proofLines=& $python -B -m f139.nci04_v38_original_owner_transition_cli --db $db --backup $backup --target $old --verify-pretransition-rollback
+            if($LASTEXITCODE -ne 0){throw 'F139_V38_RESTORE_UNMUTATED_BACKUP_PROOF_FAILED'}
+            $proof=($proofLines -join "`n") | ConvertFrom-Json
+            if($proof.schema -cne 'forge.f139.v38.pretransition-rollback-readonly.v1' -or
+               $proof.source_sha -cne $old -or $proof.original_head_seq -ne 1304 -or
+               $proof.no_original_source_transition -ne $true -or $proof.original_owner_mutations -ne 0) {
+              throw 'F139_V38_RESTORE_PROOF_DRIFT'
+            }
+            Write-Host ('F139_V38_RESTORE_READONLY_PROOF='+($proof | ConvertTo-Json -Compress))
+            if([string](Read-Policy).body -cne $priorBody){throw 'F139_V38_RESTORE_POLICY_LEASE_MOVED'}
+            & git -C $root checkout --detach $old
+            if($LASTEXITCODE -ne 0 -or (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+               @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
+              throw 'F139_V38_RESTORE_OLD_CHECKOUT_FAILED'
+            }
+            $body.enabled=$true
+            $restoredBody=$body | ConvertTo-Json -Compress -Depth 12
+            & gh api -X PATCH repos/spoonman136668-ai/FORGE/issues/807 -f "body=$restoredBody" --silent
+            if($LASTEXITCODE -ne 0){throw 'F139_V38_RESTORE_POLICY_WRITE_UNVERIFIED'}
+            if([string](Read-Policy).body -cne $restoredBody){throw 'F139_V38_RESTORE_POLICY_READBACK_DRIFT'}
+            $ownerLock.Dispose(); $ownerLock=$null
+            $resumePossible=$true
+            Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            Start-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            $final=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            if($final.Settings.Enabled -ne $true -or [string]$final.State -cnotin @('Running','Ready')) {
+              throw 'F139_V38_RESTORE_SAME_TASK_NOT_RESUMED'
+            }
+            Write-Host 'F139_V38_ACCEPTED_V37_RESTORED=PASS'
+            Write-Host 'F139_V38_RESTORE_ORIGINAL_DB_MUTATIONS=0'
+            Write-Host 'F139_V38_RESTORE_NEW_CONTROLLER=FALSE'
+          } catch {
+            Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            if($resumePossible){
+              try {Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null}
+              catch {Write-Warning 'F139_V38_RESTORE_STOP_UNVERIFIED'}
+            }
+            throw
+          } finally {if($ownerLock){$ownerLock.Dispose()}}
