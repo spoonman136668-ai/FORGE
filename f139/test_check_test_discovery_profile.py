@@ -94,10 +94,13 @@ class ProfileTests(unittest.TestCase):
             package.mkdir()
             (package/'__init__.py').write_text('', encoding='utf-8')
             (package/'support.py').write_text('VALUE=42\n', encoding='utf-8')
+            (root/'support.py').write_text('VALUE=-1\n', encoding='utf-8')
             (package/'test_fixture.py').write_text(
-                'import unittest\nfrom f139.support import VALUE\n'
+                'import unittest\nfrom f139.support import VALUE\nimport support\n'
                 'class Fixture(unittest.TestCase):\n'
-                ' def test_package(self): self.assertEqual(VALUE,42)\n', encoding='utf-8')
+                ' def test_package(self):\n'
+                '  self.assertEqual(VALUE,42)\n'
+                '  self.assertEqual(support.VALUE,42)\n', encoding='utf-8')
             # -I excludes cwd/PYTHONPATH. The production discovery helper must
             # restore the same root import semantics as `python -m unittest`.
             code=('import runpy,pathlib,unittest\n'

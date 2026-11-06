@@ -219,8 +219,11 @@ def discover_profile_suite(root):
     # `python -m unittest` starts with the repository root. Preserve both paths
     # so package imports and flat discovery imports retain their usual meaning.
     root=Path(root).resolve()
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    start=str(root/'f139')
+    # Let discover insert the start directory first, just as the ordinary
+    # module entry point does. The root must follow it, before other paths.
+    sys.path[:]=[entry for entry in sys.path if entry not in (str(root), start)]
+    sys.path.insert(0, str(root))
     return unittest.defaultTestLoader.discover(str(root/'f139'), pattern='test_*.py')
 
 
