@@ -1,0 +1,154 @@
+name: FORGE K-Terminal RC2 focused protected-authority failure diagnosis
+on:
+  push:
+    branches: [qualification/kterminal-rc2-timing-hosted-20261106]
+    paths: [.github/workflows/forge-kterminal-rc2-focused-negative-20261106.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-kterminal-rc2-focused-negative-20261106
+  cancel-in-progress: false
+jobs:
+  focused-windows:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    env:
+      FORGE_BASE: 64564eda2fb9d479dd936a1420f206d22e422e50
+      KTERM_SHA: 35ac33f85073c7521fb74c050bf92e7e35484ca3
+      KTERM_TREE: 9c63b23fa30f6b927525fd2e32682f330bcd7c5e
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+    steps:
+      - name: Checkout exact isolated FORGE qualification scope
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify scope and existing hosted Windows environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_REF" = 'refs/heads/qualification/kterminal-rc2-timing-hosted-20261106'
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$FORGE_BASE" HEAD
+          actual="$(git diff --name-only "$FORGE_BASE" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' '.github/workflows/forge-kterminal-rc2-focused-negative-20261106.yml' '.github/workflows/forge-kterminal-rc2-timing-exact-sha.yml' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          test -z "$(git status --porcelain)"
+          echo KTERM_FOCUSED_SCOPE=PASS
+      - name: Checkout exact K-Terminal source using established read-only permission
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 35ac33f85073c7521fb74c050bf92e7e35484ca3
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Set up pinned Windows Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify source, isolation, absent broker authority
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          test ! -e config.json
+          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
+          for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
+            if [ -n "$(printenv "$key" || true)" ]; then echo KTERM_FOCUSED_BROKER_AUTHORITY=REFUSED; exit 2; fi
+          done
+          echo KTERM_FOCUSED_SOURCE=PASS
+      - name: Run one frozen protected-authority negative test; sanitize output
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          safe="$RUNNER_TEMP/kterm-focused-negative-safe"
+          mkdir -p "$safe"
+          root="$RUNNER_TEMP/kterm-focused-negative-isolation"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          set +e
+          go test -json -p 1 -count=1 -timeout 12m '-run=^TestPrototypeConsumedInitialNativeProtectedAuthorityNegatives$/^BTC-USDC$/^foreign_signal_session$' ./pkg > "$RUNNER_TEMP/kterm-focused-private.jsonl" 2> "$RUNNER_TEMP/kterm-focused-private.stderr"
+          rc=$?
+          set -e
+          KTERM_FOCUSED_RC="$rc" python -B - <<'PY'
+          import hashlib,json,os,pathlib,re
+          tmp=pathlib.Path(os.environ['RUNNER_TEMP'])
+          safe=tmp/'kterm-focused-negative-safe'
+          target='TestPrototypeConsumedInitialNativeProtectedAuthorityNegatives/BTC-USDC/foreign_signal_session'
+          raw=tmp/'kterm-focused-private.jsonl'
+          patterns={
+            'rejection_specificity':'actual protected native authority did not specifically reject foreign evidence',
+            'financial_journal_mutation':'foreign authority rejection changed exact financial/journal/claim bytes',
+            'snapshot_premise':'foreign authority control failed an unrelated snapshot premise',
+            'original_authority_premise':'original current authority premise is invalid',
+          }
+          classifications=set(); child_actions=[]; failures=[]; events=0; malformed=0
+          if raw.exists():
+            for line in raw.open(encoding='utf-8-sig',errors='replace'):
+              try:e=json.loads(line)
+              except (ValueError,TypeError):malformed+=1;continue
+              if not isinstance(e,dict):malformed+=1;continue
+              events+=1
+              name=e.get('Test')
+              if name==target and e.get('Action') in ('pass','fail','skip'):
+                child_actions.append(e['Action'])
+              if name and e.get('Action')=='fail' and re.fullmatch(r'Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_.#-]+)*',name):
+                failures.append(name)
+              if name==target and e.get('Action')=='output' and isinstance(e.get('Output'),str):
+                for klass,msg in patterns.items():
+                  if msg in e['Output']: classifications.add(klass)
+          rc=int(os.environ['KTERM_FOCUSED_RC'])
+          status='PASS' if rc==0 and 'pass' in child_actions and malformed==0 and events>0 else 'FAIL'
+          result={
+            'schema':'kterminal.focused.authority-negative.v1',
+            'forge_sha':os.environ['GITHUB_SHA'],
+            'kterminal_sha':os.environ['KTERM_SHA'],
+            'kterminal_tree':os.environ['KTERM_TREE'],
+            'command':'go test -json -p 1 -count=1 -timeout 12m -run=<exact_subtest> ./pkg',
+            'child_actions':child_actions,
+            'failed_test_names':sorted(set(failures)),
+            'failure_classes':sorted(classifications) if classifications else (['undetermined'] if status=='FAIL' else []),
+            'exit_code':rc,'events':events,'malformed':malformed,'status':status,
+            'broker_orders':0,'production_modified':False,'unfiltered_logs_exported':False
+          }
+          data=json.dumps(result,separators=(',',':'),sort_keys=True).encode()
+          (safe/'focused.json').write_bytes(data)
+          h=hashlib.sha256(data).hexdigest()
+          (safe/'focused.sha256').write_text(h,encoding='ascii')
+          print('KTERM_FOCUSED_RESULT='+status)
+          print('KTERM_FOCUSED_CLASSES='+','.join(result['failure_classes']))
+          print('KTERM_FOCUSED_RECEIPT_SHA256='+h)
+          if status!='PASS': raise SystemExit(1)
+          PY
+      - name: Upload sanitized focused evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-focused-negative-safe-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/kterm-focused-negative-safe/focused.json
+            ${{ runner.temp }}/kterm-focused-negative-safe/focused.sha256
+          retention-days: 30
+          if-no-files-found: error
