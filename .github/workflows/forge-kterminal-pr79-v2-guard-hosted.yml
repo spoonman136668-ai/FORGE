@@ -88,41 +88,26 @@ jobs:
           set -euo pipefail
           go test -mod=readonly -p 1 -count=1 -timeout 5m '-run=^TestV2AccountsProbe' ./pkg
           echo KTERM_PR79_FOCUSED_WINDOWS=PASS
-      - name: Checkout exact frozen PR73 baseline for controlled comparison
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: Kboomllc/K-Terminal
-          ref: bcebdc1a7a0487f9d6061a8e643c76069335d896
-          path: kterminal-baseline
-          persist-credentials: false
-          fetch-depth: 1
-          token: ${{ secrets.FORGE_KTERM_QUAL }}
-      - name: One unchanged PR73 full-regression Windows baseline with sanitized failure custody
+      - name: Test one unchanged PR79 full-suite execution without its four newly added tests
         shell: bash
+        working-directory: kterminal-private
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = push
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$RUNNER_OS" = Windows
           test "$K_TERMINAL_EXECUTION_MODE" = PAPER
-          test "$(git -C kterminal-private rev-parse HEAD)" = "$KTERM_SHA"
-          test "$(git -C kterminal-private rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
-          test "$(git -C kterminal-baseline rev-parse HEAD)" = bcebdc1a7a0487f9d6061a8e643c76069335d896
-          test "$(git -C kterminal-baseline rev-parse 'HEAD^{tree}')" = a2e5b7dc4a634b5a36d53677cdcb6de47060e21f
-          for file in pkg/countdown-activation_test.go pkg/stage3-report-full-root-v2_test.go; do
-            test "$(git -C kterminal-private rev-parse "HEAD:$file")" = "$(git -C kterminal-baseline rev-parse "HEAD:$file")"
-          done
-          test -z "$(git -C kterminal-baseline status --porcelain)"
-          test -z "$(git -C kterminal-private status --porcelain)"
-          test ! -e kterminal-baseline/.env
-          test ! -e kterminal-private/.env
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard.go)" = ef92940f4e699f0871777fe80fe36981c2d97e5a
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard_test.go)" = b0e229e2ace153deead952fac37879f921f80a18
+          test "$(grep -Ec '^func TestV2AccountsProbe[A-Za-z0-9_]*\(' pkg/coinbase_v2_accounts_probe_guard_test.go)" -eq 4
+          test -z "$(git status --porcelain)"
+          test ! -e .env
           for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
-            if [[ -n "$(printenv "$name" || true)" ]]; then
-              echo KTERM_PR79_BASELINE_UNEXPECTED_CREDENTIAL_PRESENT
-              exit 2
-            fi
+            if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR79_CONTROL_CREDENTIAL_REFUSED;exit 2;fi
           done
-          root="$RUNNER_TEMP/pr79-frozen-full-baseline"
+          root="$RUNNER_TEMP/pr79-skip-four-isolation"
           test ! -e "$root"
           mkdir -p "$root/tail" "$root/post" "$root/private"
           export K_TERMINAL_TEST_WORKSPACE="$root"
@@ -130,84 +115,83 @@ jobs:
           export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
           export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
           go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
-          echo KTERM_PR79_FULL_BASELINE_PINNED_SOURCE_TOOLCHAIN_AND_SCRATCH=PASS
+          echo KTERM_PR79_FULL_MINUS_FOUR_EXACT_SOURCE_AND_SAFETY=PASS
           set +e
-          (cd kterminal-baseline && go test -json -mod=readonly -p 1 -count=1 -timeout 60m ./...) > "$RUNNER_TEMP/pr79-full-baseline-private.jsonl" 2> "$RUNNER_TEMP/pr79-full-baseline-private-stderr.txt"
+          go test -json -mod=readonly -p 1 -count=1 -timeout 60m '-skip=^TestV2AccountsProbe' ./... > "$RUNNER_TEMP/pr79-skip-four-private.jsonl" 2> "$RUNNER_TEMP/pr79-skip-four-private.stderr"
           rc=$?
           set -e
-          PR79_BASELINE_RC="$rc" python - <<'PY'
+          PR79_CONTROL_RC="$rc" python - <<'PY'
           import hashlib,json,os,pathlib,re,sys
           tmp=pathlib.Path(os.environ["RUNNER_TEMP"])
-          events=tmp/"pr79-full-baseline-private.jsonl"
-          failures=set();packages=set();invalid=0;total=0;top_pass=0;top_fail=0;unnamed_fail=0
-          targets={"TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts",
-                   "TestStage3ReportFullRootPublicAliasFallback"}
-          target_result={name:{"pass":0,"fail":0} for name in targets}
+          events=tmp/"pr79-skip-four-private.jsonl"
+          total=0;malformed=0;top_pass=0;top_fail=0;package_fail=0;skipped_test_started=0
+          failures=set();failed_packages=set()
+          targets=("TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts","TestStage3ReportFullRootPublicAliasFallback")
+          target_counts={name:{"pass":0,"fail":0} for name in targets}
           for line in events.open(encoding="utf-8-sig",errors="replace") if events.exists() else ():
-            try:obj=json.loads(line)
-            except (ValueError,TypeError):invalid+=1;continue
-            if not isinstance(obj,dict):invalid+=1;continue
-            total+=1
-            name=obj.get("Test")
-            action=obj.get("Action")
-            package=obj.get("Package")
-            if isinstance(name,str) and "/" not in name and re.fullmatch(r"Test[A-Za-z0-9_]{1,120}",name):
-              if action=="pass":top_pass+=1
-              if action=="fail":top_fail+=1;failures.add(name)
-              if name in target_result and action in ("pass","fail"):target_result[name][action]+=1
-            if action=="fail" and not isinstance(name,str):
-              unnamed_fail+=1
-              if isinstance(package,str) and re.fullmatch(r"[A-Za-z0-9_./-]{1,120}",package):
-                packages.add(package)
-          rc=int(os.environ["PR79_BASELINE_RC"])
+              try:evt=json.loads(line)
+              except (ValueError,TypeError):malformed+=1;continue
+              if not isinstance(evt,dict):malformed+=1;continue
+              total+=1
+              name,action,package=evt.get("Test"),evt.get("Action"),evt.get("Package")
+              if isinstance(name,str) and name.startswith("TestV2AccountsProbe") and action=="run":skipped_test_started+=1
+              if isinstance(name,str) and "/" not in name and re.fullmatch(r"Test[A-Za-z0-9_]{1,120}",name):
+                  if action=="pass":top_pass+=1
+                  if action=="fail":top_fail+=1;failures.add(name)
+                  if name in target_counts and action in ("pass","fail"):target_counts[name][action]+=1
+              if action=="fail" and not isinstance(name,str):
+                  package_fail+=1
+                  if isinstance(package,str) and re.fullmatch(r"[A-Za-z0-9_./-]{1,120}",package):
+                      failed_packages.add(package)
+          rc=int(os.environ["PR79_CONTROL_RC"])
           receipt={
-            "schema":"kterminal.pr79.frozen-pr73-full-windows-baseline.v1",
-            "baseline_source_sha":"bcebdc1a7a0487f9d6061a8e643c76069335d896",
-            "baseline_tree":"a2e5b7dc4a634b5a36d53677cdcb6de47060e21f",
-            "candidate_source_sha":"9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a",
+            "schema":"kterminal.pr79.full-minus-added-tests-control.v1",
+            "candidate_sha":"9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a",
+            "candidate_tree":"f62b451b1f79381212fa08c36f298cc3c36ec1c3",
+            "baseline_sha":"bcebdc1a7a0487f9d6061a8e643c76069335d896",
+            "baseline_full_result":"PASS",
             "prior_candidate_full_result":"FAIL",
-            "prior_candidate_failure_symbols":sorted(targets),
+            "command":"go test -json -mod=readonly -p 1 -count=1 -timeout 60m -skip=^TestV2AccountsProbe ./...",
             "toolchain":"go1.26.5 windows/amd64",
-            "command":"go test -json -mod=readonly -p 1 -count=1 -timeout 60m ./...",
-            "go_exit":rc,"events":total,"malformed_events":invalid,
-            "top_level_test_passes":top_pass,"top_level_test_failures":top_fail,
-            "failed_test_symbols":sorted(failures)[:24],
-            "failed_packages":sorted(packages)[:20],
-            "unnamed_package_failures":unnamed_fail,
-            "target_test_disposition":target_result,
-            "full_baseline_status":"PASS" if rc==0 and total>0 and invalid==0 and top_fail==0 and unnamed_fail==0 else "FAIL",
-            "secrets_loaded":False,"broker_network_calls_intended":0,
-            "private_logs_exported":False,"installation_or_promotion":False
+            "go_exit":rc,"events":total,"malformed":malformed,"top_pass":top_pass,"top_fail":top_fail,
+            "failed_static_test_symbols":sorted(failures)[:24],
+            "failed_packages":sorted(failed_packages)[:16],
+            "package_fail_events":package_fail,
+            "excluded_test_started":skipped_test_started,
+            "prior_failure_targets":target_counts,
+            "disposition":"PASS" if rc==0 and total>0 and malformed==0 and top_fail==0 and package_fail==0 and skipped_test_started==0 else "FAIL",
+            "mandatory_full_suite_with_all_tests":"UNVERIFIED",
+            "secrets_loaded":False,"broker_requests_intended":0,
+            "private_logs_uploaded":False,"deployment":False
           }
-          safe=tmp/"pr79-baseline-full-safe"
-          safe.mkdir(exist_ok=False)
+          safe=tmp/"pr79-skip-four-safe";safe.mkdir(exist_ok=False)
           body=json.dumps(receipt,sort_keys=True,separators=(",",":")).encode()
           (safe/"receipt.json").write_bytes(body)
           digest=hashlib.sha256(body).hexdigest()
           (safe/"receipt.sha256").write_text(digest,encoding="ascii")
-          print("KTERM_PR79_PR73_FULL_BASELINE="+receipt["full_baseline_status"])
-          print("KTERM_PR79_PR73_FULL_EVENTS="+str(total)+";MALFORMED="+str(invalid))
-          print("KTERM_PR79_PR73_FULL_GO_EXIT="+str(rc))
-          for name in sorted(targets):
-            d=target_result[name]
-            print("KTERM_PR79_PR73_FULL_TARGET_"+name+"=PASS:"+str(d["pass"])+";FAIL:"+str(d["fail"]))
-          for name in receipt["failed_test_symbols"]:
-            print("KTERM_PR79_PR73_FULL_FAILED_TEST="+name)
+          print("KTERM_PR79_MINUS_FOUR_DISPOSITION="+receipt["disposition"])
+          print("KTERM_PR79_MINUS_FOUR_GO_EXIT="+str(rc)+";EVENTS="+str(total)+";MALFORMED="+str(malformed))
+          print("KTERM_PR79_MINUS_FOUR_EXCLUDED_RUN_EVENTS="+str(skipped_test_started))
+          for name in targets:
+              counts=target_counts[name]
+              print("KTERM_PR79_MINUS_FOUR_"+name+"=PASS:"+str(counts["pass"])+";FAIL:"+str(counts["fail"]))
+          for name in receipt["failed_static_test_symbols"]:
+              print("KTERM_PR79_MINUS_FOUR_FAILED_TEST="+name)
           for name in receipt["failed_packages"]:
-            print("KTERM_PR79_PR73_FULL_FAILED_PACKAGE="+name)
-          print("KTERM_PR79_PR73_FULL_RECEIPT_SHA256="+digest)
-          if receipt["full_baseline_status"]!="PASS":sys.exit(2)
+              print("KTERM_PR79_MINUS_FOUR_FAILED_PACKAGE="+name)
+          print("KTERM_PR79_MINUS_FOUR_RECEIPT_SHA256="+digest)
+          if receipt["disposition"]!="PASS":sys.exit(2)
           PY
-          test "$(git -C kterminal-baseline rev-parse HEAD)" = bcebdc1a7a0487f9d6061a8e643c76069335d896
-          test -z "$(git -C kterminal-baseline status --porcelain)"
-          echo KTERM_PR79_PR73_FULL_BASELINE=PASS
-      - name: Upload sanitized original full baseline witness only
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test -z "$(git status --porcelain)"
+          echo KTERM_PR79_MINUS_FOUR_CONTROL=PASS_NOT_ACCEPTANCE
+      - name: Upload only sanitized exclusion-control witness
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: kterm-pr73-frozen-full-baseline-${{ github.run_id }}
+          name: kterm-pr79-full-minus-four-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/pr79-baseline-full-safe/receipt.json
-            ${{ runner.temp }}/pr79-baseline-full-safe/receipt.sha256
+            ${{ runner.temp }}/pr79-skip-four-safe/receipt.json
+            ${{ runner.temp }}/pr79-skip-four-safe/receipt.sha256
           retention-days: 90
           if-no-files-found: warn
