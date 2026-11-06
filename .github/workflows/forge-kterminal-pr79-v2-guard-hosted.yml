@@ -21,8 +21,8 @@ jobs:
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
-      KTERM_SHA: 9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a
-      KTERM_TREE: f62b451b1f79381212fa08c36f298cc3c36ec1c3
+      KTERM_SHA: 03a1f8f081766e1c68e4af45dd7cd67eae365dc7
+      KTERM_TREE: e8196e8110aed87033b0a0820246e37a95b456e6
       FORGE_BASE: eb31df857423e14a8319b244d2417d1ee740c27f
     steps:
       - name: Checkout exact FORGE qualification scope
@@ -48,7 +48,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: 9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a
+          ref: 03a1f8f081766e1c68e4af45dd7cd67eae365dc7
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -70,6 +70,8 @@ jobs:
           test "$(git rev-parse HEAD^{tree})" = "$KTERM_TREE"
           test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard.go)" = "ef92940f4e699f0871777fe80fe36981c2d97e5a"
           test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard_test.go)" = "b0e229e2ace153deead952fac37879f921f80a18"
+          test "$(git rev-parse HEAD:pkg/countdown-activation_test.go)" = "aeff5060f47e4359439a4397d2dcf357c647e26f"
+          test "$(git rev-parse HEAD:pkg/countdown-activation.go)" = "be19dba058f581222e35474b20d69c8a428b0dc3"
           test -z "$(git status --porcelain)"
           test ! -e .env
           test ! -e config.json
@@ -88,6 +90,18 @@ jobs:
           set -euo pipefail
           go test -mod=readonly -p 1 -count=1 -timeout 5m '-run=^TestV2AccountsProbe' ./pkg
           echo KTERM_PR79_FOCUSED_WINDOWS=PASS
+      - name: Qualify corrected countdown and unchanged safety negatives before full regression
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git rev-parse HEAD:pkg/countdown-activation_test.go)" = aeff5060f47e4359439a4397d2dcf357c647e26f
+          test "$(git rev-parse HEAD:pkg/countdown-activation.go)" = be19dba058f581222e35474b20d69c8a428b0dc3
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          go test -json -mod=readonly -p 1 -count=1 -timeout 8m '-run=^(TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts|TestCountdownManualLaunchInvalidatesReadyAutoActivation|TestCountdownTimeoutAndLateSuccessfulResultCannotActivate|TestCountdownBoundedCheckWindow|TestStage3ReportFullRootPublicAliasFallback)$' ./pkg > "$RUNNER_TEMP/kterm-countdown-focused-private.jsonl"
+          echo KTERM_COUNTDOWN_FOCUSED_NEGATIVE_CONTROLS_AND_ALIAS=PASS
       - name: Reproduce exact PR79 mandatory all-test Windows suite with static failure classification
         shell: bash
         working-directory: kterminal-private
@@ -167,8 +181,8 @@ jobs:
           outcome="PASS" if rc==0 and total>0 and invalid==0 and top_fail==0 and package_fail==0 and len(guard_runs)==4 and len(guard_pass)==4 and len(guard_fail)==0 else "FAIL"
           receipt={
             "schema":"kterminal.pr79.reproduction-all-original-tests.v1",
-            "candidate_sha":"9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a",
-            "candidate_tree":"f62b451b1f79381212fa08c36f298cc3c36ec1c3",
+            "candidate_sha":"03a1f8f081766e1c68e4af45dd7cd67eae365dc7",
+            "candidate_tree":"e8196e8110aed87033b0a0820246e37a95b456e6",
             "frozen_baseline_sha":"bcebdc1a7a0487f9d6061a8e643c76069335d896",
             "baseline_full_result":"PASS",
             "candidate_previous_full_results":["FAIL","FAIL"],
@@ -209,6 +223,16 @@ jobs:
           test "$(git rev-parse HEAD)" = "$KTERM_SHA"
           test -z "$(git status --porcelain)"
           echo KTERM_PR79_ALLTEST_CURRENT_RUN_PASS_NOT_HISTORICAL_ACCEPTANCE
+      - name: Exact candidate vet and unpromoted build
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test -z "$(git status --porcelain)"
+          go vet ./...
+          go build -trimpath ./...
+          echo KTERM_COUNTDOWN_EXACT_SHA_VET_AND_BUILD=PASS
       - name: Upload only sanitized all-test witness
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
