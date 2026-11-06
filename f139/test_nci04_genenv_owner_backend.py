@@ -33,16 +33,24 @@ class SourceUseRequestTests(unittest.TestCase):
             for schema, accepted in (('v32',True),('v33',True),('v34',False)):
                 conn.execute('DELETE FROM events')
                 doc=dict(schema='forge.f139.source-transition.'+schema,
-                         to_source_sha=source,genenv_executable_sha256=digest(raw))
+                         to_source_sha=source,genenv_executable_sha256=digest(raw),
+                         generation_mechanism_sha256=digest(backend.generation_mechanism()))
                 conn.execute('INSERT INTO events VALUES(?,?,?)',(1,'SOURCE_TRANSITION_ADMITTED',json.dumps(doc)))
                 if accepted:
                     self.assertEqual(backend.executable_custody(db,source),(binary,digest(raw)))
+                    backend.typed_generation_custody(db,source,digest(backend.generation_mechanism()))
                 else:
                     with self.assertRaisesRegex(backend.BackendUnavailable,'RELEASE_NOT_BOUND'):
                         backend.executable_custody(db,source)
-            self.assertEqual(len(verified),3)
+                    with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_RELEASE_NOT_BOUND'):
+                        backend.typed_generation_custody(db,source,digest(backend.generation_mechanism()))
+            self.assertEqual(len(verified),6)
             doc['schema']='forge.f139.source-transition.v33'
             conn.execute('UPDATE events SET payload=?',(json.dumps(doc),))
+            with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_MECHANISM_DRIFT'):
+                backend.typed_generation_custody(db,source,'f'*64)
+            with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_RELEASE_NOT_BOUND'):
+                backend.typed_generation_custody(db,'b'*40,digest(backend.generation_mechanism()))
             binary.write_bytes(b'changed bytes')
             with self.assertRaisesRegex(backend.BackendUnavailable,'EXECUTABLE_DRIFT'):
                 backend.executable_custody(db,source)

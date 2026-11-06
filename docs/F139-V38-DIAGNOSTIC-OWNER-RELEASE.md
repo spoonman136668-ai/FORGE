@@ -105,3 +105,24 @@ reads, retaining the independent policy read fallback and every custody gate.
 No credential, route payload or raw transport stderr is added to receipts.
 This fixes an observed retry-classification gap; actual live recovery and
 authentic later development remain separate evidence.
+
+## Typed-generation custody omission and second exact cleanup scope
+
+Installation42195953740 passed repaired bounded API reads, exact qualification,
+protected immutable-ref checks, running-owner preflight1304, exact binary build
+and cold backup. Disposable-copy rehearsal then failed
+F139_GENENV_TYPED_RELEASE_NOT_BOUND: a second independent schema allowlist in
+typed_generation_custody still omittedv33. Original transition was not reached;
+the conservative handler left the same task disabled, checkout904e9553, policy
+paused/source3dd6346. Retain this negative; never replay its canonical ref.
+
+Both actual custody functions are now exercised together with real file bytes
+and SQLite release rows forv32/v33, unknownv34 rejection, wrong target and
+mechanism/hash negatives. This closes the mocked-away typed custody gap.
+
+The SAME recovery job admits only the two explicit historical failed scopes,
+42188092420/installed eb8ef637 and42195953740/installed904e9553, binding each
+ref to its exact installed source and exact matching backup directory. Unknown
+scopes remain denied. Query-only cold equality of every schema/table/row at
+original1304 is mandatory before restoring acceptedV37. Recovery proof binds
+failed_run_id; this is not permission to replay any original installation.
