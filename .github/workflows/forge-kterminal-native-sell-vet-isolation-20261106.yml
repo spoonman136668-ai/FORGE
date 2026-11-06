@@ -1,0 +1,155 @@
+name: FORGE K-Terminal native SELL vet failure isolation at exact original and candidate SHAs
+on:
+  push:
+    branches: [qualification/kterminal-native-sell-parallel-20261106]
+    paths: [.github/workflows/forge-kterminal-native-sell-vet-isolation-20261106.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-native-sell-vet-isolation-20261106
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      FORGE_BASE: 6988f1ebfe53fe54b13c5decbd58246b74ac2ad7
+      KTERM_SHA: e7cf517a8b282ff8da7903b4aca985ad5adb81de
+      KTERM_TREE: 2dd3dd0a8613859c1526f1de96f6a02cfc9c19f6
+      KTERM_BASE_SHA: 35ac33f85073c7521fb74c050bf92e7e35484ca3
+      KTERM_BASE_TREE: 9c63b23fa30f6b927525fd2e32682f330bcd7c5e
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+    steps:
+      - name: Checkout exact isolated FORGE workflow
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify existing hosted Windows runner and workflow-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kterminal-native-sell-parallel-20261106
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$FORGE_BASE" HEAD
+          actual="$(git diff --name-only "$FORGE_BASE" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' '.github/workflows/forge-kterminal-native-sell-parallel-20261106.yml' '.github/workflows/forge-kterminal-native-sell-vet-isolation-20261106.yml' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          test -z "$(git status --porcelain)"
+          echo KTERM_VET_DIAGNOSTIC_SCOPE=PASS
+      - name: Checkout exact candidate source with established read-only authorization
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: e7cf517a8b282ff8da7903b4aca985ad5adb81de
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout exact qualified baseline source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 35ac33f85073c7521fb74c050bf92e7e35484ca3
+          path: baseline
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Set up pinned Windows Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify both original source trees and absence of broker credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git -C candidate rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
+          test "$(git -C baseline rev-parse HEAD)" = "$KTERM_BASE_SHA"
+          test "$(git -C baseline rev-parse 'HEAD^{tree}')" = "$KTERM_BASE_TREE"
+          test -z "$(git -C candidate status --porcelain)"
+          test -z "$(git -C baseline status --porcelain)"
+          test ! -e candidate/.env
+          test ! -e baseline/.env
+          test ! -e candidate/config.json
+          test ! -e baseline/config.json
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
+          for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
+            if [ -n "$(printenv "$key" || true)" ]; then echo KTERM_VET_BROKER_AUTHORITY_REFUSED; exit 2; fi
+          done
+      - name: Compare full vet baseline and candidate; build candidate; seal sanitized evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          safe="$RUNNER_TEMP/kterm-vet-safe"
+          mkdir -p "$safe"
+          set +e
+          (cd baseline && go vet ./...) > "$RUNNER_TEMP/kterm-vet-baseline.private.log" 2>&1
+          base_rc=$?
+          (cd candidate && go vet ./...) > "$RUNNER_TEMP/kterm-vet-candidate.private.log" 2>&1
+          candidate_rc=$?
+          (cd candidate && go build -trimpath -o "$RUNNER_TEMP/kterm-vet-unpromoted.exe" .) > "$RUNNER_TEMP/kterm-build-candidate.private.log" 2>&1
+          build_rc=$?
+          set -e
+          BASE_RC="$base_rc" CAND_RC="$candidate_rc" BUILD_RC="$build_rc" python -B - <<'PY'
+          import hashlib,json,os,pathlib,re,sys
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])
+          safe=root/'kterm-vet-safe'
+          source=re.compile(r'^(?:[A-Za-z]:[/\\][^:]*[/\\])?(?P<file>(?:pkg|internal|cmd|graphify)[/\\][A-Za-z0-9_.\/\\-]+\.(?:go|s)):(?P<line>[0-9]{1,6})(?::[0-9]{1,6})?:')
+          def classify(message):
+              msg=message.lower()
+              if 'parallel' in msg and ('setenv' in msg or 'chdir' in msg):return 'parallel_environment_conflict'
+              if 'parallel' in msg:return 'parallel_test_analyzer'
+              if 't.setenv' in msg or 't.chdir' in msg:return 'test_environment_analyzer'
+              if 'syntax' in msg or 'expected' in msg:return 'syntax_or_parse'
+              if 'undefined' in msg or 'not declared' in msg:return 'compile_or_symbol'
+              if 'format' in msg or 'printf' in msg:return 'format_analyzer'
+              if 'time' in msg or 'deadline' in msg:return 'time_related'
+              return 'other_vet_source_diagnostic'
+          def inspect(label):
+              path=root/('kterm-vet-'+label+'.private.log')
+              raw=path.read_text(encoding='utf-8-sig',errors='replace') if path.is_file() else ''
+              items=[]
+              for line in raw.splitlines():
+                  match=source.match(line)
+                  if match:
+                      items.append({'file':match['file'].replace('\\','/'),'line':int(match['line']),'class':classify(line[match.end():])})
+              rc=int(os.environ['BASE_RC'] if label=='baseline' else os.environ['CAND_RC'])
+              return {'exit_code':rc,'diagnostics':items[:25],'diagnostic_count':len(items),'unclassified_failure':bool(rc and not items)}
+          base=inspect('baseline');candidate=inspect('candidate')
+          build_rc=int(os.environ['BUILD_RC'])
+          receipt={'schema':'kterminal.native-sell.vet-comparator.v1',
+                   'forge_sha':os.environ['GITHUB_SHA'],'candidate_sha':os.environ['KTERM_SHA'],'baseline_sha':os.environ['KTERM_BASE_SHA'],
+                   'toolchain':'go1.26.5 windows/amd64',
+                   'baseline_vet':base,'candidate_vet':candidate,'candidate_build_exit':build_rc,
+                   'candidate_only_vet_failure':bool(candidate['exit_code'] and not base['exit_code']),
+                   'broker_orders':0,'production_changed':False,'private_logs_exported':False}
+          raw=json.dumps(receipt,sort_keys=True,separators=(',',':')).encode()
+          (safe/'vet-comparison.json').write_bytes(raw)
+          digest=hashlib.sha256(raw).hexdigest()
+          (safe/'vet-comparison.sha256').write_text(digest,encoding='ascii')
+          print('KTERM_VET_BASE_EXIT='+str(base['exit_code']))
+          print('KTERM_VET_CANDIDATE_EXIT='+str(candidate['exit_code']))
+          print('KTERM_VET_CANDIDATE_BUILD_EXIT='+str(build_rc))
+          print('KTERM_VET_CANDIDATE_ONLY='+str(receipt['candidate_only_vet_failure']))
+          print('KTERM_VET_DIGEST='+digest)
+          if base['exit_code'] or candidate['exit_code'] or build_rc:sys.exit(2)
+          PY
+      - name: Upload sanitized vet and build diagnostics only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterminal-native-sell-vet-safe-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/kterm-vet-safe/vet-comparison.json
+            ${{ runner.temp }}/kterm-vet-safe/vet-comparison.sha256
+          retention-days: 30
+          if-no-files-found: error
