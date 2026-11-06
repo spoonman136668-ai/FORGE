@@ -10,7 +10,8 @@ import sys
 import tempfile
 
 from f139.nci04_native_contract import canonical
-from f139.nci04_v32_original_owner_transition_cli import guarded_transition
+from f139.nci04_v32_original_owner_transition_cli import (
+    guarded_transition, require_no_unadmitted_native_issues)
 from f139 import nci04_v38_source_transition as contract
 
 
@@ -208,9 +209,13 @@ def main(argv=None, *, _contract=None):
             db.conn.execute("BEGIN")
             from f139.local_controller import GitHub
             from f139.nci04_partial_publication_custody import verify_remote_readback
-            verify_remote_readback(GitHub().native_repo_get)
+            api = GitHub()
+            verify_remote_readback(api.native_repo_get)
             try:
                 report = contract.readonly_snapshot(db)
+                # Executed only after the original mutex was acquired. The
+                # normal owner may have created a proposal during that wait.
+                report["remote_intake"] = require_no_unadmitted_native_issues(db, api, contract)
             except contract.MaintenanceDenied:
                 print("F139_V38_READONLY_DIAGNOSTIC=" + canonical(
                     readonly_publication_diagnostic(db)).decode("ascii"), file=sys.stderr)

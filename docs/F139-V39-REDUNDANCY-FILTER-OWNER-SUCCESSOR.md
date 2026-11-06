@@ -52,3 +52,25 @@ The operator authorized preparing and qualifying this source-only successor.
 Merge and live release require approval of the final exact qualified candidate.
 No release branch, owner-policy mutation, runtime pause, or installer execution
 is part of source-only preparation. Original historical failed scopes are retained.
+
+## November 6 remote-intake race and maintenance correction
+
+The V39 source was installed at42c70d74 by run42244114901, with independent
+readback42246853859. The owner created issue1516 at15:47:32Z while maintenance
+waited for its mutex. It remained unadmitted, so the local idle predicate passed,
+but the new source correctly rejected the stale remote issue on its first tick.
+The operator separately authorized withdrawing only1516; its original body and
+candidate PR837 were preserved. This withdrawal is not scientific acceptance.
+
+Future V38/V39 maintenance entry points now re-read the existing authenticated
+native issue catalog AFTER acquiring the original mutex, before private rehearsal
+and task disable. Only exact already-admitted ledger identities are historical;
+any unadmitted proposal, unknown stale issue, provider error or changed historical
+body blocks. The existing production handoff rechecks the remote catalog after
+its copied rehearsal and before the original source event. These checks have no
+issue-write, withdrawal, rebinding, admission or dispatch capability.
+
+This correction changes maintenance code on main, not the installed owner's
+natural tick or source. It does not create another release or replay the consumed
+V39 reference. Existing immutable source/negative custody and qualification remain
+required for any future separately identified successor.
