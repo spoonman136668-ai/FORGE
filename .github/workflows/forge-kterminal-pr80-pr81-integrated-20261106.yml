@@ -1,0 +1,270 @@
+name: FORGE K-Terminal PR80+PR81 integrated credential-free Windows qualification
+on:
+  push:
+    branches: [qualification/kterminal-pr80-pr81-integration-20261106]
+    paths: [.github/workflows/forge-kterminal-pr80-pr81-integrated-20261106.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-kterminal-pr80-pr81-integrated-no-credentials
+  cancel-in-progress: false
+jobs:
+  original-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      KTERM_COINBASE_TEST_ONLY: '0'
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      KTERM_SHA: ab7e4dd9ba8c5c03c61c563e45573c074e400616
+      KTERM_TREE: dd5ea5eae1e2d7f40a4caa9813e13789605664cc
+      FORGE_BASE: 243707c1c7f7a0745e9c1803843daf89b638259e
+    steps:
+      - name: Checkout exact FORGE qualification scope
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify existing hosted runner and isolated workflow-only change
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
+          test "$GITHUB_REF" = "refs/heads/qualification/kterminal-pr80-pr81-integration-20261106"
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$RUNNER_OS" = "Windows"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$FORGE_BASE" HEAD
+          test "$(git diff --name-only "$FORGE_BASE" HEAD)" = ".github/workflows/forge-kterminal-pr80-pr81-integrated-20261106.yml"
+          test -z "$(git status --porcelain)"
+          echo KTERM_PR79_FORGE_HOSTED_SOURCE_SCOPE=PASS
+      - name: Checkout private original K-Terminal source using existing qualified read permission
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ab7e4dd9ba8c5c03c61c563e45573c074e400616
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Use original Windows Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify exact private tree, guard blobs and absence of broker authority
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$RUNNER_OS" = "Windows"
+          test "$K_TERMINAL_EXECUTION_MODE" = "PAPER"
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$KTERM_TREE"
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard.go)" = "ef92940f4e699f0871777fe80fe36981c2d97e5a"
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard_test.go)" = "b0e229e2ace153deead952fac37879f921f80a18"
+          test "$(git rev-parse HEAD:pkg/countdown-activation_test.go)" = "aeff5060f47e4359439a4397d2dcf357c647e26f"
+          test "$(git rev-parse HEAD:pkg/countdown-activation.go)" = "be19dba058f581222e35474b20d69c8a428b0dc3"
+          test "$(git rev-parse HEAD:pkg/stage3-report-full-root-v2_test.go)" = "faad284741466f8efd2f58055bbf25039d8ad42c"
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_test_api_one_get_test.go)" = "cab2725ac2bcc34059e5569b4d2a8e4ab3d150ee"
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          test ! -e config.json
+          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
+          for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
+            if [[ -n "${!key:-}" ]]; then
+              echo KTERM_PR79_UNEXPECTED_BROKER_CREDENTIAL
+              exit 2
+            fi
+          done
+          echo KTERM_PR79_PINNED_WINDOWS_SOURCE_AND_NO_BROKER_CREDENTIALS=PASS
+      - name: Focused exact-source synthetic one-GET and negative controls
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          go test -mod=readonly -p 1 -count=1 -timeout 5m '-run=^TestV2AccountsProbe' ./pkg
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_test_api_one_get_test.go)" = cab2725ac2bcc34059e5569b4d2a8e4ab3d150ee
+          test "$KTERM_COINBASE_TEST_ONLY" = 0
+          go test -mod=readonly -p 1 -count=1 -timeout 5m -tags kterminal_coinbase_test_api '-run=^TestV2AccountsProbe' ./pkg
+          echo KTERM_INTEGRATED_TAGGED_HARNESS_COMPILE_AND_OFFLINE_GUARDS=PASS
+      - name: Qualify corrected countdown and unchanged safety negatives before full regression
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git rev-parse HEAD:pkg/countdown-activation_test.go)" = aeff5060f47e4359439a4397d2dcf357c647e26f
+          test "$(git rev-parse HEAD:pkg/countdown-activation.go)" = be19dba058f581222e35474b20d69c8a428b0dc3
+          test "$(git rev-parse HEAD:pkg/stage3-report-full-root-v2_test.go)" = faad284741466f8efd2f58055bbf25039d8ad42c
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          go test -json -mod=readonly -p 1 -count=1 -timeout 8m '-run=^(TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts|TestCountdownManualLaunchInvalidatesReadyAutoActivation|TestCountdownTimeoutAndLateSuccessfulResultCannotActivate|TestCountdownBoundedCheckWindow|TestStage3ReportFullRootPublicAliasFallback)$' ./pkg > "$RUNNER_TEMP/kterm-countdown-focused-private.jsonl"
+          python - <<'PY'
+          import json, os, pathlib
+          event_file=pathlib.Path(os.environ["RUNNER_TEMP"])/"kterm-countdown-focused-private.jsonl"
+          expected=("TestStage3ReportFullRootPublicAliasFallback/"+product+"/"+order
+              for product in ("BTC-USDC","XRP-USDC")
+              for order in ("natural-order","forced-clock-first"))
+          counts={name:{"run":0,"pass":0,"fail":0} for name in expected}
+          for line in event_file.read_text(encoding="utf-8-sig",errors="replace").splitlines():
+              try: e=json.loads(line)
+              except ValueError: raise SystemExit("KTERM_REPORT_ALIAS_INVALID_JSON")
+              name,action=e.get("Test"),e.get("Action")
+              if name in counts and action in counts[name]:
+                  counts[name][action]+=1
+          if any(v["run"]!=1 or v["pass"]!=1 or v["fail"] for v in counts.values()):
+              raise SystemExit("KTERM_REPORT_ALIAS_ORDER_COVERAGE_FAIL")
+          print("KTERM_REPORT_ALIAS_BTC_XRP_BOTH_RESPONSE_ORDERS=PASS")
+          PY
+          echo KTERM_COUNTDOWN_FOCUSED_NEGATIVE_CONTROLS_AND_ALIAS=PASS
+      - name: Reproduce exact PR79 mandatory all-test Windows suite with static failure classification
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard.go)" = ef92940f4e699f0871777fe80fe36981c2d97e5a
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard_test.go)" = b0e229e2ace153deead952fac37879f921f80a18
+          test "$(grep -Ec '^func TestV2AccountsProbe[A-Za-z0-9_]*\(' pkg/coinbase_v2_accounts_probe_guard_test.go)" -eq 4
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
+            if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR79_ALLTEST_CREDENTIAL_REFUSED;exit 2;fi
+          done
+          root="$RUNNER_TEMP/pr79-alltest-reproduction"
+          test ! -e "$root"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
+          echo KTERM_PR79_ALLTEST_EXACT_SOURCE_AND_SAFETY=PASS
+          set +e
+          go test -json -mod=readonly -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/pr79-alltest-private.jsonl" 2> "$RUNNER_TEMP/pr79-alltest-private.stderr"
+          rc=$?
+          set -e
+          PR79_ALLTEST_RC="$rc" python - <<'PY'
+          import hashlib,json,os,pathlib,re,sys
+          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          path=temp/"pr79-alltest-private.jsonl"
+          total=0;invalid=0;top_pass=0;top_fail=0;package_fail=0
+          failed=set();packages=set();guard_runs=set();guard_pass=set();guard_fail=set()
+          targets=("TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts",
+                   "TestStage3ReportFullRootPublicAliasFallback")
+          target_counts={name:{"pass":0,"fail":0} for name in targets}
+          # Only known literal source assertions are eligible for export.
+          fixed_reasons=(
+              "countdown must check before expiry without execution",
+              "dashboard repeated countdown reconciliation",
+              "original producer did not create the intended public alias premise",
+              "original public alias was detached or requalified",
+              "escaped full fallback lost original financial payload or rehabilitated ownership",
+              "unqualified full persistence discarded a historical referenced object"
+          )
+          safe_reasons={name:set() for name in targets}
+          for line in path.open(encoding="utf-8-sig",errors="replace") if path.exists() else ():
+              try:e=json.loads(line)
+              except (TypeError,ValueError):invalid+=1;continue
+              if not isinstance(e,dict):invalid+=1;continue
+              total+=1
+              name,action,pkg=e.get("Test"),e.get("Action"),e.get("Package")
+              if isinstance(name,str) and "/" not in name and re.fullmatch(r"Test[A-Za-z0-9_]{1,120}",name):
+                  if action=="pass":top_pass+=1
+                  if action=="fail":top_fail+=1;failed.add(name)
+                  if name.startswith("TestV2AccountsProbe"):
+                      if action=="run":guard_runs.add(name)
+                      if action=="pass":guard_pass.add(name)
+                      if action=="fail":guard_fail.add(name)
+                  if name in target_counts and action in ("pass","fail"):
+                      target_counts[name][action]+=1
+              if isinstance(name,str) and name.split("/",1)[0] in target_counts and action=="output":
+                  output=e.get("Output")
+                  if isinstance(output,str):
+                      for phrase in fixed_reasons:
+                          if phrase in output:safe_reasons[name.split("/",1)[0]].add(phrase)
+              if action=="fail" and not isinstance(name,str):
+                  package_fail+=1
+                  if isinstance(pkg,str) and re.fullmatch(r"[A-Za-z0-9_./-]{1,120}",pkg):
+                      packages.add(pkg)
+          rc=int(os.environ["PR79_ALLTEST_RC"])
+          outcome="PASS" if rc==0 and total>0 and invalid==0 and top_fail==0 and package_fail==0 and len(guard_runs)==4 and len(guard_pass)==4 and len(guard_fail)==0 else "FAIL"
+          receipt={
+            "schema":"kterminal.pr79.reproduction-all-original-tests.v1",
+            "candidate_sha":"ab7e4dd9ba8c5c03c61c563e45573c074e400616",
+            "candidate_tree":"dd5ea5eae1e2d7f40a4caa9813e13789605664cc",
+            "frozen_baseline_sha":"bcebdc1a7a0487f9d6061a8e643c76069335d896",
+            "baseline_full_result":"PASS",
+            "candidate_previous_full_results":["FAIL","FAIL"],
+            "candidate_exclusion_control":"PASS",
+            "command":"go test -json -mod=readonly -p 1 -count=1 -timeout 60m ./...",
+            "toolchain":"go1.26.5 windows/amd64",
+            "go_exit":rc,"events":total,"malformed":invalid,"top_pass":top_pass,"top_fail":top_fail,
+            "guard_run_symbols":sorted(guard_runs),"guard_pass_symbols":sorted(guard_pass),"guard_fail_symbols":sorted(guard_fail),
+            "failed_static_test_symbols":sorted(failed)[:24],
+            "failed_packages":sorted(packages)[:16],"package_fail_events":package_fail,
+            "prior_failure_targets":target_counts,
+            "failure_reasons_from_source_allowlist":{name:sorted(reasons) for name,reasons in safe_reasons.items()},
+            "current_full_result":outcome,
+            "historical_flakiness_cleared":False,
+            "secrets_loaded":False,"broker_requests_intended":0,
+            "private_logs_uploaded":False,"deployment":False
+          }
+          safe=temp/"pr79-alltest-safe";safe.mkdir(exist_ok=False)
+          body=json.dumps(receipt,sort_keys=True,separators=(",",":")).encode()
+          (safe/"receipt.json").write_bytes(body)
+          digest=hashlib.sha256(body).hexdigest()
+          (safe/"receipt.sha256").write_text(digest,encoding="ascii")
+          print("KTERM_PR79_ALLTEST_CURRENT="+outcome+";HISTORICAL_FLAKINESS_CLEARED=FALSE")
+          print("KTERM_PR79_ALLTEST_GO_EXIT="+str(rc)+";EVENTS="+str(total)+";MALFORMED="+str(invalid))
+          print("KTERM_PR79_ALLTEST_GUARD_RUNS="+str(len(guard_runs))+";GUARD_PASSES="+str(len(guard_pass)))
+          for name in targets:
+              counts=target_counts[name]
+              print("KTERM_PR79_ALLTEST_"+name+"=PASS:"+str(counts["pass"])+";FAIL:"+str(counts["fail"]))
+              for reason in sorted(safe_reasons[name]):
+                  print("KTERM_PR79_ALLTEST_STATIC_FAILURE_REASON="+name+"|"+reason)
+          for name in receipt["failed_static_test_symbols"]:
+              print("KTERM_PR79_ALLTEST_FAILED_TEST="+name)
+          for pkg in receipt["failed_packages"]:
+              print("KTERM_PR79_ALLTEST_FAILED_PACKAGE="+pkg)
+          print("KTERM_PR79_ALLTEST_RECEIPT_SHA256="+digest)
+          if outcome!="PASS":sys.exit(2)
+          PY
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test -z "$(git status --porcelain)"
+          echo KTERM_PR79_ALLTEST_CURRENT_RUN_PASS_NOT_HISTORICAL_ACCEPTANCE
+      - name: Exact candidate vet and unpromoted build
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test -z "$(git status --porcelain)"
+          go vet ./...
+          go vet -tags kterminal_coinbase_test_api ./pkg
+          go build -trimpath ./...
+          echo KTERM_COUNTDOWN_EXACT_SHA_VET_AND_BUILD=PASS
+      - name: Upload only sanitized all-test witness
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-pr80-pr81-integrated-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pr79-alltest-safe/receipt.json
+            ${{ runner.temp }}/pr79-alltest-safe/receipt.sha256
+          retention-days: 90
+          if-no-files-found: warn
