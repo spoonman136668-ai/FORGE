@@ -97,10 +97,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
           token: ${{ secrets.FORGE_KTERM_QUAL }}
-      - name: Compare bounded adjacent test families to isolate ordering dependencies
+      - name: One unchanged PR73 full-regression Windows baseline with sanitized failure custody
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$RUNNER_OS" = Windows
           test "$K_TERMINAL_EXECUTION_MODE" = PAPER
@@ -111,82 +112,102 @@ jobs:
           for file in pkg/countdown-activation_test.go pkg/stage3-report-full-root-v2_test.go; do
             test "$(git -C kterminal-private rev-parse "HEAD:$file")" = "$(git -C kterminal-baseline rev-parse "HEAD:$file")"
           done
-          for source in kterminal-private kterminal-baseline; do
-            test ! -e "$source/.env"
-            test -z "$(git -C "$source" status --porcelain)"
+          test -z "$(git -C kterminal-baseline status --porcelain)"
+          test -z "$(git -C kterminal-private status --porcelain)"
+          test ! -e kterminal-baseline/.env
+          test ! -e kterminal-private/.env
+          for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
+            if [[ -n "$(printenv "$name" || true)" ]]; then
+              echo KTERM_PR79_BASELINE_UNEXPECTED_CREDENTIAL_PRESENT
+              exit 2
+            fi
           done
-          for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
-            if [[ -n "$(printenv "$key" || true)" ]]; then echo KTERM_FAMILY_BROKER_CREDENTIAL_REFUSED;exit 2;fi
-          done
-          echo KTERM_PR79_FAMILY_EXACT_FROZEN_BASELINE_AND_SOURCE=PASS
-          pattern='^(TestCountdown.*|TestReconciliationCancellationStopsReadRetry|TestStage3ReportFullRoot.*)$'
-          for arm in baseline candidate; do
-            if [[ "$arm" = baseline ]]; then source="kterminal-baseline"; else source="kterminal-private"; fi
-            root="$RUNNER_TEMP/kterm-pr79-family-$arm"
-            test ! -e "$root"
-            mkdir -p "$root/tail" "$root/post" "$root/private"
-            export K_TERMINAL_TEST_WORKSPACE="$root"
-            export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
-            export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
-            export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
-            set +e
-            (cd "$source" && go test -json -mod=readonly -p 1 -count=2 -timeout 15m "-run=$pattern" ./pkg) > "$RUNNER_TEMP/pr79-family-$arm-private.jsonl" 2> "$RUNNER_TEMP/pr79-family-$arm-private.stderr"
-            code=$?
-            set -e
-            printf '%s' "$code" > "$RUNNER_TEMP/pr79-family-$arm-exit"
-          done
-          python - <<'PY'
-          import hashlib,json,os,pathlib,re
-          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
-          targets=("TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts","TestStage3ReportFullRootPublicAliasFallback")
-          receipt={"schema":"kterminal.pr79.ordered-family-comparison.v1",
-                   "baseline_sha":"bcebdc1a7a0487f9d6061a8e643c76069335d896",
-                   "candidate_sha":"9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a",
-                   "frozen_test_file_blobs_equal":True,"test_count":2,
-                   "test_selection":"Countdown group + ReconciliationCancellationStopsReadRetry + Stage3ReportFullRoot group",
-                   "full_suite_executed":False,"credentials_loaded":False,
-                   "broker_requests":0,"installed":False,"arms":{}}
-          for arm in ("baseline","candidate"):
-            counts={name:{"pass":0,"fail":0} for name in targets}
-            top_fail=set();total=0;bad=0;package_failures=0;top_pass=0
-            path=temp/("pr79-family-"+arm+"-private.jsonl")
-            for line in path.open(encoding="utf-8-sig",errors="replace") if path.is_file() else ():
-              try:evt=json.loads(line)
-              except (ValueError,TypeError):bad+=1;continue
-              if not isinstance(evt,dict):bad+=1;continue
-              total+=1
-              action,name=evt.get("Action"),evt.get("Test")
-              if isinstance(name,str) and "/" not in name:
-                if action=="pass":top_pass+=1
-                if name in counts and action in ("pass","fail"):counts[name][action]+=1
-                if action=="fail" and re.fullmatch(r"Test[A-Za-z0-9_]{1,120}",name):top_fail.add(name)
-              elif action=="fail" and not isinstance(name,str):package_failures+=1
-            rc=int((temp/("pr79-family-"+arm+"-exit")).read_text())
-            receipt["arms"][arm]={"go_exit":rc,"json_events":total,"malformed_events":bad,
-                    "top_level_passes":top_pass,"failed_top_level_symbols":sorted(top_fail)[:20],
-                    "unnamed_package_failures":package_failures,"target_counts":counts}
-            print("KTERM_PR79_FAMILY_"+arm.upper()+"_EXIT="+str(rc)+";TOP_PASS="+str(top_pass)+";MALFORMED="+str(bad))
-            for name in targets:
-              print("KTERM_PR79_FAMILY_"+arm.upper()+"_"+name+"=PASS:"+str(counts[name]["pass"])+";FAIL:"+str(counts[name]["fail"]))
-            for name in sorted(top_fail)[:20]:
-              print("KTERM_PR79_FAMILY_"+arm.upper()+"_FAILED_STATIC_TEST="+name)
-          safe=temp/"pr79-family-safe";safe.mkdir(exist_ok=False)
+          root="$RUNNER_TEMP/pr79-frozen-full-baseline"
+          test ! -e "$root"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
+          echo KTERM_PR79_FULL_BASELINE_PINNED_SOURCE_TOOLCHAIN_AND_SCRATCH=PASS
+          set +e
+          (cd kterminal-baseline && go test -json -mod=readonly -p 1 -count=1 -timeout 60m ./...) > "$RUNNER_TEMP/pr79-full-baseline-private.jsonl" 2> "$RUNNER_TEMP/pr79-full-baseline-private-stderr.txt"
+          rc=$?
+          set -e
+          PR79_BASELINE_RC="$rc" python - <<'PY'
+          import hashlib,json,os,pathlib,re,sys
+          tmp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          events=tmp/"pr79-full-baseline-private.jsonl"
+          failures=set();packages=set();invalid=0;total=0;top_pass=0;top_fail=0;unnamed_fail=0
+          targets={"TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts",
+                   "TestStage3ReportFullRootPublicAliasFallback"}
+          target_result={name:{"pass":0,"fail":0} for name in targets}
+          for line in events.open(encoding="utf-8-sig",errors="replace") if events.exists() else ():
+            try:obj=json.loads(line)
+            except (ValueError,TypeError):invalid+=1;continue
+            if not isinstance(obj,dict):invalid+=1;continue
+            total+=1
+            name=obj.get("Test")
+            action=obj.get("Action")
+            package=obj.get("Package")
+            if isinstance(name,str) and "/" not in name and re.fullmatch(r"Test[A-Za-z0-9_]{1,120}",name):
+              if action=="pass":top_pass+=1
+              if action=="fail":top_fail+=1;failures.add(name)
+              if name in target_result and action in ("pass","fail"):target_result[name][action]+=1
+            if action=="fail" and not isinstance(name,str):
+              unnamed_fail+=1
+              if isinstance(package,str) and re.fullmatch(r"[A-Za-z0-9_./-]{1,120}",package):
+                packages.add(package)
+          rc=int(os.environ["PR79_BASELINE_RC"])
+          receipt={
+            "schema":"kterminal.pr79.frozen-pr73-full-windows-baseline.v1",
+            "baseline_source_sha":"bcebdc1a7a0487f9d6061a8e643c76069335d896",
+            "baseline_tree":"a2e5b7dc4a634b5a36d53677cdcb6de47060e21f",
+            "candidate_source_sha":"9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a",
+            "prior_candidate_full_result":"FAIL",
+            "prior_candidate_failure_symbols":sorted(targets),
+            "toolchain":"go1.26.5 windows/amd64",
+            "command":"go test -json -mod=readonly -p 1 -count=1 -timeout 60m ./...",
+            "go_exit":rc,"events":total,"malformed_events":invalid,
+            "top_level_test_passes":top_pass,"top_level_test_failures":top_fail,
+            "failed_test_symbols":sorted(failures)[:24],
+            "failed_packages":sorted(packages)[:20],
+            "unnamed_package_failures":unnamed_fail,
+            "target_test_disposition":target_result,
+            "full_baseline_status":"PASS" if rc==0 and total>0 and invalid==0 and top_fail==0 and unnamed_fail==0 else "FAIL",
+            "secrets_loaded":False,"broker_network_calls_intended":0,
+            "private_logs_exported":False,"installation_or_promotion":False
+          }
+          safe=tmp/"pr79-baseline-full-safe"
+          safe.mkdir(exist_ok=False)
           body=json.dumps(receipt,sort_keys=True,separators=(",",":")).encode()
           (safe/"receipt.json").write_bytes(body)
           digest=hashlib.sha256(body).hexdigest()
           (safe/"receipt.sha256").write_text(digest,encoding="ascii")
-          print("KTERM_PR79_FAMILY_RECEIPT_SHA256="+digest)
-          print("KTERM_PR79_FAMILY_FULL_REGRESSION_STILL_FAILED=TRUE")
+          print("KTERM_PR79_PR73_FULL_BASELINE="+receipt["full_baseline_status"])
+          print("KTERM_PR79_PR73_FULL_EVENTS="+str(total)+";MALFORMED="+str(invalid))
+          print("KTERM_PR79_PR73_FULL_GO_EXIT="+str(rc))
+          for name in sorted(targets):
+            d=target_result[name]
+            print("KTERM_PR79_PR73_FULL_TARGET_"+name+"=PASS:"+str(d["pass"])+";FAIL:"+str(d["fail"]))
+          for name in receipt["failed_test_symbols"]:
+            print("KTERM_PR79_PR73_FULL_FAILED_TEST="+name)
+          for name in receipt["failed_packages"]:
+            print("KTERM_PR79_PR73_FULL_FAILED_PACKAGE="+name)
+          print("KTERM_PR79_PR73_FULL_RECEIPT_SHA256="+digest)
+          if receipt["full_baseline_status"]!="PASS":sys.exit(2)
           PY
-          test "$(git -C kterminal-private rev-parse HEAD)" = "$KTERM_SHA"
           test "$(git -C kterminal-baseline rev-parse HEAD)" = bcebdc1a7a0487f9d6061a8e643c76069335d896
-      - name: Upload only sanitized family-comparison receipt
+          test -z "$(git -C kterminal-baseline status --porcelain)"
+          echo KTERM_PR79_PR73_FULL_BASELINE=PASS
+      - name: Upload sanitized original full baseline witness only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: kterm-pr79-family-comparison-${{ github.run_id }}
+          name: kterm-pr73-frozen-full-baseline-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/pr79-family-safe/receipt.json
-            ${{ runner.temp }}/pr79-family-safe/receipt.sha256
+            ${{ runner.temp }}/pr79-baseline-full-safe/receipt.json
+            ${{ runner.temp }}/pr79-baseline-full-safe/receipt.sha256
           retention-days: 90
           if-no-files-found: warn
