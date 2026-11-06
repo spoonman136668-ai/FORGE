@@ -1,17 +1,20 @@
 name: MP-AI16 UQ37 source-pinned safe Mind-Palace upgrades transition
 on:
   push:
-    branches: [proposal/mpai16-uq37-safe-tool-tree-transition-20261029]
+    branches: [proposal/mpai16-uq37-current-tree-20261106]
     paths:
       - .github/workflows/mind-palace-uq37-scheduled-poll.yml
       - tools/mpai16_mind_palace_tools_transition_check.py
       - .github/workflows/mpai16-uq37-transition-qualification-20261029.yml
 permissions:
   contents: read
+concurrency:
+  group: mind-palace-uq37-guarded-source-poll
+  cancel-in-progress: false
 jobs:
   original-windows:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 12
+    timeout-minutes: 15
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONNOUSERSITE: '1'
@@ -22,7 +25,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Verify old, intermediate and final approved Git tool-tree SHA on original Windows
+          fetch-depth: 4
+      - name: Authenticate exact current tree and retained inspection dependencies
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -36,8 +40,9 @@ jobs:
             throw 'MPAI16_FORGE_SOURCE_SHA_DRIFT'
           }
           $pins=@{
-            '.github/workflows/mind-palace-uq37-scheduled-poll.yml'='5da43929fdd32befda51f70584354e4a1e9421b4'
-            'tools/mpai16_mind_palace_tools_transition_check.py'='171a596199ef914be716cdc1ab954141045be68a'
+            '.github/workflows/mind-palace-uq37-scheduled-poll.yml'='6b79501b4d1ddc0fe5902309a6d91ef664127f77'
+            'tools/mpai16_mind_palace_tools_transition_check.py'='80c708b06d66b7584a95c86dfa41c81e14e6cd33'
+            'tools/test_mpai16_tools_transition_check.py'='8f4234c809276df9d279cf90d24675ec5190b5eb'
           }
           foreach($path in $pins.Keys){
             $actual=(git rev-parse ('HEAD:'+$path) | Out-String).Trim()
@@ -48,7 +53,24 @@ jobs:
           foreach($key in @('OPENAI_API_KEY','ANTHROPIC_API_KEY','OPENROUTER_API_KEY','HF_TOKEN','HUGGING_FACE_HUB_TOKEN')){
             Remove-Item ('Env:'+$key) -ErrorAction SilentlyContinue
           }
-          & python -B -m py_compile tools/mpai16_mind_palace_tools_transition_check.py
-          if($LASTEXITCODE -ne 0){throw 'MPAI16_SOURCE_SYNTAX_FAILED'}
-          & python -B tools/mpai16_mind_palace_tools_transition_check.py
+          & python -B -m unittest discover -s tools -p test_mpai16_tools_transition_check.py -v
+          if($LASTEXITCODE -ne 0){throw 'MPAI16_NEGATIVE_CONTROLS_FAILED'}
+          & python -B tools/mpai16_mind_palace_tools_transition_check.py --current-tree
           if($LASTEXITCODE -ne 0){throw 'MPAI16_ROLLOUT_SOURCE_PROOF_FAILED'}
+      - name: Execute the actual approved read-only poll body
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B tools/mpai16_mind_palace_tools_transition_check.py --inspect-current-poll
+          if($LASTEXITCODE -ne 0){throw 'MPAI16_ACTUAL_POLL_FAILED'}
+      - name: Independently verify private scratch cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scratch = Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-' + $env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){
+            Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+          }
+          if(Test-Path -LiteralPath $scratch){throw 'UQ40_PRIVATE_SCRATCH_RETAINED'}
+          Write-Host 'UQ40_PRIVATE_SCRATCH_CLEAN=PASS'
