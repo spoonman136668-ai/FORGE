@@ -54,18 +54,31 @@ jobs:
              $event.after -cne $target -or $event.sender.login -cne 'spoonman136668-ai') {
             throw 'F139_V38_IMMUTABLE_CREATE_ONLY_EVENT_REQUIRED'
           }
-          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          function Read-V38GitHub([string]$route) {
+            # Reuse the owner's bounded GET-only transport; writes stay one-shot.
+            if($route.StartsWith('https://api.github.com/')) {$route=$route.Substring(23)}
+            if($route -cne 'user' -and -not $route.StartsWith('repos/spoonman136668-ai/FORGE/')) {
+              throw 'F139_V38_READ_ROUTE_DENIED'
+            }
+            $PSNativeCommandUseErrorActionPreference=$false
+            $raw=(& python -B -c 'import sys; from f139.local_controller import GitHub; sys.stdout.buffer.write(GitHub._command([sys.argv[1]]))' $route | Out-String)
+            if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($raw)) {
+              throw 'F139_V38_BOUNDED_READ_UNAVAILABLE'
+            }
+            return ($raw | ConvertFrom-Json -ErrorAction Stop)
+          }
+          $main=(Read-V38GitHub 'repos/spoonman136668-ai/FORGE/branches/main')
           if($LASTEXITCODE -ne 0 -or $main.protected -ne $true) {
             throw 'F139_V38_PROTECTED_MAIN_UNAVAILABLE'
           }
           $protected=[string]$main.commit.sha
-          $compare=(& gh api "repos/spoonman136668-ai/FORGE/compare/$target...$protected" | ConvertFrom-Json)
+          $compare=(Read-V38GitHub "repos/spoonman136668-ai/FORGE/compare/$target...$protected")
           if($LASTEXITCODE -ne 0 -or $compare.status -cnotin @('ahead','identical') -or
              $compare.behind_by -ne 0 -or $compare.merge_base_commit.sha -cne $target) {
             throw 'F139_V38_QUALIFIED_SOURCE_NOT_IN_PROTECTED_MAIN'
           }
           # The existing exact-head PR qualification is the release prerequisite.
-          $runs=(& gh api "repos/spoonman136668-ai/FORGE/actions/runs?head_sha=$target&event=pull_request&per_page=100" | ConvertFrom-Json)
+          $runs=(Read-V38GitHub "repos/spoonman136668-ai/FORGE/actions/runs?head_sha=$target&event=pull_request&per_page=100")
           if($LASTEXITCODE -ne 0){throw 'F139_V38_QUALIFICATION_READ_FAILED'}
           $required=@{
             'FORGE public Linux and Windows qualification'=@('linux','windows');
@@ -79,7 +92,7 @@ jobs:
               $_.conclusion -ceq 'success' -and $_.run_attempt -eq 1
             })
             if($qualified.Count -ne 1){throw 'F139_V38_EXACT_QUALIFICATION_REQUIRED'}
-            $jobs=(& gh api $qualified[0].jobs_url | ConvertFrom-Json)
+            $jobs=(Read-V38GitHub $qualified[0].jobs_url)
             if($LASTEXITCODE -ne 0 -or $jobs.total_count -ne 2 -or
                @($jobs.jobs | Where-Object {$_.conclusion -cne 'success'}).Count -ne 0 -or
                ((@($jobs.jobs.name | Sort-Object) -join '|') -cne (@($required[$workflow] | Sort-Object) -join '|'))) {
@@ -116,13 +129,9 @@ jobs:
             throw 'F139_V38_DEPLOYED_V37_SOURCE_DRIFT'
           }
           function Read-V38OwnerPolicy {
-            # Two independent read transports; never retry a write or owner event.
-            # Keep native failure local so a failed gh GET can reach the fallback.
-            $PSNativeCommandUseErrorActionPreference=$false
-            $raw=(& gh api repos/spoonman136668-ai/FORGE/issues/807 2>$null | Out-String)
-            if($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($raw)) {
-              return ($raw | ConvertFrom-Json -ErrorAction Stop)
-            }
+            # The existing independent read fallback remains read-only.
+            try {return (Read-V38GitHub 'repos/spoonman136668-ai/FORGE/issues/807')}
+            catch {Write-Verbose 'F139_V38_BOUNDED_POLICY_READ_FAILED'}
             Write-Host 'F139_V38_POLICY_READ_TRANSPORT_FALLBACK=READ_ONLY'
             try {
               return (Invoke-RestMethod -Method Get -MaximumRedirection 0 -TimeoutSec 30 -ErrorAction Stop `
@@ -149,14 +158,14 @@ jobs:
              $ownerPolicy.new_queue -ne $false -or $ownerPolicy.paid_model_calls -ne 0) {
             throw 'F139_V38_SOURCE_PINNED_OWNER_POLICY_DRIFT'
           }
-          $release=(& gh api "repos/spoonman136668-ai/FORGE/branches/f139-owner-release-$target" | ConvertFrom-Json)
+          $release=(Read-V38GitHub "repos/spoonman136668-ai/FORGE/branches/f139-owner-release-$target")
           if($LASTEXITCODE -ne 0 -or $release.commit.sha -cne $target -or
              $release.protected -ne $true) {
             throw 'F139_V38_IMMUTABLE_RELEASE_REF_NOT_QUALIFIED'
           }
           # A generic protected=true response is not evidence of an
           # immutable source: inspect the active, no-bypass update+delete rule.
-          $allRules=@(& gh api repos/spoonman136668-ai/FORGE/rulesets | ConvertFrom-Json)
+          $allRules=@(Read-V38GitHub 'repos/spoonman136668-ai/FORGE/rulesets')
           if($LASTEXITCODE -ne 0) {
             throw 'F139_V38_RELEASE_RULESET_READ_DENIED'
           }
@@ -175,11 +184,11 @@ jobs:
           $workflowToken=$env:GH_TOKEN
           try {
             Remove-Item -Path Env:GH_TOKEN -ErrorAction SilentlyContinue
-            $localOwner=(& gh api user --jq .login | Out-String).Trim()
+            $localOwner=[string](Read-V38GitHub 'user').login
             if($LASTEXITCODE -ne 0 -or $localOwner -cne 'spoonman136668-ai') {
               throw 'F139_V38_LOCAL_OWNER_GH_IDENTITY_NOT_VERIFIED'
             }
-            $rule=(& gh api ("repos/spoonman136668-ai/FORGE/rulesets/"+$matching[0].id) | ConvertFrom-Json)
+            $rule=(Read-V38GitHub ("repos/spoonman136668-ai/FORGE/rulesets/"+$matching[0].id))
             if($LASTEXITCODE -ne 0 -or $null -eq $rule -or
                @($rule.PSObject.Properties.Name) -cnotcontains 'bypass_actors') {
               throw 'F139_V38_ADMIN_READBACK_BYPASS_FIELD_UNAVAILABLE'
@@ -202,7 +211,7 @@ jobs:
              $lockTypes[1] -cne 'update') {
             throw 'F139_V38_RELEASE_RULESET_LOCK_WEAKENED'
           }
-          $finalMain=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          $finalMain=(Read-V38GitHub 'repos/spoonman136668-ai/FORGE/branches/main')
           if($LASTEXITCODE -ne 0 -or $finalMain.protected -ne $true -or
              $finalMain.commit.sha -cne $protected){throw 'F139_V38_PROTECTED_MAIN_MOVED'}
           Write-Host 'F139_V38_RELEASE_REF_IMMUTABILITY=VERIFIED'
@@ -461,7 +470,7 @@ jobs:
             # Maintenance owner CLI reactivates the original native authority only
             # after its one-shot source event is independently cold-verified.
             # Never create a second activation or independent worker.
-            $current=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+            $current=(Read-V38OwnerPolicy)
             if($LASTEXITCODE -ne 0 -or
                $current.state -cne 'open' -or
                [string]$current.body -cne $priorBody) {
@@ -474,7 +483,7 @@ jobs:
             if($LASTEXITCODE -ne 0) {
               throw 'F139_V38_POLICY_SOURCE_PROMOTION_FAILED'
             }
-            $check=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+            $check=(Read-V38OwnerPolicy)
             $readback=[string]$check.body | ConvertFrom-Json
             if($LASTEXITCODE -ne 0 -or $readback.enabled -ne $true -or
                $readback.source_sha -cne $target -or
