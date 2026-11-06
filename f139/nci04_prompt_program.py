@@ -169,6 +169,56 @@ def _public_counter_value(term, success, failure):
             "max": lambda: max(left, right)}[term[0]]()
 
 
+def _public_domain_leq(left, right):
+    """Sufficient integer inequalities for one arm AFTER both arms have trials.
+
+    The frozen public counters are nonnegative, success/failure <= total and
+    total >= 1 when choose() compares rates. Never assume an upper sample
+    bound, a hidden outcome, or a floating-point approximation.
+    """
+    if left == right or left == ("constant", 0):
+        return True
+    if (right == ("observed", "total")
+            and left in (("observed", "success"),
+                         ("observed", "failure"), ("constant", 1))):
+        return True
+    if right[0] == "mul":
+        # x <= x * total, provided x >= 0 and total >= 1.
+        return (left in right[1:]
+                and ("observed", "total") in right[1:])
+    return False
+
+
+def _public_domain_reduce(term):
+    """Conservatively prove equal expressions; historical bytes stay frozen."""
+    if term[0] in ("constant", "observed"):
+        return term
+    kind, a, b = term
+    reduced = simplify(kind, _public_domain_reduce(a), _public_domain_reduce(b))
+    if reduced[0] not in ("min", "max"):
+        return reduced
+    kind, a, b = reduced
+    if _public_domain_leq(a, b):
+        return a if kind == "min" else b
+    if _public_domain_leq(b, a):
+        return b if kind == "min" else a
+    return reduced
+
+
+def _same_baseline_public_choice(numerator, denominator):
+    """Prove, not sample, an identical baseline choice over all valid counts.
+
+    Pointwise rewrites use only genuine public-counter invariants. Once reduced,
+    the existing exact symbolic cross-product certificate proves the two arms
+    have identical ordering and ties. Unknown min/max forms stay candidates.
+    """
+    gap = choice_polynomial(_public_domain_reduce(numerator),
+                            _public_domain_reduce(denominator))
+    baseline = choice_polynomial(("observed", "success"),
+                                 ("observed", "total"))
+    return same_ordering(gap, baseline)
+
+
 def public_rate_preflight(program):
     """Development-only public-evidence control for NEW proposed programs.
 
@@ -179,6 +229,13 @@ def public_rate_preflight(program):
     Historic source decoding deliberately does not call this preflight.
     """
     numerator, denominator = parse(program)
+    # Target only min/max proposals that the historical polynomial guard
+    # could not prove equivalent. Preserve the legacy SEED preflight result;
+    # source_for_program already maps ordinary polynomial aliases to before.
+    # Historical source reconstruction and SHA custody remain untouched.
+    if (("min" in program.split(" ") or "max" in program.split(" "))
+            and _same_baseline_public_choice(numerator, denominator)):
+        return False
     for trials in (2, 4, 8):
         for success0 in range(trials + 1):
             for success1 in range(trials + 1):
