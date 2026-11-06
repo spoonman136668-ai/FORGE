@@ -89,7 +89,7 @@ jobs:
           export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
           export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
           set +e
-          go test -json -p 1 -count=1 -timeout 12m '-run=^(TestPrototypeConsumedInitialNativeOwnDurableProof|TestPrototypeConsumedInitialNativeProofGuards|TestPrototypeConsumedInitialNativeProtectedAuthorityNegatives)$' ./pkg > "$RUNNER_TEMP/kterm-focused-private.jsonl" 2> "$RUNNER_TEMP/kterm-focused-private.stderr"
+          go test -json -p 1 -count=6 -shuffle=174138 -timeout 12m '-run=^(TestPrototypeConsumedInitialNativeOwnDurableProof|TestPrototypeConsumedInitialNativeProofGuards|TestPrototypeConsumedInitialNativeProtectedAuthorityNegatives)$' ./pkg > "$RUNNER_TEMP/kterm-focused-private.jsonl" 2> "$RUNNER_TEMP/kterm-focused-private.stderr"
           rc=$?
           set -e
           KTERM_FOCUSED_RC="$rc" python -B - <<'PY'
@@ -102,6 +102,7 @@ jobs:
             'rejection_specificity':'actual protected native authority did not specifically reject foreign evidence',
             'financial_journal_mutation':'foreign authority rejection changed exact financial/journal/claim bytes',
             'snapshot_premise':'foreign authority control failed an unrelated snapshot premise',
+            'snapshot_expired':'stale or future quote snapshot',
             'original_authority_premise':'original current authority premise is invalid',
           }
           classifications=set(); child_actions=[]; failures=[]; events=0; malformed=0
@@ -120,13 +121,13 @@ jobs:
                 for klass,msg in patterns.items():
                   if msg in e['Output']: classifications.add(klass)
           rc=int(os.environ['KTERM_FOCUSED_RC'])
-          status='PASS' if rc==0 and 'pass' in child_actions and malformed==0 and events>0 else 'FAIL'
+          status='PASS' if rc==0 and child_actions.count('pass')==6 and not failures and malformed==0 and events>0 else 'FAIL'
           result={
-            'schema':'kterminal.focused.authority-negative.predecessors.v1',
+            'schema':'kterminal.focused.authority-negative.shuffled-repeat.v1',
             'forge_sha':os.environ['GITHUB_SHA'],
             'kterminal_sha':os.environ['KTERM_SHA'],
             'kterminal_tree':os.environ['KTERM_TREE'],
-            'command':'go test -json -p 1 -count=1 -timeout 12m -run=<same-file-predecessors-and-negative> ./pkg',
+            'command':'go test -json -p 1 -count=6 -shuffle=174138 -timeout 12m -run=<same-file-predecessors-and-negative> ./pkg',
             'child_actions':child_actions,
             'failed_test_names':sorted(set(failures)),
             'failure_classes':sorted(classifications) if classifications else (['undetermined'] if status=='FAIL' else []),
