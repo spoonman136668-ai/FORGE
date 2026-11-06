@@ -87,3 +87,21 @@ The new regression exercises the real file custody function with nonexecuted
 development fixture bytes instead of mocking it away. Rollback controls bind
 all SQLite user tables, schema and rows, including unknown additional tables,
 and verify maintenance action ordering. These are engineering controls only.
+
+## November 6 Windows connection failure
+
+PR1503 merged as64564eda with exact qualified tree1c4296cd. Original V37
+recovery42193138826 and independent readback42193341031 passed. Guarded new
+installation42194123094 stopped BEFORE quiesce at immutable-ref GET: Windows
+connectex connection-attempt timeout to api.github.com. The original owner was
+not changed. This installation scope is consumed; never replay or edit it.
+
+The existing bounded owner GET transport now recognizes three precise Windows
+connectex connection-failure messages as transient when no HTTP status exists.
+Definite HTTP rejections keep precedence, GET retries remain at most3 with1/2s
+backoff, and every write remains one-shot. The existing V38 installer reuses
+this GET transport for its source/qualification/ref/identity/ruleset/policy
+reads, retaining the independent policy read fallback and every custody gate.
+No credential, route payload or raw transport stderr is added to receipts.
+This fixes an observed retry-classification gap; actual live recovery and
+authentic later development remain separate evidence.

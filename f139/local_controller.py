@@ -3076,7 +3076,10 @@ class GitHub:
                 marker in diagnostic for marker in (
                     "connection reset", "connection refused", "connection timed out",
                     "temporary failure", "could not resolve", "network is unreachable",
-                    "tls handshake timeout", "unexpected eof", "server closed connection"
+                    "tls handshake timeout", "unexpected eof", "server closed connection",
+                    "connectex: a connection attempt failed",
+                    "connectex: no connection could be made",
+                    "connectex: an existing connection was forcibly closed"
                 )
             )):
                 failure = "GITHUB_API_TRANSIENT"

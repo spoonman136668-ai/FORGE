@@ -25,6 +25,93 @@ class GitHubCommandTransportTests(unittest.TestCase):
                 error = str(exc)
             return result, error, run, sleep
 
+    def test_windows_connectex_retries_only_transient_gets(self):
+        messages = (
+            b'Get "https://api.github.com/private": dial tcp 140.82.112.6:443: connectex: A connection attempt failed because the connected party did not properly respond',
+            b'connectex: No connection could be made because the target machine actively refused it',
+            b'connectex: An existing connection was forcibly closed by the remote host',
+        )
+        ok = SimpleNamespace(returncode=0, stdout=b'{}', stderr=b'')
+        for message in messages:
+            failure = SimpleNamespace(returncode=1, stdout=b'', stderr=message)
+            with self.subTest(message=message):
+                value, error, run, sleep = self.invoke([self.ROUTE], [failure, ok])
+                self.assertEqual((value, error), (b'{}', None))
+                self.assertEqual(run.call_count, 2)
+                self.assertEqual([c.args[0] for c in sleep.call_args_list], [1])
+                capture = io.StringIO()
+                with redirect_stderr(capture):
+                    value, error, run, sleep = self.invoke([self.ROUTE], [failure]*3)
+                self.assertEqual(error, 'F139_GITHUB_API_TRANSIENT')
+                self.assertEqual(run.call_count, 3)
+                self.assertEqual([c.args[0] for c in sleep.call_args_list], [1, 2])
+                report = json.loads(capture.getvalue().split('=', 1)[1])
+                self.assertEqual(report['attempts'], 3)
+                self.assertIsNone(report['http_status'])
+                self.assertNotIn('140.82', capture.getvalue())
+                self.assertNotIn('/private', capture.getvalue())
+                for status in (401, 403, 404, 422):
+                    rejected = SimpleNamespace(returncode=1, stdout=b'',
+                        stderr=('HTTP %d: '%status).encode()+message)
+                    _, _, run, sleep = self.invoke([self.ROUTE], [rejected])
+                    self.assertEqual(run.call_count, 1)
+                    sleep.assert_not_called()
+                for method in ('POST', 'PATCH', 'PUT', 'DELETE'):
+                    _, _, run, sleep = self.invoke(['--method', method, self.ROUTE], [failure])
+                    self.assertEqual(run.call_count, 1)
+                    sleep.assert_not_called()
+        unrelated = SimpleNamespace(returncode=1, stdout=b'', stderr=b'connectex: access denied')
+        _, error, run, sleep = self.invoke([self.ROUTE], [unrelated])
+        self.assertEqual(error, 'F139_GITHUB_API_FAILED')
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_installer_reads_share_transport_and_writes_remain_one_shot(self):
+        from pathlib import Path
+        source = (Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
+        installer = source.split('  install-v38:',1)[1].split('  recover-pretransition-v38:',1)[0]
+        calls = [line.strip() for line in installer.splitlines() if '& gh api ' in line]
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(' -X PATCH ' in line for line in calls))
+        self.assertIn('GitHub._command([sys.argv[1]])', installer)
+        self.assertIn('F139_V38_READ_ROUTE_DENIED', installer)
+        self.assertIn("$localOwner=[string](Read-V38GitHub 'user').login", installer)
+        self.assertIn('F139_V38_POLICY_READ_TRANSPORT_FALLBACK=READ_ONLY', installer)
+
+    @unittest.skipUnless(__import__('os').name == 'nt', 'Windows PowerShell helper execution')
+    def test_installer_bounded_read_helper_parses_executes_and_denies_foreign_routes(self):
+        from pathlib import Path
+        import textwrap
+        source = (Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
+        helper = 'function Read-V38GitHub'+source.split('function Read-V38GitHub',1)[1].split('          $main=',1)[0]
+        helper = '\n'.join(line[10:] if line.startswith('          ') else line for line in helper.splitlines())
+        script = textwrap.dedent("""
+            $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
+            $global:calls=0; $global:lastRoute=''; $global:LASTEXITCODE=0
+            function python {
+              $global:calls++; $global:lastRoute=$args[-1]
+              if($global:lastRoute -eq 'user') {'{"login":"spoonman136668-ai"}'}
+              else {'{"ok":true}'}
+              $global:LASTEXITCODE=0
+            }
+        """) + helper + textwrap.dedent("""
+            $v=Read-V38GitHub 'https://api.github.com/repos/spoonman136668-ai/FORGE/actions/runs/123/jobs'
+            if(-not $v.ok -or $global:lastRoute -cne 'repos/spoonman136668-ai/FORGE/actions/runs/123/jobs'){throw 'ROUTE_OR_JSON_DRIFT'}
+            if((Read-V38GitHub 'user').login -cne 'spoonman136668-ai'){throw 'IDENTITY_DRIFT'}
+            foreach($bad in @('https://evil.test/path','repos/other/FORGE/issues','--method')) {
+              try {Read-V38GitHub $bad;throw 'UNEXPECTED_ACCEPTANCE'}
+              catch {if($_.Exception.Message -cne 'F139_V38_READ_ROUTE_DENIED'){throw}}
+            }
+            if($global:calls -ne 2){throw 'DENIED_ROUTE_EXECUTED'}
+            function python {$global:LASTEXITCODE=1}
+            try {Read-V38GitHub 'user';throw 'UNEXPECTED_ACCEPTANCE'}
+            catch {if($_.Exception.Message -cne 'F139_V38_BOUNDED_READ_UNAVAILABLE'){throw}}
+            exit 0
+        """)
+        result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],
+                              capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
     def test_read_only_get_retries_timeout_then_succeeds(self):
         ok = SimpleNamespace(returncode=0, stdout=b'{"ok":true}', stderr=b"")
         result, error, run, sleep = self.invoke(
