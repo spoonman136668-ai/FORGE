@@ -1,5 +1,9 @@
 """Profiling must retain the serial unittest inventory, failures and skips."""
 import io
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -82,6 +86,29 @@ class ProfileTests(unittest.TestCase):
                         {'ids':['a','b'], 'skipped':[]}):
             with self.assertRaises(ValueError):
                 profile.compare(good, changed)
+
+    def test_file_entry_discovery_resolves_repo_package_imports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            package=root/'f139'
+            package.mkdir()
+            (package/'__init__.py').write_text('', encoding='utf-8')
+            (package/'support.py').write_text('VALUE=42\n', encoding='utf-8')
+            (package/'test_fixture.py').write_text(
+                'import unittest\nfrom f139.support import VALUE\n'
+                'class Fixture(unittest.TestCase):\n'
+                ' def test_package(self): self.assertEqual(VALUE,42)\n', encoding='utf-8')
+            # -I excludes cwd/PYTHONPATH. The production discovery helper must
+            # restore the same root import semantics as `python -m unittest`.
+            code=('import runpy,pathlib,unittest\n'
+                  'm=runpy.run_path('+repr(str(Path(profile.__file__).resolve()))+')\n'
+                  's=m["discover_profile_suite"](pathlib.Path('+repr(str(root))+'))\n'
+                  'r=unittest.TextTestRunner().run(s)\n'
+                  'raise SystemExit(not r.wasSuccessful())\n')
+            result=subprocess.run([sys.executable,'-I','-B','-c',code],
+                capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Ran 1 test', result.stderr)
 
 
 if __name__ == '__main__':

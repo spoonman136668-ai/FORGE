@@ -132,7 +132,7 @@ def case_ids(suite):
             result.extend(case_ids(item))
         else:
             if isinstance(item, unittest.loader._FailedTest):
-                raise ValueError('Profile cannot qualify an import failure')
+                raise ValueError('Profile cannot qualify import failure: '+item.id()) from item._exception
             result.append(item.id())
     return result
 
@@ -214,6 +214,16 @@ def profile_suite(suite, expected_ids, *, stream=None, clock=time.perf_counter):
         modules=sorted(modules.values(), key=lambda row: (-row['seconds'], row['module'])))
 
 
+def discover_profile_suite(root):
+    # A file entry point starts with f139/ on sys.path, whereas the ordinary
+    # `python -m unittest` starts with the repository root. Preserve both paths
+    # so package imports and flat discovery imports retain their usual meaning.
+    root=Path(root).resolve()
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    return unittest.defaultTestLoader.discover(str(root/'f139'), pattern='test_*.py')
+
+
 def profile_current(root, args):
     """A single instrumented full regression in the existing hosted job."""
     if (os.environ.get('GITHUB_ACTIONS') != 'true' or
@@ -231,7 +241,7 @@ def profile_current(root, args):
     os.environ['PYTHONDONTWRITEBYTECODE']='1'
     inventory=collect(root)
     began=time.perf_counter()
-    suite=unittest.defaultTestLoader.discover('f139', pattern='test_*.py')
+    suite=discover_profile_suite(root)
     collection_seconds=time.perf_counter()-began
     report=profile_suite(suite, inventory['ids'])
     source_stable=(git(root, 'rev-parse', 'HEAD').decode().strip() == candidate and
