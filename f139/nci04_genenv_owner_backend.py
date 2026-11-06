@@ -79,7 +79,7 @@ def executable_custody(db, source_sha):
         "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
     need(bool(rows) and rows[-1].get("schema") in (
          "forge.f139.source-transition.v27", "forge.f139.source-transition.v28",
-         "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32")
+         "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33")
          and rows[-1].get("to_source_sha") == source_sha, "RELEASE_NOT_BOUND")
     expected = rows[-1].get("genenv_executable_sha256")
     need(type(expected) is str and re.fullmatch(r"[0-9a-f]{64}", expected), "BINARY_PIN")

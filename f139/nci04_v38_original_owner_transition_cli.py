@@ -109,6 +109,63 @@ def readonly_publication_diagnostic(db):
         owner_mutations=0, remote_writes=0, retry_authorized=False,
         source_transition_authorized=False, scientific_first_use=False)
 
+def rollback_view(connection):
+    """Digest every logical user table without exposing original row contents."""
+    import re
+    from f139.nci04_native_contract import digest
+    schema = [tuple(r) for r in connection.execute(
+        "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name")]
+    tables = {}
+    def encode_blob(value):
+        contract.need(isinstance(value,bytes),'ROLLBACK_SQLITE_VALUE_TYPE')
+        return {'bytes_sha256':digest(value),'size':len(value)}
+    for kind, name, _, _ in schema:
+        if kind != 'table':
+            continue
+        contract.need(re.fullmatch('[A-Za-z_][A-Za-z0-9_]*', name) is not None,
+                      'ROLLBACK_TABLE_NAME_DENIED')
+        rows = [list(r) for r in connection.execute('SELECT * FROM "'+name+'"')]
+        encoded = sorted(json.dumps(row, sort_keys=True, default=encode_blob) for row in rows)
+        tables[name] = dict(count=len(rows), sha256=digest(canonical(encoded)))
+    return dict(schema_sha256=digest(canonical(schema)), tables=tables)
+
+
+def verify_pretransition_rollback(path, backup):
+    """No writes. Admit recovery ONLY for the exact unmutated failed scope."""
+    from f139.local_controller import Database
+    from f139.nci04_native_contract import digest
+    contract.need(backup == path.parent/'f139-v38-before-42188092420'/'state.sqlite'
+        and backup.is_file() and not backup.is_symlink() and not backup.parent.is_symlink()
+        and not path.is_symlink(), 'ROLLBACK_BACKUP_SCOPE')
+    pin = Path(str(backup)+'.sha256')
+    contract.need(pin.is_file() and not pin.is_symlink()
+                  and digest(backup.read_bytes()) == pin.read_text().strip(),
+                  'ROLLBACK_BACKUP_HASH')
+    with closing(Database.open_readonly(path)) as current, closing(Database.open_readonly(backup)) as cold:
+        for db in (current,cold):
+            contract.need(getattr(db,'_readonly_opened',False) is True
+                and db.conn.execute('PRAGMA query_only').fetchone()[0] == 1,
+                'ROLLBACK_READONLY_REQUIRED')
+            db.conn.execute('BEGIN')
+            db.verify()
+        meta = current.meta()
+        contract.need(meta == cold.meta() and meta['source_sha'] == contract.FROM_V37
+            and meta['head_seq'] == 1304 and meta['head_hash'] ==
+            'cc5ff89fa8513562574af12d5e941ef85144e899440a40f6c6b3958fd6ec1ef7'
+            and meta['enabled'] == 1 and meta['legacy_suspended'] == 1,
+            'ROLLBACK_ORIGINAL_HEAD_DRIFT')
+        view = rollback_view(current.conn)
+        contract.need(view == rollback_view(cold.conn), 'ROLLBACK_LOGICAL_STATE_DRIFT')
+        contract.need(current.ready() is None and not current.actives()
+            and current.conn.total_changes == cold.conn.total_changes == 0,
+            'ROLLBACK_WORK_OR_MUTATION_DRIFT')
+        return dict(schema='forge.f139.v38.pretransition-rollback-readonly.v1',
+            source_sha=contract.FROM_V37, original_head_seq=1304,
+            original_head_sha256=meta['head_hash'], backup_sha256=digest(backup.read_bytes()),
+            logical_state_sha256=digest(canonical(view)), original_owner_mutations=0,
+            no_original_source_transition=True)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, required=True)
@@ -119,9 +176,16 @@ def main(argv=None):
     parser.add_argument("--genenv-toolchain")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--rehearse-copy", action="store_true")
+    parser.add_argument("--verify-pretransition-rollback", action="store_true")
     args = parser.parse_args(argv)
     import re
     contract.need(re.fullmatch(r"[a-f0-9]{40}", args.target) is not None, "TARGET_SHA_INVALID")
+    if args.verify_pretransition_rollback:
+        contract.need(args.target == contract.FROM_V37 and args.backup is not None
+            and not args.preflight_only and not args.rehearse_copy,
+            'ROLLBACK_ARGUMENT_SCOPE')
+        print(canonical(verify_pretransition_rollback(args.db,args.backup)).decode('ascii'))
+        return
     if args.preflight_only:
         from f139.local_controller import Database
         db = Database.open_readonly(args.db)

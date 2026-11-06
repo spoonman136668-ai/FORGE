@@ -55,3 +55,35 @@ current-prefix assertion is explicitly shown to fail the growing fixture.
 Synthetic fixtures are not authentic original-host custody proof. Require
 exact-candidate final Linux/Windows qualification and a fresh guarded original
 preflight before any new, separately identified release scope is considered.
+
+## Failed copied rehearsal and exact pre-transition restore
+
+Corrected source eb8ef637 was accepted in PR1502/main815070ec. Its fresh
+installation42188092420/job127793153528 passed original prefix1304 preflight,
+exact-source binary build and full cold backup, then failed the disposable-copy
+compiler rehearsal at08:33:50Z: F139_GENENV_RELEASE_NOT_BOUND. The existing
+executable custody allowlist omitted source-transition.v33. The original source
+commit/activation lines were not reached, but the conservative outer flag left
+the original task disabled, checkouteb8ef637 and policy paused/source3dd6346.
+Do not claim research is still running after this hold, or replay that install.
+
+The recovery-only job in the SAME V38 workflow admits only a fresh create-only
+immutable f139-owner-release-restore-42188092420-SHA reference, exact qualified
+candidate, original elevated SID/runner/task/root/database, no live child and
+the existing kernel mutex. It first independently opens the original and exact
+verified state.sqlite backup query-only, cold-verifies both, and requires equal
+meta/head1304/hashcc5ff89f and every logical user table/schema/row. No original
+DB write is performed. Any deviation remains held. Only after this proof can
+it restore the previously accepted3dd6346 checkout and exact old policy's
+enabled bit, then re-enable/start the SAME task. It never invokes a new owner,
+native dispatch, scientific activation, model, signing key or controller.
+The original consumed installs remain immutable. Independent readback remains
+required after recovery. This restores prior authority rather than installing
+new source; the correction's ordinary release path remains separate.
+
+The backend fix admits v33 only after the existing db.verify, exact target and
+binary hash/path checks; v34 and mismatched/tampered binaries remain denied.
+The new regression exercises the real file custody function with nonexecuted
+development fixture bytes instead of mocking it away. Rollback controls bind
+all SQLite user tables, schema and rows, including unknown additional tables,
+and verify maintenance action ordering. These are engineering controls only.

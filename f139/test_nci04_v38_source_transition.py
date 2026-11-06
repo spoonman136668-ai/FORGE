@@ -4,6 +4,7 @@ Synthetic fixtures do not authorize a live owner installation.
 """
 import inspect
 import json
+import os
 import unittest
 from unittest.mock import patch
 
@@ -208,6 +209,54 @@ class V38SuccessorTests(unittest.TestCase):
 
 
 class V38ReleaseGuardTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell parser')
+    def test_recovery_script_parses_without_executing_its_operations(self):
+        from pathlib import Path
+        import subprocess
+        source=(Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
+        segment=source.split('  recover-pretransition-v38:',1)[1].split('        run: |',1)[1]
+        script='\n'.join(line[10:] for line in segment.splitlines() if line.startswith('          '))
+        checker="$code=[Console]::In.ReadToEnd();$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseInput($code,[ref]$tokens,[ref]$errors);if($errors.Count -gt 0){$errors | ForEach-Object {$_.Message};exit 1};exit 0"
+        result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',checker],
+            input=script,text=True,capture_output=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+    def test_rollback_view_binds_every_table_schema_and_row(self):
+        import sqlite3
+        from contextlib import closing
+        with closing(sqlite3.connect(':memory:')) as left, closing(sqlite3.connect(':memory:')) as right:
+            for conn in (left,right):
+                conn.executescript("CREATE TABLE events(seq INTEGER,payload TEXT);INSERT INTO events VALUES(1,'original');CREATE TABLE tasks(ticket TEXT);INSERT INTO tasks VALUES('same');")
+            original=cli.rollback_view(left)
+            self.assertEqual(original,cli.rollback_view(right))
+            right.execute("UPDATE tasks SET ticket='different'")
+            self.assertNotEqual(original,cli.rollback_view(right))
+            right.execute("UPDATE tasks SET ticket='same'")
+            right.execute('CREATE TABLE unknown_private_state(value TEXT)')
+            self.assertNotEqual(original,cli.rollback_view(right))
+            right.execute('DROP TABLE unknown_private_state')
+            self.assertEqual(original,cli.rollback_view(right))
+            right.execute('CREATE TRIGGER unexpected_write AFTER INSERT ON tasks BEGIN DELETE FROM events; END;')
+            self.assertNotEqual(original,cli.rollback_view(right))
+            right.execute('DROP TRIGGER unexpected_write')
+            right.execute('CREATE UNIQUE INDEX unexpected_index ON tasks(ticket)')
+            self.assertNotEqual(original,cli.rollback_view(right))
+            right.execute('DROP INDEX unexpected_index')
+            self.assertEqual(original,cli.rollback_view(right))
+            left.execute('PRAGMA query_only=ON');before=left.total_changes
+            self.assertEqual(original,cli.rollback_view(left))
+            self.assertEqual(left.total_changes,before)
+
+    def test_recovery_proof_precedes_policy_write_and_same_task_enable(self):
+        from pathlib import Path
+        source=(Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
+        recovery=source.split('  recover-pretransition-v38:',1)[1]
+        markers=['--verify-pretransition-rollback','checkout --detach $old',
+                 'gh api -X PATCH','Enable-ScheduledTask','Start-ScheduledTask']
+        positions=[recovery.index(marker) for marker in markers]
+        self.assertEqual(positions,sorted(positions))
+        self.assertIn('f139-owner-release-restore-42188092420-',recovery)
+        self.assertIn("$resumePossible=$true",recovery)
+        self.assertIn("$rule.bypass_actors",recovery)
     def git_fixture(self, *args):
         from f139 import check_v38_release_source as guard
         if args == ("rev-parse", "HEAD"):
