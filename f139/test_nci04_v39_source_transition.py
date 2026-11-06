@@ -1,4 +1,5 @@
 """V39 source/custody falsification. Fixtures never grant live authority."""
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -127,9 +128,8 @@ class V39Tests(unittest.TestCase):
                 route.verify_cold_event(db,row,doc,chain)
 
     def test_missing_original_and_postverify_failure_cannot_mutate(self):
-        with tempfile.TemporaryDirectory() as td:
-            db=Database.initialize(Path(td)/'state.sqlite', route.FROM_V38)
-            self.addCleanup(db.close)
+        with tempfile.TemporaryDirectory() as td, closing(Database.initialize(
+                Path(td)/'state.sqlite', route.FROM_V38)) as db:
             before=db.meta().copy()
             with SingleOwner(db.filename.with_suffix('.lock')):
                 with self.assertRaises(route.MaintenanceDenied):
@@ -150,9 +150,8 @@ class V39Tests(unittest.TestCase):
     def test_v34_modern_guard_requires_complete_fields_and_original_custody(self):
         from f139.local_controller import v2_owner_terminal_release_guard
         db,row,previous=self.history();doc=self.document(self.snapshot(db,row,previous))
-        with tempfile.TemporaryDirectory() as td:
-            original=Database.initialize(Path(td)/'state.sqlite','e'*40)
-            self.addCleanup(original.close)
+        with tempfile.TemporaryDirectory() as td, closing(Database.initialize(
+                Path(td)/'state.sqlite','e'*40)) as original:
             original.enable(legacy_suspended=True)
             original.event('SOURCE_TRANSITION_ADMITTED',doc)
             with patch.object(original,'verify'),patch('f139.local_controller.g54_original_canonical'), \
