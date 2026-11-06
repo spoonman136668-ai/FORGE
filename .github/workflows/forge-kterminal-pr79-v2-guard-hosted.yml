@@ -134,4 +134,75 @@ jobs:
           fi
           test "$(git rev-parse HEAD)" = "$KTERM_SHA"
           test -z "$(git status --porcelain)"
-          echo 'KTERM_PR79_ENGINEERING_DIAGNOSTIC=VET_AND_BUILD_PASS_FULL_SUITE_STILL_FAIL'
+          echo 'KTERM_PR79_ENGINEERING_DIAGNOSTIC=VET_AND_BUILD_PASS_PRIOR_FULL_SUITE_FAILED'
+      - name: Reproduce one mandatory full regression and emit sanitized failure symbols
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kterm-pr79-full-attribution"
+          test ! -e "$root"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          set +e
+          go test -json -mod=readonly -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/pr79-private-events.jsonl" 2> "$RUNNER_TEMP/pr79-private-stderr"
+          rc=$?
+          set -e
+          PR79_GO_RC="$rc" python - <<'PY'
+          import hashlib,json,os,pathlib,re,sys
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          path=root/"pr79-private-events.jsonl"
+          failures=set();packages=set();malformed=0;total=0
+          for line in path.open(encoding="utf-8-sig",errors="replace") if path.is_file() else ():
+              try: e=json.loads(line)
+              except (ValueError,TypeError): malformed+=1;continue
+              if not isinstance(e,dict): malformed+=1;continue
+              total+=1
+              if e.get("Action")!="fail": continue
+              test=e.get("Test");pkg=e.get("Package")
+              if isinstance(test,str):
+                  name=test.split("/",1)[0]
+                  if re.fullmatch(r"Test[A-Za-z0-9_]{1,120}",name): failures.add(name)
+                  else: malformed+=1
+              elif isinstance(pkg,str) and re.fullmatch(r"[A-Za-z0-9_/.-]{1,128}",pkg):packages.add(pkg)
+              else: malformed+=1
+          rc=int(os.environ["PR79_GO_RC"])
+          report={
+            "schema":"kterminal.pr79.full-windows-failure-symbols.v1",
+            "source_sha":"9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a",
+            "source_tree":"f62b451b1f79381212fa08c36f298cc3c36ec1c3",
+            "command":"go test -json -mod=readonly -p 1 -count=1 -timeout 60m ./...",
+            "go_exit":rc,"json_events":total,"invalid_events":malformed,
+            "failed_test_symbols":sorted(failures)[:20],
+            "failed_packages":sorted(packages)[:20],
+            "result":"PASS" if rc==0 and not failures and not packages and malformed==0 and total>0 else "FAIL",
+            "broker_requests":0,"credential_access":False,"source_modified":False,"private_logs_uploaded":False
+          }
+          directory=root/"pr79-safe-attribution";directory.mkdir(exist_ok=False)
+          body=json.dumps(report,sort_keys=True,separators=(",",":")).encode()
+          (directory/"receipt.json").write_bytes(body)
+          digest=hashlib.sha256(body).hexdigest()
+          (directory/"receipt.sha256").write_text(digest)
+          print("KTERM_PR79_MANDATORY_FULL_WINDOWS="+report["result"])
+          print("KTERM_PR79_FULL_EVENTS="+str(total)+";INVALID="+str(malformed))
+          for name in report["failed_test_symbols"]:print("KTERM_PR79_FAILED_STATIC_TEST="+name)
+          for name in report["failed_packages"]:print("KTERM_PR79_FAILED_PACKAGE="+name)
+          print("KTERM_PR79_SAFE_RECEIPT_SHA256="+digest)
+          if report["result"]!="PASS":sys.exit(2)
+          PY
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test -z "$(git status --porcelain)"
+          echo KTERM_PR79_MANDATORY_FULL_WINDOWS=PASS
+      - name: Upload sanitized full-regression witness only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-pr79-full-attribution-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pr79-safe-attribution/receipt.json
+            ${{ runner.temp }}/pr79-safe-attribution/receipt.sha256
+          if-no-files-found: warn
+          retention-days: 90
