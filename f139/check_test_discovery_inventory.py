@@ -151,7 +151,7 @@ class ProfileResult(unittest.TextTestResult):
 
     def stopTest(self, test):
         elapsed=self.clock()-self.started
-        self.rows.append(dict(id=test.id(), seconds=elapsed,
+        self.rows.append(dict(id=test.id(), module=type(test).__module__, seconds=elapsed,
                               outcome=self.outcomes.get(test.id(), 'unknown')))
         super().stopTest(test)
 
@@ -198,7 +198,7 @@ def profile_suite(suite, expected_ids, *, stream=None, clock=time.perf_counter):
     complete=(seen == expected_ids and result.testsRun == len(expected_ids))
     modules={}
     for row in result.rows:
-        module=row['id'].split('.')[0]
+        module=row['module']
         record=modules.setdefault(module, dict(module=module, cases=0, seconds=0.0))
         record['cases']+=1
         record['seconds']+=row['seconds']

@@ -19,6 +19,7 @@ def example_suite():
         @unittest.skip('fixture-only platform skip')
         def test_second(self):
             self.fail('must retain the declared skip')
+    Cases.__module__='qualified.fixture_module'
     return unittest.defaultTestLoader.loadTestsFromTestCase(Cases)
 
 
@@ -34,6 +35,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(result['skipped_ids'], [expected[1]])
         self.assertEqual([row['outcome'] for row in result['cases']], ['success', 'skipped'])
         self.assertEqual(sum(row['cases'] for row in result['modules']), 2)
+        self.assertEqual([row['module'] for row in result['modules']], ['qualified.fixture_module'])
 
     def test_missing_reordered_or_duplicate_inventory_never_executes(self):
         for kind in ('missing', 'reordered', 'duplicate'):
