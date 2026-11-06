@@ -2974,6 +2974,65 @@ class GitHub:
         read_only = (isinstance(args, (list, tuple)) and len(args) == 1
                      and isinstance(args[0], str) and not args[0].startswith("-"))
         attempts = 3 if read_only else 1
+
+        def report_terminal_read_failure(failure, status, exit_code, count):
+            """Classified telemetry only; never log a raw route or CLI output."""
+            if not read_only:
+                return
+            # A route can contain user-controlled query strings, opaque IDs or
+            # secrets. Only these hard-coded categories leave the process.
+            route = args[0].split("?", 1)[0]
+            prefix = "repos/spoonman136668-ai/"
+            repository, endpoint = "OTHER", ""
+            if route.startswith(prefix):
+                remainder = route[len(prefix):].split("/", 1)
+                if len(remainder) == 2 and remainder[0] in (
+                        "FORGE", "Wingless", "Yggdrasil"):
+                    repository, endpoint = remainder
+            if endpoint.startswith("actions/workflows/"):
+                family = ("WORKFLOW_RUNS" if endpoint.endswith("/runs")
+                          else "WORKFLOW_METADATA")
+            elif endpoint.startswith("actions/runs"):
+                family = "ACTION_RUNS"
+            elif endpoint == "issues":
+                family = "ISSUE_CATALOG"
+            elif endpoint.startswith("issues/"):
+                family = ("ISSUE_COMMENTS" if endpoint.endswith("/comments")
+                          else "ISSUE_DETAIL")
+            elif endpoint.startswith("git/commits/"):
+                family = "COMMIT_IDENTITY"
+            elif endpoint.startswith("branches/"):
+                family = "BRANCH"
+            elif endpoint.startswith("compare/"):
+                family = "COMPARE"
+            elif endpoint.startswith("pulls"):
+                family = "PULL_REQUEST"
+            elif endpoint.startswith("contents/"):
+                family = "CONTENTS"
+            else:
+                family = "OTHER"
+            payload = {
+                "schema": "forge.f139.github-read-terminal-diagnostic.v1",
+                "repository": repository, "route_family": family,
+                "failure": failure,
+                "http_status": status if type(status) is int
+                               and 400 <= status <= 599 else None,
+                "exit_code": exit_code if type(exit_code) is int
+                             and -128 <= exit_code <= 255 else None,
+                "attempts": count, "read_only": True,
+                "raw_route_or_output_retained": False,
+                "credential_mutations": 0, "owner_mutations": 0,
+            }
+            # Diagnostics must never affect the existing terminal decision.
+            try:
+                import json as _json
+                import sys as _sys
+                print("F139_GITHUB_READ_TERMINAL=" +
+                      _json.dumps(payload, sort_keys=True),
+                      file=_sys.stderr, flush=True)
+            except (OSError, ValueError):
+                pass
+
         for attempt in range(attempts):
             try:
                 p=subprocess.run(["gh","api",*args],check=False,stdin=subprocess.DEVNULL,
@@ -2982,6 +3041,8 @@ class GitHub:
                 if read_only and attempt + 1 < attempts:
                     time.sleep(1 << attempt)
                     continue
+                report_terminal_read_failure(
+                    "GITHUB_API_TIMEOUT", None, None, attempt + 1)
                 raise F139Error("F139_GITHUB_API_TIMEOUT") from exc
             if p.returncode == 0:
                 require(len(p.stdout) < MAX_ZIP_BYTES + 100000,
@@ -3017,6 +3078,8 @@ class GitHub:
             if read_only and failure in ("GITHUB_API_RATE_LIMIT", "GITHUB_API_TRANSIENT") and attempt + 1 < attempts:
                 time.sleep(1 << attempt)
                 continue
+            report_terminal_read_failure(
+                failure, status_code, p.returncode, attempt + 1)
             raise F139Error("F139_" + failure)
         raise F139Error("F139_GITHUB_API_FAILED")
 
