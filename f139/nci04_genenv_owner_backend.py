@@ -79,7 +79,7 @@ def executable_custody(db, source_sha):
         "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
     need(bool(rows) and rows[-1].get("schema") in (
          "forge.f139.source-transition.v27", "forge.f139.source-transition.v28",
-         "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33")
+         "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33", "forge.f139.source-transition.v34")
          and rows[-1].get("to_source_sha") == source_sha, "RELEASE_NOT_BOUND")
     expected = rows[-1].get("genenv_executable_sha256")
     need(type(expected) is str and re.fullmatch(r"[0-9a-f]{64}", expected), "BINARY_PIN")
@@ -111,7 +111,7 @@ def typed_generation_custody(db, source_sha, mechanism_sha256):
     row = db.conn.execute("SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
                           "ORDER BY seq DESC LIMIT 1").fetchone()
     doc = json.loads(row["payload"]) if row else {}
-    need(doc.get("schema") in ("forge.f139.source-transition.v28", "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33")
+    need(doc.get("schema") in ("forge.f139.source-transition.v28", "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33", "forge.f139.source-transition.v34")
          and doc.get("to_source_sha") == source_sha, "TYPED_RELEASE_NOT_BOUND")
     need(doc.get("generation_mechanism_sha256") == mechanism_sha256, "TYPED_MECHANISM_DRIFT")
 

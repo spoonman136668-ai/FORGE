@@ -144,18 +144,19 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
     from f139 import nci04_v36_source_transition as v36
     from f139 import nci04_v37_source_transition as v37
     from f139 import nci04_v38_source_transition as v38
-    globals()["need"](_contract is None or _contract is v33 or _contract is v34 or _contract is v35 or _contract is v36 or _contract is v37 or _contract is v38,
+    from f139 import nci04_v39_source_transition as v39
+    globals()["need"](_contract is None or _contract is v33 or _contract is v34 or _contract is v35 or _contract is v36 or _contract is v37 or _contract is v38 or _contract is v39,
                       "UNKNOWN_SOURCE_CONTRACT")
     contract = v32 if _contract is None else _contract
     FROM_V31 = (v32.FROM_V31 if contract is v32 else
                 v33.FROM_V32 if contract is v33 else
                 v34.FROM_V33 if contract is v34 else
-                v35.FROM_V34 if contract is v35 else v36.FROM_V35 if contract is v36 else v37.FROM_V36 if contract is v37 else v38.FROM_V37)
+                v35.FROM_V34 if contract is v35 else v36.FROM_V35 if contract is v36 else v37.FROM_V36 if contract is v37 else v38.FROM_V37 if contract is v38 else v39.FROM_V38)
     ORIGINAL_SEQ, TOOLCHAIN = getattr(contract, "ORIGINAL_SEQ", None), contract.TOOLCHAIN
     build_proof, commit_transition = contract.build_proof, contract.commit_transition
     validate_idle, need = contract.validate_idle, contract.need
     rehearse_generator = globals()["rehearse_generator"] if _contract is None else rehearse_typed_generator
-    version = "V32" if contract is v32 else "V33" if contract is v33 else "V34" if contract is v34 else "V35" if contract is v35 else "V36" if contract is v36 else "V37" if contract is v37 else "V38"
+    version = "V32" if contract is v32 else "V33" if contract is v33 else "V34" if contract is v34 else "V35" if contract is v35 else "V36" if contract is v36 else "V37" if contract is v37 else "V38" if contract is v38 else "V39"
     need(os.name == "nt" and re.fullmatch(r"[a-f0-9]{40}", target)
          and type(event_id) is int and event_id > 0 and toolchain == TOOLCHAIN,
          "WINDOWS_EXACT_TARGET_AND_TOOLCHAIN_REQUIRED")
@@ -176,7 +177,7 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
     key = os.environ.get("F139_WORKER_HMAC_KEY", "")
     need(32 <= len(key) <= 4096, "ORIGINAL_DPAPI_KEY_REQUIRED")
     api = GitHub()
-    if contract in (v37, v38):
+    if contract in (v37, v38, v39):
         from f139.nci04_partial_publication_custody import verify_remote_readback
         verify_remote_readback(api.native_repo_get)
     protected = api.protected_main()
@@ -194,10 +195,10 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
         with SingleOwner(path.with_suffix(".lock")):
             validate_idle(db)
             before = db.meta().copy()
-            if contract in (v34, v35, v36, v37, v38):
+            if contract in (v34, v35, v36, v37, v38, v39):
                 ORIGINAL_SEQ = before["head_seq"]
             copy_provider_archives(db, backup.parent, copy_files=False)
-            if version in ("V33", "V34", "V35", "V36", "V37", "V38"):
+            if version in ("V33", "V34", "V35", "V36", "V37", "V38", "V39"):
                 copy_generation_executable(db,backup.parent,copy_files=False)
             rehearsal = backup.with_name(version.lower()+"-source-and-executable-rehearsal.sqlite")
             need(not rehearsal.exists(), "REHEARSAL_COLLISION")
@@ -236,7 +237,7 @@ def guarded_transition(path, backup, target, event_id, binary, toolchain, *, _co
                 "repos/"+FORGE_REPO+"/issues/"+str(POLICY_ISSUE)).get("body") == policy.get("body"),
                 "MAIN_OR_POLICY_MOVED_DURING_REHEARSAL")
             need(digest(binary.read_bytes()) == binary_sha, "ORIGINAL_UTILITY_CHANGED")
-            if contract in (v37, v38):
+            if contract in (v37, v38, v39):
                 verify_remote_readback(api.native_repo_get)
             proof = build_proof(db, target, event_id, binary_sha, toolchain)
             result = commit_transition(db, proof, owner_witness=lambda: native_original_owner_profile(path))

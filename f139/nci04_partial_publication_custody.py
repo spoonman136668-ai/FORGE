@@ -97,7 +97,8 @@ def _publication_prefix(db, boundary):
     return attempts, successes
 
 
-def validate_retained(db, boundary, frozen_boundary, source_sha):
+def validate_retained(db, boundary, frozen_boundary, source_sha, *,
+                      successor_boundary=None, successor_source=None):
     """Keep the exact V37 negative while permitting fully authenticated growth.
 
     Frozen 102/101 counts belong to the original V37 seal, never the growing
@@ -106,6 +107,10 @@ def validate_retained(db, boundary, frozen_boundary, source_sha):
     """
     need(type(boundary) is int and type(frozen_boundary) is int
          and boundary >= frozen_boundary, 'GROWTH_BOUNDARY')
+    need((successor_boundary is None and successor_source is None) or
+         (type(successor_boundary) is int and frozen_boundary < successor_boundary < boundary
+          and isinstance(successor_source, str) and re.fullmatch('[a-f0-9]{40}', successor_source)
+          and successor_source != source_sha), 'SUCCESSOR_EPOCH_BOUNDARY')
     packet = validate_original(db, frozen_boundary)
     attempts, successes = _publication_prefix(db, boundary)
     need(len(attempts) >= 102 and len(successes) >= 101
@@ -114,12 +119,14 @@ def validate_retained(db, boundary, frozen_boundary, source_sha):
     need(all(isinstance(h, str) and re.fullmatch('[a-f0-9]{64}', h) for h in hashes)
          and len(set(hashes)) == len(hashes) and hashes.count(AFTER) == 1,
          'SOURCE_REUSE_OR_DUPLICATE')
-    for row in db.conn.execute("SELECT kind,payload FROM events WHERE kind IN "
+    for row in db.conn.execute("SELECT seq,kind,payload FROM events WHERE kind IN "
             "('MODEL_DRAFT_ATTEMPTED','MODEL_DRAFT_AUTHENTICATED') AND seq>=? AND seq<? ORDER BY seq",
             (frozen_boundary, boundary)):
         doc = json.loads(row['payload'])
         if row['kind']=='MODEL_DRAFT_ATTEMPTED':
-            need(set(doc)==set(original_payload()) and doc['source_sha']==source_sha
+            expected_source = (successor_source if successor_boundary is not None
+                               and row['seq'] >= successor_boundary else source_sha)
+            need(set(doc)==set(original_payload()) and doc['source_sha']==expected_source
                  and isinstance(doc['branch'], str)
                  and re.fullmatch(r'f139/auto-model-[wy]-[a-f0-9]{20}-[a-f0-9]{12}', doc['branch'])
                  and isinstance(doc['parent_commit'], str)

@@ -14,12 +14,14 @@ from f139.nci04_v32_original_owner_transition_cli import guarded_transition
 from f139 import nci04_v38_source_transition as contract
 
 
-def rehearse_private_history(db, target, event_id):
+def rehearse_private_history(db, target, event_id, *, _contract=None):
     """Authentic read-only input -> disposable copy. Never changes the owner.
 
     Reuse the prior custodied utility only as a development compatibility
     control. Production still builds and qualifies its own exact-source utility.
     """
+    contract = selected_contract(_contract)
+    old = getattr(contract, "FROM_V38", None) or contract.FROM_V37
     from f139.local_controller import Database, GitHub, SingleOwner
     from f139.nci04_native_contract import digest
     from f139.nci04_genenv_owner_backend import executable_custody
@@ -34,7 +36,7 @@ def rehearse_private_history(db, target, event_id):
         and db.conn.execute("PRAGMA query_only").fetchone()[0] == 1,
         "READONLY_ORIGINAL_REQUIRED")
     before = db.meta().copy()
-    binary, expected = executable_custody(db, contract.FROM_V37)
+    binary, expected = executable_custody(db, old)
     with tempfile.TemporaryDirectory(prefix="f139-v38-private-rehearsal-") as temp:
         root = Path(temp)
         for ticket, run, wanted in ((FIRST, FIRST_RUN, FIRST_SHA), (SECOND, SECOND_RUN, SECOND_SHA)):
@@ -170,7 +172,15 @@ def verify_pretransition_rollback(path, backup):
             no_original_source_transition=True, failed_run_id=failed_run)
 
 
-def main(argv=None):
+def selected_contract(candidate):
+    from f139 import nci04_v39_source_transition as successor
+    contract.need(candidate is None or candidate is contract or candidate is successor,
+                  "UNKNOWN_SOURCE_CONTRACT")
+    return contract if candidate is None else candidate
+
+
+def main(argv=None, *, _contract=None):
+    contract = selected_contract(_contract)
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--backup", type=Path)
@@ -185,7 +195,7 @@ def main(argv=None):
     import re
     contract.need(re.fullmatch(r"[a-f0-9]{40}", args.target) is not None, "TARGET_SHA_INVALID")
     if args.verify_pretransition_rollback:
-        contract.need(args.target == contract.FROM_V37 and args.backup is not None
+        contract.need(_contract is None and args.target == contract.FROM_V37 and args.backup is not None
             and not args.preflight_only and not args.rehearse_copy,
             'ROLLBACK_ARGUMENT_SCOPE')
         print(canonical(verify_pretransition_rollback(args.db,args.backup)).decode('ascii'))
@@ -208,7 +218,7 @@ def main(argv=None):
             report["candidate_source_sha"] = args.target
             if args.rehearse_copy:
                 report["copied_history_rehearsal"] = rehearse_private_history(
-                    db, args.target, int(os.environ["GITHUB_RUN_ID"]))
+                    db, args.target, int(os.environ["GITHUB_RUN_ID"]), _contract=contract)
             print(canonical(report).decode("ascii"))
         finally:
             db.conn.rollback()
