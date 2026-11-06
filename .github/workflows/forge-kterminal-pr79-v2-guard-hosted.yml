@@ -97,7 +97,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
           token: ${{ secrets.FORGE_KTERM_QUAL }}
-      - name: Compare the two failed full-suite tests against frozen baseline
+      - name: Compare bounded adjacent test families to isolate ordering dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -111,18 +111,18 @@ jobs:
           for file in pkg/countdown-activation_test.go pkg/stage3-report-full-root-v2_test.go; do
             test "$(git -C kterminal-private rev-parse "HEAD:$file")" = "$(git -C kterminal-baseline rev-parse "HEAD:$file")"
           done
-          for source in kterminal-baseline kterminal-private; do
+          for source in kterminal-private kterminal-baseline; do
             test ! -e "$source/.env"
             test -z "$(git -C "$source" status --porcelain)"
           done
           for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
-            if [[ -n "$(printenv "$key" || true)" ]]; then echo KTERM_COMPARE_BROKER_CREDENTIAL_REFUSED;exit 2;fi
+            if [[ -n "$(printenv "$key" || true)" ]]; then echo KTERM_FAMILY_BROKER_CREDENTIAL_REFUSED;exit 2;fi
           done
-          echo KTERM_PR79_FOCUSED_BASELINE_SOURCE_AND_TEST_BLOBS=PASS
-          pattern='^(TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts|TestStage3ReportFullRootPublicAliasFallback)$'
+          echo KTERM_PR79_FAMILY_EXACT_FROZEN_BASELINE_AND_SOURCE=PASS
+          pattern='^(TestCountdown.*|TestReconciliationCancellationStopsReadRetry|TestStage3ReportFullRoot.*)$'
           for arm in baseline candidate; do
-            if [[ "$arm" = baseline ]];then source="kterminal-baseline";else source="kterminal-private";fi
-            root="$RUNNER_TEMP/kterm-pr79-compare-$arm"
+            if [[ "$arm" = baseline ]]; then source="kterminal-baseline"; else source="kterminal-private"; fi
+            root="$RUNNER_TEMP/kterm-pr79-family-$arm"
             test ! -e "$root"
             mkdir -p "$root/tail" "$root/post" "$root/private"
             export K_TERMINAL_TEST_WORKSPACE="$root"
@@ -130,57 +130,63 @@ jobs:
             export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
             export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
             set +e
-            (cd "$source" && go test -json -mod=readonly -p 1 -count=2 -timeout 12m "-run=$pattern" ./pkg) > "$RUNNER_TEMP/pr79-compare-$arm-private.jsonl" 2> "$RUNNER_TEMP/pr79-compare-$arm-private.stderr"
-            exitCode=$?
+            (cd "$source" && go test -json -mod=readonly -p 1 -count=2 -timeout 15m "-run=$pattern" ./pkg) > "$RUNNER_TEMP/pr79-family-$arm-private.jsonl" 2> "$RUNNER_TEMP/pr79-family-$arm-private.stderr"
+            code=$?
             set -e
-            printf '%s' "$exitCode" > "$RUNNER_TEMP/pr79-compare-$arm-exit"
+            printf '%s' "$code" > "$RUNNER_TEMP/pr79-family-$arm-exit"
           done
           python - <<'PY'
-          import hashlib,json,os,pathlib
+          import hashlib,json,os,pathlib,re
           temp=pathlib.Path(os.environ["RUNNER_TEMP"])
-          names=("TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts","TestStage3ReportFullRootPublicAliasFallback")
-          result={"schema":"kterminal.pr79.focused-frozen-baseline.v1",
-                  "candidate_sha":"9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a",
-                  "baseline_sha":"bcebdc1a7a0487f9d6061a8e643c76069335d896",
-                  "exact_test_blobs_equal":True,"count_per_arm":2,
-                  "full_regression_rerun":False,
-                  "credential_access":False,"broker_requests":0,"arms":{}}
+          targets=("TestCountdownBeginsReconciliationAndSuccessfulExpiryEnablesAlerts","TestStage3ReportFullRootPublicAliasFallback")
+          receipt={"schema":"kterminal.pr79.ordered-family-comparison.v1",
+                   "baseline_sha":"bcebdc1a7a0487f9d6061a8e643c76069335d896",
+                   "candidate_sha":"9eb3197af01bc4a48bfd6036c6bc8f82a15b0c0a",
+                   "frozen_test_file_blobs_equal":True,"test_count":2,
+                   "test_selection":"Countdown group + ReconciliationCancellationStopsReadRetry + Stage3ReportFullRoot group",
+                   "full_suite_executed":False,"credentials_loaded":False,
+                   "broker_requests":0,"installed":False,"arms":{}}
           for arm in ("baseline","candidate"):
-            counts={name:{"pass":0,"fail":0} for name in names}
-            events=0;bad=0;package_failed=0
-            path=temp/("pr79-compare-"+arm+"-private.jsonl")
-            for line in path.open(encoding="utf-8-sig",errors="replace") if path.exists() else ():
+            counts={name:{"pass":0,"fail":0} for name in targets}
+            top_fail=set();total=0;bad=0;package_failures=0;top_pass=0
+            path=temp/("pr79-family-"+arm+"-private.jsonl")
+            for line in path.open(encoding="utf-8-sig",errors="replace") if path.is_file() else ():
               try:evt=json.loads(line)
               except (ValueError,TypeError):bad+=1;continue
               if not isinstance(evt,dict):bad+=1;continue
-              events+=1
-              name=evt.get("Test")
-              action=evt.get("Action")
-              if isinstance(name,str) and name in counts and action in ("pass","fail"):
-                counts[name][action]+=1
-              if action=="fail" and not isinstance(name,str):package_failed+=1
-            rc=int((temp/("pr79-compare-"+arm+"-exit")).read_text())
-            result["arms"][arm]={"exit":rc,"events":events,"malformed":bad,"package_failed":package_failed,"tests":counts}
-            print("KTERM_PR79_COMPARE_"+arm.upper()+"_GO_EXIT="+str(rc))
-            for name in names:
-              print("KTERM_PR79_COMPARE_"+arm.upper()+"_"+name+"=PASS:"+str(counts[name]["pass"])+";FAIL:"+str(counts[name]["fail"]))
-          witness=temp/"kterm-pr79-compare-safe";witness.mkdir(exist_ok=False)
-          body=json.dumps(result,sort_keys=True,separators=(",",":")).encode()
-          (witness/"receipt.json").write_bytes(body)
+              total+=1
+              action,name=evt.get("Action"),evt.get("Test")
+              if isinstance(name,str) and "/" not in name:
+                if action=="pass":top_pass+=1
+                if name in counts and action in ("pass","fail"):counts[name][action]+=1
+                if action=="fail" and re.fullmatch(r"Test[A-Za-z0-9_]{1,120}",name):top_fail.add(name)
+              elif action=="fail" and not isinstance(name,str):package_failures+=1
+            rc=int((temp/("pr79-family-"+arm+"-exit")).read_text())
+            receipt["arms"][arm]={"go_exit":rc,"json_events":total,"malformed_events":bad,
+                    "top_level_passes":top_pass,"failed_top_level_symbols":sorted(top_fail)[:20],
+                    "unnamed_package_failures":package_failures,"target_counts":counts}
+            print("KTERM_PR79_FAMILY_"+arm.upper()+"_EXIT="+str(rc)+";TOP_PASS="+str(top_pass)+";MALFORMED="+str(bad))
+            for name in targets:
+              print("KTERM_PR79_FAMILY_"+arm.upper()+"_"+name+"=PASS:"+str(counts[name]["pass"])+";FAIL:"+str(counts[name]["fail"]))
+            for name in sorted(top_fail)[:20]:
+              print("KTERM_PR79_FAMILY_"+arm.upper()+"_FAILED_STATIC_TEST="+name)
+          safe=temp/"pr79-family-safe";safe.mkdir(exist_ok=False)
+          body=json.dumps(receipt,sort_keys=True,separators=(",",":")).encode()
+          (safe/"receipt.json").write_bytes(body)
           digest=hashlib.sha256(body).hexdigest()
-          (witness/"receipt.sha256").write_text(digest,encoding="ascii")
-          print("KTERM_PR79_COMPARE_RECEIPT_SHA256="+digest)
-          print("KTERM_PR79_COMPARE_NOT_ACCEPTANCE=TRUE")
+          (safe/"receipt.sha256").write_text(digest,encoding="ascii")
+          print("KTERM_PR79_FAMILY_RECEIPT_SHA256="+digest)
+          print("KTERM_PR79_FAMILY_FULL_REGRESSION_STILL_FAILED=TRUE")
           PY
           test "$(git -C kterminal-private rev-parse HEAD)" = "$KTERM_SHA"
           test "$(git -C kterminal-baseline rev-parse HEAD)" = bcebdc1a7a0487f9d6061a8e643c76069335d896
-      - name: Upload only sanitized comparison witness
+      - name: Upload only sanitized family-comparison receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: kterm-pr79-baseline-comparison-${{ github.run_id }}
+          name: kterm-pr79-family-comparison-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterm-pr79-compare-safe/receipt.json
-            ${{ runner.temp }}/kterm-pr79-compare-safe/receipt.sha256
+            ${{ runner.temp }}/pr79-family-safe/receipt.json
+            ${{ runner.temp }}/pr79-family-safe/receipt.sha256
           retention-days: 90
           if-no-files-found: warn
