@@ -26,7 +26,8 @@ def fixed():
   data[(repo,"/branches/"+branch)]={"commit":{"sha":live}}
   data[(repo,"/actions/runs/38800000100")]={
    "id":38800000100,"name":lane+" research continuation launcher",
-   "status":"completed","conclusion":"success","head_sha":main}
+   "status":"completed","conclusion":"success","head_sha":main,
+   "head_branch":"main","run_attempt":1}
  def gh(repo,path):
   return data[(repo,path)]
  def d(repo,sha,path):
@@ -53,7 +54,7 @@ class F74(unittest.TestCase):
  def test_forged_current_owner_or_wrong_research_scope_is_denied(self):
   for key,value in [
    ("enabled",False),("authority","cloudflare-firstuse-authority"),
-   ("mode","FORGE-research-owner"),("ckb_plane_role","science-controller"),
+   ("mode","FORGE-research-owner"),
    ("program","Yggdrasil"),("schema","untrusted")]:
    def edit(c,s,r,key=key,value=value):
     c[m.LANES[0][1]][key]=value
@@ -62,7 +63,52 @@ class F74(unittest.TestCase):
   def edit(c,s,r):
    repo=m.LANES[1][1]
    r[(repo,"/actions/runs/38800000100")]["head_sha"]="f"*40
-  with self.assertRaises(m.Denied):self.work(edit)
+  with self.assertRaises(KeyError):self.work(edit)
+ def test_ancestor_is_history_without_granting_current_continuity(self):
+  def edit(c,s,r):
+   repo=m.LANES[1][1];old="e"*40;current="c"*40
+   r[(repo,"/actions/runs/38800000100")]["head_sha"]=old
+   s[repo]["classification"]="preregistered-blocked"
+   r[(repo,"/compare/"+old+"..."+current)]={"status":"ahead",
+    "base_commit":{"sha":old},"merge_base_commit":{"sha":old},
+    "ahead_by":21,"behind_by":0}
+  result=self.work(edit);row=result["lanes"][1]
+  self.assertEqual(row["last_continuation_source_sha"],"e"*40)
+  self.assertFalse(row["historical_run_is_current_main"])
+  self.assertEqual(row["reported_classification"],"preregistered-blocked")
+  self.assertFalse(row["current_research_continuity_verified"])
+  self.assertFalse(result["current_research_continuity_verified"])
+ def test_diverged_missing_or_forged_ancestry_is_rejected(self):
+  for field,value in [("status","diverged"),("ahead_by",0),
+     ("ahead_by",True),("behind_by",1),("base_commit",{"sha":"a"*40}),
+     ("merge_base_commit",{"sha":"a"*40})]:
+   def edit(c,s,r,field=field,value=value):
+    repo=m.LANES[1][1];old="e"*40
+    r[(repo,"/actions/runs/38800000100")]["head_sha"]=old
+    proof={"status":"ahead","base_commit":{"sha":old},
+      "merge_base_commit":{"sha":old},"ahead_by":21,"behind_by":0}
+    proof[field]=value;r[(repo,"/compare/"+old+"..."+"c"*40)]=proof
+   with self.subTest(field=field),self.assertRaises(m.Denied):self.work(edit)
+ def test_rerun_foreign_branch_or_unsuccessful_history_is_rejected(self):
+  for field,value in [("run_attempt",2),("head_branch","other"),
+      ("conclusion","failure"),("status","in_progress"),("head_sha","bad")]:
+   def edit(c,s,r,field=field,value=value):
+    r[(m.LANES[0][1],"/actions/runs/38800000100")][field]=value
+   with self.subTest(field=field),self.assertRaises(m.Denied):self.work(edit)
+ def test_legacy_role_is_not_execution_authority(self):
+  def edit(c,s,r):
+   for repo in c:
+    c[repo].pop("ckb_plane_role");s[repo].pop("ckb_plane_role")
+  self.assertFalse(self.work(edit)["native_worker_execution_permit_issued"])
+ def test_main_or_active_branch_moving_during_read_is_rejected(self):
+  for branch in ("/branches/main","/branches/research/autonomy-wingless-active"):
+   c,s,r,get,doc=fixed();counts={}
+   def moving(repo,path):
+    counts[(repo,path)]=counts.get((repo,path),0)+1
+    if repo==m.LANES[0][1] and path==branch and counts[(repo,path)]==2:
+     return {"commit":{"sha":"f"*40}}
+    return get(repo,path)
+   with self.subTest(branch=branch),patch.object(m,"get",side_effect=moving),patch.object(m,"doc",side_effect=doc),self.assertRaises(m.Denied):m.audit()
  def test_state_claim_cannot_skip_owner_or_history(self):
   for field,value in [("authority","owner-signed"),
                       ("north_star_sha256","f"*64),

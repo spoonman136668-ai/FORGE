@@ -21,7 +21,10 @@ class Denied(ValueError):pass
 def need(ok,msg):
  if not ok:raise Denied("F74_"+msg)
 def get(repo,path):
- need(repo in [r for _,r in LANES] and path.startswith("/") and ".." not in path,
+ compare=isinstance(path,str) and re.fullmatch(r"/compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}",path)
+ need(repo in [r for _,r in LANES] and isinstance(path,str) and path.startswith("/")
+      and not path.startswith("//") and (".." not in path or compare)
+      and "://" not in path and "#" not in path,
       "ROUTE_UNSAFE")
  url=API+repo+path
  headers={"Accept":"application/vnd.github+json","User-Agent":"FORGE-F74-NATIVE-SCIENCE-SOURCE-READONLY"}
@@ -53,8 +56,7 @@ def audit():
   need(cfg.get("schema")=="research.autonomy.v2" and
        cfg.get("program")==name and cfg.get("enabled") is True and
        cfg.get("mode")=="repo-local-self-chain" and
-       cfg.get("authority")=="research-only" and
-       cfg.get("ckb_plane_role")=="governance-only","RESEARCH_AUTHORITY_DRIFT")
+       cfg.get("authority")=="research-only","RESEARCH_AUTHORITY_DRIFT")
   active=cfg.get("active_branch")
   need(isinstance(active,str) and active.startswith("research/autonomy-")
        and len(active)<140 and re.fullmatch("[a-z0-9/_-]+",active),
@@ -67,7 +69,6 @@ def audit():
        state.get("program")==name and state.get("active_branch")==active and
        state.get("north_star_sha256")==cfg.get("north_star_sha256") and
        state.get("authority")=="research-only" and
-       state.get("ckb_plane_role")=="governance-only" and
        isinstance(state.get("experiment"),str) and
        len(state["experiment"])<=200,
        "RESEARCH_STATE_NOT_PINNED")
@@ -76,13 +77,30 @@ def audit():
   run=get(repo,"/actions/runs/"+str(last_id))
   need(run.get("id")==last_id and run.get("name")==name+" research continuation launcher" and
        run.get("status")=="completed" and run.get("conclusion")=="success" and
-       run.get("head_sha")==sha,"RESEARCH_RUN_SOURCE_UNCONFIRMED")
+       run.get("head_branch")=="main" and run.get("run_attempt")==1 and
+       isinstance(run.get("head_sha"),str) and HEX40.fullmatch(run["head_sha"]),
+       "RESEARCH_RUN_SOURCE_UNCONFIRMED")
+  run_sha=run["head_sha"]
+  if run_sha!=sha:
+   # Authenticate historical main; never relabel this as current continuity.
+   ancestry=get(repo,"/compare/"+run_sha+"..."+sha)
+   need(ancestry.get("status")=="ahead" and
+        ancestry.get("base_commit",{}).get("sha")==run_sha and
+        ancestry.get("merge_base_commit",{}).get("sha")==run_sha and
+        type(ancestry.get("ahead_by")) is int and ancestry["ahead_by"]>0 and
+        ancestry.get("behind_by")==0,"RESEARCH_RUN_NOT_MAIN_ANCESTOR")
   again=get(repo,"/branches/"+urllib.parse.quote(active,safe="/"))
   need(again.get("commit",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
+  need(get(repo,"/branches/main").get("commit",{}).get("sha")==sha,
+       "MAIN_MOVED_DURING_READ")
   summary.append({
    "lane":name,"repository":repo,"main_sha":sha,"active_research_head":active_sha,
    "reported_last_completed_experiment":state["experiment"],
    "last_continuation_run_confirmed":last_id,
+   "last_continuation_source_sha":run_sha,
+   "historical_run_is_current_main":run_sha==sha,
+   "reported_classification":state.get("classification"),
+   "current_research_continuity_verified":False,
    "repo_local_research_workflow_confirmed":True,
    "full_original_seed_lease_ledger_independently_observed":False,
    "current_scientific_owner_independently_authorized":False,
@@ -90,6 +108,7 @@ def audit():
   })
  return {
   "schema":SCHEMA,"lanes":summary,
+  "current_research_continuity_verified":False,
   "private_rbackup_restoration_qualified":False,
   "cloudflare_time_travel_only_is_independent_backup":False,
   "atomic_live_original_firstuse_claim_qualified":False,
@@ -103,4 +122,7 @@ if __name__=="__main__":
   print("F74_FORGE_NATIVE_PROTECTED_ORIGINAL=DENIED")
  except (Denied,ValueError,KeyError,TypeError,OSError) as exc:
   print("F74_LIVE_SOURCE_READBACK=BLOCKED",file=sys.stderr)
+  reason=str(exc) if isinstance(exc,Denied) else "F74_INPUT_OR_TRANSPORT_FAILED"
+  if not re.fullmatch(r"F74_[A-Z0-9_]{1,96}",reason):reason="F74_INVALID_DIAGNOSTIC"
+  print("F74_READBACK_REASON="+reason,file=sys.stderr)
   raise SystemExit(1)

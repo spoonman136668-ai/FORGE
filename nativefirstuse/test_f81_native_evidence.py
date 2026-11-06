@@ -38,6 +38,7 @@ class TestF81(unittest.TestCase):
         data=assess(live,archive)
         self.assertEqual(data["schema"],SCHEMA)
         self.assertTrue(data["two_live_lanes_verified"])
+        self.assertFalse(data["current_research_continuity_verified"])
         self.assertTrue(data["two_real_fit_archive_metadata_identities_verified"])
         self.assertEqual(data["fresh_independently_accepted_originals"],0)
         for field in ("policy_training_qualified","dream_rsi_pareto_promoted",
@@ -56,6 +57,17 @@ class TestF81(unittest.TestCase):
                 if name=="swapped_repo":l["lanes"][0]["repository"]="spoonman136668-ai/Yggdrasil"
                 if name=="missing_archive":del a["Wingless"]
                 with self.assertRaises(Blocked):assess(l,a)
+
+    def test_historical_blocked_lane_does_not_become_current_continuity(self):
+        live,archives=fixture()
+        live["lanes"][1]["reported_classification"]="preregistered-blocked"
+        live["lanes"][1]["historical_run_is_current_main"]=False
+        report=assess(live,archives)
+        row=next(r for r in report["lane_evidence"] if r["lane"]=="Yggdrasil")
+        self.assertEqual(row["reported_classification"],"preregistered-blocked")
+        self.assertFalse(row["current_research_continuity_verified"])
+        self.assertFalse(report["current_research_continuity_verified"])
+        self.assertFalse(report["scientific_execution_authorized"])
 
     def test_fit_digest_expiry_or_run_drift_denies(self):
         for lane in ("Wingless","Yggdrasil"):
