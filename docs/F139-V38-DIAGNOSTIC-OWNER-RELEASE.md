@@ -20,3 +20,38 @@ The consumed V37 installer is additionally pinned to its historical source `3dd6
 
 ## Scientific and execution authority
 `ENGINEERING` is evidence of source/toolchain regression and read-only copied original custody; `DEPLOYMENT` is only the original installed source, policy, task, event and natural-tick readback; `SCIENTIFIC` remains unverified without frozen matched experiments and independent first-use admission. No promotion is inferred from this diagnostic work.
+
+## November 6 frozen-prefix correction
+
+Original installation42143854270/job127650458544 actually ran on FORGE-CODEX-REMOTE
+and failed query-only preflight at08:04:30Z with
+F139_V38_PARTIAL_PUBLICATION_CUSTODY_DRIFT. It did not quiesce or mutate the owner.
+That release scope is consumed: retain its negative and never rerun, rewrite or
+delete the original release reference.
+
+The original owner had advanced to ledger1304/hash
+cc5ff89fa8513562574af12d5e941ef85144e899440a40f6c6b3958fd6ec1ef7,
+with109 draft attempts/108 authenticated publications. Source remained3dd6346.
+Read-only status42185501071/job127784744520 independently confirmed96 VERIFIED,
+56 QUARANTINED tasks and no active/ready task. Seven new native worker runs,
+42142380222,42151853050,42157812243,42162799077,42169957945,42174967840,
+42182529268, passed. Thus development resumed overnight; the earlier stalled
+checkpoint must not be reported as current. These are engineering outcomes,
+not independently demonstrated scientific learning or intelligence gains.
+
+The defect was reusing the original102/101 assertion against the growing
+current prefix. The correction verifies the exact original negative against
+the V37 seal's historical boundary, and separately validates all retained
+publication pairs through the prospective transition. Unknown pending writes,
+duplicate identities/hashes, false authentication of the original orphan,
+source/payload drift and altered original anchors still fail closed. Current
+counters, positive tasks, negative tasks and the complete current prefix remain
+bound in the new proof. No counter reset or additional negative retirement.
+
+Regression controls use actual SQLite event/task tables with the original
+frozen fixture plus seven publication pairs and seven verified tasks, full cold
+event verification, and adversarial retained-history mutations. The old
+current-prefix assertion is explicitly shown to fail the growing fixture.
+Synthetic fixtures are not authentic original-host custody proof. Require
+exact-candidate final Linux/Windows qualification and a fresh guarded original
+preflight before any new, separately identified release scope is considered.

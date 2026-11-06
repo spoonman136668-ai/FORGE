@@ -62,13 +62,24 @@ def validate_original(db, boundary):
     need(row is not None and row['kind']=='MODEL_DRAFT_ATTEMPTED'
         and row['sha']==EVENT and row['prior_sha']==PRIOR
         and json.loads(row['payload'])==original_payload(), 'ORIGINAL_ANCHOR_DRIFT')
+    attempts, successes = _publication_prefix(db, boundary)
+    need(len(attempts)==102 and len(successes)==101
+        and set(attempts)-set(successes)=={IDENTITY}, 'EXACT_UNRESOLVED_HISTORY_REQUIRED')
+    need(sum(v.get('source_after_sha256')==AFTER for v in attempts.values())==1,
+         'SOURCE_REUSE_OR_DUPLICATE')
+    return custody_packet()
+
+
+def _publication_prefix(db, boundary):
+    """Pure prefix parser: no db.verify recursion, authority or remote calls."""
     attempts, successes = {}, {}
     for event in db.conn.execute("SELECT seq,kind,payload FROM events WHERE kind IN "
             "('MODEL_DRAFT_ATTEMPTED','MODEL_DRAFT_AUTHENTICATED') AND seq<? ORDER BY seq",
             (boundary,)):
         doc = json.loads(event['payload'])
+        need(type(doc) is dict, 'PUBLICATION_HISTORY_IDENTITY')
         key = doc.get('candidate_identity')
-        need(doc.get('schema')==PUBLICATION and isinstance(key,str)
+        need(type(doc) is dict and doc.get('schema')==PUBLICATION and isinstance(key,str)
             and re.fullmatch('[a-f0-9]{64}',key) and doc.get('scientific_first_use') is False,
             'PUBLICATION_HISTORY_IDENTITY')
         if event['kind']=='MODEL_DRAFT_ATTEMPTED':
@@ -83,11 +94,44 @@ def validate_original(db, boundary):
                 and re.fullmatch('[a-f0-9]{40}',doc['head_commit'])
                 and doc.get('worker_dispatched') is False, 'AUTHENTICATED_HISTORY_DRIFT')
             successes[key] = doc
-    need(len(attempts)==102 and len(successes)==101
-        and set(attempts)-set(successes)=={IDENTITY}, 'EXACT_UNRESOLVED_HISTORY_REQUIRED')
-    need(sum(v.get('source_after_sha256')==AFTER for v in attempts.values())==1,
+    return attempts, successes
+
+
+def validate_retained(db, boundary, frozen_boundary, source_sha):
+    """Keep the exact V37 negative while permitting fully authenticated growth.
+
+    Frozen 102/101 counts belong to the original V37 seal, never the growing
+    current head. Every later attempt must still resolve; no new negative is
+    invented, no scope/hash becomes replayable, and no counter is reset.
+    """
+    need(type(boundary) is int and type(frozen_boundary) is int
+         and boundary >= frozen_boundary, 'GROWTH_BOUNDARY')
+    packet = validate_original(db, frozen_boundary)
+    attempts, successes = _publication_prefix(db, boundary)
+    need(len(attempts) >= 102 and len(successes) >= 101
+         and set(attempts)-set(successes)=={IDENTITY}, 'UNRESOLVED_GROWTH')
+    hashes = [v.get('source_after_sha256') for v in attempts.values()]
+    need(all(isinstance(h, str) and re.fullmatch('[a-f0-9]{64}', h) for h in hashes)
+         and len(set(hashes)) == len(hashes) and hashes.count(AFTER) == 1,
          'SOURCE_REUSE_OR_DUPLICATE')
-    return custody_packet()
+    for row in db.conn.execute("SELECT kind,payload FROM events WHERE kind IN "
+            "('MODEL_DRAFT_ATTEMPTED','MODEL_DRAFT_AUTHENTICATED') AND seq>=? AND seq<? ORDER BY seq",
+            (frozen_boundary, boundary)):
+        doc = json.loads(row['payload'])
+        if row['kind']=='MODEL_DRAFT_ATTEMPTED':
+            need(set(doc)==set(original_payload()) and doc['source_sha']==source_sha
+                 and isinstance(doc['branch'], str)
+                 and re.fullmatch(r'f139/auto-model-[wy]-[a-f0-9]{20}-[a-f0-9]{12}', doc['branch'])
+                 and isinstance(doc['parent_commit'], str)
+                 and re.fullmatch('[a-f0-9]{40}', doc['parent_commit'])
+                 and isinstance(doc['prior_event_head_sha256'], str)
+                 and re.fullmatch('[a-f0-9]{64}', doc['prior_event_head_sha256']),
+                 'GROWTH_ATTEMPT_DRIFT')
+        else:
+            need(set(doc)=={'schema','candidate_identity','source_after_sha256',
+                 'pr_number','head_commit','scientific_first_use','worker_dispatched'},
+                 'GROWTH_SUCCESS_DRIFT')
+    return packet
 
 
 def verify_remote_readback(get):

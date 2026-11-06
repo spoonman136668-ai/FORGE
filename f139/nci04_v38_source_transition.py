@@ -77,7 +77,7 @@ def snapshot(db, row, previous):
     need(bool(previous) and previous[-1]["schema"] == "forge.f139.source-transition.v32"
          and previous[-1]["to_source_sha"] == FROM_V37, "GENUINE_V37_PREDECESSOR_REQUIRED")
     seal = db.conn.execute(
-        "SELECT sha,payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
+        "SELECT seq,sha,payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
         "AND seq<? ORDER BY seq DESC LIMIT 1", (row["seq"],)).fetchone()
     need(seal is not None and json.loads(seal["payload"]) == previous[-1], "V37_SEAL_DRIFT")
     sources = {s for tr in previous for s in (tr["from_source_sha"], tr["to_source_sha"])}
@@ -102,9 +102,11 @@ def snapshot(db, row, previous):
         "SELECT seq,kind,sha FROM events WHERE seq<? ORDER BY seq", (row["seq"],))]
     need(len(history) == row["seq"] - 1 and len(history) >= 1241
          and history[-1]["sha"] == row["prior_sha"], "EXACT_PREFIX_DRIFT")
-    from f139.nci04_partial_publication_custody import validate_original, PartialPublicationDenied
+    from f139.nci04_partial_publication_custody import validate_retained, PartialPublicationDenied
     try:
-        partial = validate_original(db, row["seq"])
+        need(type(previous[-1].get("original_head_seq")) is int
+             and seal["seq"] == previous[-1]["original_head_seq"] + 1, "V37_SEAL_BOUNDARY_DRIFT")
+        partial = validate_retained(db, row["seq"], seal["seq"], FROM_V37)
     except PartialPublicationDenied as exc:
         raise MaintenanceDenied("F139_V38_PARTIAL_PUBLICATION_CUSTODY_DRIFT") from exc
     counters = {k:sum(e["kind"] == k for e in history) for k in (
