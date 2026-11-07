@@ -67,10 +67,10 @@ func TestNativeConsequenceAndColdBoundaries(t *testing.T){
 func TestNativeSnapshotAdversarialControls(t *testing.T){
  invalid:=[][]byte{
   nil,
-  []byte("{"counts":{"unknown-north-a0":[1,0,0]}}"),
-  []byte("{"counts":{"amber-north-a0":[-1,2,0]}}"),
-  []byte("{"counts":{"amber-north-a0":[0,0,0]}}"),
-  []byte("{"counts":{"amber-north-a0":[10000,0,0]}}"),
+  []byte(`{"counts":{"unknown-north-a0":[1,0,0]}}`),
+  []byte(`{"counts":{"amber-north-a0":[-1,2,0]}}`),
+  []byte(`{"counts":{"amber-north-a0":[0,0,0]}}`),
+  []byte(`{"counts":{"amber-north-a0":[10000,0,0]}}`),
  }
  for _,raw:=range invalid{
   if _,err:=restoreAssoc(raw);err==nil{
