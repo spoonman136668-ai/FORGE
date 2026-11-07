@@ -1,5 +1,5 @@
-// forge-research-observer ingests TWO bounded GitHub-hosted workflow-list
-// snapshots and preserves their source metadata without inferring science.
+// forge-research-observer ingests two required and one optional, bounded
+// workflow-list snapshots without inferring scientific acceptance.
 // There is no network, secret, queue, result promotion or dispatch API.
 package main
 
@@ -19,8 +19,10 @@ func run(args []string)(researchobserver.Report,error){
  f:=flag.NewFlagSet("forge-research-observer",flag.ContinueOnError)
  w:=f.String("wingless","","absolute path to GitHub Wingless workflow_runs JSON")
  y:=f.String("yggdrasil","","absolute path to GitHub Yggdrasil workflow_runs JSON")
+ h:=f.String("hybrid","","optional absolute path to pinned TTT-Hybrid-Lab workflow_runs JSON")
  if err:=f.Parse(args);err!=nil{return zero,err}
- if f.NArg()!=0||!filepath.IsAbs(*w)||!filepath.IsAbs(*y)||*w==*y{return zero,ErrBlocked}
+ if f.NArg()!=0||!filepath.IsAbs(*w)||!filepath.IsAbs(*y)||*w==*y||
+  (*h!=""&&(!filepath.IsAbs(*h)||*h==*w||*h==*y)){return zero,ErrBlocked}
  read:=func(path string)([]byte,error){
   stat,err:=os.Lstat(path)
   if err!=nil||!stat.Mode().IsRegular()||stat.Size()<=0||
@@ -29,7 +31,9 @@ func run(args []string)(researchobserver.Report,error){
  }
  a,err:=read(*w);if err!=nil{return zero,ErrBlocked}
  b,err:=read(*y);if err!=nil{return zero,ErrBlocked}
- return researchobserver.Build(a,b)
+ if *h==""{return researchobserver.Build(a,b)}
+ c,err:=read(*h);if err!=nil{return zero,ErrBlocked}
+ return researchobserver.BuildWithHybrid(a,b,c)
 }
 func main(){
  result,err:=run(os.Args[1:])
