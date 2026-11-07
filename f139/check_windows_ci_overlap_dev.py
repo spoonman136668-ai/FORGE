@@ -1,6 +1,6 @@
 """DEV-only Windows CI overlap experiment: run original F139 and Go checks together.
 
-This changes only scheduling. It does not select tests, change source fixtures,
+The four-arm ABBA trial changes only scheduling and repeats every full original check. It does not select tests, change source fixtures,
 relax Windows durability semantics, cache test results or change default CI.
 Untrusted raw child logs remain private in RUNNER_TEMP and are never uploaded.
 """
@@ -96,82 +96,137 @@ def main():
         if os.environ.get(key) != value:
             raise ValueError("Existing resource budget drift: " + key)
     sha, tree = git(root, "rev-parse", "HEAD"), git(root, "rev-parse", "HEAD^{tree}")
-    if sha != args.expected_source:
-        raise ValueError("Exact source SHA mismatch")
-    if git(root, "status", "--porcelain", "--untracked-files=all"):
-        raise ValueError("Dirty preflight checkout")
+    if sha != args.expected_source or git(
+        root, "status", "--porcelain", "--untracked-files=all"
+    ):
+        raise ValueError("Exact clean source preflight failed")
     toolchain = subprocess.check_output(
         ["go", "version"], cwd=root, text=True, timeout=60
     ).strip()
-    # Same full original commands; the extra JSON emission does not change Go
-    # -count=1 semantics or package selection.
     py_cmd = [sys.executable, "-B", "-m", "unittest", "discover",
               "-s", "f139", "-p", "test_*.py"]
+    # The three original Go commands remain complete and unspecialized.
     go_commands = [["go", "test", "-count=1", "./..."],
                    ["go", "vet", "./..."], ["go", "build", "./..."]]
-    barrier = threading.Barrier(2)
     folder = runner / "f139-windows-ci-overlap-private"
     folder.mkdir(exist_ok=True)
-    py_out, py_err = folder / "python.stdout", folder / "python.stderr"
-    go_steps = []
-    def go_work():
-        barrier.wait(timeout=30)
-        started = time.perf_counter()
-        for i, cmd in enumerate(go_commands):
-            stdout, stderr = folder / ("go%d.stdout" % i), folder / ("go%d.stderr" % i)
-            t0 = time.perf_counter()
-            with stdout.open("wb") as out, stderr.open("wb") as err:
-                try:
-                    result = subprocess.run(cmd, cwd=root, stdout=out, stderr=err,
-                                            timeout=600, check=False)
-                except subprocess.TimeoutExpired as exc:
-                    raise ValueError("Original Go command timed out") from exc
-            if result.returncode:
-                raise ValueError("Mandatory Go test/vet/build failure at stage " + str(i))
-            go_steps.append(round(time.perf_counter()-t0, 6))
-        return time.perf_counter() - started
-    overall_started = time.perf_counter()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        python_future = pool.submit(command, py_cmd, root, py_out, py_err, barrier, 1100)
-        go_future = pool.submit(go_work)
-        py_seconds = python_future.result()
-        go_seconds = go_future.result()
-    elapsed = time.perf_counter() - overall_started
-    count, skipped = python_result(py_err.read_text(encoding="utf-8", errors="replace"))
+    records = []
+
+    def trial(index, overlap):
+        local = folder / ("arm" + str(index))
+        local.mkdir(exist_ok=False)
+        py_out, py_err = local / "python.stdout", local / "python.stderr"
+        barrier = threading.Barrier(2 if overlap else 1)
+        def go_work():
+            barrier.wait(timeout=30)
+            started = time.perf_counter()
+            steps = []
+            for i, cmd in enumerate(go_commands):
+                t0 = time.perf_counter()
+                stdout, stderr = local / ("go%d.stdout" % i), local / ("go%d.stderr" % i)
+                with stdout.open("wb") as out, stderr.open("wb") as err:
+                    try:
+                        proc = subprocess.run(
+                            cmd, cwd=root, stdout=out, stderr=err,
+                            timeout=600, check=False
+                        )
+                    except subprocess.TimeoutExpired as exc:
+                        raise ValueError("Original complete Go command timed out") from exc
+                if proc.returncode:
+                    raise ValueError("Original complete Go check failed: stage "+str(i))
+                steps.append(round(time.perf_counter() - t0, 6))
+            return time.perf_counter() - started, steps
+
+        t0 = time.perf_counter()
+        if overlap:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                py_future = pool.submit(
+                    command, py_cmd, root, py_out, py_err, barrier, 1100
+                )
+                go_future = pool.submit(go_work)
+                py_elapsed = py_future.result()
+                go_elapsed, steps = go_future.result()
+        else:
+            py_elapsed = command(py_cmd, root, py_out, py_err, barrier, 1100)
+            go_elapsed, steps = go_work()
+        wall = time.perf_counter() - t0
+        count, skipped = python_result(
+            py_err.read_text(encoding="utf-8", errors="replace")
+        )
+        if git(root, "rev-parse", "HEAD") != sha or git(
+            root, "rev-parse", "HEAD^{tree}"
+        ) != tree or git(root, "status", "--porcelain", "--untracked-files=all"):
+            raise ValueError("Source/tree became dirty after full original checks")
+        record = {
+            "arm": index,
+            "mode": "overlap" if overlap else "serial",
+            "python_tests": count,
+            "python_skips": skipped,
+            "python_exit": 0,
+            "go_test_exit": 0,
+            "go_vet_exit": 0,
+            "go_build_exit": 0,
+            "python_seconds": round(py_elapsed, 6),
+            "go_seconds": round(go_elapsed, 6),
+            "go_check_seconds": steps,
+            "stage_seconds": round(wall, 6),
+        }
+        records.append(record)
+        print("F139_WINDOWS_ABBA_ARM_%d=PASS" % index, flush=True)
+
+    overall_start = time.perf_counter()
+    for index, overlap in enumerate((False, True, True, False), start=1):
+        trial(index, overlap)
+    elapsed = time.perf_counter() - overall_start
     from f139.check_test_discovery_inventory import collect
-    discovery = collect(root)
-    identities = discovery["ids"]
-    if (len(identities) != EXPECTED_PY_TESTS
-            or len(set(identities)) != EXPECTED_PY_TESTS
-            or len(discovery["skipped"]) != EXPECTED_WIN_SKIPS):
-        raise ValueError("Original test identity/skip inventory drift")
-    if git(root, "rev-parse", "HEAD") != sha or git(
-        root, "rev-parse", "HEAD^{tree}"
-    ) != tree or git(root, "status", "--porcelain", "--untracked-files=all"):
-        raise ValueError("Source mutated by overlapped mandatory checks")
+    inventory = collect(root)
+    ids = inventory["ids"]
+    if (len(ids) != EXPECTED_PY_TESTS
+            or len(set(ids)) != EXPECTED_PY_TESTS
+            or len(inventory["skipped"]) != EXPECTED_WIN_SKIPS):
+        raise ValueError("Original test identity and skip inventory drift")
+    serial1, parallel1, parallel2, serial2 = records
+    paired = [
+        serial1["stage_seconds"] / parallel1["stage_seconds"],
+        serial2["stage_seconds"] / parallel2["stage_seconds"],
+    ]
+    aggregate = (
+        serial1["stage_seconds"] + serial2["stage_seconds"]
+    ) / (
+        parallel1["stage_seconds"] + parallel2["stage_seconds"]
+    )
+    # Frozen in the PR before this full ABBA measurement: 10% both directional
+    # comparisons and at least 15% aggregate; NOT the 2x whole-pipeline target.
+    verdict = (
+        "PASS_DEV_ONLY"
+        if min(paired) >= 1.10 and aggregate >= 1.15 else "NO_GO"
+    )
     receipt = {
-        "schema": "forge.f139.windows-ci-stage-overlap.dev.v1",
+        "schema": "forge.f139.windows-ci-stage-overlap-abba.dev.v1",
         "candidate_sha": sha,
         "candidate_tree": tree,
         "job_run": os.environ["GITHUB_RUN_ID"],
         "runner_os": "Windows",
         "go_toolchain": toolchain,
         "resource": {"GOMAXPROCS": "2", "GOFLAGS": "-p=2", "GOMEMLIMIT": "1536MiB"},
-        "original_python_tests": count,
-        "original_python_skips": skipped,
+        "run_order": ["serial", "overlap", "overlap", "serial"],
+        "arms": records,
+        "original_python_tests": EXPECTED_PY_TESTS,
+        "original_python_skips": EXPECTED_WIN_SKIPS,
         "python_test_ids_sha256": hashlib.sha256(
-            ("\n".join(identities)+"\n").encode("utf-8")).hexdigest(),
+            ("\n".join(ids)+"\n").encode("utf-8")).hexdigest(),
         "original_python_unittest_exit": 0,
         "original_go_test_exit": 0,
         "original_go_vet_exit": 0,
         "original_go_build_exit": 0,
-        "python_wall_seconds": round(py_seconds, 6),
-        "go_wall_seconds": round(go_seconds, 6),
-        "go_command_wall_seconds": go_steps,
-        "combined_overlap_wall_seconds": round(elapsed, 6),
-        "baseline_prior_windows_job_seconds": 565.0,
-        "baseline_is_independent_host_and_source": True,
-        "performance_acceptance": "UNVERIFIED_UNPAIRED",
+        "paired_stage_ratios": paired,
+        "aggregate_stage_ratio": aggregate,
+        "paired_minimum": 1.10,
+        "aggregate_minimum": 1.15,
+        "experimental_wall_seconds": round(elapsed, 6),
+        "performance_verdict": verdict,
+        "performance_acceptance": "DEV_ONLY_NOT_WHOLE_PIPELINE",
+        "default_ci_promotion_allowed": False,
         "ci_policy_adoption_allowed": False,
         "mandatory_suite_replaced_or_skipped": False,
         "source_dirty": False,
@@ -179,10 +234,11 @@ def main():
     }
     output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n",
                       encoding="utf-8")
-    print("F139_WINDOWS_ORIGINAL_FULL_PYTHON=PASS")
-    print("F139_WINDOWS_ORIGINAL_GO_TEST_VET_BUILD=PASS")
-    print("F139_WINDOWS_OVERLAP_SOURCE_PARITY=PASS")
-    print("F139_WINDOWS_OVERLAP_DEV_SECONDS=%.3f" % elapsed)
+    print("F139_WINDOWS_FULL_REGRESSION_ALL_FOUR_ARMS=PASS", flush=True)
+    print("F139_WINDOWS_FULL_GO_CHECKS_ALL_FOUR_ARMS=PASS", flush=True)
+    print("F139_WINDOWS_OVERLAP_ABBA_DEV=" + verdict, flush=True)
+    print("F139_WINDOWS_OVERLAP_ABBA_RATIOS=" +
+          ",".join("%.4f" % v for v in paired), flush=True)
 
 
 if __name__ == "__main__":
