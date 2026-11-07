@@ -19,6 +19,7 @@ TARGET = 'f139/test_nci04_v30_source_transition.py'
 BLOB = 'd8cbf54f8f5ad1ef41812734be2b80a7c9aad607'
 PROBE = r'''
 import hashlib, json, sqlite3, tempfile
+from contextlib import closing
 from pathlib import Path
 from f139.test_nci04_v30_source_transition import PendingTransferTests as Case
 from f139.local_controller import Database, F139Error
@@ -74,7 +75,7 @@ try:
                 assert cold.meta()['head_seq']==374
             finally:
                 if hasattr(cold,'conn'): cold.close()
-            with sqlite3.connect(path) as conn:
+            with closing(sqlite3.connect(path, isolation_level=None)) as conn:
                 triggers=list(conn.execute("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name='events'"))
                 for name, sql in triggers: conn.execute('DROP TRIGGER "'+name+'"')
                 conn.execute("UPDATE events SET payload=? WHERE seq=2", (canonical({}).decode(),))
@@ -87,7 +88,7 @@ try:
                 else: raise AssertionError('Corrupted prefix was accepted')
             finally:
                 if hasattr(broken,'conn'): broken.close()
-    print(json.dumps(dict(state_sha256=digest(first),head_hash=other['tables']['meta'][0][-1],
+    print('F139_PENDING_CHILD='+json.dumps(dict(state_sha256=digest(first),head_hash=other['tables']['meta'][0][-1],
         semantic_rejection=rejection,independent_files=True,full_sync=True,wal=True,
         chain_verified=True,prefix_corruption_rejected=template is not None),sort_keys=True))
 finally:
@@ -102,7 +103,7 @@ inventory=collect(root)
 suite=discover_profile_suite(root)
 report=profile_suite(suite,inventory['ids'])
 report['ids']=inventory['ids']; report['declared_skipped_ids']=inventory['skipped']
-print(json.dumps(report,sort_keys=True))
+print('F139_PENDING_CHILD='+json.dumps(report,sort_keys=True))
 if not report['successful']: sys.exit(1)
 '''
 
@@ -117,7 +118,12 @@ def child(root, code, timeout=600):
         env={**os.environ,'PYTHONPATH':os.pathsep.join([str(root),str(root/'f139')]),
              'PYTHONDONTWRITEBYTECODE':'1'},text=True,stdout=subprocess.PIPE,timeout=timeout)
     if result.returncode: raise ValueError('Fixture qualification subprocess failed')
-    value=json.loads(result.stdout)
+    # Full regression fixtures emit their own diagnostics on stdout.
+    # Parse exactly one explicitly framed result, never the whole log.
+    records=[line.removeprefix('F139_PENDING_CHILD=') for line in result.stdout.splitlines()
+             if line.startswith('F139_PENDING_CHILD=')]
+    if len(records)!=1: raise ValueError('Missing or ambiguous child receipt')
+    value=json.loads(records[0])
     value['process_seconds']=time.perf_counter()-started
     return value
 
@@ -181,7 +187,13 @@ def main():
             if not args.preflight:
                 for label in ('baseline','candidate','candidate','baseline'):
                     print('F139_PENDING_ABBA_START='+label,flush=True)
-                    value=child(base if label=='baseline' else root,RUN,1200)
+                    execution_root=base if label=='baseline' else root
+                    expected=BASE if label=='baseline' else source
+                    if git(execution_root,'rev-parse','HEAD')!=expected or git(execution_root,'status','--porcelain','--untracked-files=all'):
+                        raise ValueError('Measured source is not exact and clean')
+                    value=child(execution_root,RUN,1200)
+                    if git(execution_root,'rev-parse','HEAD')!=expected or git(execution_root,'status','--porcelain','--untracked-files=all'):
+                        raise ValueError('Measured source drifted')
                     if value['tests_run']!=1414: raise ValueError('Frozen 1414-case inventory drift')
                     if receipt['measurements']:
                         first=receipt['measurements'][0]
