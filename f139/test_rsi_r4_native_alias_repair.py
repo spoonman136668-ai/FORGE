@@ -147,6 +147,13 @@ class NativeAliasSourceRepairTests(unittest.TestCase):
                 sample + "def broken(:\n"),
             "ALIAS_CONTEXT_COMPLEX": (
                 sample.replace("as writer:", 'as writer, open(str(database), "w") as f:')),
+            "SECOND_IMPORT": sample + "from other_module import dbapi\n",
+            "IMPORT_NAME_COLLISION": sample + "import dbapi\n",
+            "MATCH_BINDING": sample + (
+                'match {"a": 1}:\n'
+                '    case {"a": 1, **dbapi}:\n'
+                '        pass\n'),
+            "DYNAMIC_BINDING": sample + 'exec("dbapi = 1")\n',
         }
         for reason, source in bads.items():
             with self.subTest(reason=reason), self.assertRaisesRegex(
