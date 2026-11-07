@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      FORGE_PARENT: a4a287efd17cf174744fd2ab1360feefe47b60f0
+      FORGE_PARENT: ee9bbc78e08f06a83547351fddde7252f21c13af
       KTERM_SHA: 7c01f693785046329913be0692f372bad18221cb
       KTERM_TREE: 0a9043cdfc015b55dcdbfc7f72e58be409605838
       K_TERMINAL_EXECUTION_MODE: PAPER
@@ -85,6 +85,16 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $log=Join-Path $env:RUNNER_TEMP 'kterm-build-private.log'
+          # Build-only, deterministic privacy overlay: preserve pinned committed
+          # source identity, but disable native identifying timing in the exported
+          # binary and in the packaged build script. No production repo edit.
+          $buildPath=Join-Path (Get-Location).Path 'BUILD.ps1'
+          $sourceBuild=[IO.File]::ReadAllText($buildPath)
+          if(([regex]::Matches($sourceBuild,'NativeTimingDefaultEnabled=1')).Count -ne 1) {throw 'KTERM_NATIVE_TIMING_BUILD_PROFILE_DRIFT'}
+          $safeBuild=$sourceBuild.Replace('NativeTimingDefaultEnabled=1','NativeTimingDefaultEnabled=0')
+          [IO.File]::WriteAllText($buildPath,$safeBuild,[Text.UTF8Encoding]::new($false))
+          if($safeBuild -match 'NativeTimingDefaultEnabled=1'){throw 'KTERM_PRIVATE_NATIVE_IDENTIFYING_TIMING_ENABLED'}
+          Write-Host 'KTERM_PRIVATE_NATIVE_TIMING_BUILD_DEFAULT=OFF'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\BUILD.ps1 *> $log
           if($LASTEXITCODE -ne 0){throw 'FRESH_INSTALL_ORIGINAL_BUILD_FAILED'}
           $uiLog=Join-Path $env:RUNNER_TEMP 'kterm-ui-private.log'
@@ -228,6 +238,7 @@ jobs:
             source_tree=$env:KTERM_TREE
             forge_package_sha=$env:GITHUB_SHA
             toolchain='go1.26.5 windows/amd64'
+            native_timing_build_overlay='NativeTimingDefaultEnabled=0; no committed source change'
             binaries=$binaries
             user_config_included=$false
             live_execution_authorized=$false
@@ -274,6 +285,90 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $out 'receipt.json'),$body,[Text.UTF8Encoding]::new($false))
           [IO.File]::WriteAllText((Join-Path $out 'receipt.sha256'),((Get-FileHash -LiteralPath (Join-Path $out 'receipt.json') -Algorithm SHA256).Hash.ToLowerInvariant()),[Text.UTF8Encoding]::new($false))
           Write-Host ('FRESH_INSTALL_PORTABLE_ZIP=PASS;FILES='+$files.Count+';ZIP_SHA256='+$zipDigest)
+      - name: Encrypt exact-source private PAPER package with ephemeral AES-256-GCM and RSA-OAEP-SHA256
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or $env:K_TERMINAL_NATIVE_TIMING -cne '0'){throw 'KTERM_PRIVATE_TRANSFER_NOT_DISARMED'}
+          $root=Join-Path $env:RUNNER_TEMP 'kterminal-pr78-fresh-safe'
+          $zip=Join-Path $root 'K-Terminal-Personal-PR78-Fresh-Install.zip'
+          $receipt=Get-Content -LiteralPath (Join-Path $root 'receipt.json') -Raw | ConvertFrom-Json
+          if($receipt.kterminal_sha -cne $env:KTERM_SHA -or $receipt.kterminal_tree -cne $env:KTERM_TREE -or $receipt.credential_files -ne 0 -or $receipt.live_orders -ne 0){throw 'KTERM_PRIVATE_TRANSFER_SOURCE_OR_AUTHORITY_DRIFT'}
+          $digest=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($digest -cne $receipt.package_sha256){throw 'KTERM_PRIVATE_TRANSFER_ZIP_HASH_DRIFT'}
+          $pub='MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAjaijvheHfU/L3qT+QWNSZAE4z6kfN6bBch03CEorv/1dd1mRSSq3MY2eBdDFVE6GXFnBkhIoiOIFcZ2q1nSjT5pbYFEd/vBXAex13paxCKpO+1dUAI/BeAXqpRSnUfNc1nILIZCueWlMVvLldKdc78EsuQKkXwn3trAC9wwxYTwiGWul3/TuYkyhU8YH96fKbIMV82PaXfQCkPS/6WnjakpxZ3+VzS2D34LOPXKAXXhmb8q7Cy9MtKx7xpsBWjEWHCwwz749V7U3Sp8oPmonXjAcK0XAg3lDOLX4ILkTshtfOfkle32VQ9PcgUFNUh6ivVi8somG6R5sftyxNyipFIqKRXCkgkEYu7m9jHUIVhxj8IUtyccFKMfouayxg+aXzrk5hx/RZyEr0EqwmBW3A+TWe9nMyRlWcSEH/MpCp7ocu8HsojM5L3DpYttbftGpJOv1KO9+gBkIp7A5j8lI7CvJ/x19rQveTp9UKyZHsgjSwvPJHieZizwnWkuJHit5AgMBAAE='
+          $out=Join-Path $env:RUNNER_TEMP 'kterminal-pr78-encrypted-handoff'
+          [void][IO.Directory]::CreateDirectory($out)
+          $cipher=Join-Path $out 'K-Terminal-PR78-Private-PAPER.aesgcm'
+          # Public encryption key only. Decryption key is NEVER in Actions
+          # secrets, workflow source, logging, artifacts, or this repository.
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.IO;
+          using System.Text;
+          using System.Security.Cryptography;
+          public static class KTermPrivateTransfer {
+            public static string[] Seal(string zip, string cipherFile, string sourceSha, string publicDerB64) {
+              byte[] plain = File.ReadAllBytes(zip);
+              byte[] key = RandomNumberGenerator.GetBytes(32);
+              byte[] nonce = RandomNumberGenerator.GetBytes(12);
+              byte[] cipher = new byte[plain.Length];
+              byte[] tag = new byte[16];
+              using (var rsa = RSA.Create()) {
+                int consumed = 0;
+                byte[] der = Convert.FromBase64String(publicDerB64);
+                rsa.ImportSubjectPublicKeyInfo(der, out consumed);
+                if (consumed != der.Length) throw new Exception("KTERM_PUBLIC_KEY_INVALID");
+                byte[] wrapped = rsa.Encrypt(key, RSAEncryptionPadding.OaepSHA256);
+                using (var aes = new AesGcm(key,16)) {
+                  aes.Encrypt(nonce, plain, cipher, tag, Encoding.ASCII.GetBytes(sourceSha));
+                }
+                File.WriteAllBytes(cipherFile, cipher);
+                CryptographicOperations.ZeroMemory(key);
+                return new [] { Convert.ToBase64String(wrapped), Convert.ToBase64String(nonce), Convert.ToBase64String(tag) };
+              }
+            }
+          }
+          '@
+          $parts=[KTermPrivateTransfer]::Seal($zip,$cipher,$env:KTERM_SHA,$pub)
+          $publicBytes=[Convert]::FromBase64String($pub)
+          $publicDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($publicBytes)).ToLowerInvariant()
+          if($publicDigest -cne '4b1a69579561b0244ba8140c15d848725cb544393690e6e97bb04f81c51e364b'){throw 'KTERM_PRIVATE_TRANSFER_WRONG_PUBLIC_KEY'}
+          $meta=[ordered]@{
+            schema='kterminal.private.package.envelope.v1'
+            source_sha=$env:KTERM_SHA
+            source_tree=$env:KTERM_TREE
+            forge_workflow_sha=$env:GITHUB_SHA
+            package_sha256=$digest
+            public_key_sha256=$publicDigest
+            algorithm='AES-256-GCM/RSA-3072-OAEP-SHA256'
+            aad_ascii=$env:KTERM_SHA
+            wrapped_key_b64=$parts[0]
+            nonce_b64=$parts[1]
+            tag_b64=$parts[2]
+            ciphertext_sha256=(Get-FileHash -LiteralPath $cipher -Algorithm SHA256).Hash.ToLowerInvariant()
+            ciphertext_bytes=(Get-Item -LiteralPath $cipher).Length
+            plaintext_bytes=(Get-Item -LiteralPath $zip).Length
+            original_windows_full_regression_run=42370567026
+            installed=$false
+            live_orders=0
+            broker_credentials_exported=0
+          }
+          [IO.File]::WriteAllText((Join-Path $out 'envelope.json'),($meta|ConvertTo-Json -Depth 8 -Compress),[Text.UTF8Encoding]::new($false))
+          if($meta.ciphertext_bytes -ne $meta.plaintext_bytes -or $meta.ciphertext_bytes -lt 100000){throw 'KTERM_PRIVATE_TRANSFER_CIPHER_SIZE_INVALID'}
+          if(@(Get-ChildItem -LiteralPath $out -File).Count -ne 2){throw 'KTERM_PRIVATE_TRANSFER_OUTPUT_SCOPE_INVALID'}
+          Write-Host 'KTERM_PR78_ENCRYPTED_PACKAGE=PASS;PLAINTEXT_UPLOAD=NONE;RSA_PUBLIC_KEY_SHA256=4b1a69579561b0244ba8140c15d848725cb544393690e6e97bb04f81c51e364b'
+      - name: Upload only AES-GCM ciphertext and public envelope, never private source or plaintext ZIP
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterminal-pr78-encrypted-once-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/kterminal-pr78-encrypted-handoff/K-Terminal-PR78-Private-PAPER.aesgcm
+            ${{ runner.temp }}/kterminal-pr78-encrypted-handoff/envelope.json
+          retention-days: 1
+          if-no-files-found: error
       - name: Upload only sanitized immutable receipt; no private binary or source
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
