@@ -1,4 +1,4 @@
-name: K Terminal PR78 P5 original quote-age boundary offline differential
+name: K Terminal PR78 clean-install Windows personal diagnostic package
 on:
   push:
     branches: [qualification/kterminal-pr73-p5-source-20261106]
@@ -6,28 +6,16 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: kterminal-pr78-p5-quote-age-once
+  group: kterminal-pr78-fresh-install-package
   cancel-in-progress: false
 jobs:
-  windows:
-    name: ${{ matrix.label }}
+  build:
     runs-on: windows-latest
-    timeout-minutes: 17
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: original-1700ms
-            quote_age_ms: 1700
-          - label: stressed-1950ms
-            quote_age_ms: 1950
+    timeout-minutes: 45
     env:
-      FORGE_PARENT: 962536924ac73651bbaef0912b59e584283e9274
+      FORGE_PARENT: 7d1f2b11dfc6611c691c18df57417d3b26a9b7dd
       KTERM_SHA: ed4df974077793afa7418b45cd595a40b678430f
       KTERM_TREE: d1a71153e03458e16b4aff1018be19412aaa16b2
-      P5_TEST_BLOB: f3e80f01928cb0111665fd1cd13959aee3e93659
-      QUOTE_AGE_MS: ${{ matrix.quote_age_ms }}
-      TEST_LABEL: ${{ matrix.label }}
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -35,12 +23,12 @@ jobs:
       GOTELEMETRY: 'off'
       CGO_ENABLED: '0'
     steps:
-      - name: Checkout existing FORGE qualification scope
+      - name: Checkout exact existing FORGE qualification scope
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          persist-credentials: false
           fetch-depth: 0
-      - name: Verify one-workflow-only isolated Windows change
+          persist-credentials: false
+      - name: Verify only reused workflow changed; no execution authority
         shell: bash
         run: |
           set -euo pipefail
@@ -53,8 +41,8 @@ jobs:
           git merge-base --is-ancestor "$FORGE_PARENT" HEAD
           test "$(git diff --name-only "$FORGE_PARENT" HEAD)" = '.github/workflows/kterminal-pr78-pressure-boundary-two-sha-differential-20261107.yml'
           test -z "$(git status --porcelain)"
-          echo P5_QUOTE_CLOCK_WORKFLOW_SCOPE=PASS
-      - name: Checkout original PR78 exact source without retained credentials
+          echo FRESH_INSTALL_FORGE_SCOPE=PASS
+      - name: Checkout original private K Terminal exact PR78 source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
@@ -63,19 +51,20 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           token: ${{ secrets.FORGE_KTERM_QUAL }}
-      - name: Set up original Windows Go 1.26.5
+      - name: Use original qualified Windows Go 1.26.5
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Verify exact SHA/test and reject broker credentials
+      - name: Verify source, toolchain and no configured credentials
         shell: bash
         working-directory: kterminal-private
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$KTERM_SHA"
           test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
-          test "$(git rev-parse HEAD:pkg/p5-one-post-diagnostic_test.go)" = "$P5_TEST_BLOB"
+          test "$(git rev-parse HEAD:BUILD.ps1)" = 'be7ff44f192b7d256e06182aeea696d0153e5dbf'
+          test "$(git rev-parse HEAD:verification/build-ui-runtime.ps1)" = '892f3a93fe26a7304268667c28a1d5e9d1e87676'
           test "$(git rev-parse HEAD:go.mod)" = 'b3ede0d8444c08b3e7b23f1396374359b54134c6'
           test -z "$(git status --porcelain)"
           test ! -e .env
@@ -83,132 +72,131 @@ jobs:
           test "$K_TERMINAL_EXECUTION_MODE" = PAPER
           go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
           for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK; do
-            if [[ -n "${!key:-}" ]]; then echo P5_BROKER_AUTHORITY_REFUSED; exit 2; fi
+            if [[ -n "${!key:-}" ]]; then echo FRESH_INSTALL_CREDENTIAL_REFUSED; exit 2; fi
           done
-          mkdir -p "$RUNNER_TEMP/p5-quote-safe"
-          echo P5_ORIGINAL_SOURCE_IDENTITY=PASS
-      - name: Apply only diagnostic test-file quote-age perturbation
-        shell: bash
+          echo FRESH_INSTALL_EXACT_SOURCE_NO_BROKER=PASS
+      - name: Build original complete Windows application and desktop UI
+        shell: pwsh
         working-directory: kterminal-private
         run: |
-          set -euo pipefail
-          if [[ "$QUOTE_AGE_MS" != '1700' && "$QUOTE_AGE_MS" != '1950' ]]; then
-            exit 2
-          fi
-          python -B - <<'PY'
-          import os,pathlib
-          path=pathlib.Path("pkg/p5-one-post-diagnostic_test.go")
-          old=path.read_bytes()
-          needle=b"n.Snapshot.QuoteAt = time.Now().Add(-1700 * time.Millisecond)"
-          assert old.count(needle)==1, "nonunique original quote-age fixture"
-          ms=int(os.environ["QUOTE_AGE_MS"])
-          if ms==1950:
-            new=old.replace(needle,b"n.Snapshot.QuoteAt = time.Now().Add(-1950 * time.Millisecond)")
-            path.write_bytes(new)
-          else:
-            assert ms==1700
-          print("P5_QUOTE_VARIANT="+str(ms)+"ms")
-          print("P5_TEST_ONLY_OVERLAY="+("YES" if ms==1950 else "NO"))
-          PY
-          if [[ "$QUOTE_AGE_MS" = '1950' ]]; then
-            test "$(git diff --name-only)" = 'pkg/p5-one-post-diagnostic_test.go'
-            git diff --check
-          else
-            test -z "$(git status --porcelain)"
-          fi
-          echo P5_ONLY_SYNTHETIC_TEST_VARIANT=PASS
-      - name: Run 18 repeated unknown-first-POST tests and classify safety outcomes
-        shell: bash
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'kterm-build-private.log'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\BUILD.ps1 *> $log
+          if($LASTEXITCODE -ne 0){throw 'FRESH_INSTALL_ORIGINAL_BUILD_FAILED'}
+          $uiLog=Join-Path $env:RUNNER_TEMP 'kterm-ui-private.log'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\verification\build-ui-runtime.ps1 -Root (Get-Location).Path *> $uiLog
+          if($LASTEXITCODE -ne 0){throw 'FRESH_INSTALL_ORIGINAL_UI_RUNTIME_FAILED'}
+          foreach($name in @('K-Terminal.exe','K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe','K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe','K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe','KTerminal.UI.dll')){
+            $f=Join-Path (Get-Location).Path $name
+            if(-not (Test-Path -LiteralPath $f -PathType Leaf)){throw ('FRESH_INSTALL_MISSING_BINARY_'+$name)}
+            if((Get-Item -LiteralPath $f).Length -lt 1024){throw ('FRESH_INSTALL_EMPTY_BINARY_'+$name)}
+          }
+          Write-Host 'FRESH_INSTALL_COMPLETE_ORIGINAL_BUILD=PASS'
+      - name: Assemble credential-free portable first-install ZIP with exact-SHA manifest
+        shell: pwsh
         working-directory: kterminal-private
         run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/p5-quote-isolated"
-          mkdir -p "$root/tail" "$root/post" "$root/private"
-          export K_TERMINAL_TEST_WORKSPACE="$root"
-          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
-          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
-          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
-          start="$(date +%s)"
-          set +e
-          go test -json -p 1 -count=18 -timeout 12m '-run=^TestP5OneShotDiagnosticOriginalNativeSignal$/^unknown_first_post_no_retry$' ./pkg > "$RUNNER_TEMP/p5-quote-private.jsonl" 2> "$RUNNER_TEMP/p5-quote-private.stderr"
-          exit_code="$?"
-          set -e
-          end="$(date +%s)"
-          P5_EXIT="$exit_code" P5_SECONDS="$((end-start))" python -B - <<'PY'
-          import pathlib,os,json,hashlib
-          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
-          name="TestP5OneShotDiagnosticOriginalNativeSignal/unknown_first_post_no_retry"
-          parent="TestP5OneShotDiagnosticOriginalNativeSignal"
-          labels={
-            "one-POST diagnostic outcome mismatch":"POST_COUNTS_MISMATCH",
-            "unknown/blocked POST did not retain uncertainty":"UNKNOWN_OUTCOME_NOT_RETAINED",
-            "same-event duplicate replayed a POST":"SAME_EVENT_REPLAY",
-            "fresh native construction replayed or changed original receipt":"FRESH_CONSTRUCTION_REPLAY",
-            "broker-free cold-process replay failed":"COLD_PROCESS_REPLAY_FAILED",
-            "original native receipt not retained for replay":"MISSING_RECEIPT",
-            "cold-process replay mutated receipt or reached venue":"COLD_RECEIPT_MUTATION"
+          $ErrorActionPreference='Stop'
+          $source=(Get-Location).Path
+          $out=Join-Path $env:RUNNER_TEMP 'kterminal-pr78-fresh-safe'
+          $root=Join-Path $out 'K-Terminal-Personal-PR78-Diagnostic'
+          [void][IO.Directory]::CreateDirectory($root)
+          $binaries=@('K-Terminal.exe','K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe','K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe','K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe','KTerminal.UI.dll')
+          $rootFiles=@(Get-ChildItem -LiteralPath $source -File | Where-Object {$_.Extension -in @('.ps1','.cs','.json','.bat')} )
+          $rootFiles+=@(Get-Item -LiteralPath (Join-Path $source 'VERSION'),(Join-Path $source 'LAUNCHER-REVISION'))
+          foreach($f in $rootFiles){Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $root $f.Name)}
+          foreach($name in $binaries){Copy-Item -LiteralPath (Join-Path $source $name) -Destination (Join-Path $root $name)}
+          Copy-Item -LiteralPath (Join-Path $source 'assets') -Destination (Join-Path $root 'assets') -Recurse
+          [void][IO.Directory]::CreateDirectory((Join-Path $root 'diagnostics'))
+          Copy-Item -LiteralPath (Join-Path $source 'verification\KTerminal-Live-Session-Recorder-v1.2.ps1') -Destination (Join-Path $root 'diagnostics\KTerminal-Live-Session-Recorder-v1.2.ps1')
+          $guide=@'
+          K Terminal Personal - PR78 first-install diagnostic package
+          
+          1. Extract the complete folder to a new, short writable directory on Windows.
+          2. This package contains NO config.json, .env, brokerage credentials, or account history.
+          3. Open K-Terminal.exe directly from File Explorer. The normal configuration flow applies.
+          4. Startup is disarmed and LIVE alerts remain PAUSED. READY does not authorize orders.
+          5. Complete normal account/portfolio checks and reconciliation before any activation.
+          6. The isolated $5-$8 diagnostic is NOT enabled by installation. A separate authorized
+             one-use start must set the original two opt-in environment variables, using a new
+             absolute one-POST lock path; never delete an existing lock to retry.
+          7. Optional sanitized timing observation uses K_TERMINAL_P5_LATENCY=1 and
+             diagnostics/KTerminal-Live-Session-Recorder-v1.2.ps1.
+          8. Never publish complete logs, runtime data, or credentials.
+          
+          This ZIP is an unpromoted test installation, not a live-tested release.
+          Source: Kboomllc/K-Terminal@ed4df974077793afa7418b45cd595a40b678430f
+          '@
+          [IO.File]::WriteAllText((Join-Path $root 'FIRST-INSTALL-README.txt'),$guide,[Text.UTF8Encoding]::new($false))
+          foreach($bad in @('config.json','.env','pending-program-update.json','data')){
+            if(Test-Path -LiteralPath (Join-Path $root $bad)){throw ('FRESH_INSTALL_PRIVATE_STATE_IN_ARCHIVE_'+$bad)}
           }
-          passed=failed=parent_failed=other_failed=malformed=events=0
-          classes=set()
-          for raw in (temp/"p5-quote-private.jsonl").open(encoding="utf-8-sig",errors="replace"):
-            try:z=json.loads(raw)
-            except (ValueError,TypeError):malformed+=1;continue
-            if not isinstance(z,dict):malformed+=1;continue
-            events+=1
-            test,action=z.get("Test"),z.get("Action")
-            if test==name and action=="pass":passed+=1
-            if test==name and action=="fail":failed+=1
-            if test==parent and action=="fail":parent_failed+=1
-            if action=="fail" and test not in (name,parent,None):other_failed+=1
-            if test==name and action=="output" and isinstance(z.get("Output"),str):
-              for phrase,label in labels.items():
-                if phrase in z["Output"]:classes.add(label)
-          complete=events>0 and malformed==0 and passed+failed==18 and parent_failed==failed and other_failed==0
-          result={
-            "schema":"forge.kterminal.pr78.p5-quote-age-test-only.v1",
-            "source_sha":os.environ["KTERM_SHA"],
-            "source_tree":os.environ["KTERM_TREE"],
-            "original_p5_test_blob":os.environ["P5_TEST_BLOB"],
-            "forge_sha":os.environ["GITHUB_SHA"],
-            "quote_age_ms":int(os.environ["QUOTE_AGE_MS"]),
-            "test_only_overlay":os.environ["QUOTE_AGE_MS"]=="1950",
-            "comparative_experiment_not_qualification":True,
-            "go":"go1.26.5 windows/amd64",
-            "repetitions":18,
-            "passed":passed,
-            "failed":failed,
-            "parent_failed":parent_failed,
-            "classes":sorted(classes),
-            "exit_code":int(os.environ["P5_EXIT"]),
-            "events":events,
-            "malformed":malformed,
-            "evidence_complete":complete,
-            "elapsed_seconds":int(os.environ["P5_SECONDS"]),
-            "broker_orders":0,
-            "private_logs_exported":False,
-            "production_source_modified":False,
-            "full_regression_repeated":False
+          $files=@(Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName | ForEach-Object {
+            $relative=$_.FullName.Substring($root.Length+1).Replace('\','/')
+            [pscustomobject]@{path=$relative;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant();size=$_.Length}
+          })
+          if($files.Count -lt 55){throw 'FRESH_INSTALL_INCOMPLETE_PROGRAM_CONTENTS'}
+          $manifest=[ordered]@{
+            schema='kterminal.first-install.pr78.v1'
+            edition='personal'
+            revision='PR78-unpromoted-diagnostic'
+            source_sha=$env:KTERM_SHA
+            source_tree=$env:KTERM_TREE
+            forge_package_sha=$env:GITHUB_SHA
+            toolchain='go1.26.5 windows/amd64'
+            binaries=$binaries
+            user_config_included=$false
+            live_execution_authorized=$false
+            installed=$false
+            files=$files
           }
-          out=temp/"p5-quote-safe"
-          body=json.dumps(result,sort_keys=True,separators=(",",":")).encode()
-          (out/"result.json").write_bytes(body)
-          digest=hashlib.sha256(body).hexdigest()
-          (out/"result.sha256").write_text(digest,encoding="ascii")
-          print("P5_QUOTE_VARIANT_MS="+str(result["quote_age_ms"]))
-          print("P5_QUOTE_VARIANT_PASS="+str(passed)+"/18")
-          print("P5_QUOTE_VARIANT_FAIL="+str(failed)+"/18")
-          print("P5_QUOTE_VARIANT_CLASSES="+",".join(sorted(classes)))
-          print("P5_QUOTE_EVIDENCE="+("COMPLETE" if complete else "INCOMPLETE"))
-          print("P5_QUOTE_RECEIPT_SHA256="+digest)
-          if not complete:raise SystemExit(2)
-          PY
-      - name: Upload only sanitized diagnostic results
-        if: always()
+          $json=$manifest|ConvertTo-Json -Depth 7
+          [IO.File]::WriteAllText((Join-Path $root 'package-manifest.json'),$json,[Text.UTF8Encoding]::new($false))
+          $checks=@($files | ForEach-Object {$_.sha256+'  '+$_.path}) -join "`n"
+          [IO.File]::WriteAllText((Join-Path $root 'SHA256SUMS.txt'),($checks+"`n"),[Text.UTF8Encoding]::new($false))
+          $zip=Join-Path $out 'K-Terminal-Personal-PR78-Fresh-Install.zip'
+          Compress-Archive -LiteralPath $root -DestinationPath $zip -CompressionLevel Optimal
+          if(-not(Test-Path -LiteralPath $zip -PathType Leaf)){throw 'FRESH_INSTALL_ZIP_NOT_CREATED'}
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive=[IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $entries=@($archive.Entries|Where-Object{-not $_.FullName.EndsWith('/')})
+            if($entries.Count -ne ($files.Count+2)){throw 'FRESH_INSTALL_ZIP_ENTRY_COUNT_MISMATCH'}
+            foreach($binary in $binaries){
+              if(@($entries|Where-Object{$_.FullName.EndsWith('/'+$binary)}).Count -ne 1){throw ('FRESH_INSTALL_ZIP_BINARY_MISSING_'+$binary)}
+            }
+            if(@($entries|Where-Object{$_.FullName -match '(?i)(^|/)(config\.json|\.env|data/)' }).Count -gt 0){throw 'FRESH_INSTALL_PRIVATE_FILES_FOUND'}
+          } finally {$archive.Dispose()}
+          $zipDigest=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $receipt=[ordered]@{
+            schema='forge.kterminal.pr78.first-install-package.v1'
+            forge_sha=$env:GITHUB_SHA
+            kterminal_sha=$env:KTERM_SHA
+            kterminal_tree=$env:KTERM_TREE
+            package_sha256=$zipDigest
+            archive_bytes=(Get-Item -LiteralPath $zip).Length
+            package_files=$files.Count
+            binaries=$binaries
+            build='PASS'
+            pack='PASS'
+            credential_files=0
+            live_orders=0
+            installed=$false
+            released=$false
+            desktop_accepted=$false
+          }
+          $body=$receipt|ConvertTo-Json -Depth 6
+          [IO.File]::WriteAllText((Join-Path $out 'receipt.json'),$body,[Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText((Join-Path $out 'receipt.sha256'),((Get-FileHash -LiteralPath (Join-Path $out 'receipt.json') -Algorithm SHA256).Hash.ToLowerInvariant()),[Text.UTF8Encoding]::new($false))
+          Write-Host ('FRESH_INSTALL_PORTABLE_ZIP=PASS;FILES='+$files.Count+';ZIP_SHA256='+$zipDigest)
+      - name: Upload portable Windows first-install package and immutable receipt
+        if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: kterminal-p5-quote-${{ matrix.label }}-${{ github.run_id }}
+          name: kterminal-pr78-personal-fresh-install-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/p5-quote-safe/result.json
-            ${{ runner.temp }}/p5-quote-safe/result.sha256
-          retention-days: 14
+            ${{ runner.temp }}/kterminal-pr78-fresh-safe/K-Terminal-Personal-PR78-Fresh-Install.zip
+            ${{ runner.temp }}/kterminal-pr78-fresh-safe/receipt.json
+            ${{ runner.temp }}/kterminal-pr78-fresh-safe/receipt.sha256
+          retention-days: 30
           if-no-files-found: error
