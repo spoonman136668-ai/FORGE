@@ -86,6 +86,9 @@ func TestF3GeneratedProgramsRejectMalformedEvidence(t *testing.T){
   if err:=restored.Load(append(raw,[]byte("{}")...));err==nil{
    t.Fatal("trailing JSON payload accepted")
   }
+  if err:=restored.Load(append(raw,[]byte("unparseable")...));err==nil{
+   t.Fatal("malformed trailing JSON payload accepted")
+  }
   if err:=restored.Load([]byte(`{}`));err==nil{t.Fatal("empty memory accepted")}
  }
  if _,err:=f3New("arbitrary");err==nil{t.Fatal("out of grammar source identity accepted")}

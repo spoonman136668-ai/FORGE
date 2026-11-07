@@ -10,6 +10,7 @@ import (
  "errors"
  "go/parser"
  "go/token"
+ "io"
  "sort"
  "github.com/spoonman136668-ai/forge/genenv"
 )
@@ -133,7 +134,7 @@ func(m *f3Core)Load(raw []byte)error{
  }
  dec:=json.NewDecoder(bytes.NewReader(raw));dec.DisallowUnknownFields()
  if err:=dec.Decode(&blob);err!=nil{return errF3}
- if dec.Decode(&struct{}{})==nil{return errF3}
+ if dec.Decode(&struct{}{})!=io.EOF{return errF3}
  if blob.Schema!=F3SnapshotSchema{return errF3}
  count:=0
  for r:=0;r<2;r++{for cue:=0;cue<4;cue++{for mode:=0;mode<2;mode++{
