@@ -41,7 +41,7 @@ def discover_ids(path):
         "discover_profile_suite,case_ids;"
         "ids=case_ids(discover_profile_suite(root));"
         "print('ABBA_IDS='+str(len(ids))+':'+"
-        "hashlib.sha256('\n'.join(ids).encode()).hexdigest())"
+        "hashlib.sha256('\\n'.join(ids).encode()).hexdigest())"
     )
     result = subprocess.run(
         [sys.executable, "-B", "-c", code], cwd=path,
