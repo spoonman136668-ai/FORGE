@@ -16,15 +16,43 @@ from f139.local_controller import Database, SingleOwner, v2_owner_terminal_relea
 ROOT = Path(__file__).resolve().parent.parent
 
 class PendingTransferTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Only the valid prefix is cached. The deliberately minimal native
+        # admission below remains per-test and is not a full A6 admission.
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'template.sqlite'
+            with closing(Database.initialize(path, route.FROM_V29)) as db:
+                db.enable(legacy_suspended=True)
+                for i in range(373):
+                    db.event('UNTRUSTED_TEST_FIXTURE', {'i': i})
+                db.verify()
+                if db.meta()['head_seq'] != 374:
+                    raise AssertionError('ORIGINAL_FIXTURE_PREFIX_DRIFT')
+                cls._fixture_head = db.meta()['head_hash']
+            if any(Path(str(path) + suffix).exists() for suffix in ('-wal', '-shm')):
+                raise AssertionError('ORIGINAL_FIXTURE_UNCHECKPOINTED_WAL')
+            cls._fixture_bytes = path.read_bytes()
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls._fixture_bytes
+        del cls._fixture_head
+        super().tearDownClass()
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name) / 'isolated.sqlite'
-        self.db = Database.initialize(self.path, route.FROM_V29)
+        # Every test owns a new physical file and cold-verified connection.
+        with self.path.open('xb') as stream:
+            stream.write(type(self)._fixture_bytes)
+        self.db = Database(self.path)
         self.addCleanup(self.db.close)
-        self.db.enable(legacy_suspended=True)
-        for i in range(373):
-            self.db.event('UNTRUSTED_TEST_FIXTURE', {'i': i})
+        self.assertEqual(self.db.meta()['head_seq'], 374)
+        self.assertEqual(self.db.meta()['head_hash'], type(self)._fixture_head)
+        self.assertEqual(self.db.conn.execute('PRAGMA synchronous').fetchone()[0], 2)
         self.db.conn.execute('INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) VALUES(?,?,?,?,?)',
                              (route.TICKET,'Yggdrasil',route.FROM_V29,'READY','a'*64))
         self.db.event('NATIVE_DEVELOPMENT_ADMITTED', dict(ticket=route.TICKET,
