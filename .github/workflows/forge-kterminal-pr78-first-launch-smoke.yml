@@ -1,0 +1,159 @@
+name: FORGE K-Terminal PR78 exact-source installed first-launch smoke
+on:
+  push:
+    branches: [qualification/kterminal-rc2-timing-hosted-20261106]
+    paths: [.github/workflows/forge-kterminal-pr78-first-launch-smoke.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-kterminal-pr78-installed-first-launch-once
+  cancel-in-progress: false
+jobs:
+  first-launch:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      FORGE_BASE: 64564eda2fb9d479dd936a1420f206d22e422e50
+      KTERM_SHA: 4864ded796751039b7b60e3722ef015f7a301053
+      KTERM_TREE: 8fd03d056e5849d08ea15c4ee22ee14514b5ded6
+      QUALIFIED_RUN: '42386620678'
+      QUALIFIED_FORGE_SHA: 29ba55df85056d2e50ac1f69f9be0a2d5116e289
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_NATIVE_TIMING: '0'
+      K_TERMINAL_P5_LATENCY: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+    steps:
+      - name: Checkout existing FORGE qualification branch without retained credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify one-file workflow change and retained qualified source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_REF" = 'refs/heads/qualification/kterminal-rc2-timing-hosted-20261106'
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$QUALIFIED_FORGE_SHA" HEAD
+          test "$(git rev-list --count "$QUALIFIED_FORGE_SHA"..HEAD)" = 1
+          test "$(git diff --name-only "$QUALIFIED_FORGE_SHA" HEAD)" = '.github/workflows/forge-kterminal-pr78-first-launch-smoke.yml'
+          actual="$(git diff --name-only "$FORGE_BASE" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' '.github/workflows/forge-kterminal-rc2-focused-negative-20261106.yml' '.github/workflows/forge-kterminal-rc2-timing-exact-sha.yml' '.github/workflows/forge-kterminal-pr78-first-launch-smoke.yml' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          test -z "$(git status --porcelain)"
+          echo KTERM_PR78_STARTUP_SCOPE=PASS
+      - name: Checkout previously qualified private K-Terminal source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 4864ded796751039b7b60e3722ef015f7a301053
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Set up original pinned Windows Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify exact private SHA and zero broker authority
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
+          test -z "$(git status --porcelain)"
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test ! -e config.json
+          test ! -e .env
+          test ! -d data
+          go version | grep -F 'go1.26.5 windows/amd64' > /dev/null
+          for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK; do
+            if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR78_BROKER_AUTHORITY_REFUSED; exit 2; fi
+          done
+          echo KTERM_PR78_EXACT_SOURCE_DISARMED=PASS
+      - name: Build private desktop and install only into ephemeral isolated folder
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          $privateRoot=Join-Path $env:GITHUB_WORKSPACE 'kterminal-private'
+          $log=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-build-private.log'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'BUILD.ps1') *> $log
+          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_REBUILD_FAILED'}
+          $stage=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package'
+          $zip=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-private.zip'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $privateRoot 'verification\package-first-install.ps1') -SourceRoot $privateRoot -StageDirectory $stage -ZipPath $zip *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_PACKAGING_FAILED'}
+          $target=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'INSTALL-KTerminal.ps1') -SourceRoot $stage -Destination $target -NoLaunch *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-install-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_INSTALL_FAILED'}
+          if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_PR78_STARTUP_UNEXPECTED_CONFIG'}
+          Write-Host 'KTERM_PR78_REBUILT_FRESH_INSTALL=PASS;LIVE_ORDERS=0'
+      - name: Actually start installed K-Terminal.exe and verify visible prelaunch window
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          $target=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
+          if(-not(Test-Path -LiteralPath (Join-Path $target 'K-Terminal.exe'))){throw 'KTERM_PR78_INSTALLED_LAUNCHER_MISSING'}
+          if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_PR78_UNEXPECTED_LIVE_CONFIG'}
+          $launcher=Start-Process -FilePath (Join-Path $target 'K-Terminal.exe') -WorkingDirectory $target -PassThru
+          if($null -eq $launcher){throw 'KTERM_PR78_REAL_LAUNCH_FAILED'}
+          $visible=$false
+          $sw=[Diagnostics.Stopwatch]::StartNew()
+          try {
+            while($sw.Elapsed.TotalSeconds -lt 35){
+              Start-Sleep -Milliseconds 650
+              $launcher.Refresh()
+              if($launcher.HasExited){throw 'KTERM_PR78_LAUNCHER_EXITED_BEFORE_PRELAUNCH_UI'}
+              $status=Join-Path $target 'data\logs\desktop-startup-status.txt'
+              if([IO.File]::Exists($status)){throw 'KTERM_PR78_REAL_STARTUP_REPORTED_UI_FAILURE'}
+              # Confirm any window belongs to this launcher's owned process tree.
+              $procs=@(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId,ParentProcessId)
+              $owned=New-Object 'System.Collections.Generic.HashSet[int]'
+              $null=$owned.Add([int]$launcher.Id)
+              for($round=0;$round -lt 7;$round++){
+                foreach($p in $procs){
+                  if($owned.Contains([int]$p.ParentProcessId)){$null=$owned.Add([int]$p.ProcessId)}
+                }
+              }
+              foreach($p in @(Get-Process -Name powershell -ErrorAction SilentlyContinue)){
+                if($owned.Contains([int]$p.Id) -and $p.MainWindowTitle -ceq 'K-Terminal v1.1.5 Launch'){
+                  $visible=$true
+                  break
+                }
+              }
+              if($visible){break}
+            }
+            if(-not$visible){throw 'KTERM_PR78_PRELAUNCH_WINDOW_NOT_OBSERVED'}
+            if(Test-Path -LiteralPath (Join-Path $target 'data\.application-launch-session.json')){throw 'KTERM_PR78_UNEXPECTED_SESSION_ACTIVATION'}
+            if(Test-Path -LiteralPath (Join-Path $target 'data\native-runtime')){throw 'KTERM_PR78_UNEXPECTED_ENGINE_START'}
+            Write-Host 'KTERM_PR78_INSTALLED_REAL_PRELAUNCH_WINDOW=PASS;DASHBOARD_NOT_ACTIVATED;BROKER_ORDERS=0'
+          }
+          finally {
+            try {
+              $launcher.Refresh()
+              if(-not$launcher.HasExited){
+                Stop-Process -Id $launcher.Id -Force -ErrorAction Stop
+                [void]$launcher.WaitForExit(10000)
+              }
+            } finally { $launcher.Dispose() }
+          }
+      - name: Write sanitized first-launch disposition only
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo KTERM_PR78_STARTUP_PROBE_FINISHED
+          echo KTERM_SOURCE_SHA="$KTERM_SHA"
+          echo QUALIFIED_SOURCE_RUN="$QUALIFIED_RUN"
+          echo KTERM_LIVE_ORDERS=0
+          echo KTERM_PRIVATE_LOGS_AND_BINARIES_NOT_PUBLISHED
