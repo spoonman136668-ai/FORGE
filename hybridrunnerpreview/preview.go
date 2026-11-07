@@ -9,7 +9,6 @@ import (
  "encoding/json"
  "errors"
  "strconv"
- "strings"
 )
 
 const (
@@ -154,9 +153,14 @@ func Evaluate(r Request,host HostObservation,history []Attempt,nowUnix uint64)(R
  }
  // Subtraction avoids integer overflow and treats reservation as unavailable
  // even when the reported instantaneous free VRAM looks sufficient.
- if host.TotalVRAMMiB-host.ReservedForOtherProjectsMiB<r.RequestedVRAMMiB||
-  host.FreeVRAMMiB<r.RequestedVRAMMiB||
-  host.FreeVRAMMiB-r.RequestedVRAMMiB<MinimumGPUSafetyMarginMiB{
+ // Conservatively subtract all of the claimed foreign-project reserve
+ // from both physical capacity AND currently free VRAM. A planning
+ // observation cannot double-spend another research lane's allocation.
+ // The bounded request and margin make the addition overflow-safe.
+ needed:=r.RequestedVRAMMiB+MinimumGPUSafetyMarginMiB
+ if host.TotalVRAMMiB-host.ReservedForOtherProjectsMiB<needed||
+  host.FreeVRAMMiB<host.ReservedForOtherProjectsMiB||
+  host.FreeVRAMMiB-host.ReservedForOtherProjectsMiB<needed{
   out.Reason="INSUFFICIENT_UNRESERVED_GPU_MEMORY"
   return out,nil
  }
@@ -164,16 +168,30 @@ func Evaluate(r Request,host HostObservation,history []Attempt,nowUnix uint64)(R
  out.Reason="RESOURCE_CLAIMS_APPEAR_WITHIN_BUDGET_NOT_AUTHORIZATION"
  return out,nil
 }
-// AssertNonAuthorizing rejects any downstream attempt to upgrade a preview
-// into a GPU reservation, execution permit or proof of scientific first-use.
+func validReason(status,reason string)bool{
+ switch status{
+ case "REVIEW_ONLY":
+  return reason=="RESOURCE_CLAIMS_APPEAR_WITHIN_BUDGET_NOT_AUTHORIZATION"
+ case "BLOCKED":
+  switch reason{
+  case "PRIOR_OR_INDETERMINATE_ORIGINAL_NO_REPLAY",
+   "HOST_IDENTITY_OR_FRESHNESS_UNVERIFIED",
+   "HOST_BUSY_OR_OTHER_RESEARCH_ACTIVE",
+   "OTHER_RESEARCH_RESOURCE_RESERVE_UNVERIFIED",
+   "INSUFFICIENT_UNRESERVED_GPU_MEMORY":
+   return true
+  }
+ }
+ return false
+}
+// AssertNonAuthorizing rejects forged statuses/reasons, negative or oversized
+// attempt counts, and every claim of dispatch or independent custody.
 func AssertNonAuthorizing(r Result)error{
  if r.Schema!=Schema||r.Repository!=Project||r.TargetRunner!=RunnerName||
   !isLowerHex(r.RequestSHA256,64)||r.GPUReserved||
   r.ExecutionAuthorized||r.ResearchDispatched||r.SourceAuthenticated||
   r.HostAuthenticated||r.NoPriorAttemptIndependentlyWitnessed||
-  (r.Status!="BLOCKED"&&r.Status!="REVIEW_ONLY")||
-  !strings.HasPrefix(r.Reason,map[string]string{
-   "BLOCKED":"", "REVIEW_ONLY":"RESOURCE_CLAIMS_APPEAR_WITHIN_BUDGET",
-  }[r.Status]){return ErrBlocked}
+  r.ReviewedAttemptCount<0||r.ReviewedAttemptCount>MaxHistory||
+  !validReason(r.Status,r.Reason){return ErrBlocked}
  return nil
 }

@@ -119,3 +119,50 @@ func TestCannotUpgradePlanningOutput(t *testing.T){
   if err:=AssertNonAuthorizing(x);err==nil{t.Fatal("authority forgery accepted",x)}
  }
 }
+
+func TestReservedFreeMemoryCannotBeDoubleSpent(t *testing.T){
+ r,h:=request(),host()
+ // Old arithmetic accepted this as REVIEW_ONLY because it only subtracted
+ // the other project's reserve from total VRAM, not observed free VRAM.
+ h.FreeVRAMMiB=6000
+ got,err:=Evaluate(r,h,nil,1800000030)
+ if err!=nil||got.Status!="BLOCKED"||
+  got.Reason!="INSUFFICIENT_UNRESERVED_GPU_MEMORY"{t.Fatal("foreign reserve double-spent",got,err)}
+ h.FreeVRAMMiB=8191
+ got,err=Evaluate(r,h,nil,1800000030)
+ if err!=nil||got.Status!="BLOCKED"{t.Fatal("missing one MiB reserve boundary",got,err)}
+ h.FreeVRAMMiB=8192
+ got,err=Evaluate(r,h,nil,1800000030)
+ if err!=nil||got.Status!="REVIEW_ONLY"{t.Fatal("safe resource boundary rejected",got,err)}
+ h.TotalVRAMMiB=8191
+ h.FreeVRAMMiB=8191
+ got,err=Evaluate(r,h,nil,1800000030)
+ if err!=nil||got.Status!="BLOCKED"||
+  got.Reason!="INSUFFICIENT_UNRESERVED_GPU_MEMORY"{t.Fatal("total reserve boundary bypass",got,err)}
+}
+func TestForgedBlockedReasonAndAttemptCountRejected(t *testing.T){
+ r,h:=request(),host()
+ blocked,err:=Evaluate(r,h,[]Attempt{{OriginalID:r.OriginalID,SourceSHA:r.SourceSHA,Status:"START_RISK"}},1800000030)
+ if err!=nil||AssertNonAuthorizing(blocked)!=nil{t.Fatal("valid blocked result rejected",err)}
+ for _,bad:=range []struct{name string;change func(*Result)}{
+  {"forged blocked reason",func(x *Result){x.Reason="READY_TO_DISPATCH"}},
+  {"blank blocked reason",func(x *Result){x.Reason=""}},
+  {"negative attempt count",func(x *Result){x.ReviewedAttemptCount=-1}},
+  {"oversized attempt count",func(x *Result){x.ReviewedAttemptCount=MaxHistory+1}},
+  {"review-only blocked reason",func(x *Result){x.Status="REVIEW_ONLY"}},
+ } {
+  t.Run(bad.name,func(t *testing.T){
+   v:=blocked;bad.change(&v)
+   if AssertNonAuthorizing(v)==nil{t.Fatal("forged decision accepted",v)}
+  })
+ }
+}
+func TestNoReplayAcrossSourcePinChanges(t *testing.T){
+ r,h:=request(),host()
+ old:=[]Attempt{{OriginalID:r.OriginalID,SourceSHA:strings.Repeat("f",40),Status:"START_RISK"}}
+ got,err:=Evaluate(r,h,old,1800000030)
+ if err!=nil||got.Status!="BLOCKED"||
+  got.Reason!="PRIOR_OR_INDETERMINATE_ORIGINAL_NO_REPLAY"{
+  t.Fatal("original reused across source revision",got,err)
+ }
+}

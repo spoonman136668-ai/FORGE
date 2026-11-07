@@ -43,3 +43,26 @@ original-first-use witnesses; a verified worker identity; durable, independent
 GPU resource arbitration; exact-source full qualification; and the existing
 FORGE authority's affirmative approval. Existing S24/S25 frozen science and
 all independent research lanes remain untouched.
+
+## Disabled evidence-reference handoff (engineering follow-up)
+
+The pure `BuildDisabledHandoff` contract now binds an exact request hash,
+a fully checked review status/reason, and syntactically valid source, protocol,
+signed-attestation, artifact, signer-fingerprint and first-use ledger **references**.
+All references are untrusted until independently authenticated at their
+native sources. The produced `Handoff` explicitly requires independent source
+and first-use witnesses and always denies execution, GPU reservation, and
+source/first-use authentication.
+
+The projected GPU capacity check now subtracts the other-project reserve
+from both **total** and **currently free** VRAM, preserving a separate 1 GiB
+safety margin. This deliberately rejects apparently available memory that
+could already be reserved for Wingless/Yggdrasil or other work.
+
+The report validator now accepts only exact known review reasons and bounded
+attempt counts; arbitrary `BLOCKED` text is no longer accepted.
+
+The read-only handoff is **not** the actual signed-evidence verifier from
+draft PR #1565 and does not consume any source, API, GPU, secret, or scientific
+first-use. It is an integration seam only and will require an independently
+qualified real issuer/ledger/witness before any future execution handoff.
