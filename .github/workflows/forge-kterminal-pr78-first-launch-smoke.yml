@@ -11,13 +11,13 @@ concurrency:
 jobs:
   first-launch:
     runs-on: windows-latest
-    timeout-minutes: 95
+    timeout-minutes: 110
     env:
       FORGE_BASE: 64564eda2fb9d479dd936a1420f206d22e422e50
-      KTERM_SHA: aee50d2a449e3db49f7e7308d949dce2f1b91fa8
-      KTERM_TREE: 7665c6fb1962693594fc775e2569f33fe0a124b9
+      KTERM_SHA: 1ef511721963dcdfad868bdf601a309097b6aac5
+      KTERM_TREE: 284e26d27b116e5d1dba382c5c8a9bc97e321905
       QUALIFIED_RUN: '42393420830'
-      QUALIFIED_FORGE_SHA: b0dcf9beb69e9fcab2b3910a0b89feda85a47a10
+      QUALIFIED_FORGE_SHA: 01928e0cd9917dbb674c92a263fbe40bbbb05833
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_NATIVE_TIMING: '0'
       K_TERMINAL_P5_LATENCY: '0'
@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: aee50d2a449e3db49f7e7308d949dce2f1b91fa8
+          ref: 1ef511721963dcdfad868bdf601a309097b6aac5
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -79,13 +79,20 @@ jobs:
             if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR78_BROKER_AUTHORITY_REFUSED; exit 2; fi
           done
           echo KTERM_PR78_EXACT_SOURCE_DISARMED=PASS
-      - name: Reuse exact-head full regression and vet PASS from existing run 42396182415
+      - name: Mandatory full original Windows Go regression and vet at new exact SHA
         shell: bash
+        working-directory: kterminal-private
         run: |
           set -euo pipefail
-          test "$KTERM_SHA" = 'aee50d2a449e3db49f7e7308d949dce2f1b91fa8'
-          test "$KTERM_TREE" = '7665c6fb1962693594fc775e2569f33fe0a124b9'
-          echo KTERM_PR78_PREVIOUS_FULL_REGRESSION_REUSED=42396182415
+          root="$RUNNER_TEMP/kterm-pr78-zonefix-final-isolation"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          go test -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/kterm-pr78-zonefix-final-go-private.log" 2>&1
+          go vet ./... > "$RUNNER_TEMP/kterm-pr78-zonefix-final-vet-private.log" 2>&1
+          echo KTERM_PR78_ZONEFIX_NEW_SHA_FULL_REGRESSION_VET=PASS
       - name: Build private desktop and install only into ephemeral isolated folder
         shell: pwsh
         working-directory: kterminal-private
