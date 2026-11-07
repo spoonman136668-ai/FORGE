@@ -91,8 +91,13 @@ def main():
         raise ValueError("G117_NOT_EXISTING_DEV_PR_CI")
     head=git(ROOT,"rev-parse","HEAD")
     if (head!=os.environ.get("FORGE_G117_HEAD") or
-            git(ROOT,"rev-parse","HEAD^")!=BASE):
-        raise ValueError("G117_SOURCE_OR_PARENT_DRIFT")
+            git(ROOT,"merge-base",BASE,"HEAD")!=BASE):
+        raise ValueError("G117_SOURCE_OR_ANCESTOR_DRIFT")
+    changed=set(git(ROOT,"diff","--name-only",BASE,"HEAD").splitlines())
+    if changed != {".github/workflows/qualify.yml",
+                   "f139/test_nci04_two_negative_transition.py",
+                   "scripts/check_rar_g117_abba.py"}:
+        raise ValueError("G117_CANDIDATE_PATCH_SCOPE_DRIFT")
     tree=git(ROOT,"rev-parse","HEAD^{tree}")
     stable(ROOT,head)
     with tempfile.TemporaryDirectory(dir=os.environ["RUNNER_TEMP"],
