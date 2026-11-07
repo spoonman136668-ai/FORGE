@@ -240,6 +240,43 @@ def public_choice_gap(program):
                              _public_domain_reduce(denominator))
 
 
+def public_success_count_order(program):
+    """Prove all decisions rank only the observed success count.
+
+    On valid public counters success, failure >= 0, total = success+failure
+    >= 1. An exact numerator/total quotient with nonnegative polynomial
+    coefficients in success alone, and at least one positive nonconstant
+    coefficient, is strictly increasing in success. Every such program
+    makes the same action choices AND abstention/tie decisions. Unsupported
+    forms are retained; no finite test grid grants an equivalence certificate.
+    """
+    numerator, denominator = parse(program)
+    if _public_domain_reduce(denominator) != ("observed", "total"):
+        return False
+    remainder = polynomial(_public_domain_reduce(numerator), 0)
+    if remainder is None or not remainder:
+        return False
+    quotient = {}
+    # Exact multivariate long division by total = success + failure.
+    # The existing fixed 15-token grammar bounds polynomial degree.
+    for _ in range(32):
+        if not remainder:
+            return (any(p[0] > 0 and v > 0 for p, v in quotient.items())
+                    and all(p[1:] == (0, 0, 0) and v >= 0
+                            for p, v in quotient.items()))
+        lead = max(remainder, key=lambda p: (p[0], p[1]))
+        if lead[0] < 1 or lead[2:] != (0, 0):
+            return False
+        c = remainder[lead]
+        q = (lead[0] - 1, lead[1], 0, 0)
+        quotient[q] = quotient.get(q, 0) + c
+        remainder = poly_add(remainder, {
+            lead: c,
+            (lead[0] - 1, lead[1] + 1, 0, 0): c,
+        }, -1)
+    return False  # An incomplete proof can never reject a proposal.
+
+
 def public_rate_preflight(program):
     """Development-only public-evidence control for NEW proposed programs.
 
@@ -402,6 +439,7 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
     # Opaque/invalid sources remain consumed by raw identity.
     parents = [SEED]
     known_choice_gaps = [public_choice_gap(SEED)]
+    known_success_count = public_success_count_order(SEED)
     for source in history_sources:
         need(type(source) is bytes, "HISTORY_BYTES")
         source_id = digest(source)
@@ -422,6 +460,8 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
             gap = public_choice_gap(program)
             if gap is not None:
                 known_choice_gaps.append(gap)
+            if public_success_count_order(program):
+                known_success_count = True
         if not eligible:
             continue
         if program is not None and program not in parents:
@@ -432,6 +472,7 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
         words = parent.split(" ")
         local_raw, local_ast = set(raw_seen), set(ast_seen)
         local_choice_gaps = list(known_choice_gaps)
+        local_success_count = known_success_count
         for pos in range(1,15):
             vocabulary = OPERATIONS if pos in BRANCHES else TERMINALS
             for replacement in vocabulary:
@@ -453,11 +494,16 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
                 if gap is not None and any(
                     same_ordering(gap, known) for known in local_choice_gaps
                 ):
-                    continue  # Proven semantic duplicate, not a new discovery.
+                    continue  # Proven proportional decision duplicate.
+                success_count = public_success_count_order(program)
+                if success_count and local_success_count:
+                    continue  # Proven identical success-count action ordering.
                 local_raw.add(after_id)
                 local_ast.add(ast_id)
                 if gap is not None:
                     local_choice_gaps.append(gap)
+                if success_count:
+                    local_success_count = True
                 operations.append(dict(kind="replace",position=pos,replacement=replacement))
                 bindings.append(SourceBinding(program+trailer, SourceCandidate(
                     generator="promptbreeder", lane="Yggdrasil", path=search.PATH,
