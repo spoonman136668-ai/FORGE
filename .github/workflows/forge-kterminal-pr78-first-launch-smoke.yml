@@ -11,13 +11,13 @@ concurrency:
 jobs:
   first-launch:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 95
     env:
       FORGE_BASE: 64564eda2fb9d479dd936a1420f206d22e422e50
-      KTERM_SHA: 4864ded796751039b7b60e3722ef015f7a301053
-      KTERM_TREE: 8fd03d056e5849d08ea15c4ee22ee14514b5ded6
-      QUALIFIED_RUN: '42386620678'
-      QUALIFIED_FORGE_SHA: c70e47908ef5c2c622954cbdd57151c0d6598b4b
+      KTERM_SHA: aee50d2a449e3db49f7e7308d949dce2f1b91fa8
+      KTERM_TREE: 7665c6fb1962693594fc775e2569f33fe0a124b9
+      QUALIFIED_RUN: '42393420830'
+      QUALIFIED_FORGE_SHA: a95241af7a4f6c75c681395304f1326d3b59df5e
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_NATIVE_TIMING: '0'
       K_TERMINAL_P5_LATENCY: '0'
@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: 4864ded796751039b7b60e3722ef015f7a301053
+          ref: aee50d2a449e3db49f7e7308d949dce2f1b91fa8
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -79,6 +79,20 @@ jobs:
             if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR78_BROKER_AUTHORITY_REFUSED; exit 2; fi
           done
           echo KTERM_PR78_EXACT_SOURCE_DISARMED=PASS
+      - name: Mandatory exact-head original Windows regression and vet, private custody
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kterm-pr78-zonefix-regression-isolation"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          go test -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/kterm-pr78-zonefix-full-private.log" 2>&1
+          go vet ./... > "$RUNNER_TEMP/kterm-pr78-zonefix-vet-private.log" 2>&1
+          echo 'KTERM_PR78_ZONEFIX_EXACT_HEAD_FULL_REGRESSION_AND_VET=PASS'
       - name: Build private desktop and install only into ephemeral isolated folder
         shell: pwsh
         working-directory: kterminal-private
@@ -88,16 +102,28 @@ jobs:
           $log=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-build-private.log'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'BUILD.ps1') *> $log
           if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_REBUILD_FAILED'}
+          $uiOut=Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-proof'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'verification\test-ui-runtime.ps1') -Root $privateRoot -OutputDirectory $uiOut *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-test-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_DOWNLOADED_DLL_REGRESSION_FAILED'}
           $stage=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package'
           $zip=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-private.zip'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $privateRoot 'verification\package-first-install.ps1') -SourceRoot $privateRoot -StageDirectory $stage -ZipPath $zip *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package-private.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_PACKAGING_FAILED'}
           $extracted=Join-Path $env:RUNNER_TEMP 'kterm-pr78-extracted-from-zip'
           Expand-Archive -LiteralPath $zip -DestinationPath $extracted -ErrorAction Stop
+          $sourceDLL=Join-Path $extracted 'KTerminal.UI.dll'
+          Set-Content -LiteralPath $sourceDLL -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" -ErrorAction Stop
+          if($null-eq(Get-Item -LiteralPath $sourceDLL -Stream Zone.Identifier -ErrorAction Stop)){throw 'KTERM_PR78_ZONE_FIXTURE_MISSING'}
           $target=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $extracted 'INSTALL-KTerminal.ps1') -SourceRoot $extracted -Destination $target -NoLaunch *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-install-private.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_INSTALL_FAILED'}
           if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_PR78_STARTUP_UNEXPECTED_CONFIG'}
+          $installedDll=Join-Path $target 'KTerminal.UI.dll'
+          $manifest=Get-Content -LiteralPath (Join-Path $target 'ui-runtime-manifest.json') -Raw | ConvertFrom-Json
+          if((Get-FileHash -LiteralPath $installedDll -Algorithm SHA256).Hash.ToLowerInvariant()-cne[string]$manifest.sha256){throw 'KTERM_PR78_INSTALLED_UI_HASH_INVALID'}
+          # Reapply an Internet zone after installation: the runtime loader must
+          # still recover, even when a user runs the extracted app directly.
+          Set-Content -LiteralPath $installedDll -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" -ErrorAction Stop
           Write-Host 'KTERM_PR78_REBUILT_FRESH_INSTALL=PASS;LIVE_ORDERS=0'
       - name: Actually start installed K-Terminal.exe and verify visible prelaunch window
         shell: pwsh
@@ -243,7 +269,7 @@ jobs:
           $nonce=[byte[]]::new(12)
           [Security.Cryptography.RandomNumberGenerator]::Fill($key)
           [Security.Cryptography.RandomNumberGenerator]::Fill($nonce)
-          $publicDer=[Convert]::FromBase64String('MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA5ApbxerBeKe47p7By5l0ELGP706XK3nX40XkhvkQnEG33vz9B4kMW6QA2vUyG3yB/QyA4fVPcfTJguXstHz403nvVqV0mpGDtqyiz5hahSx5LsVUcTSMW536z0pALy1I95zh1dRgiz7unj9znQjxZOMk1N9MoesPRx+r3gJS8vwhYYaCVFRzsuZbOFWBl4vL6tE4XlsNqT2N8dCpQLO4y+3arKRfOZWsUNPNj7+/h4SsLnV0nPgcUOsjEOpr0+CxIDR3fB8FVofcGVm/P2mR3JEFPxOyvS+ruI193nPaGWa2P7ccru+hVUPY3tXQjE0W8j06YM/xSuIe1wgMIJKZD19SOgw9RmaBkGvEEv+fMjo+e0MsA9HGcW9Fukmh57B840c83iCcpDRp5eAtRGmN8UQuxDUS99PlLpRVoe1O+On9nMpuL0Lx2mV4gcJ/fsEUTz0R34G6eB5ee5k1NcJYo1zwGw6j76A5TnyCWF48TX9e6RwiRW6novitHW+lJifHAgMBAAE=')
+          $publicDer=[Convert]::FromBase64String('MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAr563gqROzMnQBWL6hfxRk8Bp/Rctv7QWPA9SVYqp4ncv9Z7BSFrZwTddxJIp2Hy69qFIMbUbRCcoKyiqc5VMCoI1Y5KbPvtMM9CdWpmY83p3HTHh8KZiGravl8X60bT7o/5KlanjlpHSbt9diChV5SSA6yknvNKNTl6stGjAKeQ6QDTKA3fhZcBNC/XhtmohL7b+x/jqTx2FmhU/sv6j7XezIhCtWDvEEE1aRXfPmPUUFbdR1uQQzSf2Y8nIV8XvdNyAlzKjkM0vELuLZJH0NZAAfQ89cF6xCP2lFFU2I8+USQ1qnNTp+Vcji5lN04iQ+IneNoJpXIUGG/+lRRALkNfHmGKKpE4Uy2TAS0KwZLqTHUX8cNosp4QK4fzH2BeSGu/heuoN+lsONknY/1jV8epPbpxLVQWlnr48wl4k7dzpszewcxvz3CrGVeAI6Mw0tmFqgURL01DdQEtF63dB70yrKQ6ov9lsS6gJywrMI6Nc9IjjXWlHAhPrC5+5t6wpAgMBAAE=')
           $rsa=[Security.Cryptography.RSA]::Create()
           try {
             $read=0
