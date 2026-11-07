@@ -14,10 +14,10 @@ jobs:
     timeout-minutes: 110
     env:
       FORGE_BASE: 64564eda2fb9d479dd936a1420f206d22e422e50
-      KTERM_SHA: 1ef511721963dcdfad868bdf601a309097b6aac5
-      KTERM_TREE: 284e26d27b116e5d1dba382c5c8a9bc97e321905
-      QUALIFIED_RUN: '42399235515'
-      QUALIFIED_FORGE_SHA: 350b157bc871ad2928205e29684cb41f63ef9dcb
+      KTERM_SHA: e15509c028827d8a9dabac895ad0d2d038d4e1f4
+      KTERM_TREE: 70a2257818d4320d911a3b0ac91191b6a46f7dd4
+      QUALIFIED_RUN: 'UNVERIFIED_NEW_HEAD'
+      QUALIFIED_FORGE_SHA: afffd30c498702cc4ac82a4f6d3e3ab34793eaa7
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_NATIVE_TIMING: '0'
       K_TERMINAL_P5_LATENCY: '0'
@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: 1ef511721963dcdfad868bdf601a309097b6aac5
+          ref: e15509c028827d8a9dabac895ad0d2d038d4e1f4
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -79,14 +79,27 @@ jobs:
             if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR78_BROKER_AUTHORITY_REFUSED; exit 2; fi
           done
           echo KTERM_PR78_EXACT_SOURCE_DISARMED=PASS
-      - name: Reuse verified full Windows regression receipt from run 42399235515
+      - name: Focused broker-only dashboard startup and no-trading negative controls
         shell: bash
+        working-directory: kterminal-private
         run: |
           set -euo pipefail
-          test "$KTERM_SHA" = '1ef511721963dcdfad868bdf601a309097b6aac5'
-          test "$KTERM_TREE" = '284e26d27b116e5d1dba382c5c8a9bc97e321905'
-          test "$QUALIFIED_RUN" = '42399235515'
-          echo KTERM_PR78_FULL_REGRESSION_PRIOR_EXACT_SOURCE_PASS=42399235515
+          go test -p 1 -count=1 -timeout 15m -run '^TestUnarmed' ./pkg > "$RUNNER_TEMP/kterm-pr78-broker-display-focused-private.log" 2>&1
+          echo KTERM_PR78_BROKER_OBSERVER_FOCUSED_NEGATIVES=PASS
+      - name: Mandatory full exact-head Windows regression and vet
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kterm-pr78-broker-display-isolation"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          go test -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/kterm-pr78-broker-display-full-private.log" 2>&1
+          go vet ./... > "$RUNNER_TEMP/kterm-pr78-broker-display-vet-private.log" 2>&1
+          echo KTERM_PR78_BROKER_OBSERVER_FULL_REGRESSION_VET=PASS
       - name: Build private desktop and install only into ephemeral isolated folder
         shell: pwsh
         working-directory: kterminal-private
@@ -276,56 +289,6 @@ jobs:
               }
             } finally { $launcher.Dispose() }
           }
-      - name: Encrypt qualified private installer; upload ciphertext only
-        shell: pwsh
-        working-directory: kterminal-private
-        run: |
-          $ErrorActionPreference='Stop'
-          $zip=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-private.zip'
-          if(-not[IO.File]::Exists($zip)){throw 'KTERM_PR78_PRIVATE_ZIP_NOT_FOUND'}
-          $key=[byte[]]::new(32)
-          $nonce=[byte[]]::new(12)
-          [Security.Cryptography.RandomNumberGenerator]::Fill($key)
-          [Security.Cryptography.RandomNumberGenerator]::Fill($nonce)
-          $publicDer=[Convert]::FromBase64String('MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEApHWK55fUNP6/CRov2pTMsy4wRsBQdbuFn9rF2WYrkCCqQ6jREOozCjBhuWvhLaHHl1vbuMHvHuMoEnw3Vp4rzy4H6yNfF+7ZHm0EFlHeZE7EUxkuIeiaYCA3ORcS4x6UWijSf2A9S9gjvOAu5hfy+bWdDomBtw4Rhoqjp/4bHoUue4bbhnOEuoiPTRsAq7r0H6Kb/9ZPakiUAcfa65M8Cp54G5n24soXD+Lly7R8pnqVYYW+J6FKsfpMxTA9fpMlPBgd72+wAhLYD+pGY2ikIxd+SMzuwGb0mPvqgdJdSZbH7pOKHhzPrZUSVWodTW0EaLvO0myTJQfhPBhJlhXIITnyE95foiek97t2b7lHZrg2eETjcfDBIiLalZ8K11PYaBMGC5tNcnRT7ZUDIpYwViPDc2j/ZlR8DWapaQfIWiOBjM7qdzGW+nBsBCaYYb5lS00C+K5y3cBZsJP6d8NDrXBjpnUKYkM1idHY3Lc0ONWJtR9CK0o8h0OUJmY0SayfAgMBAAE=')
-          $rsa=[Security.Cryptography.RSA]::Create()
-          try {
-            $read=0
-            $rsa.ImportSubjectPublicKeyInfo($publicDer,[ref]$read)
-            if($read-ne$publicDer.Length){throw 'KTERM_PR78_PUBLIC_KEY_PARSE_FAILED'}
-            $wrapped=$rsa.Encrypt($key,[Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
-          } finally { $rsa.Dispose() }
-          if($wrapped.Length-ne384){throw 'KTERM_PR78_WRAPPED_KEY_LENGTH_INVALID'}
-          $plaintext=[IO.File]::ReadAllBytes($zip)
-          $cipher=[byte[]]::new($plaintext.Length)
-          $tag=[byte[]]::new(16)
-          $aes=[Security.Cryptography.AesGcm]::new($key,16)
-          try{ $aes.Encrypt($nonce,$plaintext,$cipher,$tag) }finally{ $aes.Dispose() }
-          $dest=Join-Path $env:RUNNER_TEMP 'kterm-pr78-ciphertext-only'
-          $null=[IO.Directory]::CreateDirectory($dest)
-          $encrypted=Join-Path $dest 'KTerminal-PR78.ktenc'
-          $out=[IO.File]::Open($encrypted,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-          try {
-            $magic=[Text.Encoding]::ASCII.GetBytes('KTERMENC')
-            $out.Write($magic,0,$magic.Length)
-            $count=[BitConverter]::GetBytes([int]$wrapped.Length)
-            $out.Write($count,0,4)
-            $out.Write($wrapped,0,$wrapped.Length)
-            $out.Write($nonce,0,$nonce.Length)
-            $out.Write($tag,0,$tag.Length)
-            $out.Write($cipher,0,$cipher.Length)
-          } finally {$out.Dispose()}
-          [Array]::Clear($key,0,$key.Length)
-          [Array]::Clear($plaintext,0,$plaintext.Length)
-          if((Get-Item -LiteralPath $encrypted).Length-le424){throw 'KTERM_PR78_ENCRYPTED_PACKAGE_INVALID'}
-          Write-Host 'KTERM_PR78_PRIVATE_PACKAGE_RSA_OAEP_AES256_GCM=PASS;UNENCRYPTED_ARTIFACT_UPLOADS=0'
-      - name: Upload encrypted private installer only; short-lived ciphertext artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: kterminal-pr78-ciphertext-only-${{ github.sha }}
-          path: ${{ runner.temp }}/kterm-pr78-ciphertext-only/KTerminal-PR78.ktenc
-          retention-days: 1
-          if-no-files-found: error
       - name: Write sanitized first-launch disposition only
         if: always()
         shell: bash
