@@ -1,6 +1,8 @@
-name: K Terminal PR78 nested-job-fixed fresh Windows personal diagnostic build
+name: K Terminal PR78 pre-dashboard startup diagnostic and Windows installer
 on:
-  workflow_dispatch:
+  push:
+    branches: [qualification/kterminal-pr73-p5-source-20261106]
+    paths: [.github/workflows/kterminal-pr78-pressure-boundary-two-sha-differential-20261107.yml]
 permissions:
   contents: read
 concurrency:
@@ -11,9 +13,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      FORGE_PARENT: 9c01ca1f8c104b22767476d2b29d0654b41b4546
-      KTERM_SHA: 070ad561de7183f7f28e363d96d354a62f509172
-      KTERM_TREE: e5e611ef50a8dd0b5b4ba5c5947c7320c08d31ae
+      FORGE_PARENT: 5f273191659eef0e1d5b8e15ad18059a9efc42ec
+      KTERM_SHA: baa88fa75eb46ff412992a5697c5a4f1cdf95d82
+      KTERM_TREE: b180b89678d0e622f237b458e2ddb5d8c48f8bfa
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -44,7 +46,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: 070ad561de7183f7f28e363d96d354a62f509172
+          ref: baa88fa75eb46ff412992a5697c5a4f1cdf95d82
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -62,7 +64,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "$KTERM_SHA" || { echo FRESH_PREFLIGHT_FAILED_SOURCE_SHA; exit 3; }
           test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE" || { echo FRESH_PREFLIGHT_FAILED_SOURCE_TREE; exit 3; }
           test "$(git rev-parse HEAD:BUILD.ps1)" = '1fa3a6b5a001a8ba63132db0d53f9d80c48190e8' || { echo FRESH_PREFLIGHT_FAILED_BUILD_BLOB; exit 3; }
-          test "$(git rev-parse HEAD:cmd/launcher/desktop-session.cs)" = '5ca4dfe0c695c4f7b83dbe19f95e4dfc23679efd'
+          grep -F 'Write-KTerminalEarlyStartupFailure' desktop-session.ps1 >/dev/null
+          grep -F 'ReadSafeEarlyStartupStatus' cmd/launcher/desktop-session.cs >/dev/null
+          test "$(git rev-parse HEAD:cmd/launcher/desktop-session.cs)" = '527b0fe353b65514eaacb4b09745a3f1d101d2f6'
           test "$(git rev-parse HEAD:pkg/tranche-plans.json)" = '0e4ded2ff9911382fb945c41ca366a73508652e0' || { echo FRESH_PREFLIGHT_FAILED_LAUNCHER_BLOB; exit 3; }
           test "$(git rev-parse HEAD:verification/build-ui-runtime.ps1)" = '892f3a93fe26a7304268667c28a1d5e9d1e87676' || { echo FRESH_PREFLIGHT_FAILED_WPF_BLOB; exit 3; }
           test "$(git rev-parse HEAD:go.mod)" = 'b3ede0d8444c08b3e7b23f1396374359b54134c6' || { echo FRESH_PREFLIGHT_FAILED_GO_MOD; exit 3; }
@@ -92,6 +96,24 @@ jobs:
             if((Get-Item -LiteralPath $f).Length -lt 1024){throw ('FRESH_INSTALL_EMPTY_BINARY_'+$name)}
           }
           Write-Host 'FRESH_INSTALL_COMPLETE_ORIGINAL_BUILD=PASS'
+      - name: Qualify original launcher lifecycle and private-safe pre-dashboard failure receipts
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          $original=(Get-Location).Path
+          $log=Join-Path $env:RUNNER_TEMP 'kterm-early-startup-private.log'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File .\verification\test-launch-lifecycle.ps1 -Root $original *> $log
+          if($LASTEXITCODE -ne 0){throw 'KTERM_EARLY_STARTUP_LIFECYCLE_NEGATIVE_FAILED'}
+          $body=[IO.File]::ReadAllText($log)
+          if($body -notmatch 'PASS: early UI and preload failures emit allowlisted categorical status' -or
+             $body -notmatch 'PASS: launch wrapper owns dashboard lifetime'){
+            throw 'KTERM_EARLY_STARTUP_NEGATIVE_RECEIPT_MISSING'
+          }
+          if($body -match 'PRIVATE_ACCOUNT_IDENTIFIER_MUST_NOT_LEAK'){
+            throw 'KTERM_EARLY_STARTUP_PRIVATE_TEXT_WAS_EMITTED'
+          }
+          Write-Host 'KTERM_EARLY_STARTUP_LIFECYCLE=PASS'
       - name: Verify new C# launcher starts a nested job-owned disarmed child
         shell: pwsh
         working-directory: kterminal-private
