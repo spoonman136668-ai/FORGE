@@ -56,32 +56,55 @@ def discover_ids(path):
 
 
 def execute(path, kind, index):
-    cmd = [sys.executable, "-B", "-m", "unittest", "discover",
-           "-s", "f139", "-p", "test_*.py", "-v"]
+    # TextTestRunner's verbose output is not an outcome inventory: tests may
+    # print during a case, or use non-test_* names. The repository's existing
+    # ProfileResult records every original case lifecycle instead.
+    code = r'''
+import hashlib, io, json
+from pathlib import Path
+from f139.check_test_discovery_inventory import (
+    discover_profile_suite, case_ids, profile_suite)
+suite = discover_profile_suite(Path.cwd())
+ids = case_ids(suite)
+report = profile_suite(suite, ids, stream=io.StringIO())
+if not (report["successful"] and report["complete_inventory_and_order"]
+        and report["tests_run"] == len(ids) == 1415
+        and report["failures"] == report["errors"] == 0
+        and report["unexpected_successes"] == 0):
+    raise SystemExit("ABBA_ORIGINAL_FULL_SUITE_FAILED")
+outcomes = [(row["id"], row["outcome"]) for row in report["cases"]]
+if len(outcomes) != 1415 or any(
+        outcome not in ("success", "skipped", "expected_failure")
+        for _identity, outcome in outcomes):
+    raise SystemExit("ABBA_OUTCOME_IDENTITY_INCOMPLETE")
+print("ABBA_RESULT=" + json.dumps({
+    "tests": report["tests_run"],
+    "skips": len(report["skipped_ids"]),
+    "skipped_sha256": hashlib.sha256(
+        "\\n".join(sorted(report["skipped_ids"])).encode()).hexdigest(),
+    "outcomes_sha256": hashlib.sha256(
+        json.dumps(outcomes, separators=(",", ":")).encode()).hexdigest(),
+}, sort_keys=True))
+'''
     started = time.perf_counter()
     result = subprocess.run(
-        cmd, cwd=path, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        [sys.executable, "-B", "-c", code], cwd=path,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, errors="replace", timeout=1200)
     seconds = time.perf_counter() - started
-    output = result.stdout
-    cases = re.findall(r"Ran (\d+) tests? in [0-9.]+s", output)
-    skips = re.findall(r"OK \(skipped=(\d+)\)", output)
-    if result.returncode or len(cases) != 1 or len(skips) != 1:
+    matches = re.findall(r"(?m)^ABBA_RESULT=(\\{[^\\r\\n]+\\})$",
+                         result.stdout)
+    if result.returncode or len(matches) != 1:
         raise ValueError("ABBA_FULL_SUITE_FAILED_" + kind + "_" + str(index)
                          + "_rc" + str(result.returncode))
-    if int(cases[0]) != 1415 or int(skips[0]) != EXPECTED_SKIPS:
+    doc = json.loads(matches[0])
+    if doc["tests"] != 1415 or doc["skips"] != EXPECTED_SKIPS:
         raise ValueError("ABBA_COVERAGE_OR_SKIP_DRIFT")
-    # Original individual test results remain in memory only, never exported.
-    verdicts = re.findall(
-        r"(?m)^test_\S+ \([^\n]+\) \.\.\. (?:ok|skipped .+)$",
-        output)
-    if len(verdicts) != 1415:
-        raise ValueError("ABBA_VERBOSE_OUTCOME_INCOMPLETE:" + str(len(verdicts)))
-    fingerprint = hashlib.sha256(
-        "\n".join(sorted(verdicts)).encode("utf-8")).hexdigest()
     return {"arm": index, "kind": kind, "elapsed_seconds": round(seconds, 6),
-            "tests": int(cases[0]), "skips": int(skips[0]),
-            "outcomes_sha256": fingerprint, "exit_code": result.returncode}
+            "tests": doc["tests"], "skips": doc["skips"],
+            "skipped_sha256": doc["skipped_sha256"],
+            "outcomes_sha256": doc["outcomes_sha256"],
+            "exit_code": result.returncode}
 
 
 def main():
@@ -119,7 +142,8 @@ def main():
                 clean_and_pinned(paths[kind], sha, tree)
                 timings.append(execute(paths[kind], kind, n))
                 clean_and_pinned(paths[kind], sha, tree)
-            if len({x["outcomes_sha256"] for x in timings}) != 1:
+            if (len({x["outcomes_sha256"] for x in timings}) != 1 or
+                    len({x["skipped_sha256"] for x in timings}) != 1):
                 raise ValueError("ABBA_TEST_OUTCOME_DRIFT")
             a, b, c, d = (x["elapsed_seconds"] for x in timings)
             ratios = [a/b, d/c]
