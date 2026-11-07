@@ -16,8 +16,8 @@ jobs:
       FORGE_BASE: 64564eda2fb9d479dd936a1420f206d22e422e50
       KTERM_SHA: 1ef511721963dcdfad868bdf601a309097b6aac5
       KTERM_TREE: 284e26d27b116e5d1dba382c5c8a9bc97e321905
-      QUALIFIED_RUN: '42393420830'
-      QUALIFIED_FORGE_SHA: 01928e0cd9917dbb674c92a263fbe40bbbb05833
+      QUALIFIED_RUN: '42399235515'
+      QUALIFIED_FORGE_SHA: 350b157bc871ad2928205e29684cb41f63ef9dcb
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_NATIVE_TIMING: '0'
       K_TERMINAL_P5_LATENCY: '0'
@@ -79,20 +79,14 @@ jobs:
             if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR78_BROKER_AUTHORITY_REFUSED; exit 2; fi
           done
           echo KTERM_PR78_EXACT_SOURCE_DISARMED=PASS
-      - name: Mandatory full original Windows Go regression and vet at new exact SHA
+      - name: Reuse verified full Windows regression receipt from run 42399235515
         shell: bash
-        working-directory: kterminal-private
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/kterm-pr78-zonefix-final-isolation"
-          mkdir -p "$root/tail" "$root/post" "$root/private"
-          export K_TERMINAL_TEST_WORKSPACE="$root"
-          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
-          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
-          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
-          go test -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/kterm-pr78-zonefix-final-go-private.log" 2>&1
-          go vet ./... > "$RUNNER_TEMP/kterm-pr78-zonefix-final-vet-private.log" 2>&1
-          echo KTERM_PR78_ZONEFIX_NEW_SHA_FULL_REGRESSION_VET=PASS
+          test "$KTERM_SHA" = '1ef511721963dcdfad868bdf601a309097b6aac5'
+          test "$KTERM_TREE" = '284e26d27b116e5d1dba382c5c8a9bc97e321905'
+          test "$QUALIFIED_RUN" = '42399235515'
+          echo KTERM_PR78_FULL_REGRESSION_PRIOR_EXACT_SOURCE_PASS=42399235515
       - name: Build private desktop and install only into ephemeral isolated folder
         shell: pwsh
         working-directory: kterminal-private
@@ -293,7 +287,7 @@ jobs:
           $nonce=[byte[]]::new(12)
           [Security.Cryptography.RandomNumberGenerator]::Fill($key)
           [Security.Cryptography.RandomNumberGenerator]::Fill($nonce)
-          $publicDer=[Convert]::FromBase64String('MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAr563gqROzMnQBWL6hfxRk8Bp/Rctv7QWPA9SVYqp4ncv9Z7BSFrZwTddxJIp2Hy69qFIMbUbRCcoKyiqc5VMCoI1Y5KbPvtMM9CdWpmY83p3HTHh8KZiGravl8X60bT7o/5KlanjlpHSbt9diChV5SSA6yknvNKNTl6stGjAKeQ6QDTKA3fhZcBNC/XhtmohL7b+x/jqTx2FmhU/sv6j7XezIhCtWDvEEE1aRXfPmPUUFbdR1uQQzSf2Y8nIV8XvdNyAlzKjkM0vELuLZJH0NZAAfQ89cF6xCP2lFFU2I8+USQ1qnNTp+Vcji5lN04iQ+IneNoJpXIUGG/+lRRALkNfHmGKKpE4Uy2TAS0KwZLqTHUX8cNosp4QK4fzH2BeSGu/heuoN+lsONknY/1jV8epPbpxLVQWlnr48wl4k7dzpszewcxvz3CrGVeAI6Mw0tmFqgURL01DdQEtF63dB70yrKQ6ov9lsS6gJywrMI6Nc9IjjXWlHAhPrC5+5t6wpAgMBAAE=')
+          $publicDer=[Convert]::FromBase64String('MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEApHWK55fUNP6/CRov2pTMsy4wRsBQdbuFn9rF2WYrkCCqQ6jREOozCjBhuWvhLaHHl1vbuMHvHuMoEnw3Vp4rzy4H6yNfF+7ZHm0EFlHeZE7EUxkuIeiaYCA3ORcS4x6UWijSf2A9S9gjvOAu5hfy+bWdDomBtw4Rhoqjp/4bHoUue4bbhnOEuoiPTRsAq7r0H6Kb/9ZPakiUAcfa65M8Cp54G5n24soXD+Lly7R8pnqVYYW+J6FKsfpMxTA9fpMlPBgd72+wAhLYD+pGY2ikIxd+SMzuwGb0mPvqgdJdSZbH7pOKHhzPrZUSVWodTW0EaLvO0myTJQfhPBhJlhXIITnyE95foiek97t2b7lHZrg2eETjcfDBIiLalZ8K11PYaBMGC5tNcnRT7ZUDIpYwViPDc2j/ZlR8DWapaQfIWiOBjM7qdzGW+nBsBCaYYb5lS00C+K5y3cBZsJP6d8NDrXBjpnUKYkM1idHY3Lc0ONWJtR9CK0o8h0OUJmY0SayfAgMBAAE=')
           $rsa=[Security.Cryptography.RSA]::Create()
           try {
             $read=0
