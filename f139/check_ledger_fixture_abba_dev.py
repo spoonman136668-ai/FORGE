@@ -81,7 +81,7 @@ print("ABBA_RESULT=" + json.dumps({
     "tests": report["tests_run"],
     "skips": len(report["skipped_ids"]),
     "skipped_sha256": hashlib.sha256(
-        "\\n".join(sorted(report["skipped_ids"])).encode()).hexdigest(),
+        "\n".join(sorted(report["skipped_ids"])).encode()).hexdigest(),
     "outcomes_sha256": hashlib.sha256(
         json.dumps(outcomes, separators=(",", ":")).encode()).hexdigest(),
 }, sort_keys=True))
@@ -92,7 +92,7 @@ print("ABBA_RESULT=" + json.dumps({
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, errors="replace", timeout=1200)
     seconds = time.perf_counter() - started
-    matches = re.findall(r"(?m)^ABBA_RESULT=(\\{[^\\r\\n]+\\})$",
+    matches = re.findall(r"(?m)^ABBA_RESULT=(\{[^\r\n]+\})$",
                          result.stdout)
     if result.returncode or len(matches) != 1:
         raise ValueError("ABBA_FULL_SUITE_FAILED_" + kind + "_" + str(index)
