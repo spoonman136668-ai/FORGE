@@ -70,8 +70,8 @@ func(v *f2Counts)add(t f2Transition)error{
  if !f2Good(t){return errF2}
  effect:=t.Effect;if t.Action==1{effect= -effect}
  ix:=0;if effect==1{ix=1}
+ if v[t.Context.Regime][t.Context.Cue][t.Context.Mode][ix]>=256{return errF2}
  v[t.Context.Regime][t.Context.Cue][t.Context.Mode][ix]++
- if v[t.Context.Regime][t.Context.Cue][t.Context.Mode][ix]>256{return errF2}
  return nil
 }
 func f2major(v [2]int)(int,bool){

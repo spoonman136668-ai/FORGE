@@ -52,6 +52,11 @@ func TestF2BadEvidenceAndSnapshotFailClosed(t *testing.T){
  }{
   if err:=m.Observe(tr);err==nil{t.Fatalf("invalid action evidence accepted: %+v",tr)}
  }
+ overflow:=&f2Native{}
+ overflow.Counts[0][0][0][1]=256
+ prior:=overflow.Counts
+ if err:=overflow.Observe(f2Transition{Context:f2Context{0,0,0},Action:0,Effect:1});err==nil||
+  overflow.Counts!=prior{t.Fatal("over-cap observation mutated native evidence")}
  if err:=m.Observe(f2make(17,0,0,0,0,0));err!=nil{t.Fatal(err)}
  if err:=m.Freeze();err!=nil{t.Fatal(err)}
  original,err:=m.Snapshot();if err!=nil{t.Fatal(err)}
