@@ -88,13 +88,19 @@ def _alias_to_direct_import(script: str) -> tuple[str, str]:
                   and (alias in node.names or "sqlite3" in node.names)),
              "SCOPE_REBINDING")
         need(not (isinstance(node, ast.ImportFrom) and
-                  any(x.name == "sqlite3" or x.asname in (alias, "sqlite3")
+                  any(x.name in ("*", "sqlite3")
+                      or (x.asname or x.name) in (alias, "sqlite3")
                       for x in node.names)), "SECOND_IMPORT")
         if isinstance(node, ast.Import):
             for x in node.names:
                 if x is not imported:
-                    need(x.asname not in (alias, "sqlite3") and
-                         x.name != "sqlite3", "IMPORT_NAME_COLLISION")
+                    need((x.asname or x.name.split(".")[0])
+                         not in (alias, "sqlite3")
+                         and x.name != "sqlite3", "IMPORT_NAME_COLLISION")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            need(node.func.id not in ("eval", "exec", "__import__",
+                                     "globals", "locals", "setattr"),
+                 "DYNAMIC_BINDING")
 
     allowed = []
     for node in ast.walk(tree):
@@ -120,6 +126,8 @@ def _alias_to_direct_import(script: str) -> tuple[str, str]:
     for node in ast.walk(tree):
         need(not (isinstance(node, (ast.MatchAs, ast.MatchStar))
                   and node.name in (alias, "sqlite3")), "MATCH_BINDING")
+        need(not (isinstance(node, ast.MatchMapping)
+                  and node.rest in (alias, "sqlite3")), "MATCH_BINDING")
 
     lines = script.splitlines(keepends=True)
     fragment = ast.get_source_segment(script, imp)
