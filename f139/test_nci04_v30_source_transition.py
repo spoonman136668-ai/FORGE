@@ -16,21 +16,52 @@ from f139.local_controller import Database, SingleOwner, v2_owner_terminal_relea
 ROOT = Path(__file__).resolve().parent.parent
 
 class PendingTransferTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Construct and verify the exact original 376-event ledger once.
+        # No mutable database handles or WAL files are shared between tests.
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'template.sqlite'
+            db = Database.initialize(path, route.FROM_V29)
+            try:
+                db.enable(legacy_suspended=True)
+                for i in range(373):
+                    db.event('UNTRUSTED_TEST_FIXTURE', {'i': i})
+                db.conn.execute('INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) VALUES(?,?,?,?,?)',
+                                (route.TICKET,'Yggdrasil',route.FROM_V29,'READY','a'*64))
+                db.event('NATIVE_DEVELOPMENT_ADMITTED', dict(ticket=route.TICKET,
+                         issue_number=1358,source_sha=route.FROM_V29,manifest_sha256='a'*64))
+                db.event('TASK_INTAKE',dict(ticket=route.TICKET))
+                db.verify()
+                if db.meta()['head_seq'] != 376:
+                    raise AssertionError('ORIGINAL_FIXTURE_HEAD_DRIFT')
+                cls._fixture_head = db.meta()['head_hash']
+            finally:
+                db.close()
+            if any((Path(str(path) + suffix)).exists() for suffix in ('-wal','-shm')):
+                raise AssertionError('ORIGINAL_FIXTURE_UNCHECKPOINTED_WAL')
+            cls._fixture_bytes = path.read_bytes()
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls._fixture_bytes
+        del cls._fixture_head
+        super().tearDownClass()
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name) / 'isolated.sqlite'
-        self.db = Database.initialize(self.path, route.FROM_V29)
+        # A fresh physical file/connection per test, never a shared live DB.
+        with self.path.open('xb') as stream:
+            stream.write(type(self)._fixture_bytes)
+        self.db = Database(self.path)  # Full cold-chain verification on every open.
         self.addCleanup(self.db.close)
-        self.db.enable(legacy_suspended=True)
-        for i in range(373):
-            self.db.event('UNTRUSTED_TEST_FIXTURE', {'i': i})
-        self.db.conn.execute('INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) VALUES(?,?,?,?,?)',
-                             (route.TICKET,'Yggdrasil',route.FROM_V29,'READY','a'*64))
-        self.db.event('NATIVE_DEVELOPMENT_ADMITTED', dict(ticket=route.TICKET,
-                      issue_number=1358,source_sha=route.FROM_V29,manifest_sha256='a'*64))
-        self.db.event('TASK_INTAKE',dict(ticket=route.TICKET))
-        self.assertEqual(self.db.meta()['head_seq'],376)
+        meta = self.db.meta()
+        self.assertEqual(meta['head_seq'], 376)
+        self.assertEqual(meta['head_hash'], type(self)._fixture_head)
+        self.assertEqual(self.db.conn.execute('PRAGMA synchronous').fetchone()[0], 2)
 
     def test_exact_unclaimed_identity_is_read_only_and_does_not_reissue(self):
         before = self.db.conn.total_changes
