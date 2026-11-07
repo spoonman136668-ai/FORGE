@@ -254,6 +254,23 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B f139/check_test_discovery_inventory.py --baseline b5172a047efa7a1d630c15c13a2b7eba14c997fe --output "$RUNNER_TEMP/f139-discovery-public.json"
+      - name: G119 cold-first complete F139 suite via two workers (development only)
+        id: g119_cold
+        if: github.head_ref == 'engineering/rar-g119-cold-first-shards-20261107'
+        shell: bash
+        continue-on-error: true
+        env:
+          FORGE_G119_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/check_rar_g119_cold_first.py
+      - name: Retain G119 cold first-run receipt
+        if: always() && github.head_ref == 'engineering/rar-g119-cold-first-shards-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g119-cold-first-${{ runner.os }}
+          path: ${{ runner.temp }}/rar-g119-cold-first.json
+          if-no-files-found: error
       - name: F139 Python controller and native-custody regression
         shell: bash
         env:
@@ -380,3 +397,11 @@ jobs:
           name: f139-discovery-public-${{ runner.os }}
           path: ${{ runner.temp }}/f139-discovery-public.json
           if-no-files-found: error
+      - name: G119 fail-closed cold-first qualification verdict after original serial and native checks
+        if: always() && github.head_ref == 'engineering/rar-g119-cold-first-shards-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.g119_cold.outcome }}" = 'success'
+          test -s "$RUNNER_TEMP/rar-g119-cold-first.json"
+          python3 -B -c 'import json,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rar-g119-cold-first.json"; r=json.loads(p.read_text()); assert r["development_verdict"]=="PASS_COLD_CORRECTNESS_ONLY"'
