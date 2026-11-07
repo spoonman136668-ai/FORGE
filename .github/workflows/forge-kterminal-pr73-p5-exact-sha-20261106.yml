@@ -1,4 +1,4 @@
-name: FORGE K-Terminal PR78 lock-boundary exact-SHA Windows qualification
+name: FORGE K-Terminal PR78 fixed-clock exact-SHA Windows final qualification
 on:
   push:
     branches: [qualification/kterminal-pr73-p5-source-20261106]
@@ -13,10 +13,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     env:
-      FORGE_BASE: 25075376cec877f94f9389577ab32695230741d0
-      KTERM_SHA: 5011b62101b338a0744552f9496edaa737a181bb
-      KTERM_TREE: 872bfd934506586c4d8957c0d585ff35eb6618b8
-      KTERM_BASELINE: e2b887f63f017d3a84d0c714589a31d94368e3a6
+      FORGE_BASE: 6da42bd43edad5f7bb396a01269803c0d2f0613f
+      KTERM_SHA: ed4df974077793afa7418b45cd595a40b678430f
+      KTERM_TREE: d1a71153e03458e16b4aff1018be19412aaa16b2
+      KTERM_BASELINE: 5011b62101b338a0744552f9496edaa737a181bb
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Kboomllc/K-Terminal
-          ref: 5011b62101b338a0744552f9496edaa737a181bb
+          ref: ed4df974077793afa7418b45cd595a40b678430f
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -74,6 +74,9 @@ jobs:
           test "$(git rev-parse HEAD:pkg/native-vwap-diagnostic-one-shot.go)" = '856339788928c054996763b9ccd7528a6c9c6d65'
           test "$(git rev-parse HEAD:pkg/native-vwap-diagnostic-post-transport_test.go)" = 'b4bbfde23526f1d94f57d60d2838f4ea50b7b301'
           test "$(git rev-parse HEAD:pkg/native-vwap-diagnostic-prepost-boundary_test.go)" = '0132b744bec8395305fb235179a8076608db524e'
+          test "$(git rev-parse HEAD:pkg/tranche-pressure-cycle_test.go)" = '4954c4840e8dab9b65b7aa49061166565bfa0352'
+          test "$(git rev-parse HEAD:pkg/tranche-breadth-cycle_test.go)" = '91d9657293d195cf16406d8b7df50b50f3c47935'
+          test "$(git rev-parse HEAD:pkg/tranche-pressure-live_test.go)" = '2eb0ae96490d331c763b6fe2a75c06408ae65b67'
           test -z "$(git status --porcelain)"
           test ! -e .env
           test ! -e config.json
@@ -137,6 +140,51 @@ jobs:
           if not ok:sys.exit(2)
           PY
           echo PASS > "$RUNNER_TEMP/kterm-rc2-safe/safety.ok"
+      - name: Fixed-clock pressure test and stale-evidence negative controls
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kterminal-pressure-clock"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          go test -json -p 1 -count=12 -timeout 14m '-run=^TestPressureTPBoundaryUsesCurrentFeedNotPreviousVote$' ./pkg > "$RUNNER_TEMP/pressure-clock-private.jsonl" 2> "$RUNNER_TEMP/pressure-clock-private.stderr"
+          pat='^Test(BreadthFirstReservationFailsClosedForExpiredFlatChangedAndWriteFailure|LivePressureRejectsBadMissingStaleEvidence|BreadthFirstBuyUsesLatestFlatEvidenceAndRejectsRacingObservation)$'
+          go test -json -p 1 -count=1 -timeout 14m "-run=$pat" ./pkg > "$RUNNER_TEMP/pressure-negative-private.jsonl" 2> "$RUNNER_TEMP/pressure-negative-private.stderr"
+          python -B - <<'PY'
+          import json,os,pathlib,sys
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])
+          target='TestPressureTPBoundaryUsesCurrentFeedNotPreviousVote'
+          controls={
+            'TestBreadthFirstReservationFailsClosedForExpiredFlatChangedAndWriteFailure',
+            'TestLivePressureRejectsBadMissingStaleEvidence',
+            'TestBreadthFirstBuyUsesLatestFlatEvidenceAndRejectsRacingObservation'
+          }
+          def result(file):
+            passed={};failed=[];bad=events=0
+            for raw in (root/file).open(encoding='utf-8-sig',errors='replace'):
+              try:e=json.loads(raw)
+              except (TypeError,ValueError):bad+=1;continue
+              if not isinstance(e,dict):bad+=1;continue
+              events+=1
+              n,a=e.get('Test'),e.get('Action')
+              if a=='pass' and isinstance(n,str):passed[n]=passed.get(n,0)+1
+              if a=='fail':failed.append(n or 'PACKAGE')
+            return passed,failed,bad,events
+          a,af,ab,ae=result('pressure-clock-private.jsonl')
+          b,bf,bb,be=result('pressure-negative-private.jsonl')
+          count=sum(b.get(n,0)==1 for n in controls)
+          ok=(ae>0 and be>0 and ab==0 and bb==0 and not af and not bf
+              and a.get(target,0)==12 and count==len(controls))
+          print('KTERM_PRESSURE_FIXED_CLOCK_REPETITIONS='+str(a.get(target,0))+'/12')
+          print('KTERM_PRESSURE_STALE_NEGATIVE_CONTROLS='+str(count)+'/'+str(len(controls)))
+          print('KTERM_PRESSURE_FIXED_CLOCK_DISPOSITION='+('PASS' if ok else 'FAIL'))
+          if not ok:sys.exit(2)
+          PY
+          echo PASS > "$RUNNER_TEMP/kterm-rc2-safe/pressure.ok"
       - name: Focused P5 observer privacy, original POST guards and reconciliation controls
         shell: bash
         working-directory: kterminal-private
@@ -309,7 +357,7 @@ jobs:
           temp = pathlib.Path(os.environ['RUNNER_TEMP'])
           safe = temp/'kterm-rc2-safe'
           safe.mkdir(exist_ok=True)
-          flags={n:((safe/(n+'.ok')).read_text(encoding='ascii').strip() if (safe/(n+'.ok')).is_file() else 'NOT_RUN') for n in ('source','wpf','safety','focused','full','vet','build')}
+          flags={n:((safe/(n+'.ok')).read_text(encoding='ascii').strip() if (safe/(n+'.ok')).is_file() else 'NOT_RUN') for n in ('source','wpf','safety','pressure','focused','full','vet','build')}
           dur=safe/'durations.json'
           digest=safe/'durations.sha256'
           actual=hashlib.sha256(dur.read_bytes()).hexdigest() if dur.is_file() else None
@@ -317,7 +365,7 @@ jobs:
           duration_status='MATCH' if actual and actual==declared else ('MISSING' if not actual or not declared else 'MISMATCH')
           passed=all(v=='PASS' for v in flags.values()) and duration_status=='MATCH'
           receipt={
-              'schema':'forge.kterminal.pr78-lock-boundary.original-windows.v1',
+              'schema':'forge.kterminal.pr78-fixed-clock.original-windows.v1',
               'forge_qualification_sha':os.environ['GITHUB_SHA'],
               'kterminal_source_sha':os.environ['KTERM_SHA'],
               'kterminal_source_tree':os.environ['KTERM_TREE'],
@@ -343,7 +391,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: kterminal-pr78-lock-boundary-safe-${{ github.run_id }}
+          name: kterminal-pr78-fixed-clock-safe-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/kterm-rc2-safe/receipt.json
             ${{ runner.temp }}/kterm-rc2-safe/receipt.sha256
