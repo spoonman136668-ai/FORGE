@@ -83,7 +83,7 @@ func hexString(s string,expected int) bool{
 func safePath(p string)bool{
  if len(p)<24||len(p)>160||!strings.HasPrefix(p,"experiments/g7_s")||
   !strings.HasSuffix(p,".json")||strings.Contains(p,"..")||
-  strings.ContainsAny(p,"\\/\r\n\t ") {return false}
+  strings.ContainsAny(p,"\\\r\n\t ") {return false}
  for _,c:=range p{
   if !((c>='a'&&c<='z')||(c>='0'&&c<='9')||
    c=='_'||c=='-'||c=='.'||c=='/') {return false}
