@@ -139,20 +139,28 @@ def case_ids(suite):
 
 class ProfileResult(unittest.TextTestResult):
     """Time the unchanged serial unittest lifecycle; never select or reorder."""
-    def __init__(self, *args, clock=time.perf_counter, **kwargs):
+    def __init__(self, *args, clock=time.perf_counter, resource_sampler=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.clock=clock
+        self.resource_sampler=resource_sampler
         self.rows=[]
         self.outcomes={}
 
     def startTest(self, test):
         super().startTest(test)
         self.started=self.clock()
+        if self.resource_sampler is not None:
+            self.resource_started=self.resource_sampler.sample()
 
     def stopTest(self, test):
+        if self.resource_sampler is not None:
+            from f139.profile_resources import resource_delta
+            resources=resource_delta(self.resource_started, self.resource_sampler.sample())
         elapsed=self.clock()-self.started
         self.rows.append(dict(id=test.id(), module=type(test).__module__, seconds=elapsed,
                               outcome=self.outcomes.get(test.id(), 'unknown')))
+        if self.resource_sampler is not None:
+            self.rows[-1]['resources']=resources
         super().stopTest(test)
 
     def addSuccess(self, test):
@@ -185,13 +193,13 @@ class ProfileResult(unittest.TextTestResult):
         super().addSubTest(test, subtest, err)
 
 
-def profile_suite(suite, expected_ids, *, stream=None, clock=time.perf_counter):
+def profile_suite(suite, expected_ids, *, stream=None, clock=time.perf_counter, resource_sampler=None):
     observed=case_ids(suite)
     if observed != expected_ids or len(observed) != len(set(observed)):
         raise ValueError('Profile inventory/order mismatch or duplicate identities')
     started=clock()
     runner=unittest.TextTestRunner(stream=stream, verbosity=1,
-        resultclass=lambda *a, **kw: ProfileResult(*a, clock=clock, **kw))
+        resultclass=lambda *a, **kw: ProfileResult(*a, clock=clock, resource_sampler=resource_sampler, **kw))
     result=runner.run(suite)
     elapsed=clock()-started
     seen=[row['id'] for row in result.rows]
@@ -246,7 +254,20 @@ def profile_current(root, args):
     began=time.perf_counter()
     suite=discover_profile_suite(root)
     collection_seconds=time.perf_counter()-began
-    report=profile_suite(suite, inventory['ids'])
+    sampler=None
+    if getattr(args, 'resource_diagnostics', False):
+        from f139.profile_resources import ResourceSampler
+        sampler=ResourceSampler()
+    report=profile_suite(suite, inventory['ids'], resource_sampler=sampler)
+    if sampler is not None:
+        from f139.profile_resources import telemetry_identity
+        report['resource_diagnostics']=telemetry_identity()
+        report['resource_diagnostics']['module_sha256']=hashlib.sha256(
+            (root/'f139/profile_resources.py').read_bytes()).hexdigest()
+        report['resource_diagnostics']['coverage']={
+            group:sum(row['resources'][group]['status']=='VERIFIED' for row in report['cases'])
+            for group in ('self_cpu','process_io','host_cpu_100ns')}
+
     source_stable=(git(root, 'rev-parse', 'HEAD').decode().strip() == candidate and
                    not git(root, 'status', '--porcelain', '--untracked-files=all').strip())
     report.update(schema='forge.f139.serial-test-profile.v1',
@@ -280,6 +301,7 @@ def main():
     parser.add_argument('--full-regression', action='store_true')
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--profile-current', action='store_true')
+    parser.add_argument('--resource-diagnostics', action='store_true')
     parser.add_argument('--expected-source')
     args=parser.parse_args()
     root=Path(__file__).resolve().parents[1]
@@ -288,6 +310,8 @@ def main():
             raise ValueError('Current profile cannot be mixed with historical comparison')
         profile_current(root, args)
         return
+    if args.resource_diagnostics:
+        raise ValueError('Resource diagnostics requires current hosted profile')
     if args.expected_source is not None:
         raise ValueError('Expected source is only valid for the current profile')
     if args.baseline is None:
