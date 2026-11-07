@@ -1,8 +1,9 @@
 """DEV-only full Go race-test fanout screen; never changes accepted CI.
 
-This one-pair directional comparison is deliberately not sufficient to establish
-a speedup: the second arm benefits from warmed compilation caches. On a negative
-result it still provides useful conservative evidence against extra fanout.
+This ABBA opposite-order paired development trial compares p2/p4/p4/p2
+with complete source-bound Go race-test outcome parity. Both speed ratios
+must exceed the unchanged 2.0 threshold before development consideration.
+Even a positive trial is not a whole-CI adoption or speedup qualification.
 All tests run with -race and -count=1. Only sanitized aggregates are exported.
 """
 import argparse
@@ -137,33 +138,41 @@ def main():
         prefix="f139-go-race-fanout-", dir=runner_temp
     ) as directory:
         work = Path(directory)
-        baseline = trial(root, work, "original-p2", 2)
-        candidate = trial(root, work, "candidate-p4", 4)
+        original1 = trial(root, work, "original1-p2", 2)
+        candidate1 = trial(root, work, "candidate1-p4", 4)
+        candidate2 = trial(root, work, "candidate2-p4", 4)
+        original2 = trial(root, work, "original2-p2", 2)
         for field in ("test_cases", "packages", "skips",
                       "test_outcome_sha256", "package_outcome_sha256"):
-            if baseline[field] != candidate[field]:
-                raise ValueError("Complete Go race outcome/skip parity drift: " + field)
+            expected = original1[field]
+            if any(arm[field] != expected
+                   for arm in (candidate1, candidate2, original2)):
+                raise ValueError("Complete Go race ABBA parity drift: " + field)
         if stable_identity(root) != (sha, tree) or git(
             root, "status", "--porcelain", "--untracked-files=all"
         ):
-            raise ValueError("Source/tree changed during Go race comparison")
-        ratio = baseline["wall_seconds"] / candidate["wall_seconds"]
-        verdict = "NO_GO" if ratio <= 1.0 else "DEV_SIGNAL_ONLY"
+            raise ValueError("Source/tree changed during Go race ABBA comparison")
+        baselines = [original1, original2]
+        candidates = [candidate1, candidate2]
+        ratios = [a["wall_seconds"] / b["wall_seconds"]
+                  for a, b in zip(baselines, candidates)]
+        verdict = "PASS_DEV_ONLY" if min(ratios) >= 2.0 else "NO_GO"
         receipt = {
-            "schema": "forge.f139.go-race-fanout-development.v1",
+            "schema": "forge.f139.go-race-fanout-opposite-order.v1",
             "source_sha": sha,
             "source_tree": tree,
             "runner_os": "Linux",
             "go_version": go_version,
             "workflow_run": os.environ.get("GITHUB_RUN_ID"),
             "environment": {"GOMAXPROCS": "2", "GOMEMLIMIT": "1536MiB"},
-            "baseline": baseline,
-            "candidate": candidate,
-            "directional_speedup": ratio,
+            "run_order": ["p2", "p4", "p4", "p2"],
+            "baseline_p2": baselines,
+            "candidate_p4": candidates,
+            "opposite_order_pair_ratios": ratios,
             "outcome_parity": "PASS",
+            "frozen_development_ratio_per_pair": 2.0,
             "frozen_full_pipeline_target_speedup": 2.0,
-            "one_pair_order": ["p2", "p4"],
-            "warm_cache_order_bias": "PRESENT; candidate second",
+            "initial_cold_compilation_bias_controlled": True,
             "performance_verdict": verdict,
             "adoption_allowed": False,
             "default_ci_unchanged": True,
@@ -174,10 +183,11 @@ def main():
         output.write_text(json.dumps(
             receipt, sort_keys=True, indent=2
         ) + "\n", encoding="utf-8")
-        print("F139_GO_RACE_FANOUT_PARITY=PASS", flush=True)
-        print("F139_GO_RACE_FANOUT_DEV=" + verdict, flush=True)
-        print("F139_GO_RACE_FANOUT_DIRECTIONAL_RATIO=" +
-              format(ratio, ".4f"), flush=True)
+        print("F139_GO_RACE_FANOUT_ABBA_PARITY=PASS", flush=True)
+        print("F139_GO_RACE_FANOUT_ABBA_DEV=" + verdict, flush=True)
+        print("F139_GO_RACE_FANOUT_ABBA_RATIOS=" + ",".join(
+            format(ratio, ".4f") for ratio in ratios
+        ), flush=True)
 
 
 if __name__ == "__main__":
