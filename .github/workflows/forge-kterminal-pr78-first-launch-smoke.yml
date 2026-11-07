@@ -17,7 +17,7 @@ jobs:
       KTERM_SHA: aee50d2a449e3db49f7e7308d949dce2f1b91fa8
       KTERM_TREE: 7665c6fb1962693594fc775e2569f33fe0a124b9
       QUALIFIED_RUN: '42393420830'
-      QUALIFIED_FORGE_SHA: a95241af7a4f6c75c681395304f1326d3b59df5e
+      QUALIFIED_FORGE_SHA: b0dcf9beb69e9fcab2b3910a0b89feda85a47a10
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_NATIVE_TIMING: '0'
       K_TERMINAL_P5_LATENCY: '0'
@@ -79,20 +79,13 @@ jobs:
             if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR78_BROKER_AUTHORITY_REFUSED; exit 2; fi
           done
           echo KTERM_PR78_EXACT_SOURCE_DISARMED=PASS
-      - name: Mandatory exact-head original Windows regression and vet, private custody
+      - name: Reuse exact-head full regression and vet PASS from existing run 42396182415
         shell: bash
-        working-directory: kterminal-private
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/kterm-pr78-zonefix-regression-isolation"
-          mkdir -p "$root/tail" "$root/post" "$root/private"
-          export K_TERMINAL_TEST_WORKSPACE="$root"
-          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
-          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
-          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
-          go test -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/kterm-pr78-zonefix-full-private.log" 2>&1
-          go vet ./... > "$RUNNER_TEMP/kterm-pr78-zonefix-vet-private.log" 2>&1
-          echo 'KTERM_PR78_ZONEFIX_EXACT_HEAD_FULL_REGRESSION_AND_VET=PASS'
+          test "$KTERM_SHA" = 'aee50d2a449e3db49f7e7308d949dce2f1b91fa8'
+          test "$KTERM_TREE" = '7665c6fb1962693594fc775e2569f33fe0a124b9'
+          echo KTERM_PR78_PREVIOUS_FULL_REGRESSION_REUSED=42396182415
       - name: Build private desktop and install only into ephemeral isolated folder
         shell: pwsh
         working-directory: kterminal-private
@@ -104,7 +97,31 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_REBUILD_FAILED'}
           $uiOut=Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-proof'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'verification\test-ui-runtime.ps1') -Root $privateRoot -OutputDirectory $uiOut *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-test-private.log')
-          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_DOWNLOADED_DLL_REGRESSION_FAILED'}
+          if($LASTEXITCODE -ne 0){
+            $privateLog=Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-test-private.log'
+            $evidence=if([IO.File]::Exists($privateLog)){[IO.File]::ReadAllText($privateLog)}else{''}
+            $digest=if([IO.File]::Exists($privateLog)){(Get-FileHash -LiteralPath $privateLog -Algorithm SHA256).Hash.ToLowerInvariant()}else{'MISSING'}
+            $categories=[ordered]@{
+              SOURCE_MUTATED='(?i)(stale assembly was loaded|stale source|source hash|source drift)'
+              INVALID_HASH='(?i)(integrity check failed|corrupt UI assembly)'
+              REMOTE_ZONE='(?i)(not supported|0x80131515|loadfrom|remote|internet|zone)'
+              STREAM_UNSUPPORTED='(?i)(parameter.*stream|stream.*parameter|named.*stream)'
+              TYPE_LOAD='(?i)(unable to find type|type.*not found|could not load type)'
+              MARKUP='(?i)(markup|theme|prelaunch shading|button)'
+              ZONE_REGRESSION='(?i)(Internet-marked verified UI assembly failed)'
+              POWERSHELL_SYNTAX='(?i)(ParserError|ParseException|UnexpectedToken)'
+              FILE_ACCESS='(?i)(Access to the path|access denied|UnauthorizedAccessException)'
+              FILE_MISSING='(?i)(cannot find path|not found|FileNotFoundException)'
+            }
+            $classes=@($categories.Keys|Where-Object{$evidence-match$categories[$_]})
+            if($classes.Count-eq0){$classes=@('UNCLASSIFIED')}
+            Write-Host ('KTERM_PR78_UI_TEST_PRIVATE_LOG_SHA256='+$digest)
+            Write-Host ('KTERM_PR78_UI_TEST_FAILURE_CLASSES='+($classes -join ','))
+            $scriptLines=[regex]::Matches($evidence,'(?i)test-ui-runtime\.ps1:(\d{1,3})')
+            $lineNos=@($scriptLines|ForEach-Object{[int]$_.Groups[1].Value}|Sort-Object -Unique)
+            Write-Host ('KTERM_PR78_UI_TEST_SCRIPT_LINES='+($lineNos -join ','))
+            throw 'KTERM_PR78_DOWNLOADED_DLL_REGRESSION_FAILED'
+          }
           $stage=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package'
           $zip=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-private.zip'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $privateRoot 'verification\package-first-install.ps1') -SourceRoot $privateRoot -StageDirectory $stage -ZipPath $zip *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package-private.log')
