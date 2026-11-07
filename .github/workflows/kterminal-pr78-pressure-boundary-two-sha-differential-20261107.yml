@@ -1,8 +1,6 @@
 name: K Terminal PR78 nested-job-fixed fresh Windows personal diagnostic build
 on:
-  push:
-    branches: [qualification/kterminal-pr73-p5-source-20261106]
-    paths: [.github/workflows/kterminal-pr78-pressure-boundary-two-sha-differential-20261107.yml]
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -220,13 +218,12 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $out 'receipt.json'),$body,[Text.UTF8Encoding]::new($false))
           [IO.File]::WriteAllText((Join-Path $out 'receipt.sha256'),((Get-FileHash -LiteralPath (Join-Path $out 'receipt.json') -Algorithm SHA256).Hash.ToLowerInvariant()),[Text.UTF8Encoding]::new($false))
           Write-Host ('FRESH_INSTALL_PORTABLE_ZIP=PASS;FILES='+$files.Count+';ZIP_SHA256='+$zipDigest)
-      - name: Upload portable Windows first-install package and immutable receipt
+      - name: Upload only sanitized immutable receipt; no private binary or source
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: kterminal-pr78-personal-fresh-install-${{ github.run_id }}
+          name: kterminal-pr78-sanitized-receipt-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterminal-pr78-fresh-safe/K-Terminal-Personal-PR78-Fresh-Install.zip
             ${{ runner.temp }}/kterminal-pr78-fresh-safe/receipt.json
             ${{ runner.temp }}/kterminal-pr78-fresh-safe/receipt.sha256
           retention-days: 30
