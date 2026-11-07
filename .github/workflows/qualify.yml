@@ -101,6 +101,21 @@ jobs:
           python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
           CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
+      - name: Frozen native action-consequence development receipt
+        if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          go test -count=1 -v ./nativediscovery | tee "$RUNNER_TEMP/forge-native-discovery-f0.log"
+          test "$(grep -c 'FORGE_NATIVE_DISCOVERY_F0=' "$RUNNER_TEMP/forge-native-discovery-f0.log")" -eq 1
+      - name: Retain frozen native discovery development receipt
+        if: always() && github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-native-discovery-f0-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-native-discovery-f0.log
+          if-no-files-found: error
       - name: Tests, race, vet and build
         shell: bash
         run: |
@@ -236,6 +251,21 @@ jobs:
           python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
           CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
+      - name: Frozen native action-consequence development receipt
+        if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          go test -count=1 -v ./nativediscovery | tee "$RUNNER_TEMP/forge-native-discovery-f0.log"
+          test "$(grep -c 'FORGE_NATIVE_DISCOVERY_F0=' "$RUNNER_TEMP/forge-native-discovery-f0.log")" -eq 1
+      - name: Retain frozen native discovery development receipt
+        if: always() && github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-native-discovery-f0-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-native-discovery-f0.log
+          if-no-files-found: error
       - name: Native Windows source qualification
         shell: pwsh
         run: |
