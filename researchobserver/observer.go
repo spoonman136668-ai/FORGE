@@ -163,3 +163,9 @@ func BuildWithHybrid(wingless, yggdrasil, hybrid []byte) (Report, error) {
   report.Hybrid = &h
   return report, nil
 }
+
+// InspectHybrid parses one untrusted, bounded metadata snapshot for offline
+// diagnostics only. It never fetches the Hybrid repository or authorizes work.
+func InspectHybrid(raw []byte) (LaneReport,error){
+ return readLane(raw,"Hybrid")
+}
