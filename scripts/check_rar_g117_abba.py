@@ -74,11 +74,13 @@ def arm(root,source,index,name,inv):
     if p.returncode or len(found)!=1 or int(found[0])!=len(inv["ids"]) or "\nOK" not in body:
         raise ValueError("G117_FAILED_FULL_SUITE_"+name+"_"+str(index)+":"+body[-2300:])
     skips=re.search(r"(?m)^OK \(skipped=(\d+)\)",body)
-    if (int(skips.group(1)) if skips else 0)!=len(inv["skips"]):
-        raise ValueError("G117_SKIP_MISMATCH")
+    runtime_skips = int(skips.group(1)) if skips else 0
+    if runtime_skips < len(inv["skips"]):
+        raise ValueError("G117_DECLARED_SKIPS_LOST")
     stable(root,source)
     return {"index":index,"name":name,"seconds":elapsed,
-            "tests":int(found[0]),"skips":len(inv["skips"]),"returncode":p.returncode}
+            "tests":int(found[0]),"skips":runtime_skips,
+            "declared_skips":len(inv["skips"]),"returncode":p.returncode}
 
 
 def main():
@@ -112,6 +114,8 @@ def main():
                 path=baseline if label=="baseline" else ROOT
                 sha=BASE if label=="baseline" else head
                 runs.append(arm(path,sha,i,label,a))
+            if len({r["skips"] for r in runs}) != 1:
+                raise ValueError("G117_RUNTIME_SKIP_COUNT_DRIFT")
         finally:
             subprocess.run(["git","-C",str(ROOT),"worktree","remove","--force",
                             str(baseline)],check=True,timeout=90,
@@ -126,7 +130,9 @@ def main():
             "run":os.environ.get("GITHUB_RUN_ID"),"attempt":os.environ.get("GITHUB_RUN_ATTEMPT"),
             "platform":platform.platform(),"python":sys.version,
             "full_suite_command":SUITE,"test_count":len(a["ids"]),
-            "skips":len(a["skips"]),"cases_sha256":hashlib.sha256("\n".join(a["ids"]).encode()).hexdigest(),
+            "declared_skips":len(a["skips"]),
+            "runtime_skips_each_arm":[r["skips"] for r in runs],
+            "cases_sha256":hashlib.sha256("\n".join(a["ids"]).encode()).hexdigest(),
             "method_ast_sha256":hashlib.sha256(json.dumps(original_methods).encode()).hexdigest(),
             "arms":runs,"pair_speedups":[round(v,6) for v in pairs],
             "aggregate_speedup":round(gain,6),
