@@ -1,4 +1,4 @@
-name: FORGE K-Terminal PR78 fixed-clock exact-SHA Windows final qualification
+name: FORGE K-Terminal PR78 exact-SHA final Windows qualification with P5 assertion custody
 on:
   push:
     branches: [qualification/kterminal-pr73-p5-source-20261106]
@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     env:
-      FORGE_BASE: 6da42bd43edad5f7bb396a01269803c0d2f0613f
+      FORGE_BASE: c3af498b4ef213141d5a78403feb64f704755656
       KTERM_SHA: ed4df974077793afa7418b45cd595a40b678430f
       KTERM_TREE: d1a71153e03458e16b4aff1018be19412aaa16b2
       KTERM_BASELINE: 5011b62101b338a0744552f9496edaa737a181bb
@@ -269,6 +269,18 @@ jobs:
               'incorrect_foreign_rejection': 'actual protected native authority did not specifically reject foreign evidence',
               'changed_financial_or_journal_bytes': 'foreign authority rejection changed exact financial/journal/claim bytes',
           }
+          # Preserve P5 assertion identity without exporting raw/private test output.
+          p5_target = 'TestP5OneShotDiagnosticOriginalNativeSignal/unknown_first_post_no_retry'
+          p5_classes = {
+              'p5_post_count_mismatch':'one-POST diagnostic outcome mismatch:',
+              'p5_unknown_outcome_not_retained':'unknown/blocked POST did not retain uncertainty:',
+              'p5_same_event_replay':'same-event duplicate replayed a POST:',
+              'p5_fresh_construction_replay':'fresh native construction replayed or changed original receipt:',
+              'p5_cold_process_replay':'broker-free cold-process replay failed:',
+              'p5_missing_original_receipt':'original native receipt not retained for replay:',
+              'p5_cold_process_receipt_mutated':'cold-process replay mutated receipt or reached venue:',
+              'p5_accepted_case_unexpected_error':'accepted synthetic native maker call failed:',
+          }
           event_count = malformed_count = 0
           if raw.is_file():
               with raw.open('r', encoding='utf-8-sig', errors='replace') as src:
@@ -287,6 +299,11 @@ jobs:
                           if isinstance(output,str):
                               for category, phrase in classes.items():
                                   if phrase in output: failure_classes.add(category)
+                      if action == 'output' and test == p5_target:
+                          output = e.get('Output')
+                          if isinstance(output,str):
+                              for category, phrase in p5_classes.items():
+                                  if phrase in output: failure_classes.add(category)
                       if action == 'fail':
                           if isinstance(test,str) and test_pat.fullmatch(test): failed_tests.add(test)
                           elif test is None and isinstance(package,str) and package_pat.fullmatch(package): failed_packages.add(package)
@@ -296,6 +313,8 @@ jobs:
                           tests.append({'name':test,'seconds':round(float(elapsed),5)})
                       elif test is None and isinstance(package,str) and package_pat.fullmatch(package):
                           packages.append({'name':package,'seconds':round(float(elapsed),5)})
+          if p5_target in failed_tests and not any(z.startswith('p5_') for z in failure_classes):
+              failure_classes.add('p5_failure_unclassified')
           payload = {
               'schema':'kterminal-regression-durations.forge.v1',
               'kterminal_source_sha':os.environ['KTERM_SHA'],
