@@ -101,6 +101,19 @@ jobs:
           python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
           CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
+      - name: Agent-free native source search on original FORGE inventory
+        if: github.head_ref == 'engineering/rsi-native-code-cohort-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=. python3 -B f139/check_native_code_rsi_development.py --expected-source "${{ github.event.pull_request.head.sha }}" --output "$RUNNER_TEMP/forge-native-code-rsi.json"
+      - name: Retain native source-search negative or positive development receipt
+        if: always() && github.head_ref == 'engineering/rsi-native-code-cohort-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-native-code-rsi-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-native-code-rsi.json
+          if-no-files-found: error
       - name: Tests, race, vet and build
         shell: bash
         run: |
@@ -236,6 +249,19 @@ jobs:
           python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
           CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
+      - name: Agent-free native source search on original FORGE inventory
+        if: github.head_ref == 'engineering/rsi-native-code-cohort-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=. python3 -B f139/check_native_code_rsi_development.py --expected-source "${{ github.event.pull_request.head.sha }}" --output "$RUNNER_TEMP/forge-native-code-rsi.json"
+      - name: Retain native source-search negative or positive development receipt
+        if: always() && github.head_ref == 'engineering/rsi-native-code-cohort-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-native-code-rsi-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-native-code-rsi.json
+          if-no-files-found: error
       - name: Native Windows source qualification
         shell: pwsh
         run: |
