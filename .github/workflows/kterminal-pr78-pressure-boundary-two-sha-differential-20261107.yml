@@ -1,4 +1,4 @@
-name: K Terminal PR78 clean-install Windows personal diagnostic package
+name: K Terminal PR78 nested-job-fixed fresh Windows personal diagnostic build
 on:
   push:
     branches: [qualification/kterminal-pr73-p5-source-20261106]
@@ -13,9 +13,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      FORGE_PARENT: 7d1f2b11dfc6611c691c18df57417d3b26a9b7dd
-      KTERM_SHA: ed4df974077793afa7418b45cd595a40b678430f
-      KTERM_TREE: d1a71153e03458e16b4aff1018be19412aaa16b2
+      FORGE_PARENT: aebbbbacb13770e2e39819adce1b07f247c51db4
+      KTERM_SHA: 070ad561de7183f7f28e363d96d354a62f509172
+      KTERM_TREE: e5e611ef50a8dd0b5b4ba5c5947c7320c08d31ae
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -63,7 +63,8 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$KTERM_SHA"
           test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
-          test "$(git rev-parse HEAD:BUILD.ps1)" = 'be7ff44f192b7d256e06182aeea696d0153e5dbf'
+          test "$(git rev-parse HEAD:BUILD.ps1)" = '1fa3a6b5a001a8ba63132db0d53f9d80c48190e8'
+          test "$(git rev-parse HEAD:cmd/launcher/desktop-session.cs)" = '5ca4dfe0c695c4f7b83dbe19f95e4dfc23679efd'
           test "$(git rev-parse HEAD:verification/build-ui-runtime.ps1)" = '892f3a93fe26a7304268667c28a1d5e9d1e87676'
           test "$(git rev-parse HEAD:go.mod)" = 'b3ede0d8444c08b3e7b23f1396374359b54134c6'
           test -z "$(git status --porcelain)"
@@ -92,6 +93,36 @@ jobs:
             if((Get-Item -LiteralPath $f).Length -lt 1024){throw ('FRESH_INSTALL_EMPTY_BINARY_'+$name)}
           }
           Write-Host 'FRESH_INSTALL_COMPLETE_ORIGINAL_BUILD=PASS'
+      - name: Verify new C# launcher starts a nested job-owned disarmed child
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          $smoke=Join-Path $env:RUNNER_TEMP ('kterminal-nested-disarmed-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $smoke){throw 'NESTED_SMOKE_ROOT_REUSE'}
+          [void][IO.Directory]::CreateDirectory($smoke)
+          Copy-Item -LiteralPath (Join-Path (Get-Location).Path 'K-Terminal.exe') -Destination (Join-Path $smoke 'K-Terminal.exe')
+          $stub=@'
+          Set-Content -LiteralPath (Join-Path $PSScriptRoot 'started.marker') -Value 'PAPER_DISARMED' -Encoding Ascii
+          exit 0
+          '@
+          [IO.File]::WriteAllText((Join-Path $smoke 'launch-kterminal.ps1'),$stub,[Text.UTF8Encoding]::new($false))
+          $owner=Start-Process -FilePath (Join-Path $smoke 'K-Terminal.exe') -WorkingDirectory $smoke -PassThru
+          if(-not $owner.WaitForExit(25000)){
+            try{$owner.Kill()}catch{}
+            throw 'NESTED_SUPERVISOR_STALLED'
+          }
+          if($owner.ExitCode -ne 0){throw ('NESTED_SUPERVISOR_EXIT_'+$owner.ExitCode)}
+          if(-not(Test-Path -LiteralPath (Join-Path $smoke 'started.marker'))){throw 'NESTED_CHILD_NOT_STARTED'}
+          if((Get-Content -LiteralPath (Join-Path $smoke 'started.marker') -Raw).Trim() -cne 'PAPER_DISARMED'){throw 'NESTED_CHILD_MARKER_MISMATCH'}
+          $log=Join-Path $smoke 'data\logs\launcher.log'
+          if(-not(Test-Path -LiteralPath $log)){throw 'NESTED_LIFECYCLE_LOG_MISSING'}
+          $events=@(Get-Content -LiteralPath $log)
+          if(@($events | Where-Object {$_ -match 'STARTED' -and $_ -match 'nested job-owned desktop session'}).Count -ne 1 -or
+             @($events | Where-Object {$_ -match 'ENDED' -and $_ -match 'exit=0'}).Count -ne 1){
+             throw 'NESTED_LIFECYCLE_NOT_VERIFIED'
+          }
+          Write-Host 'KTERM_NESTED_DISARMED_CHILD=PASS;BROKER_POSTS=0'
       - name: Assemble credential-free portable first-install ZIP with exact-SHA manifest
         shell: pwsh
         working-directory: kterminal-private
@@ -125,7 +156,7 @@ jobs:
           8. Never publish complete logs, runtime data, or credentials.
           
           This ZIP is an unpromoted test installation, not a live-tested release.
-          Source: Kboomllc/K-Terminal@ed4df974077793afa7418b45cd595a40b678430f
+          Source: Kboomllc/K-Terminal@070ad561de7183f7f28e363d96d354a62f509172
           '@
           [IO.File]::WriteAllText((Join-Path $root 'FIRST-INSTALL-README.txt'),$guide,[Text.UTF8Encoding]::new($false))
           foreach($bad in @('config.json','.env','pending-program-update.json','data')){
