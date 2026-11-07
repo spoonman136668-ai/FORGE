@@ -1,0 +1,179 @@
+name: K Terminal PR78 pressure boundary exact two-SHA offline differential
+on:
+  push:
+    branches: [qualification/kterminal-pr73-p5-source-20261106]
+    paths:
+      - .github/workflows/kterminal-pr78-pressure-boundary-two-sha-differential-20261107.yml
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr78-pressure-boundary-two-sha
+  cancel-in-progress: false
+jobs:
+  bounded-windows:
+    name: ${{ matrix.label }}
+    runs-on: windows-latest
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: pr73-control
+            source_sha: bcebdc1a7a0487f9d6061a8e643c76069335d896
+            source_tree: a2e5b7dc4a634b5a36d53677cdcb6de47060e21f
+          - label: pr78-candidate
+            source_sha: 5011b62101b338a0744552f9496edaa737a181bb
+            source_tree: 872bfd934506586c4d8957c0d585ff35eb6618b8
+    env:
+      FORGE_PARENT: 3afa8880f30705d9a6660d3d0640ac27d11520fa
+      TARGET_BLOB: 5a7767f358f7de4e3ae26b75fa15a33e8b9594a4
+      KTERM_SHA: ${{ matrix.source_sha }}
+      KTERM_TREE: ${{ matrix.source_tree }}
+      TEST_LABEL: ${{ matrix.label }}
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+    steps:
+      - name: Checkout exact existing FORGE qualification branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact FORGE workflow-only change on isolated Windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_REF" = 'refs/heads/qualification/kterminal-pr73-p5-source-20261106'
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$FORGE_PARENT" HEAD
+          test "$(git diff --name-only "$FORGE_PARENT" HEAD)" = '.github/workflows/kterminal-pr78-pressure-boundary-two-sha-differential-20261107.yml'
+          test -z "$(git status --porcelain)"
+          echo KTERM_PRESSURE_TWO_SHA_FORGE_SOURCE=PASS
+      - name: Checkout exact private K Terminal candidate without retained credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ${{ matrix.source_sha }}
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Set up qualified original Windows Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Prove original source and test identity, reject broker credentials
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
+          test "$(git rev-parse HEAD:pkg/tranche-pressure-cycle_test.go)" = "$TARGET_BLOB"
+          test "$(git rev-parse HEAD:go.mod)" = 'b3ede0d8444c08b3e7b23f1396374359b54134c6'
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          test ! -e config.json
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK; do
+            if [[ -n "${!n:-}" ]]; then echo KTERM_PRESSURE_DIFFERENTIAL_BROKER_ACCESS_REFUSED; exit 2; fi
+          done
+          mkdir -p "$RUNNER_TEMP/kterminal-pressure-safe"
+          echo PASS > "$RUNNER_TEMP/kterminal-pressure-safe/source.ok"
+          echo KTERM_PRESSURE_SOURCE_IDENTITY=PASS
+      - name: Run identical 24-repetition isolated Windows pressure case
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kterminal-pressure-isolated"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          start="$(date +%s)"
+          set +e
+          go test -json -p 1 -count=24 -timeout 12m '-run=^TestPressureTPBoundaryUsesCurrentFeedNotPreviousVote$' ./pkg > "$RUNNER_TEMP/kterminal-pressure-private.jsonl" 2> "$RUNNER_TEMP/kterminal-pressure-private.stderr"
+          exit_code="$?"
+          set -e
+          end="$(date +%s)"
+          KTERM_CASE_EXIT="$exit_code" KTERM_CASE_SECONDS="$((end-start))" python -B - <<'PY'
+          import os,json,pathlib,re,hashlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          dest=root/"kterminal-pressure-safe"
+          name="TestPressureTPBoundaryUsesCurrentFeedNotPreviousVote"
+          cases={"mode active=":"MODE_VOTE_MISMATCH",
+                 "first BUY decision did not latch":"BUY_DECISION_LATCH_REFUSED",
+                 "dual-map evidence is not current":"CANDLE_VALIDATION_REFUSED",
+                 "TRANCHE_PRESSURE_PENDING":"PRESSURE_PENDING",
+                 "live candle evidence is not current":"CANDLE_STALE",
+                 "26-interval dual-map evidence is not current":"DUAL_MAP_STALE"}
+          passes=failures=events=malformed=0
+          classes=set()
+          other_failures=0
+          for raw in (root/"kterminal-pressure-private.jsonl").open(encoding="utf-8-sig",errors="replace"):
+            try:e=json.loads(raw)
+            except (TypeError,ValueError):malformed+=1;continue
+            if not isinstance(e,dict):malformed+=1;continue
+            events+=1
+            test=e.get("Test")
+            action=e.get("Action")
+            if test==name and action=="pass":passes+=1
+            if test==name and action=="fail":failures+=1
+            if action=="fail" and test and test!=name:other_failures+=1
+            if test==name and action=="output" and isinstance(e.get("Output"),str):
+              for phrase,label in cases.items():
+                if phrase in e["Output"]:classes.add(label)
+          count_valid=(passes+failures==24 and events>0 and malformed==0 and other_failures==0)
+          summary={
+            "schema":"forge.kterminal.pr78-pressure-two-sha.v1",
+            "label":os.environ["TEST_LABEL"],
+            "forge_qualification_sha":os.environ["GITHUB_SHA"],
+            "kterminal_source_sha":os.environ["KTERM_SHA"],
+            "kterminal_source_tree":os.environ["KTERM_TREE"],
+            "identical_target_blob":os.environ["TARGET_BLOB"],
+            "go_toolchain":"go1.26.5 windows/amd64",
+            "repetitions":24,
+            "target_passes":passes,
+            "target_failures":failures,
+            "full_test_exit":int(os.environ["KTERM_CASE_EXIT"]),
+            "duration_seconds":int(os.environ["KTERM_CASE_SECONDS"]),
+            "failure_classes":sorted(classes),
+            "malformed_event_count":malformed,
+            "other_test_failures":other_failures,
+            "evidence_valid":count_valid,
+            "full_regression_repeated":False,
+            "live_orders":0,
+            "production_mutated":False
+          }
+          content=json.dumps(summary,sort_keys=True,separators=(",",":")).encode()
+          (dest/"result.json").write_bytes(content)
+          digest=hashlib.sha256(content).hexdigest()
+          (dest/"result.sha256").write_text(digest,encoding="ascii")
+          print("KTERM_PRESSURE_24_REPS_PASS="+str(passes))
+          print("KTERM_PRESSURE_24_REPS_FAIL="+str(failures))
+          print("KTERM_PRESSURE_FAILURE_CLASSES="+",".join(sorted(classes)))
+          print("KTERM_PRESSURE_EVIDENCE="+("PASS" if count_valid else "UNVERIFIED"))
+          print("KTERM_PRESSURE_RESULT_SHA256="+digest)
+          if not count_valid:raise SystemExit(2)
+          PY
+      - name: Upload private-free exact-SHA comparison result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterminal-pressure-${{ matrix.label }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/kterminal-pressure-safe/result.json
+            ${{ runner.temp }}/kterminal-pressure-safe/result.sha256
+          retention-days: 21
+          if-no-files-found: error
