@@ -166,9 +166,24 @@ jobs:
         run: |
           set -euo pipefail
           go test -count=1 ./...
-          go test -race -count=1 ./...
+          if [ "${GITHUB_HEAD_REF:-}" = 'engineering/f139-go-race-fanout-dev-20261107' ]; then
+            # Original full -race suite remains mandatory. Development-only
+            # second arm explores package fanout without test selection.
+            PYTHONPATH=. python3 -B -m f139.check_go_race_fanout_development \
+              --expected-source "${{ github.event.pull_request.head.sha || github.sha }}" \
+              --output "$RUNNER_TEMP/f139-go-race-fanout-dev.json"
+          else
+            go test -race -count=1 ./...
+          fi
           go vet ./...
           go build ./...
+      - name: Retain sanitized Go race fanout DEV-only parity and timing
+        if: ${{ always() && github.head_ref == 'engineering/f139-go-race-fanout-dev-20261107' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: f139-go-race-fanout-dev-${{ runner.os }}
+          path: ${{ runner.temp }}/f139-go-race-fanout-dev.json
+          if-no-files-found: warn
       - name: Public isolation
         shell: bash
         run: |
