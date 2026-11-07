@@ -1,4 +1,4 @@
-name: FORGE K-Terminal PR78 known-prePOST negative control (offline)
+name: FORGE K-Terminal PR78 lock-boundary exact-SHA Windows qualification
 on:
   push:
     branches: [qualification/kterminal-pr73-p5-source-20261106]
@@ -6,17 +6,17 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: forge-kterminal-pr78-prepost-negative-control
+  group: forge-kterminal-pr73-p5-exact-sha
   cancel-in-progress: false
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 90
     env:
       FORGE_BASE: 25075376cec877f94f9389577ab32695230741d0
-      KTERM_SHA: e2b887f63f017d3a84d0c714589a31d94368e3a6
-      KTERM_TREE: 3c291d3a0f76801babcfe425abc3402c03d0cc19
-      KTERM_BASELINE: 248326e5ae994fa710ecaea2fc61ff422863f8e8
+      KTERM_SHA: 5011b62101b338a0744552f9496edaa737a181bb
+      KTERM_TREE: 872bfd934506586c4d8957c0d585ff35eb6618b8
+      KTERM_BASELINE: e2b887f63f017d3a84d0c714589a31d94368e3a6
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -24,12 +24,12 @@ jobs:
       GOTELEMETRY: 'off'
       CGO_ENABLED: '0'
     steps:
-      - name: Checkout exact FORGE qualification branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Checkout exact FORGE qualification scope
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Verify isolated hosted Windows and workflow-only change
+      - name: Verify isolated hosted Windows runner and workflow-only scope
         shell: bash
         run: |
           set -euo pipefail
@@ -42,126 +42,312 @@ jobs:
           git merge-base --is-ancestor "$FORGE_BASE" HEAD
           test "$(git diff --name-only "$FORGE_BASE" HEAD)" = '.github/workflows/forge-kterminal-pr73-p5-exact-sha-20261106.yml'
           test -z "$(git status --porcelain)"
-          echo PR78_FORGE_SCOPE=PASS
-      - name: Checkout exact private K Terminal source without persisted credentials
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+          echo KTERM_RC2_FORGE_SCOPE=PASS
+      - name: Checkout private K-Terminal exact source without retained credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Kboomllc/K-Terminal
-          ref: e2b887f63f017d3a84d0c714589a31d94368e3a6
+          ref: 5011b62101b338a0744552f9496edaa737a181bb
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
           token: ${{ secrets.FORGE_KTERM_QUAL }}
-      - name: Set up original pinned Windows Go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+      - name: Set up pinned original Windows Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Verify exact PR78 source, test custody, and zero live authority
+      - name: Verify private source identity, clean checkout and zero broker authority
         shell: bash
         working-directory: kterminal-private
         run: |
           set -euo pipefail
-          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$RUNNER_OS" = Windows
           test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
           test "$(git rev-parse HEAD)" = "$KTERM_SHA"
           test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
-          test "$(git rev-parse HEAD:go.mod)" = b3ede0d8444c08b3e7b23f1396374359b54134c6
-          test "$(git rev-parse HEAD:pkg/native-vwap-diagnostic-one-shot.go)" = a6e33346f8e4a3fb0c2142106f15cf0dd9a2defd
-          test "$(git rev-parse HEAD:pkg/native-vwap-diagnostic-prepost-boundary_test.go)" = 0132b744bec8395305fb235179a8076608db524e
+          test "$(git rev-parse HEAD:go.mod)" = 'b3ede0d8444c08b3e7b23f1396374359b54134c6'
+          test "$(git rev-parse HEAD:dashboard-ui.ps1)" = 'd05a1f0e258560dacf4585de1164ae1bb6bb85ea'
+          test "$(git rev-parse HEAD:pkg/p5-runtime-latency-observer.go)" = '44eed034cba007601b8bf79f6d54d4d9b6930517'
+          test "$(git rev-parse HEAD:pkg/p5-runtime-latency-observer_test.go)" = '1997d963ef501a7ff11d69868ce6291f48803595'
+          test "$(git rev-parse HEAD:pkg/native-vwap-diagnostic-one-shot.go)" = '856339788928c054996763b9ccd7528a6c9c6d65'
+          test "$(git rev-parse HEAD:pkg/native-vwap-diagnostic-post-transport_test.go)" = 'b4bbfde23526f1d94f57d60d2838f4ea50b7b301'
+          test "$(git rev-parse HEAD:pkg/native-vwap-diagnostic-prepost-boundary_test.go)" = '0132b744bec8395305fb235179a8076608db524e'
           test -z "$(git status --porcelain)"
           test ! -e .env
           test ! -e config.json
           go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
           for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK; do
-            if [[ -n "${!name:-}" ]]; then echo PR78_BROKER_OR_LIVE_OPTIN_REFUSED; exit 2; fi
+            if [[ -n "${!name:-}" ]]; then echo KTERM_RC2_BROKER_AUTHORITY_REFUSED; exit 2; fi
           done
-          mkdir -p "$RUNNER_TEMP/kterminal-pr78-safe"
-          echo PASS > "$RUNNER_TEMP/kterminal-pr78-safe/source.ok"
-          echo PR78_EXACT_SOURCE_ZERO_AUTHORITY=PASS
-      - name: Recheck the existing five PR78 safety tests (no broker)
+          safe="$RUNNER_TEMP/kterm-rc2-safe"
+          mkdir -p "$safe"
+          echo PASS > "$safe/source.ok"
+          echo KTERM_RC2_EXACT_SOURCE=PASS
+      - name: Validate original PowerShell desktop parser without running application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $file = Join-Path $env:GITHUB_WORKSPACE 'kterminal-private\dashboard-ui.ps1'
+          $tokens = $null
+          $issues = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$issues)
+          if ($null -eq $ast -or @($issues).Count -ne 0) { throw 'PR73_WPF_PARSE_FAILED' }
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'kterm-rc2-safe\wpf.ok') -Value 'PASS' -NoNewline
+          Write-Host 'KTERM_PR73_WPF_PARSER=PASS;INTERACTIVE_DESKTOP=NOT_TESTED'
+      - name: PR78 original one-POST safety, failed-evidence and transport controls
         shell: bash
         working-directory: kterminal-private
         run: |
           set -euo pipefail
-          pattern='^TestVWAPDiagnosticOneBuy(RequiresExactOptInAndOnePostDurability|AdversarialFinalAmountsFailBeforeLock|RejectsPartialEnvironmentAndWrongSide|FinalizedNativeRequestEnforcesCapBeforeEvidence|MinimumPromotionCannotBreakEightDollarCap)$'
-          go test -json -p 1 -count=1 -timeout 12m "-run=$pattern" ./pkg > "$RUNNER_TEMP/kterminal-pr78-focused-private.jsonl" 2> "$RUNNER_TEMP/kterminal-pr78-focused-private.stderr"
+          root="$RUNNER_TEMP/kterminal-pr78-safety"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          go test -json -p 1 -count=1 -timeout 20m '-run=^TestVWAPDiagnosticOneBuy' ./pkg > "$RUNNER_TEMP/kterminal-pr78-safety-private.jsonl" 2> "$RUNNER_TEMP/kterminal-pr78-safety-private.stderr"
           python -B - <<'PY'
-          import json,os,pathlib,re,sys
-          file=pathlib.Path(os.environ['RUNNER_TEMP'])/'kterminal-pr78-focused-private.jsonl'
-          required={'TestVWAPDiagnosticOneBuyRequiresExactOptInAndOnePostDurability','TestVWAPDiagnosticOneBuyAdversarialFinalAmountsFailBeforeLock','TestVWAPDiagnosticOneBuyRejectsPartialEnvironmentAndWrongSide','TestVWAPDiagnosticOneBuyFinalizedNativeRequestEnforcesCapBeforeEvidence','TestVWAPDiagnosticOneBuyMinimumPromotionCannotBreakEightDollarCap'}
-          passed=set();failed=set();bad=events=0
-          for raw in file.open(encoding='utf-8-sig',errors='replace'):
-            try: event=json.loads(raw)
-            except (ValueError,TypeError): bad+=1;continue
-            if not isinstance(event,dict): bad+=1;continue
-            events+=1
-            test=event.get('Test')
-            if isinstance(test,str) and event.get('Action')=='pass' and test in required: passed.add(test)
-            if isinstance(test,str) and event.get('Action')=='fail': failed.add(test)
-          ok=events>0 and bad==0 and not failed and required.issubset(passed)
-          print('PR78_POSITIVE_SAFETY_TESTS='+str(len(passed))+'/'+str(len(required)))
-          print('PR78_POSITIVE_DISPOSITION='+('PASS' if ok else 'FAIL'))
-          if not ok: sys.exit(2)
-          PY
-          echo PASS > "$RUNNER_TEMP/kterminal-pr78-safe/positive.ok"
-      - name: Demonstrate known-unsent evidence failure consumes the one-POST lock
-        shell: bash
-        working-directory: kterminal-private
-        run: |
-          set -euo pipefail
-          set +e
-          go test -json -p 1 -count=1 -timeout 8m '-run=^TestVWAPDiagnosticOneBuyKnownPrePOSTEvidenceFailurePreservesUnusedPOST$' ./pkg > "$RUNNER_TEMP/kterminal-pr78-negative-private.jsonl" 2> "$RUNNER_TEMP/kterminal-pr78-negative-private.stderr"
-          rc=$?
-          set -e
-          PR78_NEGATIVE_TEST_RC="$rc" python -B - <<'PY'
           import json,os,pathlib,sys
-          file=pathlib.Path(os.environ['RUNNER_TEMP'])/'kterminal-pr78-negative-private.jsonl'
-          target='TestVWAPDiagnosticOneBuyKnownPrePOSTEvidenceFailurePreservesUnusedPOST'
-          marker='known pre-POST evidence failure burned the one-POST allowance'
-          failed=0;passed=0;matched=False;other_fail=[];malformed=events=0
-          for raw in file.open(encoding='utf-8-sig',errors='replace'):
-            try: e=json.loads(raw)
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          expected={
+            "TestVWAPDiagnosticOneBuyRequiresExactOptInAndOnePostDurability",
+            "TestVWAPDiagnosticOneBuyAdversarialFinalAmountsFailBeforeLock",
+            "TestVWAPDiagnosticOneBuyRejectsPartialEnvironmentAndWrongSide",
+            "TestVWAPDiagnosticOneBuyFinalizedNativeRequestEnforcesCapBeforeEvidence",
+            "TestVWAPDiagnosticOneBuyMinimumPromotionCannotBreakEightDollarCap",
+            "TestVWAPDiagnosticOneBuyKnownPrePOSTEvidenceFailurePreservesUnusedPOST",
+            "TestVWAPDiagnosticOneBuyTransportLockOnlyAfterFinalGuards",
+            "TestVWAPDiagnosticOneBuyTransportConcurrentOnePOST",
+            "TestVWAPDiagnosticOneBuyMissingTransportContextFailsClosed",
+          }
+          passed=set(); failed=set(); malformed=events=0
+          for line in (root/"kterminal-pr78-safety-private.jsonl").open(encoding="utf-8-sig",errors="replace"):
+            try: e=json.loads(line)
             except (ValueError,TypeError): malformed+=1;continue
             if not isinstance(e,dict): malformed+=1;continue
             events+=1
-            name=e.get('Test');action=e.get('Action')
-            if name==target and action=='fail': failed+=1
-            if name==target and action=='pass': passed+=1
-            if action=='fail' and isinstance(name,str) and name!=target: other_fail.append(name)
-            if name==target and action=='output' and isinstance(e.get('Output'),str) and marker in e['Output']: matched=True
-          ok=(int(os.environ['PR78_NEGATIVE_TEST_RC'])!=0 and failed==1 and passed==0 and matched and not other_fail and malformed==0 and events>0)
-          print('PR78_KNOWN_PREPOST_LOCK_CONSUMPTION='+('CONFIRMED' if ok else 'UNVERIFIED'))
-          print('PR78_NEGATIVE_TEST_EXPECTED_FAIL='+('PASS' if ok else 'FAIL'))
-          if not ok: sys.exit(2)
+            n=e.get("Test"); a=e.get("Action")
+            if a=="pass" and n in expected: passed.add(n)
+            if a=="fail" and isinstance(n,str): failed.add(n)
+          ok=(events>0 and malformed==0 and not failed and passed==expected)
+          print("PR78_SAFETY_EXPECTED_PASS="+str(len(passed))+"/"+str(len(expected)))
+          print("PR78_SAFETY_DISPOSITION="+("PASS" if ok else "FAIL"))
+          if not ok:sys.exit(2)
           PY
-          echo PASS > "$RUNNER_TEMP/kterminal-pr78-safe/negative.ok"
-      - name: Seal evidence of diagnostic only (not regression or trade acceptance)
+          echo PASS > "$RUNNER_TEMP/kterm-rc2-safe/safety.ok"
+      - name: Focused P5 observer privacy, original POST guards and reconciliation controls
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          pat='^(TestP5LatencyDisabledByDefaultAndUnknownOperationRefused|TestP5StrictOutputExcludesTradingIdentifiersAndRawErrors|TestP5BucketCountsAndTimingGuards|TestP5AcceptedPersistencePhasesRemainPrivate|TestP5OriginalTrackPaginationReadOnlyAndBucketed|TestP5OneShotDiagnosticOriginalNativeSignal|TestP5OnlyOriginalOrderCreationPostReportsResponseHeaders|TestHistoricalPnLDormantAccountWarmRefreshAvoidsOldTransactionPages|TestHistoricalPnLCompleteThenWarmThenDueAuditPaging|TestHistoricalPnLFullAuditClockAndImmutableJournal|TestHistoricalPnLFullAuditClockMetadataFailureAndRecovery|TestHistoricalPnLReconciliationScopesAnchorsToConfiguredPortfolio)$'
+          root="$RUNNER_TEMP/kterm-rc2-focused-isolation"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          go test -json -p 1 -count=1 -timeout 16m "-run=$pat" ./pkg > "$RUNNER_TEMP/kterm-rc2-focused-private.jsonl" 2> "$RUNNER_TEMP/kterm-rc2-focused-private.stderr"
+          python -B - <<'PY'
+          import json,os,pathlib,re,sys
+          path=pathlib.Path(os.environ['RUNNER_TEMP'])/'kterm-rc2-focused-private.jsonl'
+          required={'TestP5LatencyDisabledByDefaultAndUnknownOperationRefused',
+                    'TestP5StrictOutputExcludesTradingIdentifiersAndRawErrors',
+                    'TestP5BucketCountsAndTimingGuards',
+                    'TestP5AcceptedPersistencePhasesRemainPrivate',
+                    'TestP5OriginalTrackPaginationReadOnlyAndBucketed',
+                    'TestP5OneShotDiagnosticOriginalNativeSignal',
+                    'TestP5OnlyOriginalOrderCreationPostReportsResponseHeaders',
+                    'TestHistoricalPnLCompleteThenWarmThenDueAuditPaging',
+                    'TestHistoricalPnLFullAuditClockAndImmutableJournal',
+                    'TestHistoricalPnLFullAuditClockMetadataFailureAndRecovery',
+                    'TestHistoricalPnLDormantAccountWarmRefreshAvoidsOldTransactionPages',
+                    'TestHistoricalPnLReconciliationScopesAnchorsToConfiguredPortfolio'}
+          allowed=re.compile(r'^Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_.#-]+)*$')
+          passed=set();failed=set();bad=events=0
+          for line in path.open(encoding='utf-8-sig',errors='replace'):
+            try:e=json.loads(line)
+            except (ValueError,TypeError):bad+=1;continue
+            if not isinstance(e,dict):bad+=1;continue
+            events+=1
+            name,action=e.get('Test'),e.get('Action')
+            if isinstance(name,str) and allowed.fullmatch(name):
+              if action=='pass' and name in required:passed.add(name)
+              if action=='fail':failed.add(name)
+          ok=events>0 and bad==0 and not failed and required.issubset(passed)
+          print('KTERM_PR73_FOCUSED_REQUIRED_PASS='+str(len(passed)))
+          print('KTERM_PR73_FOCUSED_REQUIRED_TOTAL='+str(len(required)))
+          print('KTERM_PR73_FOCUSED_DISPOSITION='+('PASS' if ok else 'FAIL'))
+          if not ok:sys.exit(2)
+          PY
+          echo PASS > "$RUNNER_TEMP/kterm-rc2-safe/focused.ok"
+          echo KTERM_RC2_FOCUSED=PASS
+      - name: One mandatory full original Windows Go regression with sanitized timing custody
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kterm-rc2-full-isolation"
+          mkdir -p "$root/tail" "$root/post" "$root/private"
+          export K_TERMINAL_TEST_WORKSPACE="$root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          started=$(date +%s)
+          set +e
+          go test -json -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/kterm-rc2-full-private.jsonl" 2> "$RUNNER_TEMP/kterm-rc2-full-private.stderr"
+          rc=$?
+          set -e
+          elapsed=$(( $(date +%s) - started ))
+          KTERM_FULL_RC="$rc" KTERM_WALL_SECONDS="$elapsed" python -B - <<'PY'
+          import hashlib, json, os, pathlib, re, sys
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          safe = temp / 'kterm-rc2-safe'
+          safe.mkdir(exist_ok=True)
+          raw = temp / 'kterm-rc2-full-private.jsonl'
+          test_pat = re.compile(r'^Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_.#-]+)*$')
+          package_pat = re.compile(r'^k-terminal/[A-Za-z0-9_./-]+$')
+          tests, packages, failed_tests, failed_packages = [], [], set(), set()
+          failure_classes = set()
+          target = 'TestPrototypeConsumedInitialNativeProtectedAuthorityNegatives/BTC-USDC/foreign_signal_session'
+          classes = {
+              'expired_quote_snapshot': 'stale or future quote snapshot',
+              'expired_account_snapshot': 'stale or future account snapshot',
+              'expired_product_snapshot': 'stale or future product snapshot',
+              'snapshot_premise': 'foreign authority control failed an unrelated snapshot premise',
+              'authority_premise': 'original current authority premise is invalid',
+              'incorrect_foreign_rejection': 'actual protected native authority did not specifically reject foreign evidence',
+              'changed_financial_or_journal_bytes': 'foreign authority rejection changed exact financial/journal/claim bytes',
+          }
+          event_count = malformed_count = 0
+          if raw.is_file():
+              with raw.open('r', encoding='utf-8-sig', errors='replace') as src:
+                  for line in src:
+                      try: e = json.loads(line)
+                      except (ValueError, TypeError):
+                          malformed_count += 1
+                          continue
+                      if not isinstance(e, dict):
+                          malformed_count += 1
+                          continue
+                      event_count += 1
+                      action, test, package, elapsed = (e.get(x) for x in ('Action','Test','Package','Elapsed'))
+                      if action == 'output' and test == target:
+                          output = e.get('Output')
+                          if isinstance(output,str):
+                              for category, phrase in classes.items():
+                                  if phrase in output: failure_classes.add(category)
+                      if action == 'fail':
+                          if isinstance(test,str) and test_pat.fullmatch(test): failed_tests.add(test)
+                          elif test is None and isinstance(package,str) and package_pat.fullmatch(package): failed_packages.add(package)
+                      if action != 'pass' or not isinstance(elapsed,(float,int)) or not 0 <= elapsed < 100000:
+                          continue
+                      if isinstance(test,str) and test_pat.fullmatch(test):
+                          tests.append({'name':test,'seconds':round(float(elapsed),5)})
+                      elif test is None and isinstance(package,str) and package_pat.fullmatch(package):
+                          packages.append({'name':package,'seconds':round(float(elapsed),5)})
+          payload = {
+              'schema':'kterminal-regression-durations.forge.v1',
+              'kterminal_source_sha':os.environ['KTERM_SHA'],
+              'kterminal_source_tree':os.environ['KTERM_TREE'],
+              'forge_qualification_sha':os.environ['GITHUB_SHA'],
+              'baseline_sha':os.environ['KTERM_BASELINE'],
+              'toolchain':'go1.26.5 windows/amd64',
+              'command':'go test -json -p 1 -count=1 -timeout 60m ./...',
+              'full_test_exit':int(os.environ['KTERM_FULL_RC']),
+              'wall_seconds':int(os.environ['KTERM_WALL_SECONDS']),
+              'event_count':event_count,
+              'malformed_count':malformed_count,
+              'top_tests':sorted(tests,key=lambda z:z['seconds'],reverse=True)[:12],
+              'top_packages':sorted(packages,key=lambda z:z['seconds'],reverse=True)[:12],
+              'failed_tests':sorted(failed_tests),
+              'failure_classes':sorted(failure_classes),
+              'failed_packages':sorted(failed_packages),
+              'private_logs_exported':False,
+              'broker_orders':0,
+              'field_performance_verified':False,
+          }
+          contents = json.dumps(payload,sort_keys=True,separators=(',',':')).encode()
+          (safe/'durations.json').write_bytes(contents)
+          (safe/'durations.sha256').write_text(hashlib.sha256(contents).hexdigest(),encoding='ascii')
+          qualified = (payload['full_test_exit']==0 and event_count>0 and malformed_count==0 and
+                       len(tests)>0 and len(packages)>0 and not failed_tests and not failed_packages)
+          if qualified:
+              (safe/'full.ok').write_text('PASS',encoding='ascii')
+          print('KTERM_RC2_FULL_DISPOSITION='+('PASS' if qualified else 'FAIL'))
+          print('KTERM_RC2_FULL_EVENT_COUNT='+str(event_count))
+          print('KTERM_RC2_FAILURE_CLASSES='+','.join(sorted(failure_classes)))
+          print('KTERM_RC2_TIMING_DIGEST='+hashlib.sha256(contents).hexdigest())
+          if not qualified: sys.exit(2)
+          PY
+      - name: Vet complete original Windows source
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          go vet ./... > "$RUNNER_TEMP/kterm-rc2-vet-private.log" 2>&1
+          echo PASS > "$RUNNER_TEMP/kterm-rc2-safe/vet.ok"
+          echo KTERM_RC2_VET=PASS
+      - name: Build unpromoted original Windows K-Terminal engine
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          go build -trimpath -o "$RUNNER_TEMP/kterm-rc2-unpromoted-engine.exe" . > "$RUNNER_TEMP/kterm-rc2-build-private.log" 2>&1
+          test -f "$RUNNER_TEMP/kterm-rc2-unpromoted-engine.exe"
+          echo PASS > "$RUNNER_TEMP/kterm-rc2-safe/build.ok"
+          echo KTERM_RC2_BUILD=PASS
+      - name: Seal privacy-safe exact-SHA qualification receipt, even on failure
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           python -B - <<'PY'
-          import os,json,hashlib,pathlib
-          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'kterminal-pr78-safe'
-          root.mkdir(exist_ok=True)
-          checks={name: ('PASS' if (root/(name+'.ok')).is_file() and (root/(name+'.ok')).read_text().strip()=='PASS' else 'NOT_VERIFIED') for name in ('source','positive','negative')}
-          ok=all(v=='PASS' for v in checks.values())
-          obj={'schema':'forge.kterminal.pr78.prepost-negative.v1','forge_qualification_sha':os.environ['GITHUB_SHA'],'kterminal_source_sha':os.environ['KTERM_SHA'],'kterminal_source_tree':os.environ['KTERM_TREE'],'baseline_sha':os.environ['KTERM_BASELINE'],'checks':checks,'disposition':'PREPOST_NEGATIVE_DEFECT_CONFIRMED_DEVELOPMENT_ONLY' if ok else 'DIAGNOSTIC_UNVERIFIED','full_regression':'NOT_RUN_INTENTIONALLY_FAILING_TEST','vet':'NOT_RUN','build':'NOT_RUN','installed':False,'live_authorized':False,'broker_orders':0,'deployment_accepted':False}
-          body=json.dumps(obj,sort_keys=True,separators=(',',':')).encode()
-          (root/'receipt.json').write_bytes(body)
-          digest=hashlib.sha256(body).hexdigest()
-          (root/'receipt.sha256').write_text(digest)
-          print('PR78_DIAGNOSTIC_DISPOSITION='+obj['disposition'])
-          print('PR78_RECEIPT_SHA256='+digest)
+          import hashlib,json,os,pathlib
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          safe = temp/'kterm-rc2-safe'
+          safe.mkdir(exist_ok=True)
+          flags={n:((safe/(n+'.ok')).read_text(encoding='ascii').strip() if (safe/(n+'.ok')).is_file() else 'NOT_RUN') for n in ('source','wpf','safety','focused','full','vet','build')}
+          dur=safe/'durations.json'
+          digest=safe/'durations.sha256'
+          actual=hashlib.sha256(dur.read_bytes()).hexdigest() if dur.is_file() else None
+          declared=digest.read_text(encoding='ascii').strip() if digest.is_file() else None
+          duration_status='MATCH' if actual and actual==declared else ('MISSING' if not actual or not declared else 'MISMATCH')
+          passed=all(v=='PASS' for v in flags.values()) and duration_status=='MATCH'
+          receipt={
+              'schema':'forge.kterminal.pr78-lock-boundary.original-windows.v1',
+              'forge_qualification_sha':os.environ['GITHUB_SHA'],
+              'kterminal_source_sha':os.environ['KTERM_SHA'],
+              'kterminal_source_tree':os.environ['KTERM_TREE'],
+              'baseline_sha':os.environ['KTERM_BASELINE'],
+              'disposition':'FULL_VET_BUILD_AND_DURATION_PASS_UNPROMOTED' if passed else 'QUALIFICATION_BLOCKED',
+              'checks':flags,
+              'duration_evidence_status':duration_status,
+              'duration_sha256':actual if duration_status=='MATCH' else None,
+              'desktop_accepted':False,
+              'field_performance_verified':False,
+              'installed':False,
+              'merged_or_promoted':False,
+              'broker_orders':0,
+              'production_data_changed':False,
+          }
+          body=json.dumps(receipt,sort_keys=True,separators=(',',':')).encode()
+          (safe/'receipt.json').write_bytes(body)
+          (safe/'receipt.sha256').write_text(hashlib.sha256(body).hexdigest(),encoding='ascii')
+          print('KTERM_RC2_QUALIFICATION='+receipt['disposition'])
+          print('KTERM_RC2_RECEIPT_DIGEST='+hashlib.sha256(body).hexdigest())
           PY
-      - name: Upload sanitized receipt only
+      - name: Upload only sanitized timings and receipt, never private logs or binaries
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: kterminal-pr78-prepost-negative-safe-${{ github.run_id }}
+          name: kterminal-pr78-lock-boundary-safe-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterminal-pr78-safe/receipt.json
-            ${{ runner.temp }}/kterminal-pr78-safe/receipt.sha256
+            ${{ runner.temp }}/kterm-rc2-safe/receipt.json
+            ${{ runner.temp }}/kterm-rc2-safe/receipt.sha256
+            ${{ runner.temp }}/kterm-rc2-safe/durations.json
+            ${{ runner.temp }}/kterm-rc2-safe/durations.sha256
           retention-days: 30
           if-no-files-found: error
