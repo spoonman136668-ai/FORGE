@@ -94,6 +94,55 @@ class TypedProgramTests(unittest.TestCase):
         laplace = "rate add add success one add zero zero add add total two add zero zero"
         self.assertTrue(public_rate_preflight(laplace))
 
+    def test_pr830_domain_equivalence_rejected_without_rewriting_history(self):
+        # The exact natural F139 Yggdrasil PR #830 head program simplifies to
+        # success / total only on the genuine nonnegative, nonempty domain:
+        # min(success,total,success*total) == success.
+        programs = (
+            "rate min min success total mul success total add add total zero add zero zero",
+            "rate min min total success mul total success add add total zero add zero zero",
+            "rate min add success zero add total zero add add total zero add zero zero",
+        )
+        for program in programs:
+            with self.subTest(program=program):
+                self.assertFalse(public_rate_preflight(program))
+                # Prospective rejection cannot erase or re-hash earlier drafts:
+                # the historical decoder still reconstructs the exact bytes.
+                original_bytes = source_for_program(BEFORE, program)
+                self.assertNotEqual(original_bytes, BEFORE)
+                recovered = recover_program(BEFORE, original_bytes)
+                self.assertIsNotNone(recovered)
+                self.assertEqual(source_for_program(BEFORE, recovered),
+                                 original_bytes)
+
+        # Independent rational oracle, including both arm orders and ties.
+        baseline = SEED
+        cases = [(failure, success)
+                 for trials in (1, 2, 7, 16)
+                 for success in range(trials + 1)
+                 for failure in (trials - success,)]
+        cases.extend(((0, 65535), (65535, 0), (65535, 65535)))
+        for first in cases:
+            for second in cases:
+                counts = (first, second)
+                expected = oracle(baseline, counts)
+                self.assertEqual(oracle(programs[0], counts), expected)
+
+    def test_domain_proof_does_not_reject_actual_counter_dependent_rates(self):
+        # min(success,total) is exactly success; the *denominator* matters.
+        # total+1 changes decisions at unequal exposure but preserves the
+        # required matched-exposure ordering and abstention checks.
+        changed = (
+            "rate min add success zero add total zero add add total one add zero zero"
+        )
+        self.assertTrue(public_rate_preflight(changed))
+        self.assertNotEqual(source_for_program(BEFORE, changed), BEFORE)
+        counts = ((0, 1), (3, 7))
+        self.assertNotEqual(oracle(changed, counts), oracle(SEED, counts))
+        laplace = "rate add add success one add zero zero add add total two add zero zero"
+        self.assertTrue(public_rate_preflight(laplace))
+        self.assertEqual(source_for_program(BEFORE, laplace), LEGACY[3])
+
     def test_new_proposals_preserve_public_matched_exposure_order(self):
         proposal = plan()
         self.assertIsNotNone(proposal)

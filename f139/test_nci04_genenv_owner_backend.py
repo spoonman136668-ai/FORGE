@@ -18,6 +18,42 @@ BEFORE = fixtures.BEFORE
 
 
 class SourceUseRequestTests(unittest.TestCase):
+    def test_v39_binary_and_typed_custody_accepts_only_cold_verified_known_source_schema(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as temp:
+            source = 'a'*40
+            raw = b'development-only-byte-custody-fixture-not-executed'
+            binary = Path(temp)/'genenv-source'/source/'f139-genenv-source.exe'
+            binary.parent.mkdir(parents=True); binary.write_bytes(raw)
+            conn = sqlite3.connect(':memory:');self.addCleanup(conn.close);conn.row_factory=sqlite3.Row
+            conn.execute('CREATE TABLE events(seq INTEGER,kind TEXT,payload TEXT)')
+            verified=[]
+            db=SimpleNamespace(conn=conn,filename=Path(temp)/'state.sqlite',
+                verify=lambda:verified.append(True),meta=lambda:{'source_sha':source})
+            for schema, accepted in (('v32',True),('v33',True),('v34',True),('v35',False)):
+                conn.execute('DELETE FROM events')
+                doc=dict(schema='forge.f139.source-transition.'+schema,
+                         to_source_sha=source,genenv_executable_sha256=digest(raw),
+                         generation_mechanism_sha256=digest(backend.generation_mechanism()))
+                conn.execute('INSERT INTO events VALUES(?,?,?)',(1,'SOURCE_TRANSITION_ADMITTED',json.dumps(doc)))
+                if accepted:
+                    self.assertEqual(backend.executable_custody(db,source),(binary,digest(raw)))
+                    backend.typed_generation_custody(db,source,digest(backend.generation_mechanism()))
+                else:
+                    with self.assertRaisesRegex(backend.BackendUnavailable,'RELEASE_NOT_BOUND'):
+                        backend.executable_custody(db,source)
+                    with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_RELEASE_NOT_BOUND'):
+                        backend.typed_generation_custody(db,source,digest(backend.generation_mechanism()))
+            self.assertEqual(len(verified),8)
+            doc['schema']='forge.f139.source-transition.v34'
+            conn.execute('UPDATE events SET payload=?',(json.dumps(doc),))
+            with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_MECHANISM_DRIFT'):
+                backend.typed_generation_custody(db,source,'f'*64)
+            with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_RELEASE_NOT_BOUND'):
+                backend.typed_generation_custody(db,'b'*40,digest(backend.generation_mechanism()))
+            binary.write_bytes(b'changed bytes')
+            with self.assertRaisesRegex(backend.BackendUnavailable,'EXECUTABLE_DRIFT'):
+                backend.executable_custody(db,source)
     def consumed(self):
         return {digest(x[1]) for x in search.candidates(BEFORE)}
 
