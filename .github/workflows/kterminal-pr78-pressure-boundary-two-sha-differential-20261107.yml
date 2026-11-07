@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      FORGE_PARENT: c4a4fd5406c6d30227e2bbd6e1a1ea8f7f88bd4a
+      FORGE_PARENT: 9c01ca1f8c104b22767476d2b29d0654b41b4546
       KTERM_SHA: 070ad561de7183f7f28e363d96d354a62f509172
       KTERM_TREE: e5e611ef50a8dd0b5b4ba5c5947c7320c08d31ae
       K_TERMINAL_EXECUTION_MODE: PAPER
@@ -62,7 +62,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$KTERM_SHA" || { echo FRESH_PREFLIGHT_FAILED_SOURCE_SHA; exit 3; }
           test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE" || { echo FRESH_PREFLIGHT_FAILED_SOURCE_TREE; exit 3; }
           test "$(git rev-parse HEAD:BUILD.ps1)" = '1fa3a6b5a001a8ba63132db0d53f9d80c48190e8' || { echo FRESH_PREFLIGHT_FAILED_BUILD_BLOB; exit 3; }
-          test "$(git rev-parse HEAD:cmd/launcher/desktop-session.cs)" = '5ca4dfe0c695c4f7b83dbe19f95e4dfc23679efd' || { echo FRESH_PREFLIGHT_FAILED_LAUNCHER_BLOB; exit 3; }
+          test "$(git rev-parse HEAD:cmd/launcher/desktop-session.cs)" = '5ca4dfe0c695c4f7b83dbe19f95e4dfc23679efd'
+          test "$(git rev-parse HEAD:pkg/tranche-plans.json)" = '0e4ded2ff9911382fb945c41ca366a73508652e0' || { echo FRESH_PREFLIGHT_FAILED_LAUNCHER_BLOB; exit 3; }
           test "$(git rev-parse HEAD:verification/build-ui-runtime.ps1)" = '892f3a93fe26a7304268667c28a1d5e9d1e87676' || { echo FRESH_PREFLIGHT_FAILED_WPF_BLOB; exit 3; }
           test "$(git rev-parse HEAD:go.mod)" = 'b3ede0d8444c08b3e7b23f1396374359b54134c6' || { echo FRESH_PREFLIGHT_FAILED_GO_MOD; exit 3; }
           test -z "$(git status --porcelain)" || { echo FRESH_PREFLIGHT_FAILED_SOURCE_CLEAN; exit 3; }
@@ -136,6 +137,11 @@ jobs:
           foreach($f in $rootFiles){Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $root $f.Name)}
           foreach($name in $binaries){Copy-Item -LiteralPath (Join-Path $source $name) -Destination (Join-Path $root $name)}
           Copy-Item -LiteralPath (Join-Path $source 'assets') -Destination (Join-Path $root 'assets') -Recurse
+          [void][IO.Directory]::CreateDirectory((Join-Path $root 'pkg'))
+          $registry=Join-Path $source 'pkg\tranche-plans.json'
+          if(-not(Test-Path -LiteralPath $registry -PathType Leaf)){throw 'FRESH_INSTALL_TRANCHE_REGISTRY_MISSING'}
+          Copy-Item -LiteralPath $registry -Destination (Join-Path $root 'pkg\tranche-plans.json')
+          if((Get-FileHash -LiteralPath (Join-Path $root 'pkg\tranche-plans.json') -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $registry -Algorithm SHA256).Hash){throw 'FRESH_INSTALL_TRANCHE_REGISTRY_COPY_DRIFT'}
           [void][IO.Directory]::CreateDirectory((Join-Path $root 'diagnostics'))
           Copy-Item -LiteralPath (Join-Path $source 'verification\KTerminal-Live-Session-Recorder-v1.2.ps1') -Destination (Join-Path $root 'diagnostics\KTerminal-Live-Session-Recorder-v1.2.ps1')
           $guide=@'
@@ -191,6 +197,7 @@ jobs:
           try {
             $entries=@($archive.Entries|Where-Object{-not $_.FullName.EndsWith('/')})
             if($entries.Count -ne ($files.Count+2)){throw 'FRESH_INSTALL_ZIP_ENTRY_COUNT_MISMATCH'}
+            if(@($entries|Where-Object{$_.FullName.EndsWith('/pkg/tranche-plans.json')}).Count -ne 1){throw 'FRESH_INSTALL_ZIP_TRANCHE_REGISTRY_MISSING'}
             foreach($binary in $binaries){
               if(@($entries|Where-Object{$_.FullName.EndsWith('/'+$binary)}).Count -ne 1){throw ('FRESH_INSTALL_ZIP_BINARY_MISSING_'+$binary)}
             }
