@@ -34,6 +34,9 @@ class RealSourceWorkloadTests(unittest.TestCase):
         source, groups = cohorts(ROOT)
         self.assertEqual(blob(source), BLOB)
         paths = {name: {path for path, _ in data} for name, data in groups.items()}
+        excluded = {"f139/rsi_r3_real_workload.py",
+                    "f139/test_rsi_r3_real_workload.py"}
+        self.assertFalse(excluded & set().union(*paths.values()))
         self.assertFalse(paths["train"] & paths["holdout"])
         self.assertFalse(paths["train"] & paths["validation"])
         self.assertFalse(paths["validation"] & paths["holdout"])

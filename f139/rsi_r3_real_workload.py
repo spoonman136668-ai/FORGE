@@ -64,7 +64,8 @@ def cohorts(root):
     need(blob(original) == BLOB, "SOURCE_PREIMAGE_DRIFT")
     groups = {"train": [], "validation": [], "holdout": []}
     for path in sorted((root / "f139").glob("*.py")):
-        if path.is_symlink() or path.name.startswith("rsi_r3_real_workload") or not path.is_file():
+        if (path.is_symlink() or path.name in {"rsi_r3_real_workload.py",
+                "test_rsi_r3_real_workload.py"} or not path.is_file()):
             continue
         if not 0 < path.stat().st_size <= 65536:
             continue
