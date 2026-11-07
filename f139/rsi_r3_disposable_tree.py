@@ -77,8 +77,10 @@ def _safe_source(repo: Path, scratch: Path, expected_head: str,
     need(len(expected_target_sha256) == 64 and
          all(c in "0123456789abcdef" for c in expected_target_sha256),
          "EXPECTED_TARGET_INVALID")
-    need(git(repo, "rev-parse", "--show-toplevel") == str(repo),
-         "NOT_GIT_ROOT")
+    # Git for Windows returns forward slashes (D:/...) while Path.__str__
+    # uses backslashes. Compare resolved paths, not spelling or separators.
+    need(Path(git(repo, "rev-parse", "--show-toplevel")).resolve(strict=True)
+         == repo, "NOT_GIT_ROOT")
     need(git(repo, "rev-parse", "HEAD") == expected_head, "SOURCE_HEAD_DRIFT")
     need(not git(repo, "status", "--porcelain", "--untracked-files=all"),
          "SOURCE_DIRTY")
