@@ -8,6 +8,7 @@ No GitHub network, no owner profile, no real worker, and no dispatch.
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 import sqlite3
 import tempfile
 import unittest
@@ -25,8 +26,30 @@ from f139.nci04_owner_ledger import (
 NEW_SOURCE = "c" * 40
 
 
+@lru_cache(maxsize=1)
+def _sealed_two_negative_template():
+    """Preserve exact original 55-event setup, close, checkpoint and copy bytes.
+
+    No SQLite handle, owner record or mutable fixture object is shared.
+    """
+    original = TwoNegativeControllerIntegration()
+    original._build_uncached_fixture()
+    try:
+        original.db.verify()
+        original.db.close()
+        path = original.path
+        if path.with_name(path.name + "-wal").exists():
+            raise AssertionError("G117_TEMPLATE_WAL_NOT_CHECKPOINTED")
+        data = path.read_bytes()
+        if not data or len(data) > 4 * 1024 * 1024:
+            raise AssertionError("G117_TEMPLATE_SIZE_OUT_OF_BOUNDS")
+        return data
+    finally:
+        original.doCleanups()
+
+
 class TwoNegativeControllerIntegration(unittest.TestCase):
-    def setUp(self):
+    def _build_uncached_fixture(self):
         tmp = tempfile.TemporaryDirectory(prefix="forge-a8e2a3-v3-")
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name) / "state.sqlite"
@@ -80,6 +103,31 @@ class TwoNegativeControllerIntegration(unittest.TestCase):
         with self.db.transaction():
             self.db.event("ATTEMPT_QUARANTINED", {
                 "ticket": TICKET_706, "reason": "FAILED_OR_CANCELLED_NO_REPLAY"})
+        self.assertEqual(self.db.meta()["head_seq"], 55)
+        self.original_55 = [dict(r) for r in self.db.conn.execute(
+            "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq")]
+
+    def setUp(self):
+        template = _sealed_two_negative_template()
+        tmp = tempfile.TemporaryDirectory(prefix="forge-a8e2a3-v3-")
+        self.addCleanup(tmp.cleanup)
+        self.path = Path(tmp.name) / "state.sqlite"
+        self.path.write_bytes(template)
+        self.old = mock.patch(
+            "f139.nci04_negative_owner_store.verify_original_negative_custody",
+            return_value=True)
+        self.second = mock.patch(
+            "f139.nci04_split_negative_owner_store.verify_second_negative_custody",
+            side_effect=lambda db: db.conn.execute(
+                "SELECT COUNT(*) FROM events WHERE kind=?", (KIND_706,)
+            ).fetchone()[0] == 1)
+        self.old.start()
+        self.second.start()
+        self.addCleanup(self.old.stop)
+        self.addCleanup(self.second.stop)
+        # Open and fully verify each distinct cold SQLite file, with FULL/WAL.
+        self.db = Database(self.path)
+        self.addCleanup(self.db.close)
         self.assertEqual(self.db.meta()["head_seq"], 55)
         self.original_55 = [dict(r) for r in self.db.conn.execute(
             "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq")]
