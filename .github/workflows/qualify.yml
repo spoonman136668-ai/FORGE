@@ -101,6 +101,20 @@ jobs:
           python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
           CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
+      - name: Read-only native two-generation selector evidence
+        if: github.head_ref == 'engineering/rsi-two-generation-native-rehearsal-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v -run '^TestAgentFreeTwoGenerationSelectorRehearsal$' ./dreamrsi | tee "$RUNNER_TEMP/forge-rsi-two-gen.log"
+          test "$(grep -c 'FORGE_NATIVE_RSI_TWO_GEN=' "$RUNNER_TEMP/forge-rsi-two-gen.log")" -eq 2
+      - name: Retain exact-source native two-generation receipt
+        if: always() && github.head_ref == 'engineering/rsi-two-generation-native-rehearsal-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-rsi-two-gen-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-rsi-two-gen.log
+          if-no-files-found: error
       - name: Tests, race, vet and build
         shell: bash
         run: |
@@ -236,6 +250,20 @@ jobs:
           python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
           CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
+      - name: Read-only native two-generation selector evidence
+        if: github.head_ref == 'engineering/rsi-two-generation-native-rehearsal-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v -run '^TestAgentFreeTwoGenerationSelectorRehearsal$' ./dreamrsi | tee "$RUNNER_TEMP/forge-rsi-two-gen.log"
+          test "$(grep -c 'FORGE_NATIVE_RSI_TWO_GEN=' "$RUNNER_TEMP/forge-rsi-two-gen.log")" -eq 2
+      - name: Retain exact-source native two-generation receipt
+        if: always() && github.head_ref == 'engineering/rsi-two-generation-native-rehearsal-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-rsi-two-gen-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-rsi-two-gen.log
+          if-no-files-found: error
       - name: Native Windows source qualification
         shell: pwsh
         run: |
