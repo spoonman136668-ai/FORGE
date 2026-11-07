@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-BASE = "1429fbcf38eb3e4cbbf79b87231c2eafe13a7f20"
+BASE = "e48693e41347942c2b581c2fa2793406020b7b67"
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER_BRANCH = "engineering/f139-ledger-cold-fixture-dev-20261107"
 EXPECTED_SKIPS = 7 if os.name == "nt" else 24
@@ -55,6 +55,102 @@ def discover_ids(path):
     return int(matches[0][0]), matches[0][1]
 
 
+
+def _step(path, label, argv, *, stdin=None, env_extra=None, timeout=480):
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    if env_extra:
+        env.update(env_extra)
+    started = time.perf_counter()
+    completed = subprocess.run(
+        argv, cwd=path, env=env, input=stdin, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        errors="replace", timeout=timeout)
+    elapsed = time.perf_counter() - started
+    if completed.returncode != 0:
+        raise ValueError("ABBA_WINDOWS_STAGE_FAILED_" + label
+                         + "_RC_" + str(completed.returncode))
+    return round(elapsed, 6), completed.stdout
+
+
+def windows_pre_suite(path):
+    """The original Windows qualification's executable pre-Python controls."""
+    controls = (
+        ("isolation-unittest", [sys.executable, "-B", "-m", "unittest",
+             "discover", "-s", "isolationguard", "-p", "test_*.py", "-v"]),
+        ("isolation-enforcement", [sys.executable, "-B", "isolationguard/check.py"]),
+        ("fsa-scripts", [sys.executable, "-B", "-m", "unittest", "discover",
+             "-s", "scripts", "-p", "test_fsa_*py", "-v"]),
+        ("fsad1", [sys.executable, "-B", "-m", "unittest", "discover",
+             "-s", "fsad1", "-p", "test_*.py", "-v"]),
+        ("transport", [sys.executable, "-B", "-m", "unittest", "discover",
+             "-s", "f139", "-p", "test_github_command_transport.py", "-v"]),
+    )
+    for source in ("80ae30719bcd9f179da4aa4e8f14dc36fd15818e",
+                   "556d61f795cab1a042d26b46bbc1087dd436f52d"):
+        _step(path, "pinned-transport-source",
+              ["git", "cat-file", "-e",
+               source + ":f139/local_controller.py"])
+    return {name: _step(path, name, cmd)[0] for name, cmd in controls}
+
+
+def windows_post_suite(path):
+    """Repeat each real Go/GenEnv/Promptbreeder Windows qualification command.
+
+    GitHub checkout/setup-go/artifact upload are shared overhead, not included
+    in the separately labeled, matched executable-critical-path measurement.
+    """
+    report = {}
+    modules = (
+        ("genenv", "f139.check_genenv_source_integration"),
+        ("prompt", "f139.check_prompt_source_integration"),
+        ("typed", "f139.check_prompt_program_integration"),
+    )
+    with tempfile.TemporaryDirectory(prefix="f139-abba-genenv-") as work:
+        old_result = None
+        for name, module in modules:
+            request_args = [sys.executable, "-B", "-m", module, "--request"]
+            elapsed, request = _step(path, name + "-request", request_args)
+            report[name + "-request"] = elapsed
+            env = {"CGO_ENABLED": "0", "GOTOOLCHAIN": "local"}
+            elapsed, result = _step(
+                path, name + "-go-run",
+                ["go", "run", "./cmd/f139-genenv-source"], stdin=request,
+                env_extra=env, timeout=600)
+            report[name + "-go-run"] = elapsed
+            output = Path(work) / (name + ".json")
+            output.write_text(result, encoding="utf-8")
+            elapsed, _ = _step(
+                path, name + "-validate",
+                [sys.executable, "-B", "-m", module, "--result", str(output)])
+            report[name + "-validate"] = elapsed
+            if name == "typed":
+                old_result = output
+                elapsed, request = _step(
+                    path, "typed-next-request",
+                    [sys.executable, "-B", "-m", module, "--request",
+                     "--previous", str(old_result)])
+                report["typed-next-request"] = elapsed
+                elapsed, result = _step(
+                    path, "typed-next-go-run",
+                    ["go", "run", "./cmd/f139-genenv-source"], stdin=request,
+                    env_extra=env, timeout=600)
+                report["typed-next-go-run"] = elapsed
+                output2 = Path(work) / "typed-next.json"
+                output2.write_text(result, encoding="utf-8")
+                elapsed, _ = _step(
+                    path, "typed-next-validate",
+                    [sys.executable, "-B", "-m", module, "--result",
+                     str(output2), "--previous", str(old_result)])
+                report["typed-next-validate"] = elapsed
+    for label, command in (
+        ("go-test", ["go", "test", "-count=1", "./..."]),
+        ("go-vet", ["go", "vet", "./..."]),
+        ("go-build", ["go", "build", "./..."]),
+    ):
+        report[label] = _step(path, label, command, timeout=720)[0]
+    return report
+
+
 def execute(path, kind, index):
     # TextTestRunner's verbose output is not an outcome inventory: tests may
     # print during a case, or use non-test_* names. The repository's existing
@@ -68,12 +164,12 @@ suite = discover_profile_suite(Path.cwd())
 ids = case_ids(suite)
 report = profile_suite(suite, ids, stream=io.StringIO())
 if not (report["successful"] and report["complete_inventory_and_order"]
-        and report["tests_run"] == len(ids) == 1415
+        and report["tests_run"] == len(ids) == 1420
         and report["failures"] == report["errors"] == 0
         and report["unexpected_successes"] == 0):
     raise SystemExit("ABBA_ORIGINAL_FULL_SUITE_FAILED")
 outcomes = [(row["id"], row["outcome"]) for row in report["cases"]]
-if len(outcomes) != 1415 or any(
+if len(outcomes) != 1420 or any(
         outcome not in ("success", "skipped", "expected_failure")
         for _identity, outcome in outcomes):
     raise SystemExit("ABBA_OUTCOME_IDENTITY_INCOMPLETE")
@@ -86,6 +182,8 @@ print("ABBA_RESULT=" + json.dumps({
         json.dumps(outcomes, separators=(",", ":")).encode()).hexdigest(),
 }, sort_keys=True))
 '''
+    pipeline_started = time.perf_counter()
+    component_seconds = windows_pre_suite(path) if os.name == "nt" else {}
     started = time.perf_counter()
     result = subprocess.run(
         [sys.executable, "-B", "-c", code], cwd=path,
@@ -98,9 +196,16 @@ print("ABBA_RESULT=" + json.dumps({
         raise ValueError("ABBA_FULL_SUITE_FAILED_" + kind + "_" + str(index)
                          + "_rc" + str(result.returncode))
     doc = json.loads(matches[0])
-    if doc["tests"] != 1415 or doc["skips"] != EXPECTED_SKIPS:
+    if doc["tests"] != 1420 or doc["skips"] != EXPECTED_SKIPS:
         raise ValueError("ABBA_COVERAGE_OR_SKIP_DRIFT")
+    if os.name == "nt":
+        component_seconds["python-f139-full-suite"] = round(seconds, 6)
+        component_seconds.update(windows_post_suite(path))
+    executable_seconds = time.perf_counter() - pipeline_started
     return {"arm": index, "kind": kind, "elapsed_seconds": round(seconds, 6),
+            "windows_executable_seconds": (
+                round(executable_seconds, 6) if os.name == "nt" else None),
+            "components_seconds": component_seconds,
             "tests": doc["tests"], "skips": doc["skips"],
             "skipped_sha256": doc["skipped_sha256"],
             "outcomes_sha256": doc["outcomes_sha256"],
@@ -132,7 +237,7 @@ def main():
                 ("candidate", candidate, candidate_tree)):
                 clean_and_pinned(paths[name], sha, tree)
             ids = {name: discover_ids(path) for name, path in paths.items()}
-            if ids["baseline"] != ids["candidate"] or ids["baseline"][0] != 1415:
+            if ids["baseline"] != ids["candidate"] or ids["baseline"][0] != 1420:
                 raise ValueError("ABBA_DISCOVERY_IDENTITY_DRIFT")
             timings = []
             for n, kind in enumerate(("baseline", "candidate",
@@ -149,17 +254,37 @@ def main():
             ratios = [a/b, d/c]
             aggregate = (a+d)/(b+c)
             passed = (min(ratios) >= 1.0 and aggregate >= 1.03)
+            whole_windows = None
+            if os.name == "nt":
+                times = [x["windows_executable_seconds"] for x in timings]
+                wa, wb, wc, wd = times
+                windows_pairs = [wa / wb, wd / wc]
+                windows_aggregate = (wa + wd) / (wb + wc)
+                whole_windows = {
+                    "kind": "matched_windows_executable_ci_critical_path",
+                    "excluded_common_overhead": [
+                        "checkout_action", "setup_go_action",
+                        "artifact_upload_action", "runner_allocation"],
+                    "pair_speedups": [round(x, 6) for x in windows_pairs],
+                    "aggregate_speedup": round(windows_aggregate, 6),
+                    "minimum_each_pair": 1.0,
+                    "minimum_aggregate": 1.0,
+                    "critical_path_improvement": (
+                        min(windows_pairs) > 1.0
+                        and windows_aggregate > 1.0),
+                }
             receipt = {
-                "schema": "forge.f139.ledger-fixture-abba.dev.v1",
+                "schema": "forge.f139.ledger-fixture-abba.dev.v2",
                 "source_sha": candidate, "source_tree": candidate_tree,
                 "baseline_sha": BASE, "baseline_tree": base_tree,
                 "platform": sys.platform, "python": sys.version.split()[0],
-                "test_id_sha256": ids["baseline"][1], "cases": 1415,
+                "test_id_sha256": ids["baseline"][1], "cases": 1420,
                 "skips": EXPECTED_SKIPS, "arms": timings,
                 "paired_speedups": [round(q, 6) for q in ratios],
                 "aggregate_speedup": round(aggregate, 6),
                 "frozen_min_aggregate": 1.03, "frozen_min_each": 1.0,
                 "development_verdict": "PASS_DEV_ONLY" if passed else "NO_GO",
+                "windows_executable_ci": whole_windows,
                 "whole_ci_speedup_proven": False,
                 "default_ci_activation": False,
             }
@@ -167,6 +292,10 @@ def main():
             output.write_text(json.dumps(receipt, sort_keys=True, indent=2)+"\n",
                               encoding="utf-8")
             print("FORGE_F139_LEDGER_ABBA="+receipt["development_verdict"])
+            if whole_windows is not None:
+                print("FORGE_F139_WINDOWS_CRITICAL_PATH="+(
+                    "PASS_DEV_ONLY" if whole_windows["critical_path_improvement"]
+                    else "NO_GO"))
         finally:
             for name in reversed(installed):
                 subprocess.run(["git", "-C", str(ROOT), "worktree",
