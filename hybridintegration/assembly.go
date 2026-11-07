@@ -57,6 +57,7 @@ type Result struct {
  WorkflowSnapshotSHA256 string `json:"workflow_snapshot_sha256"`
  LegacyTwoLaneJournalSHA256 string `json:"legacy_two_lane_journal_sha256"`
  EvidenceAttestationSHA256 string `json:"evidence_attestation_sha256"`
+ EngineeringQualifiers []EngineeringQualifier `json:"engineering_qualifiers"`
  Handoff hybridrunnerpreview.Handoff `json:"handoff"`
  IndependentGitHubSourceAuthenticated bool `json:"independent_github_source_authenticated"`
  IndependentHybridFirstUseAuthenticated bool `json:"independent_hybrid_first_use_authenticated"`
@@ -115,6 +116,11 @@ func Assemble(in Input)(Result,error){
   foundRun=true
  }
  if !foundRun{return zero,ErrBlocked}
+ // An unrelated green engineering receipt cannot mask failed or missing
+ // G4/G5/G7 or experiment-scoped regression on the same exact source head.
+ qualifiers,err:=requireHybridEngineeringSuite(observed.Hybrid.Runs,
+  req.SourceSHA,in.SelectedExperimentID)
+ if err!=nil{return zero,ErrBlocked}
  shadow,err:=researchstatepreview.Build(in.LegacyJournal,
   in.ExpectedLegacyHeadSHA256,in.HybridShadowEvents)
  if err!=nil||shadow.ExecutionAuthorized||shadow.FirstUseAuthenticated||
@@ -148,6 +154,7 @@ func Assemble(in Input)(Result,error){
   WorkflowSnapshotSHA256:observed.Hybrid.InputRawSHA256,
   LegacyTwoLaneJournalSHA256:shadow.LegacyJournalSHA256,
   EvidenceAttestationSHA256:attested.AttestationSHA256,
+  EngineeringQualifiers:qualifiers,
   Handoff:handoff,
  }
  if Validate(result)!=nil{return zero,ErrBlocked}
@@ -171,6 +178,7 @@ func Validate(r Result)error {
   !validHex(r.WorkflowSnapshotSHA256,64)||
   !validHex(r.LegacyTwoLaneJournalSHA256,64)||
   !validHex(r.EvidenceAttestationSHA256,64)||
+  validateEngineeringQualifiers(r.EngineeringQualifiers,r.SourceSHA,r.ExperimentID)!=nil||
   hybridrunnerpreview.VerifyDisabledHandoff(r.Handoff)!=nil{return ErrBlocked}
  return nil
 }

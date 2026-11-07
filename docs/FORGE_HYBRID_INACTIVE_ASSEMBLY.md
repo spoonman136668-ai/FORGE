@@ -52,3 +52,36 @@ After exact-head full regression on this consolidated candidate, independently
 verify real Hybrid issuer/first-use custody with the project owner and
 qualify a disabled genuine worker interface. Activation requires separate
 authority and a prospective gated cutover; **no automatic cutover occurs.**
+
+
+## Full-stack engineering qualification fence (November 7, 2026)
+
+The first offline assembly version matched **one** successful engineering
+workflow receipt. That is not sufficient when the mandatory G4, G5 and G7
+qualification checks on the same candidate SHA are missing or failing.
+The revised check now requires exactly one completed successful run for each
+mandatory workflow on the **same exact Hybrid source SHA**, including the
+S24 or S25 experiment-specific workflow. Duplicate/conflicting, stale,
+missing, cancelled, pending, or failed runs block the entire assembly.
+It remains only a metadata check; GitHub source and first-use custody remain
+independently unauthenticated.
+
+Read-only GitHub observations on the current source heads:
+
+- S24 PR #39 SHA `d97c15cf709be63d186adcb58e01e3730cb539e1`:
+  G4 [#42414339534](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/actions/runs/42414339534),
+  G5 [#42414339530](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/actions/runs/42414339530),
+  G7 [#42414339670](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/actions/runs/42414339670),
+  S24 runtime admission [#42414334949](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/actions/runs/42414334949): all reported `failure`.
+- S25 PR #40 SHA `275e5989aba2777bfd0b62049bc07dc37370566f`:
+  G4 [#42424118909](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/actions/runs/42424118909),
+  G5 [#42424119064](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/actions/runs/42424119064),
+  G7 [#42424118957](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/actions/runs/42424118957): `failure`;
+  focused S25 surprise-residual [#42424114015](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/actions/runs/42424114015): `success`.
+
+**Disposition:** Neither current source head is qualified for integration
+assembly even as an engineering `REVIEW_ONLY` candidate under this new rule.
+Failures are engineering CI metadata, **not** negative scientific outcomes;
+no root cause, scientific first-use, training result or scientific PASS is
+inferred. The independent Hybrid owner controls its qualification work.
+This read-only snapshot is historical and must be refreshed on SHA drift.

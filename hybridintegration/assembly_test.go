@@ -6,6 +6,7 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
+ "strconv"
  "strings"
  "testing"
 
@@ -30,6 +31,33 @@ func envelope(repo,sha string,run uint64)[]byte{
  }
  b,_:=json.Marshal(map[string]any{
   "total_count":uint64(1),"workflow_runs":[]any{row},
+ })
+ return b
+}
+// A successful focused receipt is *not enough* to qualify the Hybrid
+// stack; the mandatory G4/G5/G7 and experiment-specific checks must pass.
+func hybridEnvelope(repo,sha string)[]byte{
+ names:=[]string{
+  "Engineering only verified",
+  "G4 CPU qualification",
+  "G5 authentic TTT CPU",
+  "G7 pinned Mamba2 CPU import",
+  "G7-S24 existing-runtime Windows and WSL regression admission",
+ }
+ rows:=make([]any,0,len(names))
+ for i,name:=range names{
+  id:=uint64(5303+i)
+  rows=append(rows,map[string]any{
+   "id":id,"run_attempt":uint64(1),"name":name,
+   "head_sha":sha,"head_branch":"engineering/frozen",
+   "status":"completed","conclusion":"success","created_at":"2026-11-07T00:00:00Z",
+   "html_url":"https://github.com/"+repo+"/actions/runs/"+strconv.FormatUint(id,10),
+   "repository":map[string]string{"full_name":repo},
+   "head_repository":map[string]string{"full_name":repo},
+  })
+ }
+ b,_:=json.Marshal(map[string]any{
+  "total_count":uint64(len(rows)),"workflow_runs":rows,
  })
  return b
 }
@@ -90,7 +118,7 @@ func fixture(t *testing.T)Input{
  return Input{
   WinglessWorkflowRaw:envelope("spoonman136668-ai/Wingless",sourceSHA,5303),
   YggdrasilWorkflowRaw:envelope("spoonman136668-ai/Yggdrasil",sourceSHA,5303),
-  HybridWorkflowRaw:envelope(repo,sourceSHA,5303),
+  HybridWorkflowRaw:hybridEnvelope(repo,sourceSHA),
   CandidateSnapshotRaw:snapshot,SelectedExperimentID:"G7-S24",
   ProtocolRaw:proto,ArtifactRaw:artifact,StatementRaw:statement,
   Signature:signature,Expected:expected,
