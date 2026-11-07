@@ -1,34 +1,32 @@
-name: K Terminal PR78 P5 quote-recovery and replay compositional two-SHA test
+name: K Terminal PR78 P5 original quote-age boundary offline differential
 on:
   push:
     branches: [qualification/kterminal-pr73-p5-source-20261106]
-    paths:
-      - .github/workflows/kterminal-pr78-pressure-boundary-two-sha-differential-20261107.yml
+    paths: [.github/workflows/kterminal-pr78-pressure-boundary-two-sha-differential-20261107.yml]
 permissions:
   contents: read
 concurrency:
-  group: kterminal-pr78-p5-compositional-two-sha
+  group: kterminal-pr78-p5-quote-age-once
   cancel-in-progress: false
 jobs:
   windows:
     name: ${{ matrix.label }}
     runs-on: windows-latest
-    timeout-minutes: 22
+    timeout-minutes: 17
     strategy:
       fail-fast: false
       matrix:
         include:
-          - label: pr73-control
-            source_sha: bcebdc1a7a0487f9d6061a8e643c76069335d896
-            source_tree: a2e5b7dc4a634b5a36d53677cdcb6de47060e21f
-          - label: pr78-candidate
-            source_sha: ed4df974077793afa7418b45cd595a40b678430f
-            source_tree: d1a71153e03458e16b4aff1018be19412aaa16b2
+          - label: original-1700ms
+            quote_age_ms: 1700
+          - label: stressed-1950ms
+            quote_age_ms: 1950
     env:
-      FORGE_PARENT: 0754bc5c4173dea804b5b9c94ebf17862de19422
+      FORGE_PARENT: 962536924ac73651bbaef0912b59e584283e9274
+      KTERM_SHA: ed4df974077793afa7418b45cd595a40b678430f
+      KTERM_TREE: d1a71153e03458e16b4aff1018be19412aaa16b2
       P5_TEST_BLOB: f3e80f01928cb0111665fd1cd13959aee3e93659
-      KTERM_SHA: ${{ matrix.source_sha }}
-      KTERM_TREE: ${{ matrix.source_tree }}
+      QUOTE_AGE_MS: ${{ matrix.quote_age_ms }}
       TEST_LABEL: ${{ matrix.label }}
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
@@ -37,12 +35,12 @@ jobs:
       GOTELEMETRY: 'off'
       CGO_ENABLED: '0'
     steps:
-      - name: Checkout exact existing FORGE qualification branch
+      - name: Checkout existing FORGE qualification scope
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Validate isolated workflow scope
+      - name: Verify one-workflow-only isolated Windows change
         shell: bash
         run: |
           set -euo pipefail
@@ -55,22 +53,22 @@ jobs:
           git merge-base --is-ancestor "$FORGE_PARENT" HEAD
           test "$(git diff --name-only "$FORGE_PARENT" HEAD)" = '.github/workflows/kterminal-pr78-pressure-boundary-two-sha-differential-20261107.yml'
           test -z "$(git status --porcelain)"
-          echo P5_COMPOSITION_SOURCE_SCOPE=PASS
-      - name: Checkout exact private original K Terminal source without retaining credentials
+          echo P5_QUOTE_CLOCK_WORKFLOW_SCOPE=PASS
+      - name: Checkout original PR78 exact source without retained credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: ${{ matrix.source_sha }}
+          ref: ed4df974077793afa7418b45cd595a40b678430f
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
           token: ${{ secrets.FORGE_KTERM_QUAL }}
-      - name: Install pinned original Go 1.26.5
+      - name: Set up original Windows Go 1.26.5
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Verify source/tree/test identity and zero broker authority
+      - name: Verify exact SHA/test and reject broker credentials
         shell: bash
         working-directory: kterminal-private
         run: |
@@ -87,122 +85,130 @@ jobs:
           for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK; do
             if [[ -n "${!key:-}" ]]; then echo P5_BROKER_AUTHORITY_REFUSED; exit 2; fi
           done
-          mkdir -p "$RUNNER_TEMP/kterminal-p5-composition-safe"
-          echo P5_COMPOSITION_EXACT_SOURCE=PASS
-      - name: Run composed P5/recovery/replay/transport checks with six repeats
+          mkdir -p "$RUNNER_TEMP/p5-quote-safe"
+          echo P5_ORIGINAL_SOURCE_IDENTITY=PASS
+      - name: Apply only diagnostic test-file quote-age perturbation
         shell: bash
         working-directory: kterminal-private
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/p5-composition-isolation"
+          if [[ "$QUOTE_AGE_MS" != '1700' && "$QUOTE_AGE_MS" != '1950' ]]; then
+            exit 2
+          fi
+          python -B - <<'PY'
+          import os,pathlib
+          path=pathlib.Path("pkg/p5-one-post-diagnostic_test.go")
+          old=path.read_bytes()
+          needle=b"n.Snapshot.QuoteAt = time.Now().Add(-1700 * time.Millisecond)"
+          assert old.count(needle)==1, "nonunique original quote-age fixture"
+          ms=int(os.environ["QUOTE_AGE_MS"])
+          if ms==1950:
+            new=old.replace(needle,b"n.Snapshot.QuoteAt = time.Now().Add(-1950 * time.Millisecond)")
+            path.write_bytes(new)
+          else:
+            assert ms==1700
+          print("P5_QUOTE_VARIANT="+str(ms)+"ms")
+          print("P5_TEST_ONLY_OVERLAY="+("YES" if ms==1950 else "NO"))
+          PY
+          if [[ "$QUOTE_AGE_MS" = '1950' ]]; then
+            test "$(git diff --name-only)" = 'pkg/p5-one-post-diagnostic_test.go'
+            git diff --check
+          else
+            test -z "$(git status --porcelain)"
+          fi
+          echo P5_ONLY_SYNTHETIC_TEST_VARIANT=PASS
+      - name: Run 18 repeated unknown-first-POST tests and classify safety outcomes
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p5-quote-isolated"
           mkdir -p "$root/tail" "$root/post" "$root/private"
           export K_TERMINAL_TEST_WORKSPACE="$root"
           export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
           export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
           export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
-          pat='^(TestP5OneShotDiagnosticOriginalNativeSignal|TestP5OnlyOriginalOrderCreationPostReportsResponseHeaders|TestP5OrderCreationSpanDoesNotEscapeFailedFinalGate|TestNativeMakerQuoteReadRecoveryIsBoundedAndNeverPostsStaleBook|TestNativeMakerQuoteRecoveryNeverRetriesUnknownPostOutcome|TestNativeMakerPrePostExpiryRefreshKeepsSameAttemptIdentity|TestNativeMakerGuardedTransportExpiryIsProvenPrePostRecovery|TestNativeAccountingRetryOnlyReconsidersProvenPreSubmissionTransitions|TestVWAPDiagnosticOneBuyTransportLockOnlyAfterFinalGuards|TestVWAPDiagnosticOneBuyTransportConcurrentOnePOST|TestVWAPDiagnosticOneBuyKnownPrePOSTEvidenceFailurePreservesUnusedPOST)$'
           start="$(date +%s)"
           set +e
-          go test -json -p 1 -count=6 -timeout 19m "-run=$pat" ./pkg > "$RUNNER_TEMP/p5-composition-private.jsonl" 2> "$RUNNER_TEMP/p5-composition-private.stderr"
-          code="$?"
+          go test -json -p 1 -count=18 -timeout 12m '-run=^TestP5OneShotDiagnosticOriginalNativeSignal$/^unknown_first_post_no_retry$' ./pkg > "$RUNNER_TEMP/p5-quote-private.jsonl" 2> "$RUNNER_TEMP/p5-quote-private.stderr"
+          exit_code="$?"
           set -e
           end="$(date +%s)"
-          P5_CASE_EXIT="$code" P5_CASE_SECONDS="$((end-start))" python -B - <<'PY'
-          import hashlib,json,os,pathlib
-          root=pathlib.Path(os.environ["RUNNER_TEMP"])
-          safe=root/"kterminal-p5-composition-safe"
-          required={
-            "TestP5OneShotDiagnosticOriginalNativeSignal",
-            "TestP5OnlyOriginalOrderCreationPostReportsResponseHeaders",
-            "TestP5OrderCreationSpanDoesNotEscapeFailedFinalGate",
-            "TestNativeMakerQuoteReadRecoveryIsBoundedAndNeverPostsStaleBook",
-            "TestNativeMakerQuoteRecoveryNeverRetriesUnknownPostOutcome",
-            "TestNativeMakerPrePostExpiryRefreshKeepsSameAttemptIdentity",
-            "TestNativeMakerGuardedTransportExpiryIsProvenPrePostRecovery",
-            "TestNativeAccountingRetryOnlyReconsidersProvenPreSubmissionTransitions",
-            "TestVWAPDiagnosticOneBuyTransportLockOnlyAfterFinalGuards",
-            "TestVWAPDiagnosticOneBuyTransportConcurrentOnePOST",
-            "TestVWAPDiagnosticOneBuyKnownPrePOSTEvidenceFailurePreservesUnusedPOST",
-          }
-          focus="TestP5OneShotDiagnosticOriginalNativeSignal/unknown_first_post_no_retry"
-          known={
+          P5_EXIT="$exit_code" P5_SECONDS="$((end-start))" python -B - <<'PY'
+          import pathlib,os,json,hashlib
+          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          name="TestP5OneShotDiagnosticOriginalNativeSignal/unknown_first_post_no_retry"
+          parent="TestP5OneShotDiagnosticOriginalNativeSignal"
+          labels={
             "one-POST diagnostic outcome mismatch":"POST_COUNTS_MISMATCH",
-            "unknown/blocked POST did not retain uncertainty":"UNCERTAINTY_NOT_RETAINED",
+            "unknown/blocked POST did not retain uncertainty":"UNKNOWN_OUTCOME_NOT_RETAINED",
             "same-event duplicate replayed a POST":"SAME_EVENT_REPLAY",
             "fresh native construction replayed or changed original receipt":"FRESH_CONSTRUCTION_REPLAY",
             "broker-free cold-process replay failed":"COLD_PROCESS_REPLAY_FAILED",
-            "cold-process replay mutated receipt or reached venue":"COLD_RECEIPT_MUTATION",
-            "original native receipt not retained for replay":"MISSING_DURABLE_RECEIPT",
-            "P5_COLD_RECEIPT_ADMISSION_FAILED":"COLD_RECEIPT_ADMISSION",
-            "P5_COLD_ENGINE_BOUNDARY_MISMATCH":"COLD_ENGINE_BOUNDARY",
+            "original native receipt not retained for replay":"MISSING_RECEIPT",
+            "cold-process replay mutated receipt or reached venue":"COLD_RECEIPT_MUTATION"
           }
-          counts={}
-          failcounts={}
+          passed=failed=parent_failed=other_failed=malformed=events=0
           classes=set()
-          malformed=events=0
-          for raw in (root/"p5-composition-private.jsonl").open(encoding="utf-8-sig",errors="replace"):
-            try:e=json.loads(raw)
+          for raw in (temp/"p5-quote-private.jsonl").open(encoding="utf-8-sig",errors="replace"):
+            try:z=json.loads(raw)
             except (ValueError,TypeError):malformed+=1;continue
-            if not isinstance(e,dict):malformed+=1;continue
+            if not isinstance(z,dict):malformed+=1;continue
             events+=1
-            n,action=e.get("Test"),e.get("Action")
-            if n in required or n==focus:
-              if action=="pass":counts[n]=counts.get(n,0)+1
-              if action=="fail":failcounts[n]=failcounts.get(n,0)+1
-            elif action=="fail":classes.add("OTHER_SUBTEST_OR_PACKAGE_FAILURE")
-            if action=="output" and n and n.startswith("TestP5OneShotDiagnosticOriginalNativeSignal") and isinstance(e.get("Output"),str):
-              for phrase,label in known.items():
-                if phrase in e["Output"]:classes.add(label)
-          root_names=sorted(required)
-          focus_count=counts.get(focus,0)
-          top=[counts.get(n,0)+failcounts.get(n,0) for n in root_names]
-          complete=(events>0 and malformed==0 and all(n==6 for n in top) and
-                    focus_count+failcounts.get(focus,0)==6)
-          ok=(complete and all(counts.get(n,0)==6 for n in required)
-              and focus_count==6 and not failcounts and int(os.environ["P5_CASE_EXIT"])==0)
+            test,action=z.get("Test"),z.get("Action")
+            if test==name and action=="pass":passed+=1
+            if test==name and action=="fail":failed+=1
+            if test==parent and action=="fail":parent_failed+=1
+            if action=="fail" and test not in (name,parent,None):other_failed+=1
+            if test==name and action=="output" and isinstance(z.get("Output"),str):
+              for phrase,label in labels.items():
+                if phrase in z["Output"]:classes.add(label)
+          complete=events>0 and malformed==0 and passed+failed==18 and parent_failed==failed and other_failed==0
           result={
-            "schema":"forge.kterminal.p5.compositional-two-sha.v1",
-            "label":os.environ["TEST_LABEL"],
-            "forge_sha":os.environ["GITHUB_SHA"],
+            "schema":"forge.kterminal.pr78.p5-quote-age-test-only.v1",
             "source_sha":os.environ["KTERM_SHA"],
             "source_tree":os.environ["KTERM_TREE"],
-            "p5_test_blob":os.environ["P5_TEST_BLOB"],
+            "original_p5_test_blob":os.environ["P5_TEST_BLOB"],
+            "forge_sha":os.environ["GITHUB_SHA"],
+            "quote_age_ms":int(os.environ["QUOTE_AGE_MS"]),
+            "test_only_overlay":os.environ["QUOTE_AGE_MS"]=="1950",
+            "comparative_experiment_not_qualification":True,
             "go":"go1.26.5 windows/amd64",
-            "repetitions":6,
-            "top_level_tests":len(required),
-            "required_top_passes":sum(counts.get(n,0) for n in required),
-            "required_top_failures":sum(failcounts.get(n,0) for n in required),
-            "unknown_post_passes":focus_count,
-            "unknown_post_failures":failcounts.get(focus,0),
-            "failure_classes":sorted(classes),
-            "go_test_exit":int(os.environ["P5_CASE_EXIT"]),
+            "repetitions":18,
+            "passed":passed,
+            "failed":failed,
+            "parent_failed":parent_failed,
+            "classes":sorted(classes),
+            "exit_code":int(os.environ["P5_EXIT"]),
+            "events":events,
+            "malformed":malformed,
             "evidence_complete":complete,
-            "composition_pass":ok,
-            "malformed_events":malformed,
-            "elapsed_seconds":int(os.environ["P5_CASE_SECONDS"]),
+            "elapsed_seconds":int(os.environ["P5_SECONDS"]),
             "broker_orders":0,
-            "production_mutated":False,
+            "private_logs_exported":False,
+            "production_source_modified":False,
             "full_regression_repeated":False
           }
+          out=temp/"p5-quote-safe"
           body=json.dumps(result,sort_keys=True,separators=(",",":")).encode()
-          (safe/"result.json").write_bytes(body)
+          (out/"result.json").write_bytes(body)
           digest=hashlib.sha256(body).hexdigest()
-          (safe/"result.sha256").write_text(digest,encoding="ascii")
-          print("P5_COMPOSITION_REQUIRED_PASS="+str(result["required_top_passes"])+"/"+str(6*len(required)))
-          print("P5_COMPOSITION_UNKNOWN_POST_PASS="+str(focus_count)+"/6")
-          print("P5_COMPOSITION_CLASSES="+",".join(sorted(classes)))
-          print("P5_COMPOSITION_EVIDENCE="+("COMPLETE" if complete else "INCOMPLETE"))
-          print("P5_COMPOSITION_PASS="+str(ok))
-          print("P5_COMPOSITION_RECEIPT_SHA256="+digest)
+          (out/"result.sha256").write_text(digest,encoding="ascii")
+          print("P5_QUOTE_VARIANT_MS="+str(result["quote_age_ms"]))
+          print("P5_QUOTE_VARIANT_PASS="+str(passed)+"/18")
+          print("P5_QUOTE_VARIANT_FAIL="+str(failed)+"/18")
+          print("P5_QUOTE_VARIANT_CLASSES="+",".join(sorted(classes)))
+          print("P5_QUOTE_EVIDENCE="+("COMPLETE" if complete else "INCOMPLETE"))
+          print("P5_QUOTE_RECEIPT_SHA256="+digest)
           if not complete:raise SystemExit(2)
           PY
-      - name: Upload sanitized comparison results only
+      - name: Upload only sanitized diagnostic results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: kterminal-p5-composition-${{ matrix.label }}-${{ github.run_id }}
+          name: kterminal-p5-quote-${{ matrix.label }}-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterminal-p5-composition-safe/result.json
-            ${{ runner.temp }}/kterminal-p5-composition-safe/result.sha256
-          retention-days: 21
+            ${{ runner.temp }}/p5-quote-safe/result.json
+            ${{ runner.temp }}/p5-quote-safe/result.sha256
+          retention-days: 14
           if-no-files-found: error
