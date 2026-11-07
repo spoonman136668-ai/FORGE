@@ -9,7 +9,8 @@ from f139.nci04_genenv_source import source_for_vector
 from f139.nci04_native_contract import digest
 from f139.nci04_prompt_program import (
     BRANCHES,MARKER,SEED,ProgramRejected,build_plan,recover_program,
-    public_choice_gap,public_rate_preflight,same_ordering,source_for_program,
+    public_choice_gap,public_rate_preflight,public_success_count_order,
+    same_ordering,source_for_program,
 )
 from f139.nci04_prompt_source import frozen_digest
 
@@ -164,6 +165,58 @@ class TypedProgramTests(unittest.TestCase):
             current = recover_program(BEFORE, binding.source.after)
             self.assertFalse(same_ordering(public_choice_gap(current),
                                            public_choice_gap(p843)))
+
+    def test_original_success_count_family_has_global_symbolic_certificate(self):
+        # These five immutable original owner-produced Yggdrasil PRs are
+        # different source identities but have identical action-choice behavior.
+        programs = {
+            838: ("rate mul add success success mul success total "
+                  "add add total zero add zero zero"),
+            842: ("rate mul mul success success mul success total "
+                  "add add total zero add zero zero"),
+            843: ("rate max mul success success mul success total "
+                  "add add total zero add zero zero"),
+            844: ("rate max mul failure success mul success total "
+                  "add add total zero add zero zero"),
+            846: ("rate add add failure success mul success total "
+                  "add add total zero add zero zero"),
+        }
+        controls = {
+            830: ("rate min min success total mul success total "
+                  "add add total zero add zero zero"),
+            845: ("rate add mul failure success mul success total "
+                  "add add total zero add zero zero"),
+            847: ("rate mul add failure success mul success total "
+                  "add add total zero add zero zero"),
+        }
+        for number, program in programs.items():
+            with self.subTest(pr=number):
+                self.assertTrue(public_success_count_order(program))
+        for number, program in controls.items():
+            with self.subTest(proven_distinct_class=number):
+                self.assertFalse(public_success_count_order(program))
+
+        # An independent exact-rational implementation checks observed
+        # choices AND ties for both action orders; it is NOT the proof.
+        cases = [(f, s) for f in range(6) for s in range(6) if f+s]
+        for a in cases:
+            for b in cases:
+                counts = (a, b)
+                baseline = oracle(programs[843], counts)
+                for number, program in programs.items():
+                    with self.subTest(counts=counts, pr=number):
+                        self.assertEqual(oracle(program, counts), baseline)
+
+        # Non-eligible negatives remain consumed, immutable, and cannot
+        # regenerate a globally equivalent new source.
+        prior = source_for_program(BEFORE, programs[838])
+        self.assertEqual(recover_program(BEFORE, prior), programs[838])
+        proposal = plan(LEGACY + (prior,), eligible_parent_sha256=set())
+        self.assertIsNotNone(proposal)
+        self.assertGreater(len(proposal.bindings), 0)
+        for candidate in proposal.bindings:
+            fresh = recover_program(BEFORE, candidate.source.after)
+            self.assertFalse(public_success_count_order(fresh))
 
     def test_domain_proof_does_not_reject_actual_counter_dependent_rates(self):
         # min(success,total) is exactly success; the *denominator* matters.

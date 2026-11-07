@@ -47,6 +47,7 @@ type Report struct{
  Mode string `json:"mode"`
  Wingless LaneReport `json:"wingless"`
  Yggdrasil LaneReport `json:"yggdrasil"`
+ Hybrid *LaneReport `json:"hybrid,omitempty"`
  ResearchOriginalsExecuted uint64 `json:"research_originals_executed"`
  ExecutionAuthorized bool `json:"execution_authorized"`
  ScientificAccepted bool `json:"scientific_accepted"`
@@ -92,10 +93,11 @@ func knownConclusion(s string)bool{
 }
 func readLane(raw []byte,lane string)(LaneReport,error){
  var empty LaneReport
- if (lane!="Wingless"&&lane!="Yggdrasil")||len(raw)==0||len(raw)>MaximumBytes{
+ if (lane!="Wingless"&&lane!="Yggdrasil"&&lane!="Hybrid")||len(raw)==0||len(raw)>MaximumBytes{
   return empty,ErrUnverified
  }
  repo:="spoonman136668-ai/"+lane
+ if lane=="Hybrid" {repo="spoonman136668-ai/TTT-Hybrid-Lab"}
  var body rawEnvelope
  decoder:=json.NewDecoder(bytes.NewReader(raw))
  if err:=decoder.Decode(&body);err!=nil{return empty,ErrUnverified}
@@ -145,4 +147,19 @@ func Build(wingless,yggdrasil []byte)(Report,error){
  }
  return Report{Schema:Schema,Mode:"READ_ONLY_GITHUB_RUN_METADATA_NOT_SCIENTIFIC_EVIDENCE",
   Wingless:w,Yggdrasil:y},nil
+}
+
+// BuildWithHybrid adds a third, optional metadata-only research observation.
+// The original dual-lane Build remains byte-compatible in JSON when Hybrid is nil.
+// Inputs are caller-supplied pinned snapshots; no repository access or execution.
+func BuildWithHybrid(wingless, yggdrasil, hybrid []byte) (Report, error) {
+  report, err := Build(wingless, yggdrasil)
+  if err != nil { return Report{}, err }
+  h, err := readLane(hybrid, "Hybrid")
+  if err != nil || h.InputRawSHA256 == report.Wingless.InputRawSHA256 ||
+     h.InputRawSHA256 == report.Yggdrasil.InputRawSHA256 {
+    return Report{}, ErrUnverified
+  }
+  report.Hybrid = &h
+  return report, nil
 }
