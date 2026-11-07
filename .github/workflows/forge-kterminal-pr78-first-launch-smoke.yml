@@ -17,7 +17,7 @@ jobs:
       KTERM_SHA: 4864ded796751039b7b60e3722ef015f7a301053
       KTERM_TREE: 8fd03d056e5849d08ea15c4ee22ee14514b5ded6
       QUALIFIED_RUN: '42386620678'
-      QUALIFIED_FORGE_SHA: 29ba55df85056d2e50ac1f69f9be0a2d5116e289
+      QUALIFIED_FORGE_SHA: 7468c35f474b49f618c54316e1556ac411b1a0ab
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_NATIVE_TIMING: '0'
       K_TERMINAL_P5_LATENCY: '0'
@@ -92,8 +92,10 @@ jobs:
           $zip=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-private.zip'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $privateRoot 'verification\package-first-install.ps1') -SourceRoot $privateRoot -StageDirectory $stage -ZipPath $zip *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package-private.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_PACKAGING_FAILED'}
+          $extracted=Join-Path $env:RUNNER_TEMP 'kterm-pr78-extracted-from-zip'
+          Expand-Archive -LiteralPath $zip -DestinationPath $extracted -ErrorAction Stop
           $target=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'INSTALL-KTerminal.ps1') -SourceRoot $stage -Destination $target -NoLaunch *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-install-private.log')
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $extracted 'INSTALL-KTerminal.ps1') -SourceRoot $extracted -Destination $target -NoLaunch *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-install-private.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_INSTALL_FAILED'}
           if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_PR78_STARTUP_UNEXPECTED_CONFIG'}
           Write-Host 'KTERM_PR78_REBUILT_FRESH_INSTALL=PASS;LIVE_ORDERS=0'
@@ -139,6 +141,89 @@ jobs:
             Write-Host 'KTERM_PR78_INSTALLED_REAL_PRELAUNCH_WINDOW=PASS;DASHBOARD_NOT_ACTIVATED;BROKER_ORDERS=0'
           }
           finally {
+            try {
+              $launcher.Refresh()
+              if(-not$launcher.HasExited){
+                Stop-Process -Id $launcher.Id -Force -ErrorAction Stop
+                [void]$launcher.WaitForExit(10000)
+              }
+            } finally { $launcher.Dispose() }
+          }
+      - name: Choose PAPER via native Windows UI Automation and verify the real dashboard
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          $target=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
+          if(-not[IO.File]::Exists((Join-Path $target 'K-Terminal.exe'))){throw 'KTERM_PR78_REAL_DASHBOARD_INSTALL_MISSING'}
+          if([IO.File]::Exists((Join-Path $target 'config.json'))){throw 'KTERM_PR78_BROKER_CONFIG_REFUSED'}
+          Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+          $root=[Windows.Automation.AutomationElement]::RootElement
+          $tree=[Windows.Automation.TreeScope]::Children
+          $desc=[Windows.Automation.TreeScope]::Descendants
+          $idProperty=[Windows.Automation.AutomationElement]::AutomationIdProperty
+          $nameProperty=[Windows.Automation.AutomationElement]::NameProperty
+          $launcher=Start-Process -FilePath (Join-Path $target 'K-Terminal.exe') -WorkingDirectory $target -PassThru
+          if($null-eq$launcher){throw 'KTERM_PR78_REAL_DASHBOARD_LAUNCHER_MISSING'}
+          function OwnedProcesses {
+            $rows=@(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId,ParentProcessId)
+            $owned=New-Object 'System.Collections.Generic.HashSet[int]'
+            $null=$owned.Add([int]$launcher.Id)
+            for($round=0;$round-lt8;$round++){foreach($p in $rows){if($owned.Contains([int]$p.ParentProcessId)){$null=$owned.Add([int]$p.ProcessId)}}}
+            return ,$owned
+          }
+          function FindOwnedWindow([string]$title){
+            $win=$root.FindFirst($tree,[Windows.Automation.PropertyCondition]::new($nameProperty,$title))
+            if($null-eq$win){return $null}
+            $owned=OwnedProcesses
+            if(-not$owned.Contains([int]$win.Current.ProcessId)){throw 'KTERM_PR78_FOREIGN_WINDOW_REFUSED'}
+            return $win
+          }
+          $clock=[Diagnostics.Stopwatch]::StartNew()
+          try {
+            $prelaunch=$null
+            while($clock.Elapsed.TotalSeconds-lt35){
+              $launcher.Refresh()
+              if($launcher.HasExited){throw 'KTERM_PR78_PRELAUNCH_EXITED_EARLY'}
+              $prelaunch=FindOwnedWindow 'K-Terminal v1.1.5 Launch'
+              if($null-ne$prelaunch){break}
+              Start-Sleep -Milliseconds 500
+            }
+            if($null-eq$prelaunch){throw 'KTERM_PR78_PRELAUNCH_UIA_NOT_FOUND'}
+            $paper=$prelaunch.FindFirst($desc,[Windows.Automation.PropertyCondition]::new($idProperty,'PaperMode'))
+            if($null-eq$paper){$paper=$prelaunch.FindFirst($desc,[Windows.Automation.PropertyCondition]::new($nameProperty,'PAPER TEST'))}
+            if($null-eq$paper){throw 'KTERM_PR78_PAPER_SELECTION_NOT_FOUND'}
+            if(-not$paper.Current.IsEnabled){throw 'KTERM_PR78_PAPER_SELECTION_DISABLED'}
+            $paper.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+            Start-Sleep -Milliseconds 350
+            $launch=$prelaunch.FindFirst($desc,[Windows.Automation.PropertyCondition]::new($idProperty,'ContinueButton'))
+            if($null-eq$launch){$launch=$prelaunch.FindFirst($desc,[Windows.Automation.PropertyCondition]::new($nameProperty,'LAUNCH'))}
+            if($null-eq$launch-or-not$launch.Current.IsEnabled){throw 'KTERM_PR78_PAPER_LAUNCH_CONTROL_NOT_READY'}
+            $launch.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $dashboard=$null
+            $clock.Restart()
+            while($clock.Elapsed.TotalSeconds-lt80){
+              $launcher.Refresh()
+              if($launcher.HasExited){throw 'KTERM_PR78_DASHBOARD_PROCESS_EXITED'}
+              if([IO.File]::Exists((Join-Path $target 'data\logs\desktop-startup-status.txt'))){throw 'KTERM_PR78_DASHBOARD_STARTUP_ERROR'}
+              $session=Join-Path $target 'data\.application-launch-session.json'
+              if([IO.File]::Exists($session)){
+                $state=Get-Content -LiteralPath $session -Raw | ConvertFrom-Json
+                if($state.mode-cne'PAPER'-or$state.execution_state-cne'DISARMED'){throw 'KTERM_PR78_DASHBOARD_WRONG_MODE_OR_ARMED'}
+              }
+              $dashboard=FindOwnedWindow 'K-Terminal v1.1.5 - DASHBOARD'
+              if($null-ne$dashboard -and [IO.File]::Exists($session)){break}
+              Start-Sleep -Milliseconds 600
+            }
+            if($null-eq$dashboard){throw 'KTERM_PR78_DASHBOARD_WINDOW_NOT_OBSERVED'}
+            Start-Sleep -Seconds 5
+            $launcher.Refresh()
+            if($launcher.HasExited){throw 'KTERM_PR78_DASHBOARD_NOT_STABLE'}
+            if($null-eq(FindOwnedWindow 'K-Terminal v1.1.5 - DASHBOARD')){throw 'KTERM_PR78_DASHBOARD_WINDOW_DISAPPEARED'}
+            if([IO.File]::Exists((Join-Path $target 'config.json'))){throw 'KTERM_PR78_DASHBOARD_CREATED_LIVE_CONFIG'}
+            if([IO.Directory]::Exists((Join-Path $target 'data\native-runtime'))){throw 'KTERM_PR78_DASHBOARD_STARTED_LIVE_ENGINE'}
+            Write-Host 'KTERM_PR78_REAL_PAPER_DASHBOARD_VISIBLE_STABLE=PASS;DISARMED=TRUE;BROKER_ORDERS=0'
+          } finally {
             try {
               $launcher.Refresh()
               if(-not$launcher.HasExited){
