@@ -1,0 +1,34 @@
+name: FORGE Dream Pareto prospective preregistration qualification
+on:
+  push:
+    branches: [research/dream-pareto-prospective-prereg-20261015-r1]
+permissions:
+  contents: read
+jobs:
+  prereg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head qualification and one full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./optimizerbridge
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'DREAM_PARETO_PROSPECTIVE_PLAN=SOURCE_QUALIFICATION_ONLY'
+          echo 'REAL_ORIGINAL_EXECUTED=0'
+          echo 'HISTORICAL_POLICY_IMPROVEMENT=NOT_PROSPECTIVE_PROOF'
