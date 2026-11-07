@@ -1,4 +1,4 @@
-name: FORGE K-Terminal RC2 timing exact-SHA original Windows qualification
+name: FORGE K-Terminal PR78 exact-SHA original Windows offline qualification
 on:
   push:
     branches: [qualification/kterminal-rc2-timing-hosted-20261106]
@@ -14,9 +14,9 @@ jobs:
     timeout-minutes: 90
     env:
       FORGE_BASE: 64564eda2fb9d479dd936a1420f206d22e422e50
-      KTERM_SHA: 35ac33f85073c7521fb74c050bf92e7e35484ca3
-      KTERM_TREE: 9c63b23fa30f6b927525fd2e32682f330bcd7c5e
-      KTERM_BASELINE: fc2c35998f8e917577aa9c80db6b970e82b9bd01
+      KTERM_SHA: 4864ded796751039b7b60e3722ef015f7a301053
+      KTERM_TREE: 8fd03d056e5849d08ea15c4ee22ee14514b5ded6
+      KTERM_BASELINE: bcebdc1a7a0487f9d6061a8e643c76069335d896
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -49,7 +49,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Kboomllc/K-Terminal
-          ref: 35ac33f85073c7521fb74c050bf92e7e35484ca3
+          ref: 4864ded796751039b7b60e3722ef015f7a301053
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -93,6 +93,7 @@ jobs:
           export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
           export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
           go test -p 1 -count=1 -timeout 16m "-run=$pat" ./pkg > "$RUNNER_TEMP/kterm-rc2-focused-private.log" 2>&1
+          go test -p 1 -count=3 -timeout 15m '-run=^TestVWAPDiagnosticOneBuy' ./pkg > "$RUNNER_TEMP/kterm-pr78-focused-private.log" 2>&1
           echo PASS > "$RUNNER_TEMP/kterm-rc2-safe/focused.ok"
           echo KTERM_RC2_FOCUSED=PASS
       - name: One mandatory full original Windows Go regression with sanitized timing custody
@@ -201,15 +202,34 @@ jobs:
           go vet ./... > "$RUNNER_TEMP/kterm-rc2-vet-private.log" 2>&1
           echo PASS > "$RUNNER_TEMP/kterm-rc2-safe/vet.ok"
           echo KTERM_RC2_VET=PASS
-      - name: Build unpromoted original Windows K-Terminal engine
-        shell: bash
+      - name: Build complete private Windows app and verify first-install package without publishing binaries
+        shell: pwsh
         working-directory: kterminal-private
         run: |
-          set -euo pipefail
-          go build -trimpath -o "$RUNNER_TEMP/kterm-rc2-unpromoted-engine.exe" . > "$RUNNER_TEMP/kterm-rc2-build-private.log" 2>&1
-          test -f "$RUNNER_TEMP/kterm-rc2-unpromoted-engine.exe"
-          echo PASS > "$RUNNER_TEMP/kterm-rc2-safe/build.ok"
-          echo KTERM_RC2_BUILD=PASS
+          $ErrorActionPreference = 'Stop'
+          $privateRoot = Join-Path $env:GITHUB_WORKSPACE 'kterminal-private'
+          $safe = Join-Path $env:RUNNER_TEMP 'kterm-rc2-safe'
+          if((git rev-parse HEAD).Trim() -cne $env:KTERM_SHA){ throw 'KTERM_PR78_DESKTOP_SOURCE_DRIFT' }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'BUILD.ps1') *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-desktop-build-private.log')
+          if($LASTEXITCODE -ne 0){ throw 'KTERM_PR78_COMPLETE_DESKTOP_BUILD_FAILED' }
+          [IO.File]::WriteAllText((Join-Path $safe 'build.ok'),'PASS')
+          $output = Join-Path $env:RUNNER_TEMP 'kterm-pr78-ui-test-results'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'verification\test-ui-runtime.ps1') -Root $privateRoot -OutputDirectory $output *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-ui-test-private.log')
+          if($LASTEXITCODE -ne 0){ throw 'KTERM_PR78_UI_RUNTIME_TEST_FAILED' }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'verification\test-launch-lifecycle.ps1') -Root $privateRoot *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-test-private.log')
+          if($LASTEXITCODE -ne 0){ throw 'KTERM_PR78_LAUNCH_LIFECYCLE_TEST_FAILED' }
+          [IO.File]::WriteAllText((Join-Path $safe 'desktop.ok'),'PASS')
+          $stage = Join-Path $env:RUNNER_TEMP 'kterm-pr78-package-stage'
+          $zip = Join-Path $env:RUNNER_TEMP 'kterm-pr78-private-package.zip'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $privateRoot 'verification\package-first-install.ps1') -SourceRoot $privateRoot -StageDirectory $stage -ZipPath $zip *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-packaging-private.log')
+          if($LASTEXITCODE -ne 0){ throw 'KTERM_PR78_PACKAGING_FAILED' }
+          [IO.File]::WriteAllText((Join-Path $safe 'package.ok'),'PASS')
+          $destination = Join-Path $env:RUNNER_TEMP 'kterm-pr78-installed-smoke'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'INSTALL-KTerminal.ps1') -SourceRoot $stage -Destination $destination -NoLaunch *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-install-private.log')
+          if($LASTEXITCODE -ne 0){ throw 'KTERM_PR78_FRESH_INSTALL_SMOKE_FAILED' }
+          [IO.File]::WriteAllText((Join-Path $safe 'install.ok'),'PASS')
+          [IO.File]::WriteAllText((Join-Path $safe 'package.sha256'), (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Host 'KTERM_PR78_OFFLINE_WINDOWS_DESKTOP_AND_PACKAGE=PASS;NO_BROKER_ORDERS;NO_PUBLIC_BINARIES'
       - name: Seal privacy-safe exact-SHA qualification receipt, even on failure
         if: always()
         shell: bash
@@ -220,7 +240,7 @@ jobs:
           temp = pathlib.Path(os.environ['RUNNER_TEMP'])
           safe = temp/'kterm-rc2-safe'
           safe.mkdir(exist_ok=True)
-          flags={n:((safe/(n+'.ok')).read_text(encoding='ascii').strip() if (safe/(n+'.ok')).is_file() else 'NOT_RUN') for n in ('source','focused','full','vet','build')}
+          flags={n:((safe/(n+'.ok')).read_text(encoding='ascii').strip() if (safe/(n+'.ok')).is_file() else 'NOT_RUN') for n in ('source','focused','full','vet','build','desktop','package','install')}
           dur=safe/'durations.json'
           digest=safe/'durations.sha256'
           actual=hashlib.sha256(dur.read_bytes()).hexdigest() if dur.is_file() else None
@@ -228,15 +248,16 @@ jobs:
           duration_status='MATCH' if actual and actual==declared else ('MISSING' if not actual or not declared else 'MISMATCH')
           passed=all(v=='PASS' for v in flags.values()) and duration_status=='MATCH'
           receipt={
-              'schema':'forge.kterminal.rc2-timing.original-windows.v1',
+              'schema':'forge.kterminal.pr78-offline-windows.v1',
               'forge_qualification_sha':os.environ['GITHUB_SHA'],
               'kterminal_source_sha':os.environ['KTERM_SHA'],
               'kterminal_source_tree':os.environ['KTERM_TREE'],
               'baseline_sha':os.environ['KTERM_BASELINE'],
-              'disposition':'FULL_VET_BUILD_AND_DURATION_PASS_UNPROMOTED' if passed else 'QUALIFICATION_BLOCKED',
+              'disposition':'FULL_WINDOWS_DESKTOP_PACKAGE_PASS_NO_INSTALLER_PUBLICATION' if passed else 'QUALIFICATION_BLOCKED',
               'checks':flags,
               'duration_evidence_status':duration_status,
               'duration_sha256':actual if duration_status=='MATCH' else None,
+              'package_sha256':(safe/'package.sha256').read_text(encoding='ascii').strip() if (safe/'package.sha256').is_file() else None,
               'desktop_accepted':False,
               'field_performance_verified':False,
               'installed':False,
