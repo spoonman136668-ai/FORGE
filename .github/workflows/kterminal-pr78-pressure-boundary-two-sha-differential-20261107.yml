@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      FORGE_PARENT: aebbbbacb13770e2e39819adce1b07f247c51db4
+      FORGE_PARENT: 1744998c1fcb7d4270eb368a14f82cd7e7163679
       KTERM_SHA: 070ad561de7183f7f28e363d96d354a62f509172
       KTERM_TREE: e5e611ef50a8dd0b5b4ba5c5947c7320c08d31ae
       K_TERMINAL_EXECUTION_MODE: PAPER
@@ -61,17 +61,17 @@ jobs:
         working-directory: kterminal-private
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
-          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
-          test "$(git rev-parse HEAD:BUILD.ps1)" = '1fa3a6b5a001a8ba63132db0d53f9d80c48190e8'
-          test "$(git rev-parse HEAD:cmd/launcher/desktop-session.cs)" = '5ca4dfe0c695c4f7b83dbe19f95e4dfc23679efd'
-          test "$(git rev-parse HEAD:verification/build-ui-runtime.ps1)" = '892f3a93fe26a7304268667c28a1d5e9d1e87676'
-          test "$(git rev-parse HEAD:go.mod)" = 'b3ede0d8444c08b3e7b23f1396374359b54134c6'
-          test -z "$(git status --porcelain)"
-          test ! -e .env
-          test ! -e config.json
-          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
-          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA" || { echo FRESH_PREFLIGHT_FAILED_SOURCE_SHA; exit 3; }
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE" || { echo FRESH_PREFLIGHT_FAILED_SOURCE_TREE; exit 3; }
+          test "$(git rev-parse HEAD:BUILD.ps1)" = '1fa3a6b5a001a8ba63132db0d53f9d80c48190e8' || { echo FRESH_PREFLIGHT_FAILED_BUILD_BLOB; exit 3; }
+          test "$(git rev-parse HEAD:cmd/launcher/desktop-session.cs)" = '5ca4dfe0c695c4f7b83dbe19f95e4dfc23679efd' || { echo FRESH_PREFLIGHT_FAILED_LAUNCHER_BLOB; exit 3; }
+          test "$(git rev-parse HEAD:verification/build-ui-runtime.ps1)" = '892f3a93fe26a7304268667c28a1d5e9d1e87676' || { echo FRESH_PREFLIGHT_FAILED_WPF_BLOB; exit 3; }
+          test "$(git rev-parse HEAD:go.mod)" = 'b3ede0d8444c08b3e7b23f1396374359b54134c6' || { echo FRESH_PREFLIGHT_FAILED_GO_MOD; exit 3; }
+          test -z "$(git status --porcelain)" || { echo FRESH_PREFLIGHT_FAILED_SOURCE_CLEAN; exit 3; }
+          test ! -e .env || { echo FRESH_PREFLIGHT_FAILED_NO_ENV; exit 3; }
+          test ! -e config.json || { echo FRESH_PREFLIGHT_FAILED_NO_CONFIG; exit 3; }
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER || { echo FRESH_PREFLIGHT_FAILED_PAPER_MODE; exit 3; }
+          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null || { echo FRESH_PREFLIGHT_FAILED_GO_COMPILER; exit 3; }
           for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK; do
             if [[ -n "${!key:-}" ]]; then echo FRESH_INSTALL_CREDENTIAL_REFUSED; exit 2; fi
           done
