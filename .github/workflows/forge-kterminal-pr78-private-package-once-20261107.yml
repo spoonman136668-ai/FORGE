@@ -1,0 +1,171 @@
+name: K-Terminal PR78 one-time private PAPER desktop package qualification
+on:
+  push:
+    branches: [qualification/kterminal-pr73-p5-source-20261106]
+    paths: [.github/workflows/forge-kterminal-pr78-private-package-once-20261107.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr78-one-time-private-paper-20261107
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      KTERM_SHA: ed4df974077793afa7418b45cd595a40b678430f
+      KTERM_TREE: d1a71153e03458e16b4aff1018be19412aaa16b2
+      FORGE_PARENT: 7d1f2b11dfc6611c691c18df57417d3b26a9b7dd
+    steps:
+      - name: Checkout existing FORGE qualification scope
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify single-workflow-only scope and nontrading runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
+          test "$GITHUB_REF" = "refs/heads/qualification/kterminal-pr73-p5-source-20261106"
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$FORGE_PARENT" HEAD
+          test "$(git diff --name-only "$FORGE_PARENT" HEAD)" = ".github/workflows/forge-kterminal-pr78-private-package-once-20261107.yml"
+          test -z "$(git status --porcelain)"
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$K_TERMINAL_NATIVE_TIMING" = 0
+          echo KTERM_PR78_PACKAGE_WORKFLOW_SCOPE=PASS
+      - name: Checkout exact original private K Terminal source without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ed4df974077793afa7418b45cd595a40b678430f
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Install pinned Windows Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Build eight original executables and WPF from disposable private source
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          if ((git rev-parse HEAD).Trim() -cne $env:KTERM_SHA -or (git rev-parse 'HEAD^{tree}').Trim() -cne $env:KTERM_TREE) { throw 'KTERM_PR78_EXACT_SOURCE_DRIFT' }
+          if (@(git status --porcelain).Count -gt 0) { throw 'KTERM_PR78_DIRTY_SOURCE' }
+          if ((go version) -notmatch 'go1\.26\.5 windows/amd64') { throw 'KTERM_PR78_GO_TOOLCHAIN_DRIFT' }
+          if ($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or $env:K_TERMINAL_NATIVE_TIMING -cne '0') { throw 'KTERM_PR78_DISARMED_MODE_MISSING' }
+          foreach ($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET','KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET','K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')) {
+            if ([Environment]::GetEnvironmentVariable($key,'Process')) { throw 'KTERM_PR78_BROKER_CREDENTIAL_OR_LIVE_SCOPE_PRESENT' }
+          }
+          if ((Test-Path .env) -or (Test-Path config.json)) { throw 'KTERM_PR78_PRIVATE_CONFIG_PRESENT' }
+          $src=Join-Path $env:RUNNER_TEMP 'pr78-disposable-source'
+          $sourceZip=Join-Path $env:RUNNER_TEMP 'pr78-original-source.zip'
+          & git archive --format=zip ('--output='+$sourceZip) HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'KTERM_PR78_GIT_ARCHIVE_FAILED' }
+          [IO.Compression.ZipFile]::ExtractToDirectory($sourceZip,$src)
+          $buildFile=Join-Path $src 'BUILD.ps1'
+          $old=[IO.File]::ReadAllText($buildFile)
+          if ([regex]::Matches($old,'NativeTimingDefaultEnabled=1').Count -ne 1 -or [regex]::Matches($old,'NativeTimingBuildRevision=20261006-stage3-readiness-r1').Count -ne 1) { throw 'KTERM_PR78_NATIVE_PROFILE_ANCHOR_DRIFT' }
+          $safeBuild=$old.Replace('NativeTimingDefaultEnabled=1','NativeTimingDefaultEnabled=0').Replace('NativeTimingBuildRevision=20261006-stage3-readiness-r1','NativeTimingBuildRevision=PR78-ed4df974077793afa7418b45cd595a40b678430f')
+          [IO.File]::WriteAllText($buildFile,$safeBuild,[Text.UTF8Encoding]::new($false))
+          $buildLog=Join-Path $env:RUNNER_TEMP 'pr78-private-build.log'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $buildFile *> $buildLog
+          if ($LASTEXITCODE -ne 0) {
+            $codes=@([regex]::Matches(([IO.File]::ReadAllText($buildLog)),'CS[0-9]{4}') | ForEach-Object {$_.Value} | Sort-Object -Unique)
+            Write-Host ('KTERM_PR78_PRIVATE_COMPILER_CLASSES='+($codes -join ','))
+            throw 'KTERM_PR78_ORIGINAL_BUILD_FAILED'
+          }
+          $uiLog=Join-Path $env:RUNNER_TEMP 'pr78-private-ui.log'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $src 'verification/build-ui-runtime.ps1') -Root $src *> $uiLog
+          if ($LASTEXITCODE -ne 0) { throw 'KTERM_PR78_WPF_BUILD_FAILED' }
+          $exe=@('K-Terminal.exe','K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe','K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe','K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe')
+          foreach ($name in $exe+@('KTerminal.UI.dll')) { if (-not (Test-Path (Join-Path $src $name) -PathType Leaf)) { throw 'KTERM_PR78_EXECUTABLE_OR_UI_MISSING' } }
+          $stage=Join-Path $env:RUNNER_TEMP 'pr78-private-paper-package'
+          [void][IO.Directory]::CreateDirectory($stage)
+          $extensions=@('.ps1','.psm1','.cs','.json','.bat','.ico','.png','.jpg','.jpeg','.bmp','.svg','.xaml','.xml','.html','.css','.js')
+          foreach ($file in (Get-ChildItem -LiteralPath $src -File)) {
+            if ($file.Extension.ToLowerInvariant() -notin $extensions -or $file.Name -in @('BUILD.ps1','config.json','pending-program-update.json','installed-program-update.json')) { continue }
+            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $stage $file.Name)
+          }
+          foreach ($name in $exe+@('KTerminal.UI.dll')) { Copy-Item -LiteralPath (Join-Path $src $name) -Destination (Join-Path $stage $name) }
+          foreach ($folder in @('pkg','assets','data')) { [void][IO.Directory]::CreateDirectory((Join-Path $stage $folder)) }
+          Copy-Item -LiteralPath (Join-Path $src 'pkg/tranche-plans.json') -Destination (Join-Path $stage 'pkg/tranche-plans.json')
+          foreach ($name in @('kt-logo-source.png','roadmap-2027.png')) { $asset=Join-Path $src ('assets/'+$name); if (Test-Path $asset) { Copy-Item -LiteralPath $asset -Destination (Join-Path $stage ('assets/'+$name)) } }
+          [IO.File]::WriteAllText((Join-Path $stage 'data/ui-preferences.json'),'{"schema_version":3,"mode":"PAPER","asset":"BTC-USDC","layout":"STACKED"}',[Text.UTF8Encoding]::new($false))
+          foreach ($private in @('config.json','.env','data/native-runtime','data/account-orders-v1.json','pending-program-update.json','installed-program-update.json')) { if (Test-Path (Join-Path $stage $private)) { throw 'KTERM_PR78_PRIVATE_STATE_LEAK' } }
+          $ui=Get-Content -LiteralPath (Join-Path $stage 'ui-runtime-manifest.json') -Raw | ConvertFrom-Json
+          if ($ui.assembly -cne 'KTerminal.UI.dll' -or (Get-FileHash (Join-Path $stage 'KTerminal.UI.dll') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ui.sha256) { throw 'KTERM_PR78_WPF_ASSEMBLY_MISMATCH' }
+          foreach ($item in $ui.sources) {
+            $name=[string]$item.path
+            if ([IO.Path]::GetFileName($name) -cne $name -or (Get-FileHash (Join-Path $stage $name) -Algorithm SHA256).Hash.ToLowerInvariant() -cne $item.sha256) { throw 'KTERM_PR78_WPF_SOURCE_MISMATCH' }
+          }
+          if (-not ([IO.File]::ReadAllText((Join-Path $stage 'dashboard-ui.ps1')).Contains('P5_SAFE_LATENCY'))) { throw 'KTERM_PR78_P5_DESKTOP_MISSING' }
+          if ((Get-Content (Join-Path $stage 'edition.json') -Raw | ConvertFrom-Json).edition -cne 'personal') { throw 'KTERM_PR78_EDITION_MISMATCH' }
+          Write-Host 'KTERM_PR78_EIGHT_WINDOWS_EXECUTABLES=PASS'
+          Write-Host 'KTERM_PR78_ORIGINAL_WPF_MANIFEST=PASS'
+          Write-Host 'KTERM_PR78_NATIVE_IDENTIFYING_TIMING_DEFAULT=OFF'
+      - name: Seal complete private PAPER package with manifests and disarmed launcher smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $stage=Join-Path $env:RUNNER_TEMP 'pr78-private-paper-package'
+          $getFiles={param($root) @(Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName | ForEach-Object { [ordered]@{path=$_.FullName.Substring($root.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()} })}
+          $buildManifest=[ordered]@{schema='kterminal.windows.original-private-paper.v1';source_commit=$env:KTERM_SHA;source_tree=$env:KTERM_TREE;initial_mode='PAPER';native_identifying_timing_default='OFF';p5_safe_observer_default='OFF';engineering_qualification_run=42360546611;owner_desktop_acceptance='UNVERIFIED';files=(& $getFiles $stage)}
+          [IO.File]::WriteAllText((Join-Path $stage 'K-Terminal-BUILD-MANIFEST.json'),($buildManifest|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+          $list=@(& $getFiles $stage)
+          $packageManifest=[ordered]@{schema_version=1;edition='personal';revision=('pr78-'+$env:KTERM_SHA+'-paper');source_commit=$env:KTERM_SHA;source_tree=$env:KTERM_TREE;files=$list}
+          [IO.File]::WriteAllText((Join-Path $stage 'package-manifest.json'),($packageManifest|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+          $lines=@(& $getFiles $stage | ForEach-Object { $_.sha256+'  '+$_.path })
+          [IO.File]::WriteAllLines((Join-Path $stage 'SHA256SUMS.txt'),$lines,[Text.UTF8Encoding]::new($false))
+          foreach ($item in $packageManifest.files) {
+            $path=Join-Path $stage ([string]$item.path).Replace('/','\')
+            if ((Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $item.sha256) { throw 'KTERM_PR78_MANIFEST_FILE_HASH_MISMATCH' }
+          }
+          if ((Get-Content (Join-Path $stage 'data/ui-preferences.json') -Raw | ConvertFrom-Json).mode -cne 'PAPER') { throw 'KTERM_PR78_DEFAULT_MODE_NOT_PAPER' }
+          $smoke=Join-Path $env:RUNNER_TEMP 'pr78-disarmed-launcher-smoke'
+          [void][IO.Directory]::CreateDirectory($smoke)
+          Copy-Item (Join-Path $stage 'K-Terminal.exe') (Join-Path $smoke 'K-Terminal.exe')
+          $stub=@'
+          Set-Content -LiteralPath (Join-Path $PSScriptRoot 'started.marker') -Value 'PR78_DISARMED' -Encoding Ascii
+          exit 0
+          '@
+          [IO.File]::WriteAllText((Join-Path $smoke 'launch-kterminal.ps1'),$stub,[Text.UTF8Encoding]::new($false))
+          $process=Start-Process -FilePath (Join-Path $smoke 'K-Terminal.exe') -WorkingDirectory $smoke -PassThru
+          if (-not $process.WaitForExit(25000)) { try { $process.Kill() } catch {} ; throw 'KTERM_PR78_DISARMED_SMOKE_TIMEOUT' }
+          if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $smoke 'started.marker'))) { throw 'KTERM_PR78_DISARMED_LAUNCHER_FAIL' }
+          if ((Get-Content (Join-Path $smoke 'started.marker') -Raw).Trim() -cne 'PR78_DISARMED') { throw 'KTERM_PR78_DISARMED_MARKER_INVALID' }
+          $zip=Join-Path $env:RUNNER_TEMP 'K-Terminal-PR78-Private-PAPER.zip'
+          [IO.Compression.ZipFile]::CreateFromDirectory($stage,$zip,[IO.Compression.CompressionLevel]::Optimal,$false)
+          $safe=Join-Path $env:RUNNER_TEMP 'pr78-private-paper-safe'
+          [void][IO.Directory]::CreateDirectory($safe)
+          $receipt=[ordered]@{schema='forge.kterminal.pr78.private-paper-package.v1';source_sha=$env:KTERM_SHA;source_tree=$env:KTERM_TREE;forge_sha=$env:GITHUB_SHA;engineering_qualification_run=42360546611;go='go1.26.5 windows/amd64';exe_count=8;ui_manifest='PASS';package_manifest_files=$packageManifest.files.Count;paper_default=$true;native_identifying_timing_default='OFF';disarmed_launcher='PASS';zip_sha256=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();zip_bytes=(Get-Item $zip).Length;private_binary_public_upload=$false;private_zip_retained_after_runner=$false;owner_desktop='UNVERIFIED';live_order='NOT_EXECUTED';disposition='PRIVATE_PAPER_PACKAGE_BUILT_VERIFIED_EPHEMERAL'}
+          $out=Join-Path $safe 'receipt.json'
+          [IO.File]::WriteAllText($out,($receipt|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText((Join-Path $safe 'receipt.sha256'),(Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant(),[Text.UTF8Encoding]::new($false))
+          Write-Host 'KTERM_PR78_PRIVATE_WINDOWS_PACKAGE=PASS_EPHEMERAL'
+          Write-Host 'KTERM_PR78_DISARMED_NESTED_LAUNCHER=PASS'
+          Write-Host 'KTERM_PR78_PUBLIC_BINARY_EXPORT=NONE'
+      - name: Upload sanitized receipt only, never private executable or ZIP
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterminal-pr78-private-paper-safe-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pr78-private-paper-safe/receipt.json
+            ${{ runner.temp }}/pr78-private-paper-safe/receipt.sha256
+          retention-days: 30
+          if-no-files-found: warn
