@@ -182,6 +182,15 @@ def _public_domain_leq(left, right):
             and left in (("observed", "success"),
                          ("observed", "failure"), ("constant", 1))):
         return True
+    if left[0] == right[0] == "mul":
+        # Public counts and their products are nonnegative. A common factor
+        # preserves <= when the other factor has a proven ordering.
+        for shared in left[1:]:
+            if shared in right[1:]:
+                a = left[2] if shared == left[1] else left[1]
+                b = right[2] if shared == right[1] else right[1]
+                if _public_domain_leq(a, b):
+                    return True
     if right[0] == "mul":
         # x <= x * total, provided x >= 0 and total >= 1.
         return (left in right[1:]
@@ -217,6 +226,18 @@ def _same_baseline_public_choice(numerator, denominator):
     baseline = choice_polynomial(("observed", "success"),
                                  ("observed", "total"))
     return same_ordering(gap, baseline)
+
+
+def public_choice_gap(program):
+    """Exact ordering polynomial after proven nonnegative-count reductions.
+
+    Only a nonzero polynomial with positive denominator can certify duplicate
+    ordering, including ties, for every valid public counter. Unsupported
+    piecewise expressions return None and are NEVER rejected as duplicates.
+    """
+    numerator, denominator = parse(program)
+    return choice_polynomial(_public_domain_reduce(numerator),
+                             _public_domain_reduce(denominator))
 
 
 def public_rate_preflight(program):
@@ -380,16 +401,29 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
     # Never omit a historical negative just because it is not this grammar.
     # Opaque/invalid sources remain consumed by raw identity.
     parents = [SEED]
+    known_choice_gaps = [public_choice_gap(SEED)]
     for source in history_sources:
         need(type(source) is bytes, "HISTORY_BYTES")
-        raw_seen.add(digest(source))
+        source_id = digest(source)
+        raw_seen.add(source_id)
         try:
             ast_seen.add(search.normalized(source))
         except ValueError:
             pass  # Original caller separately verifies invalid-negative custody.
-        if eligible_parent_sha256 is not None and digest(source) not in eligible_parent_sha256:
+        eligible = (eligible_parent_sha256 is None
+                    or source_id in eligible_parent_sha256)
+        try:
+            program = recover_program(before,source)
+        except ProgramRejected:
+            if eligible:
+                raise  # Preserve original eligible-parent validation.
+            continue  # An untrusted negative cannot become a parent.
+        if program is not None:
+            gap = public_choice_gap(program)
+            if gap is not None:
+                known_choice_gaps.append(gap)
+        if not eligible:
             continue
-        program = recover_program(before,source)
         if program is not None and program not in parents:
             parents.append(program)
     trailer = " history "+" ".join(history_sha256[i:i+16] for i in range(0,64,16))
@@ -397,6 +431,7 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
         operations, bindings = [], []
         words = parent.split(" ")
         local_raw, local_ast = set(raw_seen), set(ast_seen)
+        local_choice_gaps = list(known_choice_gaps)
         for pos in range(1,15):
             vocabulary = OPERATIONS if pos in BRANCHES else TERMINALS
             for replacement in vocabulary:
@@ -414,8 +449,15 @@ def build_plan(before, *, history_sources, consumed_sha256, historical_ast_sha25
                 after_id, ast_id = digest(after), search.normalized(after)
                 if after == before or after_id in local_raw or ast_id in local_ast:
                     continue
+                gap = public_choice_gap(program)
+                if gap is not None and any(
+                    same_ordering(gap, known) for known in local_choice_gaps
+                ):
+                    continue  # Proven semantic duplicate, not a new discovery.
                 local_raw.add(after_id)
                 local_ast.add(ast_id)
+                if gap is not None:
+                    local_choice_gaps.append(gap)
                 operations.append(dict(kind="replace",position=pos,replacement=replacement))
                 bindings.append(SourceBinding(program+trailer, SourceCandidate(
                     generator="promptbreeder", lane="Yggdrasil", path=search.PATH,

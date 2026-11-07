@@ -9,7 +9,7 @@ from f139.nci04_genenv_source import source_for_vector
 from f139.nci04_native_contract import digest
 from f139.nci04_prompt_program import (
     BRANCHES,MARKER,SEED,ProgramRejected,build_plan,recover_program,
-    public_rate_preflight,source_for_program,
+    public_choice_gap,public_rate_preflight,same_ordering,source_for_program,
 )
 from f139.nci04_prompt_source import frozen_digest
 
@@ -127,6 +127,43 @@ class TypedProgramTests(unittest.TestCase):
                 counts = (first, second)
                 expected = oracle(baseline, counts)
                 self.assertEqual(oracle(programs[0], counts), expected)
+
+    def test_proven_public_choice_alias_is_filtered_without_erasing_history(self):
+        # Distinct original Yggdrasil PR #843/#844 hashes: under nonnegative
+        # counts, success*success <= success*total and
+        # failure*success <= success*total. Both reduce to success*total.
+        p843 = ("rate max mul success success mul success total "
+                "add add total zero add zero zero")
+        p844 = ("rate max mul failure success mul success total "
+                "add add total zero add zero zero")
+        p845 = ("rate add mul failure success mul success total "
+                "add add total zero add zero zero")
+        a, b = source_for_program(BEFORE, p843), source_for_program(BEFORE, p844)
+        self.assertNotEqual(a, b)
+        self.assertEqual(recover_program(BEFORE, a) is not None, True)
+        self.assertEqual(recover_program(BEFORE, b) is not None, True)
+        self.assertTrue(public_rate_preflight(p843))
+        self.assertTrue(public_rate_preflight(p844))
+        self.assertTrue(same_ordering(public_choice_gap(p843),
+                                      public_choice_gap(p844)))
+        self.assertFalse(same_ordering(public_choice_gap(p843),
+                                       public_choice_gap(p845)))
+        for c0 in range(5):
+            for s0 in range(5):
+                for c1 in range(5):
+                    for s1 in range(5):
+                        if (c0+s0)*(c1+s1) == 0:
+                            continue
+                        counts = ((c0,s0),(c1,s1))
+                        self.assertEqual(oracle(p843,counts), oracle(p844,counts))
+        # Even a scientifically rejected historical source remains a known
+        # behavior; it is not a valid mutation parent or a fresh discovery.
+        result = plan(LEGACY + (a,), eligible_parent_sha256=set())
+        self.assertIsNotNone(result)
+        for binding in result.bindings:
+            current = recover_program(BEFORE, binding.source.after)
+            self.assertFalse(same_ordering(public_choice_gap(current),
+                                           public_choice_gap(p843)))
 
     def test_domain_proof_does_not_reject_actual_counter_dependent_rates(self):
         # min(success,total) is exactly success; the *denominator* matters.
