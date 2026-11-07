@@ -28,13 +28,10 @@ class PendingTransferTests(unittest.TestCase):
                 db.enable(legacy_suspended=True)
                 for i in range(373):
                     db.event('UNTRUSTED_TEST_FIXTURE', {'i': i})
-                db.conn.execute('INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) VALUES(?,?,?,?,?)',
-                                (route.TICKET,'Yggdrasil',route.FROM_V29,'READY','a'*64))
-                db.event('NATIVE_DEVELOPMENT_ADMITTED', dict(ticket=route.TICKET,
-                         issue_number=1358,source_sha=route.FROM_V29,manifest_sha256='a'*64))
-                db.event('TASK_INTAKE',dict(ticket=route.TICKET))
+                # Verify the admissible 374-event prefix before the test's intentionally
+                # incomplete native admission is added in each independent test.
                 db.verify()
-                if db.meta()['head_seq'] != 376:
+                if db.meta()['head_seq'] != 374:
                     raise AssertionError('ORIGINAL_FIXTURE_HEAD_DRIFT')
                 cls._fixture_head = db.meta()['head_hash']
             finally:
@@ -56,11 +53,19 @@ class PendingTransferTests(unittest.TestCase):
         # A fresh physical file/connection per test, never a shared live DB.
         with self.path.open('xb') as stream:
             stream.write(type(self)._fixture_bytes)
-        self.db = Database(self.path)  # Full cold-chain verification on every open.
+        self.db = Database(self.path)  # Verify the valid cold source prefix.
         self.addCleanup(self.db.close)
-        meta = self.db.meta()
-        self.assertEqual(meta['head_seq'], 376)
-        self.assertEqual(meta['head_hash'], type(self)._fixture_head)
+        self.assertEqual(self.db.meta()['head_seq'], 374)
+        self.assertEqual(self.db.meta()['head_hash'], type(self)._fixture_head)
+        # Preserve the exact original incomplete admission and task records.
+        # Those are the negative-control fixture; a full post-admission verify
+        # must reject their deliberately missing custody fields.
+        self.db.conn.execute('INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) VALUES(?,?,?,?,?)',
+                             (route.TICKET,'Yggdrasil',route.FROM_V29,'READY','a'*64))
+        self.db.event('NATIVE_DEVELOPMENT_ADMITTED', dict(ticket=route.TICKET,
+                      issue_number=1358,source_sha=route.FROM_V29,manifest_sha256='a'*64))
+        self.db.event('TASK_INTAKE',dict(ticket=route.TICKET))
+        self.assertEqual(self.db.meta()['head_seq'],376)
         self.assertEqual(self.db.conn.execute('PRAGMA synchronous').fetchone()[0], 2)
 
     def test_exact_unclaimed_identity_is_read_only_and_does_not_reissue(self):
