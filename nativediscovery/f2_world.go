@@ -166,7 +166,7 @@ func f2restore(data []byte)(*f2Native,error){
   for _,v:=range blob.Counts[r][c][mode]{
    if v<0||v>256{return nil,errF2};count+=v
   }
- }}} 
+ }}}
  if count<1||count>256{return nil,errF2}
  m:=&f2Native{Counts:blob.Counts};if err:=m.Freeze();err!=nil{return nil,err}
  return m,nil
