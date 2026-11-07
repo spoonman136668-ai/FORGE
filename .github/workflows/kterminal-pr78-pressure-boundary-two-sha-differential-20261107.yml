@@ -1,4 +1,4 @@
-name: K Terminal PR78 P5 unknown-first-POST exact two-SHA offline diagnostic
+name: K Terminal PR78 P5 quote-recovery and replay compositional two-SHA test
 on:
   push:
     branches: [qualification/kterminal-pr73-p5-source-20261106]
@@ -7,13 +7,13 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: kterminal-pr78-p5-unknown-post-two-sha
+  group: kterminal-pr78-p5-compositional-two-sha
   cancel-in-progress: false
 jobs:
-  bounded-windows:
+  windows:
     name: ${{ matrix.label }}
     runs-on: windows-latest
-    timeout-minutes: 18
+    timeout-minutes: 22
     strategy:
       fail-fast: false
       matrix:
@@ -25,8 +25,8 @@ jobs:
             source_sha: ed4df974077793afa7418b45cd595a40b678430f
             source_tree: d1a71153e03458e16b4aff1018be19412aaa16b2
     env:
-      FORGE_PARENT: c5ba481c58ed223a64fa6e3c58868ff0ebf7f08f
-      TARGET_BLOB: f3e80f01928cb0111665fd1cd13959aee3e93659
+      FORGE_PARENT: 0754bc5c4173dea804b5b9c94ebf17862de19422
+      P5_TEST_BLOB: f3e80f01928cb0111665fd1cd13959aee3e93659
       KTERM_SHA: ${{ matrix.source_sha }}
       KTERM_TREE: ${{ matrix.source_tree }}
       TEST_LABEL: ${{ matrix.label }}
@@ -37,12 +37,12 @@ jobs:
       GOTELEMETRY: 'off'
       CGO_ENABLED: '0'
     steps:
-      - name: Checkout exact existing FORGE branch
+      - name: Checkout exact existing FORGE qualification branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Verify qualified Windows runner and one-workflow-only change
+      - name: Validate isolated workflow scope
         shell: bash
         run: |
           set -euo pipefail
@@ -55,8 +55,8 @@ jobs:
           git merge-base --is-ancestor "$FORGE_PARENT" HEAD
           test "$(git diff --name-only "$FORGE_PARENT" HEAD)" = '.github/workflows/kterminal-pr78-pressure-boundary-two-sha-differential-20261107.yml'
           test -z "$(git status --porcelain)"
-          echo P5_TWO_SHA_WORKFLOW_SCOPE=PASS
-      - name: Checkout exact original private K Terminal source
+          echo P5_COMPOSITION_SOURCE_SCOPE=PASS
+      - name: Checkout exact private original K Terminal source without retaining credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
@@ -65,19 +65,19 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           token: ${{ secrets.FORGE_KTERM_QUAL }}
-      - name: Set up pinned original Windows Go 1.26.5
+      - name: Install pinned original Go 1.26.5
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Verify exact SHA and zero broker authority
+      - name: Verify source/tree/test identity and zero broker authority
         shell: bash
         working-directory: kterminal-private
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$KTERM_SHA"
           test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
-          test "$(git rev-parse HEAD:pkg/p5-one-post-diagnostic_test.go)" = "$TARGET_BLOB"
+          test "$(git rev-parse HEAD:pkg/p5-one-post-diagnostic_test.go)" = "$P5_TEST_BLOB"
           test "$(git rev-parse HEAD:go.mod)" = 'b3ede0d8444c08b3e7b23f1396374359b54134c6'
           test -z "$(git status --porcelain)"
           test ! -e .env
@@ -87,99 +87,122 @@ jobs:
           for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK; do
             if [[ -n "${!key:-}" ]]; then echo P5_BROKER_AUTHORITY_REFUSED; exit 2; fi
           done
-          mkdir -p "$RUNNER_TEMP/kterminal-p5-safe"
-          echo P5_EXACT_ORIGINAL_SOURCE=PASS
-      - name: Run 24 P5 unknown-first-POST repetitions without external transport
+          mkdir -p "$RUNNER_TEMP/kterminal-p5-composition-safe"
+          echo P5_COMPOSITION_EXACT_SOURCE=PASS
+      - name: Run composed P5/recovery/replay/transport checks with six repeats
         shell: bash
         working-directory: kterminal-private
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/kterminal-p5-isolated"
+          root="$RUNNER_TEMP/p5-composition-isolation"
           mkdir -p "$root/tail" "$root/post" "$root/private"
           export K_TERMINAL_TEST_WORKSPACE="$root"
           export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
           export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
           export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
+          pat='^(TestP5OneShotDiagnosticOriginalNativeSignal|TestP5OnlyOriginalOrderCreationPostReportsResponseHeaders|TestP5OrderCreationSpanDoesNotEscapeFailedFinalGate|TestNativeMakerQuoteReadRecoveryIsBoundedAndNeverPostsStaleBook|TestNativeMakerQuoteRecoveryNeverRetriesUnknownPostOutcome|TestNativeMakerPrePostExpiryRefreshKeepsSameAttemptIdentity|TestNativeMakerGuardedTransportExpiryIsProvenPrePostRecovery|TestNativeAccountingRetryOnlyReconsidersProvenPreSubmissionTransitions|TestVWAPDiagnosticOneBuyTransportLockOnlyAfterFinalGuards|TestVWAPDiagnosticOneBuyTransportConcurrentOnePOST|TestVWAPDiagnosticOneBuyKnownPrePOSTEvidenceFailurePreservesUnusedPOST)$'
           start="$(date +%s)"
           set +e
-          go test -json -p 1 -count=24 -timeout 12m '-run=^TestP5OneShotDiagnosticOriginalNativeSignal$/^unknown_first_post_no_retry$' ./pkg > "$RUNNER_TEMP/p5-unknown-private.jsonl" 2> "$RUNNER_TEMP/p5-unknown-private.stderr"
+          go test -json -p 1 -count=6 -timeout 19m "-run=$pat" ./pkg > "$RUNNER_TEMP/p5-composition-private.jsonl" 2> "$RUNNER_TEMP/p5-composition-private.stderr"
           code="$?"
           set -e
           end="$(date +%s)"
           P5_CASE_EXIT="$code" P5_CASE_SECONDS="$((end-start))" python -B - <<'PY'
           import hashlib,json,os,pathlib
           root=pathlib.Path(os.environ["RUNNER_TEMP"])
-          dest=root/"kterminal-p5-safe"
-          parent="TestP5OneShotDiagnosticOriginalNativeSignal"
-          name=parent+"/unknown_first_post_no_retry"
-          phrases={
+          safe=root/"kterminal-p5-composition-safe"
+          required={
+            "TestP5OneShotDiagnosticOriginalNativeSignal",
+            "TestP5OnlyOriginalOrderCreationPostReportsResponseHeaders",
+            "TestP5OrderCreationSpanDoesNotEscapeFailedFinalGate",
+            "TestNativeMakerQuoteReadRecoveryIsBoundedAndNeverPostsStaleBook",
+            "TestNativeMakerQuoteRecoveryNeverRetriesUnknownPostOutcome",
+            "TestNativeMakerPrePostExpiryRefreshKeepsSameAttemptIdentity",
+            "TestNativeMakerGuardedTransportExpiryIsProvenPrePostRecovery",
+            "TestNativeAccountingRetryOnlyReconsidersProvenPreSubmissionTransitions",
+            "TestVWAPDiagnosticOneBuyTransportLockOnlyAfterFinalGuards",
+            "TestVWAPDiagnosticOneBuyTransportConcurrentOnePOST",
+            "TestVWAPDiagnosticOneBuyKnownPrePOSTEvidenceFailurePreservesUnusedPOST",
+          }
+          focus="TestP5OneShotDiagnosticOriginalNativeSignal/unknown_first_post_no_retry"
+          known={
             "one-POST diagnostic outcome mismatch":"POST_COUNTS_MISMATCH",
             "unknown/blocked POST did not retain uncertainty":"UNCERTAINTY_NOT_RETAINED",
             "same-event duplicate replayed a POST":"SAME_EVENT_REPLAY",
             "fresh native construction replayed or changed original receipt":"FRESH_CONSTRUCTION_REPLAY",
             "broker-free cold-process replay failed":"COLD_PROCESS_REPLAY_FAILED",
-            "P5_COLD_ENGINE_BOUNDARY_MISMATCH":"COLD_ENGINE_BOUNDARY",
+            "cold-process replay mutated receipt or reached venue":"COLD_RECEIPT_MUTATION",
+            "original native receipt not retained for replay":"MISSING_DURABLE_RECEIPT",
             "P5_COLD_RECEIPT_ADMISSION_FAILED":"COLD_RECEIPT_ADMISSION",
-            "cold-process replay mutated receipt or reached venue":"COLD_PROCESS_RECEIPT_MUTATION",
-            "original native receipt not retained for replay":"MISSING_RECEIPT"
+            "P5_COLD_ENGINE_BOUNDARY_MISMATCH":"COLD_ENGINE_BOUNDARY",
           }
-          passes=failures=parent_failures=other_failures=events=malformed=0
+          counts={}
+          failcounts={}
           classes=set()
-          for raw in (root/"p5-unknown-private.jsonl").open(encoding="utf-8-sig",errors="replace"):
+          malformed=events=0
+          for raw in (root/"p5-composition-private.jsonl").open(encoding="utf-8-sig",errors="replace"):
             try:e=json.loads(raw)
-            except (TypeError,ValueError):malformed+=1;continue
+            except (ValueError,TypeError):malformed+=1;continue
             if not isinstance(e,dict):malformed+=1;continue
             events+=1
-            test,action=e.get("Test"),e.get("Action")
-            if test==name and action=="pass":passes+=1
-            if test==name and action=="fail":failures+=1
-            if action=="fail" and test==parent:parent_failures+=1
-            if action=="fail" and test not in (name,parent,None):other_failures+=1
-            if test==name and action=="output" and isinstance(e.get("Output"),str):
-              for phrase,label in phrases.items():
+            n,action=e.get("Test"),e.get("Action")
+            if n in required or n==focus:
+              if action=="pass":counts[n]=counts.get(n,0)+1
+              if action=="fail":failcounts[n]=failcounts.get(n,0)+1
+            elif action=="fail":classes.add("OTHER_SUBTEST_OR_PACKAGE_FAILURE")
+            if action=="output" and n and n.startswith("TestP5OneShotDiagnosticOriginalNativeSignal") and isinstance(e.get("Output"),str):
+              for phrase,label in known.items():
                 if phrase in e["Output"]:classes.add(label)
-          count_valid=(events>0 and malformed==0 and passes+failures==24 and parent_failures==failures and other_failures==0)
+          root_names=sorted(required)
+          focus_count=counts.get(focus,0)
+          top=[counts.get(n,0)+failcounts.get(n,0) for n in root_names]
+          complete=(events>0 and malformed==0 and all(n==6 for n in top) and
+                    focus_count+failcounts.get(focus,0)==6)
+          ok=(complete and all(counts.get(n,0)==6 for n in required)
+              and focus_count==6 and not failcounts and int(os.environ["P5_CASE_EXIT"])==0)
           result={
-            "schema":"forge.kterminal.pr78-p5-two-sha-diagnostic.v1",
+            "schema":"forge.kterminal.p5.compositional-two-sha.v1",
             "label":os.environ["TEST_LABEL"],
             "forge_sha":os.environ["GITHUB_SHA"],
             "source_sha":os.environ["KTERM_SHA"],
             "source_tree":os.environ["KTERM_TREE"],
-            "identical_test_blob":os.environ["TARGET_BLOB"],
-            "go_toolchain":"go1.26.5 windows/amd64",
-            "repetitions":24,
-            "passes":passes,
-            "failures":failures,
-            "parent_failures":parent_failures,
+            "p5_test_blob":os.environ["P5_TEST_BLOB"],
+            "go":"go1.26.5 windows/amd64",
+            "repetitions":6,
+            "top_level_tests":len(required),
+            "required_top_passes":sum(counts.get(n,0) for n in required),
+            "required_top_failures":sum(failcounts.get(n,0) for n in required),
+            "unknown_post_passes":focus_count,
+            "unknown_post_failures":failcounts.get(focus,0),
             "failure_classes":sorted(classes),
-            "evidence_valid":count_valid,
-            "other_failures":other_failures,
-            "malformed_events":malformed,
             "go_test_exit":int(os.environ["P5_CASE_EXIT"]),
-            "wall_seconds":int(os.environ["P5_CASE_SECONDS"]),
+            "evidence_complete":complete,
+            "composition_pass":ok,
+            "malformed_events":malformed,
+            "elapsed_seconds":int(os.environ["P5_CASE_SECONDS"]),
             "broker_orders":0,
-            "private_logs_exported":False,
             "production_mutated":False,
             "full_regression_repeated":False
           }
           body=json.dumps(result,sort_keys=True,separators=(",",":")).encode()
-          (dest/"result.json").write_bytes(body)
+          (safe/"result.json").write_bytes(body)
           digest=hashlib.sha256(body).hexdigest()
-          (dest/"result.sha256").write_text(digest,encoding="ascii")
-          print("P5_UNKNOWN_FIRST_POST_24_PASS="+str(passes))
-          print("P5_UNKNOWN_FIRST_POST_24_FAIL="+str(failures))
-          print("P5_UNKNOWN_FIRST_POST_CLASSES="+",".join(sorted(classes)))
-          print("P5_UNKNOWN_FIRST_POST_EVIDENCE="+("PASS" if count_valid else "UNVERIFIED"))
-          print("P5_UNKNOWN_FIRST_POST_RECEIPT_SHA256="+digest)
-          if not count_valid:raise SystemExit(2)
+          (safe/"result.sha256").write_text(digest,encoding="ascii")
+          print("P5_COMPOSITION_REQUIRED_PASS="+str(result["required_top_passes"])+"/"+str(6*len(required)))
+          print("P5_COMPOSITION_UNKNOWN_POST_PASS="+str(focus_count)+"/6")
+          print("P5_COMPOSITION_CLASSES="+",".join(sorted(classes)))
+          print("P5_COMPOSITION_EVIDENCE="+("COMPLETE" if complete else "INCOMPLETE"))
+          print("P5_COMPOSITION_PASS="+str(ok))
+          print("P5_COMPOSITION_RECEIPT_SHA256="+digest)
+          if not complete:raise SystemExit(2)
           PY
-      - name: Upload sanitized comparison receipt only
+      - name: Upload sanitized comparison results only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: kterminal-p5-${{ matrix.label }}-${{ github.run_id }}
+          name: kterminal-p5-composition-${{ matrix.label }}-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterminal-p5-safe/result.json
-            ${{ runner.temp }}/kterminal-p5-safe/result.sha256
+            ${{ runner.temp }}/kterminal-p5-composition-safe/result.json
+            ${{ runner.temp }}/kterminal-p5-composition-safe/result.sha256
           retention-days: 21
           if-no-files-found: error
