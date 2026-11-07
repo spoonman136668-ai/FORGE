@@ -55,7 +55,7 @@ class NativeProposalDiversityImpact(unittest.TestCase):
             self.assertEqual(len(sample["paired_whole_wall_speedup_A_over_B"]), 2)
             for v in sample["ABBA"]:
                 self.assertGreater(v["whole_child_wall_seconds"], 0)
-                self.assertGreaterEqual(v["selection_cpu_seconds"], 0)
+                self.assertGreaterEqual(v["cpu_seconds"], 0)
                 self.assertGreaterEqual(v["selection_wall_seconds"], 0)
         print("RSI_R5_ORIGINAL_SOURCE_SELECTION_RECEIPT=" +
               json.dumps(receipt, sort_keys=True, separators=(",", ":")))
