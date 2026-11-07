@@ -71,6 +71,10 @@ jobs:
           elif [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-profile-resource-diagnostics-20261107' ]; then
             PYTHONPATH=. python3 -B scripts/check_profile_resources.py
             python3 -B f139/check_test_discovery_inventory.py --profile-current --resource-diagnostics --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
+          elif [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-sqlite-phase-diagnostics-20261107' ]; then
+            PYTHONPATH=. python3 -B scripts/check_sqlite_phases.py
+            python3 -B f139/check_sqlite_fixture_phases.py --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-sqlite-phases.json"
+            python3 -B f139/check_test_discovery_inventory.py --profile-current --resource-diagnostics --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
           else
             python3 -B -m unittest discover -s f139 -p 'test_*.py'
           fi
@@ -124,8 +128,15 @@ jobs:
           test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
           grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
           ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+      - name: Retain private-fixture phase diagnosis
+        if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: f139-sqlite-phases-${{ runner.os }}
+          path: ${{ runner.temp }}/f139-sqlite-phases.json
+          if-no-files-found: error
       - name: Retain exact-source qualification receipt
-        if: ${{ always() && (github.head_ref == 'engineering/f139-unique-test-discovery-20261105' || github.head_ref == 'engineering/f139-qualification-profile-20261106' || github.head_ref == 'engineering/f139-profile-resource-diagnostics-20261107') }}
+        if: ${{ always() && (github.head_ref == 'engineering/f139-unique-test-discovery-20261105' || github.head_ref == 'engineering/f139-qualification-profile-20261106' || github.head_ref == 'engineering/f139-profile-resource-diagnostics-20261107' || github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107') }}
         uses: actions/upload-artifact@v4
         with:
           name: f139-discovery-public-${{ runner.os }}
@@ -195,6 +206,10 @@ jobs:
           elif [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-profile-resource-diagnostics-20261107' ]; then
             PYTHONPATH=. python3 -B scripts/check_profile_resources.py
             python3 -B f139/check_test_discovery_inventory.py --profile-current --resource-diagnostics --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
+          elif [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-sqlite-phase-diagnostics-20261107' ]; then
+            PYTHONPATH=. python3 -B scripts/check_sqlite_phases.py
+            python3 -B f139/check_sqlite_fixture_phases.py --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-sqlite-phases.json"
+            python3 -B f139/check_test_discovery_inventory.py --profile-current --resource-diagnostics --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
           else
             python3 -B -m unittest discover -s f139 -p 'test_*.py'
           fi
@@ -231,8 +246,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: Retain private-fixture phase diagnosis
+        if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: f139-sqlite-phases-${{ runner.os }}
+          path: ${{ runner.temp }}/f139-sqlite-phases.json
+          if-no-files-found: error
       - name: Retain exact-source qualification receipt
-        if: ${{ always() && (github.head_ref == 'engineering/f139-unique-test-discovery-20261105' || github.head_ref == 'engineering/f139-qualification-profile-20261106' || github.head_ref == 'engineering/f139-profile-resource-diagnostics-20261107') }}
+        if: ${{ always() && (github.head_ref == 'engineering/f139-unique-test-discovery-20261105' || github.head_ref == 'engineering/f139-qualification-profile-20261106' || github.head_ref == 'engineering/f139-profile-resource-diagnostics-20261107' || github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107') }}
         uses: actions/upload-artifact@v4
         with:
           name: f139-discovery-public-${{ runner.os }}
