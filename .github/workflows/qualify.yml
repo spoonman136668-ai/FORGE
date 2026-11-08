@@ -128,6 +128,25 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Actual GenEnv and Promptbreeder outputs to bound source
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_path="$RUNNER_TEMP/f139-genenv-request.json"
+          result_path="$RUNNER_TEMP/f139-genenv-result.json"
+          python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_genenv_source_integration --result "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --result "$result_path"
+          previous_path="$RUNNER_TEMP/f139-typed-program-first-result.json"
+          python3 -B -m f139.check_prompt_program_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
       - name: Frozen native action-consequence development receipt
         if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
         shell: bash
@@ -239,72 +258,10 @@ jobs:
           if-no-files-found: error
 
 
-  linux_genenv:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      GOMAXPROCS: '2'
-      GOFLAGS: '-p=2'
-      GOMEMLIMIT: '1536MiB'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          fetch-depth: 8
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Enforce FORGE independence from private CKB-plane
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
-          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
-          python3 -B isolationguard/check.py
-          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
-          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
-          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
-          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
-      - name: Prepare frozen transport sources and run affected controls
-        shell: bash
-        run: |
-          set -euo pipefail
-          candidate=$(git rev-parse HEAD)
-          for source in 80ae30719bcd9f179da4aa4e8f14dc36fd15818e 556d61f795cab1a042d26b46bbc1087dd436f52d; do
-            if ! git cat-file -e "$source:f139/local_controller.py" 2>/dev/null; then
-              git fetch --no-tags --depth=1 https://github.com/spoonman136668-ai/FORGE.git "$source"
-            fi
-            git cat-file -e "$source:f139/local_controller.py"
-          done
-          test "$(git rev-parse HEAD)" = "$candidate"
-          test "$(git rev-parse --is-shallow-repository)" = true
-          python3 -B -m unittest discover -s f139 -p 'test_github_command_transport.py' -v
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Actual GenEnv and Promptbreeder outputs to bound source
-        shell: bash
-        run: |
-          set -euo pipefail
-          request_path="$RUNNER_TEMP/f139-genenv-request.json"
-          result_path="$RUNNER_TEMP/f139-genenv-result.json"
-          python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
-          python3 -B -m f139.check_genenv_source_integration --result "$result_path"
-          python3 -B -m f139.check_prompt_source_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
-          python3 -B -m f139.check_prompt_source_integration --result "$result_path"
-          previous_path="$RUNNER_TEMP/f139-typed-program-first-result.json"
-          python3 -B -m f139.check_prompt_program_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$previous_path"
-          python3 -B -m f139.check_prompt_program_integration --result "$previous_path"
-          python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
-          python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
-
   linux:
     # Preserve protected ruleset 'linux' only if both complete original lanes pass.
     if: ${{ always() }}
-    needs: [linux_f139, linux_native, linux_genenv]
+    needs: [linux_f139, linux_native]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -315,13 +272,11 @@ jobs:
         env:
           F139_RESULT: ${{ needs.linux_f139.result }}
           NATIVE_RESULT: ${{ needs.linux_native.result }}
-          GENENV_RESULT: ${{ needs.linux_genenv.result }}
           EXACT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           test "$F139_RESULT" = 'success'
           test "$NATIVE_RESULT" = 'success'
-          test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo 'FORGE_LINUX_ORIGINAL_F139_AND_NATIVE_GATES=PASS'
 
@@ -456,6 +411,25 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Actual GenEnv and Promptbreeder outputs to bound source
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_path="$RUNNER_TEMP/f139-genenv-request.json"
+          result_path="$RUNNER_TEMP/f139-genenv-result.json"
+          python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_genenv_source_integration --result "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --result "$result_path"
+          previous_path="$RUNNER_TEMP/f139-typed-program-first-result.json"
+          python3 -B -m f139.check_prompt_program_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
       - name: Frozen native action-consequence development receipt
         if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
         shell: bash
@@ -558,79 +532,10 @@ jobs:
           if-no-files-found: error
 
 
-  windows_genenv:
-    runs-on: windows-latest
-    timeout-minutes: 40
-    env:
-      GOMAXPROCS: '2'
-      GOFLAGS: '-p=2'
-      GOMEMLIMIT: '1536MiB'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          fetch-depth: 8
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: FORGE independence and standing isolation enforcement
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
-          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
-          python3 -B isolationguard/check.py
-          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
-          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
-          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
-          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
-      - name: Focused original-owner Windows mutex interoperability
-        if: runner.os == 'Windows' && (github.head_ref == 'engineering/f139-v36-original-owner-corrective-release-20261105' || github.head_ref == 'engineering/f139-v37-public-order-owner-handoff-20261105')
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          python -B -m unittest discover -s f139 -p 'test_nci04_original_owner_mutex.py' -v
-          if($LASTEXITCODE -ne 0){throw 'F139_V36_MUTEX_INTEROPERABILITY_FAILED'}
-      - name: Prepare frozen transport sources and run affected controls
-        shell: bash
-        run: |
-          set -euo pipefail
-          candidate=$(git rev-parse HEAD)
-          for source in 80ae30719bcd9f179da4aa4e8f14dc36fd15818e 556d61f795cab1a042d26b46bbc1087dd436f52d; do
-            if ! git cat-file -e "$source:f139/local_controller.py" 2>/dev/null; then
-              git fetch --no-tags --depth=1 https://github.com/spoonman136668-ai/FORGE.git "$source"
-            fi
-            git cat-file -e "$source:f139/local_controller.py"
-          done
-          test "$(git rev-parse HEAD)" = "$candidate"
-          test "$(git rev-parse --is-shallow-repository)" = true
-          python3 -B -m unittest discover -s f139 -p 'test_github_command_transport.py' -v
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Actual GenEnv and Promptbreeder outputs to bound source
-        shell: bash
-        run: |
-          set -euo pipefail
-          request_path="$RUNNER_TEMP/f139-genenv-request.json"
-          result_path="$RUNNER_TEMP/f139-genenv-result.json"
-          python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
-          python3 -B -m f139.check_genenv_source_integration --result "$result_path"
-          python3 -B -m f139.check_prompt_source_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
-          python3 -B -m f139.check_prompt_source_integration --result "$result_path"
-          previous_path="$RUNNER_TEMP/f139-typed-program-first-result.json"
-          python3 -B -m f139.check_prompt_program_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$previous_path"
-          python3 -B -m f139.check_prompt_program_integration --result "$previous_path"
-          python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
-          python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
-
   windows:
     # GitHub ruleset #25031517 still requires 'windows'; AND both real lanes.
     if: ${{ always() }}
-    needs: [windows_f139, windows_native, windows_genenv]
+    needs: [windows_f139, windows_native]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -641,12 +546,10 @@ jobs:
         env:
           F139_RESULT: ${{ needs.windows_f139.result }}
           NATIVE_RESULT: ${{ needs.windows_native.result }}
-          GENENV_RESULT: ${{ needs.windows_genenv.result }}
           EXACT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           test "$F139_RESULT" = 'success'
           test "$NATIVE_RESULT" = 'success'
-          test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
