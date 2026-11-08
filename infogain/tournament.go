@@ -161,7 +161,7 @@ func tournamentPosterior(prior []uint16, likelihood []uint16) ([]uint16, error) 
     return tournamentRoundExact(next)
 }
 
-func tournamentPick(f Frozen, prior []uint16, used map[string]bool,
+func tournamentPick(f Frozen, prior []uint16, masses []*big.Int, used map[string]bool,
 	reserved int64, families map[string]int, steps int) TournamentProbe {
 	result := TournamentProbe{PosteriorBP: append([]uint16(nil), prior...),
 		StepsCompleted: steps, BudgetRemaining: f.ComputeBudget - reserved,
@@ -169,10 +169,18 @@ func tournamentPick(f Frozen, prior []uint16, used map[string]bool,
 	if steps >= f.MaxSelected {
 		return result
 	}
-	variant := f
-	variant.Hypotheses = append([]Hypothesis(nil), f.Hypotheses...)
-	for i := range variant.Hypotheses {
-		variant.Hypotheses[i].PriorBP = prior[i]
+	// Scores must use the preserved exact posterior, NOT the rounded
+	// basis-point display. Otherwise an unlikely but live hypothesis can
+	// lose every discriminating follow-up probe until it revives.
+	total := new(big.Int)
+	for _, mass := range masses {
+		total.Add(total, mass)
+	}
+	totalFloat, _ := new(big.Float).SetInt(total).Float64()
+	exactPrior := make([]float64, len(masses))
+	for i, mass := range masses {
+		value, _ := new(big.Float).SetInt(mass).Float64()
+		exactPrior[i] = value / totalFloat
 	}
 	var best Ranked
 	var found *Candidate
@@ -188,7 +196,7 @@ func tournamentPick(f Frozen, prior []uint16, used map[string]bool,
 			c.ComputeUnits > result.BudgetRemaining {
 			continue
 		}
-		score := measure(variant, *c)
+		score := measureWithPrior(f, *c, exactPrior)
 		if score.ExpectedInformationMicrobits < f.MinInformationMicrobits {
 			continue
 		}
@@ -240,7 +248,7 @@ func replayTournament(f Frozen, pin string, state TournamentState) (TournamentPr
 	families := map[string]int{}
 	var reserved int64
 	for i, obs := range state.Observations {
-		selected := tournamentPick(f, prior, used, reserved, families, i)
+		selected := tournamentPick(f, prior, masses, used, reserved, families, i)
 		if selected.Exhausted || selected.CandidateID != obs.CandidateID ||
 			selected.SourceSHA != obs.SourceSHA ||
 			selected.MechanismSHA256 != obs.MechanismSHA256 ||
@@ -276,7 +284,7 @@ func replayTournament(f Frozen, pin string, state TournamentState) (TournamentPr
 		families[candidate.Family]++
 		reserved += candidate.ComputeUnits
 	}
-	return tournamentPick(f, prior, used, reserved, families, len(state.Observations)), nil
+	return tournamentPick(f, prior, masses, used, reserved, families, len(state.Observations)), nil
 }
 
 // NextTournamentProbe names the next candidate; it never invokes a runner.

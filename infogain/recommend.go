@@ -219,19 +219,28 @@ func entropy(p []float64) float64 {
 	return h
 }
 func measure(f Frozen, c Candidate) Ranked {
+    prior := make([]float64, len(f.Hypotheses))
+    for i, h := range f.Hypotheses {
+        prior[i] = float64(h.PriorBP) / 10000
+    }
+    return measureWithPrior(f, c, prior)
+}
+
+// Score a candidate using a caller-supplied posterior. The public
+// Recommend path still supplies its original frozen basis-point prior;
+// tournament replay supplies an unrounded, source-bound exact-mass prior.
+func measureWithPrior(f Frozen, c Candidate, prior []float64) Ranked {
 	prob:=make([]float64,4)
 	var conditionH float64
 	for i,pred:=range c.OutcomeGivenHypothesis {
-		p:=float64(f.Hypotheses[i].PriorBP)/10000
+		p:=prior[i]
 		dist:=make([]float64,4)
 		for j,bp:=range pred {dist[j]=float64(bp)/10000;prob[j]+=p*dist[j]}
 		conditionH+=p*entropy(dist)
 	}
 	info:=math.Max(0,entropy(prob)-conditionH)
 	micro:=int64(math.Round(info*1_000_000))
-	priordist:=make([]float64, len(f.Hypotheses))
-	for i,h:=range f.Hypotheses {priordist[i]=float64(h.PriorBP)/10000}
-	priorH:=entropy(priordist)
+	priorH:=entropy(prior)
 	uncertaintyBP:=int64(0)
 	if priorH>0{uncertaintyBP=int64(math.Round(info/priorH*10000))}
 	if uncertaintyBP>10000{uncertaintyBP=10000}
