@@ -2,10 +2,12 @@
 from __future__ import annotations
 import ast
 from contextlib import closing
+from functools import lru_cache
 import fnmatch
 import json
 from pathlib import Path
 import re
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -15,8 +17,37 @@ from f139.local_controller import Database, SingleOwner, v2_owner_terminal_relea
 
 ROOT = Path(__file__).resolve().parent.parent
 
+@lru_cache(maxsize=1)
+def _sealed_pending_v30_template():
+    """Retain only closed synthetic SQLite bytes, never a DB handle.
+
+    This V30 fixture intentionally contains an untrusted legacy event shape
+    that the full custody audit rejects. As in the original tests, perform
+    SQLite integrity checks, NOT an invented post-fixture custody approval.
+    Each test still starts with a verified empty database and fresh file.
+    """
+    original = PendingTransferTests()
+    original._build_uncached_fixture()
+    try:
+        if original.db.meta()['head_seq'] != 376:
+            raise AssertionError("G123_UNTRUSTED_PREFIX_COUNT_CHANGED")
+        row = original.db.conn.execute("PRAGMA integrity_check").fetchone()
+        if row is None or row[0] != "ok":
+            raise AssertionError("G123_TEMPLATE_SQLITE_INTEGRITY_FAILED")
+        original.db.close()
+        path = original.path
+        if path.with_name(path.name + "-wal").exists():
+            raise AssertionError("G123_TEMPLATE_WAL_NOT_CHECKPOINTED")
+        data = path.read_bytes()
+        if not data or len(data) > 4 * 1024 * 1024:
+            raise AssertionError("G123_TEMPLATE_BOUNDS_INVALID")
+        return data
+    finally:
+        original.doCleanups()
+
+
 class PendingTransferTests(unittest.TestCase):
-    def setUp(self):
+    def _build_uncached_fixture(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name) / 'isolated.sqlite'
@@ -31,6 +62,25 @@ class PendingTransferTests(unittest.TestCase):
                       issue_number=1358,source_sha=route.FROM_V29,manifest_sha256='a'*64))
         self.db.event('TASK_INTAKE',dict(ticket=route.TICKET))
         self.assertEqual(self.db.meta()['head_seq'],376)
+
+    def setUp(self):
+        template = _sealed_pending_v30_template()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = Path(tmp.name) / 'isolated.sqlite'
+        source = Path(tmp.name) / 'untrusted-prefix.sqlite'
+        source.write_bytes(template)
+        # Preserve the original Database.initialize() verification of an
+        # empty database, then copy the deliberately untrusted test events.
+        # No new authorization/audit bypass is introduced: the original
+        # setUp did not call verify() after appending this history.
+        self.db = Database.initialize(self.path, route.FROM_V29)
+        self.addCleanup(self.db.close)
+        with closing(sqlite3.connect(str(source))) as snapshot:
+            snapshot.backup(self.db.conn)
+        self.assertEqual(self.db.meta()['head_seq'],376)
+        self.assertEqual(self.db.conn.execute("PRAGMA synchronous").fetchone()[0],2)
+        self.assertEqual(self.db.conn.execute("PRAGMA journal_mode").fetchone()[0].lower(),"wal")
 
     def test_exact_unclaimed_identity_is_read_only_and_does_not_reissue(self):
         before = self.db.conn.total_changes
