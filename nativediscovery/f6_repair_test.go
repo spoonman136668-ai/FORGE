@@ -98,23 +98,38 @@ func TestF6RealSourceFromInterventionFeedbackAndMatchedNegativeEvidence(t *testi
  if err:=F6ValidatePreview(report);err!=nil{t.Fatal("exact source validation failure",err)}
 }
 
-func TestF6OppositeRealEffectsChangeGeneratedProgramNotJustAWeight(t *testing.T){
+func TestF6CounterfactualFeedbackChangesGeneratedProgramNotJustAWeight(t *testing.T){
  parent,err:=F5Development()
  if err!=nil{t.Fatal(err)}
- original:=parent.Arms[0].Probes
- before,err:=f6Propose(original)
+ // Inject only hypothetical TRAIN feedback into the pure proposal function;
+ // this is a mutation control, not a new world or consumed science evidence.
+ positive:=append([]F5Probe(nil),parent.Arms[0].Probes...)
+ for i:=range positive{
+  positive[i].ObservedEffect=1
+  if positive[i].Action==1{positive[i].ObservedEffect= -1}
+ }
+ before,err:=f6Propose(positive)
  if err!=nil{t.Fatal(err)}
- opposite:=append([]F5Probe(nil),original...)
+ opposite:=append([]F5Probe(nil),positive...)
  for i:=range opposite{opposite[i].ObservedEffect*= -1}
  after,err:=f6Propose(opposite)
  if err!=nil{t.Fatal(err)}
  if len(before)!=F6Families||len(after)!=F6Families{t.Fatal("missing generation family")}
+ if before[0].Family!="constant"||before[0].Phase!=1||
+  after[0].Family!="constant"||after[0].Phase!= -1||
+  before[0].SourceSHA256==after[0].SourceSHA256||
+  before[0].TrainingCorrect!=6||after[0].TrainingCorrect!=6{
+  t.Fatal("opposite consequence feedback failed to generate opposite winning source")
+ }
  for i:=range before{
-  if before[i].SourceSHA256==after[i].SourceSHA256||
+  if before[i].TrainingCorrect!=after[i].TrainingCorrect{
+   t.Fatal("effect inversion must preserve maximal train fit")
+  }
+  if before[i].TrainingCorrect>3&&(
+   before[i].SourceSHA256==after[i].SourceSHA256||
    before[i].GeneratedGoSource==after[i].GeneratedGoSource||
-   before[i].Phase==after[i].Phase||
-   before[i].TrainingCorrect!=after[i].TrainingCorrect{
-   t.Fatalf("training feedback did not produce changed candidate source: %s",before[i].Family)
+   before[i].Phase==after[i].Phase){
+   t.Fatalf("non-tied feedback did not produce changed source: %s",before[i].Family)
   }
  }
  // A changed *evaluation* score alone is not permitted to change selection.
