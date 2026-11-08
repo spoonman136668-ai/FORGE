@@ -190,12 +190,20 @@ jobs:
           if-no-files-found: error
       - name: Tests, race, vet and build
         shell: bash
+        env:
+          FORGE_G141_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          go test -count=1 ./...
-          GOFLAGS='-p=4' go test -race -count=1 ./...
+          python3 -B scripts/check_rar_g141_parallel_go.py
           go vet ./...
           go build ./...
+      - name: Retain G141 exact-head original Go/race package and memory receipt
+        if: ${{ always() && github.head_ref == 'engineering/rar-g141-parallel-complete-go-suites-20261108' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g141-original-parallel-go-cgroup
+          path: ${{ runner.temp }}/rar-g141-parallel-original-go.json
+          if-no-files-found: error
       - name: Public isolation
         shell: bash
         run: |
