@@ -134,18 +134,30 @@ jobs:
           set -euo pipefail
           request_path="$RUNNER_TEMP/f139-genenv-request.json"
           result_path="$RUNNER_TEMP/f139-genenv-result.json"
+          # Build this same bounded source adapter once instead of invoking
+          # 'go run' separately four times. All validation calls stay intact.
+          genenv_bin_dir="$(mktemp -d)"
+          trap 'rm -rf "$genenv_bin_dir"' EXIT
+          genenv_bin="$genenv_bin_dir/f139-genenv-source$(go env GOEXE)"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go build -o "$genenv_bin" ./cmd/f139-genenv-source
           python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          "$genenv_bin" < "$request_path" > "$result_path"
+          # DEV branch only: require byte-identical output from the unchanged
+          # original go-run route, not merely a lenient schema validator.
+          if [ "${GITHUB_HEAD_REF:-}" = 'engineering/rar-g138-compile-once-source-validator-20261108' ]; then
+            CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$RUNNER_TEMP/g138-original-genenv.json"
+            cmp -s "$result_path" "$RUNNER_TEMP/g138-original-genenv.json"
+          fi
           python3 -B -m f139.check_genenv_source_integration --result "$result_path"
           python3 -B -m f139.check_prompt_source_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          "$genenv_bin" < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_source_integration --result "$result_path"
           previous_path="$RUNNER_TEMP/f139-typed-program-first-result.json"
           python3 -B -m f139.check_prompt_program_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$previous_path"
+          "$genenv_bin" < "$request_path" > "$previous_path"
           python3 -B -m f139.check_prompt_program_integration --result "$previous_path"
           python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          "$genenv_bin" < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
       - name: Frozen native action-consequence development receipt
         if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
@@ -408,18 +420,30 @@ jobs:
           set -euo pipefail
           request_path="$RUNNER_TEMP/f139-genenv-request.json"
           result_path="$RUNNER_TEMP/f139-genenv-result.json"
+          # Build this same bounded source adapter once instead of invoking
+          # 'go run' separately four times. All validation calls stay intact.
+          genenv_bin_dir="$(mktemp -d)"
+          trap 'rm -rf "$genenv_bin_dir"' EXIT
+          genenv_bin="$genenv_bin_dir/f139-genenv-source$(go env GOEXE)"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go build -o "$genenv_bin" ./cmd/f139-genenv-source
           python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          "$genenv_bin" < "$request_path" > "$result_path"
+          # DEV branch only: require byte-identical output from the unchanged
+          # original go-run route, not merely a lenient schema validator.
+          if [ "${GITHUB_HEAD_REF:-}" = 'engineering/rar-g138-compile-once-source-validator-20261108' ]; then
+            CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$RUNNER_TEMP/g138-original-genenv.json"
+            cmp -s "$result_path" "$RUNNER_TEMP/g138-original-genenv.json"
+          fi
           python3 -B -m f139.check_genenv_source_integration --result "$result_path"
           python3 -B -m f139.check_prompt_source_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          "$genenv_bin" < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_source_integration --result "$result_path"
           previous_path="$RUNNER_TEMP/f139-typed-program-first-result.json"
           python3 -B -m f139.check_prompt_program_integration --request > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$previous_path"
+          "$genenv_bin" < "$request_path" > "$previous_path"
           python3 -B -m f139.check_prompt_program_integration --result "$previous_path"
           python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
-          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          "$genenv_bin" < "$request_path" > "$result_path"
           python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
       - name: Frozen native action-consequence development receipt
         if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
