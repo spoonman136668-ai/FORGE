@@ -100,12 +100,12 @@ class JobTreeMemory:
 
 
 
-def case_ids(suite):
+def case_objects(suite):
     for test in suite:
         if isinstance(test, unittest.TestSuite):
-            yield from case_ids(test)
+            yield from case_objects(test)
         else:
-            yield test.id()
+            yield test
 
 
 def worker(args):
@@ -127,11 +127,25 @@ def worker(args):
             search._normalized_exact_bytes.cache_clear()
         start=time.perf_counter()
         loader=unittest.TestLoader()
-        suite=loader.discover(start_dir="f139",pattern="test_*.py")
-        ids=sorted(case_ids(suite))
+        all_discovered=list(case_objects(
+            loader.discover(start_dir="f139",pattern="test_*.py")))
+        # New cache-unit tests validate cache behavior, so cannot run under the
+        # original-uncached A control. Mandatory Linux/Windows CI already
+        # executes those seven new controls; benchmark ALL preexisting F139
+        # tests (same IDs in both A and B) without weakening mandatory CI.
+        cache_control_ids=[case.id() for case in all_discovered
+                           if "test_nci04_normalized_cache" in case.id().split(".")]
+        original_cases=[case for case in all_discovered
+                        if "test_nci04_normalized_cache" not in case.id().split(".")]
+        if len(cache_control_ids)!=7:
+            raise ValueError("G133_NEW_CACHE_CONTROL_INVENTORY_INVALID")
+        ids=sorted(case.id() for case in original_cases)
         expected_cases=len(ids)
         if expected_cases<1443 or expected_cases!=len(set(ids)):
-            raise ValueError("G133_TEST_INVENTORY_INVALID")
+            raise ValueError("G133_ORIGINAL_TEST_INVENTORY_INVALID")
+        suite=unittest.TestSuite(original_cases)
+        out["candidate_cache_unit_tests_excluded_from_abba_only"]=len(cache_control_ids)
+        out["candidate_cache_unit_tests_in_mandatory_original_ci"]=True
         stream=io.StringIO()
         outcome=unittest.TextTestRunner(stream=stream,verbosity=1).run(suite)
         duration=time.perf_counter()-start
