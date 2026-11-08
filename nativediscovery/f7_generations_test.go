@@ -159,6 +159,19 @@ func TestF7CausalFeedbackChangesSourceAndSecondGenerationDoesNotLeakFuture(t *te
  altered:=original
  altered.Probes=append([]F5Probe(nil),original.Probes...)
  for i:=3;i<6;i++{altered.Probes[i].ObservedEffect*= -1}
+ // A counterfactual change in observed TRAIN effects can legitimately change
+ // the old F3 comparator's six-probe winner too. Keep that comparator selected
+ // from the modified observations (never the original six-probe hindsight).
+ var alteredScores [3]int
+ for _,probe:=range altered.Probes{
+  if err:=f5ScoreFeedback(&alteredScores,probe.PreObservationPredictions,
+   probe.Action,probe.ObservedEffect);err!=nil{t.Fatal(err)}
+ }
+ winner:=0
+ for i:=1;i<3;i++{
+  if alteredScores[i]>alteredScores[winner]{winner=i}
+ }
+ altered.SelectedCandidateID=altered.Candidates[winner].CandidateID
  sameG1,err:=f7BuildGeneration(altered,p,nil,3)
  if err!=nil{t.Fatal(err)}
  if !reflect.DeepEqual(g1,sameG1){t.Fatal("G1 leaked three later intervention effects")}
