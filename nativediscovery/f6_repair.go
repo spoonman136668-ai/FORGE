@@ -135,7 +135,13 @@ type F6Report struct {
 // is accepted here: candidate generation sees only the six actually observed
 // training transitions. The caller must authenticate F5 separately.
 func f6Propose(probes []F5Probe)([]F6GeneratedCandidate,error){
- if len(probes)!=F5ProbeBudget{return nil,errF6}
+ return f6ProposeN(probes,F5ProbeBudget)
+}
+// f6ProposeN preserves the original six-query behavior and also accepts
+// the first three already-observed F5 training events for F7 generation one.
+// No partial or non-prefix batches, unknown seeds or new probes are created.
+func f6ProposeN(probes []F5Probe,n int)([]F6GeneratedCandidate,error){
+ if (n!=3&&n!=F5ProbeBudget)||len(probes)!=n{return nil,errF6}
  used:=[8]bool{}
  for i,p:=range probes{
   key:=p.Cue*2+p.Mode
