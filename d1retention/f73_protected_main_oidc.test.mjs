@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {generateKeyPairSync,sign} from "node:crypto";
-import {verifyJWT,observeRealOrigin,Denied} from "./f73_protected_main_oidc.mjs";
+import {verifyJWT,observeRealOrigin,Denied,redactedFailurePhase} from "./f73_protected_main_oidc.mjs";
 const ISS="https://token.actions.githubusercontent.com";
 const REPO="spoonman136668-ai/FORGE";
 const SHA="a".repeat(40);
@@ -162,5 +162,65 @@ test("unprotected main, changed policy or missing OS checks are denied",async()=
  ]) {
   const f=fixture("main");mutate(f);
   await assert.rejects(observeRealOrigin({env:f.env,fetcher:f.fetcher,now:clock}),Denied);
+ }
+});
+
+test("fixed nonsecret phase labels are bounded and do not change valid signed main admission",async()=>{
+ const f=fixture("main"),steps=[];
+ const r=await observeRealOrigin({env:f.env,fetcher:f.fetcher,now:clock,
+  onPhase:phase=>steps.push(phase)});
+ assert.deepEqual(steps,[
+  "RUN_PINS","OIDC_TOKEN_REQUEST","ISSUER_DISCOVERY","JWKS_FETCH",
+  "JWT_VERIFICATION","REPOSITORY_READ","RUN_READ","MAIN_READ",
+  "RULESET_READ","RULESET_VALIDATION","CURRENT_MAIN_COMMIT",
+  "ATTESTATION_COMPLETE"
+ ]);
+ assert.equal(r.on_protected_main_workflow,true);
+ assert.equal(r.independently_accepted_current_scientific_owner,false);
+ assert.equal(r.complete_two_lane_original_firstuse_attested,false);
+ assert.equal(r.worker_execution_permit_issued,false);
+ assert.equal(r.scientific_originals_dispatched,0);
+ assert.equal(f.requested.length,7);
+ assert.equal(steps.join("|").includes(f.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN),false);
+ assert.equal(steps.join("|").includes(f.endpoints[f.actionURL].value),false);
+ assert.equal(redactedFailurePhase(f.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN),"UNCLASSIFIED");
+ assert.equal(redactedFailurePhase(f.endpoints[f.actionURL].value),"UNCLASSIFIED");
+ assert.equal(redactedFailurePhase("READ_FAILED:"+"private-owner-key"),"UNCLASSIFIED");
+});
+test("failed trust predicates remain denied with exact nonsecret last phase",async()=>{
+ const trials=[
+  {phase:"RUN_PINS",mutate:f=>{f.env.GITHUB_RUN_ATTEMPT="2";}},
+  {phase:"OIDC_TOKEN_REQUEST",mutate:f=>{f.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN="";}},
+  {phase:"ISSUER_DISCOVERY",mutate:f=>{
+   f.endpoints[ISS+"/.well-known/openid-configuration"].jwks_uri="https://hostile.example/jwks";
+  }},
+  {phase:"JWKS_FETCH",mutate:f=>{f.endpoints[ISS+"/.well-known/jwks"].keys=[];}},
+  {phase:"JWT_VERIFICATION",mutate:f=>{f.endpoints[f.actionURL].value="invalid.jwt";}},
+  {phase:"REPOSITORY_READ",mutate:f=>{f.endpoints["https://api.github.com/repos/"+REPO].id=3;}},
+  {phase:"RUN_READ",mutate:f=>{
+   f.endpoints["https://api.github.com/repos/"+REPO+"/actions/runs/"+f.pins.run_id].run_attempt=2;
+  }},
+  {phase:"MAIN_READ",mutate:f=>{
+   f.endpoints["https://api.github.com/repos/"+REPO+"/branches/main"].protected="not-boolean";
+  }},
+  {phase:"RULESET_READ",mutate:f=>{
+   delete f.endpoints["https://api.github.com/repos/"+REPO+"/rulesets/25031517"];
+  }},
+  {phase:"RULESET_VALIDATION",mutate:f=>{
+   f.endpoints["https://api.github.com/repos/"+REPO+"/rulesets/25031517"].enforcement="disabled";
+  }},
+  {phase:"CURRENT_MAIN_COMMIT",mutate:f=>{
+   f.endpoints["https://api.github.com/repos/"+REPO+"/branches/main"].commit.sha="b".repeat(40);
+  }}
+ ];
+ for(const {phase,mutate} of trials){
+  const f=fixture("main"),steps=[];
+  mutate(f);
+  await assert.rejects(observeRealOrigin({env:f.env,fetcher:f.fetcher,now:clock,
+    onPhase:name=>steps.push(name)}));
+  assert.equal(steps.at(-1),phase);
+  assert.equal(redactedFailurePhase(steps.at(-1)),phase);
+  assert.equal(steps.includes("ATTESTATION_COMPLETE"),false);
+  assert.equal(steps.join(" ").includes(f.env.GITHUB_TOKEN),false);
  }
 });
