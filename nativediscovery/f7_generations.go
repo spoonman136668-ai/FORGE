@@ -64,7 +64,7 @@ type F7Report struct {
  GeneratedCandidateCount int `json:"generated_candidate_count"`
  Arms []F7ArmResult `json:"arms"`
  DevelopmentOnly bool `json:"development_only"`
- GeneratedSourceCompiledInTestsOnly bool `json:"generated_source_compiled_in_tests_only"`
+ GeneratedSourceTypecheckedInTestsOnly bool `json:"generated_source_compiled_in_tests_only"`
  NewExperimentObservations int `json:"new_experiment_observations"`
  IndependentHoldoutConsumed bool `json:"independent_holdout_consumed"`
  ScientificAccepted bool `json:"scientific_accepted"`
@@ -244,7 +244,7 @@ func F7Development()(F7Report,error){
   F6Schema:f6.Schema,TrainingSeeds:f5.TrainingSeeds,Policies:f5.Policies,
   GenerationsPerArm:F7Generations,
   Arms:make([]F7ArmResult,0,len(f5.Arms)),DevelopmentOnly:true,
-  GeneratedSourceCompiledInTestsOnly:true,
+  GeneratedSourceTypecheckedInTestsOnly:true,
  }
  for i,arm:=range f5.Arms{
   if arm.Seed!=out.TrainingSeeds[i/3]||arm.Policy!=out.Policies[i%3]||
