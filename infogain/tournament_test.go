@@ -215,3 +215,65 @@ func TestTournamentExactMassZeroLikelihoodAndNonmutation(t *testing.T) {
         t.Fatal("zero mass state accepted")
     }
 }
+
+func TestTournamentUnroundedSelectionRetainsRareLiveHypothesis(t *testing.T) {
+    f := tournamentFixture()
+    f.Hypotheses = append([]Hypothesis(nil), f.Hypotheses[:2]...)
+    f.Hypotheses[0].PriorBP = 1
+    f.Hypotheses[1].PriorBP = 9999
+    // The cheap first result makes H0 ~0.111 basis points, below
+    // display resolution. The second source discriminates H0 sharply.
+    f.Candidates[0].OutcomeGivenHypothesis = [][4]uint16{
+        {1000,9000,0,0}, {9000,1000,0,0},
+    }
+    f.Candidates[1].OutcomeGivenHypothesis = [][4]uint16{
+        {10000,0,0,0}, {1,9999,0,0},
+    }
+    f.Candidates[1].ComputeUnits = 10000
+    f.ComputeBudget = 10001
+    f.MinInformationMicrobits = 1
+    pin := Digest(f)
+    state, err := NewTournament(f, pin)
+    if err != nil { t.Fatal(err) }
+    first, err := NextTournamentProbe(f, pin, state)
+    if err != nil || first.Exhausted || first.CandidateID != "first" {
+        t.Fatalf("expected cheap first discriminating probe: %v %+v", err, first)
+    }
+    one, err := RecordTournamentOutcome(f, pin, state, TournamentObservation{
+        CandidateID:first.CandidateID, SourceSHA:first.SourceSHA,
+        MechanismSHA256:first.MechanismSHA256, Outcome:0,
+        EvidenceSHA256:tournamentHex("8",64),
+    })
+    if err != nil { t.Fatal(err) }
+    probe, err := NextTournamentProbe(f, pin, one)
+    if err != nil || probe.Exhausted || probe.CandidateID != "second" ||
+       probe.PosteriorBP[0] != 0 || probe.ProjectedInformationMicrobits < 100 {
+        t.Fatalf("unrounded rare-hypothesis information was discarded: %v %+v",err,probe)
+    }
+    // Old 10,000-basis-point-only ranking incorrectly considered the
+    // second candidate noninformative and stopped after step one.
+    lossy := measureWithPrior(f, f.Candidates[1], []float64{0,1})
+    if lossy.ExpectedInformationMicrobits != 0 {
+        t.Fatalf("rounded-control unexpectedly has information: %+v",lossy)
+    }
+    cold, err := NextTournamentProbe(f, pin, one)
+    if err != nil || !reflect.DeepEqual(probe,cold) {
+        t.Fatal("cold replay with exact scoring differed")
+    }
+    if probe.DispatchAuthorized || !probe.ForecastOnly ||
+       one.DispatchAuthorized || one.ScientificAccepted ||
+       one.ScientificFirstUseAuthorized || one.AcceptedRefMutation {
+        t.Fatal("exact ranking granted experimental authority")
+    }
+}
+
+func TestTournamentExactScoringPreservesFrozenRecommendScores(t *testing.T) {
+    f:=tournamentFixture()
+    prior:=make([]float64,len(f.Hypotheses))
+    for i,h:=range f.Hypotheses {prior[i]=float64(h.PriorBP)/10000}
+    for _,c:=range f.Candidates {
+        if got,want:=measureWithPrior(f,c,prior),measure(f,c);!reflect.DeepEqual(got,want) {
+            t.Fatalf("existing frozen-score path changed: got %+v want %+v",got,want)
+        }
+    }
+}
