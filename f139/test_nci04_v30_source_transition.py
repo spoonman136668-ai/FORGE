@@ -76,7 +76,7 @@ class PendingTransferTests(unittest.TestCase):
         # setUp did not call verify() after appending this history.
         self.db = Database.initialize(self.path, route.FROM_V29)
         self.addCleanup(self.db.close)
-        with sqlite3.connect(str(source)) as snapshot:
+        with closing(sqlite3.connect(str(source))) as snapshot:
             snapshot.backup(self.db.conn)
         self.assertEqual(self.db.meta()['head_seq'],376)
         self.assertEqual(self.db.conn.execute("PRAGMA synchronous").fetchone()[0],2)
