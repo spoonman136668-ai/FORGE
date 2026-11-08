@@ -21,6 +21,21 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "spoonman136668-ai/FORGE"
 BRANCH = "engineering/rar-g141-parallel-complete-go-suites-20261108"
+# Exact frozen source scopes, no wildcard branch or arbitrary PR admission.
+DEV_SCOPES = {
+    BRANCH: (
+        "1a1ba98dc821131d8a14182f72243540d008aaae",
+        {".github/workflows/qualify.yml", "scripts/check_rar_g141_parallel_go.py"},
+    ),
+    "engineering/rar-g144-windows-native-go-vet-concurrent-20261108": (
+        "0ea00f9b4587f5508dff39b65de2574f0b4fe681",
+        {
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g141_parallel_go.py",
+            "scripts/check_rar_g144_windows_go.py",
+        },
+    ),
+}
 MAX_SECONDS = 180
 MAX_CGROUP_BYTES = 4 * (1024**3)
 PACKAGE_RE = re.compile(r"^(?:ok|\?)\s+(\S+)\s+", re.MULTILINE)
@@ -101,7 +116,10 @@ def main() -> int:
         raise ValueError("G141_ORIGINAL_HOSTED_LINUX_ONLY")
     event = os.environ.get("GITHUB_EVENT_NAME")
     if event == "pull_request":
-        if os.environ.get("GITHUB_HEAD_REF") != BRANCH:
+        if (
+            os.environ.get("GITHUB_HEAD_REF") not in DEV_SCOPES
+            or os.environ.get("GITHUB_BASE_REF") != "main"
+        ):
             raise ValueError("G141_PR_SCOPE_INVALID")
     elif event == "push":
         if os.environ.get("GITHUB_REF") != "refs/heads/main":
@@ -114,14 +132,9 @@ def main() -> int:
         raise ValueError("G141_EXPECTED_SOURCE_MISMATCH")
     exact_source(sha)
     if event == "pull_request":
-        changed = set(git(
-            "diff", "--name-only",
-            "1a1ba98dc821131d8a14182f72243540d008aaae", sha
-        ).splitlines())
-        if changed != {
-            ".github/workflows/qualify.yml",
-            "scripts/check_rar_g141_parallel_go.py",
-        }:
+        frozen_base, expected_paths = DEV_SCOPES[os.environ["GITHUB_HEAD_REF"]]
+        changed = set(git("diff", "--name-only", frozen_base, sha).splitlines())
+        if changed != expected_paths:
             raise ValueError("G141_DEV_SOURCE_SCOPE_CHANGED")
     expected_list = subprocess.check_output(
         ["go", "list", "./..."], text=True, cwd=ROOT, timeout=80
