@@ -75,6 +75,18 @@ func f7VerifyArchive(t *testing.T,report F7Report,parent F5Report){
     g.SelectedDevAccuracyPct!=chosen.DevChangedWorldAccuracyPct{
     t.Fatal("selected by development score rather than training feedback")
    }
+   var historicScores [3]int
+   for _,probe:=range source.Probes[:expectedCount]{
+    if err:=f5ScoreFeedback(&historicScores,probe.PreObservationPredictions,
+     probe.Action,probe.ObservedEffect);err!=nil{t.Fatal(err)}
+   }
+   f3Winner:=0
+   for j:=1;j<3;j++{
+    if historicScores[j]>historicScores[f3Winner]{f3Winner=j}
+   }
+   if g.F3SelectedControlID!=source.Candidates[f3Winner].CandidateID{
+    t.Fatal("G1/G2 F3 comparator selected by future probe outcomes")
+   }
    strongest:=g.TabularAccuracyPct
    if g.FactorizedAccuracyPct>strongest{strongest=g.FactorizedAccuracyPct}
    if g.ExistingNativeAccuracyPct>strongest{strongest=g.ExistingNativeAccuracyPct}
