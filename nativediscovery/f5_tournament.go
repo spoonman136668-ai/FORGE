@@ -130,8 +130,11 @@ func f5ScoreFeedback(scores *[3]int,predictions [3]int,action,effect int)error{
  if action!=0&&action!=1||effect!=1&&effect!= -1{return errF5}
  normalized:=effect
  if action==1{normalized= -normalized}
- for i,pred:=range predictions {
+ // Reject the entire observation before mutating any evidence state.
+ for _,pred:=range predictions {
   if pred!=1&&pred!= -1{return errF5}
+ }
+ for i,pred:=range predictions {
   if pred==normalized{scores[i]++}else{scores[i]--}
  }
  return nil
