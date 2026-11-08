@@ -38,6 +38,15 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g145_pr_scope.py",
         },
     ),
+    "engineering/rar-g147-semantic-go-cache-firstpass-20261108": (
+        "ab2d239e2d079d2500ec5d91b253c11e6bd3b132",
+        {
+            "docs/FORGE-G147-SEMANTIC-GO-CACHE.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g147_windows_cache.py",
+        },
+    ),
 }
 
 
