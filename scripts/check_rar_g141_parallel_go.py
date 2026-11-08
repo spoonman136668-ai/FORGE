@@ -113,6 +113,16 @@ def main() -> int:
     if sha != os.environ.get("FORGE_G141_HEAD"):
         raise ValueError("G141_EXPECTED_SOURCE_MISMATCH")
     exact_source(sha)
+    if event == "pull_request":
+        changed = set(git(
+            "diff", "--name-only",
+            "1a1ba98dc821131d8a14182f72243540d008aaae", sha
+        ).splitlines())
+        if changed != {
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g141_parallel_go.py",
+        }:
+            raise ValueError("G141_DEV_SOURCE_SCOPE_CHANGED")
     expected_list = subprocess.check_output(
         ["go", "list", "./..."], text=True, cwd=ROOT, timeout=80
     ).splitlines()
