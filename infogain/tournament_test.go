@@ -4,6 +4,7 @@ import (
  "reflect"
  "strings"
  "testing"
+ "math/big"
 )
 
 func tournamentHex(s string,n int) string { return strings.Repeat(s,n) }
@@ -124,4 +125,93 @@ func TestTournamentRejectsHistoricalEvidenceIDReuse(t *testing.T) {
  if err != nil || followUp.CandidateID != "second" || followUp.StepsCompleted != 1 {
   t.Fatalf("legitimate fresh evidence failed: %v %+v", err, followUp)
  }
+}
+
+func TestTournamentSubBasisPointPosteriorRevivesAfterLaterEvidence(t *testing.T) {
+    f := tournamentFixture()
+    // The first unlikely observation reduces H0 below one basis point,
+    // but does not make it mathematically impossible.
+    f.Hypotheses[0].PriorBP = 1
+    f.Hypotheses[1].PriorBP = 4999
+    f.Hypotheses[2].PriorBP = 5000
+    f.Candidates[0].OutcomeGivenHypothesis = [][4]uint16{
+        {1000,9000,0,0}, {9000,1000,0,0}, {9000,1000,0,0},
+    }
+    f.Candidates[1].OutcomeGivenHypothesis = [][4]uint16{
+        {10000,0,0,0}, {1,9999,0,0}, {1,0,9999,0},
+    }
+    // Cheap diagnostic first, then expensive discriminator; both
+    // candidates are valid under the exact same frozen budget.
+    f.Candidates[1].ComputeUnits = 10000
+    f.ComputeBudget = 10001
+    f.MinInformationMicrobits = 1
+    pin := Digest(f)
+    state, err := NewTournament(f, pin)
+    if err != nil { t.Fatal(err) }
+    first, err := NextTournamentProbe(f, pin, state)
+    if err != nil || first.CandidateID != "first" {
+        t.Fatalf("unexpected first experiment: %v %+v", err, first)
+    }
+    firstOutcome := TournamentObservation{
+        CandidateID:first.CandidateID, SourceSHA:first.SourceSHA,
+        MechanismSHA256:first.MechanismSHA256, Outcome:0,
+        EvidenceSHA256:tournamentHex("8",64),
+    }
+    one, err := RecordTournamentOutcome(f, pin, state, firstOutcome)
+    if err != nil { t.Fatal(err) }
+    second, err := NextTournamentProbe(f, pin, one)
+    if err != nil || second.CandidateID != "second" || second.PosteriorBP[0] != 0 {
+        t.Fatalf("expected rounded-out H0 and eligible second probe: %v %+v", err, second)
+    }
+    // A legacy rounded-first multiplication would permanently make H0 zero.
+    lossy, err := tournamentPosterior(second.PosteriorBP, []uint16{10000,1,1})
+    if err != nil || lossy[0] != 0 {
+        t.Fatalf("control unexpectedly recovered rounded-out mass: %v %v", err, lossy)
+    }
+    secondOutcome := TournamentObservation{
+        CandidateID:second.CandidateID, SourceSHA:second.SourceSHA,
+        MechanismSHA256:second.MechanismSHA256, Outcome:0,
+        EvidenceSHA256:tournamentHex("9",64),
+    }
+    two, err := RecordTournamentOutcome(f, pin, one, secondOutcome)
+    if err != nil { t.Fatal(err) }
+    recovered, err := NextTournamentProbe(f, pin, two)
+    if err != nil || !recovered.Exhausted || recovered.StepsCompleted != 2 ||
+       recovered.PosteriorBP[0] < 900 || recovered.PosteriorBP[0] > 1100 {
+        t.Fatalf("exact posterior could not recover H0: %v %+v", err, recovered)
+    }
+    cold, err := NextTournamentProbe(f, pin, two)
+    if err != nil || !reflect.DeepEqual(cold, recovered) {
+        t.Fatal("cold exact-mass replay inconsistent")
+    }
+    if recovered.DispatchAuthorized || !recovered.ForecastOnly ||
+       two.ScientificAccepted || two.ScientificFirstUseAuthorized {
+        t.Fatal("advisory mass recovery changed authority")
+    }
+}
+
+func TestTournamentExactMassZeroLikelihoodAndNonmutation(t *testing.T) {
+    seed := tournamentExactMass([]uint16{1,9999})
+    first, err := tournamentExactUpdate(seed, []uint16{1000,9000})
+    if err != nil { t.Fatal(err) }
+    if seed[0].Int64() != 1 || seed[1].Int64() != 9999 {
+        t.Fatal("exact mass update mutated prior")
+    }
+    // Even many cumulative unlikely outcomes may not overflow int64,
+    // because exact weights use bounded big.Int products.
+    state := first
+    for i:=0; i<8; i++ {
+        state,err=tournamentExactUpdate(state, []uint16{10000,1})
+        if err != nil { t.Fatal(err) }
+    }
+    rounded,err:=tournamentRoundExact(state)
+    if err!=nil || int(rounded[0])+int(rounded[1])!=10000 {
+        t.Fatalf("invalid normalized mass %v %v",err,rounded)
+    }
+    if _,err=tournamentExactUpdate(seed,[]uint16{0,0});err==nil {
+        t.Fatal("impossible outcome accepted")
+    }
+    if _,err=tournamentRoundExact([]*big.Int{big.NewInt(0),big.NewInt(0)});err==nil {
+        t.Fatal("zero mass state accepted")
+    }
 }

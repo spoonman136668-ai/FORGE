@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"math/big"
 )
 
 const TournamentSchema = "forge.infogain.bounded-hypothesis-tournament.dev.v1"
@@ -69,42 +70,95 @@ func NewTournament(f Frozen, pin string) (TournamentState, error) {
 
 // Deterministic largest-remainder rounding preserves 10,000 bp of mass.
 // Zero-likelihood outcomes fail closed; zero-mass hypotheses stay at zero.
+// tournamentExactMass starts from the frozen unrounded prior and must be
+// replayed with ALL observations. No mass is silently removed by a UI/score
+// display rounding step.
+func tournamentExactMass(prior []uint16) []*big.Int {
+    masses := make([]*big.Int, len(prior))
+    for i, bp := range prior {
+        masses[i] = big.NewInt(int64(bp))
+    }
+    return masses
+}
+
+// Bounded by frozen 2..6 hypotheses and 8 steps. Exact integer products
+// avoid irreversible loss of sub-basis-point hypotheses between observations.
+// This is local forecast arithmetic, not independent evidence authentication.
+func tournamentExactUpdate(masses []*big.Int, likelihood []uint16) ([]*big.Int, error) {
+    if len(masses) != len(likelihood) || len(masses) < 2 || len(masses) > 6 {
+        return nil, ErrFrozen
+    }
+    next := make([]*big.Int, len(masses))
+    total := new(big.Int)
+    for i, mass := range masses {
+        if mass == nil || mass.Sign() < 0 {
+            return nil, ErrFrozen
+        }
+        next[i] = new(big.Int).Mul(mass, big.NewInt(int64(likelihood[i])))
+        total.Add(total, next[i])
+    }
+    if total.Sign() == 0 {
+        return nil, ErrFrozen
+    }
+    return next, nil
+}
+
+// Quantization is only for the existing advisory probe interface; the
+// replay state keeps the exact weights and does not feed these rounded
+// values back into the next Bayes update.
+func tournamentRoundExact(masses []*big.Int) ([]uint16, error) {
+    if len(masses) < 2 || len(masses) > 6 {
+        return nil, ErrFrozen
+    }
+    total := new(big.Int)
+    for _, mass := range masses {
+        if mass == nil || mass.Sign() < 0 {
+            return nil, ErrFrozen
+        }
+        total.Add(total, mass)
+    }
+    if total.Sign() == 0 {
+        return nil, ErrFrozen
+    }
+    out := make([]uint16, len(masses))
+    rem := make([]*big.Int, len(masses))
+    sum := 0
+    tenThousand := big.NewInt(10000)
+    for i, mass := range masses {
+        quotient := new(big.Int)
+        remainder := new(big.Int)
+        quotient.QuoRem(new(big.Int).Mul(mass, tenThousand), total, remainder)
+        if !quotient.IsInt64() || quotient.Int64() > 10000 {
+            return nil, ErrFrozen
+        }
+        out[i] = uint16(quotient.Int64())
+        rem[i] = remainder
+        sum += int(out[i])
+    }
+    if sum > 10000 {
+        return nil, ErrFrozen
+    }
+    for remaining := 10000 - sum; remaining > 0; remaining-- {
+        best := -1
+        for i, r := range rem {
+            if best == -1 || r.Cmp(rem[best]) > 0 {
+                best = i
+            }
+        }
+        out[best]++
+        rem[best] = big.NewInt(-1)
+    }
+    return out, nil
+}
+
+// One-step compatibility helper: internally exact, rounded at public
+// interface. Replay must NOT chain this helper across observations.
 func tournamentPosterior(prior []uint16, likelihood []uint16) ([]uint16, error) {
-	if len(prior) != len(likelihood) || len(prior) < 2 || len(prior) > 6 {
-		return nil, ErrFrozen
-	}
-	masses := make([]int64, len(prior))
-	var total int64
-	for i := range prior {
-		masses[i] = int64(prior[i]) * int64(likelihood[i])
-		total += masses[i]
-	}
-	if total == 0 {
-		return nil, ErrFrozen
-	}
-	out := make([]uint16, len(prior))
-	remainders := make([]int64, len(prior))
-	sum := 0
-	for i, m := range masses {
-		whole := m * 10000 / total
-		out[i] = uint16(whole)
-		remainders[i] = m * 10000 % total
-		sum += int(whole)
-	}
-	if sum > 10000 {
-		return nil, ErrFrozen
-	}
-	for remaining := 10000 - sum; remaining > 0; remaining-- {
-		best := -1
-		for i, r := range remainders {
-			if best < 0 || r > remainders[best] {
-				best = i
-			}
-		}
-		out[best]++
-		remainders[best] = -1
-	}
-	return out, nil
+    next, err := tournamentExactUpdate(tournamentExactMass(prior), likelihood)
+    if err != nil {
+        return nil, err
+    }
+    return tournamentRoundExact(next)
 }
 
 func tournamentPick(f Frozen, prior []uint16, used map[string]bool,
@@ -174,6 +228,9 @@ func replayTournament(f Frozen, pin string, state TournamentState) (TournamentPr
 	for i, h := range f.Hypotheses {
 		prior[i] = h.PriorBP
 	}
+	// Keep nonzero mass across all replay steps; the probe exposes only
+	// a rounded 10,000-basis-point view for the existing advisory contract.
+	masses := tournamentExactMass(prior)
 	used, evidence := map[string]bool{}, map[string]bool{}
 	// Evidence consumed before this tournament cannot be silently reused.
 	// This is a frozen-source replay guard, not external custody validation.
@@ -205,11 +262,15 @@ func replayTournament(f Frozen, pin string, state TournamentState) (TournamentPr
 		for h := range likelihood {
 			likelihood[h] = candidate.OutcomeGivenHypothesis[h][obs.Outcome]
 		}
-		next, err := tournamentPosterior(prior, likelihood)
+		nextMasses, err := tournamentExactUpdate(masses, likelihood)
 		if err != nil {
 			return empty, err
 		}
-		prior = next
+		prior, err = tournamentRoundExact(nextMasses)
+		if err != nil {
+			return empty, err
+		}
+		masses = nextMasses
 		used[obs.CandidateID] = true
 		evidence[obs.EvidenceSHA256] = true
 		families[candidate.Family]++
