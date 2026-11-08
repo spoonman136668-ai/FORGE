@@ -71,7 +71,7 @@ def main() -> int:
         schema="forge.rar-g132.typed-program-profile.v1",
         source_sha=source_sha,
         source_tree=git("rev-parse", "HEAD^{tree}"),
-        source_file=str(TARGET),
+        source_file=TARGET.as_posix(),
         source_file_sha256=hashlib.sha256(target_raw).hexdigest(),
         original_test_names_sha256=hashlib.sha256("\n".join(tests).encode()).hexdigest(),
         original_test_names=tests,
@@ -128,7 +128,7 @@ def main() -> int:
             report["top_self_time"] = sorted(funcs, key=lambda x: x["self_seconds"],
                                             reverse=True)[:30]
             report["original_test_cumulative"] = sorted([
-                x for x in funcs if x["file"] == str(TARGET)
+                x for x in funcs if x["file"] == TARGET.as_posix()
                 and x["name"].startswith("test_")
             ], key=lambda x: x["cumulative_seconds"], reverse=True)
             if len(report["original_test_cumulative"]) != EXPECTED:
