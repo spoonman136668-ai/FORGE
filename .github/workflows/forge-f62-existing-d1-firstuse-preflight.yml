@@ -71,6 +71,24 @@ jobs:
           digest=hashlib.sha256((account+":"+database).encode("ascii")).hexdigest()
           print("F62_LIVE_WORKER_BOUND_D1_SOURCE_PAIR_SHA256="+digest)
           print("F62_LIVE_D1_SOURCE_PAIR_READONLY=PASS")
+          # F139 recovery admission: current DB size is only a planning signal,
+          # NOT a SQL export size or proof of a safe D1 query-pause window.
+          expected="d7820a34855fa7ecb202621b2bdea2398c231deadd6e8452ece75965617af76b"
+          if digest != expected: raise SystemExit("F139_LIVE_D1_SOURCE_DRIFT_STOP")
+          meta=api.call("accounts/"+account+"/d1/database/"+database)  # GET only
+          if not isinstance(meta,dict) or str(meta.get("uuid","")).lower()!=database or meta.get("version")!="production":
+              raise SystemExit("F139_LIVE_D1_METADATA_IDENTITY_DRIFT_STOP")
+          size=meta.get("file_size")
+          if type(size) in (int,float) and size>=0 and size==int(size) and size<=2**53:
+              print("F139_D1_PRODUCTION_FILE_SIZE_BYTES="+str(int(size)))
+          else:
+              print("F139_D1_PRODUCTION_FILE_SIZE_BYTES=UNAVAILABLE")
+          print("F139_D1_SQL_EXPORT_SIZE_AND_RESTORE_CAPACITY=UNVERIFIED")
+          print("F139_D1_EXPORT_API_PERMISSION=UNVERIFIED_WITHOUT_EXPORT_POST")
+          print("F139_D1_EXPORT_QUERY_PAUSE_MAINTENANCE=NOT_ESTABLISHED")
+          print("F139_PRIVATE_CIPHERTEXT_RETENTION=NOT_VERIFIED")
+          print("F139_D1_EXPORT=NOT_EXECUTED")
+          print("F139_SCIENTIFIC_FIRST_USE=DENIED")
           print("F62_ACTUAL_ENCRYPTED_D1_BACKUP=NOT_CREATED")
           print("F62_FSA_SCIENTIFIC_FIRST_USE=DENIED")
           PY
