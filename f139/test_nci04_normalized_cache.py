@@ -38,7 +38,7 @@ class ExactByteASTCacheTests(unittest.TestCase):
         self.assertNotEqual(original, alias)
 
     def test_invalid_syntax_and_unicode_remain_rejected_without_retained_negatives(self):
-        for invalid in (b"def (\n", b"\\xff\n", b"x = 1\n  y=2\n"):
+        for invalid in (b"def (\n", bytes((255, 10)), b"x = 1\n  y=2\n"):
             with self.subTest(invalid=invalid):
                 for _ in range(2):
                     with self.assertRaisesRegex(
