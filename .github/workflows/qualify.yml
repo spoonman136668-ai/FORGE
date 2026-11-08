@@ -380,3 +380,55 @@ jobs:
           name: f139-discovery-public-${{ runner.os }}
           path: ${{ runner.temp }}/f139-discovery-public.json
           if-no-files-found: error
+
+# RAR-G120 is development-only. Original Linux/Windows qualification is unchanged.
+  rar_g120_first_full:
+    if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g120-matched-firstfull-20261107'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [serial, parallel]
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 8
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Retain original isolation and transport preflights
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+          candidate=$(git rev-parse HEAD)
+          for source in 80ae30719bcd9f179da4aa4e8f14dc36fd15818e 556d61f795cab1a042d26b46bbc1087dd436f52d; do
+            if ! git cat-file -e "$source:f139/local_controller.py" 2>/dev/null; then
+              git fetch --no-tags --depth=1 https://github.com/spoonman136668-ai/FORGE.git "$source"
+            fi
+            git cat-file -e "$source:f139/local_controller.py"
+          done
+          test "$(git rev-parse HEAD)" = "$candidate"
+          python3 -B -m unittest discover -s f139 -p 'test_github_command_transport.py' -v
+      - name: G120 conditioned first complete F139 regression (development only)
+        shell: bash
+        env:
+          FORGE_G120_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/check_rar_g120_first_full.py --arm "${{ matrix.arm }}"
+      - name: Preserve G120 per-arm receipt including negative
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g120-first-full-${{ matrix.arm }}
+          path: ${{ runner.temp }}/rar-g120-first-full-${{ matrix.arm }}.json
+          if-no-files-found: error
