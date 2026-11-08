@@ -195,7 +195,7 @@ func TestF11RejectsForgedOutcomeHistoryBudgetAndAuthority(t *testing.T){
  }
  cases:=[]struct{name string;mutate func(*F11Report)}{
   {"parent F10 no-go",func(x *F11Report){x.ParentF10DigestSHA256="forged"}},
-  {"source",func(x *F11Report){x.DigestSHA256="forged"}},
+  {"schema",func(x *F11Report){x.Schema="forged"}},
   {"posterior ratio",func(x *F11Report){x.PosteriorOdds=999}},
   {"hypothesis count",func(x *F11Report){x.HypothesisCount=999}},
   {"threshold",func(x *F11Report){x.MinimumAdditionalCorrect=0}},
