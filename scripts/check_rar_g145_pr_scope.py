@@ -38,6 +38,15 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g145_pr_scope.py",
         },
     ),
+    "engineering/rar-g148-main-safe-go-cache-20261108": (
+        "ab2d239e2d079d2500ec5d91b253c11e6bd3b132",
+        {
+            "docs/FORGE-G148-GO-CACHE-RELEASE.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+        },
+    ),
 }
 
 

@@ -456,6 +456,22 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: G148 verify exact compiled-Go inputs and cache eligibility
+        if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        shell: pwsh
+        env:
+          G148_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g148_go_cache.py --emit-env
+          if ($LASTEXITCODE -ne 0) { throw 'G148_COMPILED_INPUT_IDENTITY_FAILED' }
+      - name: G148 restore exact-key Windows Go compiler artifacts
+        if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        id: g148cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.G148_CACHE_PATH }}
+          key: ${{ env.G148_CACHE_KEY }}
       - name: Frozen native action-consequence development receipt
         if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
         shell: bash
@@ -524,6 +540,32 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python -B scripts/check_rar_g144_windows_go.py
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_FULL_TEST_VET_BUILD_FAILED' }
+      - name: G148 attest cache and complete original native Go controls
+        if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        shell: pwsh
+        env:
+          G148_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          G148_CACHE_HIT: ${{ steps.g148cache.outputs['cache-hit'] }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g148_go_cache.py --verify
+          if ($LASTEXITCODE -ne 0) { throw 'G148_SOURCE_BOUND_CACHE_QUALIFICATION_FAILED' }
+      - name: G148 save exact Go compiler cache only after original full PASS
+        if: ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && steps.g148cache.outputs['cache-hit'] != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.G148_CACHE_PATH }}
+          key: ${{ env.G148_CACHE_KEY }}
+      - name: G148 retain exact Windows cache and original Go receipts (DEV)
+        if: always() && github.head_ref == 'engineering/rar-g148-main-safe-go-cache-20261108'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g148-windows-cache-custody
+          path: |
+            ${{ runner.temp }}/rar-g148-cache.json
+            ${{ runner.temp }}/rar-g144-windows-go.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Retain original Windows Go package/memory/custody receipt (G144 DEV)
         if: ${{ always() && github.head_ref == 'engineering/rar-g144-windows-native-go-vet-concurrent-20261108' }}
         uses: actions/upload-artifact@v4
