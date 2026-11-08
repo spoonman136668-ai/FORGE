@@ -1,0 +1,146 @@
+name: K Terminal PR78 disarmed native desktop launch proof
+on:
+  push:
+    branches: [qualification/kterminal-pr78-owner-install-20261108]
+    paths: [.github/workflows/forge-kterminal-pr78-disarmed-desktop-20261108.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr78-disarmed-desktop-23b3d6a7
+  cancel-in-progress: false
+jobs:
+  native-desktop:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      KTERM_SHA: 23b3d6a79421cf5d491aa1fd4f1605c3555ed254
+      KTERM_ZIP_SHA256: 6f9748a0de636ea5a748f88fd0760925ef1bd550a2c6671e1f1c6a15c589c473
+      KTERM_ZIP_NAME: KTerminal-PR78-FirstInstall-23b3d6a79421-R42526818516.zip
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Admit only the owner interactive Windows desktop without account authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-pr78-owner-install-20261108' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows') {throw 'KTERM_DESKTOP_RUNNER_SCOPE_REFUSED'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY',
+              'K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET','KTERM_COINBASE_TEST_KEY_NAME',
+              'KTERM_COINBASE_TEST_KEY_SECRET','K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC',
+              'K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')) {
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_DESKTOP_BROKER_ENV_REFUSED'}
+          }
+          $active = @(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue)
+          if($active.Count -gt 0){throw 'KTERM_DESKTOP_EXISTING_APPLICATION_PRESENT_SKIP'}
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $shells=@(Get-Process -Name explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session })
+          if($session -eq 0 -or $shells.Count -eq 0){throw 'KTERM_DESKTOP_INTERACTIVE_OWNER_SESSION_UNVERIFIED_SKIP'}
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          if(-not $profilePath -or $profilePath -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
+             $profilePath -match '(?i)\\(public|default|systemprofile)$'){throw 'KTERM_DESKTOP_OWNER_PROFILE_REFUSED'}
+          $zip=Join-Path (Join-Path $profilePath 'Downloads') $env:KTERM_ZIP_NAME
+          if(-not(Test-Path -LiteralPath $zip -PathType Leaf)){throw 'KTERM_DESKTOP_PRIOR_QUALIFIED_ZIP_MISSING'}
+          if((Get-Item -LiteralPath $zip -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'KTERM_DESKTOP_ZIP_LINK_REFUSED'}
+          if((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:KTERM_ZIP_SHA256){
+            throw 'KTERM_DESKTOP_PRIOR_ZIP_HASH_MISMATCH'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('kterm-pr78-native-desktop-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'KTERM_DESKTOP_NONFRESH_FIXTURE_REFUSED'}
+          [void][IO.Directory]::CreateDirectory($scratch)
+          Write-Host 'KTERM_NATIVE_DESKTOP_DISARM_AND_OWNER_SESSION=PASS'
+          Write-Host 'KTERM_NATIVE_DESKTOP_EXACT_PRIOR_ZIP=PASS'
+      - name: Launch only fresh disarmed native executable and verify a real GUI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $scratch=Join-Path $env:RUNNER_TEMP ('kterm-pr78-native-desktop-'+$env:GITHUB_RUN_ID)
+          if(-not(Test-Path -LiteralPath $scratch -PathType Container)){throw 'KTERM_DESKTOP_PREFLIGHT_MISSING'}
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          $zip=Join-Path (Join-Path $profilePath 'Downloads') $env:KTERM_ZIP_NAME
+          if((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:KTERM_ZIP_SHA256){
+            throw 'KTERM_DESKTOP_ZIP_CHANGED'
+          }
+          $unpack=Join-Path $scratch 'unpacked'
+          Expand-Archive -LiteralPath $zip -DestinationPath $unpack -ErrorAction Stop
+          $manifest=Get-Content -LiteralPath (Join-Path $unpack 'package-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($manifest.schema -cne 'kterminal.first-install.pr78.v1' -or $manifest.source_sha -cne $env:KTERM_SHA) {
+            throw 'KTERM_DESKTOP_PACKAGE_PROVENANCE_REFUSED'
+          }
+          $install=Join-Path $scratch 'isolated-install'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $unpack 'INSTALL-KTerminal.ps1') -SourceRoot $unpack -Destination $install -NoLaunch *> (Join-Path $scratch 'private-install.txt')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_DESKTOP_ISOLATED_INSTALL_FAILED'}
+          if((Test-Path -LiteralPath (Join-Path $install 'config.json')) -or
+             (Test-Path -LiteralPath (Join-Path $install '.env')) -or
+             (Test-Path -LiteralPath (Join-Path $install 'data'))) {
+            throw 'KTERM_DESKTOP_EXISTING_STATE_OR_AUTHORITY_REFUSED'
+          }
+          $app=Join-Path $install 'K-Terminal.exe'
+          if(-not(Test-Path -LiteralPath $app -PathType Leaf)){throw 'KTERM_DESKTOP_NATIVE_EXE_MISSING'}
+          $process=$null
+          $visible=$false
+          try {
+            $process=Start-Process -FilePath $app -WorkingDirectory $install -PassThru -ErrorAction Stop
+            for($attempt=0;$attempt -lt 8;$attempt++){
+              Start-Sleep -Seconds 1
+              $process.Refresh()
+              if($process.HasExited){break}
+              $cim=@(Get-CimInstance Win32_Process -ErrorAction Stop)
+              $seen=@([int]$process.Id)
+              $descendants=@()
+              for($depth=0;$depth -lt 5;$depth++){
+                $children=@($cim | Where-Object { $_.ParentProcessId -in $seen -and $_.ProcessId -notin $seen })
+                if($children.Count -eq 0){break}
+                $seen=@($seen+@($children|ForEach-Object { [int]$_.ProcessId }))
+                $descendants=@($descendants+$children)
+              }
+              foreach($entry in $descendants){
+                $p=Get-Process -Id ([int]$entry.ProcessId) -ErrorAction SilentlyContinue
+                if($null -ne $p -and $p.SessionId -eq [Diagnostics.Process]::GetCurrentProcess().SessionId -and
+                   $p.MainWindowHandle -ne [IntPtr]::Zero){
+                  $visible=$true
+                  break
+                }
+              }
+              if($visible){break}
+            }
+            $failure=Join-Path $install 'data\logs\desktop-startup-status.txt'
+            if(Test-Path -LiteralPath $failure){throw 'KTERM_NATIVE_DESKTOP_EARLY_STARTUP_FAILURE'}
+            $process.Refresh()
+            if($process.HasExited){throw 'KTERM_NATIVE_DESKTOP_EARLY_PROCESS_EXIT'}
+            if(-not $visible){throw 'KTERM_NATIVE_DESKTOP_VISIBLE_GUI_UNVERIFIED'}
+            if(Test-Path -LiteralPath (Join-Path $install 'config.json')){
+              throw 'KTERM_NATIVE_DESKTOP_UNEXPECTED_LIVE_CONFIG'
+            }
+            Write-Host 'KTERM_NATIVE_DESKTOP_REAL_EXE_GUI=PASS;ISOLATED=TRUE;LIVE_ORDERS=0'
+          } finally {
+            if($null -ne $process){
+              $process.Refresh()
+              if(-not $process.HasExited){$process.Kill();[void]$process.WaitForExit(10000)}
+              $process.Dispose()
+            }
+          }
+      - name: Clean only run-owned fixture and keep the qualified Downloads ZIP
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $scratch=Join-Path $env:RUNNER_TEMP ('kterm-pr78-native-desktop-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){
+            $resolved=[IO.Path]::GetFullPath($scratch)
+            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+            if(-not $resolved.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
+               [IO.Path]::GetFileName($resolved) -cne ('kterm-pr78-native-desktop-'+$env:GITHUB_RUN_ID)){
+              throw 'KTERM_NATIVE_DESKTOP_CLEANUP_SCOPE_REFUSED'
+            }
+            Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_NATIVE_DESKTOP_PRIVATE_FIXTURE_CLEAN=PASS;ZIP_RETAINED=TRUE;LIVE_ORDERS=0'
