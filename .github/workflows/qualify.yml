@@ -380,3 +380,56 @@ jobs:
           name: f139-discovery-public-${{ runner.os }}
           path: ${{ runner.temp }}/f139-discovery-public.json
           if-no-files-found: error
+
+# RAR-G121 development-only: one physical Windows runner for all four arms.
+  # Original Linux/Windows mandatory jobs above remain unchanged.
+  rar_g121_samehost:
+    if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g121-samehost-fullpipeline-20261107'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 8
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Preserve original Windows isolation and transport preflight conditions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+          candidate=$(git rev-parse HEAD)
+          for source in 80ae30719bcd9f179da4aa4e8f14dc36fd15818e 556d61f795cab1a042d26b46bbc1087dd436f52d; do
+            if ! git cat-file -e "$source:f139/local_controller.py" 2>/dev/null; then
+              git fetch --no-tags --depth=1 https://github.com/spoonman136668-ai/FORGE.git "$source"
+            fi
+            git cat-file -e "$source:f139/local_controller.py"
+          done
+          test "$(git rev-parse HEAD)" = "$candidate"
+          python3 -B -m unittest discover -s f139 -p 'test_github_command_transport.py' -v
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: RAR-G121 same-host ABBA original Python plus GenEnv plus Go qualifications
+        shell: bash
+        env:
+          FORGE_G121_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/check_rar_g121_pipeline.py
+      - name: Retain G121 complete or partial original-case receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g121-samehost-abba
+          path: ${{ runner.temp }}/rar-g121-samehost-abba.json
+          if-no-files-found: error
