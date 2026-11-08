@@ -4,6 +4,9 @@ from __future__ import annotations
 import base64
 from dataclasses import replace
 import json
+import sqlite3
+from contextlib import closing
+from functools import lru_cache
 from unittest import mock
 import unittest
 
@@ -27,18 +30,51 @@ from f139.test_nci04_provider_receipt_v2 import bundle
 RUN = 40200000001
 
 
+@lru_cache(maxsize=1)
+def _sealed_g32_untrusted_prefix():
+    """Cache only closed disposable synthetic SQLite bytes, never an owner handle.
+
+    This is the same original 180-event fixture produced once using the real
+    SQLite transaction and event APIs; no provider credentials or real owner
+    evidence are obtained, authenticated, or cached.
+    """
+    original = OriginalOwnerG32Tests()
+    try:
+        original._base_setup()
+        original._populate_untrusted_prefix()
+        if original.db.meta()["head_seq"] != 220:
+            raise AssertionError("G125_SYNTHETIC_PREFIX_HEAD_DRIFT")
+        row = original.db.conn.execute("PRAGMA integrity_check").fetchone()
+        if row is None or row[0] != "ok":
+            raise AssertionError("G125_TEMPLATE_SQLITE_INTEGRITY_FAILED")
+        original.db.close()
+        path = original.owner.path
+        if path.with_name(path.name + "-wal").exists():
+            raise AssertionError("G125_TEMPLATE_WAL_NOT_CHECKPOINTED")
+        data = path.read_bytes()
+        if not data or len(data) > 4 * 1024 * 1024:
+            raise AssertionError("G125_TEMPLATE_BOUNDS_INVALID")
+        return data
+    finally:
+        original.doCleanups()
+
+
 class OriginalOwnerG32Tests(unittest.TestCase):
-    def setUp(self):
+    def _base_setup(self):
         # Real SQLite engine and SHA event-chain with a synthetic original
         # prefix. This never touches the protected owner's real database.
         self.owner = LedgerTests()
         self.owner.setUp()
         self.addCleanup(self.owner.doCleanups)
         self.db = self.owner.db
+
+    def _populate_untrusted_prefix(self):
         for n in range(180):
             with self.db.transaction():
                 self.db.event("FIXTURE_UNTRUSTED", {"step": n})
         self.assertEqual(self.db.meta()["head_seq"], 220)
+
+    def _finish_setup(self):
         self.assertTrue(activate_native(self.db, self.owner.approval()))
         raw = original_fixture("Yggdrasil")
         body = json.loads(raw["body"])
@@ -105,6 +141,28 @@ class OriginalOwnerG32Tests(unittest.TestCase):
             artifact, meta = bundle(a, r)
             self.provider[oslabel] = {
                 "zip_bytes": artifact, "metadata": meta}
+
+    def _build_uncached_fixture(self):
+        # Byte-identical original setup phase sequence, for the frozen A/B baseline.
+        self._base_setup()
+        self._populate_untrusted_prefix()
+        self._finish_setup()
+
+    def setUp(self):
+        # Verify the original per-test 40-event source before injecting any
+        # synthetic events. Keep the independent owner/database and all original
+        # admission, signature, ZIP and negative assertions in _finish_setup.
+        self._base_setup()
+        data = _sealed_g32_untrusted_prefix()
+        source = self.owner.path.with_name("g125-untrusted-prefix.sqlite")
+        source.write_bytes(data)
+        with closing(sqlite3.connect(str(source))) as snapshot:
+            snapshot.backup(self.db.conn)
+        self.assertEqual(self.db.meta()["head_seq"], 220)
+        self.assertEqual(self.db.conn.execute("PRAGMA synchronous").fetchone()[0], 2)
+        self.assertEqual(
+            self.db.conn.execute("PRAGMA journal_mode").fetchone()[0].lower(), "wal")
+        self._finish_setup()
 
     def check(self, **kwargs):
         return verify_v2_development_custody(
