@@ -2,6 +2,7 @@
 from __future__ import annotations
 import ast
 from contextlib import closing
+from functools import lru_cache
 import fnmatch
 import json
 from pathlib import Path
@@ -15,8 +16,31 @@ from f139.local_controller import Database, SingleOwner, v2_owner_terminal_relea
 
 ROOT = Path(__file__).resolve().parent.parent
 
+@lru_cache(maxsize=1)
+def _sealed_pending_v30_template():
+    """Retain only closed, verified, synthetic SQLite bytes, never a DB handle.
+
+    The original 373 untrusted events and three successor events are built
+    unchanged once per Python process; every case gets a fresh physical file.
+    """
+    original = PendingTransferTests()
+    original._build_uncached_fixture()
+    try:
+        original.db.verify()
+        original.db.close()
+        path = original.path
+        if path.with_name(path.name + "-wal").exists():
+            raise AssertionError("G123_TEMPLATE_WAL_NOT_CHECKPOINTED")
+        data = path.read_bytes()
+        if not data or len(data) > 4 * 1024 * 1024:
+            raise AssertionError("G123_TEMPLATE_BOUNDS_INVALID")
+        return data
+    finally:
+        original.doCleanups()
+
+
 class PendingTransferTests(unittest.TestCase):
-    def setUp(self):
+    def _build_uncached_fixture(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name) / 'isolated.sqlite'
@@ -30,6 +54,17 @@ class PendingTransferTests(unittest.TestCase):
         self.db.event('NATIVE_DEVELOPMENT_ADMITTED', dict(ticket=route.TICKET,
                       issue_number=1358,source_sha=route.FROM_V29,manifest_sha256='a'*64))
         self.db.event('TASK_INTAKE',dict(ticket=route.TICKET))
+        self.assertEqual(self.db.meta()['head_seq'],376)
+
+    def setUp(self):
+        template = _sealed_pending_v30_template()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = Path(tmp.name) / 'isolated.sqlite'
+        self.path.write_bytes(template)
+        # Each test cold-opens the original FULL/WAL verified source chain.
+        self.db = Database(self.path)
+        self.addCleanup(self.db.close)
         self.assertEqual(self.db.meta()['head_seq'],376)
 
     def test_exact_unclaimed_identity_is_read_only_and_does_not_reissue(self):
