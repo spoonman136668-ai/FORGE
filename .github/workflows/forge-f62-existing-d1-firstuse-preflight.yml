@@ -58,6 +58,22 @@ jobs:
           export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
           test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
           PYTHONPATH=d1retention python3 -B d1retention/r39_existing_cloudflare_preflight.py
+          # Reuse the original F62 authenticated GET-only D1 binding preflight.
+          # Emit a nonsecret source-pair digest to correlate later rbackup receipts.
+          PYTHONPATH=d1retention python3 -B - <<'PY'
+          import hashlib, os, re
+          import install_remote as c
+          account=os.environ["CLOUDFLARE_ACCOUNT_ID"].lower()
+          assert re.fullmatch(r"[0-9a-f]{32}",account)
+          api=c.Cloudflare(account,os.environ["CLOUDFLARE_API_TOKEN"])
+          database=c.single_deployed_database(api).lower()
+          assert re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",database)
+          digest=hashlib.sha256((account+":"+database).encode("ascii")).hexdigest()
+          print("F62_LIVE_WORKER_BOUND_D1_SOURCE_PAIR_SHA256="+digest)
+          print("F62_LIVE_D1_SOURCE_PAIR_READONLY=PASS")
+          print("F62_ACTUAL_ENCRYPTED_D1_BACKUP=NOT_CREATED")
+          print("F62_FSA_SCIENTIFIC_FIRST_USE=DENIED")
+          PY
           PYTHONPATH=d1retention python3 -B d1retention/d2s_existing_witness_discovery.py > "$RUNNER_TEMP/d2s-witness-inventory.json"
           python3 -B - "$RUNNER_TEMP/d2s-witness-inventory.json" <<'PY'
           import json,sys
