@@ -175,6 +175,11 @@ func replayTournament(f Frozen, pin string, state TournamentState) (TournamentPr
 		prior[i] = h.PriorBP
 	}
 	used, evidence := map[string]bool{}, map[string]bool{}
+	// Evidence consumed before this tournament cannot be silently reused.
+	// This is a frozen-source replay guard, not external custody validation.
+	for _, prior := range f.History {
+		evidence[prior.EvidenceSHA256] = true
+	}
 	families := map[string]int{}
 	var reserved int64
 	for i, obs := range state.Observations {

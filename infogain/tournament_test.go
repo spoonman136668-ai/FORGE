@@ -82,3 +82,46 @@ func TestTournamentTamperAndReplayDenials(t *testing.T){
  changed:=tournamentFixture();changed.ComputeBudget=12
  if _,err:=NextTournamentProbe(changed,pin,done);err==nil{t.Fatal("source drift admitted")}
 }
+
+func TestTournamentRejectsHistoricalEvidenceIDReuse(t *testing.T) {
+ f := tournamentFixture()
+ // The previous negative belongs to a distinct source and mechanism, so
+ // both fresh proposal candidates remain eligible. Only the evidence
+ // identity must be globally consumed.
+ f.History = []HistoryRecord{{
+  MechanismSHA256: tournamentHex("d", 64),
+  SourceSHA: tournamentHex("c", 40),
+  EvidenceSHA256: tournamentHex("9", 64),
+  Classification: "NEGATIVE",
+ }}
+ f.HistorySHA256 = HistoryDigest(f.History)
+ pin := Digest(f)
+ state, err := NewTournament(f, pin)
+ if err != nil { t.Fatal(err) }
+ first, err := NextTournamentProbe(f, pin, state)
+ if err != nil || first.Exhausted || first.CandidateID != "first" {
+  t.Fatalf("fresh candidate incorrectly excluded: %v %+v", err, first)
+ }
+ obs := TournamentObservation{
+  CandidateID: first.CandidateID, SourceSHA: first.SourceSHA,
+  MechanismSHA256: first.MechanismSHA256, Outcome: 1,
+  EvidenceSHA256: f.History[0].EvidenceSHA256,
+ }
+ if _, err := RecordTournamentOutcome(f, pin, state, obs); err == nil {
+  t.Fatal("pre-consumed historical evidence silently reused")
+ }
+ // A locally rehashed transcript is not an exception to the replay guard.
+ forged := state
+ forged.Observations = []TournamentObservation{obs}
+ forged.ReceiptSHA256 = tournamentReceipt(forged)
+ if _, err := NextTournamentProbe(f, pin, forged); err == nil {
+  t.Fatal("rehashing a duplicate historical event bypassed replay guard")
+ }
+ obs.EvidenceSHA256 = tournamentHex("8", 64)
+ after, err := RecordTournamentOutcome(f, pin, state, obs)
+ if err != nil { t.Fatalf("new evidence rejected: %v", err) }
+ followUp, err := NextTournamentProbe(f, pin, after)
+ if err != nil || followUp.CandidateID != "second" || followUp.StepsCompleted != 1 {
+  t.Fatalf("legitimate fresh evidence failed: %v %+v", err, followUp)
+ }
+}
