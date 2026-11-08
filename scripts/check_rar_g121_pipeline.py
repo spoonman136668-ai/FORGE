@@ -356,12 +356,22 @@ def command_run(args,env=None,timeout=420):
 def native_pipeline(index):
     with tempfile.TemporaryDirectory(prefix="g121-original-",dir=os.environ["RUNNER_TEMP"]) as d:
         t=Path(d)
-        request=t/"request.json"; result=t/"result.json"; previous=t/"previous.json"
+        def msys_path(p):
+            raw=str(p)
+            if len(raw)<4 or raw[1]!=":" or raw[2]!="\\":
+                raise ValueError("G121_UNEXPECTED_WINDOWS_TEMP_PATH")
+            return "/"+raw[0].lower()+raw[2:].replace("\\","/")
+        request=msys_path(t/"request.json")
+        result=msys_path(t/"result.json")
+        previous=msys_path(t/"previous.json")
         env={**os.environ,"CGO_ENABLED":"0","GOTOOLCHAIN":"local",
              "GOFLAGS":"-p=2","GOMAXPROCS":"2","GOMEMLIMIT":"1536MiB"}
         # Exact existing Windows GenEnv + Promptbreeder and typed-program tests.
         script="set -euo pipefail\npython3 -B -m f139.check_genenv_source_integration --request > \""+str(request)+"\"\ngo run ./cmd/f139-genenv-source < \""+str(request)+"\" > \""+str(result)+"\"\npython3 -B -m f139.check_genenv_source_integration --result \""+str(result)+"\"\npython3 -B -m f139.check_prompt_source_integration --request > \""+str(request)+"\"\ngo run ./cmd/f139-genenv-source < \""+str(request)+"\" > \""+str(result)+"\"\npython3 -B -m f139.check_prompt_source_integration --result \""+str(result)+"\"\npython3 -B -m f139.check_prompt_program_integration --request > \""+str(request)+"\"\ngo run ./cmd/f139-genenv-source < \""+str(request)+"\" > \""+str(previous)+"\"\npython3 -B -m f139.check_prompt_program_integration --result \""+str(previous)+"\"\npython3 -B -m f139.check_prompt_program_integration --request --previous \""+str(previous)+"\" > \""+str(request)+"\"\ngo run ./cmd/f139-genenv-source < \""+str(request)+"\" > \""+str(result)+"\"\npython3 -B -m f139.check_prompt_program_integration --result \""+str(result)+"\" --previous \""+str(previous)+"\""
-        first=command_run(["bash","-c",script],env=env,timeout=420)
+        gitbash=Path(os.environ.get("ProgramFiles",r"C:\Program Files"))/"Git"/"bin"/"bash.exe"
+        if not gitbash.is_file():
+            raise ValueError("G121_GIT_BASH_UNAVAILABLE")
+        first=command_run([str(gitbash),"-c",script],env=env,timeout=420)
         native_env={**os.environ,"GOFLAGS":"-p=2","GOMAXPROCS":"2",
                     "GOMEMLIMIT":"1536MiB"}
         t_test=command_run(["go","test","-count=1","./..."],env=native_env,timeout=420)
