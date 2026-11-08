@@ -16,3 +16,8 @@ G147's cache key bound *every* tracked repository file except one prose doc, whi
 
 ## Decision and boundaries
 ENGINEERING only: compiled artifact cache. Scientific learning/RSI not evaluated and first use denied. DEPLOYMENT only CI cache lifecycle if verified, no FORGE runtime/owner/research worker changes. Reject any missing custody, cache hit bypass, main drift, memory/cost failure, unverified compilation inputs or Go packages.
+
+## Frozen G148 seed evidence and single preapproved warm transition
+- Original implementation head `b935a1f64b8661b85edbd2fb1e95870c85219f3f`, tree `5a3137ac04bd45bc1b2750d6a1b509192430e5a4`; [first-attempt full eight-job CI #42524232150](https://github.com/spoonman136668-ai/FORGE/actions/runs/42524232150) **PASS**, original Windows G144 full test/vet/build and memory/source controls PASS. Exact compiler cache MISS then saved **152,699,050 bytes** with key `rar-g148-win-go-db3730bf1158ebde65edf14ced6077aaf11ff6b3267f56377207d0432a3b3d2e`; verified semantic Go input graph `39c27c4f51e81fb12d3b5dc573a99793d80c1b692943d7fbb9ed9cd7501cad47`.
+- Original source jobs: Windows native 122s, Windows F139 49s, Windows GenEnv 52s => Windows 223s; Linux native 111s, Linux F139 32s, Linux GenEnv 22s => Linux 165s. Six hosted source jobs 388s. Full run 2026-11-08T21:14:54Z to 21:17:05Z = **131s**. Cold first run passing the 132s historical threshold does not prove a warmed-cache effect.
+- This is the **one allowed doc-only transition** into the pre-registered warm cohort. No Go source, original tests, workflow, guard/helper, cache key, runtime or acceptance criteria edited. New exact HEAD triggers its own required original eight-job qualification.
