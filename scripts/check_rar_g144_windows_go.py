@@ -21,16 +21,10 @@ import time
 # Reuse the previously dual-platform-qualified Windows Job Object highwater
 # meter rather than introduce an independent runner or resource controller.
 from check_rar_g133_f139_suite_abba import JobTreeMemory
+from check_rar_g145_pr_scope import admit_original_pr, negative_controls
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "spoonman136668-ai/FORGE"
-BRANCH = "engineering/rar-g144-windows-native-go-vet-concurrent-20261108"
-BASE = "0ea00f9b4587f5508dff39b65de2574f0b4fe681"
-SCOPED_PATHS = {
-    ".github/workflows/qualify.yml",
-    "scripts/check_rar_g141_parallel_go.py",
-    "scripts/check_rar_g144_windows_go.py",
-}
 MAX_MEMORY = 4 * 1024**3
 MAX_SECONDS = 200
 ORIGINAL = {
@@ -81,10 +75,7 @@ def permit() -> str:
         raise ValueError("G144_WINDOWS_HOSTED_GITHUB_ONLY")
     event = os.environ.get("GITHUB_EVENT_NAME")
     if event == "pull_request":
-        if (
-            os.environ.get("GITHUB_HEAD_REF") != BRANCH
-            or os.environ.get("GITHUB_BASE_REF") != "main"
-        ):
+        if os.environ.get("GITHUB_BASE_REF") != "main":
             raise ValueError("G144_PR_SOURCE_SCOPE_UNAUTHORIZED")
     elif event == "push":
         if os.environ.get("GITHUB_REF") != "refs/heads/main":
@@ -95,10 +86,10 @@ def permit() -> str:
     if sha != os.environ.get("FORGE_G144_HEAD"):
         raise ValueError("G144_SOURCE_SHA_UNVERIFIED")
     stable(sha)
+    negative_controls()
     if event == "pull_request":
-        paths = set(git("diff", "--name-only", BASE, sha).splitlines())
-        if paths != SCOPED_PATHS:
-            raise ValueError("G144_DIFF_SCOPE_UNVERIFIED")
+        admission = admit_original_pr(sha, git)
+        print("G145_PR_ADMISSION=" + admission, flush=True)
     if (os.environ.get("GOFLAGS") != "-p=2"
             or os.environ.get("GOMAXPROCS") != "2"
             or os.environ.get("GOMEMLIMIT") != "1536MiB"):
