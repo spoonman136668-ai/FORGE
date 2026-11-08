@@ -1883,6 +1883,10 @@ class Database:
         from f139.nci04_v19_original_publication_once import (
             audit_original_v19_draft_attempts)
         audit_original_v19_draft_attempts(self)
+        # R8: cold-check only the original owner's inert failure observations.
+        # No new owner admission, worker, dispatch, or scientific authority.
+        from f139.rsi_r8_owner_custody import audit_observed_scopes
+        audit_observed_scopes(self)
 
     @contextlib.contextmanager
     def transaction(self):
