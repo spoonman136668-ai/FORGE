@@ -472,6 +472,34 @@ jobs:
         with:
           path: ${{ env.G148_CACHE_PATH }}
           key: ${{ env.G148_CACHE_KEY }}
+      - name: G151 frozen exact-main Go compiler source and cache preflight (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g151-exact-main-cache-seed-dev-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          G151_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_CACHE_HIT: ${{ steps.g148cache.outputs['cache-hit'] }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g151_base_cache_dev.py --pre
+          if ($LASTEXITCODE -ne 0) { throw 'G151_SOURCE_AND_CACHE_PRECHECK_FAILED' }
+      - name: G151 restore literal exact qualified main compiled Go cache (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g151-exact-main-cache-seed-dev-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        id: g151base
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.G148_CACHE_PATH }}
+          key: rar-g148-win-go-db3730bf1158ebde65edf14ced6077aaf11ff6b3267f56377207d0432a3b3d2e
+      - name: G151 attest exact trusted main compiled cache before original Go (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g151-exact-main-cache-seed-dev-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          G151_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_CACHE_HIT: ${{ steps.g148cache.outputs['cache-hit'] }}
+          G151_BASE_HIT: ${{ steps.g151base.outputs['cache-hit'] }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g151_base_cache_dev.py --post
+          if ($LASTEXITCODE -ne 0) { throw 'G151_EXACT_MAIN_CACHE_CUSTODY_FAILED' }
       - name: Frozen native action-consequence development receipt
         if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
         shell: bash

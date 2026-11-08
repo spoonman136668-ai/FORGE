@@ -117,6 +117,10 @@ def event_mode(head):
         raise ValueError("G148_ONLY_SAME_REPO_MAIN_PR")
     admiss = admit_original_pr(head, git)
     branch = os.environ["GITHUB_HEAD_REF"]
+    if branch == "engineering/rar-g151-exact-main-cache-seed-dev-20261108":
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G151_FROZEN_SCOPE_ADMISSION_REQUIRED")
+        return "pr"
     if branch != BRANCH:
         if admiss != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
             raise ValueError("G148_ONLY_ORDINARY_TRUSTED_SOURCE_PR")

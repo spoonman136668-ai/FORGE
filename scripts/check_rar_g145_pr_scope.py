@@ -47,6 +47,17 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g148_go_cache.py",
         },
     ),
+    "engineering/rar-g151-exact-main-cache-seed-dev-20261108": (
+        "1363cadc0f20155798ef52d72f85ac6df8a81ed6",
+        {
+            "docs/FORGE-G151-EXACT-MAIN-COMPILER-SEED-DEV.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g151_base_cache_dev.py",
+            "nativediscovery/g151_compiler_cache_dev_test.go",
+        },
+    ),
 }
 
 
