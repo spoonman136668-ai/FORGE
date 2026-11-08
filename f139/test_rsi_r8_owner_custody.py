@@ -26,7 +26,9 @@ class ObservationCustodyTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "state.sqlite"
         self.db = Database.initialize(self.path, OWNER)
-        self.addCleanup(self.db.close)
+        # Resolve the current handle at teardown: cold-reopen tests replace it.
+        # A bound self.db.close would leak the replacement on Windows.
+        self.addCleanup(lambda: self.db.close())
 
     def record(self, provider=None, *, job=JOB, head=HEAD):
         if provider is None:
