@@ -254,6 +254,7 @@ jobs:
         env:
           FORGE_PROFILE_BRANCH: ${{ github.head_ref }}
           FORGE_PROFILE_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
+          FORGE_G136_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           if [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-qualification-profile-20261106' ]; then
@@ -266,24 +267,16 @@ jobs:
             PYTHONPATH=. python3 -B f139/check_sqlite_fixture_phases.py --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-sqlite-phases.json"
             python3 -B f139/check_test_discovery_inventory.py --profile-current --resource-diagnostics --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
           else
-            python3 -B -m unittest discover -s f139 -p 'test_*.py'
+            python3 -B scripts/check_rar_g136_f139_shards.py
           fi
-      - name: G136 verify full F139 shard parity and Windows process-tree memory (DEV)
-        if: github.head_ref == 'engineering/rar-g136-safe-full-f139-shards-20261108' && github.event.pull_request.head.repo.full_name == github.repository
-        shell: pwsh
-        env:
-          FORGE_G136_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          python -B scripts/check_rar_g136_f139_shards.py
-          if ($LASTEXITCODE -ne 0) { throw 'G136_COMPLETE_F139_SHARD_PARITY_FAILED' }
-      - name: Retain G136 original 1450-case shard and Job Object evidence
-        if: ${{ always() && github.head_ref == 'engineering/rar-g136-safe-full-f139-shards-20261108' }}
+      - name: Retain exact-head complete F139 test and Job Object memory custody
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: rar-g136-f139-shards
           path: ${{ runner.temp }}/rar-g136-f139-shards.json
           if-no-files-found: error
+          retention-days: 7
 
   windows_native:
     runs-on: windows-latest
