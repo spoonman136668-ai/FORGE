@@ -1,0 +1,174 @@
+name: K Terminal V3 reporting original Windows full qualification and private ZIP
+on:
+  push:
+    branches: [qualification/kterminal-v3-fill-report-20261108]
+    paths: [.github/workflows/forge-kterminal-v3-fill-report-qualified-20261108.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr78-v3-report-c803787a
+  cancel-in-progress: false
+jobs:
+  owner-local-package:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 115
+    env:
+      KTERM_SHA: bd15c8b0384d17b85ac1298a5f196cf0858a1e33
+      KTERM_TREE: c803787a30ff2d5e9c07e63445b004033e36ba88
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOENV: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Admit existing owner Windows runner without trading authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-v3-fill-report-20261108' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows') { throw 'KTERM_OWNER_LOCAL_HOST_IDENTITY_REFUSED' }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
+              'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')) {
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_OWNER_LOCAL_BROKER_ENV_REFUSED'}
+          }
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          if(-not $profilePath -or $profilePath -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
+             $profilePath -match '(?i)\\(public|default|systemprofile)$') {throw 'KTERM_OWNER_LOCAL_INTERACTIVE_PROFILE_UNVERIFIED'}
+          $download=Join-Path $profilePath 'Downloads'
+          if(-not(Test-Path -LiteralPath $download -PathType Container)){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_DIRECTORY_UNAVAILABLE'}
+          if((Get-Item -LiteralPath $download -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_LINK_REFUSED'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-owner-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_OWNER_LOCAL_STALE_WORKSPACE'}
+          [void][IO.Directory]::CreateDirectory($root)
+          Write-Host 'KTERM_OWNER_LOCAL_ISOLATION_AND_DISARM=PASS'
+      - name: Stage exact private source in disposable Git checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-owner-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          [void][IO.Directory]::CreateDirectory($stage)
+          & git -C $stage init -q *> (Join-Path $root 'git-init-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_GIT_INIT_FAILED'}
+          $cached=Join-Path $env:PUBLIC 'KTerminal'
+          $source='https://github.com/Kboomllc/K-Terminal.git'
+          if(Test-Path -LiteralPath $cached -PathType Container){
+            $tree=''
+            try {$tree=(& git -C $cached rev-parse ($env:KTERM_SHA+'^{tree}') 2>$null | Out-String).Trim()}catch {$tree=''}
+            if($LASTEXITCODE -eq 0 -and $tree -ceq $env:KTERM_TREE){$source=$cached}
+          }
+          & git -C $stage fetch -q --no-tags --depth=1 $source $env:KTERM_SHA *> (Join-Path $root 'git-fetch-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_EXISTING_PRIVATE_SOURCE_UNAVAILABLE'}
+          & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'git-checkout-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_CHECKOUT_FAILED'}
+          $head=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          if($head -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
+              @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_OWNER_LOCAL_EXACT_SOURCE_DRIFT'}
+          foreach($private in @('.env','config.json','data')){
+            if(Test-Path -LiteralPath (Join-Path $stage $private)){throw 'KTERM_OWNER_LOCAL_PRIVATE_RUNTIME_STATE_REFUSED'}
+          }
+          Write-Host 'KTERM_OWNER_LOCAL_EXACT_SHA_TREE=PASS;PRIVATE_SOURCE_NOT_PUBLISHED=TRUE'
+      - name: Pinned Go compiler for same source qualified in FORGE run 42521898369
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Qualify UI launcher install archive without repeating full Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_OWNER_LOCAL_GO_VERSION_DRIFT'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-owner-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          $env:GOCACHE=Join-Path $root 'go-cache'
+          $env:GOMODCACHE=Join-Path $root 'go-modules'
+          $env:K_TERMINAL_TEST_WORKSPACE=Join-Path $root 'test-workspace'
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'test-workspace\tail'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'test-workspace\post'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'test-workspace\private'
+          foreach($dir in @($env:GOCACHE,$env:GOMODCACHE,$env:K_TERMINAL_TEST_WORKSPACE,
+              $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,
+              $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){[void][IO.Directory]::CreateDirectory($dir)}
+          Push-Location $stage
+          try {
+            & go test -p 1 -count=1 -timeout 15m -run '^TestV3' ./pkg *> (Join-Path $root 'private-v3-focused.log')
+            if($LASTEXITCODE -ne 0){throw 'KTERM_V3_FOCUSED_TEST_FAILURE'}
+            Write-Host 'KTERM_V3_FOCUSED_NEGATIVES=PASS'
+            & go test -p 1 -count=1 -timeout 60m ./... *> (Join-Path $root 'private-regression.log')
+            if($LASTEXITCODE -ne 0){throw 'KTERM_V3_FULL_WINDOWS_REGRESSION_FAILED'}
+            Write-Host 'KTERM_V3_FULL_WINDOWS_REGRESSION=PASS'
+            & go vet ./... *> (Join-Path $root 'private-vet.log')
+            if($LASTEXITCODE -ne 0){throw 'KTERM_V3_FULL_GO_VET_FAILED'}
+            Write-Host 'KTERM_V3_FULL_GO_VET=PASS'
+          } finally { Pop-Location }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> (Join-Path $root 'private-build.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_COMPLETE_BUILD_FAILED'}
+          Write-Host 'KTERM_OWNER_LOCAL_COMPLETE_DESKTOP_BUILD=PASS'
+          $ui=Join-Path $root 'ui-fixture'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'verification\test-ui-runtime.ps1') -Root $stage -OutputDirectory $ui *> (Join-Path $root 'private-ui-fixture.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_UI_RUNTIME_TEST_FAILED'}
+          Write-Host 'KTERM_OWNER_LOCAL_COMPILED_UI_RUNTIME=PASS'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'verification\test-launch-lifecycle.ps1') -Root $stage *> (Join-Path $root 'private-launch-fixture.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_LAUNCHER_LIFECYCLE_FAILED'}
+          Write-Host 'KTERM_OWNER_LOCAL_LAUNCH_LIFECYCLE=PASS'
+          $package=Join-Path $root 'stage'
+          $zip=Join-Path $root ('KTerminal-PR78-FirstInstall-'+$env:KTERM_SHA.Substring(0,12)+'-R'+$env:GITHUB_RUN_ID+'.zip')
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'verification\package-first-install.ps1') -SourceRoot $stage -StageDirectory $package -ZipPath $zip *> (Join-Path $root 'private-package.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_COMPLETE_ZIP_PACKAGE_FAILED'}
+          $unpack=Join-Path $root 'unpacked'
+          Expand-Archive -LiteralPath $zip -DestinationPath $unpack -ErrorAction Stop
+          $manifest=Get-Content -LiteralPath (Join-Path $unpack 'package-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($manifest.source_sha -cne $env:KTERM_SHA){throw 'KTERM_OWNER_LOCAL_PACKAGE_SHA_DRIFT'}
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $unpack 'INSTALL-KTerminal.ps1') -SourceRoot $unpack -Destination (Join-Path $root 'smoke-installed') -NoLaunch *> (Join-Path $root 'private-install-smoke.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_NO_LAUNCH_INSTALL_FAILED'}
+          if(-not(Test-Path -LiteralPath (Join-Path $root 'smoke-installed\K-Terminal.exe') -PathType Leaf)){throw 'KTERM_OWNER_LOCAL_INSTALLED_DESKTOP_MISSING'}
+          Write-Host 'KTERM_OWNER_LOCAL_ZIP_HASH_AND_FRESH_INSTALL=PASS;APPLICATION_NOT_LAUNCHED=TRUE;LIVE_ORDERS=0'
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          $download=Join-Path $profilePath 'Downloads'
+          if(-not $profilePath -or $profilePath -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
+             $profilePath -match '(?i)\\(public|default|systemprofile)$' -or
+             -not(Test-Path -LiteralPath $download -PathType Container) -or
+             ((Get-Item -LiteralPath $download -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
+            throw 'KTERM_OWNER_LOCAL_INSTALLER_DESTINATION_UNVERIFIED'
+          }
+          $file=[IO.Path]::GetFileName($zip)
+          $target=Join-Path $download $file
+          if(Test-Path -LiteralPath $target){throw 'KTERM_OWNER_LOCAL_INSTALLER_ALREADY_EXISTS'}
+          $expected=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Copy-Item -LiteralPath $zip -Destination $target -ErrorAction Stop
+          $actual=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($actual -cne $expected) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+            throw 'KTERM_OWNER_LOCAL_DELIVERY_HASH_MISMATCH'
+          }
+          Write-Host ('KTERM_OWNER_LOCAL_DOWNLOADS_ZIP=PASS;FILE='+$file+';ZIP_SHA256='+$actual+';LIVE_ORDERS=0')
+      - name: Remove temporary private source and fixtures
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-owner-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root) {
+            $path=[IO.Path]::GetFullPath($root)
+            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+            if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
+               [IO.Path]::GetFileName($path) -cne ('kterm-pr78-owner-'+$env:GITHUB_RUN_ID)){
+              throw 'KTERM_OWNER_LOCAL_PRIVATE_CLEANUP_REFUSED'
+            }
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_OWNER_LOCAL_PRIVATE_TEMP_CLEAN=PASS;PUBLIC_PRIVATE_FILES=0'
