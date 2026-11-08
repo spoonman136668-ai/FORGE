@@ -169,6 +169,21 @@ jobs:
           GOFLAGS='-p=4' go test -race -count=1 ./...
           go vet ./...
           go build ./...
+      - name: Frozen RAR-G115 Linux Go race parallelism A/B/B/A development
+        if: github.head_ref == 'engineering/rar-g115-race-parallelism-dev-20261107'
+        shell: bash
+        env:
+          FORGE_RACE_SOURCE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/check_race_parallelism_abba_dev.py
+      - name: Retain frozen RAR-G115 race parallelism receipt
+        if: always() && github.head_ref == 'engineering/rar-g115-race-parallelism-dev-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g115-race-abba-${{ runner.os }}
+          path: ${{ runner.temp }}/f139-race-abba.json
+          if-no-files-found: error
       - name: Public isolation
         shell: bash
         run: |
