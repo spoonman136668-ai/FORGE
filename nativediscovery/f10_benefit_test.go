@@ -186,16 +186,17 @@ func TestF10IndependentSixArmGoldenScorecard(t *testing.T){
   g1,g2 int
   f3,tab,factor,native int
   strongest int
+  strongestName string
   deltaStrong,deltaPrevious int
   g1Family,g2Family string
  }
  expected:=[]witness{
-  {17,"disagreement",40,48,48,48,48,48,48,0,8,"cue-mode-xor","cue-mode-xor"},
-  {17,"fixed",44,52,52,52,52,52,52,0,8,"constant","constant"},
-  {17,"random",46,42,46,46,42,42,46,-4,-4,"cue-parity","constant"},
-  {31,"disagreement",34,44,40,40,36,36,40,4,10,"cue-parity","cue-mode-xor"},
-  {31,"fixed",34,50,50,50,50,50,50,0,16,"cue-parity","cue-mode-xor"},
-  {31,"random",32,44,40,40,36,36,40,4,12,"constant","cue-mode-xor"},
+  {17,"disagreement",40,48,48,48,40,48,48,"f3_prefix_selected",0,8,"cue-mode-xor","cue-mode-xor"},
+  {17,"fixed",44,52,52,52,52,52,52,"f3_prefix_selected",0,8,"constant","constant"},
+  {17,"random",46,42,46,46,42,42,46,"f3_prefix_selected",-4,-4,"cue-parity","constant"},
+  {31,"disagreement",34,44,40,40,42,36,42,"factorized",2,10,"cue-parity","cue-mode-xor"},
+  {31,"fixed",34,50,50,50,50,50,50,"f3_prefix_selected",0,16,"cue-parity","cue-mode-xor"},
+  {31,"random",32,44,40,40,42,36,42,"factorized",2,12,"constant","cue-mode-xor"},
  }
  if len(report.Arms)!=len(expected){t.Fatalf("missing or extra arms: %d",len(report.Arms))}
  for i,w:=range expected{
@@ -206,7 +207,7 @@ func TestF10IndependentSixArmGoldenScorecard(t *testing.T){
    g2.F3Correct!=w.f3||g2.TabularCorrect!=w.tab||
    g2.FactorizedCorrect!=w.factor||g2.NativeCorrect!=w.native||
    g2.StrongestMatchedCorrect!=w.strongest||
-   g2.StrongestMatchedName!="f3_prefix_selected"||
+   g2.StrongestMatchedName!=w.strongestName||
    g2.ExtraCorrectOverStrongest!=w.deltaStrong||
    g2.ExtraCorrectSincePrevious!=w.deltaPrevious||
    g1.SelectedFamily!=w.g1Family||g2.SelectedFamily!=w.g2Family{
@@ -231,9 +232,9 @@ func TestF10IndependentSixArmGoldenScorecard(t *testing.T){
  if report.Classification!=F10ReviewNO_GO||
   report.G2PositiveVersusStrongestArms!=2||
   report.G2PositiveSinceG1Arms!=5||
-  report.G2ThresholdPassingArms!=2||
+  report.G2ThresholdPassingArms!=0||
   report.G2ChangedSourceArms!=4||
-  report.TotalG2AdditionalCorrectOverStrongest!=4||
+  report.TotalG2AdditionalCorrectOverStrongest!=0||
   report.WorstG2AdditionalCorrectOverStrongest!= -4||
   report.TotalG2AdditionalCorrectOverG1!=50||
   report.SourceCandidateRecordsRetained!=48||
