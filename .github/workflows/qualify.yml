@@ -366,6 +366,41 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: G130 fingerprint validated Windows Go build cache (DEV)
+        if: github.head_ref == 'engineering/rar-g130-source-keyed-cache-restore-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -ne '${{ github.event.pull_request.head.sha }}') { throw 'G130_HEAD_MISMATCH' }
+          $tree = (git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'G130_TREE_READ_FAILED' }
+          $dirty = @(git status --porcelain --untracked-files=all)
+          if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'G130_DIRTY_SOURCE' }
+          $version = (go version).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'G130_GO_VERSION_FAILED' }
+          $config = @(& go env GOOS GOARCH CGO_ENABLED GOEXPERIMENT GOTOOLCHAIN GOROOT GOTOOLDIR) -join '|'
+          if ($LASTEXITCODE -ne 0) { throw 'G130_GO_ENV_FAILED' }
+          if ($env:GOFLAGS -ne '-p=2' -or $env:GOMAXPROCS -ne '2' -or $env:GOMEMLIMIT -ne '1536MiB') { throw 'G130_GO_RESOURCE_DRIFT' }
+          $inputString = "$head|$tree|$version|$config|$env:GOFLAGS|$env:GOMAXPROCS|$env:GOMEMLIMIT|$env:RUNNER_OS|$env:RUNNER_ARCH|$env:ImageOS|$env:ImageVersion"
+          $digestBytes = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($inputString))
+          $digest = [Convert]::ToHexString($digestBytes).ToLowerInvariant()
+          $cache = (go env GOCACHE).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $cache) { throw 'G130_CACHE_PATH_FAILED' }
+          "G130_CACHE_KEY=rar-g130-$head-$digest" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "G130_GO_CACHE=$cache" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          Write-Host "G130_SOURCE_SHA=$head G130_KEY_DIGEST=$digest"
+          if (-not (Test-Path $cache)) { throw 'G130_CACHE_NOT_MATERIALIZED' }
+          $stats = Get-ChildItem -LiteralPath $cache -Recurse -File -ErrorAction Stop | Measure-Object -Property Length -Sum
+          $cacheBytes = [long]$stats.Sum
+          Write-Host "G130_CACHE_BYTES=$cacheBytes"
+          if ($cacheBytes -le 0 -or $cacheBytes -gt 2147483648) { throw 'G130_CACHE_SIZE_ADMISSION_FAILED' }
+      - name: G130 save exact-source Windows Go build cache (DEV)
+        if: github.head_ref == 'engineering/rar-g130-source-keyed-cache-restore-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.G130_GO_CACHE }}
+          key: ${{ env.G130_CACHE_KEY }}
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
@@ -379,4 +414,71 @@ jobs:
         with:
           name: f139-discovery-public-${{ runner.os }}
           path: ${{ runner.temp }}/f139-discovery-public.json
+          if-no-files-found: error
+
+  windows_g130_cache_restore:
+    if: github.head_ref == 'engineering/rar-g130-source-keyed-cache-restore-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 8
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: G130 independently reconstruct exact-source Go build cache key
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -ne '${{ github.event.pull_request.head.sha }}') { throw 'G130_HEAD_MISMATCH' }
+          $tree = (git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'G130_TREE_READ_FAILED' }
+          $dirty = @(git status --porcelain --untracked-files=all)
+          if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'G130_DIRTY_SOURCE' }
+          $version = (go version).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'G130_GO_VERSION_FAILED' }
+          $config = @(& go env GOOS GOARCH CGO_ENABLED GOEXPERIMENT GOTOOLCHAIN GOROOT GOTOOLDIR) -join '|'
+          if ($LASTEXITCODE -ne 0) { throw 'G130_GO_ENV_FAILED' }
+          if ($env:GOFLAGS -ne '-p=2' -or $env:GOMAXPROCS -ne '2' -or $env:GOMEMLIMIT -ne '1536MiB') { throw 'G130_GO_RESOURCE_DRIFT' }
+          $inputString = "$head|$tree|$version|$config|$env:GOFLAGS|$env:GOMAXPROCS|$env:GOMEMLIMIT|$env:RUNNER_OS|$env:RUNNER_ARCH|$env:ImageOS|$env:ImageVersion"
+          $digestBytes = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($inputString))
+          $digest = [Convert]::ToHexString($digestBytes).ToLowerInvariant()
+          $cache = (go env GOCACHE).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $cache) { throw 'G130_CACHE_PATH_FAILED' }
+          "G130_CACHE_KEY=rar-g130-$head-$digest" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "G130_GO_CACHE=$cache" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          Write-Host "G130_SOURCE_SHA=$head G130_KEY_DIGEST=$digest"
+      - name: G130 restore cache saved by original Windows qualification
+        id: g130cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.G130_GO_CACHE }}
+          key: ${{ env.G130_CACHE_KEY }}
+          fail-on-cache-miss: true
+      - name: G130 verify cache hit and requalify every original Go package with Job Object memory
+        shell: pwsh
+        env:
+          G130_HEAD: ${{ github.event.pull_request.head.sha }}
+          G130_CACHE_HIT: ${{ steps.g130cache.outputs['cache-hit'] }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:G130_CACHE_HIT -ne 'true') { throw 'G130_EXACT_KEY_CACHE_NOT_RESTORED' }
+          python -B scripts/check_rar_g130_windows_cache.py
+          if ($LASTEXITCODE -ne 0) { throw 'G130_CACHE_RESTORED_GO_QUALIFICATION_FAILED' }
+      - name: Retain G130 exact-source cache restoration and real Go package receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g130-windows-cache-restored
+          path: ${{ runner.temp }}/rar-g130-windows-cache-verify.json
           if-no-files-found: error
