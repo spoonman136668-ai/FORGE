@@ -44,10 +44,10 @@ jobs:
               'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')) {
             if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_OWNER_LOCAL_BROKER_ENV_REFUSED'}
           }
-          $home=[Environment]::GetFolderPath('UserProfile')
-          if(-not $home -or $home -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
-             $home -match '(?i)\\(public|default|systemprofile)$') {throw 'KTERM_OWNER_LOCAL_INTERACTIVE_PROFILE_UNVERIFIED'}
-          $download=Join-Path $home 'Downloads'
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          if(-not $profilePath -or $profilePath -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
+             $profilePath -match '(?i)\\(public|default|systemprofile)$') {throw 'KTERM_OWNER_LOCAL_INTERACTIVE_PROFILE_UNVERIFIED'}
+          $download=Join-Path $profilePath 'Downloads'
           if(-not(Test-Path -LiteralPath $download -PathType Container)){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_DIRECTORY_UNAVAILABLE'}
           if((Get-Item -LiteralPath $download -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_LINK_REFUSED'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-owner-'+$env:GITHUB_RUN_ID)
@@ -91,7 +91,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\\.26\\.5 windows/amd64'){throw 'KTERM_OWNER_LOCAL_GO_VERSION_DRIFT'}
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_OWNER_LOCAL_GO_VERSION_DRIFT'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-owner-'+$env:GITHUB_RUN_ID)
           $stage=Join-Path $root 'source'
           $env:GOCACHE=Join-Path $root 'go-cache'
@@ -118,10 +118,10 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_NO_LAUNCH_INSTALL_FAILED'}
           if(-not(Test-Path -LiteralPath (Join-Path $root 'smoke-installed\K-Terminal.exe') -PathType Leaf)){throw 'KTERM_OWNER_LOCAL_INSTALLED_DESKTOP_MISSING'}
           Write-Host 'KTERM_OWNER_LOCAL_ZIP_HASH_AND_FRESH_INSTALL=PASS;APPLICATION_NOT_LAUNCHED=TRUE;LIVE_ORDERS=0'
-          $home=[Environment]::GetFolderPath('UserProfile')
-          $download=Join-Path $home 'Downloads'
-          if(-not $home -or $home -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
-             $home -match '(?i)\\(public|default|systemprofile)$' -or
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          $download=Join-Path $profilePath 'Downloads'
+          if(-not $profilePath -or $profilePath -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
+             $profilePath -match '(?i)\\(public|default|systemprofile)$' -or
              -not(Test-Path -LiteralPath $download -PathType Container) -or
              ((Get-Item -LiteralPath $download -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
             throw 'KTERM_OWNER_LOCAL_INSTALLER_DESTINATION_UNVERIFIED'
@@ -145,7 +145,7 @@ jobs:
           $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-owner-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $root) {
             $path=[IO.Path]::GetFullPath($root)
-            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\\')+'\\'
+            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
             if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
                [IO.Path]::GetFileName($path) -cne ('kterm-pr78-owner-'+$env:GITHUB_RUN_ID)){
               throw 'KTERM_OWNER_LOCAL_PRIVATE_CLEANUP_REFUSED'
