@@ -366,6 +366,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: RAR-G126 Windows native Go test p2 vs p4 A/B/B/A (development only)
+        if: github.head_ref == 'engineering/rar-g126-windows-go-test-parallelism-20261108'
+        shell: bash
+        env:
+          FORGE_G126_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/check_rar_g126_windows_go_test_abba.py
+      - name: Retain bounded G126 Go-test comparison including negatives
+        if: always() && github.head_ref == 'engineering/rar-g126-windows-go-test-parallelism-20261108'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g126-windows-go-test
+          path: ${{ runner.temp }}/rar-g126-windows-go-abba.json
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
