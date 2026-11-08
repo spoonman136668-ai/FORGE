@@ -12,6 +12,16 @@ const MAXJWT=16000;
 const hex40=/^[0-9a-f]{40}$/;
 const isObj=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
 const eligibleText=(s,max=300)=>typeof s==="string"&&s.length>0&&s.length<=max;
+// Public, fixed phase names only. No JWT, bearer, URL, status code, source payload,
+// signature, claim, exception text or environmental value is ever reported.
+const SAFE_PHASES=Object.freeze([
+ "RUN_PINS","OIDC_TOKEN_REQUEST","ISSUER_DISCOVERY","JWKS_FETCH",
+ "JWT_VERIFICATION","REPOSITORY_READ","RUN_READ","MAIN_READ",
+ "RULESET_READ","RULESET_VALIDATION","CURRENT_MAIN_COMMIT",
+ "ATTESTATION_COMPLETE"
+]);
+export const redactedFailurePhase=phase=>
+ SAFE_PHASES.includes(phase)?phase:"UNCLASSIFIED";
 export class Denied extends Error{
  constructor(){super("F73_GITHUB_ISSUER_OR_AUTHORITY_NOT_AUTHENTICATED");}
 }
@@ -87,9 +97,12 @@ async function getJSON(url,fetcher,headers={}){
  return json;
 }
 export async function observeRealOrigin({
- env=process.env,fetcher=fetch,now=Date.now()
+ env=process.env,fetcher=fetch,now=Date.now(),onPhase=()=>{}
 }={}){
+ const mark=phase=>onPhase(redactedFailurePhase(phase));
+ mark("RUN_PINS");
  const pins=originPins(env);
+ mark("OIDC_TOKEN_REQUEST");
  requireTrue(eligibleText(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,16384)&&
   eligibleText(env.ACTIONS_ID_TOKEN_REQUEST_URL,2048));
  const request=new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL);
@@ -101,18 +114,24 @@ export async function observeRealOrigin({
   Authorization:"Bearer "+env.ACTIONS_ID_TOKEN_REQUEST_TOKEN
  });
  requireTrue(eligibleText(result.value,MAXJWT));
+ mark("ISSUER_DISCOVERY");
  const config=await getJSON(WELLKNOWN,fetcher);
  requireTrue(config.issuer===ISSUER&&
   config.jwks_uri===ISSUER+"/.well-known/jwks");
+ mark("JWKS_FETCH");
  const jwks=await getJSON(config.jwks_uri,fetcher);
+ mark("JWT_VERIFICATION");
  const verified=verifyJWT(result.value,jwks,pins,now);
+ mark("REPOSITORY_READ");
  const repo=await getJSON(GITHUB+"/repos/"+REPO,fetcher);
  requireTrue(repo.full_name===REPO&&repo.id===verified.repository_id);
+ mark("RUN_READ");
  const run=await getJSON(GITHUB+"/repos/"+REPO+"/actions/runs/"+pins.run_id,fetcher);
  requireTrue(String(run.id)===pins.run_id&&
   run.head_sha===pins.sha&&run.head_branch===pins.ref.slice(11)&&
   run.event==="push"&&run.run_attempt===1&&
   run.path===".github/workflows/forge-f73-protected-main-identity.yml");
+ mark("MAIN_READ");
  const main=await getJSON(GITHUB+"/repos/"+REPO+"/branches/main",fetcher);
  requireTrue(isObj(main.commit)&&hex40.test(main.commit.sha)&&
   typeof main.protected==="boolean");
@@ -120,8 +139,10 @@ export async function observeRealOrigin({
  // rules, required Linux+Windows checks and exact current run commit. Even a
  // protected-main GitHub identity cannot mint scientific first-use authority.
  requireTrue(eligibleText(env.GITHUB_TOKEN,2048));
+ mark("RULESET_READ");
  const rules=await getJSON(GITHUB+"/repos/"+REPO+"/rulesets/25031517",fetcher,
   {Authorization:"Bearer "+env.GITHUB_TOKEN});
+ mark("RULESET_VALIDATION");
  const status=rules.rules?.find(x=>x.type==="required_status_checks");
  const contexts=status?.parameters?.required_status_checks;
  requireTrue(rules.id===25031517&&rules.enforcement==="active"&&
@@ -131,8 +152,10 @@ export async function observeRealOrigin({
   Array.isArray(contexts)&&
   ["linux","windows"].every(name=>contexts.some(c=>c.context===name)));
  requireTrue(main.protected===true);
+ mark("CURRENT_MAIN_COMMIT");
  const onMain=pins.ref==="refs/heads/main";
  if(onMain)requireTrue(main.commit.sha===pins.sha);
+ mark("ATTESTATION_COMPLETE");
  return {
   schema:"forge.f73.protected-main-github-oidc-readonly.v1",
   repository:REPO,
@@ -160,12 +183,16 @@ export async function observeRealOrigin({
  };
 }
 if(process.argv[1]?.endsWith("f73_protected_main_oidc.mjs")){
+ let lastPhase="UNCLASSIFIED";
  try{
-  const r=await observeRealOrigin();
+  const r=await observeRealOrigin({onPhase:phase=>{
+   lastPhase=redactedFailurePhase(phase);
+  }});
   process.stdout.write(JSON.stringify(r)+"\n");
   process.stdout.write("F73_PROTECTED_ORIGINAL_SCIENCE=DENIED\n");
  }catch(e){
   process.stderr.write("F73_REAL_OIDC_READONLY_CHECK=BLOCKED\n");
+  process.stderr.write("F73_READONLY_FAILURE_PHASE="+redactedFailurePhase(lastPhase)+"\n");
   process.exitCode=1;
  }
 }
