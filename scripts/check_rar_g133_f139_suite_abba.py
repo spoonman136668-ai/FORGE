@@ -23,6 +23,9 @@ import time
 import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
+# Match the repository-root import identity of the original unittest workflow.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 BASE="8cf1ecc115707e186f666f7aad12de8dbdc2a88c"
 BRANCH="engineering/rar-g133-exact-byte-ast-cache-20261108"
 ORDER=("A1","B1","B2","A2")
