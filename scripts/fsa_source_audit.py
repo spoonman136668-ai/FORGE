@@ -117,7 +117,7 @@ def bounded_list(g, path, key=None, maximum=99):
     return value
 
 
-def list_open_prs(g):
+def _list_open_prs_once(g):
     """Consume every GitHub Link-announced open PR page; stop on drift.
 
     This is a read-only census, not source-approval or merge authority.
@@ -143,6 +143,23 @@ def list_open_prs(g):
             return result
         expect(len(rows) == PR_PAGE_SIZE, "INCOMPLETE_OPEN_PR_PAGINATION")
     raise Blocked("OPEN_PR_PAGE_BOUND_EXCEEDED")
+
+def list_open_prs(g):
+    """One bounded fresh census retry on a duplicate caused by changing PR pages.
+
+    The first inconsistent result is discarded completely. A second duplicate,
+    incomplete page, invalid Link header or GitHub read failure still denies.
+    Read-only only; this never grants source, merge or scientific authority.
+    """
+    try:
+        return _list_open_prs_once(g)
+    except Blocked as error:
+        if str(error) != "DUPLICATE_OR_MUTATED_PR_IN_PAGINATION":
+            raise
+        # No page reuse: restart from page one, with the original strict
+        # open-PR ceiling, uniqueness, Link-chain and completeness tests.
+        return _list_open_prs_once(g)
+
 
 def current_main(g):
     base = g.get("/branches/main")

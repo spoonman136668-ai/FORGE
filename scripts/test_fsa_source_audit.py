@@ -323,5 +323,62 @@ class SourceAuditTests(unittest.TestCase):
                          "UNQUALIFIED_WORKFLOW_ATTEMPT")
 
 
+    def test_concurrent_new_pr_can_recover_with_one_complete_fresh_census(self):
+        class NewFrontPR(Fake):
+            def __init__(self):
+                super().__init__()
+                self.scans = 0
+
+            def get_page(self, path):
+                first = "/pulls?state=open&per_page=20"
+                second = first + "&page=2"
+                self.calls.append(path)
+                if path == first:
+                    self.scans += 1
+                    numbers = (range(101, 121) if self.scans == 1
+                               else range(100, 120))
+                    rows = []
+                    for number in numbers:
+                        item = pr()
+                        item["number"] = number
+                        item["draft"] = True
+                        rows.append(item)
+                    return rows, True
+                if path == second:
+                    item = pr()
+                    item["number"] = 120
+                    item["draft"] = True
+                    return [item], False
+                raise Blocked("MISSING_OR_UNBOUNDED_GITHUB_PAGE")
+
+        g = NewFrontPR()
+        result = run(g)
+        self.assertEqual(result["Count"], 0)
+        self.assertEqual(result["Candidates"], [])
+        self.assertFalse(result["MergeAuthorized"])
+        self.assertFalse(result["ScientificAuthority"])
+        self.assertEqual(g.scans, 2)
+        first = "/pulls?state=open&per_page=20"
+        self.assertEqual(g.calls, [first, first + "&page=2",
+                                   first, first + "&page=2"])
+
+    def test_persistent_duplicate_stops_after_exactly_one_fresh_retry(self):
+        g = Fake()
+        first = "/pulls?state=open&per_page=20"
+        g.pages[first] = [pr() for _ in range(20)]
+        with self.assertRaisesRegex(Blocked, "DUPLICATE_OR_MUTATED"):
+            run(g)
+        self.assertEqual(g.calls, [first, first])
+
+    def test_missing_pagination_page_is_not_retried_or_partially_accepted(self):
+        g = Fake()
+        first = "/pulls?state=open&per_page=20"
+        g.pages[first] = [dict(pr(), number=n, draft=True)
+                          for n in range(1, 21)]
+        with self.assertRaisesRegex(Blocked, "MISSING_OR_UNBOUNDED"):
+            run(g)
+        self.assertEqual(g.calls, [first, first + "&page=2"])
+
+
 if __name__ == "__main__":
     unittest.main()
