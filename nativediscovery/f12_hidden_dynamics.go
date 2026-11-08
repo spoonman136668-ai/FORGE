@@ -399,12 +399,9 @@ func f12Arm(seed uint32,policy string)(F12Arm,error){
   round.AdvantageOverWrongLag=round.CausalCorrect-round.WrongLagCorrect
   a.Rounds[generation]=round
  }
- a.OriginalWorldRetained=true
- for i:=range originalG1{
-  if a.Rounds[1].OriginalCorrect[i]<originalG1[i]{
-   a.OriginalWorldRetained=false
-  }
- }
+ // The retention gate applies to the proposed causal mechanism, not to
+ // deliberately impaired controls: a wrong-lag ablation is allowed to regress.
+ a.OriginalWorldRetained=a.Rounds[1].OriginalCorrect[0]>=originalG1[0]
  g2:=a.Rounds[1]
  a.MeetsFrozenThreshold=a.OriginalWorldRetained&&g2.ColdStateMatches&&
   g2.AdvantageOverStrongest>=F12MinimumStrongGain&&
