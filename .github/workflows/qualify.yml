@@ -216,6 +216,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 8
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: RAR-G122 original Windows processor fingerprint (development only)
+        if: github.head_ref == 'engineering/rar-g122-hosted-criticalpath-shadow-20261107'
+        shell: bash
+        run: |
+          python3 -B -c 'import json,os,platform,sys;print("FORGE_RAR_G122_ORIGINAL_CPU="+json.dumps(dict(cpu=platform.processor(),logical_cpus=os.cpu_count(),runner_image=os.getenv("ImageOS"),runner_image_version=os.getenv("ImageVersion"),python=sys.version,run_id=os.getenv("GITHUB_RUN_ID")),sort_keys=True))'
       - name: FORGE independence and standing isolation enforcement
         shell: bash
         run: |
@@ -273,6 +278,180 @@ jobs:
           else
             python3 -B -m unittest discover -s f139 -p 'test_*.py'
           fi
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Actual GenEnv and Promptbreeder outputs to bound source
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_path="$RUNNER_TEMP/f139-genenv-request.json"
+          result_path="$RUNNER_TEMP/f139-genenv-result.json"
+          python3 -B -m f139.check_genenv_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_genenv_source_integration --result "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_source_integration --result "$result_path"
+          previous_path="$RUNNER_TEMP/f139-typed-program-first-result.json"
+          python3 -B -m f139.check_prompt_program_integration --request > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$previous_path"
+          python3 -B -m f139.check_prompt_program_integration --request --previous "$previous_path" > "$request_path"
+          CGO_ENABLED=0 GOTOOLCHAIN=local go run ./cmd/f139-genenv-source < "$request_path" > "$result_path"
+          python3 -B -m f139.check_prompt_program_integration --result "$result_path" --previous "$previous_path"
+      - name: Frozen native action-consequence development receipt
+        if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          go test -count=1 -v ./nativediscovery | tee "$RUNNER_TEMP/forge-native-discovery-f0.log"
+          test "$(grep -c 'FORGE_NATIVE_DISCOVERY_F0=' "$RUNNER_TEMP/forge-native-discovery-f0.log")" -eq 1
+      - name: Retain frozen native discovery development receipt
+        if: always() && github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-native-discovery-f0-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-native-discovery-f0.log
+          if-no-files-found: error
+      - name: Native F1 GenEnv to F95 development evidence
+        if: github.head_ref == 'engineering/native-discovery-f1-generator-adapter-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          go test -count=1 -v -run '^TestNativeDiscoveryF1' ./nativediscovery | tee "$RUNNER_TEMP/forge-native-discovery-f1.log"
+          test "$(grep -c 'FORGE_NATIVE_DISCOVERY_F1=' "$RUNNER_TEMP/forge-native-discovery-f1.log")" -eq 1
+      - name: Retain F1 exact-source generator and heldout evidence
+        if: always() && github.head_ref == 'engineering/native-discovery-f1-generator-adapter-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-native-discovery-f1-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-native-discovery-f1.log
+          if-no-files-found: error
+      - name: Frozen native F2 unfamiliar-world evaluation receipt
+        if: github.head_ref == 'engineering/native-discovery-f2-unfamiliar-world-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          go test -count=1 -v -run '^TestF2' ./nativediscovery | tee "$RUNNER_TEMP/forge-native-discovery-f2.log"
+          test "$(grep -c 'FORGE_NATIVE_DISCOVERY_F2=' "$RUNNER_TEMP/forge-native-discovery-f2.log")" -eq 1
+      - name: Retain exact-source F2 candidate and matched-control evidence
+        if: always() && github.head_ref == 'engineering/native-discovery-f2-unfamiliar-world-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-native-discovery-f2-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-native-discovery-f2.log
+          if-no-files-found: error
+      - name: Native F3 generated executable source evidence
+        if: github.head_ref == 'engineering/native-discovery-f3-executable-mechanisms-20261107'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          go test -count=1 -v -run '^TestF3' ./nativediscovery | tee "$RUNNER_TEMP/forge-native-discovery-f3.log"
+          test "$(grep -c 'FORGE_NATIVE_DISCOVERY_F3=' "$RUNNER_TEMP/forge-native-discovery-f3.log")" -eq 1
+      - name: Retain F3 exact-source compiled mechanism evidence
+        if: always() && github.head_ref == 'engineering/native-discovery-f3-executable-mechanisms-20261107'
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-native-discovery-f3-${{ runner.os }}
+          path: ${{ runner.temp }}/forge-native-discovery-f3.log
+          if-no-files-found: error
+      - name: Native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: Retain private-fixture phase diagnosis
+        if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: f139-sqlite-phases-${{ runner.os }}
+          path: ${{ runner.temp }}/f139-sqlite-phases.json
+          if-no-files-found: error
+      - name: Retain exact-source qualification receipt
+        if: ${{ always() && (github.head_ref == 'engineering/f139-unique-test-discovery-20261105' || github.head_ref == 'engineering/f139-qualification-profile-20261106' || github.head_ref == 'engineering/f139-profile-resource-diagnostics-20261107' || github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: f139-discovery-public-${{ runner.os }}
+          path: ${{ runner.temp }}/f139-discovery-public.json
+          if-no-files-found: error
+
+  rar_g122_windows_shadow:
+    if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g122-hosted-criticalpath-shadow-20261107'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 8
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: FORGE independence and standing isolation enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: Focused original-owner Windows mutex interoperability
+        if: runner.os == 'Windows' && (github.head_ref == 'engineering/f139-v36-original-owner-corrective-release-20261105' || github.head_ref == 'engineering/f139-v37-public-order-owner-handoff-20261105')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s f139 -p 'test_nci04_original_owner_mutex.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F139_V36_MUTEX_INTEROPERABILITY_FAILED'}
+      - name: Prepare frozen transport sources and run affected controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate=$(git rev-parse HEAD)
+          for source in 80ae30719bcd9f179da4aa4e8f14dc36fd15818e 556d61f795cab1a042d26b46bbc1087dd436f52d; do
+            if ! git cat-file -e "$source:f139/local_controller.py" 2>/dev/null; then
+              git fetch --no-tags --depth=1 https://github.com/spoonman136668-ai/FORGE.git "$source"
+            fi
+            git cat-file -e "$source:f139/local_controller.py"
+          done
+          test "$(git rev-parse HEAD)" = "$candidate"
+          test "$(git rev-parse --is-shallow-repository)" = true
+          python3 -B -m unittest discover -s f139 -p 'test_github_command_transport.py' -v
+      - name: Verify preserved test identities and fixture bodies
+        if: github.head_ref == 'engineering/f139-unique-test-discovery-20261105'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B f139/check_test_discovery_inventory.py --baseline b5172a047efa7a1d630c15c13a2b7eba14c997fe --output "$RUNNER_TEMP/f139-discovery-public.json"
+      - name: G122 first complete F139 1443-case two-worker shadow
+        shell: bash
+        env:
+          FORGE_G122_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/check_rar_g122_shadow.py
+      - name: Preserve first-full G122 source-bound receipt (including failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g122-shadow-f139
+          path: ${{ runner.temp }}/rar-g122-shadow.json
+          if-no-files-found: error
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
