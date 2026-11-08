@@ -102,6 +102,7 @@ export async function observeRealOrigin({
  const mark=phase=>onPhase(redactedFailurePhase(phase));
  mark("RUN_PINS");
  const pins=originPins(env);
+ mark("OIDC_TOKEN_REQUEST");
  requireTrue(eligibleText(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,16384)&&
   eligibleText(env.ACTIONS_ID_TOKEN_REQUEST_URL,2048));
  const request=new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL);
@@ -109,7 +110,6 @@ export async function observeRealOrigin({
   request.searchParams.get("audience")===null);
  request.searchParams.set("audience",AUD);
  // Only GitHub-hosted Actions supplies the OIDC URL and short-lived token.
- mark("OIDC_TOKEN_REQUEST");
  const result=await getJSON(request.href,fetcher,{
   Authorization:"Bearer "+env.ACTIONS_ID_TOKEN_REQUEST_TOKEN
  });
