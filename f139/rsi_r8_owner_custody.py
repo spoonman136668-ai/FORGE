@@ -103,12 +103,15 @@ def audit_observed_scopes(db) -> frozenset[str]:
     Database.verify() first checks every SHA-chained event and all existing
     owner invariants, then calls this additional observation-only verifier.
     """
-    # Python -m executes the original controller as __main__ rather than
-    # f139.local_controller. Verify either ORIGINAL Database class identity,
-    # without permitting a forged writer or broadening owner execution.
+    # The original F139 suite imports local_controller as a top-level
+    # module, installed owner code may execute as __main__, while canonical
+    # imports use f139.local_controller. This READ-ONLY auditor accepts the
+    # three existing identities. The writer still requires the canonical
+    # Database type and original SingleOwner lock.
     import sqlite3
     need(type(db).__name__ == "Database"
-         and type(db).__module__ in ("f139.local_controller", "__main__")
+         and type(db).__module__ in (
+             "f139.local_controller", "local_controller", "__main__")
          and type(getattr(db, "conn", None)) is sqlite3.Connection
          and callable(getattr(db, "meta", None)), "DATABASE_TYPE")
     meta = db.meta()
