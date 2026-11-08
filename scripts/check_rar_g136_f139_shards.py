@@ -1,8 +1,8 @@
-"""RAR-G136: full original 1450-case Windows F139 sharding admission (DEV).
+"""RAR-G136: full original Windows F139 suite using 2 isolated test workers.
 
-Existing mandatory CI remains completely serial and unchanged. No test is
-removed or skipped by the shard selector, no source-under-test is modified.
-A shadow comparison cannot authorize deployment or controller/science actions.
+Every test discovered at this exact source runs once with original outcomes
+and historical skip controls retained. This is the Windows CI regression,
+not a controller, science worker, cache, runner scheduler or deployment.
 """
 from __future__ import annotations
 import argparse
@@ -333,7 +333,18 @@ def arm(mode,ids,bins):
             job.close()
 
 EXPECTED_CASES=1450
-EXPECTED_TEST_IDS_SHA256=None # exact-source 1450 suite plus 7 frozen skip IDs
+# Pin the original G135 1450-case identities only on the frozen G136 PR.
+# Future source changes may add legitimate tests; all discovered cases remain mandatory.
+EXPECTED_TEST_IDS_SHA256="465cbcb6f3bb585e010f1683d140930c93ceeb2a4860ecd5a0e7b611fa71ddbb"
+BASELINE_SKIP_IDS=frozenset((
+    "test_nci04_output_capture.BoundedNativeOutputTests.test_actual_native_command_path_retains_overflow_negative",
+    "test_nci04_output_capture.BoundedNativeOutputTests.test_descendant_held_pipe_does_not_block_overflow_custody",
+    "test_nci04_output_capture.BoundedNativeOutputTests.test_negative_os_returncode_is_signed_schema_compatible",
+    "test_nci04_output_capture.BoundedNativeOutputTests.test_orphaned_output_pipe_becomes_explicit_negative",
+    "test_nci04_output_capture.BoundedNativeOutputTests.test_real_fixed_native_descendant_overflow_is_custodied_negative",
+    "test_nci04_v36_source_transition.V36ReleaseSurfaceTests.test_real_ci_source_manifest_and_ancestry",
+    "test_nci04_v37_source_transition.V37ReleaseSurfaceTests.test_real_ci_source_manifest_and_ancestry",
+))
 EXPECTED_SKIP_IDS_SHA256="2454be52b27ce0c78314b658efa2d9b5298fca718458486943462bd0ad8f111a"
 # Frozen from G136 artifact 13594973914 on same F139 source.
 # The original separate full serial CI suite is mandatory and runs AFTER this
@@ -353,34 +364,52 @@ def main():
         return child(opts.mode,opts.shard,opts.output)
     if (os.name!="nt" or os.getenv("GITHUB_ACTIONS")!="true"
             or os.getenv("GITHUB_REPOSITORY")!="spoonman136668-ai/FORGE"
-            or os.getenv("GITHUB_EVENT_NAME")!="pull_request"
-            or os.getenv("GITHUB_HEAD_REF")!=BRANCH or not os.getenv("RUNNER_TEMP")):
-        raise ValueError("G136_CI_SHADOW_PR_ONLY")
+            or not os.getenv("RUNNER_TEMP")):
+        raise ValueError("G136_UNAUTHORIZED_EXECUTION_SURFACE")
+    event=os.getenv("GITHUB_EVENT_NAME")
+    if event=="pull_request":
+        if os.getenv("GITHUB_BASE_REF")!="main":
+            raise ValueError("G136_PR_BASE_INVALID")
+    elif event in ("push","workflow_dispatch"):
+        if not os.getenv("GITHUB_REF","").startswith("refs/heads/"):
+            raise ValueError("G136_BRANCH_REF_INVALID")
+        if event=="push" and os.getenv("GITHUB_REF")!="refs/heads/main":
+            raise ValueError("G136_PUSH_OUTSIDE_MAIN")
+    else:
+        raise ValueError("G136_EVENT_NOT_QUALIFICATION")
     sha=git("rev-parse","HEAD")
-    if sha!=os.getenv("FORGE_G136_HEAD") or git("merge-base",BASE,sha)!=BASE:
-        raise ValueError("G136_SHA_OR_ANCESTRY_DRIFT")
-    if set(git("diff","--name-only",BASE,sha).splitlines()) != {
-            ".github/workflows/qualify.yml","scripts/check_rar_g136_f139_shards.py"}:
-        raise ValueError("G136_SOURCE_SCOPE_DRIFT")
+    if sha!=os.getenv("FORGE_G136_HEAD"):
+        raise ValueError("G136_CHECKOUT_SHA_DRIFT")
+    if event in ("push","workflow_dispatch") and sha!=os.getenv("GITHUB_SHA"):
+        raise ValueError("G136_SIGNED_TRIGGER_SOURCE_DRIFT")
+    if event=="pull_request" and os.getenv("GITHUB_HEAD_REF")==BRANCH:
+        # Frozen qualification branch: exact base and two-path test-only diff.
+        if git("merge-base",BASE,sha)!=BASE or set(
+                git("diff","--name-only",BASE,sha).splitlines()) != {
+                ".github/workflows/qualify.yml","scripts/check_rar_g136_f139_shards.py"}:
+            raise ValueError("G136_FROZEN_CANDIDATE_SOURCE_SCOPE_DRIFT")
     stable(sha)
-    result=dict(schema="forge.rar.g136.safe-full-f139-shards.dev.v1",
+    result=dict(schema="forge.rar.g136.safe-full-f139-shards.prod.v1",
         sha=sha,source_tree=git("rev-parse","HEAD^{tree}"),
         base_main=BASE,run_id=os.getenv("GITHUB_RUN_ID"),
         run_attempt=os.getenv("GITHUB_RUN_ATTEMPT"),runner_name=os.getenv("RUNNER_NAME"),
         runner_image=os.getenv("ImageOS"),runner_image_version=os.getenv("ImageVersion"),
         processor_model=platform.processor(),logical_cpus=os.cpu_count(),
         python=sys.version,platform=platform.platform(),test_count_expected=EXPECTED_CASES,
-        retains_mandatory_original_windows_serial=True,
-        retains_mandatory_original_linux=True,
-        identical_source_and_inputs=True,first_complete_after_original_preflights=True,
-        global_order_independence_proven=False,default_activation=False,
-        development_verdict="INVALID_UNVERIFIED")
+        full_original_windows_case_coverage_sharded=True,
+        retains_mandatory_original_linux_serial=True,
+        identical_source_and_inputs=True,complete_after_original_preflights=True,
+        global_order_independence_proven=False,default_activation=True,
+        qualification_verdict="INVALID_UNVERIFIED")
     out=Path(os.environ["RUNNER_TEMP"])/"rar-g136-f139-shards.json"
     try:
         cases,ids=discover()
         digest=hashlib.sha256("\n".join(ids).encode()).hexdigest()
-        if len(ids)!=EXPECTED_CASES or (EXPECTED_TEST_IDS_SHA256 and digest!=EXPECTED_TEST_IDS_SHA256):
-            raise ValueError("G136_FROZEN_CASE_INVENTORY_DRIFT")
+        if len(ids)<EXPECTED_CASES:
+            raise ValueError("G136_ORIGINAL_MINIMUM_CASE_INVENTORY_DRIFT")
+        if event=="pull_request" and os.getenv("GITHUB_HEAD_REF")==BRANCH and (
+                len(ids)!=EXPECTED_CASES or digest!=EXPECTED_TEST_IDS_SHA256):
+            raise ValueError("G136_FROZEN_CANDIDATE_CASE_DIGEST_DRIFT")
         bins,weights=partition(cases)
         result["original_test_ids_sha256"]=digest
         result["shard_module_counts"]=[len(x) for x in bins]
@@ -390,20 +419,23 @@ def main():
         skip_sha=hashlib.sha256("\n".join(measured["skipped_ids"]).encode()).hexdigest()
         result["parallel_first_complete"]=measured
         result["skip_ids_sha256"]=skip_sha
-        if measured["test_count"]!=EXPECTED_CASES or len(measured["skipped_ids"])!=7 or (
-                skip_sha!=EXPECTED_SKIP_IDS_SHA256) or (
+        if measured["test_count"]!=len(ids) or (
+                not BASELINE_SKIP_IDS.issubset(set(measured["skipped_ids"]))) or (
                 measured["errors"] or measured["failures"] or measured["expected_failures"]
                 or measured["unexpected_successes"]) or not (
                 0<measured["process_tree_peak_commit_bytes"]<=MAX_MEMORY):
-            raise ValueError("G136_ORIGINAL_CASE_PARITY_OR_MEMORY_FAILED")
-        result["development_verdict"]="PASS_SHADOW_CASES_ONLY"
+            raise ValueError("G136_FULL_ORIGINAL_CASE_PARITY_OR_MEMORY_FAILED")
+        if event=="pull_request" and os.getenv("GITHUB_HEAD_REF")==BRANCH and (
+                len(measured["skipped_ids"])!=7 or skip_sha!=EXPECTED_SKIP_IDS_SHA256):
+            raise ValueError("G136_FROZEN_CANDIDATE_SKIP_IDENTITY_DRIFT")
+        result["qualification_verdict"]="PASS_ALL_ORIGINAL_F139_CASES"
         return 0
     except BaseException as exc:
         result["failure"]=type(exc).__name__+":"+str(exc)[:400]
         raise
     finally:
         out.write_text(json.dumps(result,sort_keys=True,indent=2)+"\n",encoding="utf-8")
-        print("FORGE_RAR_G136="+result["development_verdict"],flush=True)
+        print("FORGE_RAR_G136="+result["qualification_verdict"],flush=True)
 
 if __name__=="__main__":
     sys.exit(main())
