@@ -11,7 +11,8 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from fsa_policy_anchor_r26 import observe as observe_policy_anchor
+from fsa_policy_anchor_r26 import (observe as observe_policy_anchor,
+                                   verify_ruleset_inventory, PolicyDenied)
 
 REPO = "spoonman136668-ai/FORGE"
 ROOT = f"https://api.github.com/repos/{REPO}"
@@ -117,7 +118,7 @@ def bounded_list(g, path, key=None, maximum=99):
     return value
 
 
-def list_open_prs(g):
+def _list_open_prs_once(g):
     """Consume every GitHub Link-announced open PR page; stop on drift.
 
     This is a read-only census, not source-approval or merge authority.
@@ -144,6 +145,23 @@ def list_open_prs(g):
         expect(len(rows) == PR_PAGE_SIZE, "INCOMPLETE_OPEN_PR_PAGINATION")
     raise Blocked("OPEN_PR_PAGE_BOUND_EXCEEDED")
 
+def list_open_prs(g):
+    """One bounded fresh census retry on a duplicate caused by changing PR pages.
+
+    The first inconsistent result is discarded completely. A second duplicate,
+    incomplete page, invalid Link header or GitHub read failure still denies.
+    Read-only only; this never grants source, merge or scientific authority.
+    """
+    try:
+        return _list_open_prs_once(g)
+    except Blocked as error:
+        if str(error) != "DUPLICATE_OR_MUTATED_PR_IN_PAGINATION":
+            raise
+        # No page reuse: restart from page one, with the original strict
+        # open-PR ceiling, uniqueness, Link-chain and completeness tests.
+        return _list_open_prs_once(g)
+
+
 def current_main(g):
     base = g.get("/branches/main")
     expect(isinstance(base, dict) and base.get("protected") is True,
@@ -156,9 +174,10 @@ def current_main(g):
 
 def verify_ruleset(g):
     records = bounded_list(g, "/rulesets?includes_parents=true", maximum=20)
-    expect(len(records) == 1 and records[0].get("id") == RULESET
-           and records[0].get("enforcement") == "active",
-           "RULESET_INVENTORY_CHANGED")
+    try:
+        verify_ruleset_inventory(g, records)
+    except PolicyDenied as error:
+        raise Blocked("RULESET_INVENTORY_CHANGED") from error
     r = g.get(f"/rulesets/{RULESET}")
     expect(r.get("id") == RULESET and r.get("name") == "FORGE main qualified-source only"
            and r.get("source") == REPO and r.get("target") == "branch"

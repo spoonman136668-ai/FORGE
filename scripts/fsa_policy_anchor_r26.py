@@ -46,6 +46,61 @@ def need(ok, reason):
         raise PolicyDenied(reason)
 
 
+# These FORGE-scoped immutable owner/audit ref rulesets are disjoint from
+# refs/heads/main. Unexpected ids, names, scopes or activation fail closed.
+# Their separate owner permissions are NOT vouched for by this FSA witness.
+AUXILIARY_RULESET_SCOPES = {
+    26049392: ("FORGE F139 immutable owner release refs",
+               "refs/heads/f139-owner-release-*"),
+    26293659: ("FORGE H53 original-owner immutable audit ref",
+               "refs/heads/audit/f139-v26-h53-original-successor-ro-once-20261031"),
+    26304983: ("audit/f139-v26-h53b-original-successor-ro-once-20261101",
+               "refs/heads/audit/f139-v26-h53b-original-successor-ro-once-20261101"),
+    26305401: ("audit/f139-v26-h53c-original-successor-ro-once-20261101",
+               "refs/heads/audit/f139-v26-h53c-original-successor-ro-once-20261101"),
+    26313891: ("audit/f139-v26-h53d-original-successor-ro-once-20261101",
+               "refs/heads/audit/f139-v26-h53d-original-successor-ro-once-20261101"),
+    26253679: ("audit/f139-v26-i1290-original-ro-terminal-20261031",
+               "refs/heads/audit/f139-v26-i1290-original-ro-terminal-20261031"),
+}
+
+
+def verify_ruleset_inventory(api, listing):
+    """Bound and verify the actual main ruleset plus reviewed disjoint refs.
+
+    This is not permission to merge. A new scope, changed owner/audit ref
+    identity, unknown ruleset, or branch pattern affecting main is denied.
+    """
+    need(isinstance(listing, list) and 1 <= len(listing) <= 20,
+         "RULESET_INVENTORY_OR_ACTIVATION_DRIFT")
+    identities = set()
+    for item in listing:
+        need(isinstance(item, dict) and type(item.get("id")) is int
+             and item["id"] not in identities
+             and item.get("enforcement") == "active",
+             "RULESET_INVENTORY_OR_ACTIVATION_DRIFT")
+        identity = item["id"]
+        identities.add(identity)
+        if identity == RULESET:
+            continue
+        need(identity in AUXILIARY_RULESET_SCOPES,
+             "RULESET_INVENTORY_OR_ACTIVATION_DRIFT")
+        expected_name, expected_ref = AUXILIARY_RULESET_SCOPES[identity]
+        detail = api.get(f"/rulesets/{identity}")
+        need(isinstance(detail, dict) and detail.get("id") == identity
+             and detail.get("name") == expected_name
+             and detail.get("source") == REPO
+             and detail.get("enforcement") == "active"
+             and detail.get("target") == "branch"
+             and detail.get("conditions") == {
+                 "ref_name": {"exclude": [], "include": [expected_ref]}},
+             "AUXILIARY_RULESET_SCOPE_OR_IDENTITY_DRIFT")
+        # Bypass actors for a different ref never authenticate main's policy.
+        # They are deliberately not used as an acceptance or owner-control
+        # signal; only exact disjoint branch scope is relevant here.
+    need(RULESET in identities, "RULESET_INVENTORY_OR_ACTIVATION_DRIFT")
+
+
 def observe(api):
     """Return read-only evidence. Hidden actor metadata is NEVER presumed empty."""
     result = {
@@ -63,10 +118,7 @@ def observe(api):
     }
     try:
         listing = api.get("/rulesets?includes_parents=true")
-        need(isinstance(listing, list) and len(listing) == 1
-             and listing[0].get("id") == RULESET
-             and listing[0].get("enforcement") == "active",
-             "RULESET_INVENTORY_OR_ACTIVATION_DRIFT")
+        verify_ruleset_inventory(api, listing)
         r = api.get(f"/rulesets/{RULESET}")
         result["ObservedUpdatedAt"] = r.get("updated_at")
         need(isinstance(r, dict) and r.get("id") == RULESET
