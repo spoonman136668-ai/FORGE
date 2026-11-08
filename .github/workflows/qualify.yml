@@ -472,6 +472,36 @@ jobs:
         with:
           path: ${{ env.G148_CACHE_PATH }}
           key: ${{ env.G148_CACHE_KEY }}
+      - name: G154 frozen exact-main Go compiler source and cache preflight (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g154-base-go-cache-seed-first-use-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          G154_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_CACHE_HIT: ${{ steps.g148cache.outputs['cache-hit'] }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g154_base_cache_dev.py --pre
+          if ($LASTEXITCODE -ne 0) { throw 'G154_SOURCE_AND_CONTRACT_PRECHECK_FAILED' }
+      - name: G154 restore literal exact qualified main compiled Go cache (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g154-base-go-cache-seed-first-use-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        id: g154base
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.G148_CACHE_PATH }}
+          key: rar-g148-win-go-db3730bf1158ebde65edf14ced6077aaf11ff6b3267f56377207d0432a3b3d2e
+      - name: G154 attest exact trusted main compiled cache before original Go (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g154-base-go-cache-seed-first-use-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          G154_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_CACHE_HIT: ${{ steps.g148cache.outputs['cache-hit'] }}
+          G154_BASE_HIT: ${{ steps.g154base.outputs['cache-hit'] }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g154_base_cache_dev.py --post
+          if ($LASTEXITCODE -ne 0) { throw 'G154_EXACT_MAIN_CACHE_CUSTODY_FAILED' }
       - name: Frozen native action-consequence development receipt
         if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
         shell: bash

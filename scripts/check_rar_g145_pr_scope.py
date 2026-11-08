@@ -47,6 +47,17 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g148_go_cache.py",
         },
     ),
+    "engineering/rar-g154-base-go-cache-seed-first-use-20261108": (
+        "b26aaf6b656e3cb2793445d94b689ea96f306645",
+        {
+            "docs/FORGE-G154-BASE-GO-CACHE-FIRST-USE.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g154_base_cache_dev.py",
+            "nativediscovery/g154_compiler_cache_dev_test.go",
+        },
+    ),
 }
 
 
