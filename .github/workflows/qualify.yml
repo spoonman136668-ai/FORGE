@@ -210,7 +210,66 @@ jobs:
           path: ${{ runner.temp }}/f139-discovery-public.json
           if-no-files-found: error
 
-  windows:
+  windows_f139:
+    # Exact-source original Python F139 tests; separate hosted runner from Go.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 8
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: FORGE independence and standing isolation enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          python3 -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          python3 -B isolationguard/check.py
+          # Exercise the read-only FSA pagination/authority boundaries on both OSes.
+          python3 -B -m unittest discover -s scripts -p 'test_fsa_*py' -v
+          # Exercise real SQLite one-shot CAS semantics, including cross-lane races.
+          python3 -B -m unittest discover -s fsad1 -p 'test_*.py' -v
+      - name: Prepare frozen transport sources and run affected controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate=$(git rev-parse HEAD)
+          for source in 80ae30719bcd9f179da4aa4e8f14dc36fd15818e 556d61f795cab1a042d26b46bbc1087dd436f52d; do
+            if ! git cat-file -e "$source:f139/local_controller.py" 2>/dev/null; then
+              git fetch --no-tags --depth=1 https://github.com/spoonman136668-ai/FORGE.git "$source"
+            fi
+            git cat-file -e "$source:f139/local_controller.py"
+          done
+          test "$(git rev-parse HEAD)" = "$candidate"
+          test "$(git rev-parse --is-shallow-repository)" = true
+          python3 -B -m unittest discover -s f139 -p 'test_github_command_transport.py' -v
+      - name: F139 Python controller and native-custody regression
+        shell: bash
+        env:
+          FORGE_PROFILE_BRANCH: ${{ github.head_ref }}
+          FORGE_PROFILE_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-qualification-profile-20261106' ]; then
+            python3 -B f139/check_test_discovery_inventory.py --profile-current --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
+          elif [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-profile-resource-diagnostics-20261107' ]; then
+            PYTHONPATH=. python3 -B scripts/check_profile_resources.py
+            python3 -B f139/check_test_discovery_inventory.py --profile-current --resource-diagnostics --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
+          elif [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-sqlite-phase-diagnostics-20261107' ]; then
+            PYTHONPATH=. python3 -B scripts/check_sqlite_phases.py
+            PYTHONPATH=. python3 -B f139/check_sqlite_fixture_phases.py --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-sqlite-phases.json"
+            python3 -B f139/check_test_discovery_inventory.py --profile-current --resource-diagnostics --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
+          else
+            python3 -B -m unittest discover -s f139 -p 'test_*.py'
+          fi
+
+  windows_native:
     runs-on: windows-latest
     timeout-minutes: 40
     env:
@@ -268,25 +327,6 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           node --test d1retention/f73_protected_main_oidc.test.mjs
-      - name: F139 Python controller and native-custody regression
-        shell: bash
-        env:
-          FORGE_PROFILE_BRANCH: ${{ github.head_ref }}
-          FORGE_PROFILE_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          if [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-qualification-profile-20261106' ]; then
-            python3 -B f139/check_test_discovery_inventory.py --profile-current --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
-          elif [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-profile-resource-diagnostics-20261107' ]; then
-            PYTHONPATH=. python3 -B scripts/check_profile_resources.py
-            python3 -B f139/check_test_discovery_inventory.py --profile-current --resource-diagnostics --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
-          elif [ "$FORGE_PROFILE_BRANCH" = 'engineering/f139-sqlite-phase-diagnostics-20261107' ]; then
-            PYTHONPATH=. python3 -B scripts/check_sqlite_phases.py
-            PYTHONPATH=. python3 -B f139/check_sqlite_fixture_phases.py --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-sqlite-phases.json"
-            python3 -B f139/check_test_discovery_inventory.py --profile-current --resource-diagnostics --expected-source "$FORGE_PROFILE_SOURCE" --output "$RUNNER_TEMP/f139-discovery-public.json"
-          else
-            python3 -B -m unittest discover -s f139 -p 'test_*.py'
-          fi
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -410,3 +450,25 @@ jobs:
           name: f139-discovery-public-${{ runner.os }}
           path: ${{ runner.temp }}/f139-discovery-public.json
           if-no-files-found: error
+
+  windows:
+    # GitHub ruleset #25031517 still requires 'windows'; AND both real lanes.
+    if: ${{ always() }}
+    needs: [windows_f139, windows_native]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Original F139 and native Windows qualification must BOTH succeed
+        shell: bash
+        env:
+          F139_RESULT: ${{ needs.windows_f139.result }}
+          NATIVE_RESULT: ${{ needs.windows_native.result }}
+          EXACT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$F139_RESULT" = 'success'
+          test "$NATIVE_RESULT" = 'success'
+          test -n "$EXACT_HEAD"
+          echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
