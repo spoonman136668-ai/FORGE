@@ -226,8 +226,7 @@ func f6BuildArm(arm F5ArmResult,parent F5Report)(F6ArmResult,error){
  out.SelectedDevChangedWorldAccuracyPct=chosen.DevChangedWorldAccuracyPct
  out.GainOverF5PP=chosen.DevChangedWorldAccuracyPct-arm.SelectedAccuracyPct
  out.GainOverStrongestControlPP=chosen.DevChangedWorldAccuracyPct-arm.StrongestControlAccuracyPct
- if out.GainOverStrongestControlPP<=0{out.DevelopmentClassification="F6_DEV_NO_GO"}
- else{out.DevelopmentClassification="F6_DEV_DIAGNOSTIC_AHEAD_UNVERIFIED"}
+ if out.GainOverStrongestControlPP<=0{out.DevelopmentClassification="F6_DEV_NO_GO"} else {out.DevelopmentClassification="F6_DEV_DIAGNOSTIC_AHEAD_UNVERIFIED"}
  return out,nil
 }
 
