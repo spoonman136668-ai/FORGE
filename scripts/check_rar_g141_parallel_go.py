@@ -127,7 +127,7 @@ def g145_safe_generic_paths(changed: list[str]) -> bool:
             not isinstance(path, str)
             or not path
             or path.startswith("/")
-            or "\\\\" in path
+            or "\\" in path
             or any(part in ("", ".", "..") for part in path.split("/"))
             or any(ord(char) < 32 for char in path)
             or path.startswith(".github/workflows/")
@@ -150,7 +150,7 @@ def g145_negative_controls() -> None:
         ["../unsafe.go"],
         ["/unsafe.go"],
         ["safe//unsafe.go"],
-        ["safe\\\\unsafe.go"],
+        ["safe\\unsafe.go"],
     ]
     if not g145_safe_generic_paths(good) or any(
         g145_safe_generic_paths(paths) for paths in bad
