@@ -169,3 +169,86 @@ func TestF10NoOwnerAdmissionByTamperedOrRehashedDevelopmentEvidence(t *testing.T
   if err:=F10Validate(r);err==nil{t.Fatal("forged F10 source/authority/go claim accepted")}
  })}
 }
+
+// This fixed numerical witness was reconstructed independently from the
+// previously frozen F2 action-consequence generator, F3 readouts, F5 action
+// policy and F6 source grammar. It is NOT used to select an algorithm or
+// alter the F10 development criterion. It makes the exact observed NO_GO
+// reproducible under the ORIGINAL mandatory Go test suite, without a new
+// workflow, source owner, research runner or synthetic first use.
+func TestF10IndependentSixArmGoldenScorecard(t *testing.T){
+ report,err:=F10Development()
+ if err!=nil{t.Fatal(err)}
+ if err:=F10Validate(report);err!=nil{t.Fatal(err)}
+ type witness struct{
+  seed uint32
+  policy string
+  g1,g2 int
+  f3,tab,factor,native int
+  strongest int
+  deltaStrong,deltaPrevious int
+  g1Family,g2Family string
+ }
+ expected:=[]witness{
+  {17,"disagreement",40,48,48,48,48,48,48,0,8,"cue-mode-xor","cue-mode-xor"},
+  {17,"fixed",44,52,52,52,52,52,52,0,8,"constant","constant"},
+  {17,"random",46,42,46,46,42,42,46,-4,-4,"cue-parity","constant"},
+  {31,"disagreement",34,44,40,40,36,36,40,4,10,"cue-parity","cue-mode-xor"},
+  {31,"fixed",34,50,50,50,50,50,50,0,16,"cue-parity","cue-mode-xor"},
+  {31,"random",32,44,40,40,36,36,40,4,12,"constant","cue-mode-xor"},
+ }
+ if len(report.Arms)!=len(expected){t.Fatalf("missing or extra arms: %d",len(report.Arms))}
+ for i,w:=range expected{
+  arm:=report.Arms[i]
+  g1,g2:=arm.G1G2[0],arm.G1G2[1]
+  if arm.Seed!=w.seed||arm.Policy!=w.policy||
+   g1.SelectedCorrect!=w.g1||g2.SelectedCorrect!=w.g2||
+   g2.F3Correct!=w.f3||g2.TabularCorrect!=w.tab||
+   g2.FactorizedCorrect!=w.factor||g2.NativeCorrect!=w.native||
+   g2.StrongestMatchedCorrect!=w.strongest||
+   g2.StrongestMatchedName!="f3_prefix_selected"||
+   g2.ExtraCorrectOverStrongest!=w.deltaStrong||
+   g2.ExtraCorrectSincePrevious!=w.deltaPrevious||
+   g1.SelectedFamily!=w.g1Family||g2.SelectedFamily!=w.g2Family{
+   t.Fatalf("F10_INDEPENDENT_GOLDEN_SCORE_DRIFT index=%d seed=%d policy=%s "+
+    "actual G1=%d/64 G2=%d/64 F3=%d tab=%d factor=%d native=%d "+
+    "best=%s:%d deltaStrong=%+d deltaG1=%+d family=%s->%s "+
+    "expected=%+v",
+    i,arm.Seed,arm.Policy,g1.SelectedCorrect,g2.SelectedCorrect,
+    g2.F3Correct,g2.TabularCorrect,g2.FactorizedCorrect,g2.NativeCorrect,
+    g2.StrongestMatchedName,g2.StrongestMatchedCorrect,
+    g2.ExtraCorrectOverStrongest,g2.ExtraCorrectSincePrevious,
+    g1.SelectedFamily,g2.SelectedFamily,w)
+  }
+  t.Logf("F10_INDEPENDENT_GOLDEN_PASS seed=%d policy=%s G1=%d/64 G2=%d/64 "+
+   "F3=%d/64 tab=%d/64 factor=%d/64 native=%d/64 "+
+   "strongest=%d/64 deltaStrong=%+d/64 deltaG1=%+d/64",
+   arm.Seed,arm.Policy,g1.SelectedCorrect,g2.SelectedCorrect,
+   g2.F3Correct,g2.TabularCorrect,g2.FactorizedCorrect,
+   g2.NativeCorrect,g2.StrongestMatchedCorrect,
+   g2.ExtraCorrectOverStrongest,g2.ExtraCorrectSincePrevious)
+ }
+ if report.Classification!=F10ReviewNO_GO||
+  report.G2PositiveVersusStrongestArms!=2||
+  report.G2PositiveSinceG1Arms!=5||
+  report.G2ThresholdPassingArms!=2||
+  report.G2ChangedSourceArms!=4||
+  report.TotalG2AdditionalCorrectOverStrongest!=4||
+  report.WorstG2AdditionalCorrectOverStrongest!= -4||
+  report.TotalG2AdditionalCorrectOverG1!=50||
+  report.SourceCandidateRecordsRetained!=48||
+  report.OriginalWorldRetentionPassingArms!=6||
+  report.ScientificAccepted||report.OwnerEligible||
+  report.DispatchAuthorized||report.ExperimentIssued{
+  t.Fatalf("F10_RECONSTRUCTED_NO_GO_AND_OWNER_FENCE_MISMATCH class=%s strongPositive=%d "+
+   "g1Positive=%d threshold=%d sourceChanges=%d sumStrong=%d worstStrong=%d "+
+   "sumNew=%d retained=%d originalRetained=%d",
+   report.Classification,report.G2PositiveVersusStrongestArms,
+   report.G2PositiveSinceG1Arms,report.G2ThresholdPassingArms,
+   report.G2ChangedSourceArms,report.TotalG2AdditionalCorrectOverStrongest,
+   report.WorstG2AdditionalCorrectOverStrongest,
+   report.TotalG2AdditionalCorrectOverG1,
+   report.SourceCandidateRecordsRetained,report.OriginalWorldRetentionPassingArms)
+ }
+ t.Log("F10_INDEPENDENT_GOLDEN_CLASSIFICATION=F10_DEV_NO_GO_AGAINST_STRONGEST_CONTROL")
+}
