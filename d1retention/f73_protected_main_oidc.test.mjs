@@ -194,8 +194,8 @@ test("failed trust predicates remain denied with exact nonsecret last phase",asy
   {phase:"ISSUER_DISCOVERY",mutate:f=>{
    f.endpoints[ISS+"/.well-known/openid-configuration"].jwks_uri="https://hostile.example/jwks";
   }},
-  {phase:"JWKS_FETCH",mutate:f=>{f.endpoints[ISS+"/.well-known/jwks"].keys=[];}},
-  {phase:"JWT_VERIFICATION",mutate:f=>{f.endpoints[f.actionURL].value="invalid.jwt";}},
+  {phase:"JWKS_FETCH",mutate:f=>{delete f.endpoints[ISS+"/.well-known/jwks"];}},
+  {phase:"JWT_VERIFICATION",mutate:f=>{f.endpoints[f.actionURL].value=f.jwt({sha:"b".repeat(40)});}},
   {phase:"REPOSITORY_READ",mutate:f=>{f.endpoints["https://api.github.com/repos/"+REPO].id=3;}},
   {phase:"RUN_READ",mutate:f=>{
    f.endpoints["https://api.github.com/repos/"+REPO+"/actions/runs/"+f.pins.run_id].run_attempt=2;
