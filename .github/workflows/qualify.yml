@@ -366,6 +366,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: G133 exact-source real full F139 A/B/B/A with Windows Job Object memory (DEV)
+        if: github.head_ref == 'engineering/rar-g133-exact-byte-ast-cache-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          FORGE_G133_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g133_f139_suite_abba.py
+          if ($LASTEXITCODE -ne 0) { throw 'G133_ABBA_ORIGINAL_F139_REGRESSION_INVALID' }
+      - name: Retain G133 exact-head full F139 A/B/B/A performance and memory receipt
+        if: ${{ always() && github.head_ref == 'engineering/rar-g133-exact-byte-ast-cache-20261108' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g133-full-f139-suite-abba
+          path: ${{ runner.temp }}/rar-g133-f139-suite-abba.json
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4

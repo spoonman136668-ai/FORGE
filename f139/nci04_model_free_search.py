@@ -13,6 +13,7 @@ import ast
 import base64
 import json
 from pathlib import Path
+from functools import lru_cache
 
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_model_owner_bridge import owner_request
@@ -59,14 +60,32 @@ OPERATORS = (
 )
 
 
-def normalized(source: bytes) -> str:
-    """Reject whitespace/comment replays as well as identical byte hashes."""
+def _normalized_uncached(source: bytes) -> str:
+    """Original complete parse and AST-digest semantics, including failures."""
     try:
         tree = ast.parse(source.decode("utf-8", "strict"))
     except (SyntaxError, UnicodeError) as exc:
         # Candidate validation must fail closed without killing the owner loop.
         raise ValueError("F139_MODEL_FREE_SEARCH_SOURCE_NOT_PARSEABLE") from exc
     return digest(ast.dump(tree, include_attributes=False).encode("utf-8"))
+
+
+@lru_cache(maxsize=64)
+def _normalized_exact_bytes(source: bytes) -> str:
+    # Only successful immutable source-byte identities are retained in-process.
+    return _normalized_uncached(source)
+
+
+def normalized(source: bytes) -> str:
+    """Reject syntax and semantic replays; reuse only exact immutable source bytes.
+
+    Bounded to 64 valid source entries of at most 256 KiB each. Large or
+    mutable inputs preserve their original uncached validation behavior.
+    Neither authenticated history nor negative outcomes are cached.
+    """
+    if type(source) is bytes and len(source) <= 256_000:
+        return _normalized_exact_bytes(source)
+    return _normalized_uncached(source)
 
 
 def candidates(before: bytes):
