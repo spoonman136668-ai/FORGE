@@ -1,16 +1,13 @@
 package nativediscovery
 
 import (
- "context"
  "encoding/json"
- "fmt"
- "os"
- "os/exec"
- "path/filepath"
+ "go/ast"
+ "go/parser"
+ "go/token"
+ "go/types"
  "reflect"
- "strings"
  "testing"
- "time"
 )
 
 func f7VerifyArchive(t *testing.T,report F7Report,parent F5Report){
@@ -210,47 +207,19 @@ func TestF7RejectsForgedArchiveScienceClaimsAndLostCandidates(t *testing.T){
  })}
 }
 
-// Actual generated source is compiled AND run in disposable, offline packages.
-// No arbitrary source: each byte and SHA must match the approved F6 grammar.
-// This tests the **actual generated Go implementation**, not only f6Repair.
-func TestF7RealGeneratedGoProgramsCompileAndMatchTypedReadout(t *testing.T){
+// The original FORGE guard forbids new subprocess sites, even in Go tests.
+// Type-check each real generated Go program under the compiler's front end,
+// while the actual typed rule implementation is built and tested by the
+// repository's existing full Go suite. No executable generated-source process
+// is launched here; that requires a separately authorized existing runner.
+func TestF7GeneratedGoProgramsSourceTypecheckWithOriginalGrammar(t *testing.T){
  report,err:=F7Development()
  if err!=nil{t.Fatal(err)}
  parent,err:=F5Development()
  if err!=nil{t.Fatal(err)}
- root:=t.TempDir()
  seen:=map[string]bool{}
- packages:=0
- for i,arm:=range report.Arms{
-  source:=parent.Arms[i]
-  for gIndex,g:=range arm.Generations{
-   count:=F7FirstProbeCount
-   if gIndex==1{count=F5ProbeBudget}
-   rows,err:=f7ObservedTransitions(source.Probes[:count])
-   if err!=nil{t.Fatal(err)}
-   for _,candidate:=range g.Candidates{
-    canonical,err:=f6Source(candidate.Family,candidate.Phase)
-    if err!=nil||canonical!=candidate.GeneratedGoSource||
-     candidate.SourceSHA256!=f3Hash([]byte(canonical)){t.Fatal("unknown generated program")}
-    if seen[candidate.SourceSHA256]{continue}
-    seen[candidate.SourceSHA256]=true
-    model:=&f6Repair{Family:candidate.Family,Phase:candidate.Phase}
-    if err:=f2teach([]f2Observer{model},f2training(source.Seed));err!=nil{t.Fatal(err)}
-    if err:=f2teach([]f2Observer{model},rows);err!=nil{t.Fatal(err)}
-    var want [2][4][2]int
-    for reg:=0;reg<2;reg++{for cue:=0;cue<4;cue++{for mode:=0;mode<2;mode++{
-     want[reg][cue][mode]=model.Predict(f2Context{Regime:reg,Cue:cue,Mode:mode})
-    }}}
-    countsJSON,err:=json.Marshal(model.Counts)
-    if err!=nil{t.Fatal(err)}
-    wantJSON,err:=json.Marshal(want)
-    if err!=nil{t.Fatal(err)}
-    dir:=filepath.Join(root,fmt.Sprintf("candidate%02d",packages))
-    if err:=os.MkdirAll(dir,0700);err!=nil{t.Fatal(err)}
-    if err:=os.WriteFile(filepath.Join(dir,"candidate.go"),[]byte(canonical),0600);err!=nil{t.Fatal(err)}
-    // Mirrors the original f2 major-vote rule and f3 observation counts
-    // exactly; builds each generated type without importing this package.
-    support:=`package nativediscovery
+ tested:=0
+ support:=`package nativediscovery
 type f2Context struct{Regime,Cue,Mode int}
 type f2Counts [2][4][2][2]int
 type f3Core struct{Counts f2Counts}
@@ -260,47 +229,52 @@ func f2major(v [2]int)(int,bool){
  return 1,true
 }
 `
-    if err:=os.WriteFile(filepath.Join(dir,"support.go"),[]byte(support),0600);err!=nil{t.Fatal(err)}
-    fixture:=fmt.Sprintf(`package nativediscovery
-import("encoding/json";"testing")
-func TestActualCompiledGeneratedPrediction(t *testing.T){
- var counts f2Counts
- var expected [2][4][2]int
- if err:=json.Unmarshal([]byte(%q),&counts);err!=nil{t.Fatal(err)}
- if err:=json.Unmarshal([]byte(%q),&expected);err!=nil{t.Fatal(err)}
- m:=&f6RepairCandidate{f3Core{Counts:counts}}
- for r:=0;r<2;r++{for c:=0;c<4;c++{for mode:=0;mode<2;mode++{
-  ctx:=f2Context{Regime:r,Cue:c,Mode:mode}
-  if got:=m.Predict(ctx);got!=expected[r][c][mode]{
-   t.Fatalf("ACTUAL_COMPILED_SOURCE_DIVERGES r=%%d c=%%d mode=%%d got=%%d want=%%d",r,c,mode,got,expected[r][c][mode])
-  }
- }}}
-}
-`,string(countsJSON),string(wantJSON))
-    if err:=os.WriteFile(filepath.Join(dir,"candidate_test.go"),[]byte(fixture),0600);err!=nil{t.Fatal(err)}
-    packages++
+ for i,arm:=range report.Arms{
+  f5:=parent.Arms[i]
+  for gIndex,g:=range arm.Generations{
+   count:=F7FirstProbeCount
+   if gIndex==1{count=F5ProbeBudget}
+   observed,err:=f7ObservedTransitions(f5.Probes[:count])
+   if err!=nil{t.Fatal(err)}
+   for _,candidate:=range g.Candidates{
+    canonical,err:=f6Source(candidate.Family,candidate.Phase)
+    if err!=nil||canonical!=candidate.GeneratedGoSource||
+     candidate.SourceSHA256!=f3Hash([]byte(canonical)){
+     t.Fatal("forged or unknown source outside frozen F6 grammar")
+    }
+    if seen[candidate.SourceSHA256]{continue}
+    seen[candidate.SourceSHA256]=true
+    fs:=token.NewFileSet()
+    sup,err:=parser.ParseFile(fs,"support.go",support,parser.AllErrors)
+    if err!=nil{t.Fatal(err)}
+    generated,err:=parser.ParseFile(fs,"generated.go",canonical,parser.AllErrors)
+    if err!=nil{t.Fatal(err)}
+    // A parser alone misses undefined references/types. The Go compiler's
+    // semantic checker runs on the ACTUAL emitted source bytes.
+    files:=[]*ast.File{sup,generated}
+    if _,err:=(types.Config{}).Check("nativediscovery",fs,files,nil);err!=nil{
+     t.Fatalf("generated Go source failed semantic type check: %v",err)
+    }
+    model:=&f6Repair{Family:candidate.Family,Phase:candidate.Phase}
+    if err:=f2teach([]f2Observer{model},f2training(f5.Seed));err!=nil{t.Fatal(err)}
+    if err:=f2teach([]f2Observer{model},observed);err!=nil{t.Fatal(err)}
+    for regime:=0;regime<2;regime++{for cue:=0;cue<4;cue++{for mode:=0;mode<2;mode++{
+     ctx:=f2Context{Regime:regime,Cue:cue,Mode:mode}
+     prediction:=model.Predict(ctx)
+     if prediction!=1&&prediction!= -1{t.Fatal("bad generated typed-model result")}
+     if value,seen:=f2major(model.Counts[regime][cue][mode]);seen{
+      if prediction!=value{t.Fatal("direct observation not respected by structural source")}
+     }else{
+      pattern,err:=f6Pattern(candidate.Family,cue,mode)
+      if err!=nil||prediction!=pattern*candidate.Phase{
+       t.Fatal("typed interpretation disagrees with exact source fallback")
+      }
+     }
+    }}}
+    tested++
    }
   }
  }
- if packages<2||packages>F6Families*2{
-  t.Fatalf("unexpected actual source variants, compiled=%d",packages)
- }
- ctx,cancel:=context.WithTimeout(context.Background(),110*time.Second)
- defer cancel()
- cmd:=exec.CommandContext(ctx,"go","test","-count=1","./...")
- cmd.Dir=root
- cmd.Env=append(os.Environ(),
-  "GO111MODULE=off","GOPROXY=off","GOSUMDB=off","GOWORK=off",
-  "GOFLAGS=-p=1","GOMAXPROCS=1","GOTOOLCHAIN=local")
- output,err:=cmd.CombinedOutput()
- if ctx.Err()!=nil{t.Fatalf("offline actual source compile timeout: %v",ctx.Err())}
- if err!=nil{t.Fatalf("actual generated source Go compile/execute failed: %v\n%s",err,string(output))}
- lines:=strings.Split(strings.TrimSpace(string(output)),"\n")
- if len(lines)!=packages{t.Fatalf("not every actual Go source package compiled: got=%d want=%d\n%s",len(lines),packages,string(output))}
- for _,line:=range lines{
-  if !strings.HasPrefix(line,"ok")||!strings.Contains(line,"candidate"){
-   t.Fatalf("generated source failed compilation/behavior or test count: %s",line)
-  }
- }
- t.Logf("F7_OFFLINE_COMPILED_SOURCE_VARIANTS_PASS=%d; network=OFF; original_owner=INACTIVE",packages)
+ if tested<2||tested>F6Families*2{t.Fatalf("unexpected source variants: %d",tested)}
+ t.Logf("F7_ACTUAL_GENERATED_GO_PROGRAMS_TYPECHECK_PASS=%d; subprocess=NONE; no runtime executable asserted",tested)
 }
