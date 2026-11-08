@@ -1,0 +1,202 @@
+name: K Terminal PR78 bounded authentic read-only Coinbase cold history
+on:
+  push:
+    branches: [qualification/kterminal-pr78-owner-install-20261108]
+    paths: [.github/workflows/forge-kterminal-pr78-scoped-getonly-cold-history-20261108.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr78-bounded-getonly-23b3d6a7
+  cancel-in-progress: false
+jobs:
+  getonly-history:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      KTERM_SHA: 23b3d6a79421cf5d491aa1fd4f1605c3555ed254
+      KTERM_TREE: 3672d7e8e35bf6412c2871ceb057ddbf58dc4b6c
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOENV: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: -p=1
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Prove existing runner, inactive terminal, and exact original config location
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-pr78-owner-install-20261108' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows'){throw 'KTERM_GETONLY_OWNER_RUNNER_IDENTITY_REFUSED'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
+              'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_GETONLY_AMBIENT_BROKER_ENV_REFUSED'}
+          }
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_GETONLY_EXISTING_K_TERMINAL_SESSION_SKIP'
+          }
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          if($profilePath -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
+             $profilePath -match '(?i)\\(public|default|systemprofile)$'){
+            throw 'KTERM_GETONLY_OWNER_PROFILE_REFUSED'
+          }
+          # No workstation search, no KTRADE config or .env access.
+          $config=Join-Path $profilePath 'Downloads\Personal.v1.1.5.-.BTC\Personal\config.json'
+          if(-not(Test-Path -LiteralPath $config -PathType Leaf)){
+            throw 'KTERM_GETONLY_KTERMINAL_ORIGINAL_CONFIG_UNAVAILABLE'
+          }
+          if((Get-Item -LiteralPath $config -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){
+            throw 'KTERM_GETONLY_CONFIG_REPARSE_POINT_REFUSED'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-getonly-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_GETONLY_NONFRESH_SCRATCH_REFUSED'}
+          [void][IO.Directory]::CreateDirectory($root)
+          Add-Content -Path $env:GITHUB_ENV -Value ('KTERM_ORIGINAL_CONFIG_FILE='+$config)
+          Write-Host 'KTERM_GETONLY_ORIGINAL_KTERMINAL_CONFIG_PRESENT=PASS;SECRETS_NOT_COPIED=TRUE;LIVE_ORDERS=0'
+      - name: Stage only exact original K Terminal source via pre-existing private access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-getonly-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          [void][IO.Directory]::CreateDirectory($stage)
+          & git -C $stage init -q *> (Join-Path $root 'private-git-init.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_GIT_INIT_FAILED'}
+          $source='https://github.com/Kboomllc/K-Terminal.git'
+          $cached=Join-Path $env:PUBLIC 'KTerminal'
+          if(Test-Path -LiteralPath $cached -PathType Container){
+            $tree=''
+            try{$tree=(& git -C $cached rev-parse ($env:KTERM_SHA+'^{tree}') 2>$null|Out-String).Trim()}catch{$tree=''}
+            if($LASTEXITCODE -eq 0 -and $tree -ceq $env:KTERM_TREE){$source=$cached}
+          }
+          & git -C $stage fetch -q --no-tags --depth=1 $source $env:KTERM_SHA *> (Join-Path $root 'private-git-fetch.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_PRIVATE_SOURCE_ACCESS_UNAVAILABLE'}
+          & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'private-git-checkout.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_SOURCE_CHECKOUT_FAILED'}
+          $head=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          if($head -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
+             @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_GETONLY_EXACT_SOURCE_DRIFT'}
+          Write-Host 'KTERM_GETONLY_EXACT_SOURCE=PASS;APPLICATION_NOT_LAUNCHED=TRUE'
+      - name: Set up same pinned Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Execute one bounded original-source GET-only cold-history probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-getonly-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_GETONLY_GO_VERSION_DRIFT'}
+          $test=Join-Path $stage 'pkg\kterminal_owner_bounded_getonly_test.go'
+          if(Test-Path -LiteralPath $test){throw 'KTERM_GETONLY_TEST_FILE_COLLISION'}
+          $code=@'
+          package pkg
+
+          import (
+            "context"
+            "errors"
+            "fmt"
+            "net/http"
+            "os"
+            "strings"
+            "sync/atomic"
+            "testing"
+            "time"
+          )
+
+          type ktermOwnerGETOnlyBudget struct { requests atomic.Int64 }
+          var ktermOwnerBudgetReached = errors.New("bounded Coinbase GET budget reached")
+          func (b *ktermOwnerGETOnlyBudget) RoundTrip(r *http.Request) (*http.Response,error) {
+            if r.Method != "GET" || r.URL.Scheme != "https" ||
+               !strings.EqualFold(r.URL.Hostname(),"api.coinbase.com") ||
+               !strings.HasPrefix(r.URL.EscapedPath(),"/api/v3/brokerage/") {
+              return nil,fmt.Errorf("KTERM_GETONLY_NONGET_OR_OUT_OF_SCOPE_REFUSED")
+            }
+            if b.requests.Add(1)>64 {return nil,ktermOwnerBudgetReached}
+            return http.DefaultTransport.RoundTrip(r)
+          }
+          func TestKTerminalOwnerBoundedAuthenticatedColdGETOnly(t *testing.T) {
+            if os.Getenv("K_TERMINAL_EXECUTION_MODE")!="PAPER" {t.Fatal("KTERM_GETONLY_PROCESS_NOT_DISARMED")}
+            configPath:=os.Getenv("KTERM_ORIGINAL_CONFIG_FILE")
+            if configPath==""{t.Fatal("KTERM_GETONLY_CONFIG_PATH_MISSING")}
+            raw,err:=os.ReadFile(configPath)
+            if err!=nil{t.Fatal("KTERM_GETONLY_ORIGINAL_CONFIG_READ_FAILED")}
+            cfg,_,err:=parseNativeDropInConfig(raw)
+            if err!=nil || cfg==nil{t.Fatal("KTERM_GETONLY_ORIGINAL_CONFIG_VALIDATION_FAILED")}
+            if cfg.SyntheticTP.ProductID!="BTC-USDC" || cfg.AccountID==""{
+              t.Fatal("KTERM_GETONLY_ORIGINAL_CONFIG_PRODUCT_SCOPE_REFUSED")
+            }
+            ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second)
+            defer cancel()
+            budget:=&ktermOwnerGETOnlyBudget{}
+            auth:=NewReadOnlyAuthenticator(cfg.APIKey.KeyName,cfg.APIKey.KeySecret)
+            auth.readTransport=budget
+            auth.readContext=ctx
+            started:=time.Now()
+            proof,readErr:=readCoinbaseColdHistoryProof(NewBalanceChecker(auth,cfg.AccountID),
+              cfg.SyntheticTP.ProductID,cfg.ClientID,cfg.TranchePlanID)
+            requests:=budget.requests.Load()
+            if requests>65{t.Fatal("KTERM_GETONLY_REQUEST_CAP_FAILED")}
+            if proof.BotOwnedLotsVerified || proof.ExecutionAuthorized {
+              t.Fatal("KTERM_GETONLY_IMPROPER_EXECUTION_OR_LOT_AUTHORITY")
+            }
+            if proof.FullHistoryVerified && readErr==nil {
+              fmt.Printf("KTERM_GETONLY_COLD_HISTORY=SOURCE_VERIFIED;GET_ATTEMPTS=%d;DURATION_MS=%d;TX_COUNT=%d;CYCLES=%d;ACQUISITIONS=%d;AMBIGUOUS_OPEN=%d;OPEN_SELL_COVERAGE=%t;TP_PATTERN_CANDIDATES=%d;TP_OWNERSHIP=UNVERIFIED;LIVE_ORDERS=0\n",
+                requests,time.Since(started).Milliseconds(),proof.TransactionCount,proof.InventoryCycles,
+                proof.AcquisitionGroups,proof.AmbiguousOpenGroups,proof.OpenSellOrderCoverageVerified,proof.TPPatternCandidates)
+              return
+            }
+            state:="INCOMPLETE_OR_UNVERIFIED"
+            if errors.Is(readErr,ktermOwnerBudgetReached) || requests>=64 {state="INCOMPLETE_GET_CAP_REACHED"}
+            if errors.Is(ctx.Err(),context.DeadlineExceeded){state="INCOMPLETE_TIME_CAP_REACHED"}
+            fmt.Printf("KTERM_GETONLY_COLD_HISTORY=%s;GET_ATTEMPTS=%d;DURATION_MS=%d;SOURCE_VERIFIED=FALSE;TP_OWNERSHIP=UNVERIFIED;LIVE_ORDERS=0\n",
+              state,requests,time.Since(started).Milliseconds())
+            if requests==0{t.Fatal("KTERM_GETONLY_NO_AUTHENTICATED_GET_ATTEMPT")}
+          }
+'@
+          [IO.File]::WriteAllText($test,$code,[Text.UTF8Encoding]::new($false))
+          $env:GOCACHE=Join-Path $root 'go-cache'
+          $env:GOMODCACHE=Join-Path $root 'go-modules'
+          Push-Location $stage
+          try {
+            & go test -p 1 -count=1 -timeout 4m -v '-run=^TestKTerminalOwnerBoundedAuthenticatedColdGETOnly$' ./pkg 2>&1 |
+              ForEach-Object {
+                $line=[string]$_
+                # Hide all Go runtime output other than fixed classification tokens.
+                if($line -match 'KTERM_GETONLY_COLD_HISTORY=' -or $line -match 'KTERM_GETONLY_NO_AUTHENTICATED_GET_ATTEMPT' -or
+                   $line -match '^ok\s' -or $line -match '^FAIL(\s|$)'){Write-Host $line}
+              }
+            if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_ORIGINAL_SOURCE_DIAGNOSTIC_FAILED'}
+          } finally {Pop-Location}
+          Write-Host 'KTERM_GETONLY_BOUNDED_EXECUTION_COMPLETED=PASS;PUBLISHED_PRIVATE_DATA=0;LIVE_ORDERS=0'
+      - name: Clean only run-owned source, keep original K Terminal state unchanged
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr78-getonly-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){
+            $resolved=[IO.Path]::GetFullPath($root)
+            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+            if(-not $resolved.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
+               [IO.Path]::GetFileName($resolved) -cne ('kterm-pr78-getonly-'+$env:GITHUB_RUN_ID)){
+              throw 'KTERM_GETONLY_CLEANUP_SCOPE_REFUSED'
+            }
+            Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_GETONLY_PRIVATE_SCRATCH_CLEAN=PASS;ORIGINAL_KTERMINAL_STATE_UNMODIFIED=TRUE'
