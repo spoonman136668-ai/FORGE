@@ -21,3 +21,9 @@ Use a strong deterministic key over: every tracked Git index entry's mode/path/b
 
 ## Separation
 ENGINEERING caches compiler artifacts only; original complete regression mandatory. SCIENTIFIC none (no causal-learning, RSI or performance science gain). DEPLOYMENT DEV only on G147 PR branch, no FORGE owner/first-use/runtime or research lane change.
+
+## Preregistered seed-cohort observation / single warm-cohort trigger
+- Exact cold seed PR head: `4d53b71d92e9269fb1cfc82405b790996999481f`, Git tree `2bc89d9f9405e42da18719f7486f6f4fd74ff19b`.
+- First and only seed run: [#42523092619](https://github.com/spoonman136668-ai/FORGE/actions/runs/42523092619), attempt 1, eight original Linux/Windows jobs PASS, complete `windows_native` G144 PASS, G147 exact source/host identity PASS, **cache MISS** verified, original build cache **152,699,050 bytes** saved successfully. Whole run `2026-11-08T21:01:53Z` to `21:04:17Z` = **144s**; this is seed overhead, not warm gain.
+- Compiled input graph SHA256: `63292908ee02da9692d7f4e2cc8ddf6409fb3cc87a02e6c25fe5d26ac58aa307`, exact cache key `rar-g147-windows-go-3cb020d51962f2acd46f167704130f0d1c5e29b8e10a573c47c3bb3bc3c07adc`.
+- This is the sole planned DOC-only cohort transition. Every original source, Go compilation/test input, workflow, admission, cache-key algorithm, resource cap and acceptance threshold remains byte-identical. The next PR CI must reuse the *same exact key* and meet all previously frozen warm-cohort gates or be marked NO_GO without rerun.
