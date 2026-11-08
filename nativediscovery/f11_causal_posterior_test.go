@@ -220,3 +220,56 @@ func TestF11RejectsForgedOutcomeHistoryBudgetAndAuthority(t *testing.T){
   if err:=F11Validate(v);err==nil{t.Fatal("forged self-hashed scientific/owner/gain evidence passed")}
  })}
 }
+
+// Independent frozen numerical witness: reconstructed separately from the F2
+// procedural world and F3/F5 equations, NOT used to tune F11 selection.
+// Pins all negative outcomes to the real Go mechanism on both CI platforms.
+func TestF11IndependentFrozenGoldenNO_GO(t *testing.T){
+ x,err:=F11Development()
+ if err!=nil||F11Validate(x)!=nil{t.Fatal("F11 source model invalid",err)}
+ type witness struct{
+  seed uint32;policy string
+  g1,g2 int
+  f3,tab,factor,native,strongest,advantage int
+  positions [6]int
+ }
+ want:=[]witness{
+  {17,"uncertainty",40,44,44,44,36,44,44,0,[6]int{0,1,2,4,6,3}},
+  {17,"fixed",44,52,52,52,52,52,52,0,[6]int{0,2,4,6,1,5}},
+  {17,"random",44,46,46,46,42,42,46,0,[6]int{0,4,6,2,5,1}},
+  {31,"uncertainty",34,34,38,38,34,34,38,-4,[6]int{0,1,2,4,6,3}},
+  {31,"fixed",38,50,50,50,50,50,50,0,[6]int{0,2,4,6,1,5}},
+  {31,"random",32,40,40,40,42,36,42,-2,[6]int{1,4,3,0,5,2}},
+ }
+ if len(x.Arms)!=len(want){t.Fatal("missing/extra negative results")}
+ for i,w:=range want{
+  arm:=x.Arms[i];g1,g2:=arm.Rounds[0],arm.Rounds[1]
+  var positions [6]int
+  for j,p:=range arm.Probes{
+   if j>=len(positions){t.Fatal("unbounded observation budget")}
+   positions[j]=p.Cue*2+p.Mode
+  }
+  if arm.Seed!=w.seed||arm.Policy!=w.policy||
+   g1.PosteriorCorrect!=w.g1||g2.PosteriorCorrect!=w.g2||
+   g2.F3Correct!=w.f3||g2.TabularCorrect!=w.tab||
+   g2.FactorizedCorrect!=w.factor||g2.NativeCorrect!=w.native||
+   g2.StrongestMatchedCorrect!=w.strongest||
+   g2.AdvantageOverStrongest!=w.advantage||positions!=w.positions{
+   t.Fatalf("F11_GOLDEN_NUMERIC_DRIFT got=%+v g1=%+v g2=%+v positions=%v expected=%+v",
+    arm,g1,g2,positions,w)
+  }
+  t.Logf("F11_GOLDEN_TRAIN_DEV seed=%d policy=%s G1=%d/64 G2=%d/64 F3=%d tab=%d factor=%d native=%d strongest=%d delta=%+d/64",
+   w.seed,w.policy,w.g1,w.g2,w.f3,w.tab,w.factor,w.native,w.strongest,w.advantage)
+ }
+ if x.UncertaintyVersusStrongest!=[2]int{0,-4}||
+  x.UncertaintyVersusBestAblation!=[2]int{-8,-16}||
+  x.UncertaintyWinningSeeds!=0||x.Classification!=F11ReviewNO_GO||
+  x.TotalInterventions!=36||x.OriginalWorldRetainedArms!=6||
+  x.IndependentFirstUseConsumed||x.ScientificAccepted||
+  x.OwnerEligible||x.DispatchAuthorized||x.ExperimentIssued||
+  !x.F10NegativePreserved{
+  t.Fatalf("F11_GOLDEN_NO_GO_OR_SCIENCE_FENCE_BROKEN class=%s strong=%v ablations=%v",
+   x.Classification,x.UncertaintyVersusStrongest,x.UncertaintyVersusBestAblation)
+ }
+ t.Log("F11_FROZEN_CLASSIFICATION=F11_DEV_NO_GO; F10_NEGATIVE_PRESERVED=TRUE; SCIENTIFIC_PASS=FALSE; OWNER_ACTIVE=FALSE")
+}
