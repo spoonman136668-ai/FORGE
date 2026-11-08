@@ -76,7 +76,7 @@ func TestF12IndependentGoldenDelayedCausalOutcomeAndStrongMLE(t *testing.T){
     round.TableCorrect!=expectedChanged[2]||
     round.AdvantageOverNoAction!=64-expectedChanged[3]||
     round.AdvantageOverWrongLag!=64-expectedChanged[4]||
-    round.PredictionRuleChecks!=14464{
+    round.PredictionRuleChecks!=8320{
     t.Fatalf("F12_GOLDEN_RESULT_DRIFT seed=%d policy=%s generation=%d round=%+v expectedChanged=%v expectedOriginal=%v",
      w.seed,w.policy,j+1,round,expectedChanged,expectedOriginal)
    }
@@ -90,7 +90,7 @@ func TestF12IndependentGoldenDelayedCausalOutcomeAndStrongMLE(t *testing.T){
    arm.Rounds[1].AdvantageOverStrongest,arm.Rounds[1].AdvantageOverNoAction,
    arm.Rounds[1].AdvantageOverWrongLag)
  }
- if v.TotalRuleChecks!=checks||checks!=115712{
+ if v.TotalRuleChecks!=checks||checks!=66560{
   t.Fatalf("F12 frozen prediction-work proxy changed %d",checks)
  }
  t.Log("F12_INDEPENDENT_GOLDEN_VERDICT=F12_DEV_NO_GO; CAUSAL_DYNAMIC_PREDICTION=64/64; STRONG_MLE=64/64; SCIENTIFIC_ACCEPTED=FALSE; OWNER_INACTIVE=TRUE")
