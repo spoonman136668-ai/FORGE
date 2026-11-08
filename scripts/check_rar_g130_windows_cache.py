@@ -1,6 +1,6 @@
 """RAR-G130 source-bound Windows Go cached-build verification.
-All existing mandatory F139, Go vet/build and Linux race tests are unchanged.
-The only intervention is Go's build/package -p concurrency for go test.
+Original F139, mandatory Go vet/build, original Go suite, and Linux race tests stay unchanged.
+A separate branch-only job validates cross-runner restored build cache with unchanged -p=2.
 """
 from __future__ import annotations
 import argparse
