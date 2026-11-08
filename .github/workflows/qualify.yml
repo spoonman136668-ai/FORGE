@@ -268,6 +268,22 @@ jobs:
           else
             python3 -B -m unittest discover -s f139 -p 'test_*.py'
           fi
+      - name: G136 verify full F139 shard parity and Windows process-tree memory (DEV)
+        if: github.head_ref == 'engineering/rar-g136-safe-full-f139-shards-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          FORGE_G136_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g136_f139_shards.py
+          if ($LASTEXITCODE -ne 0) { throw 'G136_COMPLETE_F139_SHARD_PARITY_FAILED' }
+      - name: Retain G136 original 1450-case shard and Job Object evidence
+        if: ${{ always() && github.head_ref == 'engineering/rar-g136-safe-full-f139-shards-20261108' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g136-f139-shards
+          path: ${{ runner.temp }}/rar-g136-f139-shards.json
+          if-no-files-found: error
 
   windows_native:
     runs-on: windows-latest
