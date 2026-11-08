@@ -86,11 +86,13 @@ func AdvisePriorStress(f Frozen, pin string) (PriorStressReport, error) {
     stressed.Hypotheses[donor].PriorBP -= uint16(available)
     stressed.Hypotheses[recipient].PriorBP += uint16(available)
     projected := measure(stressed, candidate)
-    if projected.ExpectedInformationMicrobits < row.WorstInformationMicrobits ||
-     (projected.ExpectedInformationMicrobits == row.WorstInformationMicrobits &&
-      projected.PredictedValuePerComputeMicro < row.WorstValuePerComputeMicro) {
-     row.WorstInformationMicrobits = projected.ExpectedInformationMicrobits
+    // Information and total advisory value have different objectives:
+    // preserve their independent minima, not the score at the lowest MI.
+    if projected.PredictedValuePerComputeMicro < row.WorstValuePerComputeMicro {
      row.WorstValuePerComputeMicro = projected.PredictedValuePerComputeMicro
+    }
+    if projected.ExpectedInformationMicrobits < row.WorstInformationMicrobits {
+     row.WorstInformationMicrobits = projected.ExpectedInformationMicrobits
      row.WorstDonorHypothesis = donor
      row.WorstRecipientHypothesis = recipient
     }
