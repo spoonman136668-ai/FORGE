@@ -366,6 +366,93 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: G129 same-source Windows cold-warm Go compilation feasibility (DEV ONLY)
+        if: github.head_ref == 'engineering/rar-g129-cache-feasibility-abba-20261108'
+        shell: pwsh
+        env:
+          G129_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $candidate = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $candidate -ne $env:G129_SOURCE_SHA) { throw 'G129_SOURCE_SHA_MISMATCH' }
+          $tree = (git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'G129_TREE_READ_FAILED' }
+          $before = @(git status --porcelain)
+          if ($LASTEXITCODE -ne 0 -or $before.Count -ne 0) { throw 'G129_DIRTY_SOURCE' }
+          $goVersion = (go version).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'G129_GO_VERSION_FAILED' }
+          $goEnv = (go env GOOS GOARCH CGO_ENABLED GOEXPERIMENT GOTOOLCHAIN).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'G129_GO_ENV_FAILED' }
+          $packages = @(go list ./...)
+          if ($LASTEXITCODE -ne 0 -or $packages.Count -eq 0) { throw 'G129_PACKAGE_LIST_FAILED' }
+          $packageKey = ($packages -join "`n")
+          $sha256 = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($packageKey))
+          $packageDigest = [Convert]::ToHexString($sha256).ToLowerInvariant()
+          $a1cache = Join-Path $env:RUNNER_TEMP 'rar-g129-go-cache-a1'
+          $a2cache = Join-Path $env:RUNNER_TEMP 'rar-g129-go-cache-a2'
+          if ((Test-Path $a1cache) -or (Test-Path $a2cache)) { throw 'G129_CACHE_NOT_FRESH' }
+          $arms = @()
+          $failed = ''
+          $command = 'go test -count=1 -run ^$ ./...'
+          try {
+            foreach ($arm in @(@('A1',$a1cache),@('B1',$a1cache),@('B2',$a1cache),@('A2',$a2cache))) {
+              $label,$cache = $arm
+              $env:GOCACHE = $cache
+              $log = Join-Path $env:RUNNER_TEMP "rar-g129-$label.log"
+              $clock = [System.Diagnostics.Stopwatch]::StartNew()
+              & go test -count=1 -run '^$' ./... > $log 2>&1
+              $code = $LASTEXITCODE
+              $clock.Stop()
+              $summary = @(Get-Content $log | Where-Object { $_ -match '^(ok|\?)\s+[^\s]+' })
+              $arms += [ordered]@{
+                label = $label
+                cold = ($label -like 'A*')
+                seconds = [math]::Round($clock.Elapsed.TotalSeconds,3)
+                exit_code = $code
+                package_summary_count = $summary.Count
+                log_sha256 = (Get-FileHash $log -Algorithm SHA256).Hash.ToLowerInvariant()
+              }
+              Write-Host "G129_ARM=$label seconds=$($arms[-1].seconds) exit=$code packages=$($summary.Count)"
+              if ($code -ne 0 -or $summary.Count -ne $packages.Count) {
+                $failed = $label
+                Get-Content $log -Tail 30 | Write-Host
+                break
+              }
+            }
+          } finally {
+            $after = @(git status --porcelain)
+            $receipt = [ordered]@{
+              schema = 'forge.rar-g129.go-cache-feasibility-abba.v1'
+              candidate_sha = $candidate
+              candidate_tree = $tree
+              go_version = $goVersion
+              go_env = $goEnv
+              goflags = $env:GOFLAGS
+              gomaxprocs = $env:GOMAXPROCS
+              gomemlimit = $env:GOMEMLIMIT
+              runner_os = $env:RUNNER_OS
+              runner_arch = $env:RUNNER_ARCH
+              original_package_count = $packages.Count
+              original_packages_sha256 = $packageDigest
+              command = $command
+              arm_design = 'A1 cold; B1 warm; B2 warm; A2 fresh cold'
+              original_tests_reexecuted = $false
+              arms = $arms
+              dirty_after = ($LASTEXITCODE -ne 0 -or $after.Count -ne 0)
+              successful = ($failed -eq '' -and $arms.Count -eq 4 -and $after.Count -eq 0)
+            }
+            $receipt | ConvertTo-Json -Depth 7 | Set-Content -Encoding utf8 (Join-Path $env:RUNNER_TEMP 'rar-g129-go-cache-abba.json')
+          }
+          if ($failed -ne '') { throw "G129_ARM_FAILED:$failed" }
+          if ($after.Count -ne 0) { throw 'G129_SOURCE_DIRTY_AFTER' }
+      - name: Retain G129 same-source cache feasibility receipt
+        if: ${{ always() && github.head_ref == 'engineering/rar-g129-cache-feasibility-abba-20261108' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g129-windows-go-cache-abba
+          path: ${{ runner.temp }}/rar-g129-go-cache-abba.json
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
