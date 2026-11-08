@@ -233,3 +233,38 @@ func TestF6RejectsForgedFeedbackAndUnqualifiedPromotions(t *testing.T){
   if err:=F6ValidatePreview(changed);err==nil{t.Fatal("forged preview accepted")}
  })}
 }
+
+func TestF6InterventionStructureChangesSelectedMechanismFamily(t *testing.T){
+ parent,err:=F5Development()
+ if err!=nil{t.Fatal(err)}
+ raw:=parent.Arms[0].Probes
+ constant:=append([]F5Probe(nil),raw...)
+ cueRule:=append([]F5Probe(nil),raw...)
+ for i:=range constant{
+  // Construct two equal-budget hypothetical TRAIN feedback histories, NOT
+  // scored-world data; the source rule must respond to effect structure.
+  constant[i].ObservedEffect=1
+  if constant[i].Action==1{constant[i].ObservedEffect= -1}
+  cueRule[i].ObservedEffect=1
+  if cueRule[i].Cue%2==1{cueRule[i].ObservedEffect= -1}
+  if cueRule[i].Action==1{cueRule[i].ObservedEffect= -cueRule[i].ObservedEffect}
+ }
+ a,err:=f6Propose(constant)
+ if err!=nil{t.Fatal(err)}
+ z,err:=f6Propose(cueRule)
+ if err!=nil{t.Fatal(err)}
+ choose:=func(candidates []F6GeneratedCandidate)F6GeneratedCandidate{
+  best:=0
+  for i:=1;i<len(candidates);i++{
+   if candidates[i].TrainingCorrect>candidates[best].TrainingCorrect{best=i}
+  }
+  return candidates[best]
+ }
+ first,second:=choose(a),choose(z)
+ if first.Family!="constant"||second.Family!="cue-parity"||
+  first.TrainingCorrect!=F5ProbeBudget||second.TrainingCorrect!=F5ProbeBudget||
+  first.SourceSHA256==second.SourceSHA256||
+  first.GeneratedGoSource==second.GeneratedGoSource{
+  t.Fatalf("changed causal feedback failed to generate a changed structural hypothesis: first=%+v second=%+v",first,second)
+ }
+}
