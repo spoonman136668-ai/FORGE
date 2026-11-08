@@ -358,14 +358,75 @@ jobs:
           if-no-files-found: error
       - name: Native Windows source qualification
         shell: pwsh
+        env:
+          FORGE_GO_PROFILE_BRANCH: ${{ github.head_ref }}
+          FORGE_GO_PROFILE_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
-          go test -count=1 ./...
-          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
-          go vet ./...
-          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
-          go build ./...
-          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+          if ($env:FORGE_GO_PROFILE_BRANCH -eq 'engineering/rar-g128-windows-go-stage-profile-20261108') {
+            $PSNativeCommandUseErrorActionPreference = $false
+            $candidate = (git rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0 -or $candidate -ne $env:FORGE_GO_PROFILE_SOURCE) { throw 'G128_SOURCE_IDENTITY_FAILED' }
+            # An isolated, empty Go build cache makes the test stage cold without
+            # clearing or changing the runner's existing cache or Go parallelism.
+            $coldCache = Join-Path $env:RUNNER_TEMP 'rar-g128-cold-native-go-cache'
+            if (Test-Path $coldCache) { throw 'G128_COLD_CACHE_NOT_EMPTY' }
+            $env:GOCACHE = $coldCache
+            $stages = [ordered]@{}
+            $failedStage = ''
+            try {
+              foreach ($stage in @('test', 'vet', 'build')) {
+                $clock = [System.Diagnostics.Stopwatch]::StartNew()
+                switch ($stage) {
+                  'test'  { go test -count=1 ./... }
+                  'vet'   { go vet ./... }
+                  'build' { go build ./... }
+                }
+                $code = $LASTEXITCODE
+                $clock.Stop()
+                $stages[$stage] = [ordered]@{
+                  seconds = [math]::Round($clock.Elapsed.TotalSeconds, 3)
+                  exit_code = $code
+                }
+                if ($code -ne 0) { $failedStage = $stage; break }
+              }
+            } finally {
+              $tree = (git rev-parse 'HEAD^{tree}').Trim()
+              $goVersion = (go version).Trim()
+              $receipt = [ordered]@{
+                schema = 'forge.rar-g128.go-stages.v1'
+                candidate_sha = $candidate
+                candidate_tree = $tree
+                runner_os = $env:RUNNER_OS
+                runner_arch = $env:RUNNER_ARCH
+                go_version = $goVersion
+                goflags = $env:GOFLAGS
+                gomaxprocs = $env:GOMAXPROCS
+                gomemlimit = $env:GOMEMLIMIT
+                test_cache = 'isolated_empty_at_start'
+                subsequent_stages = 'same_cache_after_test'
+                profile_only = $true
+                stages = $stages
+                successful = ($failedStage -eq '' -and $stages.Count -eq 3)
+              }
+              $receipt | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 (Join-Path $env:RUNNER_TEMP 'rar-g128-go-stages.json')
+            }
+            if ($failedStage -ne '') { throw "G128_WINDOWS_GO_STAGE_FAILED:$failedStage" }
+          } else {
+            go test -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_TEST_FAILED' }
+            go vet ./...
+            if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
+            go build ./...
+            if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+          }
+      - name: Retain G128 Windows cold Go-stage profile
+        if: ${{ always() && github.head_ref == 'engineering/rar-g128-windows-go-stage-profile-20261108' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g128-windows-go-stages
+          path: ${{ runner.temp }}/rar-g128-go-stages.json
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
