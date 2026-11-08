@@ -383,7 +383,8 @@ func f12Arm(seed uint32,policy string)(F12Arm,error){
    models[i]=cold
    round.OriginalCorrect[i],_,err=f12Score(cold,seed,0)
    if err!=nil{return F12Arm{},errF12}
-   round.ChangedCorrect[i],roundCost,err:=f12Score(cold,seed,1)
+   var roundCost int
+   round.ChangedCorrect[i],roundCost,err=f12Score(cold,seed,1)
    if err!=nil{return F12Arm{},errF12}
    round.PredictionRuleChecks+=roundCost
    if generation==0{originalG1[i]=round.OriginalCorrect[i]}
