@@ -149,7 +149,8 @@ def arm(mode,expected):
                 raise ValueError("G126_ARM_FAILED:"+str(output.read_text(encoding="utf-8")[-900:]
                                   if output.is_file() else "UNRECORDED"))
             result=json.loads(output.read_text(encoding="utf-8"))
-            if not result["successful"] or result["packages"]!=expected or not 0<high<=MEM_CAP:
+            if (not result["successful"] or (expected is not None and result["packages"]!=expected) or
+                    not 0<high<=MEM_CAP):
                 raise ValueError("G126_FULL_PACKAGE_PARITY_OR_MEMORY_FAILED")
             result["tree_peak_commit_bytes"]=high
             result["tree_scope"]="WIN_JOB_OBJECT_PYTHON_GO_AND_DESCENDANTS"
@@ -210,7 +211,9 @@ def main():
         baseline=None
         for i,mode in enumerate(ORDER,1):
             stable(sha)
-            result=arm(mode,{name:"PASS" for name in names} if baseline is None else baseline)
+            result=arm(mode,baseline)
+            if sorted(result["packages"])!=sorted(names):
+                raise ValueError("G126_ORIGINAL_GO_PACKAGE_SELECTION_DRIFT")
             if baseline is None:baseline=result["packages"]
             result["index"]=i
             report["arms"].append(result)
