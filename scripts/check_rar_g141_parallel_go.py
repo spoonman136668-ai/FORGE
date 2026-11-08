@@ -18,9 +18,10 @@ import sys
 import tempfile
 import time
 
+from check_rar_g145_pr_scope import admit_original_pr, negative_controls
+
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "spoonman136668-ai/FORGE"
-BRANCH = "engineering/rar-g141-parallel-complete-go-suites-20261108"
 MAX_SECONDS = 180
 MAX_CGROUP_BYTES = 4 * (1024**3)
 PACKAGE_RE = re.compile(r"^(?:ok|\?)\s+(\S+)\s+", re.MULTILINE)
@@ -101,7 +102,7 @@ def main() -> int:
         raise ValueError("G141_ORIGINAL_HOSTED_LINUX_ONLY")
     event = os.environ.get("GITHUB_EVENT_NAME")
     if event == "pull_request":
-        if os.environ.get("GITHUB_HEAD_REF") != BRANCH:
+        if os.environ.get("GITHUB_BASE_REF") != "main":
             raise ValueError("G141_PR_SCOPE_INVALID")
     elif event == "push":
         if os.environ.get("GITHUB_REF") != "refs/heads/main":
@@ -113,16 +114,10 @@ def main() -> int:
     if sha != os.environ.get("FORGE_G141_HEAD"):
         raise ValueError("G141_EXPECTED_SOURCE_MISMATCH")
     exact_source(sha)
+    negative_controls()
     if event == "pull_request":
-        changed = set(git(
-            "diff", "--name-only",
-            "1a1ba98dc821131d8a14182f72243540d008aaae", sha
-        ).splitlines())
-        if changed != {
-            ".github/workflows/qualify.yml",
-            "scripts/check_rar_g141_parallel_go.py",
-        }:
-            raise ValueError("G141_DEV_SOURCE_SCOPE_CHANGED")
+        admission = admit_original_pr(sha, git)
+        print("G145_PR_ADMISSION=" + admission, flush=True)
     expected_list = subprocess.check_output(
         ["go", "list", "./..."], text=True, cwd=ROOT, timeout=80
     ).splitlines()
