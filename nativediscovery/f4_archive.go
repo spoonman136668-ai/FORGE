@@ -9,7 +9,7 @@ import (
 )
 
 const F4Schema = "forge.native-discovery.training-stepping-stones.v1"
-var F4TrainingSeeds = [2]uint32{17,31}
+func f4TrainingSeeds() [2]uint32{return [2]uint32{17,31}}
 var errF4 = errors.New("FORGE_EUREKA_F4_TRAINING_ARCHIVE_INVALID")
 
 type F4ArchivedCandidate struct {
@@ -50,7 +50,7 @@ type F4Preview struct {
 func f4Behavior(id string)(string,int,error){
  trace:=make([]byte,0,32)
  novelty:=0
- for _,seed:=range F4TrainingSeeds {
+ for _,seed:=range f4TrainingSeeds() {
   model,err:=f3New(id)
   if err!=nil{return "",0,errF4}
   baseline:=&f2Tab{}
@@ -89,7 +89,7 @@ func f4Build()(F4Preview,error){
   Schema:F4Schema,ParentGeneratedSourceSHA256:source.SourceSHA256,
   NativeGeneratorFrozenSHA256:source.GeneratorFrozenSHA256,
   SyntheticTrainingHistorySHA256:source.TrainingHistorySHA256,
-  TrainingSeeds:F4TrainingSeeds,DevelopmentOnly:true,
+  TrainingSeeds:f4TrainingSeeds(),DevelopmentOnly:true,
  }
  signatures:=map[string]string{}
  sourceDigests:=map[string]bool{}
@@ -113,7 +113,7 @@ func f4Build()(F4Preview,error){
   }else{
    signatures[signature]=candidate.ID
   }
-  for i,seed:=range F4TrainingSeeds {
+  for i,seed:=range f4TrainingSeeds() {
    trial,err:=f3Trial(candidate.ID,seed)
    if err!=nil{return F4Preview{},err}
    if trial.CandidateID!=candidate.ID||trial.Seed!=seed||
@@ -124,7 +124,7 @@ func f4Build()(F4Preview,error){
    strongest:=trial.TabularChangedPct
    if trial.FactorizedChangedPct>strongest{strongest=trial.FactorizedChangedPct}
    if trial.ExistingF2NativeChangedPct>strongest{strongest=trial.ExistingF2NativeChangedPct}
-   row.MeanGainOverStrongestPP+=(trial.NativeChangedPct-strongest)/float64(len(F4TrainingSeeds))
+   row.MeanGainOverStrongestPP+=(trial.NativeChangedPct-strongest)/float64(len(f4TrainingSeeds()))
   }
   switch {
   case row.MeanGainOverStrongestPP>0: row.TrainingClassification="TRAIN_AHEAD_UNVERIFIED"
