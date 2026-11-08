@@ -1,0 +1,15 @@
+# F62 — existing D1 additive first-use migration and recovery proof
+
+Status: SOURCE-ONLY and AUTHENTIC READ-ONLY PREDEPLOY CHECK. It is not atomic first-use activation or production permission. Research and KTRADE unaffected.
+
+This bounded increment reuses the existing R35 claim schema, R38 monotonic insert guard, R41 owner-predecision mapping, F61 signed-CBK workflow-ID candidate checks, and the SAME deployed Cloudflare Worker/D1 binding already verified by R39. It does not create another authority, database, Worker, signer or scheduler.
+
+It qualifies the proposed migration locally in an independent temporary SQLite database: one exact claim table, immutability triggers, one monotonic trigger, preserved archive schema+rows, duplicate rejection, backwards sequence rejection and stale owner epoch rejection. It preserves the existing SQL source unchanged; it never writes the live D1.
+
+The authenticated GitHub-hosted run reads the REAL existing bound D1 database under existing Cloudflare credentials. It requires the unchanged frozen original archive schema and six original/seal rows, confirms all four proposed preuse objects are NOT yet installed, and requests the existing database's Time Travel bookmark **without printing, persisting, or exporting its value**. A successful read confirms bookmark endpoint access only; it is NOT a verified private restorable backup and not sufficient for a production migration. It outputs a content-addressed compact non-secret report with scientific and ownership authority hardcoded false.
+
+**Expected original-state disposition:** all six historical original archives stay unchanged, current D1 first-use table absent, no protected-main OIDC scientific admission, no independently authenticated fresh source/complete active and uncertain both-lane leases, no transactional owner-approved Worker permit, no new original dispatch. A failed bookmark or schema check aborts without retry or mutation.
+
+**Real activation dependency (F63):** from the still-authoritative CKB-plane obtain a genuine new authorized scientific source/first-use cohort, reconcile all consumed/active/uncertain history and current owner epoch with external evidence, qualify protected-main workflow subject/audience; create an independently retained private recovery checkpoint and verify restore, then conditionally install existing additive R35+R38 under exact pinned migration SHA with an operator-authorized one-shot D1 write path and no automatic retry. Add a source/worker-qualified Worker route for actual transactional first-use and a permit consumed by the existing research worker. Only a fresh independently reviewed experiment and subsequent unattended successor establish operational autonomy. Do not turn on these features based on F62 preflight alone.
+
+**Cost:** GitHub Actions and bounded authenticated Cloudflare read-only queries using existing credentials; no Codex automatic review, paid API, additional signing ceremony, production D1 write or new controller.
