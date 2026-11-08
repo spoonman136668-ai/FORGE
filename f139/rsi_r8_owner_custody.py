@@ -103,8 +103,14 @@ def audit_observed_scopes(db) -> frozenset[str]:
     Database.verify() first checks every SHA-chained event and all existing
     owner invariants, then calls this additional observation-only verifier.
     """
-    from f139.local_controller import Database
-    need(type(db) is Database, "DATABASE_TYPE")
+    # Python -m executes the original controller as __main__ rather than
+    # f139.local_controller. Verify either ORIGINAL Database class identity,
+    # without permitting a forged writer or broadening owner execution.
+    import sqlite3
+    need(type(db).__name__ == "Database"
+         and type(db).__module__ in ("f139.local_controller", "__main__")
+         and type(getattr(db, "conn", None)) is sqlite3.Connection
+         and callable(getattr(db, "meta", None)), "DATABASE_TYPE")
     meta = db.meta()
     rows = list(db.conn.execute(
         "SELECT seq,kind,payload,prior_sha FROM events "
