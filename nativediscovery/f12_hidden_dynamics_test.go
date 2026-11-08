@@ -181,8 +181,10 @@ func TestF12CumulativeColdResumeWithTwoOutstandingEffects(t *testing.T){
     }
     altered:=append([]byte{},snap...)
     altered[len(altered)-2]^=1
-    if _,err:=f12Load(altered,f3Hash(altered));err==nil{
-     t.Fatal("tampered/counterfeit-but-locally-rehashed learning state accepted")
+    // A separately anchored, originally expected digest rejects the changed
+    // state. A *new local self-hash alone* cannot establish authenticity.
+    if _,err:=f12Load(altered,digest);err==nil{
+     t.Fatal("tampered state accepted despite independently expected source hash")
     }
     // A replay of the old 48+3 events must fail the strict global step ID
     // rather than silently double-count previous learning.
