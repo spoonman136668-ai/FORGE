@@ -135,6 +135,7 @@ func TestF5FeedbackIsConsequenceDependentAndRejectsInversionForgery(t *testing.T
   if err:=f5ScoreFeedback(&state,testCase.prediction,testCase.action,testCase.effect);err==nil{
    t.Fatal("invalid action, effect or prediction allowed")
   }
+  if state!=[3]int{} {t.Fatal("rejected feedback partially modified evidence scores")}
  }
 }
 
