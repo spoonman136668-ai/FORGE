@@ -16,7 +16,7 @@ func f7VerifyArchive(t *testing.T,report F7Report,parent F5Report){
   report.F6Schema!=F6Schema||report.TrainingSeeds!=[2]uint32{17,31}||
   report.Policies!=f5Policies()||report.GenerationsPerArm!=F7Generations||
   len(report.Arms)!=6||report.GeneratedCandidateCount!=48||
-  !report.DevelopmentOnly||!report.GeneratedSourceCompiledInTestsOnly||
+  !report.DevelopmentOnly||!report.GeneratedSourceTypecheckedInTestsOnly||
   report.NewExperimentObservations!=0||report.IndependentHoldoutConsumed||
   report.ScientificAccepted||report.GeneralRSIProven||report.OwnerActivation||
   report.DispatchAuthorized||report.AgentCalls!=0||report.PaidAPICalls!=0{
@@ -252,7 +252,8 @@ func f2major(v [2]int)(int,bool){
     // A parser alone misses undefined references/types. The Go compiler's
     // semantic checker runs on the ACTUAL emitted source bytes.
     files:=[]*ast.File{sup,generated}
-    if _,err:=(types.Config{}).Check("nativediscovery",fs,files,nil);err!=nil{
+    checker:=types.Config{}
+    if _,err:=checker.Check("nativediscovery",fs,files,nil);err!=nil{
      t.Fatalf("generated Go source failed semantic type check: %v",err)
     }
     model:=&f6Repair{Family:candidate.Family,Phase:candidate.Phase}
