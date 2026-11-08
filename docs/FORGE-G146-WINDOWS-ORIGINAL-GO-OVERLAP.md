@@ -1,0 +1,26 @@
+# FORGE RAR-G146 — original Windows Go test/vet/build three-way overlap
+
+## Frozen source / owner / scope (before implementation)
+- Protected FORGE main at admission: `ab2d239e2d079d2500ec5d91b253c11e6bd3b132`; tree `db5e1b05919ee0f78510fc4d86a50cc23c38181c`. Original G145 merged and original 8-job postmerge run #42520743528 PASS first attempt.
+- The only development branch is `engineering/rar-g146-windows-original-go-3way-overlap-20261108`, based on the above exact commit. Exactly 3 changed paths from the frozen base: this document, `scripts/check_rar_g144_windows_go.py`, and `scripts/check_rar_g145_pr_scope.py`. The shared admission helper gets one exact, closed G146 frozen source scope; generic unrelated PR restrictions and previously frozen G141/G144/G145 rules remain intact.
+- No workflow, F139 test body, Go source/test, package identity, Go flags, toolchain, CI status gate, controller, scheduler, paid API, research owner or independent Wingless/Yggdrasil loop changes. FORGE isolation and original first-use fences remain mandatory. This is CI engineering only.
+
+## Observed baseline and falsifiable hypothesis
+- The verified G145 main push CI ran for 141s from GitHub Actions started to final updated; historical unoptimized full-workflow baseline was 264s; strict 2x threshold is <=132s.
+- In that run, `windows_native` logs ran approximately 20:33:43.94–20:35:50.52 UTC, with the original Windows Go step beginning at approximately 20:34:27.03 and finishing near 20:35:48.44. The original Go test and vet already execute concurrently under one pre-existing Job Object; original `go build ./...` runs serially afterward.
+- Hypothesis: launch the exact original `go build ./...` concurrently with the original `go test -count=1 ./...` and `go vet ./...`, reducing Windows native latency without exceeding the same 4 GiB combined process-tree committed-memory limit or changing test coverage. Compiler/cache contention may offset the benefit; that is an admissible NO_GO outcome.
+
+## Minimal development implementation
+- Retain the G144 worker-assignment gate **before** any Go child process, same Windows Job Object, same read-only combined committed-peak meter and 200-second timeout.
+- Launch all three existing original modes in a single three-item loop; wait for every mode with immediate fail-closed error on any exit, memory overrun, missing source or timeout. Validate the full `go list ./...` inventory and every original Go test package result exactly as before, plus zero vet/build exit codes. Preserve original mode-specific logs and log hashes in the unchanged G144 receipt schema. Record three worker launch timestamps and execution mode for auditable overlap.
+- No extra hosted runner or build cache, no change to standard `GOFLAGS=-p=2`, `GOMAXPROCS=2`, `GOMEMLIMIT=1536MiB`; no test skips, Go test-result cache or alternative command.
+- The original existing `G145` negative scope and identity guards must run in both original OS qualification jobs and reject ordinary PR tampering with workflow/harness.
+
+## Frozen first-trial acceptance and stop criteria
+1. **Source/correctness:** exact first candidate SHA/tree and exact three-path diff; eight original required GitHub-hosted jobs `linux_f139`, `linux_native`, `linux_genenv`, `linux`, `windows_f139`, `windows_native`, `windows_genenv`, `windows` all PASS on first attempt. No missing/changed original full Windows/Go regular test, Linux race, full vet/build, F139 1,450 cases/seven frozen skips, GenEnv/Promptbreeder, FSA/isolation/transport/negative/source controls; both original required protected status gates literal success.
+2. **Resource:** G144 original Windows Job Object committed-peak strictly observed >0 and <=4 GiB across *all three* original Go child process trees. No invalid/missing metric, worker assignment race, source drift, timeout or missing original Go package. Original shared Linux cgroup <=4 GiB read-only cap retained.
+3. **End-to-end:** first original exact-head complete Actions run `run_started_at` to `updated_at` <=132s, eight-job aggregate hosted job-seconds <=449s, Windows three physical source lanes <=244s, Linux three physical source lanes <=200s. No selective retries, queue/time subtraction, favorable-run fishing or threshold changes after data.
+4. **Disposition:** if any first-trial correctness/resource/performance/cost gate fails, preserve authentic FAIL/NO_GO and close DEV PR unmerged; no promotion or unqualified default change. If all PASS, recheck protected-main exact ancestry, standing FORGE engineering scope, and expected SHA, merge exact qualified candidate, then independently verify identical merge tree, mandatory original full 8-job protected-main CI and F73 first-attempt signed origin. Any main timing miss remains a negative and does not justify claiming reproducible 2x without independent evidence.
+
+## Interpretation
+ENGINEERING: Full original test preservation and CPU/resource observations only. A <=132s one-off is provisional, not a statistically repeatable speedup. SCIENTIFIC: Not evaluated; no learning, reasoning or RSI claim. DEPLOYMENT: Only optional CI helper implementation after full authorization/qualification; no FORGE owner/research/runtime execution or first-use.
