@@ -366,6 +366,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: G132 source-pinned original typed-program test callgraph (DEV ONLY)
+        if: github.head_ref == 'engineering/rar-g132-typed-hotspot-callgraph-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          FORGE_G132_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g132_typed_hotspot.py
+          if ($LASTEXITCODE -ne 0) { throw 'G132_ORIGINAL_TYPED_PROFILE_FAILED' }
+      - name: Retain G132 exact-source original 16-test callgraph receipt
+        if: ${{ always() && github.head_ref == 'engineering/rar-g132-typed-hotspot-callgraph-20261108' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g132-typed-hotspot
+          path: ${{ runner.temp }}/rar-g132-typed-hotspot.json
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
