@@ -366,6 +366,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+      - name: G131 same-runner full real Windows Go stage A/B/B/A (DEV ONLY)
+        if: github.head_ref == 'engineering/rar-g131-windows-real-go-stage-abba-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          FORGE_G131_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g131_windows_go_stage_abba.py
+          if ($LASTEXITCODE -ne 0) { throw 'G131_ORIGINAL_GO_STAGE_ABBA_FAILED' }
+      - name: Retain G131 exact-head original Go-stage A/B/B/A evidence
+        if: ${{ always() && github.head_ref == 'engineering/rar-g131-windows-real-go-stage-abba-20261108' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g131-windows-go-stage-abba
+          path: ${{ runner.temp }}/rar-g131-windows-go-stage-abba.json
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
