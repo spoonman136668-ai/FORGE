@@ -31,6 +31,7 @@ type F7Generation struct {
  SelectedSourceSHA256 string `json:"selected_source_sha256"`
  SelectedTrainingCorrect int `json:"selected_training_correct"`
  SelectedDevAccuracyPct float64 `json:"selected_dev_accuracy_pct"`
+ F3SelectedControlID string `json:"f3_selected_control_id"`
  PriorF5SelectedAccuracyPct float64 `json:"prior_f5_selected_accuracy_pct"`
  TabularAccuracyPct float64 `json:"tabular_accuracy_pct"`
  FactorizedAccuracyPct float64 `json:"factorized_accuracy_pct"`
@@ -137,8 +138,23 @@ func f7BuildGeneration(arm F5ArmResult, parent F5Report,previous *F7Generation, 
   row.ParentGenerationReceiptSHA256=previous.GenerationReceiptSHA256
  }
  // Each arm sees the same real F5 actions and effects, at each G1/G2 cut.
- old,err:=f3New(arm.SelectedCandidateID)
+ // F3 control must also be selected from the SAME prefix, not hindsight
+ // from F5's eventual six-probe full-history winner at generation one.
+ if len(arm.Candidates)!=3{return F7Generation{},errF7}
+ var originalScores [3]int
+ for _,probe:=range partial{
+  if err:=f5ScoreFeedback(&originalScores,probe.PreObservationPredictions,
+   probe.Action,probe.ObservedEffect);err!=nil{return F7Generation{},errF7}
+ }
+ oldWinner:=0
+ for i:=1;i<3;i++{
+  if originalScores[i]>originalScores[oldWinner]{oldWinner=i}
+ }
+ originalID:=arm.Candidates[oldWinner].CandidateID
+ if count==F5ProbeBudget&&originalID!=arm.SelectedCandidateID{return F7Generation{},errF7}
+ old,err:=f3New(originalID)
  if err!=nil{return F7Generation{},errF7}
+ row.F3SelectedControlID=originalID
  table,factor,native:=&f2Tab{},&f2Factor{},&f2Native{}
  controls:=[]f2Observer{old,table,factor,native}
  train:=f2training(arm.Seed)
