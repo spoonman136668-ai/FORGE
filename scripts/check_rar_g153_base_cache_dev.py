@@ -37,7 +37,7 @@ def _step(src: str, name: str) -> str:
     marker = "      - name: " + name + "\n"
     if src.count(marker) != 1:
         raise ValueError("G153_WORKFLOW_STEP_MISSING_OR_DUPLICATED_" + name)
-    return src.split(marker, 1)[1].split("\n      - name: ", 1)[0]
+    return src.split(marker, 1)[1].split("\n      - name: ", 1)[0] + "\n"
 
 def _assert_contract(src: str) -> None:
     pre, restore, post = (_step(src, name) for name in (PRE, RESTORE, POST))
