@@ -18,32 +18,10 @@ import sys
 import tempfile
 import time
 
+from check_rar_g145_pr_scope import admit_original_pr, negative_controls
+
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "spoonman136668-ai/FORGE"
-BRANCH = "engineering/rar-g141-parallel-complete-go-suites-20261108"
-# Exact frozen source scopes, no wildcard branch or arbitrary PR admission.
-DEV_SCOPES = {
-    BRANCH: (
-        "1a1ba98dc821131d8a14182f72243540d008aaae",
-        {".github/workflows/qualify.yml", "scripts/check_rar_g141_parallel_go.py"},
-    ),
-    "engineering/rar-g144-windows-native-go-vet-concurrent-20261108": (
-        "0ea00f9b4587f5508dff39b65de2574f0b4fe681",
-        {
-            ".github/workflows/qualify.yml",
-            "scripts/check_rar_g141_parallel_go.py",
-            "scripts/check_rar_g144_windows_go.py",
-        },
-    ),
-    # Only this frozen repair branch can change the PR admission routine.
-    "engineering/g145-generic-pr-original-qualification-20261108": (
-        "69421a9d82bfb7b374d6635d3c60d7e41bfaf3b2",
-        {
-            "scripts/check_rar_g141_parallel_go.py",
-            "docs/FORGE-G145-GENERIC-PR-QUALIFICATION.md",
-        },
-    ),
-}
 MAX_SECONDS = 180
 MAX_CGROUP_BYTES = 4 * (1024**3)
 PACKAGE_RE = re.compile(r"^(?:ok|\?)\s+(\S+)\s+", re.MULTILINE)
@@ -113,80 +91,6 @@ def kill_children(children: list[subprocess.Popen]) -> None:
             proc.wait(timeout=12)
 
 
-def g145_valid_sha(value: object) -> bool:
-    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value) is not None
-
-
-def g145_safe_generic_paths(changed: list[str]) -> bool:
-    # A generic source PR can run full original Go qualification, but cannot
-    # rewrite/disable the workflow or the very harness that is qualifying it.
-    if not changed or len(changed) > 128 or len(set(changed)) != len(changed):
-        return False
-    for path in changed:
-        if (
-            not isinstance(path, str)
-            or not path
-            or path.startswith("/")
-            or "\\" in path
-            or any(part in ("", ".", "..") for part in path.split("/"))
-            or any(ord(char) < 32 for char in path)
-            or path.startswith(".github/workflows/")
-            or path.startswith("scripts/check_rar_")
-        ):
-            return False
-    return True
-
-
-def g145_negative_controls() -> None:
-    good = ["docs/EUREKA.md", "nativediscovery/f6_repair.go"]
-    bad = [
-        [],
-        ["nativediscovery/f6_repair.go"] * 2,
-        ["nativediscovery/f6_repair.go"] * 129,
-        [".github/workflows/qualify.yml"],
-        ["scripts/check_rar_g141_parallel_go.py"],
-        ["scripts/check_rar_g144_windows_go.py"],
-        ["scripts/check_rar_g999_new_harness.py"],
-        ["../unsafe.go"],
-        ["/unsafe.go"],
-        ["safe//unsafe.go"],
-        ["safe\\unsafe.go"],
-    ]
-    if not g145_safe_generic_paths(good) or any(
-        g145_safe_generic_paths(paths) for paths in bad
-    ):
-        raise ValueError("G145_ADMISSION_NEGATIVE_CONTROL_FAILED")
-
-
-def g145_event_base(head_sha: str) -> str:
-    event_file = os.environ.get("GITHUB_EVENT_PATH", "")
-    if (
-        not event_file
-        or not Path(event_file).is_file()
-        or Path(event_file).stat().st_size > (1 << 20)
-    ):
-        raise ValueError("G145_GITHUB_EVENT_MISSING_OR_OVERSIZED")
-    try:
-        payload = json.loads(Path(event_file).read_text(encoding="utf-8"))
-        request = payload["pull_request"]
-        base, head = request["base"], request["head"]
-        base_sha = base["sha"]
-        if (
-            not g145_valid_sha(base_sha)
-            or not g145_valid_sha(head_sha)
-            or head["sha"] != head_sha
-            or base["ref"] != "main"
-            or base["repo"]["full_name"] != REPO
-            or head["repo"]["full_name"] != REPO
-            or head["ref"] != os.environ.get("GITHUB_HEAD_REF")
-            or os.environ.get("GITHUB_BASE_REF") != "main"
-        ):
-            raise ValueError("G145_PR_ORIGINAL_REPOSITORY_IDENTITY_INVALID")
-    except (KeyError, TypeError, ValueError, AttributeError) as exc:
-        raise ValueError("G145_PR_ORIGINAL_REPOSITORY_IDENTITY_INVALID") from exc
-    return base_sha
-
-
 def main() -> int:
     if (
         sys.platform != "linux"
@@ -210,29 +114,9 @@ def main() -> int:
     if sha != os.environ.get("FORGE_G141_HEAD"):
         raise ValueError("G141_EXPECTED_SOURCE_MISMATCH")
     exact_source(sha)
-    g145_negative_controls()
+    negative_controls()
     if event == "pull_request":
-        base_sha = g145_event_base(sha)
-        branch = os.environ["GITHUB_HEAD_REF"]
-        if branch in DEV_SCOPES:
-            frozen_base, expected_paths = DEV_SCOPES[branch]
-            changed = set(git(
-                "diff", "--no-renames", "--name-only", frozen_base, sha
-            ).splitlines())
-            if base_sha != frozen_base or changed != expected_paths:
-                raise ValueError("G141_DEV_SOURCE_SCOPE_CHANGED")
-            admission = "FROZEN_HARNESS_DEVELOPMENT_PR"
-        else:
-            try:
-                ancestor = git("merge-base", base_sha, sha)
-                changed = git(
-                    "diff", "--no-renames", "--name-only", base_sha, sha
-                ).splitlines()
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-                raise ValueError("G145_UNAVAILABLE_EXACT_MAIN_ANCESTRY") from exc
-            if ancestor != base_sha or not g145_safe_generic_paths(changed):
-                raise ValueError("G145_GENERIC_PR_SOURCE_SCOPE_INVALID")
-            admission = "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR"
+        admission = admit_original_pr(sha, git)
         print("G145_PR_ADMISSION=" + admission, flush=True)
     expected_list = subprocess.check_output(
         ["go", "list", "./..."], text=True, cwd=ROOT, timeout=80
