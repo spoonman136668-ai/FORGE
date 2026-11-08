@@ -38,6 +38,14 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g145_pr_scope.py",
         },
     ),
+    "engineering/rar-g146-windows-original-go-3way-overlap-20261108": (
+        "ab2d239e2d079d2500ec5d91b253c11e6bd3b132",
+        {
+            "docs/FORGE-G146-WINDOWS-ORIGINAL-GO-OVERLAP.md",
+            "scripts/check_rar_g144_windows_go.py",
+            "scripts/check_rar_g145_pr_scope.py",
+        },
+    ),
 }
 
 

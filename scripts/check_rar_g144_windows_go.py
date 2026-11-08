@@ -166,7 +166,8 @@ def main() -> int:
         ) as tmp:
             home = Path(tmp)
             meter = JobTreeMemory()
-            for mode in ("test", "vet"):
+            launch_seconds = {}
+            for mode in ("test", "vet", "build"):
                 gate = home / (mode + ".gate")
                 logfile = home / (mode + ".log")
                 with logfile.open("wb") as out:
@@ -178,6 +179,7 @@ def main() -> int:
                 workers.append(proc)
                 meter.assign(proc)
                 gate.write_text("assigned\n", encoding="utf-8")
+                launch_seconds[mode] = round(time.monotonic() - start, 6)
             peak = 0
             while True:
                 peak = max(peak, meter.peak())
@@ -185,14 +187,14 @@ def main() -> int:
                     raise ValueError("G144_WINDOWS_JOB_MEMORY_CAP_EXCEEDED")
                 codes = [p.poll() for p in workers]
                 if any(c is not None and c != 0 for c in codes):
-                    raise ValueError("G144_ORIGINAL_TEST_OR_VET_FAILED")
+                    raise ValueError("G146_ORIGINAL_TEST_VET_OR_BUILD_FAILED")
                 if all(c is not None for c in codes):
                     break
                 if time.monotonic() - start > MAX_SECONDS:
                     raise ValueError("G144_ORIGINAL_WINDOWS_GO_TIMEOUT")
                 time.sleep(0.1)
 
-            for mode, proc in zip(("test", "vet"), workers):
+            for mode, proc in zip(("test", "vet"), workers[:2]):
                 data = (home / (mode + ".log")).read_text(encoding="utf-8", errors="replace")
                 if proc.wait(timeout=10) != 0:
                     raise ValueError("G144_ORIGINAL_GO_COMMAND_FAILED_" + mode)
@@ -217,24 +219,8 @@ def main() -> int:
                 print(data[-125000:], flush=True)
                 print(f"G144_ORIGINAL_{mode.upper()}_OUTPUT_END", flush=True)
 
-            build_gate = home / "build.gate"
-            with (home / "build.log").open("wb") as out:
-                build = subprocess.Popen(
-                    [sys.executable, "-B", str(Path(__file__)), "--worker", "build", str(build_gate)],
-                    cwd=ROOT, env=os.environ.copy(),
-                    stdout=out, stderr=subprocess.STDOUT,
-                )
-            workers.append(build)
-            meter.assign(build)
-            build_gate.write_text("assigned\n", encoding="utf-8")
-            while build.poll() is None:
-                peak = max(peak, meter.peak())
-                if peak > MAX_MEMORY:
-                    raise ValueError("G144_WINDOWS_JOB_MEMORY_CAP_EXCEEDED")
-                if time.monotonic() - start > MAX_SECONDS:
-                    raise ValueError("G144_ORIGINAL_WINDOWS_GO_TIMEOUT")
-                time.sleep(0.1)
-            peak = max(peak, meter.peak())
+            # All original commands now complete inside the same bounded Job Object.
+            build = workers[2]
             if build.wait(timeout=10) != 0:
                 raise ValueError("G144_ORIGINAL_BUILD_FAILED")
             build_data = (home / "build.log").read_bytes()
@@ -253,6 +239,9 @@ def main() -> int:
                 clean_after=True,
                 original_stage_seconds=round(time.monotonic()-start, 6),
                 process_tree_peak_commit_bytes=peak,
+                execution_mode="CONCURRENT_ORIGINAL_TEST_VET_BUILD",
+                worker_launch_seconds=launch_seconds,
+                worker_launch_skew_seconds=round(max(launch_seconds.values()) - min(launch_seconds.values()), 6),
             )
             return 0
     except BaseException as exc:
