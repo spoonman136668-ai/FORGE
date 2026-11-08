@@ -156,6 +156,24 @@ class SourceAuditTests(unittest.TestCase):
         self.assertEqual(audit_one(f, f.candidate)["Reason"],
                          "MISSING_OR_UNBOUNDED_GITHUB_PAGE")
 
+
+    def test_fsa_audit_recognizes_only_exact_disjoint_owner_ref_rule(self):
+        from fsa_policy_anchor_r26 import AUXILIARY_RULESET_SCOPES
+        identity = 26049392
+        name, scope = AUXILIARY_RULESET_SCOPES[identity]
+        f = Fake()
+        f.pages["/rulesets?includes_parents=true"].append(
+            {"id": identity, "enforcement": "active"})
+        f.pages[f"/rulesets/{identity}"] = {
+            "id": identity, "name": name, "source": REPO,
+            "enforcement": "active", "target": "branch",
+            "conditions": {"ref_name": {"include": [scope], "exclude": []}}}
+        self.assertTrue(verify_ruleset(f))
+        f.pages[f"/rulesets/{identity}"]["conditions"]["ref_name"]["include"] = [
+            "refs/heads/main"]
+        with self.assertRaisesRegex(Blocked, "RULESET_INVENTORY_CHANGED"):
+            verify_ruleset(f)
+
     def test_missing_bypass_is_not_assumed_empty(self):
         f = Fake()
         del f.pages[f"/rulesets/{RULESET}"]["bypass_actors"]

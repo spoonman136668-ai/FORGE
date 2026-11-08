@@ -111,6 +111,48 @@ class R26PolicyContinuityTests(unittest.TestCase):
         f.pages[f"/rulesets/{RULESET}"]["current_user_can_bypass"] = "always"
         self.assertEqual(self.verify(f)["Reason"], "RULESET_CALLER_BYPASS_CHANGED")
 
+
+    def test_reviewed_disjoint_owner_rulesets_preserve_pinned_main_policy(self):
+        from fsa_policy_anchor_r26 import AUXILIARY_RULESET_SCOPES
+        f = live_fixture()
+        for identity, (name, ref) in AUXILIARY_RULESET_SCOPES.items():
+            f.pages["/rulesets?includes_parents=true"].append(
+                {"id": identity, "enforcement": "active"})
+            f.pages[f"/rulesets/{identity}"] = {
+                "id": identity, "name": name, "source": REPO,
+                "enforcement": "active", "target": "branch",
+                "conditions": {"ref_name": {"exclude": [],
+                                             "include": [ref]}}}
+        value = self.verify(f)
+        self.assertTrue(value["PinnedSourcePolicyUnchanged"])
+        self.assertFalse(value["MergeAuthorized"])
+        self.assertFalse(value["ScientificAuthority"])
+        self.assertEqual(len(f.pages["/rulesets?includes_parents=true"]), 7)
+
+    def test_additional_ruleset_overlapping_main_fails_closed(self):
+        f = live_fixture()
+        identity = 26049392
+        f.pages["/rulesets?includes_parents=true"].append(
+            {"id": identity, "enforcement": "active"})
+        f.pages[f"/rulesets/{identity}"] = {
+            "id": identity, "name": "FORGE F139 immutable owner release refs",
+            "source": REPO, "enforcement": "active", "target": "branch",
+            "conditions": {"ref_name": {"exclude": [],
+                                         "include": ["refs/heads/main"]}}}
+        value = self.verify(f)
+        self.assertFalse(value["PinnedSourcePolicyUnchanged"])
+        self.assertEqual(value["Reason"],
+                         "AUXILIARY_RULESET_SCOPE_OR_IDENTITY_DRIFT")
+
+    def test_additional_ruleset_missing_detail_fails_closed(self):
+        f = live_fixture()
+        f.pages["/rulesets?includes_parents=true"].append(
+            {"id": 26049392, "enforcement": "active"})
+        with self.assertRaises(AssertionError):
+            # The fake transport rejects absent endpoints; real transport
+            # errors also fail closed and never return qualified evidence.
+            f.get("/rulesets/26049392")
+
     def test_multiple_rulesets_denied(self):
         f = live_fixture()
         f.pages["/rulesets?includes_parents=true"].append({"id": 888, "enforcement": "active"})

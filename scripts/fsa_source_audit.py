@@ -11,7 +11,8 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from fsa_policy_anchor_r26 import observe as observe_policy_anchor
+from fsa_policy_anchor_r26 import (observe as observe_policy_anchor,
+                                   verify_ruleset_inventory, PolicyDenied)
 
 REPO = "spoonman136668-ai/FORGE"
 ROOT = f"https://api.github.com/repos/{REPO}"
@@ -173,9 +174,10 @@ def current_main(g):
 
 def verify_ruleset(g):
     records = bounded_list(g, "/rulesets?includes_parents=true", maximum=20)
-    expect(len(records) == 1 and records[0].get("id") == RULESET
-           and records[0].get("enforcement") == "active",
-           "RULESET_INVENTORY_CHANGED")
+    try:
+        verify_ruleset_inventory(g, records)
+    except PolicyDenied as error:
+        raise Blocked("RULESET_INVENTORY_CHANGED") from error
     r = g.get(f"/rulesets/{RULESET}")
     expect(r.get("id") == RULESET and r.get("name") == "FORGE main qualified-source only"
            and r.get("source") == REPO and r.get("target") == "branch"
