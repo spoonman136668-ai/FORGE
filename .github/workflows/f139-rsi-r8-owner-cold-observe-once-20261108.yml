@@ -1,0 +1,165 @@
+name: F139 R8 original-owner cold observation (one shot, read-only)
+on:
+  push:
+    branches: [audit/f139-rsi-r8-owner-cold-observe-once-20261108]
+permissions: {}
+concurrency:
+  group: f139-rsi-r8-one-shot-readonly
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.event_name == 'push' &&
+      github.event.created == false &&
+      github.event.deleted == false &&
+      github.event.forced == false
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Snapshot original owner from read-only SQLite and task metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $base='e5522fc96efd17cba19ca8febad25f169920b292'
+          $ref='refs/heads/audit/f139-rsi-r8-owner-cold-observe-once-20261108'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_REF -cne $ref -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY) {
+              throw 'F139_R8_UNAUTHORIZED_ORIGIN_OR_RUNNER'
+          }
+          $evt=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          if ($evt.before -cne $base -or $evt.after -cne $env:GITHUB_SHA -or
+              $evt.created -ne $false -or $evt.deleted -ne $false -or
+              $evt.forced -ne $false) { throw 'F139_R8_NONINITIAL_OR_REPLAY_PUSH' }
+          $parents=((& git rev-list --parents -n 1 HEAD | Out-String).Trim() -split ' ')
+          $delta=@(git diff --name-only $base HEAD)
+          if ($parents.Count -ne 2 -or $parents[0] -cne $env:GITHUB_SHA -or
+              $parents[1] -cne $base -or $delta.Count -ne 1 -or
+              $delta[0] -cne '.github/workflows/f139-rsi-r8-owner-cold-observe-once-20261108.yml') {
+              throw 'F139_R8_SOURCE_SCOPE_DRIFT'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ([string]$t.State -cnotin @('Ready','Running') -or
+              @($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3) {
+              throw 'F139_R8_OWNER_TASK_TOPOLOGY_DRIFT'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner=[string]$t.Principal.UserId
+          $sid=if ($owner -match '^S-1-') {$owner} else {
+              (New-Object Security.Principal.NTAccount($owner)).Translate(
+                  [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($sid -cne $who.User.Value) {throw 'F139_R8_OWNER_SID_MISMATCH'}
+          $argsText=[string]$t.Actions[0].Arguments
+          function Arg([string]$name) {
+              $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+              if (-not $m.Success) {throw 'F139_R8_TASK_ARGUMENT_DRIFT'}
+              return $m.Groups[1].Value
+          }
+          $root=Arg 'RepositoryRoot'
+          $db=Arg 'Database'
+          $python=Arg 'PythonExe'
+          $wrapper=Arg 'File'
+          $key=Arg 'EncryptedKeyFile'
+          $state=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          if ([IO.Path]::GetFullPath($db) -ine
+                [IO.Path]::GetFullPath((Join-Path $state 'state.sqlite')) -or
+              [IO.Path]::GetFullPath($key) -ine
+                [IO.Path]::GetFullPath((Join-Path $state 'worker-hmac.dpapi.xml')) -or
+              [IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1' -or
+              -not (Test-Path -LiteralPath $db -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $python -PathType Leaf)) {
+              throw 'F139_R8_TASK_DATABASE_OR_KEY_ROUTE_DRIFT'
+          }
+          $env:GIT_OPTIONAL_LOCKS='0'
+          $checkout=(& git -C $root rev-parse HEAD | Out-String).Trim()
+          $dirty=@(& git -C $root status --porcelain --untracked-files=no)
+          if ($LASTEXITCODE -ne 0 -or $checkout -cnotmatch '^[a-f0-9]{40}$') {
+              throw 'F139_R8_INSTALLED_SOURCE_UNVERIFIED'
+          }
+          $pythonSource=@'
+          import hashlib,json,pathlib,sqlite3,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          c=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=4,isolation_level=None)
+          c.row_factory=sqlite3.Row
+          try:
+           c.execute("PRAGMA query_only=ON")
+           assert c.execute("PRAGMA query_only").fetchone()[0]==1
+           c.execute("BEGIN")
+           ms=c.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended,epoch FROM meta WHERE id=1").fetchall()
+           assert len(ms)==1
+           m=dict(ms[0])
+           stages={v["stage"]:v["n"] for v in c.execute("SELECT stage,COUNT(*) AS n FROM tasks GROUP BY stage")}
+           assert set(stages).issubset({"READY","START_RISK","WAIT_PROVIDER","VERIFIED","QUARANTINED"})
+           prev="0"*64
+           seq=0
+           transitions=0
+           last=None
+           for e in c.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"):
+            seq+=1
+            assert e["seq"]==seq and e["prior_sha"]==prev
+            event={"seq":e["seq"],"prior_sha":e["prior_sha"],"kind":e["kind"],"payload":json.loads(e["payload"])}
+            canonical=(json.dumps(event,sort_keys=True,separators=(",",":"),ensure_ascii=True)+"\n").encode()
+            computed=hashlib.sha256(canonical).hexdigest()
+            assert computed==e["sha"]
+            prev=computed
+            last=e["kind"]
+            transitions+=e["kind"]=="SOURCE_TRANSITION_ADMITTED"
+           assert seq==m["head_seq"] and prev==m["head_hash"]
+           c.execute("ROLLBACK")
+           print(json.dumps({"schema":"forge.f139.rsi-r8.readonly-original-owner.v1",
+             "source":m["source_sha"],"seq":seq,"head_sha256":prev,
+             "full_event_hash_chain_pass":True,"source_transitions":transitions,
+             "stages":stages,"enabled":m["enabled"]==1,
+             "legacy_suspended":m["legacy_suspended"]==1,"epoch":m["epoch"],
+             "last_event_kind":last,"readonly_query_only":True,
+             "owner_mutations":0,"new_dispatches":0,"science_permission":False},
+             sort_keys=True,separators=(",",":")))
+          finally:
+           c.close()
+          '@
+          $raw=@(& $python -B -c $pythonSource $db 2>$null)
+          if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) {
+              throw 'F139_R8_COLD_SQLITE_READ_FAILED'
+          }
+          $a=$raw[0] | ConvertFrom-Json
+          if ($a.schema -cne 'forge.f139.rsi-r8.readonly-original-owner.v1' -or
+              $a.full_event_hash_chain_pass -ne $true -or
+              $a.readonly_query_only -ne $true -or $a.owner_mutations -ne 0) {
+              throw 'F139_R8_AUDIT_RESULT_INVALID'
+          }
+          $receipt=[ordered]@{
+           schema=$a.schema
+           runner_owner_sid_verified=$true
+           original_task_state=[string]$t.State
+           installed_source_sha=$checkout
+           installed_tracked_clean=($dirty.Count -eq 0)
+           ledger_source_sha=$a.source
+           installed_source_matches_ledger=($checkout -ceq $a.source)
+           ledger_event_seq=$a.seq
+           ledger_head_sha256=$a.head_sha256
+           full_event_hash_chain_verified=$a.full_event_hash_chain_pass
+           source_transitions=$a.source_transitions
+           owner_enabled=$a.enabled
+           legacy_suspended=$a.legacy_suspended
+           owner_epoch=$a.epoch
+           stage_counts=$a.stages
+           latest_event_kind=$a.last_event_kind
+           original_owner_writes=0
+           research_dispatches=0
+           owner_self_repair_authorized=$false
+           scientific_first_use=$false
+          }
+          Write-Output ('F139_RSI_R8_OWNER_READONLY_RECEIPT='+($receipt|ConvertTo-Json -Compress -Depth 5))
+          Write-Output 'F139_RSI_R8_OWNER_OBSERVATION=PASS_READONLY_NO_DISPATCH'
