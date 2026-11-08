@@ -1,0 +1,216 @@
+name: FORGE K-Terminal PR78 qualified one-shot installer delivery
+on:
+  push:
+    branches: [qualification/kterminal-rc2-timing-hosted-20261106]
+    paths: [.github/workflows/forge-kterminal-pr78-qualified-delivery-once.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-kterminal-pr78-delivery-once
+  cancel-in-progress: false
+jobs:
+  qualified-delivery:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      KTERM_SHA: 957b917b22083f1ae03f35377c60b48b66b689a3
+      KTERM_TREE: b8479246aa3d0433bdb980732d6dcd6f85ab4c39
+      QUALIFIED_FORGE_SHA: 4e1894d7b03009a9796edd3a25e7a3e726466a64
+      QUALIFIED_RUN: '42424269438'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_NATIVE_TIMING: '0'
+      K_TERMINAL_P5_LATENCY: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+    steps:
+      - name: Checkout existing FORGE qualification branch without retained credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact qualified Windows regression receipt and one-shot delivery scope
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-rc2-timing-hosted-20261106' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'github-hosted'){throw 'DELIVERY_SCOPE_REFUSED'}
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA -or
+             (git rev-parse HEAD^).Trim() -cne $env:QUALIFIED_FORGE_SHA){throw 'DELIVERY_UNEXPECTED_WORKFLOW_PARENT'}
+          $files=@(git diff --name-only HEAD^ HEAD)
+          if($files.Count -ne 1 -or $files[0] -cne '.github/workflows/forge-kterminal-pr78-qualified-delivery-once.yml'){throw 'DELIVERY_SCOPE_CHANGED'}
+          if(git status --porcelain){throw 'DELIVERY_DIRTY_WORKTREE'}
+          $headers=@{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          $url='https://api.github.com/repos/spoonman136668-ai/FORGE/actions/runs/42424269438'
+          $qualified=Invoke-RestMethod -Uri $url -Headers $headers -Method Get
+          if($qualified.conclusion -cne 'success' -or $qualified.head_sha -cne $env:QUALIFIED_FORGE_SHA -or
+             $qualified.event -cne 'push' -or $qualified.head_branch -cne 'qualification/kterminal-rc2-timing-hosted-20261106'){
+            throw 'DELIVERY_PRIOR_QUALIFICATION_NOT_VERIFIED'
+          }
+          $jobs=Invoke-RestMethod -Uri ($url+'/jobs?per_page=100') -Headers $headers -Method Get
+          $passing=@($jobs.jobs | Where-Object{$_.name -ceq 'first-launch' -and $_.conclusion -ceq 'success'})
+          if($passing.Count -ne 1){throw 'DELIVERY_PRIOR_JOB_MISSING'}
+          $required=@('Verify exact private SHA and zero broker authority',
+            'Focused source-inactive fail-closed and exact-config Coinbase audit diagnostics',
+            'Mandatory full exact-head Windows regression and vet',
+            'Build private desktop and install only into ephemeral isolated folder',
+            'Actually start installed K-Terminal.exe and verify visible prelaunch window',
+            'Choose PAPER via native Windows UI Automation and verify the real dashboard')
+          foreach($name in $required){
+            if(@($passing[0].steps | Where-Object{$_.name -ceq $name -and $_.conclusion -ceq 'success'}).Count -ne 1){
+              throw 'DELIVERY_REQUIRED_QUALIFICATION_STEP_MISSING'
+            }
+          }
+          Write-Host 'KTERM_PR78_EXACT_HEAD_FULL_REGRESSION_REUSED=PASS;QUALIFIED_RUN=42424269438;NO_DUPLICATE_TESTS=TRUE'
+      - name: Checkout previously qualified private K-Terminal source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 957b917b22083f1ae03f35377c60b48b66b689a3
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Set up original pinned Windows Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify exact private SHA and zero broker authority
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
+          test -z "$(git status --porcelain)"
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test ! -e config.json
+          test ! -e .env
+          test ! -d data
+          go version | grep -F 'go1.26.5 windows/amd64' > /dev/null
+          for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK; do
+            if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR78_BROKER_AUTHORITY_REFUSED; exit 2; fi
+          done
+          echo KTERM_PR78_EXACT_SOURCE_DISARMED=PASS
+      - name: Build private desktop and install only into ephemeral isolated folder
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          $privateRoot=Join-Path $env:GITHUB_WORKSPACE 'kterminal-private'
+          $log=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-build-private.log'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'BUILD.ps1') *> $log
+          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_REBUILD_FAILED'}
+          $uiOut=Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-proof'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'verification\test-ui-runtime.ps1') -Root $privateRoot -OutputDirectory $uiOut *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-test-private.log')
+          if($LASTEXITCODE -ne 0){
+            $privateLog=Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-test-private.log'
+            $evidence=if([IO.File]::Exists($privateLog)){[IO.File]::ReadAllText($privateLog)}else{''}
+            $digest=if([IO.File]::Exists($privateLog)){(Get-FileHash -LiteralPath $privateLog -Algorithm SHA256).Hash.ToLowerInvariant()}else{'MISSING'}
+            $categories=[ordered]@{
+              SOURCE_MUTATED='(?i)(stale assembly was loaded|stale source|source hash|source drift)'
+              INVALID_HASH='(?i)(integrity check failed|corrupt UI assembly)'
+              REMOTE_ZONE='(?i)(not supported|0x80131515|loadfrom|remote|internet|zone)'
+              STREAM_UNSUPPORTED='(?i)(parameter.*stream|stream.*parameter|named.*stream)'
+              TYPE_LOAD='(?i)(unable to find type|type.*not found|could not load type)'
+              MARKUP='(?i)(markup|theme|prelaunch shading|button)'
+              ZONE_REGRESSION='(?i)(Internet-marked verified UI assembly failed)'
+              POWERSHELL_SYNTAX='(?i)(ParserError|ParseException|UnexpectedToken)'
+              FILE_ACCESS='(?i)(Access to the path|access denied|UnauthorizedAccessException)'
+              FILE_MISSING='(?i)(cannot find path|not found|FileNotFoundException)'
+            }
+            $classes=@($categories.Keys|Where-Object{$evidence-match$categories[$_]})
+            if($classes.Count-eq0){$classes=@('UNCLASSIFIED')}
+            Write-Host ('KTERM_PR78_UI_TEST_PRIVATE_LOG_SHA256='+$digest)
+            Write-Host ('KTERM_PR78_UI_TEST_FAILURE_CLASSES='+($classes -join ','))
+            $scriptLines=[regex]::Matches($evidence,'(?i)test-ui-runtime\.ps1:(\d{1,3})')
+            $lineNos=@($scriptLines|ForEach-Object{[int]$_.Groups[1].Value}|Sort-Object -Unique)
+            Write-Host ('KTERM_PR78_UI_TEST_SCRIPT_LINES='+($lineNos -join ','))
+            throw 'KTERM_PR78_DOWNLOADED_DLL_REGRESSION_FAILED'
+          }
+          $stage=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package'
+          $zip=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-private.zip'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $privateRoot 'verification\package-first-install.ps1') -SourceRoot $privateRoot -StageDirectory $stage -ZipPath $zip *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_PACKAGING_FAILED'}
+          $extracted=Join-Path $env:RUNNER_TEMP 'kterm-pr78-extracted-from-zip'
+          Expand-Archive -LiteralPath $zip -DestinationPath $extracted -ErrorAction Stop
+          $sourceDLL=Join-Path $extracted 'KTerminal.UI.dll'
+          Set-Content -LiteralPath $sourceDLL -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" -ErrorAction Stop
+          if($null-eq(Get-Item -LiteralPath $sourceDLL -Stream Zone.Identifier -ErrorAction Stop)){throw 'KTERM_PR78_ZONE_FIXTURE_MISSING'}
+          $target=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $extracted 'INSTALL-KTerminal.ps1') -SourceRoot $extracted -Destination $target -NoLaunch *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-install-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_INSTALL_FAILED'}
+          if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_PR78_STARTUP_UNEXPECTED_CONFIG'}
+          $installedDll=Join-Path $target 'KTerminal.UI.dll'
+          $manifest=Get-Content -LiteralPath (Join-Path $target 'ui-runtime-manifest.json') -Raw | ConvertFrom-Json
+          if((Get-FileHash -LiteralPath $installedDll -Algorithm SHA256).Hash.ToLowerInvariant()-cne[string]$manifest.sha256){throw 'KTERM_PR78_INSTALLED_UI_HASH_INVALID'}
+          # Reapply an Internet zone after installation: the runtime loader must
+          # still recover, even when a user runs the extracted app directly.
+          Set-Content -LiteralPath $installedDll -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" -ErrorAction Stop
+          Write-Host 'KTERM_PR78_REBUILT_FRESH_INSTALL=PASS;LIVE_ORDERS=0'
+      - name: Encrypt qualified private installer; upload ciphertext only
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          $zip=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-private.zip'
+          if(-not[IO.File]::Exists($zip)){throw 'KTERM_PR78_PRIVATE_ZIP_NOT_FOUND'}
+          $key=[byte[]]::new(32)
+          $nonce=[byte[]]::new(12)
+          [Security.Cryptography.RandomNumberGenerator]::Fill($key)
+          [Security.Cryptography.RandomNumberGenerator]::Fill($nonce)
+          $publicDer=[Convert]::FromBase64String('MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAmGzhByLF+VHdcl6lbCAMZHyrTbD8QPjxN+t9WvFyuEubJqpQNd5gJc2W1d1iI3Bp+u5rdFzeglBCiUssGQdlVuUEiAkPg8IzClVRz7Gw1Aq8WQLdwj74QC3F9XbBGKIHSY83EQXl3RVCxPdOFH3b3x+OJaUj92Wx7RvDJLjyLVcOS04EcLkXvr4J0Aegxe2o7sw5QrbXh3RmJeNMJkqgsxZ05D8wctn4CsAguNNbLmQ1W+sAxlAvOjoif5YZtBvPSvmmUCxOgG5znJvS8GP0jTrgkXy/SGjrGGyMRLSz1fULtbXfNruwOYoM4AsEQQWRHaIKVaWVzfK1fkNBtkDXH7PV9q/urXVPmxCmTSwVuNZfNqLu/41NlhF77YpT8cLwZ5jp2bCoxZjQ+AKTzH15LeEj6c5JMxj1d2quQm8KIIiaXul0hJrNTZoDXn9DPRwK/lsPZ7pt1cw8xmeuNR8jk04izn+MolRhRst740otaW1lva1RbDm1Ok7N6U3GjeQFAgMBAAE=')
+          $rsa=[Security.Cryptography.RSA]::Create()
+          try {
+            $read=0
+            $rsa.ImportSubjectPublicKeyInfo($publicDer,[ref]$read)
+            if($read-ne$publicDer.Length){throw 'KTERM_PR78_PUBLIC_KEY_PARSE_FAILED'}
+            $wrapped=$rsa.Encrypt($key,[Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
+          } finally { $rsa.Dispose() }
+          if($wrapped.Length-ne384){throw 'KTERM_PR78_WRAPPED_KEY_LENGTH_INVALID'}
+          $plaintext=[IO.File]::ReadAllBytes($zip)
+          $cipher=[byte[]]::new($plaintext.Length)
+          $tag=[byte[]]::new(16)
+          $aes=[Security.Cryptography.AesGcm]::new($key,16)
+          try{ $aes.Encrypt($nonce,$plaintext,$cipher,$tag) }finally{ $aes.Dispose() }
+          $dest=Join-Path $env:RUNNER_TEMP 'kterm-pr78-ciphertext-only'
+          $null=[IO.Directory]::CreateDirectory($dest)
+          $encrypted=Join-Path $dest 'KTerminal-PR78.ktenc'
+          $out=[IO.File]::Open($encrypted,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+          try {
+            $magic=[Text.Encoding]::ASCII.GetBytes('KTERMENC')
+            $out.Write($magic,0,$magic.Length)
+            $count=[BitConverter]::GetBytes([int]$wrapped.Length)
+            $out.Write($count,0,4)
+            $out.Write($wrapped,0,$wrapped.Length)
+            $out.Write($nonce,0,$nonce.Length)
+            $out.Write($tag,0,$tag.Length)
+            $out.Write($cipher,0,$cipher.Length)
+          } finally {$out.Dispose()}
+          [Array]::Clear($key,0,$key.Length)
+          [Array]::Clear($plaintext,0,$plaintext.Length)
+          if((Get-Item -LiteralPath $encrypted).Length-le424){throw 'KTERM_PR78_ENCRYPTED_PACKAGE_INVALID'}
+          Write-Host 'KTERM_PR78_PRIVATE_PACKAGE_RSA_OAEP_AES256_GCM=PASS;UNENCRYPTED_ARTIFACT_UPLOADS=0'
+      - name: Upload encrypted private installer only; short-lived ciphertext artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterminal-pr78-ciphertext-only-${{ github.sha }}
+          path: ${{ runner.temp }}/kterm-pr78-ciphertext-only/KTerminal-PR78.ktenc
+          retention-days: 1
+          if-no-files-found: error
+      - name: Write sanitized first-launch disposition only
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo KTERM_PR78_STARTUP_PROBE_FINISHED
+          echo KTERM_SOURCE_SHA="$KTERM_SHA"
+          echo QUALIFIED_SOURCE_RUN="$QUALIFIED_RUN"
+          echo KTERM_LIVE_ORDERS=0
+          echo KTERM_PRIVATE_LOGS_AND_BINARIES_NOT_PUBLISHED
