@@ -14,10 +14,10 @@ jobs:
     timeout-minutes: 110
     env:
       FORGE_BASE: 64564eda2fb9d479dd936a1420f206d22e422e50
-      KTERM_SHA: d55e5a302d18ff201f169421904b5569dbb105f7
-      KTERM_TREE: c3225a6f15299ac4460ca0a831c4b68c8e1a3cd0
+      KTERM_SHA: 6e8815212151256f3c0caa1564e1c163c6b96a52
+      KTERM_TREE: f7599360358a9f6f991a9544d97f05755fd5ea1a
       QUALIFIED_RUN: 'PENDING_THIS_SHA'
-      QUALIFIED_FORGE_SHA: e83212814cc936d44d68a9f42e6633a0910ffcd3
+      QUALIFIED_FORGE_SHA: 65202e89ccb2b5cec5b5dae9c8fb88c1726b083d
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_NATIVE_TIMING: '0'
       K_TERMINAL_P5_LATENCY: '0'
@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: d55e5a302d18ff201f169421904b5569dbb105f7
+          ref: 6e8815212151256f3c0caa1564e1c163c6b96a52
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           private_log="$RUNNER_TEMP/kterm-pr78-broker-display-focused-private.log"
-          if ! go test -p 1 -count=1 -timeout 15m -run '^(TestUnarmed|TestCoinbaseCold|TestCoinbaseLegacy|TestLegacyObservation|TestBrokerHistory|TestBrokerOnlyAudit|TestUnarmedBrokerAudit|TestNativeStableClientID|TestBrokerLots|TestPortableSellAllocation)' ./pkg > "$private_log" 2>&1; then
+          if ! go test -p 1 -count=1 -timeout 15m -run '^(TestUnarmed|TestCoinbaseCold|TestCoinbaseLegacy|TestLegacyObservation|TestBrokerHistory|TestBrokerOnlyAudit|TestUnarmedBrokerAudit|TestNativeStableClientID|TestBrokerLots|TestPortableSellAllocation|TestPortableSellReplay|TestPortableScopedSell|TestCoinbaseColdHistoryPortable)' ./pkg > "$private_log" 2>&1; then
             echo KTERM_PR78_FOCUSED_FAILURE_DIAGNOSTIC_BEGIN
             grep -E '^(# |--- FAIL:|FAIL|panic:)|\\.go:[0-9]+(:[0-9]+)?:|Error: ' "$private_log" | head -50 || true
             echo KTERM_PR78_FOCUSED_FAILURE_DIAGNOSTIC_END
@@ -103,8 +103,20 @@ jobs:
           export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
           export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
           export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
-          go test -p 1 -count=1 -timeout 60m ./... > "$RUNNER_TEMP/kterm-pr78-broker-display-full-private.log" 2>&1
-          go vet ./... > "$RUNNER_TEMP/kterm-pr78-broker-display-vet-private.log" 2>&1
+          regression_log="$RUNNER_TEMP/kterm-pr78-broker-display-full-private.log"
+          if ! go test -p 1 -count=1 -timeout 60m ./... > "$regression_log" 2>&1; then
+            echo KTERM_PR78_FULL_FAILURE_SUMMARY_BEGIN
+            grep -E '^(--- FAIL:|FAIL|panic:|fatal error:|# k-terminal)' "$regression_log" | head -60 || true
+            echo KTERM_PR78_FULL_FAILURE_SUMMARY_END
+            exit 1
+          fi
+          vet_log="$RUNNER_TEMP/kterm-pr78-broker-display-vet-private.log"
+          if ! go vet ./... > "$vet_log" 2>&1; then
+            echo KTERM_PR78_VET_FAILURE_SUMMARY_BEGIN
+            grep -E '(go:|\.go:[0-9]+|# k-terminal)' "$vet_log" | head -35 || true
+            echo KTERM_PR78_VET_FAILURE_SUMMARY_END
+            exit 1
+          fi
           echo KTERM_PR78_BROKER_OBSERVER_FULL_REGRESSION_VET=PASS
       - name: Build private desktop and install only into ephemeral isolated folder
         shell: pwsh
