@@ -1,0 +1,302 @@
+name: K Terminal PR83 original V2 reader first-page source classification
+on:
+  push:
+    branches: [qualification/kterminal-v3-fill-report-20261108]
+    paths: [.github/workflows/forge-kterminal-pr83-v2-native-classify-20261108.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr83-v2-native-650e49ab
+  cancel-in-progress: false
+jobs:
+  approved-getonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      KTERM_SHA: c5b3757f4cabbf2db3ac2879168ecc8c5660787a
+      KTERM_TREE: 650e49abfc321715d30b0d69fb013d1c693901c7
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOENV: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: -p=1
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Enforce existing scoped runner and authorized local credential file
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-v3-fill-report-20261108' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows'){throw 'KTERM_GETONLY_RUNNER_SCOPE_REFUSED'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_GETONLY_AMBIENT_CREDENTIAL_REFUSED'}
+          }
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_GETONLY_ACTIVE_K_TERMINAL_REFUSED'
+          }
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          if($profilePath -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
+             $profilePath -match '(?i)\\(public|default|systemprofile)$'){
+            throw 'KTERM_GETONLY_OWNER_PROFILE_REFUSED'
+          }
+          # Previously approved local credential source, read only. No KTRADE executable
+          # or source is used, and no secret can be emitted to the workflow log.
+          $credential=Join-Path $profilePath 'GolandProjects\ktrade\.env'
+          if(-not(Test-Path -LiteralPath $credential -PathType Leaf)){
+            throw 'KTERM_GETONLY_APPROVED_CREDENTIAL_FILE_UNAVAILABLE'
+          }
+          if((Get-Item -LiteralPath $credential -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){
+            throw 'KTERM_GETONLY_CREDENTIAL_LINK_REFUSED'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-v2-native-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_GETONLY_NONFRESH_SCRATCH'}
+          [void][IO.Directory]::CreateDirectory($root)
+          Add-Content -Path $env:GITHUB_ENV -Value ('KTERM_READONLY_CREDENTIAL_FILE='+$credential)
+          Write-Host 'KTERM_GETONLY_APPROVED_CREDENTIAL_SOURCE=PASS;NO_SECRETS_COPIED=TRUE'
+      - name: Stage original exact private source with existing local access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-v2-native-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          [void][IO.Directory]::CreateDirectory($stage)
+          & git -C $stage init -q *> (Join-Path $root 'private-init.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_GIT_INIT_FAILED'}
+          $src='https://github.com/Kboomllc/K-Terminal.git'
+          $cached=Join-Path $env:PUBLIC 'KTerminal'
+          if(Test-Path -LiteralPath $cached -PathType Container){
+            $tree=''
+            try{$tree=(& git -C $cached rev-parse ($env:KTERM_SHA+'^{tree}') 2>$null|Out-String).Trim()}catch{$tree=''}
+            if($LASTEXITCODE -eq 0 -and $tree -ceq $env:KTERM_TREE){$src=$cached}
+          }
+          # A source-only GET can fail transiently after a preceding owner
+          # build succeeds. Retry this exact SHA at most three times; no
+          # branch/ref changes, credential copying, or source substitutions.
+          $fetched=$false
+          for($attempt=1;$attempt -le 3;$attempt++){
+            $privateLog=Join-Path $root ('private-fetch-'+$attempt+'.log')
+            & git -C $stage fetch -q --no-tags --depth=1 $src $env:KTERM_SHA *> $privateLog
+            if($LASTEXITCODE -eq 0){$fetched=$true;break}
+            if($attempt -lt 3){Start-Sleep -Seconds (2*$attempt)}
+          }
+          if(-not $fetched){throw 'KTERM_GETONLY_PRIVATE_SOURCE_UNAVAILABLE_AFTER_BOUNDED_RETRY'}
+          & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'private-checkout.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_CHECKOUT_FAILED'}
+          $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          if($sha -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
+             @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_GETONLY_PRIVATE_SOURCE_DRIFT'}
+          Write-Host 'KTERM_GETONLY_EXACT_KTERMINAL_SOURCE=PASS'
+      - name: Pinned Go compiler
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Original K Terminal V2 account reader and transaction classification (GET only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_GETONLY_TOOLCHAIN_DRIFT'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-v2-native-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          $test=Join-Path $stage 'pkg\kterminal_approved_v2_native_test.go'
+          if(Test-Path -LiteralPath $test){throw 'KTERM_GETONLY_TEST_COLLISION'}
+          $code=@'
+          package pkg
+
+          import (
+            "context"
+            "fmt"
+            "net/http"
+            "net/url"
+            "os"
+            "strings"
+            "sync/atomic"
+            "testing"
+            "time"
+            "github.com/google/uuid"
+          )
+
+          // Explicitly approved one-page scope:
+          // at most two v3 account/permission preflight GET attempts and ONE
+          // exact v2 BTC account transaction first-page GET. A network error
+          // does not permit another history request or alternate API path.
+          type firstPageGETFence struct {
+            attempts atomic.Int64
+            preflight atomic.Int64
+            historical atomic.Int64
+            historyPath string
+          }
+          func (f *firstPageGETFence) RoundTrip(req *http.Request)(*http.Response,error){
+            if req.Method!=http.MethodGet || req.URL.Scheme!="https" ||
+              req.URL.Host!="api.coinbase.com" || req.URL.User!=nil ||
+              req.Header.Get("Authorization")=="" {
+              return nil,fmt.Errorf("fenced Coinbase GET method/host/auth denied")
+            }
+            p:=req.URL.EscapedPath()
+            switch {
+            case p=="/api/v3/brokerage/accounts" || p=="/api/v3/brokerage/key_permissions":
+              if f.preflight.Add(1)>2 {return nil,fmt.Errorf("preflight GET cap exceeded")}
+            case f.historyPath!="" && p==f.historyPath && req.URL.RawQuery=="limit=100&order=desc":
+              if f.historical.Add(1)>1 {return nil,fmt.Errorf("history GET cap exceeded")}
+            default:
+              return nil,fmt.Errorf("Coinbase endpoint outside one-page approval")
+            }
+            if f.attempts.Add(1)>3 {return nil,fmt.Errorf("total GET cap exceeded")}
+            return http.DefaultTransport.RoundTrip(req)
+          }
+
+          func approvedEnv(lines []string,keys ...string) string {
+            for _,key:=range keys {
+              for _,line:=range lines {
+                line=strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line),"export "))
+                if line==""||strings.HasPrefix(line,"#"){continue}
+                k,v,ok:=strings.Cut(line,"="); if !ok||strings.TrimSpace(k)!=key{continue}
+                v=strings.TrimSpace(v)
+                if len(v)>=2 && ((v[0]=='"'&&v[len(v)-1]=='"')||(v[0]==39&&v[len(v)-1]==39)){v=v[1:len(v)-1]}
+                return strings.TrimSpace(strings.ReplaceAll(v,"\\n","\n"))
+              }
+            }
+            return ""
+          }
+          func TestApprovedKTerminalV2NativeHistoryClassification(t *testing.T){
+            if os.Getenv("K_TERMINAL_EXECUTION_MODE")!="PAPER" {
+              t.Fatal("KTERM_V2_FIRSTPAGE_NOT_DISARMED")
+            }
+            raw,err:=os.ReadFile(os.Getenv("KTERM_READONLY_CREDENTIAL_FILE"))
+            if err!=nil {t.Fatal("KTERM_V2_FIRSTPAGE_CREDENTIAL_SOURCE_UNAVAILABLE")}
+            lines:=strings.Split(string(raw),"\n")
+            if approvedEnv(lines,"KTRADE_LIVE_TRADING")!="false" {
+              t.Fatal("KTERM_V2_FIRSTPAGE_CREDENTIAL_SOURCE_NOT_DISARMED")
+            }
+            key:=approvedEnv(lines,"CDP_API_KEY_NAME","COINBASE_API_KEY_NAME","COINBASE_KEY_NAME","COINBASE_API_KEY","CDP_KEY_NAME")
+            secret:=approvedEnv(lines,"CDP_API_KEY_PRIVATE_KEY","COINBASE_API_KEY_PRIVATE_KEY","COINBASE_API_KEY_SECRET","COINBASE_API_SECRET","COINBASE_KEY_SECRET","CDP_API_KEY_SECRET","COINBASE_PRIVATE_KEY")
+            if key==""||secret==""{t.Fatal("KTERM_V2_FIRSTPAGE_CREDENTIAL_FIELDS_UNAVAILABLE")}
+            ctx,cancel:=context.WithTimeout(context.Background(),35*time.Second);defer cancel()
+            fence:=&firstPageGETFence{}
+            auth:=NewReadOnlyAuthenticator(key,secret)
+            auth.readContext=ctx
+            auth.readTransport=fence
+            permissions,err:=NewAdvancedOrderManager(auth,"",nil).migrationPermissions()
+            if err!=nil || !permissions.CanView || strings.TrimSpace(permissions.PortfolioUUID)=="" {
+              fmt.Printf("KTERM_V2_NATIVE=INCOMPLETE_PERMISSION_SCOPE;GET=%d;V2_GET=0;BROKER_WRITES=0\n",fence.attempts.Load())
+              return
+            }
+            quoteID:=approvedEnv(lines,"COINBASE_ACCOUNT_ID")
+            anchor,err:=NewBalanceChecker(auth,quoteID).historicalPnLAccountAnchor("BTC")
+            if err!=nil || len(anchor.accountIDs)!=1 ||
+              !strings.EqualFold(anchor.portfolioID,permissions.PortfolioUUID) {
+              fmt.Printf("KTERM_V2_NATIVE=INCOMPLETE_ACCOUNT_OR_PORTFOLIO_SCOPE;GET=%d;V2_GET=0;BROKER_WRITES=0\n",fence.attempts.Load())
+              return
+            }
+            accountID,err:=uuid.Parse(anchor.accountIDs[0])
+            if err!=nil || accountID==uuid.Nil {
+              fmt.Printf("KTERM_V2_NATIVE=INCOMPLETE_BTC_ACCOUNT_ID;GET=%d;V2_GET=0;BROKER_WRITES=0\n",fence.attempts.Load())
+              return
+            }
+            // Permit only the exact V3-authenticated, portfolio-scoped BTC
+            // account. No raw account UUID, transaction, JWT or response text
+            // enters the CI log. No pagination follows this first page.
+            path:="/v2/accounts/"+url.PathEscape(accountID.String())+"/transactions"
+            fence.historyPath=path
+            // Exercise the ORIGINAL K Terminal source reader instead of a
+            // duplicate HTTP parser. Its pagination, JWT and event conversion
+            // are the subject of this diagnostic. One-page fetch fence refuses
+            // another network page (current approved scope is a single page).
+            started:=time.Now()
+            original:=NewBalanceChecker(auth,quoteID)
+            rows,readErr:=original.listAccountTransactions(accountID.String(),time.Time{})
+            if readErr!=nil {
+              kind:="INCOMPLETE_NATIVE_READER"
+              if fence.historical.Load()>1 {kind="INCOMPLETE_HISTORY_PAGE_CAP"}
+              fmt.Printf("KTERM_V2_NATIVE=%s;GET=%d;V2_GET=%d;DURATION_MS=%d;LOT_OWNERSHIP=UNKNOWN;TP_OWNER=UNVERIFIED;BROKER_WRITES=0\n",
+                kind,fence.attempts.Load(),fence.historical.Load(),time.Since(started).Milliseconds())
+              return
+            }
+            if fence.historical.Load()!=1 || fence.preflight.Load()>2 ||
+               fence.attempts.Load()>3 || len(rows)>coinbaseTransactionPageSize {
+              t.Fatal("KTERM_V2_NATIVE_EXCEEDED_SINGLE_PAGE_SCOPE")
+            }
+            // The full unredacted source stays private in memory. Classification
+            // uses K Terminal's existing source-event converter, not local lots.
+            allowedAccounts:=map[string]struct{}{accountID.String():struct{}{}}
+            complete,advanced,nonTradeIn,nonTradeOut,excluded,unmapped:=0,0,0,0,0,0
+            unique:=map[string]bool{}
+            records:=make([]realizedPnLRecord,0,len(rows))
+            for _,row:=range rows {
+              if strings.EqualFold(row.Status,"completed"){complete++}
+              if row.ID=="" || unique[row.ID]{
+                t.Fatal("KTERM_V2_NATIVE_INCOMPLETE_OR_DUPLICATED_TRANSACTION_ID")
+              }
+              unique[row.ID]=true
+              record,ok:=row.performanceRecordWithAccounts("BTC",allowedAccounts)
+              if !ok {excluded++;continue}
+              if record.Quantity<=0 || record.TradeTime.IsZero() ||
+                record.Acquisition==record.Disposition || record.ID=="" {
+                unmapped++;continue
+              }
+              records=append(records,record)
+              if row.AdvancedTradeFill!=nil {advanced++} else if record.Acquisition {
+                nonTradeIn++
+              }else {nonTradeOut++}
+            }
+            if unmapped>0 {t.Fatal("KTERM_V2_NATIVE_AMBIGUOUS_POSITIVE_RECORD")}
+            // Private timestamps/order IDs are never serialized, logged or
+            // reused as workstation-owned lot identities.
+            fmt.Printf("KTERM_V2_NATIVE=READABLE_CLASSIFIED;RAW_RECORDS=%d;COMPLETED=%d;ADVANCED_TRADE=%d;NONTRADE_IN=%d;NONTRADE_OUT=%d;EXCLUDED=%d;MAPPED=%d;GET=%d;V2_GET=%d;DURATION_MS=%d;ALLTIME_COVERAGE=UNVERIFIED;EXACT_BUY_REMAINDERS=UNKNOWN;TP_OWNER=UNVERIFIED;BROKER_WRITES=0\n",
+              len(rows),complete,advanced,nonTradeIn,nonTradeOut,excluded,len(records),
+              fence.attempts.Load(),fence.historical.Load(),time.Since(started).Milliseconds())
+          }
+          
+          '@
+          [IO.File]::WriteAllText($test,$code,[Text.UTF8Encoding]::new($false))
+          $env:GOCACHE=Join-Path $root 'go-cache'
+          $env:GOMODCACHE=Join-Path $root 'go-modules'
+          Push-Location $stage
+          try{
+            & go test -p 1 -count=1 -timeout 4m -v '-run=^TestApprovedKTerminalV2NativeHistoryClassification$' ./pkg 2>&1 |
+              ForEach-Object{
+                $line=[string]$_
+                if($line -match 'kterminal_approved_v2_firstpage_test\.go:[0-9]+:[0-9]+: (.*)'){
+                  $diagnostic=[string]$Matches[1]
+                  if($diagnostic.Length -gt 180){$diagnostic=$diagnostic.Substring(0,180)}
+                  Write-Host ('KTERM_GETONLY_HARNESS_COMPILE_DIAGNOSTIC='+$diagnostic)
+                }
+                if($line -match 'KTERM_V2_NATIVE=' -or
+                   $line -match 'KTERM_V3_FILLS=' -or $line -match 'KTERM_V3_.*(UNAVAILABLE|MISMATCH|UNVERIFIED)' -or
+                   $line -match 'KTERM_SCOPE_STAGE=' -or $line -match 'KTERM_SCOPE_.*(REFUSED|MISMATCH|UNAVAILABLE)' -or
+                   $line -match 'KTERM_GETONLY_ACCOUNT_LOOKUP=' -or $line -match 'KTERM_GETONLY_COLD_HISTORY=' -or
+                   $line -match 'KTERM_GETONLY_.*(UNVERIFIED|UNAVAILABLE|REFUSED)' -or
+                   $line -match '^ok\s' -or $line -match '^FAIL(\s|$)'){Write-Host $line}
+              }
+            if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_ORIGINAL_SOURCE_PROBE_FAILED'}
+          }finally{Pop-Location}
+          Write-Host 'KTERM_V2_NATIVE_GETONLY_SCOPE=PASS;LIVE_ORDERS=0;KTRADE_CODE_RUN=FALSE'
+      - name: Clean disposable source, leave both original applications unchanged
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-v2-native-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){
+            $resolved=[IO.Path]::GetFullPath($root)
+            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+            if(-not $resolved.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
+               [IO.Path]::GetFileName($resolved) -cne ('kterm-pr83-v2-native-'+$env:GITHUB_RUN_ID)){
+              throw 'KTERM_GETONLY_CLEANUP_SCOPE_REFUSED'
+            }
+            Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_GETONLY_SCRATCH_CLEAN=PASS;ORIGINAL_APP_STATE_UNCHANGED=TRUE'
