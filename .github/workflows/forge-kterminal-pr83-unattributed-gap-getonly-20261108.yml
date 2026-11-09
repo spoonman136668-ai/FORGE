@@ -1,0 +1,402 @@
+name: K Terminal PR83 exact-source GET-only unaffiliated inventory residual
+on:
+  push:
+    branches: [qualification/kterminal-v3-fill-report-20261108]
+    paths: [.github/workflows/forge-kterminal-pr83-unattributed-gap-getonly-20261108.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr83-unattributed-inventory-df089911
+  cancel-in-progress: false
+jobs:
+  approved-getonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      KTERM_SHA: a6126b381a82bca15e912012f6a95d73913273c1
+      KTERM_TREE: df08991194a1050370e31afb05cb7eb572a6fc09
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOENV: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: -p=1
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Enforce existing scoped runner and authorized local credential file
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-v3-fill-report-20261108' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows'){throw 'KTERM_GETONLY_RUNNER_SCOPE_REFUSED'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_GETONLY_AMBIENT_CREDENTIAL_REFUSED'}
+          }
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_GETONLY_ACTIVE_K_TERMINAL_REFUSED'
+          }
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          if($profilePath -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
+             $profilePath -match '(?i)\\(public|default|systemprofile)$'){
+            throw 'KTERM_GETONLY_OWNER_PROFILE_REFUSED'
+          }
+          # Previously approved local credential source, read only. No KTRADE executable
+          # or source is used, and no secret can be emitted to the workflow log.
+          $credential=Join-Path $profilePath 'GolandProjects\ktrade\.env'
+          if(-not(Test-Path -LiteralPath $credential -PathType Leaf)){
+            throw 'KTERM_GETONLY_APPROVED_CREDENTIAL_FILE_UNAVAILABLE'
+          }
+          if((Get-Item -LiteralPath $credential -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){
+            throw 'KTERM_GETONLY_CREDENTIAL_LINK_REFUSED'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-gap-getonly-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_GETONLY_NONFRESH_SCRATCH'}
+          [void][IO.Directory]::CreateDirectory($root)
+          Add-Content -Path $env:GITHUB_ENV -Value ('KTERM_READONLY_CREDENTIAL_FILE='+$credential)
+          Write-Host 'KTERM_GETONLY_APPROVED_CREDENTIAL_SOURCE=PASS;NO_SECRETS_COPIED=TRUE'
+      - name: Stage original exact private source with existing local access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-gap-getonly-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          [void][IO.Directory]::CreateDirectory($stage)
+          & git -C $stage init -q *> (Join-Path $root 'private-init.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_GIT_INIT_FAILED'}
+          $src='https://github.com/Kboomllc/K-Terminal.git'
+          $cached=Join-Path $env:PUBLIC 'KTerminal'
+          if(Test-Path -LiteralPath $cached -PathType Container){
+            $tree=''
+            try{$tree=(& git -C $cached rev-parse ($env:KTERM_SHA+'^{tree}') 2>$null|Out-String).Trim()}catch{$tree=''}
+            if($LASTEXITCODE -eq 0 -and $tree -ceq $env:KTERM_TREE){$src=$cached}
+          }
+          & git -C $stage fetch -q --no-tags --depth=1 $src $env:KTERM_SHA *> (Join-Path $root 'private-fetch.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_PRIVATE_SOURCE_UNAVAILABLE'}
+          & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'private-checkout.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_CHECKOUT_FAILED'}
+          $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          if($sha -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
+             @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_GETONLY_PRIVATE_SOURCE_DRIFT'}
+          Write-Host 'KTERM_GETONLY_EXACT_KTERMINAL_SOURCE=PASS'
+      - name: Pinned Go compiler
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: One bounded authenticated GET-only account and cold-history probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_GETONLY_TOOLCHAIN_DRIFT'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-gap-getonly-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          $test=Join-Path $stage 'pkg\kterminal_approved_source_getonly_test.go'
+          if(Test-Path -LiteralPath $test){throw 'KTERM_GETONLY_TEST_COLLISION'}
+          $code=@'
+          package pkg
+          import ("context";"errors";"fmt";"math/big";"net/http";"os";"strings";"sync/atomic";"testing";"time")
+          type approvedGETBudget struct { attempts atomic.Int64; accounts atomic.Int64; permissions atomic.Int64; fills atomic.Int64; batch atomic.Int64; exact atomic.Int64; other atomic.Int64 }
+          var approvedBudgetCap=errors.New("GET_BUDGET_CAP")
+          func (b *approvedGETBudget) RoundTrip(r *http.Request)(*http.Response,error){
+            if r.Method!="GET"||r.URL.Scheme!="https"||r.URL.Host!="api.coinbase.com"||
+               !strings.HasPrefix(r.URL.EscapedPath(),"/api/v3/brokerage/"){
+              return nil,errors.New("GET_ONLY_SCOPE_DENIED")
+            }
+            if b.attempts.Add(1)>64{return nil,approvedBudgetCap}
+            path:=r.URL.EscapedPath()
+            switch {
+            case strings.Contains(path,"/orders/historical/fills"):b.fills.Add(1)
+            case strings.Contains(path,"/orders/historical/batch"):b.batch.Add(1)
+            case strings.Contains(path,"/orders/historical/"):b.exact.Add(1)
+            case strings.Contains(path,"/key_permissions"):b.permissions.Add(1)
+            case strings.Contains(path,"/accounts"):b.accounts.Add(1)
+            default:b.other.Add(1)
+            }
+            return http.DefaultTransport.RoundTrip(r)
+          }
+          func approvedEnv(lines []string,keys ...string)string{
+            for _,key:=range keys{
+              for _,line:=range lines{
+                line=strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line),"export "))
+                if line==""||strings.HasPrefix(line,"#"){continue}
+                k,v,ok:=strings.Cut(line,"=");if !ok||strings.TrimSpace(k)!=key{continue}
+                v=strings.TrimSpace(v)
+                if len(v)>=2&&((v[0]==34&&v[len(v)-1]==34)||(v[0]==39&&v[len(v)-1]==39)){v=v[1:len(v)-1]}
+                return strings.TrimSpace(strings.ReplaceAll(v,"\\n","\n"))
+              }
+            }
+            return ""
+          }
+          func approvedHistoryFailureClass(err error,proof CoinbaseColdHistoryProof)string{
+            if err==nil {
+              switch proof.Reason {
+              case "Coinbase account/portfolio anchor not proven":return "INCOMPLETE_ACCOUNT_ANCHOR"
+              case "Coinbase account quantities changed during reconstruction":return "INCOMPLETE_MOVING_ACCOUNT_BALANCE"
+              case "full order/fill portfolio scope not proven":return "INCOMPLETE_ORDER_FILL_SCOPE"
+              case "Coinbase economic history verified but exact inventory grouping is incomplete":return "INCOMPLETE_LOT_REPLAY"
+              default:return "INCOMPLETE_PROOF_REJECTED"
+              }
+            }
+            s:=strings.ToLower(err.Error())
+            switch {
+            case strings.Contains(s,"status 401")||strings.Contains(s,"http 401"):return "INCOMPLETE_HTTP_AUTH_401"
+            case strings.Contains(s,"status 403")||strings.Contains(s,"http 403"):return "INCOMPLETE_HTTP_PERMISSIONS_403"
+            case strings.Contains(s,"status 429")||strings.Contains(s,"http 429"):return "INCOMPLETE_HTTP_RATE_LIMIT_429"
+            case strings.Contains(s,"working portfolio has no scoped"):return "INCOMPLETE_ASSET_ACCOUNT_ABSENT"
+            case strings.Contains(s,"account scope")||strings.Contains(s,"asset account"):return "INCOMPLETE_ACCOUNT_SCOPE"
+            case strings.Contains(s,"historical portfolio permissions"):return "INCOMPLETE_PORTFOLIO_PERMISSION"
+            case strings.Contains(s,"portfolio"):return "INCOMPLETE_PORTFOLIO_SCOPE"
+            case strings.Contains(s,"historical order proof http"):return "INCOMPLETE_ORDER_BATCH_HTTP_NON200"
+            case strings.Contains(s,"historical order proof coverage is incomplete"):return "INCOMPLETE_ORDER_BATCH_COVERAGE"
+            case strings.Contains(s,"historical order proof identity is incomplete"):return "INCOMPLETE_ORDER_BATCH_MISSING_FIELDS"
+            case strings.Contains(s,"historical order proof pagination"):return "INCOMPLETE_ORDER_BATCH_PAGINATION"
+            case strings.Contains(s,"historical order proof page budget"):return "INCOMPLETE_ORDER_BATCH_PAGE_LIMIT"
+            case strings.Contains(s,"conflicting duplicate historical order"):return "INCOMPLETE_ORDER_DUPLICATE_CONFLICT"
+            case strings.Contains(s,"historical exact order"):return "INCOMPLETE_EXACT_ORDER_PROOF"
+            case strings.Contains(s,"historical order")&&strings.Contains(s,"scope"):return "INCOMPLETE_FILL_ORDER_SCOPE"
+            case strings.Contains(s,"historical order")&&strings.Contains(s,"identity"):return "INCOMPLETE_FILL_ORDER_IDENTITY"
+            case strings.Contains(s,"historical order")&&strings.Contains(s,"unavailable"):return "INCOMPLETE_ORDER_SOURCE_UNAVAILABLE"
+            case strings.Contains(s,"order"):return "INCOMPLETE_ORDER_SCOPE"
+            case strings.Contains(s,"fill")||strings.Contains(s,"transaction"):return "INCOMPLETE_FILL_TRANSACTION_SCOPE"
+            case strings.Contains(s,"pagination")||strings.Contains(s,"cursor"):return "INCOMPLETE_PAGINATION"
+            case strings.Contains(s,"account"):return "INCOMPLETE_ACCOUNT_READ"
+            default:return "INCOMPLETE_OTHER_SOURCE_READ"
+            }
+          }
+          func approvedBoundedCount(v int64)int64{if v>64{return 64};return v}
+          // One exact-source diagnostic through each ORIGINAL verification function.
+          // Keep all exchange errors and identifiers private: emit fixed categories only.
+          func approvedScopeFailureClass(err error,ctx context.Context)string{
+            if err==nil{return "NONE"}
+            if errors.Is(err,approvedBudgetCap){return "GET_CAP"}
+            if errors.Is(ctx.Err(),context.DeadlineExceeded){return "TIMEOUT"}
+            s:=strings.ToLower(err.Error())
+            switch {
+            case strings.Contains(s,"http 400")||strings.Contains(s,"status 400"):return "HTTP_400"
+            case strings.Contains(s,"http 401")||strings.Contains(s,"status 401"):return "HTTP_401"
+            case strings.Contains(s,"http 403")||strings.Contains(s,"status 403"):return "HTTP_403"
+            case strings.Contains(s,"http 404")||strings.Contains(s,"status 404"):return "HTTP_404"
+            case strings.Contains(s,"http 429")||strings.Contains(s,"status 429"):return "HTTP_429"
+            case strings.Contains(s,"historical order proof coverage is incomplete"):return "BATCH_COVERAGE_FIELDS"
+            case strings.Contains(s,"historical order proof identity is incomplete"):return "BATCH_MISSING_ORDER_FIELDS"
+            case strings.Contains(s,"historical order proof pagination"):return "BATCH_PAGINATION"
+            case strings.Contains(s,"conflicting duplicate historical order"):return "BATCH_CONFLICTING_IDENTITIES"
+            case strings.Contains(s,"historical order status is missing"):return "FILL_ORDER_STATUS_MISSING"
+            case strings.Contains(s,"historical fill order is missing"):return "FILL_ORDER_PORTFOLIO_MISMATCH"
+            case strings.Contains(s,"historical fill product"):return "FILL_PRODUCT_MISMATCH"
+            case strings.Contains(s,"historical fill side"):return "FILL_SIDE_MISMATCH"
+            case strings.Contains(s,"historical transaction has no"):return "FILL_MISSING_ACCOUNT_PROVENANCE"
+            case strings.Contains(s,"historical transaction account"):return "FILL_ACCOUNT_MISMATCH"
+            case strings.Contains(s,"historical order proof http"):return "BATCH_NON200"
+            case strings.Contains(s,"historical exact order"):return "EXACT_ORDER_LIMIT_OR_PROOF"
+            case strings.Contains(s,"order read")||strings.Contains(s,"get order"):return "EXACT_ORDER_READER"
+            case strings.Contains(s,"account scope"):return "ACCOUNT_SCOPE"
+            case strings.Contains(s,"portfolio"):return "PORTFOLIO_SCOPE"
+            case strings.Contains(s,"permission"):return "KEY_PERMISSION"
+            case strings.Contains(s,"transaction"):return "TRANSACTION_SOURCE"
+            case strings.Contains(s,"pagination")||strings.Contains(s,"cursor"):return "PAGINATION"
+            case strings.Contains(s,"order"):return "ORDER_OTHER"
+            default:return "UNMAPPED_STAGE_ERROR"
+            }
+          }
+          func approvedScopeStageReport(stage string,err error,ctx context.Context,g *approvedGETBudget){
+            fmt.Printf("KTERM_SCOPE_STAGE=%s;CLASS=%s;GET_ATTEMPTS=%d;ACCOUNT_GET=%d;PERMISSION_GET=%d;FILL_GET=%d;ORDER_BATCH_GET=%d;ORDER_DETAIL_GET=%d;OTHER_GET=%d;LIVE_ORDERS=0;TP_AUTHORITY=FALSE\n",
+              stage,approvedScopeFailureClass(err,ctx),approvedBoundedCount(g.attempts.Load()),g.accounts.Load(),g.permissions.Load(),g.fills.Load(),g.batch.Load(),g.exact.Load(),g.other.Load())
+          }
+          // Existing Advanced Trade v3 GET scope only; a complete fill result is
+          // independent of legacy Track v2 transactions and never grants TP authority.
+          func TestApprovedKTerminalV3FillCoverage(t *testing.T){
+            if os.Getenv("K_TERMINAL_EXECUTION_MODE")!="PAPER"{t.Fatal("PR83_V3_NOT_DISARMED")}
+            raw,err:=os.ReadFile(os.Getenv("KTERM_READONLY_CREDENTIAL_FILE"))
+            if err!=nil{t.Fatal("PR83_V3_APPROVED_CREDENTIAL_UNAVAILABLE")}
+            lines:=strings.Split(string(raw),"\n")
+            if approvedEnv(lines,"KTRADE_LIVE_TRADING")!="false"{t.Fatal("PR83_V3_APPROVED_SOURCE_NOT_DISARMED")}
+            key:=approvedEnv(lines,"CDP_API_KEY_NAME","COINBASE_API_KEY_NAME","COINBASE_KEY_NAME","COINBASE_API_KEY","CDP_KEY_NAME")
+            secret:=approvedEnv(lines,"CDP_API_KEY_PRIVATE_KEY","COINBASE_API_KEY_PRIVATE_KEY","COINBASE_API_KEY_SECRET","COINBASE_API_SECRET","COINBASE_KEY_SECRET","CDP_API_KEY_SECRET","COINBASE_PRIVATE_KEY")
+            if key==""||secret==""{t.Fatal("PR83_V3_READONLY_CREDENTIAL_UNAVAILABLE")}
+            ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel()
+            guard:=&approvedGETBudget{}
+            request:=NativeAccountLookupRequest{ProductID:"BTC-USDC"}
+            request.APIKey.KeyName=key;request.APIKey.KeySecret=secret
+            lookup:=lookupNativeQuoteAccounts(ctx,request,guard)
+            if !lookup.OK||lookup.SelectedAccountID==""{
+              fmt.Printf("KTERM_PR83_V3_BALANCE=ACCOUNT_UNVERIFIED;GET=%d;BROKER_WRITES=0\n",approvedBoundedCount(guard.attempts.Load()))
+              return
+            }
+            expected:=approvedEnv(lines,"COINBASE_ACCOUNT_ID")
+            if expected!=""&&!strings.EqualFold(expected,lookup.SelectedAccountID){t.Fatal("PR83_V3_EXPECTED_ACCOUNT_SCOPE_MISMATCH")}
+            auth:=NewReadOnlyAuthenticator(key,secret)
+            auth.readTransport=guard;auth.readContext=ctx
+            start:=time.Now()
+            observed,err:=readCoinbaseV3FillObservation(NewBalanceChecker(auth,lookup.SelectedAccountID),"BTC-USDC")
+            if err!=nil {
+              code:="SOURCE_OR_SCOPE_INCOMPLETE"
+              if errors.Is(err,approvedBudgetCap)||guard.attempts.Load()>64{code="GET_CAP"}
+              if errors.Is(ctx.Err(),context.DeadlineExceeded){code="DEADLINE"}
+              fmt.Printf("KTERM_PR83_V3_BALANCE=INCOMPLETE_%s;GET=%d;FILL_GET=%d;DURATION_MS=%d;BROKER_WRITES=0\n",
+                code,approvedBoundedCount(guard.attempts.Load()),guard.fills.Load(),time.Since(start).Milliseconds())
+              return
+            }
+            if !observed.CoverageVerified || observed.BotOwnedLotsVerified || observed.ExecutionAuthorized ||
+              observed.BuyOrderGroups+observed.SellOrderGroups>observed.FillCount {
+                t.Fatal("PR83_V3_GROUP_AUTHORITY_OR_COUNTS_INVALID")
+            }
+            groupFills:=0
+            for _,g:=range observed.Groups {
+              if g.RemainingKnown || g.BotOwned || g.ExecutionAuthorized ||
+                (g.Side!="BUY"&&g.Side!="SELL")||g.FillCount<=0 ||
+                !strings.HasPrefix(g.GroupID,"v3order-"){
+                t.Fatal("PR83_V3_UNTRUSTED_GROUP_PROMOTION")
+              }
+              groupFills+=g.FillCount
+            }
+            if groupFills!=observed.FillCount {t.Fatal("PR83_V3_PARTIAL_GROUPED_FILL_COVERAGE")}
+            if !observed.BalanceResidualObserved || len(observed.NetExecutedBaseApprox)==0 ||
+              len(observed.BrokerBaseApprox)==0 || len(observed.UnexplainedBaseApprox)==0 {
+              t.Fatal("PR83_V3_ACCOUNT_BALANCE_GAP_NOT_OBSERVED")
+            }
+            residual,ok:=new(big.Rat).SetString(observed.UnexplainedBaseApprox)
+            if !ok {t.Fatal("PR83_V3_GAP_NOT_FINITE_DECIMAL")}
+            class:="ZERO_DOES_NOT_PROVE_NO_TRANSFERS"
+            if residual.Sign()>0 {class="POSITIVE_UNATTRIBUTED"} else if residual.Sign()<0 {class="NEGATIVE_UNATTRIBUTED"}
+            report:=brokerHistoryWithV3Fills(brokerHistoryObservation(CoinbaseColdHistoryProof{},errors.New("nontrade-source-unavailable")),observed,nil)
+            if report==nil || report.State!="INCOMPLETE" ||
+              report.FullHistoryVerified || report.BotOwnedLotsVerified || report.ExecutionAuthorized ||
+              !report.V3BalanceResidualObserved || !report.V3FillCoverageVerified ||
+              report.V3UnexplainedBaseApprox!=observed.UnexplainedBaseApprox ||
+              !strings.Contains(report.Reason,"UNATTRIBUTED") {
+              t.Fatal("PR83_V3_GAP_REPORT_READINESS_OR_PROVENANCE_INVALID")
+            }
+            fmt.Printf("KTERM_PR83_V3_BALANCE=SOURCE_VERIFIED;GAP_CLASS=%s;FILLS=%d;BUY_ORDER_GROUPS=%d;SELL_ORDER_GROUPS=%d;GET=%d;FILL_GET=%d;DURATION_MS=%d;NONTRADE_INVENTORY=UNKNOWN;OWNED_LOTS=UNVERIFIED;REMAINDER=UNKNOWN;TP_OWNER=UNVERIFIED;BROKER_WRITES=0\n",
+              class,observed.FillCount,observed.BuyOrderGroups,observed.SellOrderGroups,
+              approvedBoundedCount(guard.attempts.Load()),guard.fills.Load(),time.Since(start).Milliseconds())
+          }
+          func TestApprovedKTerminalHistoricalScopeStage(t *testing.T){
+            if os.Getenv("K_TERMINAL_EXECUTION_MODE")!="PAPER"{t.Fatal("KTERM_SCOPE_DISARM_REQUIRED")}
+            raw,err:=os.ReadFile(os.Getenv("KTERM_READONLY_CREDENTIAL_FILE"))
+            if err!=nil{t.Fatal("KTERM_SCOPE_APPROVED_CREDENTIAL_FILE_UNAVAILABLE")}
+            lines:=strings.Split(string(raw),"\n")
+            if approvedEnv(lines,"KTRADE_LIVE_TRADING")!="false"{t.Fatal("KTERM_SCOPE_APPROVED_SOURCE_NOT_DISARMED")}
+            key:=approvedEnv(lines,"CDP_API_KEY_NAME","COINBASE_API_KEY_NAME","COINBASE_KEY_NAME","COINBASE_API_KEY","CDP_KEY_NAME")
+            secret:=approvedEnv(lines,"CDP_API_KEY_PRIVATE_KEY","COINBASE_API_KEY_PRIVATE_KEY","COINBASE_API_KEY_SECRET","COINBASE_API_SECRET","COINBASE_KEY_SECRET","CDP_API_KEY_SECRET","COINBASE_PRIVATE_KEY")
+            if key==""||secret==""{t.Fatal("KTERM_SCOPE_CREDENTIAL_UNAVAILABLE")}
+            ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel()
+            guard:=&approvedGETBudget{}
+            request:=NativeAccountLookupRequest{ProductID:"BTC-USDC"}
+            request.APIKey.KeyName=key;request.APIKey.KeySecret=secret
+            lookup:=lookupNativeQuoteAccounts(ctx,request,guard)
+            if !lookup.OK||lookup.SelectedAccountID==""{approvedScopeStageReport("LOOKUP",errors.New("account"),ctx,guard);return}
+            expected:=approvedEnv(lines,"COINBASE_ACCOUNT_ID")
+            if expected!=""&&!strings.EqualFold(expected,lookup.SelectedAccountID){t.Fatal("KTERM_SCOPE_EXPECTED_ACCOUNT_ID_MISMATCH")}
+            auth:=NewReadOnlyAuthenticator(key,secret)
+            auth.readTransport=guard;auth.readContext=ctx
+            balances:=NewBalanceChecker(auth,lookup.SelectedAccountID)
+            base,err:=baseAssetFromProduct("BTC-USDC")
+            if err!=nil{approvedScopeStageReport("PRODUCT",err,ctx,guard);return}
+            before,err:=balances.historicalPnLAccountAnchor(base)
+            if err!=nil{approvedScopeStageReport("OPEN_ANCHOR",err,ctx,guard);return}
+            reader,err:=historicalPnLOrderReader(balances)
+            if err!=nil{approvedScopeStageReport("READER",err,ctx,guard);return}
+            if err=authenticateHistoricalPnLPortfolio(reader,before);err!=nil{approvedScopeStageReport("PORTFOLIO_PERMISSION",err,ctx,guard);return}
+            _,err=balances.GetAssetPerformanceAnchor(base)
+            if err!=nil{approvedScopeStageReport("ASSET_POSITION",err,ctx,guard);return}
+            records,err:=balances.listAssetPerformanceRecordsForAccounts(base,before.accountIDs,time.Time{})
+            if err!=nil{approvedScopeStageReport("TRANSACTION_HISTORY",err,ctx,guard);return}
+            scope,err:=proveHistoricalPnLOrderScope(reader,base,before,records,nil,nil)
+            if err!=nil{approvedScopeStageReport("HISTORICAL_ORDER_PROOF",err,ctx,guard);return}
+            if scope==nil||!scope.matches(base,before,records){
+              approvedScopeStageReport("ORDER_CERTIFICATE",errors.New("order"),ctx,guard);return
+            }
+            approvedScopeStageReport("ORDER_CERTIFICATE_VERIFIED",nil,ctx,guard)
+          }
+          func TestApprovedKTerminalGETOnlyColdHistory(t *testing.T){
+            if os.Getenv("K_TERMINAL_EXECUTION_MODE")!="PAPER"{t.Fatal("KTERM_GETONLY_NOT_DISARMED")}
+            file:=os.Getenv("KTERM_READONLY_CREDENTIAL_FILE")
+            if file==""{t.Fatal("KTERM_GETONLY_FILE_PATH_UNVERIFIED")}
+            raw,err:=os.ReadFile(file);if err!=nil{t.Fatal("KTERM_GETONLY_FILE_READ_REFUSED")}
+            lines:=strings.Split(string(raw),"\n")
+            key:=approvedEnv(lines,"CDP_API_KEY_NAME","COINBASE_API_KEY_NAME","COINBASE_KEY_NAME","COINBASE_API_KEY","CDP_KEY_NAME")
+            secret:=approvedEnv(lines,"CDP_API_KEY_PRIVATE_KEY","COINBASE_API_KEY_PRIVATE_KEY","COINBASE_API_KEY_SECRET","COINBASE_API_SECRET","COINBASE_KEY_SECRET","CDP_API_KEY_SECRET","COINBASE_PRIVATE_KEY")
+            if approvedEnv(lines,"KTRADE_LIVE_TRADING")!="false"{t.Fatal("KTERM_GETONLY_SOURCE_TRADING_FLAG_NOT_FALSE")}
+            if key==""||secret==""{t.Fatal("KTERM_GETONLY_APPROVED_KEY_FIELDS_UNAVAILABLE")}
+            ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel()
+            guard:=&approvedGETBudget{}
+            lookupRequest:=NativeAccountLookupRequest{ProductID:"BTC-USDC"}
+            lookupRequest.APIKey.KeyName=key;lookupRequest.APIKey.KeySecret=secret
+            start:=time.Now()
+            lookup:=lookupNativeQuoteAccounts(ctx,lookupRequest,guard)
+            if !lookup.OK||lookup.SelectedAccountID==""{
+              fmt.Printf("KTERM_GETONLY_ACCOUNT_LOOKUP=UNVERIFIED;GET_ATTEMPTS=%d;BROKER_WRITES=0\n",approvedBoundedCount(guard.attempts.Load()))
+              t.Fatal("KTERM_GETONLY_UNIQUE_ACCOUNT_SCOPE_UNVERIFIED")
+            }
+            expected:=approvedEnv(lines,"COINBASE_ACCOUNT_ID")
+            if expected!=""&&!strings.EqualFold(expected,lookup.SelectedAccountID){t.Fatal("KTERM_GETONLY_APPROVED_ACCOUNT_SCOPE_MISMATCH")}
+            fmt.Printf("KTERM_GETONLY_ACCOUNT_LOOKUP=VERIFIED;GET_ATTEMPTS=%d;BROKER_WRITES=0\n",approvedBoundedCount(guard.attempts.Load()))
+            auth:=NewReadOnlyAuthenticator(key,secret)
+            auth.readTransport=guard;auth.readContext=ctx
+            proof,readErr:=readCoinbaseColdHistoryProof(NewBalanceChecker(auth,lookup.SelectedAccountID),"BTC-USDC")
+            if proof.BotOwnedLotsVerified||proof.ExecutionAuthorized{t.Fatal("KTERM_GETONLY_UNAUTHORIZED_TP_OR_ORDER_ADOPTION")}
+            used:=approvedBoundedCount(guard.attempts.Load())
+            if readErr==nil&&proof.FullHistoryVerified{
+              fmt.Printf("KTERM_GETONLY_COLD_HISTORY=SOURCE_VERIFIED;GET_ATTEMPTS=%d;DURATION_MS=%d;TRANSACTIONS=%d;CYCLES=%d;GROUPS=%d;AMBIGUOUS_OPEN=%d;TP_OWNERSHIP=UNVERIFIED;BROKER_WRITES=0\n",
+                used,time.Since(start).Milliseconds(),proof.TransactionCount,proof.InventoryCycles,proof.AcquisitionGroups,proof.AmbiguousOpenGroups)
+            }else{
+              state:=approvedHistoryFailureClass(readErr,proof)
+              if errors.Is(readErr,approvedBudgetCap)||guard.attempts.Load()>=64{state="INCOMPLETE_GET_CAP"}
+              if errors.Is(ctx.Err(),context.DeadlineExceeded){state="INCOMPLETE_TIMEOUT"}
+              fmt.Printf("KTERM_GETONLY_COLD_HISTORY=%s;GET_ATTEMPTS=%d;DURATION_MS=%d;SOURCE_VERIFIED=FALSE;TP_OWNERSHIP=UNVERIFIED;BROKER_WRITES=0\n",
+                state,used,time.Since(start).Milliseconds())
+            }
+          }
+          '@
+          [IO.File]::WriteAllText($test,$code,[Text.UTF8Encoding]::new($false))
+          $env:GOCACHE=Join-Path $root 'go-cache'
+          $env:GOMODCACHE=Join-Path $root 'go-modules'
+          Push-Location $stage
+          try{
+            & go test -p 1 -count=1 -timeout 4m -v '-run=^TestApprovedKTerminalV3FillCoverage$' ./pkg 2>&1 |
+              ForEach-Object{
+                $line=[string]$_
+                if($line -match 'kterminal_approved_source_getonly_test\.go:[0-9]+:[0-9]+: (.*)'){
+                  $diagnostic=[string]$Matches[1]
+                  if($diagnostic.Length -gt 180){$diagnostic=$diagnostic.Substring(0,180)}
+                  Write-Host ('KTERM_GETONLY_HARNESS_COMPILE_DIAGNOSTIC='+$diagnostic)
+                }
+                if($line -match 'KTERM_PR83_V3_BALANCE=' -or
+                   $line -match 'KTERM_V3_FILLS=' -or $line -match 'KTERM_V3_.*(UNAVAILABLE|MISMATCH|UNVERIFIED)' -or
+                   $line -match 'KTERM_SCOPE_STAGE=' -or $line -match 'KTERM_SCOPE_.*(REFUSED|MISMATCH|UNAVAILABLE)' -or
+                   $line -match 'KTERM_GETONLY_ACCOUNT_LOOKUP=' -or $line -match 'KTERM_GETONLY_COLD_HISTORY=' -or
+                   $line -match 'KTERM_GETONLY_.*(UNVERIFIED|UNAVAILABLE|REFUSED)' -or
+                   $line -match '^ok\s' -or $line -match '^FAIL(\s|$)'){Write-Host $line}
+              }
+            if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_ORIGINAL_SOURCE_PROBE_FAILED'}
+          }finally{Pop-Location}
+          Write-Host 'KTERM_GETONLY_SINGLE_BOUNDED_RUN=PASS;LIVE_ORDERS=0;KTRADE_CODE_RUN=FALSE'
+      - name: Clean disposable source, leave both original applications unchanged
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-gap-getonly-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){
+            $resolved=[IO.Path]::GetFullPath($root)
+            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+            if(-not $resolved.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
+               [IO.Path]::GetFileName($resolved) -cne ('kterm-pr83-gap-getonly-'+$env:GITHUB_RUN_ID)){
+              throw 'KTERM_GETONLY_CLEANUP_SCOPE_REFUSED'
+            }
+            Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_GETONLY_SCRATCH_CLEAN=PASS;ORIGINAL_APP_STATE_UNCHANGED=TRUE'
