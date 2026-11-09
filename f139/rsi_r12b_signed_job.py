@@ -13,6 +13,7 @@ import hmac
 from f139.local_controller import Database, canonical
 from f139.rsi_r12_candidate_binding import (
     SCHEMA as BINDING_SCHEMA, bind_original_candidate,
+    original_owner_database,
 )
 from f139.rsi_r6_known_repair_cycle import HEAD, DIGEST, PATH
 from f139.rsi_r6_provider_readback import Readback
@@ -197,7 +198,7 @@ def validate_credentialed(*, db: Database, candidate: Readback,
     This must run independently of the credential-free worker, and it still
     cannot approve work until original lifetime-one issuance is journaled.
     """
-    need(type(db) is Database and type(candidate) is Readback,
+    need(original_owner_database(db) and type(candidate) is Readback,
          "ORIGINAL_SOURCE_OBJECTS_REQUIRED")
     binding = bind_original_candidate(
         db=db, candidate=candidate,
