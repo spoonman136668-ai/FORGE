@@ -241,6 +241,151 @@ jobs:
           test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
           grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
           ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+      - name: G167 F24 F11 canonical validation AB + full Go regression (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g167-f21-f11-current-crossos-ab-20261109' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          G167_ENGINEERING_HEAD: ${{ github.event.pull_request.head.sha }}
+          G167_RESEARCH_SHA: b34ed42f57c7f8cd0acb9559b41f4f0b8219d36b
+          G167_RESEARCH_TREE: cf7ad4407e15169e7796989921bb89515ddcd8f1
+          G167_F11_BLOB: 7d8320d3902b3ab1b6a97bd339949255c3dcc59a
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G167_ENGINEERING_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git fetch --no-tags --depth=1 origin "$G167_RESEARCH_SHA"
+          original="$RUNNER_TEMP/rar-g167-original-source"
+          git worktree add --detach "$original" "$G167_RESEARCH_SHA"
+          test "$(git -C "$original" rev-parse HEAD)" = "$G167_RESEARCH_SHA"
+          test "$(git -C "$original" rev-parse HEAD^{tree})" = "$G167_RESEARCH_TREE"
+          test "$(git -C "$original" rev-parse HEAD:nativediscovery/f11_causal_posterior.go)" = "$G167_F11_BLOB"
+          test -z "$(git -C "$original" status --porcelain --untracked-files=all)"
+          cd "$original"
+          export GOFLAGS=-p=4 GOMAXPROCS=2 GOMEMLIMIT=1536MiB GOTOOLCHAIN=local
+          test "$(go version | awk '{print $3}')" = "go1.23.12"
+          # Real matched A/B: exact same source/hardware/Go race flags and original test.
+          go test -race -count=1 -json -run '^TestF11RejectsForgedOutcomeHistoryBudgetAndAuthority$' ./nativediscovery > "$RUNNER_TEMP/rar-g167-original.jsonl"
+          python3 -B - <<'PY'
+          from pathlib import Path
+          p=Path("nativediscovery/f11_causal_posterior.go")
+          s=p.read_text()
+          a=' "reflect"\n)'
+          b=' "reflect"\n "sync"\n)'
+          if s.count(a)!=1 or s.count(' exact,err:=F11Development()')!=1:
+              raise SystemExit("G167_EXACT_F11_ANCHOR_CHANGED")
+          s=s.replace(a,b)
+          s=s.replace('func F11Validate(x F11Report)error{',
+          '''var f11ValidationCanonical struct{
+           once sync.Once
+           report F11Report
+           err error
+          }
+          func f11CanonicalEqual(x F11Report)bool{
+           f11ValidationCanonical.once.Do(func(){
+            f11ValidationCanonical.report, f11ValidationCanonical.err=F11Development()
+           })
+           return f11ValidationCanonical.err==nil && reflect.DeepEqual(x,f11ValidationCanonical.report)
+          }
+          func F11Validate(x F11Report)error{''')
+          s=s.replace(' exact,err:=F11Development()\n if err!=nil||!reflect.DeepEqual(x,exact){return errF11}',
+          ' if !f11CanonicalEqual(x){return errF11}')
+          p.write_text(s)
+          PY
+          test "$(git diff --name-only)" = "nativediscovery/f11_causal_posterior.go"
+          cat > nativediscovery/g167_validation_cache_test.go <<'GO'
+          package nativediscovery
+          
+          import (
+           "encoding/json"
+           "reflect"
+           "sync"
+           "testing"
+          )
+          
+          func TestG167F11ColdCanonicalSelfHashedForgeryAndRace(t *testing.T) {
+           orig,err:=F11Development();if err!=nil{t.Fatal(err)}
+           cold,err:=F11Development();if err!=nil||!reflect.DeepEqual(orig,cold){t.Fatal("original F11 reference not deterministic")}
+           if err:=F11Validate(orig);err!=nil{t.Fatal("valid evidence rejected:",err)}
+           raw,err:=json.Marshal(orig);if err!=nil{t.Fatal(err)}
+           var forged F11Report
+           if err:=json.Unmarshal(raw,&forged);err!=nil{t.Fatal(err)}
+           forged.Arms[0].Rounds[1].PosteriorCorrect++
+           forged.DigestSHA256=f11Digest(forged)
+           if F11Validate(forged)==nil{t.Fatal("self-hashed falsified outcome accepted")}
+           if err:=F11Validate(orig);err!=nil{t.Fatal("legitimate record rejected after forgery:",err)}
+           const n=8
+           errors:=make(chan error,n)
+           var wg sync.WaitGroup
+           for i:=0;i<n;i++{
+            wg.Add(1)
+            go func(){defer wg.Done();errors<-F11Validate(orig)}()
+           }
+           wg.Wait();close(errors)
+           for e:=range errors{if e!=nil{t.Fatal("concurrent immutable validation failed:",e)}}
+           if err:=F11Validate(cold);err!=nil{t.Fatal("cold original no longer accepted:",err)}
+          }
+          GO
+          test "$(git status --porcelain --untracked-files=all | wc -l)" -eq 2
+          go test -race -count=1 -json -run '^TestF11RejectsForgedOutcomeHistoryBudgetAndAuthority$' ./nativediscovery > "$RUNNER_TEMP/rar-g167-candidate.jsonl"
+          python3 -B - "$RUNNER_TEMP/rar-g167-original.jsonl" "$RUNNER_TEMP/rar-g167-candidate.jsonl" "$RUNNER_TEMP/rar-g167-ab.json" "$G167_RESEARCH_SHA" <<'PY'
+          import json,sys
+          from pathlib import Path
+          basefile,candidatefile,receipt,sha=map(str,sys.argv[1:5])
+          root="TestF11RejectsForgedOutcomeHistoryBudgetAndAuthority"
+          def parse(path):
+           events=[]
+           with Path(path).open(encoding="utf-8") as f:
+            for line in f:
+             x=json.loads(line)
+             if x.get("Package")!="github.com/spoonman136668-ai/forge/nativediscovery":
+              raise SystemExit("G167_UNEXPECTED_PACKAGE")
+             if x.get("Test","").startswith(root) and x.get("Action") in ("pass","fail","skip"):
+              events.append((x["Test"],x["Action"],x.get("Elapsed")))
+           roots=[x for x in events if x[0]==root]
+           if len(roots)!=1 or roots[0][1]!="pass" or roots[0][2] is None:raise SystemExit("G167_ROOT_NOT_PASS")
+           return events,roots[0][2]
+          a,ta=parse(basefile);b,tb=parse(candidatefile)
+          if sorted((x[0],x[1]) for x in a)!=sorted((x[0],x[1]) for x in b):
+           raise SystemExit("G167_ORIGINAL_NEGATIVE_TEST_PARITY_FAILED")
+          if ta<=0 or tb<=0:raise SystemExit("G167_ELAPSED_INVALID")
+          ratio=ta/tb
+          r=dict(schema="forge.rar-g167.f11-canonical-validation-ab.dev.v1",research_source_sha=sha,baseline_test_seconds=ta,candidate_test_seconds=tb,speedup_ratio=round(ratio,4),original_test_event_count=len(a),candidate_test_event_count=len(b),test_events_identical=True,negative_controls_preserved=True,scientific_firstuse=False,go_source_promoted=False)
+          Path(receipt).write_text(json.dumps(r,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+          print("G167_AB_RECEIPT="+json.dumps(r,sort_keys=True),flush=True)
+          if ratio<1.5:raise SystemExit("G167_PRESET_FOCUSED_SPEEDUP_NO_GO")
+          PY
+          # The original G29 code-atlas integrity guard correctly requires the
+          # actual on-disk Go blobs to belong to HEAD. Build an entirely local
+          # detached candidate commit, never any remote/research ref.
+          git add -- nativediscovery/f11_causal_posterior.go nativediscovery/g167_validation_cache_test.go
+          git -c user.name="FORGE G167 Development" -c user.email="forge-g167-dev@users.noreply.github.com" commit --no-gpg-sign -m "G167 isolated source-bound F11 cache test (no remote push)"
+          candidate_sha="$(git rev-parse HEAD)"
+          candidate_tree="$(git rev-parse HEAD^{tree})"
+          test "$(git rev-parse HEAD^)" = "$G167_RESEARCH_SHA"
+          test "$(git diff --no-renames --name-only "$G167_RESEARCH_SHA" HEAD | sort)" = "$(printf 'nativediscovery/f11_causal_posterior.go\nnativediscovery/g167_validation_cache_test.go\n' | sort)"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "G167_ISOLATED_CANDIDATE_SHA=$candidate_sha G167_ISOLATED_CANDIDATE_TREE=$candidate_tree"
+          # Full original package inventory; no test skips, Go atlas still checks
+          # the committed source blobs against the exact local candidate tree.
+          GOFLAGS=-p=2 go test -count=1 ./...
+          go test -race -count=1 ./...
+          GOFLAGS=-p=2 go vet ./...
+          GOFLAGS=-p=2 go build ./...
+          test "$(git rev-parse HEAD)" = "$candidate_sha"
+          test "$(git rev-parse HEAD^{tree})" = "$candidate_tree"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "G167_DEV_FULL_GO=PASS source_bound_local_commit=true remote_refs_unchanged=true"
+      - name: Retain G167 source-matched F11 AB evidence (DEV ONLY)
+        if: always() && github.head_ref == 'engineering/rar-g167-f21-f11-current-crossos-ab-20261109'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g167-f24-f11-ab-${{ runner.os }}-b34ed42f57c7f8cd0acb9559b41f4f0b8219d36b
+          path: |
+            ${{ runner.temp }}/rar-g167-original.jsonl
+            ${{ runner.temp }}/rar-g167-candidate.jsonl
+            ${{ runner.temp }}/rar-g167-ab.json
+          retention-days: 7
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
@@ -640,6 +785,151 @@ jobs:
         with:
           name: rar-g144-original-windows-go
           path: ${{ runner.temp }}/rar-g144-windows-go.json
+          if-no-files-found: error
+      - name: G167 F24 F11 canonical validation AB + full Go regression (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g167-f21-f11-current-crossos-ab-20261109' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          G167_ENGINEERING_HEAD: ${{ github.event.pull_request.head.sha }}
+          G167_RESEARCH_SHA: b34ed42f57c7f8cd0acb9559b41f4f0b8219d36b
+          G167_RESEARCH_TREE: cf7ad4407e15169e7796989921bb89515ddcd8f1
+          G167_F11_BLOB: 7d8320d3902b3ab1b6a97bd339949255c3dcc59a
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G167_ENGINEERING_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git fetch --no-tags --depth=1 origin "$G167_RESEARCH_SHA"
+          original="$RUNNER_TEMP/rar-g167-original-source"
+          git worktree add --detach "$original" "$G167_RESEARCH_SHA"
+          test "$(git -C "$original" rev-parse HEAD)" = "$G167_RESEARCH_SHA"
+          test "$(git -C "$original" rev-parse HEAD^{tree})" = "$G167_RESEARCH_TREE"
+          test "$(git -C "$original" rev-parse HEAD:nativediscovery/f11_causal_posterior.go)" = "$G167_F11_BLOB"
+          test -z "$(git -C "$original" status --porcelain --untracked-files=all)"
+          cd "$original"
+          export GOFLAGS=-p=4 GOMAXPROCS=2 GOMEMLIMIT=1536MiB GOTOOLCHAIN=local
+          test "$(go version | awk '{print $3}')" = "go1.23.12"
+          # Real matched A/B: exact same source/hardware/Go race flags and original test.
+          go test -race -count=1 -json -run '^TestF11RejectsForgedOutcomeHistoryBudgetAndAuthority$' ./nativediscovery > "$RUNNER_TEMP/rar-g167-original.jsonl"
+          python3 -B - <<'PY'
+          from pathlib import Path
+          p=Path("nativediscovery/f11_causal_posterior.go")
+          s=p.read_text()
+          a=' "reflect"\n)'
+          b=' "reflect"\n "sync"\n)'
+          if s.count(a)!=1 or s.count(' exact,err:=F11Development()')!=1:
+              raise SystemExit("G167_EXACT_F11_ANCHOR_CHANGED")
+          s=s.replace(a,b)
+          s=s.replace('func F11Validate(x F11Report)error{',
+          '''var f11ValidationCanonical struct{
+           once sync.Once
+           report F11Report
+           err error
+          }
+          func f11CanonicalEqual(x F11Report)bool{
+           f11ValidationCanonical.once.Do(func(){
+            f11ValidationCanonical.report, f11ValidationCanonical.err=F11Development()
+           })
+           return f11ValidationCanonical.err==nil && reflect.DeepEqual(x,f11ValidationCanonical.report)
+          }
+          func F11Validate(x F11Report)error{''')
+          s=s.replace(' exact,err:=F11Development()\n if err!=nil||!reflect.DeepEqual(x,exact){return errF11}',
+          ' if !f11CanonicalEqual(x){return errF11}')
+          p.write_text(s)
+          PY
+          test "$(git diff --name-only)" = "nativediscovery/f11_causal_posterior.go"
+          cat > nativediscovery/g167_validation_cache_test.go <<'GO'
+          package nativediscovery
+          
+          import (
+           "encoding/json"
+           "reflect"
+           "sync"
+           "testing"
+          )
+          
+          func TestG167F11ColdCanonicalSelfHashedForgeryAndRace(t *testing.T) {
+           orig,err:=F11Development();if err!=nil{t.Fatal(err)}
+           cold,err:=F11Development();if err!=nil||!reflect.DeepEqual(orig,cold){t.Fatal("original F11 reference not deterministic")}
+           if err:=F11Validate(orig);err!=nil{t.Fatal("valid evidence rejected:",err)}
+           raw,err:=json.Marshal(orig);if err!=nil{t.Fatal(err)}
+           var forged F11Report
+           if err:=json.Unmarshal(raw,&forged);err!=nil{t.Fatal(err)}
+           forged.Arms[0].Rounds[1].PosteriorCorrect++
+           forged.DigestSHA256=f11Digest(forged)
+           if F11Validate(forged)==nil{t.Fatal("self-hashed falsified outcome accepted")}
+           if err:=F11Validate(orig);err!=nil{t.Fatal("legitimate record rejected after forgery:",err)}
+           const n=8
+           errors:=make(chan error,n)
+           var wg sync.WaitGroup
+           for i:=0;i<n;i++{
+            wg.Add(1)
+            go func(){defer wg.Done();errors<-F11Validate(orig)}()
+           }
+           wg.Wait();close(errors)
+           for e:=range errors{if e!=nil{t.Fatal("concurrent immutable validation failed:",e)}}
+           if err:=F11Validate(cold);err!=nil{t.Fatal("cold original no longer accepted:",err)}
+          }
+          GO
+          test "$(git status --porcelain --untracked-files=all | wc -l)" -eq 2
+          go test -race -count=1 -json -run '^TestF11RejectsForgedOutcomeHistoryBudgetAndAuthority$' ./nativediscovery > "$RUNNER_TEMP/rar-g167-candidate.jsonl"
+          python3 -B - "$RUNNER_TEMP/rar-g167-original.jsonl" "$RUNNER_TEMP/rar-g167-candidate.jsonl" "$RUNNER_TEMP/rar-g167-ab.json" "$G167_RESEARCH_SHA" <<'PY'
+          import json,sys
+          from pathlib import Path
+          basefile,candidatefile,receipt,sha=map(str,sys.argv[1:5])
+          root="TestF11RejectsForgedOutcomeHistoryBudgetAndAuthority"
+          def parse(path):
+           events=[]
+           with Path(path).open(encoding="utf-8") as f:
+            for line in f:
+             x=json.loads(line)
+             if x.get("Package")!="github.com/spoonman136668-ai/forge/nativediscovery":
+              raise SystemExit("G167_UNEXPECTED_PACKAGE")
+             if x.get("Test","").startswith(root) and x.get("Action") in ("pass","fail","skip"):
+              events.append((x["Test"],x["Action"],x.get("Elapsed")))
+           roots=[x for x in events if x[0]==root]
+           if len(roots)!=1 or roots[0][1]!="pass" or roots[0][2] is None:raise SystemExit("G167_ROOT_NOT_PASS")
+           return events,roots[0][2]
+          a,ta=parse(basefile);b,tb=parse(candidatefile)
+          if sorted((x[0],x[1]) for x in a)!=sorted((x[0],x[1]) for x in b):
+           raise SystemExit("G167_ORIGINAL_NEGATIVE_TEST_PARITY_FAILED")
+          if ta<=0 or tb<=0:raise SystemExit("G167_ELAPSED_INVALID")
+          ratio=ta/tb
+          r=dict(schema="forge.rar-g167.f11-canonical-validation-ab.dev.v1",research_source_sha=sha,baseline_test_seconds=ta,candidate_test_seconds=tb,speedup_ratio=round(ratio,4),original_test_event_count=len(a),candidate_test_event_count=len(b),test_events_identical=True,negative_controls_preserved=True,scientific_firstuse=False,go_source_promoted=False)
+          Path(receipt).write_text(json.dumps(r,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+          print("G167_AB_RECEIPT="+json.dumps(r,sort_keys=True),flush=True)
+          if ratio<1.5:raise SystemExit("G167_PRESET_FOCUSED_SPEEDUP_NO_GO")
+          PY
+          # The original G29 code-atlas integrity guard correctly requires the
+          # actual on-disk Go blobs to belong to HEAD. Build an entirely local
+          # detached candidate commit, never any remote/research ref.
+          git add -- nativediscovery/f11_causal_posterior.go nativediscovery/g167_validation_cache_test.go
+          git -c user.name="FORGE G167 Development" -c user.email="forge-g167-dev@users.noreply.github.com" commit --no-gpg-sign -m "G167 isolated source-bound F11 cache test (no remote push)"
+          candidate_sha="$(git rev-parse HEAD)"
+          candidate_tree="$(git rev-parse HEAD^{tree})"
+          test "$(git rev-parse HEAD^)" = "$G167_RESEARCH_SHA"
+          test "$(git diff --no-renames --name-only "$G167_RESEARCH_SHA" HEAD | sort)" = "$(printf 'nativediscovery/f11_causal_posterior.go\nnativediscovery/g167_validation_cache_test.go\n' | sort)"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "G167_ISOLATED_CANDIDATE_SHA=$candidate_sha G167_ISOLATED_CANDIDATE_TREE=$candidate_tree"
+          # Full original package inventory; no test skips, Go atlas still checks
+          # the committed source blobs against the exact local candidate tree.
+          GOFLAGS=-p=2 go test -count=1 ./...
+          go test -race -count=1 ./...
+          GOFLAGS=-p=2 go vet ./...
+          GOFLAGS=-p=2 go build ./...
+          test "$(git rev-parse HEAD)" = "$candidate_sha"
+          test "$(git rev-parse HEAD^{tree})" = "$candidate_tree"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "G167_DEV_FULL_GO=PASS source_bound_local_commit=true remote_refs_unchanged=true"
+      - name: Retain G167 source-matched F11 AB evidence (DEV ONLY)
+        if: always() && github.head_ref == 'engineering/rar-g167-f21-f11-current-crossos-ab-20261109'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g167-f24-f11-ab-${{ runner.os }}-b34ed42f57c7f8cd0acb9559b41f4f0b8219d36b
+          path: |
+            ${{ runner.temp }}/rar-g167-original.jsonl
+            ${{ runner.temp }}/rar-g167-candidate.jsonl
+            ${{ runner.temp }}/rar-g167-ab.json
+          retention-days: 7
           if-no-files-found: error
       - name: G133 exact-source real full F139 A/B/B/A with Windows Job Object memory (DEV)
         if: github.head_ref == 'engineering/rar-g133-exact-byte-ast-cache-20261108' && github.event.pull_request.head.repo.full_name == github.repository
