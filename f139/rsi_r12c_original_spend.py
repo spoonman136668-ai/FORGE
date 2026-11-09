@@ -130,7 +130,15 @@ def audit_issuance(db: Database) -> tuple[dict, ...]:
     DB.verify already checks SHA chain before invoking this auditor. No secret,
     network, worker, or original owner effect occurs here.
     """
-    need(type(db) is Database, "ORIGINAL_DATABASE_REQUIRED")
+    import sqlite3
+    # The actual CLI runs as __main__ under python -m f139.local_controller.
+    # Match the already qualified R11 original-ledger class split; a foreign
+    # lookalike DB or connection type cannot claim owner authority.
+    need(type(db).__name__ == "Database"
+         and type(db).__module__ in (
+             "f139.local_controller", "local_controller", "__main__")
+         and type(getattr(db, "conn", None)) is sqlite3.Connection,
+         "ORIGINAL_DATABASE_REQUIRED")
     issued = list(db.conn.execute(
         "SELECT seq,kind,payload,prior_sha,sha FROM events "
         "WHERE kind=? ORDER BY seq", (KIND,)))
@@ -166,6 +174,32 @@ def audit_issuance(db: Database) -> tuple[dict, ...]:
     return ()
 
 
+def owner_self_policy_allows(policy: dict, *, original_source_sha: str) -> bool:
+    """Original source-bound operator policy, NOT inferred from an HMAC."""
+    if type(policy) is not dict or not sha40(original_source_sha):
+        return False
+    lanes = policy.get("lanes")
+    return (
+        policy.get("schema") ==
+        "forge.f139.native-autonomy-feed-owner-policy.v1"
+        and policy.get("enabled") is True
+        and policy.get("source_sha") == original_source_sha
+        and type(lanes) is list and len(lanes) == len(set(lanes))
+        and "FORGE-self" in lanes
+        and all(type(lane) is str for lane in lanes)
+        and type(policy.get("max_issue_creations_per_cycle")) is int
+        and 0 <= policy["max_issue_creations_per_cycle"] <= 2
+        and policy.get("new_controller") is False
+        and policy.get("new_scheduler") is False
+        and policy.get("new_queue") is False
+        and policy.get("scientific_first_use") is False
+        and type(policy.get("paid_model_calls")) is int
+        and policy["paid_model_calls"] == 0
+        and type(policy.get("accepted_ref_mutations")) is int
+        and policy["accepted_ref_mutations"] == 0
+    )
+
+
 def issue_original_once(*, db: Database, provider: GitHub,
                         candidate: Readback, signing_key: str,
                         protected_main_sha: str, protected_main_tree_sha: str,
@@ -189,13 +223,29 @@ def issue_original_once(*, db: Database, provider: GitHub,
     need(len(reserved) == 1 and reserved[0]["owner_source_sha"] == source,
          "ORIGINAL_RESERVATION_EPOCH_REQUIRED")
     need(not audit_issuance(db), "LIFETIME_ISSUANCE_ALREADY_SPENT")
+    prefix = "repos/" + REPO + "/"
+    policy_record = provider.get(prefix + "issues/807")
+    need(type(policy_record) is dict
+         and policy_record.get("number") == 807
+         and policy_record.get("state") == "open"
+         and type(policy_record.get("user")) is dict
+         and policy_record["user"].get("login") == "spoonman136668-ai"
+         and type(policy_record.get("body")) is str,
+         "ORIGINAL_OWNER_POLICY_NOT_AUTHENTIC")
+    try:
+        owner_policy = json.loads(policy_record["body"])
+    except (ValueError, TypeError) as exc:
+        raise OriginalIssueDenied(
+            "F139_RSI_R12C_ORIGINAL_OWNER_POLICY_UNREADABLE") from exc
+    need(owner_self_policy_allows(
+        owner_policy, original_source_sha=source),
+        "FORGE_SELF_NOT_IN_ORIGINAL_OWNER_POLICY")
     binding = bind_original_candidate(
         db=db, candidate=candidate,
         expected_owner_source_sha=source)
     need(sha40(protected_main_sha) and sha40(protected_main_tree_sha)
          and provider.protected_main() == protected_main_sha,
          "PROTECTED_MAIN_DRIFT")
-    prefix = "repos/" + REPO + "/"
     commit = provider.get(prefix + "git/commits/" + protected_main_sha)
     need(type(commit) is dict and commit.get("sha") == protected_main_sha
          and type(commit.get("tree")) is dict

@@ -130,6 +130,45 @@ class OriginalIssueTests(unittest.TestCase):
         with self.assertRaises(Exception):
             db.verify()
 
+    def test_owner_policy_explicitly_excludes_forge_self(self):
+        from f139.rsi_r12c_original_spend import (
+            owner_self_policy_allows,
+        )
+        # Matches the ORIGINAL operator policy issue #807 as currently
+        # published, with no FORGE-self allowance. Only an authenticated
+        # operator policy amendment can open the future original issuance.
+        policy = {
+            "schema": "forge.f139.native-autonomy-feed-owner-policy.v1",
+            "enabled": True, "source_sha": SOURCE,
+            "lanes": ["Wingless", "Yggdrasil"],
+            "max_issue_creations_per_cycle": 2,
+            "new_controller": False, "new_scheduler": False,
+            "new_queue": False, "scientific_first_use": False,
+            "paid_model_calls": 0, "accepted_ref_mutations": 0,
+        }
+        self.assertFalse(owner_self_policy_allows(
+            policy, original_source_sha=SOURCE))
+        positive = {**policy, "lanes": [
+            "Wingless", "Yggdrasil", "FORGE-self"]}
+        # Only a synthetic shape check, not a signed operator policy.
+        self.assertTrue(owner_self_policy_allows(
+            positive, original_source_sha=SOURCE))
+        for key, value in (
+            ("source_sha", "f" * 40),
+            ("enabled", False),
+            ("scientific_first_use", True),
+            ("paid_model_calls", 1),
+            ("new_scheduler", True),
+            ("new_queue", True),
+            ("accepted_ref_mutations", 1),
+            ("max_issue_creations_per_cycle", 9),
+            ("lanes", ["Wingless", "FORGE-self", "FORGE-self"]),
+        ):
+            with self.subTest(key=key):
+                altered = {**positive, key: value}
+                self.assertFalse(owner_self_policy_allows(
+                    altered, original_source_sha=SOURCE))
+
     def test_original_workflow_and_owner_lanes_remain_unchanged(self):
         from f139.verify_ticket import LANES as WORKER
         from f139.local_controller import LANES as OWNER
