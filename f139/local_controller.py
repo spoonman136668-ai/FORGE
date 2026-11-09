@@ -1883,6 +1883,18 @@ class Database:
         from f139.nci04_v19_original_publication_once import (
             audit_original_v19_draft_attempts)
         audit_original_v19_draft_attempts(self)
+        # R8: cold-check only the original owner's inert failure observations.
+        # No new owner admission, worker, dispatch, or scientific authority.
+        from f139.rsi_r8_owner_custody import audit_observed_scopes
+        audit_observed_scopes(self)
+        # R10 one-shot development-only reservation audit. It never admits a
+        # worker task or expands the original protected owner lane schema.
+        from f139.rsi_r10_self_scope import audit_self_scope
+        audit_self_scope(self)
+        # R11: verify source-bound, lifetime-once original-ledger reservation
+        # without creating or authorizing a FORGE-self worker ticket.
+        from f139.rsi_r11_owner_once import audit_owner_once
+        audit_owner_once(self)
 
     @contextlib.contextmanager
     def transaction(self):
