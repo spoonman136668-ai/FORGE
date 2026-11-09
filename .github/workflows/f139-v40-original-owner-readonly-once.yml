@@ -1,0 +1,149 @@
+name: FORGE V40 existing-owner read-only preflight once
+on:
+  push:
+    branches: [qualification/f139-v40-original-owner-readonly-20261109]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+concurrency:
+  group: forge-f139-original-owner-release
+  cancel-in-progress: false
+jobs:
+  qualify-invocation:
+    if: github.actor == 'spoonman136668-ai' && github.event.created == true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify invocation-only delta and preserved V40 controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git diff --name-only 32de33753c874102de9672d2768e4b7c0b866b25 HEAD)" = .github/workflows/f139-v40-original-owner-readonly-once.yml
+          test "$(git rev-parse HEAD:f139/nci04_v40_original_owner_transition_cli.py)" = "$(git rev-parse 32de33753c874102de9672d2768e4b7c0b866b25:f139/nci04_v40_original_owner_transition_cli.py)"
+          PYTHONPATH=f139 python -B -m unittest f139.test_nci04_source_continuity f139.test_nci04_release_pin_continuity f139.test_nci04_publication_release_pin f139.test_nci04_v40_source_transition -v
+      - name: Parse native invocation without accessing any owner
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $text=Get-Content '.github/workflows/f139-v40-original-owner-readonly-once.yml' -Raw
+          $marker='      - name: Original-owner read-only or disposable-copy preflight'
+          $offset=$text.IndexOf($marker)
+          if($offset -lt 0){throw 'V40_INVOCATION_BLOCK_MISSING'}
+          $block=$text.Substring($offset)
+          $block=$block.Substring($block.IndexOf('        run: |')+18)
+          $block=($block -split "`n" | ForEach-Object {$_ -replace '^          ',''}) -join "`n"
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseInput($block,[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){throw 'V40_INVOCATION_SYNTAX_INVALID'}
+          if($block -match '(?i)\b(Stop-ScheduledTask|Start-ScheduledTask|Disable-ScheduledTask|Enable-ScheduledTask|Register-ScheduledTask|Stop-Process|Invoke-Expression)\b') {
+            throw 'V40_OWNER_MUTATION_COMMAND_DENIED'
+          }
+          Write-Host 'V40_INVOCATION_PARSE_AND_NO_OWNER_MUTATION=PASS'
+  original-owner-readonly:
+    needs: qualify-invocation
+    if: github.actor == 'spoonman136668-ai' && github.event.created == true
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: 32de33753c874102de9672d2768e4b7c0b866b25
+      - name: Original-owner read-only or disposable-copy preflight
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $candidate='32de33753c874102de9672d2768e4b7c0b866b25'
+          $qualified='2e3863866c1551acf2c38f47b5cc10f7ad870675'
+          $tree='22d135f137c371c395604315605dbf5cb4f776a2'
+          $old='42c70d74dd93ef90d0f4618fefefe2206b81eafe'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v40-original-owner-readonly-20261109' -or
+             $env:OPENAI_API_KEY) {throw 'V40_READONLY_ROUTE_IDENTITY_DRIFT'}
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          if($event.created -ne $true -or $event.deleted -ne $false -or
+             $event.forced -ne $false -or $event.before -cne ('0'*40) -or
+             $event.after -cne $env:GITHUB_SHA -or
+             $event.sender.login -cne 'spoonman136668-ai') {throw 'V40_CREATE_ONLY_EVENT_REQUIRED'}
+          if((& git rev-parse HEAD | Out-String).Trim() -cne $candidate -or
+             (& git rev-parse 'HEAD^{tree}' | Out-String).Trim() -cne $tree -or
+             (& git rev-parse ($qualified+'^{tree}') | Out-String).Trim() -cne $tree -or
+             @(& git status --porcelain --untracked-files=all).Count -ne 0 -or
+             (& git rev-parse 'HEAD:.github/workflows/forge-f139-development-worker.yml' | Out-String).Trim() -cne '74dd90e6d71da6b53898c7a80d5362f1b0e6af27') {throw 'V40_EXACT_QUALIFIED_SOURCE_DRIFT'}
+          function Read-Frozen([string]$route) {
+            if(-not $route.StartsWith('repos/spoonman136668-ai/FORGE/')) {throw 'V40_READ_ROUTE_DENIED'}
+            $raw=& python -B -c 'import sys; from f139.local_controller import GitHub; sys.stdout.buffer.write(GitHub._command([sys.argv[1]]))' $route
+            if($LASTEXITCODE -ne 0){throw 'V40_BOUNDED_READ_FAILED'}
+            return (($raw -join "`n") | ConvertFrom-Json)
+          }
+          $main=Read-Frozen 'repos/spoonman136668-ai/FORGE/branches/main'
+          if($main.protected -ne $true -or $main.commit.sha -cne $candidate) {throw 'V40_PROTECTED_MAIN_DRIFT'}
+          $receipts=@(
+            @{id=42703964960;sha=$qualified;name='FORGE public Linux and Windows qualification'},
+            @{id=42703965058;sha=$qualified;name='FORGE F139 native Windows controller qualification'},
+            @{id=42703964832;sha=$qualified;name='FORGE F139-D hosted development rehearsal'},
+            @{id=42704783674;sha=$candidate;name='FORGE public Linux and Windows qualification'},
+            @{id=42704783443;sha=$candidate;name='FORGE F73 protected-main cryptographic origin (no science permission)'}
+          )
+          foreach($receipt in $receipts) {
+            $run=Read-Frozen ('repos/spoonman136668-ai/FORGE/actions/runs/'+$receipt.id)
+            if($run.head_sha -cne $receipt.sha -or $run.name -cne $receipt.name -or
+               $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or
+               $run.run_attempt -ne 1) {throw 'V40_FROZEN_QUALIFICATION_RECEIPT_FAILED'}
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready') -or $task.Settings.Enabled -ne $true -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {throw 'V40_ORIGINAL_TASK_DRIFT'}
+          function Field([string]$key) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'V40_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot';$db=Field 'Database';$python=Field 'PythonExe'
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate([Security.Principal.SecurityIdentifier]).Value
+          }
+          $expectedDb=Join-Path (Join-Path $env:LOCALAPPDATA 'FORGE-F139') 'state.sqlite'
+          if($sid -cne $identity.User.Value -or
+             [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+             -not(Test-Path -LiteralPath $db -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {throw 'V40_ORIGINAL_OWNER_SOURCE_OR_CUSTODY_DRIFT'}
+          $policy=Read-Frozen 'repos/spoonman136668-ai/FORGE/issues/807'
+          $body=$policy.body | ConvertFrom-Json
+          if($policy.state -cne 'open' -or $policy.user.login -cne 'spoonman136668-ai' -or
+             $body.source_sha -cne $old -or $body.enabled -ne $true -or
+             (@($body.lanes) -join '|') -cne 'Wingless|Yggdrasil' -or
+             $body.scientific_first_use -ne $false) {throw 'V40_ORIGINAL_POLICY_DRIFT'}
+          Write-Host 'V40_EXISTING_ORIGINAL_OWNER_ROUTE=VERIFIED'
+          & $python -B -m f139.nci04_v40_original_owner_transition_cli --db $db --target $candidate --preflight-only --rehearse-copy
+          if($LASTEXITCODE -ne 0){throw 'V40_ORIGINAL_READONLY_PREFLIGHT_FAILED_NO_OWNER_MUTATION'}
+          if((& git -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {throw 'V40_POSTREAD_ORIGINAL_SOURCE_DRIFT'}
+          Write-Host 'V40_ORIGINAL_READONLY_PREFLIGHT_AND_COPY=PASS'
