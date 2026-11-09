@@ -1903,6 +1903,10 @@ class Database:
         # ticket, sealed before GitHub run/job IDs can possibly exist.
         from f139.rsi_r12g_pre_dispatch import audit_preissued
         audit_preissued(self)
+        # R12-I: historical one-shot original-owner post-dispatch
+        # terminal status; NEVER credential-free worker admission.
+        from f139.rsi_r12i_terminal import audit_terminal
+        audit_terminal(self)
         # Preserve RSI R12-G verification while cold-auditing Hybrid tasks.
         from f139.hybrid_owner_admission import audit_hybrid_lane
         audit_hybrid_lane(self)
