@@ -48,7 +48,7 @@ def validate_assignment(record, *, expected_ticket, expected_source_sha,
             any(not isinstance(h, str) or not HEX64.fullmatch(h) for h in hashes) or
             hashes != sorted(set(hashes))):
         raise ValueError("F139_PROSPECTIVE_ASSIGNMENT_SLATE")
-    if (record["schema"] != SCHEMA or record["lane"] not in ("Wingless", "Yggdrasil")
+    if (record["schema"] != SCHEMA or record["lane"] not in ("Wingless", "Yggdrasil", "TTT-Hybrid")
             or not isinstance(record["ticket"], str) or not record["ticket"]
             or record["ticket"] != expected_ticket
             or record["owner_source_sha"] != expected_source_sha

@@ -3156,12 +3156,13 @@ class GitHub:
             raise F139Error("F139_GITHUB_API_INVALID_JSON") from exc
 
     def prepare_native_feed(self, source_sha: str,
-                            existing_candidate_identities: set[str]):
+                            existing_candidate_identities: set[str], *,
+                            admitted_lanes: tuple[str, ...] = ()):
         from f139.nci04_autonomy_feed import prepare_feed
         return prepare_feed(
             self.native_repo_get, source_sha=source_sha,
             existing_candidate_identities=existing_candidate_identities,
-            steering_get=self.native_repo_get)
+            steering_get=self.native_repo_get, admitted_lanes=admitted_lanes)
 
     def create_native_feed_issue(self, *, title: str, body: str):
         """Create an ordinary existing-schema owner issue; never dispatch here."""
@@ -4762,6 +4763,15 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         eligible = [item for item in eligible if candidate_identity(
             item.lane, item.candidate.target_commit, item.candidate.path,
             item.candidate.after_sha256) not in retired_publications]
+        from f139.hybrid_owner_admission import is_migrated
+        eligible = [item for item in eligible
+                    if item.lane != "TTT-Hybrid" or is_migrated(db)]
+        from f139.nci04_research_steering import fair_lane_order
+        admitted_lanes = tuple(event["lane"] for event in events)
+        lane_order = fair_lane_order(admitted_lanes)
+        # Reorder only authenticated, not-yet-admitted owner issues. Existing
+        # READY/in-flight tasks and the original SQLite queue are untouched.
+        eligible.sort(key=lambda item: lane_order.index(item.lane))
         for native_issue in eligible:
             if native_issue.ticket in known:
                 continue
@@ -4782,7 +4792,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # itself is owner-authored and exact-source pinned, and every PR
             # candidate is independently rebound to an immutable commit/tree.
             feed = feeder(
-                meta["source_sha"], existing_candidates)
+                meta["source_sha"], existing_candidates,
+                admitted_lanes=admitted_lanes)
             # Feeder authenticated all source-bound candidates before
             # producing this read-only selection telemetry.
             steering_selection = feed.get("steering")
@@ -4805,6 +4816,7 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 # admission path. Never dispatch directly from a PR.
                 eligible = api.native_eligible_issues(
                     meta["source_sha"], historical_issues=historical_issues)
+                eligible.sort(key=lambda item: lane_order.index(item.lane))
                 for native_issue in eligible:
                     if native_issue.number not in created_numbers:
                         continue
