@@ -14,7 +14,7 @@ from f139.rsi_r10_self_scope import (
 )
 from f139.rsi_r8_owner_custody import observe_disabled_development
 from f139.test_rsi_r7_fresh_failure import (
-    fixture, fake, RUN, JOB, HEAD, PATH, LIST1, INDEX, RUN_URL, JOB_URL,
+    fixture, fake, RUN, JOB, HEAD, PATH, LIST1, LIST2, INDEX, RUN_URL, JOB_URL,
 )
 
 OWNER = "c" * 40
@@ -106,11 +106,13 @@ class OneShotSelfScopeTests(unittest.TestCase):
                 self.reserve(provider)
             self.db.conn.execute(
                 "UPDATE meta SET enabled=0,legacy_suspended=0 WHERE id=1")
-            bad = fresh()
             # Authenticated failed job no longer appears in the GET feed.
             # R7 cannot treat the observed R8 event as fresh by itself.
             with self.assertRaises(SelfScopeDenied):
-                self.reserve(fake({})[0])
+                self.reserve(fake({
+                    LIST1: {"workflow_runs": []},
+                    LIST2: {"workflow_runs": []},
+                })[0])
 
     def test_event_tamper_and_fake_owner_authority_rejected(self):
         provider = fresh()
