@@ -78,6 +78,31 @@ def audit_hybrid_lane(db):
                         db.conn.execute("SELECT lane FROM tasks")),
                 "HYBRID_TASK_ON_OLD_SCHEMA")
         return False
+    # The expanded SQL CHECK is only a type allowlist: it is NOT an owner
+    # signature. Every actual Hybrid task must have an independent matching
+    # native signed issue admission event. Existing native ledger validation
+    # authenticates each event's immutable source, original ticket and
+    # manifest. This reverse direction prevents direct SQL insertion.
+    from f139.nci04_owner_ledger import KIND as NATIVE_ADMITTED
+    original_issues = {}
+    for event in db.conn.execute(
+        "SELECT payload FROM events WHERE kind=? ORDER BY seq",
+        (NATIVE_ADMITTED,)):
+        doc = json.loads(event["payload"])
+        if doc["lane"] != "TTT-Hybrid":
+            continue
+        ticket = doc["ticket"]
+        require(ticket not in original_issues, "DUPLICATE_HYBRID_NATIVE_EVENT")
+        original_issues[ticket] = (
+            doc["source_sha"], doc["manifest_sha256"])
+    actual_tasks = {
+        task["ticket"]: (task["source_sha"], task["manifest_sha"])
+        for task in db.conn.execute(
+            "SELECT ticket,source_sha,manifest_sha FROM tasks "
+            "WHERE lane='TTT-Hybrid'")
+    }
+    require(actual_tasks == original_issues,
+            "HYBRID_TASK_WITHOUT_NATIVE_OWNER_ADMISSION")
     row=events[0]
     doc=json.loads(row["payload"])
     require(type(doc) is dict and set(doc)==FIELDS
