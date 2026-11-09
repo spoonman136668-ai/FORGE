@@ -25,8 +25,8 @@ SOURCE = (b"import sqlite3\nimport tempfile\n"
 LOG = (b"PermissionError: [WinError 32] another process owns "
        b"C:\\FORGE\\state.sqlite\n")
 BASE = "repos/" + REPO + "/"
-LIST1 = BASE + "actions/runs?status=failure&per_page=30&page=1"
-LIST2 = BASE + "actions/runs?status=failure&per_page=30&page=2"
+LIST1 = BASE + "actions/runs?branch=main&event=push&status=failure&per_page=30&page=1"
+LIST2 = BASE + "actions/runs?branch=main&event=push&status=failure&per_page=30&page=2"
 INDEX = BASE + "actions/runs/" + str(RUN) + "/jobs?per_page=100"
 RUN_URL = BASE + "actions/runs/" + str(RUN)
 JOB_URL = BASE + "actions/jobs/" + str(JOB)
@@ -187,12 +187,34 @@ class ReadonlyDiscoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(DiscoveryDenied, "BOUND_REACHED"):
             inspect(data)
 
-    def test_empty_and_non_main_failure_are_not_candidate_source(self):
+    def test_empty_filtered_catalog_has_no_fabricated_proposals(self):
         data = fixture()
-        data[LIST1]["workflow_runs"][0]["head_branch"] = "foreign"
+        data[LIST1]["workflow_runs"] = []
         report, seen = inspect(data)
         self.assertEqual(report.proposals, ())
+        self.assertEqual(report.examined_run_ids, ())
         self.assertEqual(seen, [LIST1, LIST2])
+
+    def test_filtered_catalog_must_enforce_main_push_failed_origin(self):
+        # Reject off-scope entries even when their run ID predates the cutoff;
+        # otherwise an ignored provider filter can silently hide real failures.
+        for field, wrong in (
+            ("head_branch", "foreign"),
+            ("event", "pull_request"),
+            ("status", "in_progress"),
+            ("conclusion", "success"),
+        ):
+            for old in (False, True):
+                with self.subTest(field=field, old=old):
+                    data = fixture()
+                    run = data[LIST1]["workflow_runs"][0]
+                    run[field] = wrong
+                    if old:
+                        run["id"] = RUN - 10
+                    with self.assertRaisesRegex(
+                        DiscoveryDenied, "FILTERED_RUN_SCOPE_DRIFT"
+                    ):
+                        inspect(data)
 
 
 if __name__ == "__main__":
