@@ -1899,6 +1899,10 @@ class Database:
         # No worker/scheduler/owner-tick path consumes this source-only record.
         from f139.rsi_r12c_original_spend import audit_issuance
         audit_issuance(self)
+        # Original owner-controlled, append-only TTT-Hybrid task CHECK
+        # migration: never silently changes an existing SQLite installation.
+        from f139.hybrid_owner_admission import audit_hybrid_lane
+        audit_hybrid_lane(self)
 
     @contextlib.contextmanager
     def transaction(self):
@@ -2685,7 +2689,8 @@ class Database:
             for item in tasks:
                 require(isinstance(item,dict) and set(item)=={"ticket","lane","source_sha"},"TASK_FIELDS_UNQUALIFIED")
                 ticket,lane,source=item["ticket"],item["lane"],item["source_sha"]
-                require(isinstance(ticket,str) and TICKET.fullmatch(ticket) and ticket not in seen and lane in LANES
+                require(isinstance(ticket,str) and TICKET.fullmatch(ticket) and ticket not in seen
+                        and lane in LANES and lane != "TTT-Hybrid"
                         and source==meta["source_sha"],"TASK_UNQUALIFIED_OR_DUPLICATE")
                 seen.add(ticket)
                 self.conn.execute("INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) VALUES(?,?,?,'READY',?)",
@@ -4945,6 +4950,7 @@ def cli(argv=None):
     queue=sub.add_parser("queue");queue.add_argument("--manifest",type=Path,required=True)
     sub.add_parser("status")
     sub.add_parser("upgrade-native-two-slots")  # explicit original-owner action only
+    sub.add_parser("upgrade-hybrid-lane")  # owner-only, never on tick
     enable=sub.add_parser("activate");enable.add_argument("--legacy-suspended-evidence",type=Path,required=True)
     sub.add_parser("tick")
     owner_native=sub.add_parser("activate-native")
@@ -5038,6 +5044,34 @@ def cli(argv=None):
                     "source_sha":db.meta()["source_sha"],
                     "event_head_sha256":db.meta()["head_hash"],
                     "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="upgrade-hybrid-lane":
+            # Dedicated original-owner action; no changes to the running
+            # controller/worker/scheduler or to any Hybrid project model.
+            native_original_owner_profile(args.db)
+            legacy_windows_task_disabled()
+            api=GitHub()
+            require(api.protected_main()==db.meta()["source_sha"],
+                    "HYBRID_MIGRATION_PROTECTED_SOURCE_DRIFT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_hybrid(*parts):
+                p=subprocess.run(["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(p.returncode==0,"HYBRID_MIGRATION_SOURCE_READ_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            require(_git_hybrid("rev-parse","HEAD")==db.meta()["source_sha"]
+                    and _git_hybrid("status","--porcelain","--untracked-files=all")=="",
+                    "HYBRID_MIGRATION_CHECKOUT_DRIFT")
+            with SingleOwner(args.db.with_suffix(".lock")):
+                from f139.hybrid_owner_admission import migrate_hybrid_lane
+                upgraded=migrate_hybrid_lane(db)
+                print(json.dumps({
+                    "hybrid_development_lane_schema_admitted":upgraded,
+                    "source_sha":db.meta()["source_sha"],
+                    "event_head_sha256":db.meta()["head_hash"],
+                    "scientific_first_use":False,
+                    "hybrid_model_training_started":False
+                },sort_keys=True))
         elif args.verb=="custody-original-native-negative":
             # One authorized, development-only owner CLI. No GitHub dispatch
             # method, second task, new controller or scientific first-use.
