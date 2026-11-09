@@ -142,7 +142,8 @@ func f24Select(recs []f20Credit, cue, step, spent int, seed uint32, kind string)
 	if cue < 0 || cue > 3 || step < 0 || step >= F24Actions || spent < 0 || spent > F24Budget {
 		return 0, 0, errF24
 	}
-	if _, err := f24Laws(seed); err != nil {
+	// The selector may validate the public arm ID, but must never call the hidden-law generator.
+	if seed != 163 && seed != 167 {
 		return 0, 0, errF24
 	}
 	valid := false
