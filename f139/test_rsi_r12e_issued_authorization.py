@@ -81,19 +81,14 @@ class ColdReadOnlyAuthorizationTests(unittest.TestCase):
         row = self.db.conn.execute(
             "SELECT seq,sha FROM events WHERE kind=?", (KIND,)
         ).fetchone()
-        validated = {
-            "cryptographic_validation_passed": True,
-            "original_lifetime_spend_verified": False,
-            "credential_free_worker_admitted": False,
-        }
-        # Bypass both original ledger and HMAC checks ONLY in a fixture,
-        # demonstrating explicit negative authority fields in the returned
-        # non-transferable witness. Never treat this as operator proof.
+        # Mock ONLY the unavailable original-source ledger custody, while
+        # using the REAL R12-B signed provider-context verification.
+        # This does not qualify the original Windows owner.
         with (patch("f139.rsi_r12e_issued_authorization.audit_issuance",
                     return_value=(doc,)),
               patch.object(self.db, "verify"),
-              patch("f139.rsi_r12e_issued_authorization.validate_credentialed",
-                    return_value=validated)):
+              patch("f139.rsi_r12b_signed_job.bind_original_candidate",
+                    return_value=self.binding)):
             proof = attest_original_issuance(**self.kwargs)
         self.assertEqual(proof["schema"], SCHEMA)
         self.assertEqual(proof["original_issuance_event_sha256"], row["sha"])
@@ -110,28 +105,38 @@ class ColdReadOnlyAuthorizationTests(unittest.TestCase):
             signature=self.signature,
             prior_head=self.db.meta()["head_hash"])
         self.db.event(KIND, doc)
-        verified = {
-            "cryptographic_validation_passed": True,
-            "original_lifetime_spend_verified": False,
-            "credential_free_worker_admitted": False,
-        }
+        # Full real credentialed HMAC and provider-context validator,
+        # substituting ONLY a synthetic original-history binding.
         with (patch("f139.rsi_r12e_issued_authorization.audit_issuance",
                     return_value=(doc,)),
               patch.object(self.db, "verify"),
-              patch("f139.rsi_r12e_issued_authorization.validate_credentialed",
-                    return_value=verified)):
-            for kwargs in (
+              patch("f139.rsi_r12b_signed_job.bind_original_candidate",
+                    return_value=self.binding)):
+            for override in (
                 {"authenticated_run_id": self.intent["worker_run_id"] + 1},
+                {"authenticated_job_id": self.intent["worker_job_id"] + 1},
+                {"authenticated_attempt": 2},
+                {"authenticated_main_sha": "f" * 40},
+                {"authenticated_main_tree_sha": "f" * 40},
+                {"authenticated_repository": "attacker/FORGE"},
+                {"authenticated_runner_os": "ubuntu-latest"},
+                {"authenticated_event": "push"},
                 {"signature": "e" * 64},
+                {"signing_key": "wrong-but-long-enough-development-secret-test"},
                 {"owner_source_sha": "a" * 40},
+                {"intent": {**self.intent, "worker_run_attempt": 2}},
             ):
-                with self.subTest(kwargs=kwargs):
-                    if "authenticated_run_id" in kwargs:
-                        # The external provider origin is checked inside
-                        # credentialed validation, never by the raw projection.
-                        continue
+                with self.subTest(override=override):
                     with self.assertRaises(AuthorizationDenied):
-                        attest_original_issuance(**{**self.kwargs, **kwargs})
+                        attest_original_issuance(
+                            **{**self.kwargs, **override})
+
+            # A second issuance makes replay cardinality fail even in the
+            # simulated original-history fixture.
+            self.db.event(KIND, doc)
+            with self.assertRaisesRegex(
+                    AuthorizationDenied, "ORIGINAL_ISSUANCE_EVENT_DRIFT"):
+                attest_original_issuance(**self.kwargs)
 
     def test_credentialed_boundary_does_not_enable_worker(self):
         from f139.verify_ticket import LANES as WORKER
