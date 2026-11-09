@@ -30,6 +30,21 @@ def need(ok: bool, code: str) -> None:
         raise CandidateBindingDenied("F139_RSI_R12_" + code)
 
 
+def original_owner_database(db) -> bool:
+    """Match the actual Python -m owner entrypoint without trusting lookalikes.
+
+    The original owner's f139.local_controller is executed as __main__ by
+    its installed task. R11/R12-C already support that Python module split.
+    Both this predicate AND the complete cold ledger verification are required.
+    """
+    return (
+        type(db).__name__ == "Database"
+        and type(db).__module__ in (
+            "f139.local_controller", "local_controller", "__main__")
+        and type(getattr(db, "conn", None)) is sqlite3.Connection
+    )
+
+
 def matches_reserved_candidate(reservation: dict, candidate: Readback) -> bool:
     """Compare all relevant candidate/source identities, without granting trust."""
     if type(reservation) is not dict or type(candidate) is not Readback:
@@ -129,8 +144,7 @@ def bind_original_candidate(*, db: Database, candidate: Readback,
     No owner lane, original SQLite event, ticket, signature, workflow, or Git
     ref is changed.  This call cannot be used to admit a development job.
     """
-    need(type(db) is Database
-         and type(getattr(db, "conn", None)) is sqlite3.Connection
+    need(original_owner_database(db)
          and type(expected_owner_source_sha) is str
          and HEAD.fullmatch(expected_owner_source_sha) is not None,
          "ORIGINAL_DATABASE_OR_SOURCE_INVALID")

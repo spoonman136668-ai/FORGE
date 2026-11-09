@@ -187,6 +187,34 @@ class SignedDevelopmentTests(unittest.TestCase):
         self.assertEqual(
             db.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
 
+    def test_credentialed_original_requires_historical_spend(self):
+        # Verify the HMAC structure alone cannot forge an owner issuance.
+        # The source-verified original SQLite ledger is required separately.
+        from f139.rsi_r12e_issued_authorization import (
+            AuthorizationDenied, attest_original_issuance,
+        )
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        db = Database.initialize(Path(tmp.name) / "state.sqlite", "c" * 40)
+        self.addCleanup(db.close)
+        before = db.meta()["head_hash"]
+        sig = _development_signature(KEY, self.intent)
+        with self.assertRaises(AuthorizationDenied):
+            attest_original_issuance(
+                db=db, candidate=self.candidate,
+                owner_source_sha="c" * 40, intent=self.intent,
+                signature=sig, signing_key=KEY,
+                authenticated_main_sha=MAIN,
+                authenticated_main_tree_sha=TREE,
+                authenticated_run_id=self.intent["worker_run_id"],
+                authenticated_job_id=self.intent["worker_job_id"],
+                authenticated_attempt=1,
+                authenticated_event="workflow_dispatch",
+                authenticated_repository="spoonman136668-ai/FORGE",
+                authenticated_workflow="forge-f139-development-worker.yml",
+                authenticated_runner_os="windows-latest")
+        self.assertEqual(db.meta()["head_hash"], before)
+
     def test_existing_signed_worker_lanes_remain_closed(self):
         from f139.local_controller import LANES as OWNER_LANES
         from f139.verify_ticket import LANES as WORKER_LANES
