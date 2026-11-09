@@ -73,7 +73,7 @@ class OriginalLifetimeTests(unittest.TestCase):
                 failed_job_id=JOB, target_path=PATH)
             self.assertEqual(audit_owner_once(self.db), ())
             with self.assertRaisesRegex(OriginalOnceDenied,
-                                        "ORIGINAL_OWNER_INSTANCE|WINDOWS_ORIGINAL|ORIGINAL_DATABASE_PATH"):
+                                        "ORIGINAL_OWNER_INSTANCE|ORIGINAL_GITHUB_ADAPTER_DRIFT|WINDOWS_ORIGINAL|ORIGINAL_DATABASE_PATH"):
                 reserve_original_owner_once(
                     db=self.db, provider=provider, target_path=PATH)
         self.assertEqual(self.db.meta()["enabled"], 0)
