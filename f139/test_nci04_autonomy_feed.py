@@ -201,6 +201,42 @@ class NativeAutonomyFeedTests(unittest.TestCase):
             api.native_repo_get(
                 "repos/spoonman136668-ai/Wingless/contents/../secret")
 
+    def test_staged_third_lane_does_not_enter_original_native_feeder(self):
+        p = FakeProvider()
+        baseline = prepare_feed(
+            p.get, source_sha=p.source,
+            existing_candidate_identities=set())
+        self.assertEqual(len(baseline["candidates"]), 1)
+        p.policy["lanes"] = ["Wingless", "Yggdrasil", "FORGE-self"]
+        expanded = prepare_feed(
+            p.get, source_sha=p.source,
+            existing_candidate_identities=set())
+        self.assertEqual(expanded, baseline)
+        self.assertEqual(expanded["candidates"][0]["lane"], "Wingless")
+        self.assertEqual(expanded["rejected"], [])
+
+    def test_expanded_scope_is_exact_and_native_lanes_cannot_change(self):
+        p = FakeProvider()
+        for lanes in (
+            ["Wingless", "FORGE-self"],
+            ["FORGE-self", "Wingless", "Yggdrasil"],
+            ["Wingless", "Yggdrasil", "FORGE-self", "FORGE-self"],
+            ["Wingless", "Yggdrasil", "Qualification"],
+            ["Wingless", "Yggdrasil", "Hybrid"],
+            ["Wingless", "Yggdrasil", "FORGE-self", "Hybrid"],
+            "Wingless",
+            None,
+        ):
+            with self.subTest(lanes=lanes):
+                p.policy["lanes"] = lanes
+                with self.assertRaisesRegex(
+                        NativeFeedDenied, "POLICY_SCOPE_DRIFT"):
+                    inspect_policy(p.issue(), p.source)
+        p.policy["lanes"] = ["Wingless", "Yggdrasil", "FORGE-self"]
+        self.assertEqual(
+            inspect_policy(p.issue(), p.source)["lanes"],
+            p.policy["lanes"])
+
     def test_policy_cannot_turn_on_science_or_new_scheduler(self):
         p = FakeProvider()
         for field, value in (("scientific_first_use", True),

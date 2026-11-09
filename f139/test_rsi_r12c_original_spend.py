@@ -140,8 +140,12 @@ class OriginalIssueTests(unittest.TestCase):
         policy = {
             "schema": "forge.f139.native-autonomy-feed-owner-policy.v1",
             "enabled": True, "source_sha": SOURCE,
+            "title_prefix": "F139 autonomy DEV:",
             "lanes": ["Wingless", "Yggdrasil"],
             "max_issue_creations_per_cycle": 2,
+            "require_owner_authored_pr": True,
+            "require_single_head_commit_delta": True,
+            "require_single_allowed_source_file": True,
             "new_controller": False, "new_scheduler": False,
             "new_queue": False, "scientific_first_use": False,
             "paid_model_calls": 0, "accepted_ref_mutations": 0,
@@ -153,6 +157,9 @@ class OriginalIssueTests(unittest.TestCase):
         # Only a synthetic shape check, not a signed operator policy.
         self.assertTrue(owner_self_policy_allows(
             positive, original_source_sha=SOURCE))
+        self.assertFalse(owner_self_policy_allows(
+            {**positive, "untrusted_extra_permission": True},
+            original_source_sha=SOURCE))
         for key, value in (
             ("source_sha", "f" * 40),
             ("enabled", False),
@@ -162,7 +169,13 @@ class OriginalIssueTests(unittest.TestCase):
             ("new_queue", True),
             ("accepted_ref_mutations", 1),
             ("max_issue_creations_per_cycle", 9),
+            ("require_owner_authored_pr", False),
+            ("require_single_head_commit_delta", False),
+            ("require_single_allowed_source_file", False),
+            ("title_prefix", "unknown"),
             ("lanes", ["Wingless", "FORGE-self", "FORGE-self"]),
+            ("lanes", ["FORGE-self", "Wingless", "Yggdrasil"]),
+            ("lanes", ["Wingless", "Yggdrasil", "FORGE-self", "Hybrid"]),
         ):
             with self.subTest(key=key):
                 altered = {**positive, key: value}

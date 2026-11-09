@@ -26,6 +26,9 @@ from f139.rsi_r12b_signed_job import (
     _development_signature, WORKFLOW, REPO, RUNNER_OSES,
 )
 from f139.rsi_r6_provider_readback import Readback
+from f139.nci04_autonomy_feed import (
+    POLICY_KEYS, POLICY_SCHEMA, TITLE_PREFIX, EXPANDED_OWNER_LANES,
+)
 
 KIND = "RSI_SELF_ORIGINAL_ISSUED"
 SCHEMA = "forge.f139.rsi-r12c.original-owner-lifetime-one-issuance.v1"
@@ -175,20 +178,27 @@ def audit_issuance(db: Database) -> tuple[dict, ...]:
 
 
 def owner_self_policy_allows(policy: dict, *, original_source_sha: str) -> bool:
-    """Original source-bound operator policy, NOT inferred from an HMAC."""
-    if type(policy) is not dict or not sha40(original_source_sha):
+    """Only the exact operator-approved third policy lane, not general intake.
+
+    This pure shape validator is NOT an original-owner authorization. The
+    issuer separately checks the original provider issue identity, installed
+    source, one-shot original ledger, and credential-free worker provenance.
+    """
+    if type(policy) is not dict or set(policy) != POLICY_KEYS:
         return False
-    lanes = policy.get("lanes")
     return (
-        policy.get("schema") ==
-        "forge.f139.native-autonomy-feed-owner-policy.v1"
-        and policy.get("enabled") is True
+        sha40(original_source_sha)
+        and policy.get("schema") == POLICY_SCHEMA
         and policy.get("source_sha") == original_source_sha
-        and type(lanes) is list and len(lanes) == len(set(lanes))
-        and "FORGE-self" in lanes
-        and all(type(lane) is str for lane in lanes)
+        and policy.get("enabled") is True
+        and policy.get("title_prefix") == TITLE_PREFIX
+        and type(policy.get("lanes")) is list
+        and tuple(policy["lanes"]) == EXPANDED_OWNER_LANES
         and type(policy.get("max_issue_creations_per_cycle")) is int
-        and 0 <= policy["max_issue_creations_per_cycle"] <= 2
+        and policy["max_issue_creations_per_cycle"] == 2
+        and policy.get("require_owner_authored_pr") is True
+        and policy.get("require_single_head_commit_delta") is True
+        and policy.get("require_single_allowed_source_file") is True
         and policy.get("new_controller") is False
         and policy.get("new_scheduler") is False
         and policy.get("new_queue") is False
@@ -230,6 +240,8 @@ def issue_original_once(*, db: Database, provider: GitHub,
          and policy_record.get("state") == "open"
          and type(policy_record.get("user")) is dict
          and policy_record["user"].get("login") == "spoonman136668-ai"
+         and policy_record.get("author_association") == "OWNER"
+         and "pull_request" not in policy_record
          and type(policy_record.get("body")) is str,
          "ORIGINAL_OWNER_POLICY_NOT_AUTHENTIC")
     try:
