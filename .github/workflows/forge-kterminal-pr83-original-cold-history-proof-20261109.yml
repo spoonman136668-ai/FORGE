@@ -139,6 +139,7 @@ jobs:
             history atomic.Int64
             order atomic.Int64
             other atomic.Int64
+            deniedClass atomic.Int64
             exactBTC string
             scopePortfolio string
           }
@@ -166,6 +167,12 @@ jobs:
               if f.order.Add(1)>46 {return nil,fmt.Errorf("historical order evidence read cap")}
             default:
               f.other.Add(1)
+              class:=int64(5)
+              if strings.HasPrefix(path,"/v2/accounts/"){class=1} else if
+                strings.HasPrefix(path,"/api/v3/brokerage/portfolios/"){class=2} else if
+                strings.HasPrefix(path,"/api/v3/brokerage/orders/"){class=3} else if
+                strings.HasPrefix(path,"/api/v3/brokerage/"){class=4}
+              f.deniedClass.Store(class)
               return nil,fmt.Errorf("endpoint outside approved original read-only history scope")
             }
             if f.all.Add(1)>64 {return nil,fmt.Errorf("total 64 GET cap")}
@@ -233,6 +240,7 @@ jobs:
               t.Fatal("COLD_PROOF_UNAUTHORIZED_LOT_OR_TRADE_PROMOTION")
             }
             kind:="INCOMPLETE_SOURCE_OR_SCOPE"
+            if fence.other.Load()>0{kind="INCOMPLETE_GET_FENCE_REFUSAL"}
             if readErr==nil {
               if proof.FullHistoryVerified {
                 if !proof.PortfolioScoped {t.Fatal("COLD_PROOF_UNSCOPED_FULL_HISTORY")}
@@ -241,11 +249,11 @@ jobs:
                 kind="INCOMPLETE_ECONOMIC_REPLAY_OR_SCOPE"
               }
             }
-            fmt.Printf("KTERM_ORIGINAL_COLD_PROOF=%s;TRANSACTIONS=%d;GROUPS=%d;INVENTORY_CYCLES=%d;ACQUISITION_GROUPS=%d;UNKNOWN_OPEN_GROUPS=%d;EXTERNAL_GROUPS=%d;GET=%d;V2_GET=%d;ORDER_GET=%d;PORTFOLIO_GET=%d;DURATION_MS=%d;OWNER_LOTS=UNVERIFIED;SELL_BUY_ALLOCATION=UNVERIFIED;TP_OWNER=UNVERIFIED;BROKER_WRITES=0\n",
+            fmt.Printf("KTERM_ORIGINAL_COLD_PROOF=%s;TRANSACTIONS=%d;GROUPS=%d;INVENTORY_CYCLES=%d;ACQUISITION_GROUPS=%d;UNKNOWN_OPEN_GROUPS=%d;EXTERNAL_GROUPS=%d;GET=%d;V2_GET=%d;ORDER_GET=%d;PORTFOLIO_GET=%d;DENIED=%d;DENIED_CLASS=%d;DURATION_MS=%d;OWNER_LOTS=UNVERIFIED;SELL_BUY_ALLOCATION=UNVERIFIED;TP_OWNER=UNVERIFIED;BROKER_WRITES=0\n",
               kind,proof.TransactionCount,len(proof.LotGroups),proof.InventoryCycles,proof.AcquisitionGroups,
               proof.AmbiguousOpenGroups,proof.ExternalGroups,
-              fence.all.Load(),fence.history.Load(),fence.order.Load(),fence.portfolio.Load(),time.Since(started).Milliseconds())
-            if fence.all.Load()>64||fence.history.Load()>8||fence.order.Load()>46||fence.other.Load()!=0 {
+              fence.all.Load(),fence.history.Load(),fence.order.Load(),fence.portfolio.Load(),fence.other.Load(),fence.deniedClass.Load(),time.Since(started).Milliseconds())
+            if fence.all.Load()>64||fence.history.Load()>8||fence.order.Load()>46 {
               t.Fatal("COLD_PROOF_BROKER_SCOPE_BUDGET_EXCEEDED")
             }
           }
