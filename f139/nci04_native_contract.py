@@ -22,6 +22,9 @@ PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}\Z")
 REPOS = {
     "Wingless": ("spoonman136668-ai/Wingless", ("cognition/", "cmd/wingless/"), ".go"),
     "Yggdrasil": ("spoonman136668-ai/Yggdrasil", ("yggdrasil/", "scripts/"), ".py"),
+    # Original Hybrid model training remains solely project-owned.
+    "TTT-Hybrid": ("spoonman136668-ai/TTT-Hybrid-Lab",
+                   ("scripts/native_", "tests/test_native_"), ".py"),
 }
 # Exactly two already-preregistered R7 test paths may use the native V1
 # development contract. This is not a broad research/ path grant.
@@ -41,6 +44,7 @@ def model_source_path_allowed(lane: str, path: str) -> bool:
 R7_TEST_PATHS = {
     "Wingless": frozenset({"research/native/itd01/r7/native_test.go"}),
     "Yggdrasil": frozenset({"research/native/itd01/r7/test_native_cells.py"}),
+    "TTT-Hybrid": frozenset(),
 }
 MAX_CANDIDATE_BYTES = 32768
 FIELDS = frozenset({
