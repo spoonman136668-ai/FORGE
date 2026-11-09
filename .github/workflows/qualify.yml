@@ -364,15 +364,27 @@ jobs:
           print("G163_AB_RECEIPT="+json.dumps(r,sort_keys=True),flush=True)
           if ratio<1.5:raise SystemExit("G163_PRESET_FOCUSED_SPEEDUP_NO_GO")
           PY
-          # Full ORIGINAL package inventory commands on the temporary optimized source.
-          # Run separately to avoid duplicate concurrent suites and retain original test flags.
-          go test -count=1 ./...
+          # The original G29 code-atlas integrity guard correctly requires the
+          # actual on-disk Go blobs to belong to HEAD. Build an entirely local
+          # detached candidate commit, never any remote/research ref.
+          git add -- nativediscovery/f12_hidden_dynamics.go nativediscovery/g163_validation_cache_test.go
+          git -c user.name="FORGE G163 Development" -c user.email="forge-g163-dev@users.noreply.github.com" commit --no-gpg-sign -m "G163 isolated source-bound F12 cache test (no remote push)"
+          candidate_sha="$(git rev-parse HEAD)"
+          candidate_tree="$(git rev-parse HEAD^{tree})"
+          test "$(git rev-parse HEAD^)" = "$G163_RESEARCH_SHA"
+          test "$(git diff --no-renames --name-only "$G163_RESEARCH_SHA" HEAD | sort)" = "$(printf 'nativediscovery/f12_hidden_dynamics.go\nnativediscovery/g163_validation_cache_test.go\n' | sort)"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "G163_ISOLATED_CANDIDATE_SHA=$candidate_sha G163_ISOLATED_CANDIDATE_TREE=$candidate_tree"
+          # Full original package inventory; no test skips, Go atlas still checks
+          # the committed source blobs against the exact local candidate tree.
+          GOFLAGS=-p=2 go test -count=1 ./...
           go test -race -count=1 ./...
-          go vet ./...
-          go build ./...
-          test "$(git rev-parse HEAD)" = "$G163_RESEARCH_SHA"
-          test "$(git diff --name-only)" = "nativediscovery/f12_hidden_dynamics.go"
-          echo "G163_DEV_FULL_GO=PASS candidate_go_source_only=ephemeral"
+          GOFLAGS=-p=2 go vet ./...
+          GOFLAGS=-p=2 go build ./...
+          test "$(git rev-parse HEAD)" = "$candidate_sha"
+          test "$(git rev-parse HEAD^{tree})" = "$candidate_tree"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "G163_DEV_FULL_GO=PASS source_bound_local_commit=true remote_refs_unchanged=true"
       - name: Retain G163 source-matched F12 AB evidence (DEV ONLY)
         if: always() && github.head_ref == 'engineering/rar-g163-f12-canonical-validation-ab-20261109'
         uses: actions/upload-artifact@v4
