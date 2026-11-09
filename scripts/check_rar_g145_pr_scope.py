@@ -87,6 +87,16 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
+    "engineering/rar-g163-f12-canonical-validation-ab-20261109": (
+        "2350d967d0cbd7222f7e370e03a8a80a80a0650d",
+        {
+            "docs/FORGE-G163-F12-CANONICAL-VALIDATION-AB.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
 }
 
 

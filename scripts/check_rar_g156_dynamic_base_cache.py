@@ -268,6 +268,19 @@ def _release_scope(base: str, tree: str, head: str) -> None:
         }
         if len(changed) != len(expected) or set(changed) != expected:
             raise ValueError("G161_EXACT_FIVE_PATH_SCOPE_CHANGED")
+    elif os.environ.get("GITHUB_HEAD_REF") == "engineering/rar-g163-f12-canonical-validation-ab-20261109":
+        if (admission != FROZEN or base != "2350d967d0cbd7222f7e370e03a8a80a80a0650d" or tree != "da69c7d303afbabcc26dc1a07bbc93c2de7c2177"):
+            raise ValueError("G163_FROZEN_BASE_OR_ADMISSION_MISMATCH")
+        changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
+        expected = {
+            "docs/FORGE-G163-F12-CANONICAL-VALIDATION-AB.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        }
+        if len(changed) != len(expected) or set(changed) != expected:
+            raise ValueError("G163_EXACT_FIVE_PATH_SCOPE_CHANGED")
     elif admission != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
         raise ValueError("G156_UNAUTHORIZED_GENERIC_PR_SOURCE")
 

@@ -241,6 +241,149 @@ jobs:
           test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
           grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
           ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+      - name: G163 frozen F12 canonical validation AB and complete Go regression (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g163-f12-canonical-validation-ab-20261109' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          G163_ENGINEERING_HEAD: ${{ github.event.pull_request.head.sha }}
+          G163_RESEARCH_SHA: 268b8c59561ec4063f0d8cb59b6e7fccb0d0069c
+          G163_RESEARCH_TREE: 5cf15dee259190d52942d8c85d2136a5cd27bfbb
+          G163_F12_BLOB: ef1d41e03e40905da1e0c0107d6301360e3c7d1f
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G163_ENGINEERING_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git fetch --no-tags --depth=1 origin "$G163_RESEARCH_SHA"
+          original="$RUNNER_TEMP/rar-g163-original-source"
+          git worktree add --detach "$original" "$G163_RESEARCH_SHA"
+          test "$(git -C "$original" rev-parse HEAD)" = "$G163_RESEARCH_SHA"
+          test "$(git -C "$original" rev-parse HEAD^{tree})" = "$G163_RESEARCH_TREE"
+          test "$(git -C "$original" rev-parse HEAD:nativediscovery/f12_hidden_dynamics.go)" = "$G163_F12_BLOB"
+          test -z "$(git -C "$original" status --porcelain --untracked-files=all)"
+          cd "$original"
+          export GOFLAGS=-p=4 GOMAXPROCS=2 GOMEMLIMIT=1536MiB GOTOOLCHAIN=local
+          test "$(go version | awk '{print $3}')" = "go1.23.12"
+          # Real matched A/B: exact same source/hardware/Go race flags and original test.
+          go test -race -count=1 -json -run '^TestF12RejectsForgedExperimentScienceAndPredictionRecords$' ./nativediscovery > "$RUNNER_TEMP/rar-g163-original.jsonl"
+          python3 -B - <<'PY'
+          from pathlib import Path
+          p=Path("nativediscovery/f12_hidden_dynamics.go")
+          s=p.read_text()
+          a=' "reflect"\n)'
+          b=' "reflect"\n "sync"\n)'
+          if s.count(a)!=1 or s.count(' expected,err:=F12Development()')!=1:
+              raise SystemExit("G163_EXPECTED_F12_SOURCE_ANCHOR_MISSING")
+          s=s.replace(a,b)
+          s=s.replace('func F12Validate(v F12Report)error{',
+          '''var f12ValidationCanonical struct{
+           once sync.Once
+           report F12Report
+           err error
+          }
+          func f12CanonicalEqual(v F12Report)bool{
+           f12ValidationCanonical.once.Do(func(){
+            f12ValidationCanonical.report, f12ValidationCanonical.err=F12Development()
+           })
+           return f12ValidationCanonical.err==nil && reflect.DeepEqual(v,f12ValidationCanonical.report)
+          }
+          func F12Validate(v F12Report)error{''')
+          s=s.replace(
+          ' expected,err:=F12Development()\n if err!=nil||!reflect.DeepEqual(v,expected){return errF12}',
+          ' if !f12CanonicalEqual(v){return errF12}')
+          p.write_text(s)
+          PY
+          test "$(git diff --name-only)" = "nativediscovery/f12_hidden_dynamics.go"
+          cat > nativediscovery/g163_validation_cache_test.go <<'GO'
+          package nativediscovery
+          import (
+           "bytes"
+           "encoding/json"
+           "reflect"
+           "sync"
+           "testing"
+          )
+          func TestG163IndependentCanonicalEquivalenceAndTamper(t *testing.T) {
+           original,err:=F12Development();if err!=nil{t.Fatal(err)}
+           second,err:=F12Development();if err!=nil||!reflect.DeepEqual(original,second){t.Fatal("original frozen reference not deterministic")}
+           if err:=F12Validate(original);err!=nil{t.Fatal("canonical original rejected:",err)}
+           raw,err:=json.Marshal(original);if err!=nil{t.Fatal(err)}
+           var forged F12Report
+           if err:=json.Unmarshal(raw,&forged);err!=nil{t.Fatal(err)}
+           forged.Arms[0].Rounds[0].CausalCorrect++
+           forged.DigestSHA256=f12Digest(forged)
+           if F12Validate(forged)==nil{t.Fatal("self-hashed forged negative accepted")}
+           if err:=F12Validate(original);err!=nil{t.Fatal("valid reference changed after forged input:",err)}
+           const n=8
+           var wg sync.WaitGroup
+           errors:=make(chan error,n)
+           for i:=0;i<n;i++{
+            wg.Add(1)
+            go func(){
+             defer wg.Done()
+             original,err:=F12Development()
+             if err==nil {err=F12Validate(original)}
+             errors<-err
+            }()
+           }
+           wg.Wait();close(errors)
+           for e:=range errors{if e!=nil{t.Fatal("concurrent validation failed:",e)}}
+           expected,err:=F12Development()
+           if err!=nil || !bytes.Equal(mustF12JSON(t,original),mustF12JSON(t,expected)){t.Fatal("cold reference drift")}
+          }
+          func mustF12JSON(t *testing.T, v F12Report)[]byte{
+           t.Helper()
+           b,e:=json.Marshal(v);if e!=nil{t.Fatal(e)};return b
+          }
+          GO
+          test "$(git status --porcelain --untracked-files=all | wc -l)" -eq 2
+          go test -race -count=1 -json -run '^TestF12RejectsForgedExperimentScienceAndPredictionRecords$' ./nativediscovery > "$RUNNER_TEMP/rar-g163-candidate.jsonl"
+          python3 -B - "$RUNNER_TEMP/rar-g163-original.jsonl" "$RUNNER_TEMP/rar-g163-candidate.jsonl" "$RUNNER_TEMP/rar-g163-ab.json" "$G163_RESEARCH_SHA" <<'PY'
+          import json,sys
+          from pathlib import Path
+          basefile,candidatefile,receipt,sha=map(str,sys.argv[1:5])
+          root="TestF12RejectsForgedExperimentScienceAndPredictionRecords"
+          def parse(path):
+           events=[]
+           with Path(path).open(encoding="utf-8") as f:
+            for line in f:
+             x=json.loads(line)
+             if x.get("Package")!="github.com/spoonman136668-ai/forge/nativediscovery":
+              raise SystemExit("G163_UNEXPECTED_PACKAGE")
+             if x.get("Test","").startswith(root) and x.get("Action") in ("pass","fail","skip"):
+              events.append((x["Test"],x["Action"],x.get("Elapsed")))
+           roots=[x for x in events if x[0]==root]
+           if len(roots)!=1 or roots[0][1]!="pass" or roots[0][2] is None:raise SystemExit("G163_ROOT_NOT_PASS")
+           return events,roots[0][2]
+          a,ta=parse(basefile);b,tb=parse(candidatefile)
+          if sorted((x[0],x[1]) for x in a)!=sorted((x[0],x[1]) for x in b):
+           raise SystemExit("G163_ORIGINAL_NEGATIVE_TEST_PARITY_FAILED")
+          if ta<=0 or tb<=0:raise SystemExit("G163_ELAPSED_INVALID")
+          ratio=ta/tb
+          r=dict(schema="forge.rar-g163.f12-canonical-validation-ab.dev.v1",research_source_sha=sha,baseline_test_seconds=ta,candidate_test_seconds=tb,speedup_ratio=round(ratio,4),original_test_event_count=len(a),candidate_test_event_count=len(b),test_events_identical=True,negative_controls_preserved=True,scientific_firstuse=False,go_source_promoted=False)
+          Path(receipt).write_text(json.dumps(r,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+          print("G163_AB_RECEIPT="+json.dumps(r,sort_keys=True),flush=True)
+          if ratio<1.5:raise SystemExit("G163_PRESET_FOCUSED_SPEEDUP_NO_GO")
+          PY
+          # Full ORIGINAL package inventory commands on the temporary optimized source.
+          # Run separately to avoid duplicate concurrent suites and retain original test flags.
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          test "$(git rev-parse HEAD)" = "$G163_RESEARCH_SHA"
+          test "$(git diff --name-only)" = "nativediscovery/f12_hidden_dynamics.go"
+          echo "G163_DEV_FULL_GO=PASS candidate_go_source_only=ephemeral"
+      - name: Retain G163 source-matched F12 AB evidence (DEV ONLY)
+        if: always() && github.head_ref == 'engineering/rar-g163-f12-canonical-validation-ab-20261109'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g163-f12-ab-268b8c59561ec4063f0d8cb59b6e7fccb0d0069c
+          path: |
+            ${{ runner.temp }}/rar-g163-original.jsonl
+            ${{ runner.temp }}/rar-g163-candidate.jsonl
+            ${{ runner.temp }}/rar-g163-ab.json
+          retention-days: 7
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
