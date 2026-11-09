@@ -124,33 +124,41 @@ jobs:
             & go test -p 1 -count=1 -timeout 60m ./... *> (Join-Path $root 'private-full-regression.log')
             $fullClock.Stop()
             if($LASTEXITCODE -ne 0){
-              # Constrain what leaves the disposable private workspace. Print
-              # only Go test function identifiers and package-level status,
-              # never raw errors, logs, order data or file contents.
+              # Classify complete-suite failure without publishing private logs.
+              # Only synthetic Go test names, bounded package paths, and aggregate
+              # statistics leave the disposable owner workspace.
               $diag=Join-Path $root 'private-full-regression.log'
-              $failCount=0
-              $packageCount=0
+              if(-not(Test-Path -LiteralPath $diag -PathType Leaf)){throw 'KTERM_PR86_FULL_TEST_LOG_MISSING'}
+              $failedTests=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+              $failedPackages=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+              $linesRead=0
+              $failMarkers=0
               $timedOut=$false
               $buildFailed=$false
               $resourceFail=$false
+              $goToolError=$false
               foreach($line in [IO.File]::ReadLines($diag)){
-                if($line -match '^\\s*--- FAIL: (Test[A-Za-z0-9_]+)(?:/([A-Za-z0-9_/-]+))?'){
-                  $test=$Matches[1]
-                  if($failCount -lt 24){Write-Host ('KTERM_PR86_FULL_FAILED_TEST='+$test)}
-                  $failCount++
-                } elseif($line -match '^FAIL\\s+(k-terminal(?:/[A-Za-z0-9_./-]+)?)\\s'){
-                  $package=$Matches[1]
-                  if($packageCount -lt 20){Write-Host ('KTERM_PR86_FULL_FAILED_PACKAGE='+$package)}
-                  $packageCount++
-                } elseif($line -match '^panic: test timed out after'){
-                  $timedOut=$true
-                } elseif($line -match '^(?:# |go: build |FAIL\\s+build failed)'){
-                  $buildFailed=$true
-                } elseif($line -match '(?i)(out of memory|not enough memory|no space left|disk is full|paging file is too small)'){
-                  $resourceFail=$true
+                $linesRead++
+                # Test failure marker can occur with a PowerShell capture prefix.
+                if($line -match '--- FAIL:\s+(Test[A-Za-z0-9_]+)'){
+                  $name=$Matches[1]
+                  if($failedTests.Count -lt 24){[void]$failedTests.Add($name)}
                 }
+                if($line -match '(?<![A-Za-z0-9_])FAIL\s+(k-terminal(?:/[A-Za-z0-9_./-]+)?)'){
+                  $name=$Matches[1]
+                  if($failedPackages.Count -lt 20){[void]$failedPackages.Add($name)}
+                }
+                if($line -match '(?i)(?<![a-z])FAIL(?![A-Za-z0-9_])'){$failMarkers++}
+                if($line -match 'panic: test timed out after'){$timedOut=$true}
+                if($line -match '(?i)(out of memory|not enough memory|no space left|disk is full|paging file is too small)'){$resourceFail=$true}
+                if($line -match '(?:^| )# k-terminal/|(?:^| )go: build |(?:^| )FAIL\s+build failed'){$buildFailed=$true}
+                if($line -match '^go: (?:error|cannot|failed|invalid|module|unknown|parsing|download)'){$goToolError=$true}
               }
-              Write-Host ('KTERM_PR86_FULL_REGRESSION_DIAGNOSTIC=FAIL;TESTS='+$failCount+';PACKAGES='+$packageCount+';TIMEOUT='+$timedOut+';BUILD='+$buildFailed+';RESOURCE='+$resourceFail+';MS='+$fullClock.ElapsedMilliseconds)
+              foreach($test in @($failedTests | Sort-Object)){Write-Host ('KTERM_PR86_FULL_FAILED_TEST='+$test)}
+              foreach($pkg in @($failedPackages | Sort-Object)){Write-Host ('KTERM_PR86_FULL_FAILED_PACKAGE='+$pkg)}
+              $logBytes=(Get-Item -LiteralPath $diag).Length
+              $logDigest=(Get-FileHash -LiteralPath $diag -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ('KTERM_PR86_FULL_DIAGNOSTIC=FAIL;EXIT='+$LASTEXITCODE+';TESTS='+$failedTests.Count+';PACKAGES='+$failedPackages.Count+';MARKERS='+$failMarkers+';LINES='+$linesRead+';BYTES='+$logBytes+';TIMEOUT='+$timedOut+';BUILD='+$buildFailed+';RESOURCE='+$resourceFail+';GO_TOOL_ERROR='+$goToolError+';LOG_SHA256='+$logDigest+';MS='+$fullClock.ElapsedMilliseconds)
               throw 'KTERM_PR86_FULL_WINDOWS_REGRESSION_FAILED'
             }
             Write-Host ('KTERM_PR86_FULL_WINDOWS_REGRESSION=PASS;MS='+$fullClock.ElapsedMilliseconds)
