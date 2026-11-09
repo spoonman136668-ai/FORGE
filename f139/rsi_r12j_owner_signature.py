@@ -216,14 +216,17 @@ def verify_enrolled(*, signed_receipt: dict) -> dict:
         "allow_worker_admission"}
          and root["schema"] == ROOT_SCHEMA
          and sha40(root["owner_source_sha"])
-         and root["owner_source_sha"] == doc["owner_source_sha"]
          and root["allow_worker_admission"] is False
          and type(root["keys"]) is list
          and len(root["keys"]) <= 1,
          "TRUST_ROOT_SOURCE_OR_POLICY_DRIFT")
-    # The current checked-in trust root is disabled and contains no keys.
+    # Explicit enrollment precedes signer epoch matching, so every
+    # synthetic source and test fixture fails as NOT ENROLLED. A real
+    # enrolled source must still match the pinned original release.
     need(root["enabled"] is True and len(root["keys"]) == 1,
          "ORIGINAL_OWNER_KEY_NOT_ENROLLED")
+    need(root["owner_source_sha"] == doc["owner_source_sha"],
+         "ORIGINAL_SIGNER_SOURCE_EPOCH_DRIFT")
     entry = root["keys"][0]
     need(type(entry) is dict and set(entry) == {
         "id", "public_key_b64", "status"}
