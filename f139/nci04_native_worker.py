@@ -140,7 +140,7 @@ def stage_candidate(candidate: Candidate, checkout: Path,
         # Disallow symlinks rather than letting copytree dereference unknown
         # providers or allowing a candidate to mutate outside the sandbox.
         root = stage / "checkout"
-        if candidate.lane == "Yggdrasil":
+        if candidate.lane in ("Yggdrasil", "TTT-Hybrid"):
             # The original Yggdrasil baseline regression binds its source
             # atlas to a Git commit. A bare file copy was falsely negative.
             # Clone only the independently verified local source commit into

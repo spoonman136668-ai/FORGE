@@ -4779,8 +4779,14 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # Feeder authenticated all source-bound candidates before
             # producing this read-only selection telemetry.
             steering_selection = feed.get("steering")
+            from f139.hybrid_owner_admission import is_migrated
             created_numbers = []
             for candidate in feed["candidates"]:
+                # Keep Wingless/Yggdrasil progressing under the original
+                # policy; a Hybrid-only policy opt-in cannot create any
+                # original owner issue before the explicit SQLite migration.
+                if candidate["lane"] == "TTT-Hybrid" and not is_migrated(db):
+                    continue
                 created = api.create_native_feed_issue(
                     title=candidate["issue_title"],
                     body=candidate["issue_body"])

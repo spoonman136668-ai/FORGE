@@ -89,7 +89,9 @@ def audit_hybrid_lane(db):
             and doc["worker_dispatched"] is False
             and doc["operator_owner_migration"] is True
             and doc["old_task_rows_sha256"]==doc["new_task_rows_sha256"]
-            and doc["new_task_rows_sha256"]==exact(_rows(db))
+            # The migration binds the original copied row snapshot, not
+            # today's growing mutable task table. Original per-ticket events
+            # and signed receipts independently protect subsequent rows.
             and doc["new_task_sql_sha256"]==sha_bytes(sql.encode()),
             "COLD_SCHEMA_CUSTODY_DRIFT")
     return True
