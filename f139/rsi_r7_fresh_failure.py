@@ -86,7 +86,7 @@ def scan(*, provider: GitHub, after_run_id: int, not_before_utc: str,
     accepted: list[Readback] = []
     for page in range(1, MAX_PAGES + 1):
         catalog = provider.get(
-            base + "actions/runs?status=failure&per_page=" +
+            base + "actions/runs?branch=main&event=push&status=failure&per_page=" +
             str(PER_PAGE) + "&page=" + str(page))
         need(type(catalog) is dict and type(catalog.get("workflow_runs")) is list
              and len(catalog["workflow_runs"]) <= PER_PAGE,
@@ -97,11 +97,17 @@ def scan(*, provider: GitHub, after_run_id: int, not_before_utc: str,
                  "RUN_DUPLICATE_OR_INVALID")
             rid = run["id"]
             seen.add(rid)
+            # A provider that ignores the server filters cannot silently
+            # dilute discovery or certify an empty main/push result.
+            need(run.get("event") == "push"
+                 and run.get("head_branch") == "main"
+                 and run.get("status") == "completed"
+                 and run.get("conclusion") == "failure",
+                 "FILTERED_RUN_SCOPE_DRIFT")
             if rid <= after_run_id:
                 continue
             created = utc(run.get("created_at"))
-            if created <= threshold or run.get("event") != "push" \
-                    or run.get("head_branch") != "main":
+            if created <= threshold:
                 continue
             need(type(run.get("head_sha")) is str
                  and HEAD.fullmatch(run["head_sha"]) is not None
