@@ -1,19 +1,25 @@
-# F139 Hybrid source-only owner admission — native worker NOT released
+# F139 Hybrid owner admission — worker source released, live activation pending
 
-The original two-lane native workflow is intentionally **unchanged** in this
-source-only implementation. The existing F139 owner cannot migrate the live
-SQLite task schema until the independently qualified Git blob of the signed
-TTT-Hybrid worker (`74dd90e6d71da6b53898c7a80d5362f1b0e6af27`) is installed on the
-exact clean protected FORGE main and the original owner performs all
-its existing authority checks. This blob pin is a necessary source check,
-**not** worker release, runtime, scientific first-use or operator approval.
+PR #1642 released the exact signed TTT-Hybrid worker Git blob
+`74dd90e6d71da6b53898c7a80d5362f1b0e6af27` on protected main at
+`89e14488ffeec348aac0c38dbd1a70c3dd0bf188`. The final candidate
+`ffb18c8cb0d6e7284049fb857fff35f4c716b6e4` passed all 12 Linux/Windows
+public/controller/development checks. Full postmerge regression `42633698447`
+and independent origin `42633698503` passed. The one-file worker release used
+operator-authorized exact G145 scope #1651; generic workflow/harness denial,
+required checks and no-bypass protection remain intact.
 
-The complete admission PR #1637 at `95920f5d` passed dedicated Linux/Windows
-full original qualification (Actions run #42595865764), but the required G145
-public check correctly rejected its two workflow-file changes. This source
-release excludes those files; the restricted worker must be released through
-an independently authorized, G145-compliant owner path. No G145 exception,
-new controller or task scheduler is created.
+Earlier #1637 source admission and failed workflow-inclusive/stale-base
+qualifications remain historical evidence. See
+`F139-EXACT-HYBRID-WORKFLOW-RELEASE.md` for the exact release scope, and
+`F139-THREE-LANE-RELEASE-READBACK.md` for the original-owner observation.
+
+This source release satisfies the necessary worker-blob prerequisite only.
+The original owner still needs independently authorized exact source transition,
+mutex/ledger/receipt reconciliation, verified two-slot schema, explicit Hybrid
+migration and source-pinned policy opt-in. No owner runtime, source migration,
+scientific first-use, private-project worker access or model promotion is
+conferred by a merged workflow.
 
 This change extends the original FORGE F139 native-development intake (not
 another controller, scheduler or model trainer) to the **TTT-Hybrid** identity.
