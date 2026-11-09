@@ -294,7 +294,8 @@ def _candidate_from_pr(get: Callable[[str], object], *, lane: str,
 
 def prepare_feed(get: Callable[[str], object], *, source_sha: str,
                  existing_candidate_identities: set[str],
-                 steering_get: Callable[[str], object] | None = None) -> dict:
+                 steering_get: Callable[[str], object] | None = None,
+                 admitted_lanes: tuple[str, ...] = ()) -> dict:
     """Prepare eligible development issue drafts; optional source-pinned steering.
 
     Steering can reorder only *new* fully authenticated PRs at this planning
@@ -306,6 +307,8 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
                     and re.fullmatch(r"[a-f0-9]{64}", x) is not None
                     for x in existing_candidate_identities),
             "CALLER_INPUT_INVALID")
+    from f139.nci04_research_steering import fair_lane_order, rank_eligible
+    fair_lane_order(admitted_lanes)  # Reject malformed history before any reads.
     policy_raw = get("repos/" + FORGE_REPO + "/issues/" + str(POLICY_ISSUE))
     policy = inspect_policy(policy_raw, source_sha)
     if not policy["enabled"]:
@@ -314,7 +317,7 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
     steering_unavailable = False
     if steering_get is not None:
         from f139.nci04_research_steering import (
-            SteeringDenied, read_approved_steering, rank_eligible,
+            SteeringDenied, read_approved_steering,
         )
         try:
             steering = read_approved_steering(steering_get)
@@ -359,19 +362,10 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
                 continue
             candidates.append(candidate)
             existing_candidate_identities.add(candidate["candidate_identity"])
-            if (steering is None and
-                    len(candidates) >= policy["max_issue_creations_per_cycle"]):
-                report = {"enabled": True, "candidates": candidates,
-                          "rejected": rejected}
-                if steering_unavailable:
-                    report["steering"] = {
-                        "status": "UNAVAILABLE_LEGACY_ORDER",
-                        "advisory_only": True,
-                    }
-                return report
+    selected = rank_eligible(
+        candidates, maximum=policy["max_issue_creations_per_cycle"],
+        admitted_lanes=admitted_lanes, use_forecasts=steering is not None)
     if steering is not None:
-        selected = rank_eligible(
-            candidates, maximum=policy["max_issue_creations_per_cycle"])
         # Advisory source-bound observation only: no intake, permission,
         # queue, promotion, or native execution behavior is changed.
         eligible_ids = [c["candidate_identity"] for c in candidates]
@@ -398,7 +392,7 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
         return {"enabled": True, "candidates": selected,
                 "rejected": rejected,
                 "steering": {**steering, "selection_witness": selection}}
-    report = {"enabled": True, "candidates": candidates, "rejected": rejected}
+    report = {"enabled": True, "candidates": selected, "rejected": rejected}
     if steering_unavailable:
         report["steering"] = {
             "status": "UNAVAILABLE_LEGACY_ORDER", "advisory_only": True,

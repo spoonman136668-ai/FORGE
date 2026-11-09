@@ -25,7 +25,7 @@ DOCUMENTS = (
      "e4b03f73193115a846a39be2ec2c8530143386ec"),
 )
 MAX_BYTES = 16384
-LANES = ("Wingless", "Yggdrasil")
+LANES = ("Wingless", "Yggdrasil", "TTT-Hybrid")
 
 
 class SteeringDenied(ValueError):
@@ -93,21 +93,42 @@ def read_approved_steering(get: Callable[[str], object]) -> dict:
     }
 
 
-def rank_eligible(candidates: list[dict], *, maximum: int = 2) -> list[dict]:
+def fair_lane_order(admitted_lanes: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """Least recently admitted first, reconstructed from verified owner events.
+
+    No clock, persisted cursor, queue or provider completion inference. Only
+    genuine owner admissions advance service; failed/unavailable lanes cannot
+    reserve capacity. Unserved lanes tie in the existing fixed policy order.
+    """
+    require(isinstance(admitted_lanes, tuple)
+            and all(isinstance(lane, str) and lane in LANES
+                    for lane in admitted_lanes), "ADMISSION_HISTORY_INVALID")
+    last = {lane: -1 for lane in LANES}
+    for index, lane in enumerate(admitted_lanes):
+        last[lane] = index
+    return tuple(sorted(LANES, key=lambda lane: last[lane]))
+
+
+def rank_eligible(candidates: list[dict], *, maximum: int = 2,
+                  admitted_lanes: tuple[str, ...] = (),
+                  use_forecasts: bool = True) -> list[dict]:
     """Prefer authenticated advisory information/compute estimates, with lane fairness.
 
     Inputs are *already* original-owner PR/Git-verified development candidates.
     Forecasts are estimates, never science; no candidate is made eligible here.
-    Preserve legacy catalog order for equal or absent scores. Give each lane one
-    opportunity before allocating unused slots, never exceed original budget.
+    Preserve catalog order for equal or absent scores within each lane. Serve
+    least recently admitted lanes first, one place each before surplus places.
+    The caller supplies only already-verified original-owner admission history.
     """
     require(type(maximum) is int and maximum == 2
+            and type(use_forecasts) is bool
             and isinstance(candidates, list)
             and all(isinstance(c, dict) and c.get("lane") in LANES
                     for c in candidates), "RANK_INPUT_INVALID")
+    lane_order = fair_lane_order(admitted_lanes)
     def score(c: dict) -> tuple[int, int]:
         a = c.get("advisory_handoff")
-        if not isinstance(a, dict) or a.get("advisory_only") is not True:
+        if not use_forecasts or not isinstance(a, dict) or a.get("advisory_only") is not True:
             return (0, 0)
         information = a.get("expected_information_microbits")
         cost = a.get("estimated_compute_units")
@@ -117,11 +138,13 @@ def rank_eligible(candidates: list[dict], *, maximum: int = 2) -> list[dict]:
         return (1, min(information, 10**12) * 1000 // max(1, min(cost, 10**12)))
 
     result, selected = [], set()
-    for lane in LANES:
+    for lane in lane_order:
         choices = [(i, c) for i, c in enumerate(candidates)
                    if c["lane"] == lane]
         if not choices:
             continue
+        if len(result) == maximum:
+            break
         i, candidate = max(choices, key=lambda x: (score(x[1]), -x[0]))
         result.append(candidate)
         selected.add(i)
