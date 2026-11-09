@@ -13,7 +13,25 @@ import subprocess
 from typing import Callable
 
 REPO = "spoonman136668-ai/FORGE"
+HYBRID_RELEASE_BRANCH = "release/f139-hybrid-qualified-worker-governance-20261109"
+HYBRID_RELEASE_PR = 1642
+HYBRID_RELEASE_ANCHOR = "0e122eb8e571ddddee1dea4168cf18cfc7dc019d"
+HYBRID_WORKER_PATH = ".github/workflows/forge-f139-development-worker.yml"
+HYBRID_WORKER_BEFORE = "8eab7972ba1b30eabf1e38477aff60b598cdeb2f"
+HYBRID_WORKER_AFTER = "74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
 FROZEN_SCOPES = {
+    # Explicit operator-authorized governance qualification, not a generic
+    # workflow/harness allowance. The worker itself is a separate PR below.
+    "engineering/f139-exact-worker-release-scope-20261109": (
+        "0e122eb8e571ddddee1dea4168cf18cfc7dc019d",
+        {
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+            "f139/test_hybrid_workflow_release_scope.py",
+            "docs/F139-EXACT-HYBRID-WORKFLOW-RELEASE.md",
+        },
+    ),
     "engineering/rar-g141-parallel-complete-go-suites-20261108": (
         "1a1ba98dc821131d8a14182f72243540d008aaae",
         {
@@ -88,9 +106,9 @@ FROZEN_SCOPES = {
         },
     ),
     "engineering/rar-g166-f23-race-profile-20261109": (
-        "0e122eb8e571ddddee1dea4168cf18cfc7dc019d",
+        "32de33753c874102de9672d2768e4b7c0b866b25",
         {
-            "docs/FORGE-G166-PINNED-F23-RACE-PROFILE.md",
+            "docs/FORGE-G173-F30-RACE-PROFILE.md",
             ".github/workflows/qualify.yml",
             "scripts/check_rar_g145_pr_scope.py",
             "scripts/check_rar_g148_go_cache.py",
@@ -139,6 +157,87 @@ def negative_controls() -> None:
     ]
     if not generic_paths_safe(valid) or any(generic_paths_safe(x) for x in invalid):
         raise ValueError("G145_ADMISSION_NEGATIVE_CONTROL_FAILED")
+    hybrid_release_negative_controls()
+
+
+def admit_hybrid_workflow_release(head_sha: str, base_sha: str,
+                                  request: dict, git: Callable[..., str]) -> str:
+    """Qualify only #1642's exact old-to-new worker blob, never release it.
+
+    Event head/base repository/ref identities are checked by github_event_base
+    before this helper is called. No other file, harness, workflow, source
+    allowlist, permission or task transition is admitted by this route.
+    """
+    if (not is_sha(head_sha) or not is_sha(base_sha)
+            or not isinstance(request, dict)
+            or not isinstance(request.get("user"), dict)
+            or request.get("number") != HYBRID_RELEASE_PR
+            or type(request.get("number")) is not int
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_HYBRID_RELEASE_ORIGINAL_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        anchor = git("merge-base", HYBRID_RELEASE_ANCHOR, base_sha)
+        changed = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+        before = git("ls-tree", base_sha, "--", HYBRID_WORKER_PATH)
+        after = git("ls-tree", head_sha, "--", HYBRID_WORKER_PATH)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_HYBRID_RELEASE_SOURCE_UNAVAILABLE") from exc
+    def entry(blob):
+        return "100644 blob " + blob + "\t" + HYBRID_WORKER_PATH
+    if (ancestor != base_sha or anchor != HYBRID_RELEASE_ANCHOR
+            or changed != [HYBRID_WORKER_PATH]
+            or before != entry(HYBRID_WORKER_BEFORE)
+            or after != entry(HYBRID_WORKER_AFTER)):
+        raise ValueError("G145_HYBRID_RELEASE_EXACT_SOURCE_REQUIRED")
+    return "EXACT_PR1642_HYBRID_WORKER_BLOB_QUALIFICATION_ONLY"
+
+
+def hybrid_release_negative_controls() -> None:
+    """Run in both unchanged original full-Go qualifiers, without network."""
+    head, base = "c" * 40, "b" * 40
+    request = {"number": HYBRID_RELEASE_PR,
+               "user": {"login": "spoonman136668-ai"},
+               "author_association": "OWNER"}
+    def git(*args):
+        if args == ("merge-base", base, head):
+            return base
+        if args == ("merge-base", HYBRID_RELEASE_ANCHOR, base):
+            return HYBRID_RELEASE_ANCHOR
+        if args == ("diff", "--no-renames", "--name-only", base, head):
+            return HYBRID_WORKER_PATH
+        if args in (("ls-tree", base, "--", HYBRID_WORKER_PATH),
+                    ("ls-tree", head, "--", HYBRID_WORKER_PATH)):
+            blob = HYBRID_WORKER_BEFORE if args[1] == base else HYBRID_WORKER_AFTER
+            return "100644 blob " + blob + "\t" + HYBRID_WORKER_PATH
+        raise AssertionError("unexpected frozen source read")
+    admit_hybrid_workflow_release(head, base, request, git)
+    bad_reads = (
+        (("merge-base", base, head), "f" * 40),
+        (("merge-base", HYBRID_RELEASE_ANCHOR, base), "f" * 40),
+        (("diff", "--no-renames", "--name-only", base, head),
+         HYBRID_WORKER_PATH + "\nscripts/check_rar_g145_pr_scope.py"),
+        (("ls-tree", base, "--", HYBRID_WORKER_PATH),
+         "100644 blob " + "f" * 40 + "\t" + HYBRID_WORKER_PATH),
+        (("ls-tree", head, "--", HYBRID_WORKER_PATH),
+         "100644 blob " + "f" * 40 + "\t" + HYBRID_WORKER_PATH),
+        (("ls-tree", head, "--", HYBRID_WORKER_PATH),
+         "100755 blob " + HYBRID_WORKER_AFTER + "\t" + HYBRID_WORKER_PATH),
+    )
+    for call, result in bad_reads:
+        def changed_git(*args):
+            return result if args == call else git(*args)
+        try:
+            admit_hybrid_workflow_release(head, base, request, changed_git)
+        except ValueError:
+            continue
+        raise ValueError("G145_HYBRID_RELEASE_NEGATIVE_FAILED")
+    try:
+        admit_hybrid_workflow_release(head, base, dict(request, number=1643), git)
+    except ValueError:
+        return
+    raise ValueError("G145_HYBRID_RELEASE_PR_NEGATIVE_FAILED")
 
 
 def github_event_base(head_sha: str) -> str:
@@ -177,6 +276,12 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == HYBRID_RELEASE_BRANCH:
+        payload = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        request = payload["pull_request"]
+        if payload.get("number") != HYBRID_RELEASE_PR:
+            raise ValueError("G145_HYBRID_RELEASE_ORIGINAL_PR_REQUIRED")
+        return admit_hybrid_workflow_release(head_sha, base_sha, request, git)
     if branch in FROZEN_SCOPES:
         frozen_base, expected = FROZEN_SCOPES[branch]
         try:

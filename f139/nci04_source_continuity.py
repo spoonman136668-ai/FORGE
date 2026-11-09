@@ -65,12 +65,29 @@ def prove_protected_research_only_advance(
             and isinstance(remote.get("commit"), dict)
             and remote["commit"].get("sha") == protected_source,
             "PROTECTED_MAIN_MOVED_OR_UNPROTECTED")
-    comparison = get(f"repos/{REPOSITORY}/compare/"
+    compare_route = (f"repos/{REPOSITORY}/compare/"
                      f"{deployed_source}...{protected_source}")
+    # GitHub includes file patches on page 1 only. Read ancestry metadata
+    # from page 2 first, so an already out-of-budget history cannot overflow
+    # the unchanged transport cap before the release-pin fallback is tried.
+    summary = get(compare_route + "?per_page=1&page=2")
+    require(isinstance(summary, dict)
+            and summary.get("status") == "ahead"
+            and type(summary.get("ahead_by")) is int
+            and 1 <= summary["ahead_by"] <= MAX_COMMITS
+            and summary.get("behind_by") == 0
+            and summary.get("total_commits") == summary["ahead_by"]
+            and isinstance(summary.get("merge_base_commit"), dict)
+            and summary["merge_base_commit"].get("sha") == deployed_source,
+            "NOT_BOUNDED_FORWARD_ANCESTRY")
+    # Eligible research deltas still require the entire original file and
+    # commit proof; an ancestry-only response never authorizes these paths.
+    comparison = get(compare_route)
     require(isinstance(comparison, dict)
             and comparison.get("status") == "ahead"
             and type(comparison.get("ahead_by")) is int
             and 1 <= comparison["ahead_by"] <= MAX_COMMITS
+            and comparison["ahead_by"] == summary["ahead_by"]
             and comparison.get("behind_by") == 0
             and comparison.get("total_commits") == comparison["ahead_by"]
             and isinstance(comparison.get("merge_base_commit"), dict)

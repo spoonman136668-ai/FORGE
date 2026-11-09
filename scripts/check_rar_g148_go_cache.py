@@ -117,6 +117,14 @@ def event_mode(head):
         raise ValueError("G148_ONLY_SAME_REPO_MAIN_PR")
     admiss = admit_original_pr(head, git)
     branch = os.environ["GITHUB_HEAD_REF"]
+    if branch == "engineering/f139-exact-worker-release-scope-20261109":
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G148_HYBRID_GOVERNANCE_FROZEN_SCOPE_REQUIRED")
+        return "pr"
+    if branch == "release/f139-hybrid-qualified-worker-governance-20261109":
+        if admiss != "EXACT_PR1642_HYBRID_WORKER_BLOB_QUALIFICATION_ONLY":
+            raise ValueError("G148_EXACT_HYBRID_WORKER_SCOPE_REQUIRED")
+        return "pr"
     if branch == "engineering/rar-g156-dynamic-main-cache-release-20261108":
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G156_RELEASE_FROZEN_SCOPE_REQUIRED")
@@ -135,7 +143,7 @@ def event_mode(head):
         return "pr"
     if branch == "engineering/rar-g166-f23-race-profile-20261109":
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
-            raise ValueError("G166_FROZEN_DEVELOPMENT_SCOPE_REQUIRED")
+            raise ValueError("G173_FROZEN_PROFILE_SCOPE_REQUIRED")
         return "pr"
     if branch != BRANCH:
         if admiss != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":

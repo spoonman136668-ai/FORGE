@@ -241,31 +241,31 @@ jobs:
           test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
           grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
           ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
-      - name: G166 pinned F23 Eureka race test profile (DEV ONLY)
+      - name: G173 pinned F30 Eureka race test profile (DEV ONLY)
         if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g166-f23-race-profile-20261109' && github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         env:
-          G166_PROFILE_HEAD: ${{ github.event.pull_request.head.sha }}
-          G166_RESEARCH_SHA: abaf92fb3c72ebc72ebc0e0a200c3b5c0213096c
-          G166_RESEARCH_TREE: d82de695b201eb8f3e76001196d5026b5aacd705
+          G173_PROFILE_HEAD: ${{ github.event.pull_request.head.sha }}
+          G173_RESEARCH_SHA: abcaf381d5836934b3ac9bab41f8a94de9a7da69
+          G173_RESEARCH_TREE: ba133aa83ece276adb1b7a329f29ec70ab122b59
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$G166_PROFILE_HEAD"
+          test "$(git rev-parse HEAD)" = "$G173_PROFILE_HEAD"
           test -z "$(git status --porcelain --untracked-files=all)"
-          git fetch --no-tags --depth=1 origin "$G166_RESEARCH_SHA"
-          profile_source="$RUNNER_TEMP/rar-g166-pinned-eureka"
-          git worktree add --detach "$profile_source" "$G166_RESEARCH_SHA"
-          test "$(git -C "$profile_source" rev-parse HEAD)" = "$G166_RESEARCH_SHA"
-          test "$(git -C "$profile_source" rev-parse HEAD^{tree})" = "$G166_RESEARCH_TREE"
+          git fetch --no-tags --depth=1 origin "$G173_RESEARCH_SHA"
+          profile_source="$RUNNER_TEMP/rar-g173-pinned-eureka"
+          git worktree add --detach "$profile_source" "$G173_RESEARCH_SHA"
+          test "$(git -C "$profile_source" rev-parse HEAD)" = "$G173_RESEARCH_SHA"
+          test "$(git -C "$profile_source" rev-parse HEAD^{tree})" = "$G173_RESEARCH_TREE"
           test -z "$(git -C "$profile_source" status --porcelain --untracked-files=all)"
           cd "$profile_source"
           export GOFLAGS=-p=4 GOMAXPROCS=2 GOMEMLIMIT=1536MiB GOTOOLCHAIN=local
           test "$(go version | awk '{print $3}')" = "go1.23.12"
           set +e
-          go test -race -count=1 -json ./nativediscovery > "$RUNNER_TEMP/rar-g166-test-events.jsonl" 2> "$RUNNER_TEMP/rar-g166-stderr.txt"
+          go test -race -count=1 -json ./nativediscovery > "$RUNNER_TEMP/rar-g173-test-events.jsonl" 2> "$RUNNER_TEMP/rar-g173-stderr.txt"
           go_exit=$?
           set -e
-          python3 -B - "$RUNNER_TEMP/rar-g166-test-events.jsonl" "$RUNNER_TEMP/rar-g166-timings.json" "$G166_RESEARCH_SHA" "$go_exit" <<'PY'
+          python3 -B - "$RUNNER_TEMP/rar-g173-test-events.jsonl" "$RUNNER_TEMP/rar-g173-timings.json" "$G173_RESEARCH_SHA" "$go_exit" <<'PY'
           import json, sys
           from pathlib import Path
           src, dest, sha, code = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], int(sys.argv[4])
@@ -274,7 +274,7 @@ jobs:
               for line in stream:
                   item = json.loads(line)
                   if item.get("Package") != "github.com/spoonman136668-ai/forge/nativediscovery":
-                      raise SystemExit("G166_PACKAGE_IDENTITY_DRIFT")
+                      raise SystemExit("G173_PACKAGE_IDENTITY_DRIFT")
                   action, name = item.get("Action"), item.get("Test", "")
                   if action in ("pass", "fail") and name:
                       entry = dict(name=name, action=action, elapsed=item.get("Elapsed"))
@@ -282,25 +282,25 @@ jobs:
                   elif action == "pass" and not name:
                       package_pass += 1
           if len(passed) < 30 or (bool(failed) != (code != 0)) or (package_pass < 1 and code == 0):
-              raise SystemExit("G166_PROFILE_EVENT_PARITY_FAILED")
+              raise SystemExit("G173_PROFILE_EVENT_PARITY_FAILED")
           top = sorted(passed, key=lambda x:x["elapsed"] or 0, reverse=True)[:25]
-          report = dict(schema="forge.rar-g166.test-level-race-profile.dev.v1", source_sha=sha,
+          report = dict(schema="forge.rar-g173.test-level-race-profile.dev.v1", source_sha=sha,
                         exit_code=code, package_pass_events=package_pass,
                         passing_tests=len(passed), failures=failed[:20], top_tests=top,
                         scientific_firstuse=False, deployment=False)
           dest.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-          print("G166_PROFILE_RECEIPT=" + json.dumps(report, sort_keys=True), flush=True)
+          print("G173_PROFILE_RECEIPT=" + json.dumps(report, sort_keys=True), flush=True)
           PY
           test "$go_exit" -eq 0
-      - name: Retain G166 exact-Eureka race test profile (DEV ONLY)
+      - name: Retain G173 exact-Eureka race test profile (DEV ONLY)
         if: always() && github.head_ref == 'engineering/rar-g166-f23-race-profile-20261109'
         uses: actions/upload-artifact@v4
         with:
-          name: rar-g166-eureka-race-abaf92fb3c72ebc72ebc0e0a200c3b5c0213096c
+          name: rar-g173-eureka-race-abcaf381d5836934b3ac9bab41f8a94de9a7da69
           path: |
-            ${{ runner.temp }}/rar-g166-test-events.jsonl
-            ${{ runner.temp }}/rar-g166-timings.json
-            ${{ runner.temp }}/rar-g166-stderr.txt
+            ${{ runner.temp }}/rar-g173-test-events.jsonl
+            ${{ runner.temp }}/rar-g173-timings.json
+            ${{ runner.temp }}/rar-g173-stderr.txt
           retention-days: 7
           if-no-files-found: error
       - name: Retain private-fixture phase diagnosis

@@ -98,7 +98,8 @@ def _publication_prefix(db, boundary):
 
 
 def validate_retained(db, boundary, frozen_boundary, source_sha, *,
-                      successor_boundary=None, successor_source=None):
+                      successor_boundary=None, successor_source=None,
+                      second_successor_boundary=None, second_successor_source=None):
     """Keep the exact V37 negative while permitting fully authenticated growth.
 
     Frozen 102/101 counts belong to the original V37 seal, never the growing
@@ -111,6 +112,15 @@ def validate_retained(db, boundary, frozen_boundary, source_sha, *,
          (type(successor_boundary) is int and frozen_boundary < successor_boundary < boundary
           and isinstance(successor_source, str) and re.fullmatch('[a-f0-9]{40}', successor_source)
           and successor_source != source_sha), 'SUCCESSOR_EPOCH_BOUNDARY')
+    # Only the actual installed third epoch. Legacy one/two-epoch calls retain
+    # their original semantics and cannot accept 42c70d74 growth implicitly.
+    need((second_successor_boundary is None and second_successor_source is None) or
+         (type(second_successor_boundary) is int and type(successor_boundary) is int
+          and successor_boundary < second_successor_boundary < boundary
+          and source_sha == '3dd63467d649a347692b6b42cd5074ff1038d3de'
+          and successor_source == '54d556c3fdf1023d650f76c48ffb1bdc5ccc9135'
+          and second_successor_source == '42c70d74dd93ef90d0f4618fefefe2206b81eafe'),
+         'SECOND_SUCCESSOR_EPOCH_BOUNDARY')
     packet = validate_original(db, frozen_boundary)
     attempts, successes = _publication_prefix(db, boundary)
     need(len(attempts) >= 102 and len(successes) >= 101
@@ -126,6 +136,8 @@ def validate_retained(db, boundary, frozen_boundary, source_sha, *,
         if row['kind']=='MODEL_DRAFT_ATTEMPTED':
             expected_source = (successor_source if successor_boundary is not None
                                and row['seq'] >= successor_boundary else source_sha)
+            if second_successor_boundary is not None and row['seq'] >= second_successor_boundary:
+                expected_source = second_successor_source
             need(set(doc)==set(original_payload()) and doc['source_sha']==expected_source
                  and isinstance(doc['branch'], str)
                  and re.fullmatch(r'f139/auto-model-[wy]-[a-f0-9]{20}-[a-f0-9]{12}', doc['branch'])
