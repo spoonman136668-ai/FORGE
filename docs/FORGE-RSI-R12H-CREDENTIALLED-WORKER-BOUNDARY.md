@@ -1,49 +1,44 @@
-# F139 RSI R12-H — version-distinct credentialed authorization fence
+# F139 RSI R12-H — credentialed pre-dispatch verification, source-only
 
-Baseline protected main `58aae648045cb7ffb9dce428c45be8898f0bf02d`.
-Original Windows release remains `42c70d74dd93ef90d0f4618fefefe2206b81eafe`.
-Policy issue #807 currently authorizes only Wingless and Yggdrasil.
+Protected FORGE main: `58aae648045cb7ffb9dce428c45be8898f0bf02d`,
+tree `f25d130089b3521b8ec8f66603268ee86dd272a9`.
+Original Windows owner release still `42c70d74dd93ef90d0f4618fefefe2206b81eafe`;
+operator issue #807 still authorizes only Wingless and Yggdrasil.
 
-## Actual gate
+## Completed in this source-only gate
 
-The existing `forge-f139-development-worker.yml` endpoint gets a
-strict `f139-rsi-` route, isolated from legacy execute, native V1/V2/V3
-and concurrent Hybrid owner admission. The credentialed GitHub job
-authenticates the R12-G pre-dispatch HMAC, exact R12-A binding,
-candidate source bytes, GitHub dispatch run identity and SHA/tree, and
-the independently fetched original owner issue #807. Its key is scoped
-to that authorizer and NEVER passed to a candidate or credential-free
-job.
+R12-H adds a deterministic credentialed-verification function and negative
+tests for the R12-G pre-dispatch HMAC, exact R12-A candidate binding,
+base64 candidate source hashes, GitHub actor/ref/run/attempt/source/tree
+claims, original source-scoped operator policy, and a bounded canonical
+input packet. It never executes the proposed source, modifies the
+original SQLite owner, dispatches, or handles scientific first-use.
 
-**Fundamental limit:** HMAC verification is NOT cold original-owner
-ledger custody. The GitHub authorizer has a copy of the HMAC secret;
-therefore it cannot independently prove the original Windows owner
-wrote its one-use R11/R12-G events. Supplied event sequences/digests
-are NOT independently verified. The resulting receipt explicitly
-reports `original_owner_sqlite_ledger_verified=false` and
-`credential_free_worker_admitted=false`.
+A valid HMAC alone **cannot independently prove** the one-use original
+Windows owner ledger event. The same worker secret exists on GitHub's
+credentialed authorizer. Untrusted original event seq/hash fields are
+shape-checked but not verified against the original SQLite ledger.
+The return explicitly declares original-owner ledger verification,
+terminal receipt verification and credential-free worker admission FALSE.
 
-A distinct `rsi-execute` job is wired to the existing endpoint but
-requires `needs.rsi-authorize.outputs.original_ledger_verified == 'true'`.
-The authorize job only emits `false`: hence no source execution is
-reachable now. The job contains an additional fail-closed invariant
-check for the missing original ledger claim, never runs R12-F candidate
-code or writes original owner state. Subsequent R12-I must deliver
-an **independent original-owned single-use post-dispatch attestation**
-before this can be made executable. It must be cryptographically
-separate from the shared GitHub HMAC key or independently read the
-real original owner ledger with authenticated original custody.
+## Mandatory protected workflow admission: G145
 
-## Preservation
+R12-H's initial candidate included a separate authorize/execute branch
+in the original `forge-f139-development-worker.yml`. The mandatory
+original Linux and Windows Go admission checks rejected this generic
+workflow edit with `G145_GENERIC_PR_CHANGED_OR_UNRELATED_HARNESS`.
+This is a **correct safety guard**, not evidence of a product Go failure.
+The candidate was revised to restore the original workflow byte-for-byte,
+rather than modifying G145, relabeling the PR, skipping the mandatory Go
+checks or accepting failed qualification.
 
-The current legacy owner dispatch still uses the original lanes and
-identity schema. The established native V1/V2/V3 dispatch paths,
-Wingless, Yggdrasil, and Hybrid are untouched. No new controller,
-scheduler, queue, workflow, scheduled tasks, original owner release,
-policy update, operator secret provisioning, paid API, scientific
-first-use, source promotion or live FORGE-self attempt.
+The currently merged F139 worker and native V1/V2/V3/Hybrid paths are
+unchanged and FORGE-self remains unadmitted. Workflow activation
+requires a **separately authorized** workflow provenance path that
+respects G145; plus independent original-only one-use post-dispatch
+receipt, installed Windows original source transition, source-pinned
+owner policy and real fresh eligible failure.
 
-The strict packet is based on the existing `native_bundle` workflow
-input, not a new API surface. A fail-closed current issue #807 is
-expected. This engineering gate is **source-only** until independent
-original release qualification and owner-signed runtime acceptance.
+No workflow dispatch, new controller/queue/scheduler, scheduled task,
+paid model API, source promotion, secrets, first-use, or accepted
+scientific result is introduced. Source-only PASS is not runtime PASS.

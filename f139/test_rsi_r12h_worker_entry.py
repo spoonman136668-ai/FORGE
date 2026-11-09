@@ -166,24 +166,27 @@ class StrictCredentialedHandoffTests(unittest.TestCase):
                 with self.assertRaises(CredentialedRSIDenied):
                     self.auth(issue={**self.issue, **variant})
 
-    def test_actual_workflow_does_not_promote_hmac_into_worker_right(self):
+    def test_original_workflow_route_is_unmodified_and_fail_closed(self):
         from pathlib import Path
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/forge-f139-development-worker.yml"
                     ).read_text("utf-8")
-        self.assertIn("rsi-authorize:", workflow)
-        self.assertIn("rsi-execute:", workflow)
-        self.assertIn("needs: rsi-authorize", workflow)
+        # Original execution endpoint is deliberately untouched: G145
+        # forbids a generic PR from modifying a workflow. No authorization
+        # parser may be mistaken for an active worker route.
+        self.assertNotIn("rsi-authorize:", workflow)
+        self.assertNotIn("rsi-execute:", workflow)
+        self.assertNotIn("F139_RSI_NATIVE_BUNDLE", workflow)
         self.assertIn(
-            "needs.rsi-authorize.outputs.original_ledger_verified == 'true'",
+            "if: ${{ !startsWith(inputs.ticket, 'f139-nci04-') }}",
             workflow)
-        self.assertIn(
-            "!startsWith(inputs.ticket, 'f139-rsi-')", workflow)
-        self.assertIn(
-            "F139_RSI_ORIGINAL_LEDGER_VERIFIED=false", workflow)
         self.assertNotIn("schedule:", workflow)
         from f139.verify_ticket import LANES as WORKER
         self.assertNotIn("FORGE-self", WORKER)
+        # No original-only terminal proof is returned by the parser.
+        proof = self.auth()
+        self.assertFalse(proof["original_owner_sqlite_ledger_verified"])
+        self.assertFalse(proof["credential_free_worker_admitted"])
 
 
 if __name__ == "__main__":
