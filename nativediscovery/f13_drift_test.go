@@ -228,3 +228,72 @@ func TestF13DevelopmentEvidenceCannotForgeScienceOrOwner(t *testing.T){
  }
 }
 func returnEarlyF13(t *testing.T,s string){t.Fatal(s)}
+
+// Independently reconstructed from the frozen F12 hidden-state transition law,
+// deterministic action stream, and F13's prespecified 16-rule competitors.
+// The table is a verification witness, NOT an input to learner selection.
+func TestF13IndependentFourArmGolden(t *testing.T){
+ out,err:=F13Development()
+ if err!=nil||F13Validate(out)!=nil{t.Fatal("F13 source report invalid",err)}
+ type row struct{
+  seed uint32
+  policy string
+  originalG1 [7]int
+  changedG1 [7]int
+  originalG2 [7]int
+  changedG2 [7]int
+  alarmG1,alarmG2 bool
+  retainsOriginal bool
+ }
+ expected:=[]row{
+  {17,"fixed",
+   [7]int{64,64,64,64,64,20,20},
+   [7]int{20,20,20,20,20,64,64},
+   [7]int{64,64,20,20,58,20,20},
+   [7]int{20,20,64,64,25,64,64},
+   false,false,true},
+  {17,"random",
+   [7]int{64,64,64,64,64,20,8},
+   [7]int{20,20,20,20,20,64,19},
+   [7]int{20,64,20,20,50,20,20},
+   [7]int{64,20,64,64,28,64,64},
+   false,true,false},
+  {31,"fixed",
+   [7]int{12,64,12,12,64,21,21},
+   [7]int{64,12,64,64,12,10,10},
+   [7]int{12,64,12,12,64,9,64},
+   [7]int{64,12,64,64,12,22,12},
+   true,true,true},
+  {31,"random",
+   [7]int{12,64,12,12,64,9,0},
+   [7]int{64,12,64,64,12,22,20},
+   [7]int{12,64,12,12,64,9,10},
+   [7]int{64,12,64,64,12,22,21},
+   true,true,true},
+ }
+ if len(out.Arms)!=len(expected){t.Fatal("F13 dropped an unfavorable arm")}
+ for i,w:=range expected{
+  a:=out.Arms[i];g1,g2:=a.Rounds[0],a.Rounds[1]
+  if a.Seed!=w.seed||a.Policy!=w.policy||
+   g1.OriginalCorrect!=w.originalG1||
+   g1.ChangedCorrect!=w.changedG1||
+   g2.OriginalCorrect!=w.originalG2||
+   g2.ChangedCorrect!=w.changedG2||
+   g1.SurpriseAlarm!=w.alarmG1||
+   g2.SurpriseAlarm!=w.alarmG2||
+   a.RetainedOriginal!=w.retainsOriginal||
+   a.PassesThreshold{
+   t.Fatalf("F13_FROZEN_GOLDEN_DRIFT seed=%d policy=%s got=%+v expected=%+v",a.Seed,a.Policy,a,w)
+  }
+  t.Logf("F13_INDEPENDENT_GOLDEN seed=%d policy=%s changedG1=%v changedG2=%v originalG1=%v originalG2=%v surprise=%t/%t",
+   a.Seed,a.Policy,g1.ChangedCorrect,g2.ChangedCorrect,g1.OriginalCorrect,
+   g2.OriginalCorrect,g1.SurpriseAlarm,g2.SurpriseAlarm)
+ }
+ if out.Classification!=F13NO_GO||out.PassingArms!=0||
+  out.ScientificAccepted||out.OwnerEligible||out.DispatchAuthorized||
+  !out.EarlierNegativePreserved{
+  t.Fatalf("F13 false scientific gain or owner authority class=%s passing=%d",
+   out.Classification,out.PassingArms)
+ }
+ t.Log("F13_INDEPENDENT_GOLDEN_VERDICT=F13_DEV_NO_GO; strongest_rolling_MLE_not_beaten; scientific_accepted=false")
+}
