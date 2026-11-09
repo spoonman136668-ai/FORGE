@@ -1,20 +1,20 @@
-name: K Terminal PR83 exact-source engine preflight then canonical desktop and GUI acceptance
+name: K Terminal PR84 exact-source PAPER overlap full regression and desktop acceptance
 on:
   push:
-    branches: [qualification/kterminal-v3-fill-report-20261108]
+    branches: [qualification/kterminal-pr84-paper-overlap-20261109]
     paths: [.github/workflows/forge-kterminal-pr83-engine-preflight-desktop-20261109.yml]
 permissions:
   contents: read
 concurrency:
-  group: kterminal-pr83-engine-preflight-desktop-d4a9356b
+  group: kterminal-pr84-full-window-16158d09
   cancel-in-progress: false
 jobs:
   owner-local-package:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 6f2ea133b6f11fc6c502b727cfa755480506a779
-      KTERM_TREE: d4a9356bfcc8fc23ea00d4a771fe4427c680b004
+      KTERM_SHA: 0d0049080ee66451f056ab0131844604e267e640
+      KTERM_TREE: 16158d09a30ff461a254fee1a6cb871391c416c3
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -32,7 +32,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-v3-fill-report-20261108' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-pr84-paper-overlap-20261109' -or
              $env:GITHUB_EVENT_NAME -cne 'push' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
@@ -58,7 +58,7 @@ jobs:
           $download=Join-Path $profilePath 'Downloads'
           if(-not(Test-Path -LiteralPath $download -PathType Container)){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_DIRECTORY_UNAVAILABLE'}
           if((Get-Item -LiteralPath $download -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_LINK_REFUSED'}
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-preflight-desktop-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $root){throw 'KTERM_OWNER_LOCAL_STALE_WORKSPACE'}
           [void][IO.Directory]::CreateDirectory($root)
           Write-Host 'KTERM_OWNER_LOCAL_ISOLATION_AND_DISARM=PASS'
@@ -66,7 +66,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-preflight-desktop-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)
           $stage=Join-Path $root 'source'
           [void][IO.Directory]::CreateDirectory($stage)
           & git -C $stage init -q *> (Join-Path $root 'git-init-private.log')
@@ -95,12 +95,12 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Qualify UI launcher install archive without repeating full Go regression
+      - name: Qualify PAPER overlap negatives, full Windows regression and desktop acceptance
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_OWNER_LOCAL_GO_VERSION_DRIFT'}
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-preflight-desktop-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)
           $stage=Join-Path $root 'source'
           $env:GOCACHE=Join-Path $root 'go-cache'
           $env:GOMODCACHE=Join-Path $root 'go-modules'
@@ -111,15 +111,27 @@ jobs:
           foreach($dir in @($env:GOCACHE,$env:GOMODCACHE,$env:K_TERMINAL_TEST_WORKSPACE,
               $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,
               $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){[void][IO.Directory]::CreateDirectory($dir)}
-          # Exact private SHA/tree were verified in the prior checkout step.
-          # Full Windows regression and vet already PASS for this exact source
-          # in run 42594803055; do not repeat expensive unaffected gates.
-          # This retry diagnoses only the failed desktop build/GUI gate.
-          Write-Host 'KTERM_PR83_BUILD_GATE_REUSES_EXACT_SHA_REGRESSION=42594803055;SOURCE_SHA=6f2ea133b6f11fc6c502b727cfa755480506a779'
-          # The full Windows regression and Go vet PASS on the exact same
-          # SHA in run 42594803055. A standalone original engine go build
-          # separately PASS on that same SHA in run 42603178319. Qualify the
-          # ORIGINAL canonical BUILD.ps1 and UI below without rerunning tests.
+          # Run new source-specific tests before mandatory exact-SHA full regression.
+          # All test output stays in the owner-local disposable workspace.
+          # No Coinbase credentials, LIVE mode or order POST is available.
+          Push-Location $stage
+          try {
+            $focusedClock=[Diagnostics.Stopwatch]::StartNew()
+            & go test -p 1 -count=1 -timeout 15m -run '^TestPaperTPConcurrentReservations' ./pkg *> (Join-Path $root 'private-paper-overlap-focused.log')
+            $focusedClock.Stop()
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PR84_PAPER_OVERLAP_FOCUSED_FAILED'}
+            Write-Host ('KTERM_PR84_PAPER_OVERLAP_FOCUSED=PASS;MS='+$focusedClock.ElapsedMilliseconds)
+            $fullClock=[Diagnostics.Stopwatch]::StartNew()
+            & go test -p 1 -count=1 -timeout 60m ./... *> (Join-Path $root 'private-full-regression.log')
+            $fullClock.Stop()
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PR84_FULL_WINDOWS_REGRESSION_FAILED'}
+            Write-Host ('KTERM_PR84_FULL_WINDOWS_REGRESSION=PASS;MS='+$fullClock.ElapsedMilliseconds)
+            & go vet ./... *> (Join-Path $root 'private-vet.log')
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PR84_GO_VET_FAILED'}
+            Write-Host 'KTERM_PR84_GO_VET=PASS'
+          }finally{Pop-Location}
+          # The exact source must independently pass its new full regression:
+          # PR83's earlier receipts do not qualify this new SHA.
           # Warm exactly the repo-local .build cache used by BUILD.ps1 before
           # launching its Windows PowerShell 5.1 process.
           $env:GOCACHE=Join-Path $stage '.build\cache'
@@ -141,7 +153,7 @@ jobs:
             if(-not(Test-Path -LiteralPath 'K-Terminal-Engine.exe' -PathType Leaf)) {
               throw 'KTERM_ORIGINAL_ENGINE_PREFLIGHT_OUTPUT_MISSING'
             }
-            Write-Host ('KTERM_PR83_EXACT_ENGINE_PREFLIGHT=PASS;MS='+$warmTime.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
+            Write-Host ('KTERM_PR84_EXACT_ENGINE_PREFLIGHT=PASS;MS='+$warmTime.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
           }finally{Pop-Location}
           # Preserve the existing canonical build script byte-for-byte.
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> (Join-Path $root 'private-build.log')
@@ -174,7 +186,7 @@ jobs:
               elseif($raw -match '(?i)(compiler|compilation error|syntax error|undefined:|invalid operation|error CS[0-9]+)'){$class='COMPILATION_DIAGNOSTIC'}
               elseif($raw -match '(?i)(Unrecognized|not recognized as the name|not recognized as an internal)'){$class='TOOL_UNAVAILABLE'}
             }
-            Write-Host ('KTERM_PR83_BUILD_DIAGNOSTIC=FAIL;CLASS='+$class+';OUTPUT_PRESENT='+[bool]($raw.Length -gt 0)+';BROKER_WRITES=0')
+            Write-Host ('KTERM_PR84_BUILD_DIAGNOSTIC=FAIL;CLASS='+$class+';OUTPUT_PRESENT='+[bool]($raw.Length -gt 0)+';BROKER_WRITES=0')
             throw 'KTERM_OWNER_LOCAL_COMPLETE_BUILD_FAILED'
           }
           Write-Host 'KTERM_OWNER_LOCAL_COMPLETE_DESKTOP_BUILD=PASS'
@@ -186,7 +198,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_LAUNCHER_LIFECYCLE_FAILED'}
           Write-Host 'KTERM_OWNER_LOCAL_LAUNCH_LIFECYCLE=PASS'
           $package=Join-Path $root 'stage'
-          $zip=Join-Path $root ('KTerminal-PR83-PreflightDesktop-'+$env:KTERM_SHA.Substring(0,12)+'-R'+$env:GITHUB_RUN_ID+'.zip')
+          $zip=Join-Path $root ('KTerminal-PR84-FullQualification-'+$env:KTERM_SHA.Substring(0,12)+'-R'+$env:GITHUB_RUN_ID+'.zip')
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'verification\package-first-install.ps1') -SourceRoot $stage -StageDirectory $package -ZipPath $zip *> (Join-Path $root 'private-package.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_COMPLETE_ZIP_PACKAGE_FAILED'}
           $unpack=Join-Path $root 'unpacked'
@@ -228,7 +240,7 @@ jobs:
             if($gui.HasExited){throw 'KTERM_GUI_EARLY_EXIT'}
             if(-not $visible){throw 'KTERM_GUI_VISIBLE_NATIVE_WINDOW_UNVERIFIED'}
             if(Test-Path -LiteralPath (Join-Path $install 'config.json')){throw 'KTERM_GUI_UNEXPECTED_CONFIG'}
-            Write-Host 'KTERM_PR83_REAL_NATIVE_GUI=PASS;ISOLATED=TRUE;NO_BROKER_AUTH=TRUE;LIVE_ORDERS=0'
+            Write-Host 'KTERM_PR84_REAL_NATIVE_GUI=PASS;ISOLATED=TRUE;NO_BROKER_AUTH=TRUE;LIVE_ORDERS=0'
           } finally {
             if($null -ne $gui){
               $gui.Refresh()
@@ -261,12 +273,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-preflight-desktop-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $root) {
             $path=[IO.Path]::GetFullPath($root)
             $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
             if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
-               [IO.Path]::GetFileName($path) -cne ('kterm-pr83-preflight-desktop-owner-'+$env:GITHUB_RUN_ID)){
+               [IO.Path]::GetFileName($path) -cne ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)){
               throw 'KTERM_OWNER_LOCAL_PRIVATE_CLEANUP_REFUSED'
             }
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
