@@ -22,7 +22,8 @@ def rehearse_private_history(db, target, event_id, *, _contract=None):
     control. Production still builds and qualifies its own exact-source utility.
     """
     contract = selected_contract(_contract)
-    old = getattr(contract, "FROM_V38", None) or contract.FROM_V37
+    old = (getattr(contract, "FROM_V39", None) or
+           getattr(contract, "FROM_V38", None) or contract.FROM_V37)
     from f139.local_controller import Database, GitHub, SingleOwner
     from f139.nci04_native_contract import digest
     from f139.nci04_genenv_owner_backend import executable_custody
@@ -175,7 +176,8 @@ def verify_pretransition_rollback(path, backup):
 
 def selected_contract(candidate):
     from f139 import nci04_v39_source_transition as successor
-    contract.need(candidate is None or candidate is contract or candidate is successor,
+    from f139 import nci04_v40_source_transition as third_lane
+    contract.need(candidate is None or candidate is contract or candidate is successor or candidate is third_lane,
                   "UNKNOWN_SOURCE_CONTRACT")
     return contract if candidate is None else candidate
 

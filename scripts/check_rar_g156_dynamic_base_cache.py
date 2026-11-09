@@ -230,7 +230,14 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
-    if os.environ.get("GITHUB_HEAD_REF") == BRANCH:
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-exact-worker-release-scope-20261109":
+        if (admission != FROZEN or base != "0e122eb8e571ddddee1dea4168cf18cfc7dc019d"
+                or tree != "4dd3ad8fcd4ab039192994ebfa679ced30af6b1a"):
+            raise ValueError("G156_HYBRID_GOVERNANCE_FROZEN_SCOPE_REQUIRED")
+    elif os.environ.get("GITHUB_HEAD_REF") == "release/f139-hybrid-qualified-worker-governance-20261109":
+        if admission != "EXACT_PR1642_HYBRID_WORKER_BLOB_QUALIFICATION_ONLY":
+            raise ValueError("G156_EXACT_HYBRID_WORKER_SCOPE_REQUIRED")
+    elif os.environ.get("GITHUB_HEAD_REF") == BRANCH:
         if (admission != FROZEN or base != BASE or tree != BASE_TREE):
             raise ValueError("G156_FROZEN_RELEASE_BASE_OR_ADMISSION_MISMATCH")
         changed = git("diff", "--no-renames", "--name-only", BASE, head).splitlines()
@@ -269,18 +276,18 @@ def _release_scope(base: str, tree: str, head: str) -> None:
         if len(changed) != len(expected) or set(changed) != expected:
             raise ValueError("G161_EXACT_FIVE_PATH_SCOPE_CHANGED")
     elif os.environ.get("GITHUB_HEAD_REF") == "engineering/rar-g167-f24-f11-canonical-validation-ab-20261109":
-        if (admission != FROZEN or base != "0e122eb8e571ddddee1dea4168cf18cfc7dc019d" or tree != "4dd3ad8fcd4ab039192994ebfa679ced30af6b1a"):
-            raise ValueError("G167_BASE_OR_ADMISSION_MISMATCH")
+        if (admission != FROZEN or base != "32de33753c874102de9672d2768e4b7c0b866b25" or tree != "22d135f137c371c395604315605dbf5cb4f776a2"):
+            raise ValueError("G174_F10_AB_FROZEN_MAIN_SOURCE_REQUIRED")
         changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
         expected = {
-            "docs/FORGE-G167-F24-F11-VALIDATION-AB.md",
+            "docs/FORGE-G174-F10-SOURCE-MATCHED-AB.md",
             ".github/workflows/qualify.yml",
             "scripts/check_rar_g145_pr_scope.py",
             "scripts/check_rar_g148_go_cache.py",
             "scripts/check_rar_g156_dynamic_base_cache.py",
         }
         if len(changed) != len(expected) or set(changed) != expected:
-            raise ValueError("G167_EXACT_FIVE_PATH_SCOPE_CHANGED")
+            raise ValueError("G174_F10_AB_EXACT_FIVE_PATH_SCOPE_CHANGED")
     elif admission != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
         raise ValueError("G156_UNAUTHORIZED_GENERIC_PR_SOURCE")
 

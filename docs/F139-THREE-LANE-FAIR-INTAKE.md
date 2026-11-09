@@ -46,29 +46,34 @@ These tests are engineering DEV, not live-provider or scientific measurements.
 
 ## Release and deployment boundary
 
-PR #1642 remains draft at `10115c560338f5b0a0e9036d30376669d07962a0`.
-Its only changed file is `.github/workflows/forge-f139-development-worker.yml`,
-blob `74dd90e6d71da6b53898c7a80d5362f1b0e6af27`. Required public run
-`42602300389` fails G145 on both OSes before complete Go qualification. Current
-G145 frozen scopes contain no Hybrid release exception. Main ruleset `25031517`
-requires successful linux/windows checks, strict source currency and no bypass.
-The existing V39 original-owner cutover is not a generic workflow-source release
-route and manipulates scheduled tasks; it must not be repurposed here.
+PR #1648 merged the fair intake at `0e122eb8e571ddddee1dea4168cf18cfc7dc019d`.
+Its exact candidate passed all 12 checks and full postmerge run `42613620494`.
+PR #1651 subsequently qualified an explicitly operator-authorized exact G145
+release route. Existing PR #1642 released the frozen worker blob
+`74dd90e6d71da6b53898c7a80d5362f1b0e6af27` at protected-main merge
+`89e14488ffeec348aac0c38dbd1a70c3dd0bf188`. Final candidate
+`ffb18c8cb0d6e7284049fb857fff35f4c716b6e4` passed all 12 checks;
+postmerge full regression `42633698447` and origin `42633698503` passed.
+Earlier G145 failure `42602300389` and stale-event failure `42632280738` are
+preserved negatives, superseded only by actual final-source qualification.
+Generic workflow/harness rejection, ruleset `25031517`, required linux/windows
+checks and no bypass remain intact. No original-owner cutover was performed.
 
-The scoped maintainer must supply an existing independently authorized release
-route that admits this exact workflow blob while retaining G145. Under current
-rules none was found; do not add a self-authorizing harness exception, retarget
-to evade qualification, force merge or change protections. Requalify the actual
-final release candidate on Linux/Windows, including complete Go regression and
-build. Then, only under verified exact-operation original-owner authority:
-reconcile original ledger/provider receipts and mutex, perform qualified source
-transition, verify/explicitly migrate two slots, migrate Hybrid schema, opt in
-policy #807 to the exact source, prove scoped private-project worker access,
-then collect real signed per-lane terminal receipts and contention measurements.
+Read-only original-owner run `42634108093` verified installed source
+`42c70d74dd93ef90d0f4618fefefe2206b81eafe`, distinct from released main.
+SQLite quick-check passed at event 1462; the existing task reported Running.
+That is not full event-chain/provider reconciliation, mutex verification or
+proof of activated two-slot/Hybrid schemas. See
+`F139-THREE-LANE-RELEASE-READBACK.md` for the exact snapshot and deployment limit.
+The current V39 cutover requires predecessor `54d556c3...`, not the installed
+`42c70d74...`, and manipulates scheduled tasks. It cannot be repurposed here.
+Original-owner migration and private Hybrid worker qualification require their
+own verified scope; no restart, scheduling, replay or implicit opt-in is allowed.
 
 Policy #807 currently pins `42c70d74dd93ef90d0f4618fefefe2206b81eafe` and only
 Wingless/Yggdrasil. That policy is not proof of current installed source or
-two-slot activation. Those deployment facts remain unverified. This PR grants
+two-slot activation. The installed source is now read-back verified; slot activation and full
+reconciliation remain unverified. This source work grants
 no original-owner migration, scheduler operation, scientific first-use or GPU
 preemption authority. Existing independent research and negative results remain
 untouched; no learning, intelligence, throughput or cost superiority is claimed.
