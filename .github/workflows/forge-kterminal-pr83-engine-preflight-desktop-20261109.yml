@@ -1,20 +1,20 @@
-name: K Terminal PR84 exact-source PAPER overlap full regression and desktop acceptance
+name: K Terminal PR85 cold-start TP reporting exact-source Windows qualification
 on:
   push:
-    branches: [qualification/kterminal-pr84-paper-overlap-20261109]
+    branches: [qualification/kterminal-pr85-cold-tp-report-20261109]
     paths: [.github/workflows/forge-kterminal-pr83-engine-preflight-desktop-20261109.yml]
 permissions:
   contents: read
 concurrency:
-  group: kterminal-pr84-full-window-16158d09
+  group: kterminal-pr85-full-window-15019cd1
   cancel-in-progress: false
 jobs:
   owner-local-package:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 0d0049080ee66451f056ab0131844604e267e640
-      KTERM_TREE: 16158d09a30ff461a254fee1a6cb871391c416c3
+      KTERM_SHA: a2a21068c1d9d6712f17ba700e10b42ecb0c9c75
+      KTERM_TREE: 15019cd14d9d7592acdea5cbc174892155ca32fa
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -32,7 +32,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-pr84-paper-overlap-20261109' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-pr85-cold-tp-report-20261109' -or
              $env:GITHUB_EVENT_NAME -cne 'push' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
@@ -58,7 +58,7 @@ jobs:
           $download=Join-Path $profilePath 'Downloads'
           if(-not(Test-Path -LiteralPath $download -PathType Container)){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_DIRECTORY_UNAVAILABLE'}
           if((Get-Item -LiteralPath $download -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_LINK_REFUSED'}
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr85-full-owner-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $root){throw 'KTERM_OWNER_LOCAL_STALE_WORKSPACE'}
           [void][IO.Directory]::CreateDirectory($root)
           Write-Host 'KTERM_OWNER_LOCAL_ISOLATION_AND_DISARM=PASS'
@@ -66,7 +66,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr85-full-owner-'+$env:GITHUB_RUN_ID)
           $stage=Join-Path $root 'source'
           [void][IO.Directory]::CreateDirectory($stage)
           & git -C $stage init -q *> (Join-Path $root 'git-init-private.log')
@@ -95,12 +95,12 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Qualify PAPER overlap negatives, full Windows regression and desktop acceptance
+      - name: Qualify PAPER cold TP reporting negatives, full Windows regression and desktop acceptance
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_OWNER_LOCAL_GO_VERSION_DRIFT'}
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr85-full-owner-'+$env:GITHUB_RUN_ID)
           $stage=Join-Path $root 'source'
           $env:GOCACHE=Join-Path $root 'go-cache'
           $env:GOMODCACHE=Join-Path $root 'go-modules'
@@ -117,18 +117,18 @@ jobs:
           Push-Location $stage
           try {
             $focusedClock=[Diagnostics.Stopwatch]::StartNew()
-            & go test -p 1 -count=1 -timeout 15m -run '^TestPaperTPConcurrentReservations' ./pkg *> (Join-Path $root 'private-paper-overlap-focused.log')
+            & go test -p 1 -count=1 -timeout 15m -run '^(TestPaperTPConcurrentReservations|TestPaperTPReservationReport)' ./pkg *> (Join-Path $root 'private-paper-overlap-focused.log')
             $focusedClock.Stop()
-            if($LASTEXITCODE -ne 0){throw 'KTERM_PR84_PAPER_OVERLAP_FOCUSED_FAILED'}
-            Write-Host ('KTERM_PR84_PAPER_OVERLAP_FOCUSED=PASS;MS='+$focusedClock.ElapsedMilliseconds)
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PR85_PAPER_OVERLAP_FOCUSED_FAILED'}
+            Write-Host ('KTERM_PR85_PAPER_OVERLAP_FOCUSED=PASS;MS='+$focusedClock.ElapsedMilliseconds)
             $fullClock=[Diagnostics.Stopwatch]::StartNew()
             & go test -p 1 -count=1 -timeout 60m ./... *> (Join-Path $root 'private-full-regression.log')
             $fullClock.Stop()
-            if($LASTEXITCODE -ne 0){throw 'KTERM_PR84_FULL_WINDOWS_REGRESSION_FAILED'}
-            Write-Host ('KTERM_PR84_FULL_WINDOWS_REGRESSION=PASS;MS='+$fullClock.ElapsedMilliseconds)
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PR85_FULL_WINDOWS_REGRESSION_FAILED'}
+            Write-Host ('KTERM_PR85_FULL_WINDOWS_REGRESSION=PASS;MS='+$fullClock.ElapsedMilliseconds)
             & go vet ./... *> (Join-Path $root 'private-vet.log')
-            if($LASTEXITCODE -ne 0){throw 'KTERM_PR84_GO_VET_FAILED'}
-            Write-Host 'KTERM_PR84_GO_VET=PASS'
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PR85_GO_VET_FAILED'}
+            Write-Host 'KTERM_PR85_GO_VET=PASS'
           }finally{Pop-Location}
           # The exact source must independently pass its new full regression:
           # PR83's earlier receipts do not qualify this new SHA.
@@ -153,7 +153,7 @@ jobs:
             if(-not(Test-Path -LiteralPath 'K-Terminal-Engine.exe' -PathType Leaf)) {
               throw 'KTERM_ORIGINAL_ENGINE_PREFLIGHT_OUTPUT_MISSING'
             }
-            Write-Host ('KTERM_PR84_EXACT_ENGINE_PREFLIGHT=PASS;MS='+$warmTime.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
+            Write-Host ('KTERM_PR85_EXACT_ENGINE_PREFLIGHT=PASS;MS='+$warmTime.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
           }finally{Pop-Location}
           # Preserve the existing canonical build script byte-for-byte.
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> (Join-Path $root 'private-build.log')
@@ -186,7 +186,7 @@ jobs:
               elseif($raw -match '(?i)(compiler|compilation error|syntax error|undefined:|invalid operation|error CS[0-9]+)'){$class='COMPILATION_DIAGNOSTIC'}
               elseif($raw -match '(?i)(Unrecognized|not recognized as the name|not recognized as an internal)'){$class='TOOL_UNAVAILABLE'}
             }
-            Write-Host ('KTERM_PR84_BUILD_DIAGNOSTIC=FAIL;CLASS='+$class+';OUTPUT_PRESENT='+[bool]($raw.Length -gt 0)+';BROKER_WRITES=0')
+            Write-Host ('KTERM_PR85_BUILD_DIAGNOSTIC=FAIL;CLASS='+$class+';OUTPUT_PRESENT='+[bool]($raw.Length -gt 0)+';BROKER_WRITES=0')
             throw 'KTERM_OWNER_LOCAL_COMPLETE_BUILD_FAILED'
           }
           Write-Host 'KTERM_OWNER_LOCAL_COMPLETE_DESKTOP_BUILD=PASS'
@@ -198,7 +198,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_LAUNCHER_LIFECYCLE_FAILED'}
           Write-Host 'KTERM_OWNER_LOCAL_LAUNCH_LIFECYCLE=PASS'
           $package=Join-Path $root 'stage'
-          $zip=Join-Path $root ('KTerminal-PR84-FullQualification-'+$env:KTERM_SHA.Substring(0,12)+'-R'+$env:GITHUB_RUN_ID+'.zip')
+          $zip=Join-Path $root ('KTerminal-PR85-FullQualification-'+$env:KTERM_SHA.Substring(0,12)+'-R'+$env:GITHUB_RUN_ID+'.zip')
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'verification\package-first-install.ps1') -SourceRoot $stage -StageDirectory $package -ZipPath $zip *> (Join-Path $root 'private-package.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_COMPLETE_ZIP_PACKAGE_FAILED'}
           $unpack=Join-Path $root 'unpacked'
@@ -240,7 +240,7 @@ jobs:
             if($gui.HasExited){throw 'KTERM_GUI_EARLY_EXIT'}
             if(-not $visible){throw 'KTERM_GUI_VISIBLE_NATIVE_WINDOW_UNVERIFIED'}
             if(Test-Path -LiteralPath (Join-Path $install 'config.json')){throw 'KTERM_GUI_UNEXPECTED_CONFIG'}
-            Write-Host 'KTERM_PR84_REAL_NATIVE_GUI=PASS;ISOLATED=TRUE;NO_BROKER_AUTH=TRUE;LIVE_ORDERS=0'
+            Write-Host 'KTERM_PR85_REAL_NATIVE_GUI=PASS;ISOLATED=TRUE;NO_BROKER_AUTH=TRUE;LIVE_ORDERS=0'
           } finally {
             if($null -ne $gui){
               $gui.Refresh()
@@ -273,12 +273,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr85-full-owner-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $root) {
             $path=[IO.Path]::GetFullPath($root)
             $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
             if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
-               [IO.Path]::GetFileName($path) -cne ('kterm-pr84-full-owner-'+$env:GITHUB_RUN_ID)){
+               [IO.Path]::GetFileName($path) -cne ('kterm-pr85-full-owner-'+$env:GITHUB_RUN_ID)){
               throw 'KTERM_OWNER_LOCAL_PRIVATE_CLEANUP_REFUSED'
             }
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
