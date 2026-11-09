@@ -87,6 +87,16 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
+    "engineering/rar-g164-f21-f12-current-crossos-ab-20261109": (
+        "ba2d551788071fba926ffac6d4ed8c26334ddb80",
+        {
+            "docs/FORGE-G164-CURRENT-F21-F12-IMMUTABLE-VALIDATION-CROSSOS.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
 }
 
 
