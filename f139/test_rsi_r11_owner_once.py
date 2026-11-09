@@ -115,7 +115,14 @@ class OriginalLifetimeTests(unittest.TestCase):
     def test_lifetime_duplicate_rejected_even_with_different_failure(self):
         first = self.owner_event()
         self.db.event(KIND, first)
+        # A later source epoch must not reset the original ledger's one-use.
+        self.db.event("SOURCE_TRANSITION_ADMITTED", {
+            "from_source_sha": SOURCE, "to_source_sha": "f" * 40,
+        })
+        self.db.conn.execute(
+            "UPDATE meta SET source_sha=? WHERE id=1", ("f" * 40,))
         second = self.owner_event()
+        second["owner_source_sha"] = "f" * 40
         second["failed_run_id"] += 1
         second["prior_event_head_sha256"] = self.db.meta()["head_hash"]
         self.db.event(KIND, second)

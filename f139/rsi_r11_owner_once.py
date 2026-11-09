@@ -18,8 +18,8 @@ from f139.rsi_r6_known_repair_cycle import (
 )
 from f139.rsi_r6_provider_readback import Readback
 from f139.nci04_owner_ledger import (
-    SEALED_OWNER_PREFIX_HEAD, verified_historical_foundation,
-    verify_native_activation,
+    SEALED_OWNER_PREFIX_HEAD, ACTIVATION_KIND,
+    verified_historical_foundation, verify_native_activation,
 )
 
 KIND = "RSI_SELF_ORIGINAL_RESERVED"
@@ -131,13 +131,20 @@ def audit_owner_once(db) -> tuple[dict, ...]:
              and doc["autonomous_rsi_proven"] is False,
              "ORIGINAL_RESERVATION_FIELDS_OR_AUTHORITY")
         reserved.append(doc)
+        reserved_seq = row["seq"]
     if reserved:
-        # This is the original signed owner event lineage (not an R10 copy).
-        # The native foundation validates the exact original 23-event seal,
-        # four original terminals and two original D2K receipts.
+        # Cold source transitions are permitted AFTER a reservation.
+        # Bind activation to the historical source and sequence that
+        # authored the reservation, not the mutable current source.
         verified_historical_foundation(db)
-        need(verify_native_activation(db) is True,
-             "ORIGINAL_NATIVE_SOURCE_NOT_ACTIVATED")
+        verify_native_activation(db)  # independently verify each old activation
+        source_activated_earlier = [
+            json.loads(row["payload"])["source_sha"] for row in
+            db.conn.execute(
+                "SELECT payload FROM events WHERE kind=? AND seq<? "
+                "ORDER BY seq", (ACTIVATION_KIND, reserved_seq))]
+        need(reserved[0]["owner_source_sha"] in source_activated_earlier,
+             "SOURCE_NOT_ACTIVATED_AT_RESERVATION")
     return tuple(reserved)
 
 
