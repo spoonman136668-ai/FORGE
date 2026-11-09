@@ -30,7 +30,7 @@ BODY_KEYS = frozenset({
 })
 MAX_BODY_BYTES = 60000
 MAX_INTENT_BYTES = 44000
-LANES = frozenset({"Wingless", "Yggdrasil"})
+LANES = frozenset({"Wingless", "Yggdrasil", "TTT-Hybrid"})
 
 
 class NativeIssueDenied(ValueError):

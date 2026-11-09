@@ -13,7 +13,7 @@ WORKFLOW = "forge-f139-development-worker.yml"
 SCHEMA = "forge.f139.development-worker-receipt.v1"
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 TICKET = re.compile(r"f139-[a-z0-9][a-z0-9-]{2,47}\Z")
-LANES = {"Wingless", "Yggdrasil", "Qualification"}
+LANES = {"Wingless", "Yggdrasil", "Qualification", "TTT-Hybrid"}
 D2K_PACKAGES = {"./planner", "./dreamrsi", "./optimizerstages"}
 D2K_RECEIPT_SCHEMA = "forge.f139.d2k.package-diagnostic-receipt.v1"
 D2K_DIAGNOSTIC_SCHEMA = "forge.f139.d2k.package-diagnostic.v1"
@@ -33,6 +33,8 @@ def signature(secret, ticket, lane, source_sha, epoch, *,
            and SHA.fullmatch(source_sha)
            and isinstance(epoch, str) and re.fullmatch(r"[1-9][0-9]*", epoch),
            "DISPATCH_FIELDS_INVALID")
+    demand(lane != "TTT-Hybrid" or ticket.startswith("f139-nci04-"),
+           "HYBRID_NATIVE_SIGNED_INTENT_REQUIRED")
     if ticket.startswith("f139-d2k-"):
         demand(re.fullmatch(r"[1-9][0-9]*", issue_number) is not None
                and re.fullmatch(r"[1-9][0-9]*", issue_id) is not None
@@ -76,6 +78,7 @@ def admit(inputs):
 
 def receipt(inputs, advisory_raw):
     admit(inputs)
+    demand(inputs["lane"] != "TTT-Hybrid", "HYBRID_NATIVE_RECEIPT_REQUIRED")
     demand(not inputs["ticket"].startswith("f139-d2k-"),
            "D2K_DIAGNOSTIC_REQUIRED")
     demand(isinstance(advisory_raw, bytes) and 0 < len(advisory_raw) < 2_000_000,
