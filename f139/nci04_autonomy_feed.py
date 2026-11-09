@@ -33,6 +33,8 @@ POLICY_SCHEMA = "forge.f139.native-autonomy-feed-owner-policy.v1"
 NATIVE_FEED_LANES = ("Wingless", "Yggdrasil")
 SELF_LANE = "FORGE-self"
 EXPANDED_OWNER_LANES = (*NATIVE_FEED_LANES, SELF_LANE)
+HYBRID_FEED_LANES = (*NATIVE_FEED_LANES, "TTT-Hybrid")
+HYBRID_EXPANDED_OWNER_LANES = (*HYBRID_FEED_LANES, SELF_LANE)
 TITLE_PREFIX = "F139 autonomy DEV:"
 LABEL = "f139-native-development-eligible"
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
@@ -138,7 +140,8 @@ def inspect_policy(raw: dict, source_sha: str) -> dict:
             and doc["title_prefix"] == TITLE_PREFIX
             and type(doc["lanes"]) is list
             and tuple(doc["lanes"]) in (
-                NATIVE_FEED_LANES, EXPANDED_OWNER_LANES)
+                NATIVE_FEED_LANES, EXPANDED_OWNER_LANES,
+                HYBRID_FEED_LANES, HYBRID_EXPANDED_OWNER_LANES)
             and doc["max_issue_creations_per_cycle"] == 2
             and doc["require_owner_authored_pr"] is True
             and doc["require_single_head_commit_delta"] is True
@@ -332,7 +335,8 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
     # An owner-approved FORGE-self development attempt must pass the
     # independent original-owner lifetime-one RSI ledger/worker gates.
     # Never coerce the extra policy member into this native feeder.
-    for lane in NATIVE_FEED_LANES:
+    # Owner policy explicitly opts Hybrid in; old two-lane policy unchanged.
+    for lane in (x for x in policy["lanes"] if x in REPOS):
         repo = REPOS[lane][0]
         docs = get("repos/" + repo + "/pulls?state=open&per_page=100&page=1")
         require(isinstance(docs, list) and len(docs) <= 100,

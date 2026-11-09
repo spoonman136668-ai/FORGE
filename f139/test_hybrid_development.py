@@ -142,10 +142,14 @@ class HybridThirdLaneDevelopmentTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         local = (root / "f139/local_controller.py").read_text("utf-8")
         worker = (root / "f139/verify_ticket.py").read_text("utf-8")
-        self.assertIn('LANES = {"Wingless", "Yggdrasil", "Qualification"}', local)
-        self.assertIn('LANES = {"Wingless", "Yggdrasil", "Qualification"}', worker)
-        self.assertNotIn("TTT-Hybrid", local)
-        self.assertNotIn("TTT-Hybrid", worker)
+        # Owner admission code now recognizes the third native DEV identity
+        # but the original SQLite table and active owner still reject it
+        # until an explicit owner-only migration and signed project issue.
+        self.assertIn('LANES = {"Wingless", "Yggdrasil", "Qualification", "TTT-Hybrid"}', local)
+        self.assertIn('LANES = {"Wingless", "Yggdrasil", "Qualification", "TTT-Hybrid"}', worker)
+        self.assertIn("upgrade-hybrid-lane", local)
+        self.assertIn("HYBRID_NATIVE_SIGNED_INTENT_REQUIRED", worker)
+        self.assertIn("HYBRID_NATIVE_RECEIPT_REQUIRED", worker)
 
     def test_exclusive_cli_output_with_opt_in_and_no_rewrite(self):
         with tempfile.TemporaryDirectory() as tmp:

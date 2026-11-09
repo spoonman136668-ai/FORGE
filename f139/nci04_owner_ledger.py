@@ -214,6 +214,11 @@ def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
     require(isinstance(issue, NativeIssue), "ISSUE_UNTRUSTED")
     db.verify()
     verified_historical_foundation(db)
+    if issue.lane == "TTT-Hybrid":
+        # Never insert a third-lane ticket into the historical two-lane table.
+        # An explicit original-owner schema migration must be cold verified.
+        from f139.hybrid_owner_admission import is_migrated
+        require(is_migrated(db), "HYBRID_OWNER_SCHEMA_NOT_ADMITTED")
     meta = db.meta()
     require(issue.source_sha == meta["source_sha"]
             and re.fullmatch(r"\d{4}-\d{2}-\d{2}", now[:10])
