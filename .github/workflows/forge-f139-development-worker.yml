@@ -12,7 +12,7 @@ on:
       lane:
         description: Pre-authorized development lane
         type: choice
-        options: [Wingless, Yggdrasil, Qualification]
+        options: [Wingless, Yggdrasil, Qualification, TTT-Hybrid]
         required: true
       source_sha:
         description: Protected main source SHA
@@ -235,8 +235,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if($env:F139_LANE -cnotin @('Wingless','Yggdrasil')) { throw 'NCI04_NATIVE_LANE_FORBIDDEN' }
-          $url = "repos/spoonman136668-ai/$($env:F139_LANE)/git/commits/$($env:F139_TARGET_COMMIT)"
+          if($env:F139_LANE -cnotin @('Wingless','Yggdrasil','TTT-Hybrid')) { throw 'NCI04_NATIVE_LANE_FORBIDDEN' }
+          $nativeRepo = if($env:F139_LANE -ceq 'TTT-Hybrid'){'TTT-Hybrid-Lab'}else{$env:F139_LANE}
+          $url = "repos/spoonman136668-ai/$nativeRepo/git/commits/$($env:F139_TARGET_COMMIT)"
           $commit = & gh api $url | ConvertFrom-Json
           if($LASTEXITCODE -ne 0 -or $commit.sha -cne $env:F139_TARGET_COMMIT -or $commit.tree.sha -cne $env:F139_TARGET_TREE_SHA) { throw 'NCI04_NATIVE_PROVIDER_SOURCE_DRIFT' }
           "F139_AUTHENTICATED_TARGET_TREE=$($commit.tree.sha)" >> $env:GITHUB_ENV
@@ -321,6 +322,13 @@ jobs:
           ref: ${{ steps.pin.outputs.native_ref }}
           path: native
           persist-credentials: false
+      - uses: actions/checkout@v4
+        if: ${{ inputs.lane == 'TTT-Hybrid' }}
+        with:
+          repository: spoonman136668-ai/TTT-Hybrid-Lab
+          ref: ${{ steps.pin.outputs.native_ref }}
+          path: native
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.0'
@@ -337,7 +345,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if($env:F139_NATIVE_AUTHORIZATION_SHA256 -cnotmatch '^[a-f0-9]{64}$' -or
              $env:F139_NATIVE_AUTHENTICATION_PASSED -cne 'true' -or
-             $env:F139_LANE -cnotin @('Wingless','Yggdrasil')) { throw 'NCI04_AUTH_JOB_NOT_BOUND' }
+             $env:F139_LANE -cnotin @('Wingless','Yggdrasil','TTT-Hybrid')) { throw 'NCI04_AUTH_JOB_NOT_BOUND' }
           if($env:F139_WORKER_HMAC_KEY -or $env:GH_TOKEN -or $env:GITHUB_TOKEN -or $env:OPENAI_API_KEY) { throw 'NCI04_CODE_JOB_CREDENTIAL_EXPOSURE' }
           $scratch = Join-Path $env:RUNNER_TEMP 'f139-native-stage'
           $out = Join-Path $env:RUNNER_TEMP 'f139-native-receipt'
