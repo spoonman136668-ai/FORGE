@@ -18,7 +18,7 @@ from f139.rsi_r6_known_repair_cycle import (
 from f139.rsi_r6_provider_readback import Readback, READBACK_SCHEMA
 from f139.rsi_r12_candidate_binding import (
     SCHEMA, CandidateBindingDenied, matches_reserved_candidate,
-    bind_original_candidate,
+    bind_original_candidate, original_owner_database,
 )
 
 SOURCE = "c" * 40
@@ -160,6 +160,44 @@ class SourceBindingTests(unittest.TestCase):
         with self.assertRaises(CandidateBindingDenied):
             binding_from_reservation_event(
                 reservation=reserved, row=altered,
+                expected_owner_source_sha=SOURCE)
+
+    def test_original_windows_module_execution_database_parity(self):
+        # Installed Windows F139 owner launches Python with -m, which makes
+        # its Database class belong to __main__, unlike our package import.
+        # A class-name and SQLite-handle match is only a SHAPE check: a
+        # fabricated original owner must still fail the R11 cold ledger audit.
+        import sqlite3
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        db = Database.initialize(Path(tmp.name) / "state.sqlite", SOURCE)
+        self.addCleanup(db.close)
+        self.assertTrue(original_owner_database(db))
+        MainDatabase = type("Database", (), {"__module__": "__main__"})
+        live_shape = MainDatabase()
+        live_shape.conn = db.conn
+        self.assertTrue(original_owner_database(live_shape))
+        ForeignDatabase = type("Database", (), {"__module__": "evil_lib"})
+        foreign = ForeignDatabase()
+        foreign.conn = db.conn
+        self.assertFalse(original_owner_database(foreign))
+        self.assertFalse(original_owner_database(object()))
+        class Other:
+            pass
+        other = Other()
+        other.conn = db.conn
+        self.assertFalse(original_owner_database(other))
+        closed = MainDatabase()
+        closed.conn = object()
+        self.assertFalse(original_owner_database(closed))
+        row, candidate = fixture()
+        # Even an entrypoint-shaped object cannot bypass cold original audit.
+        live_shape.verify = db.verify
+        live_shape.meta = db.meta
+        with self.assertRaisesRegex(CandidateBindingDenied,
+                                    "ONE_AUTHENTIC_RESERVATION_REQUIRED"):
+            bind_original_candidate(
+                db=live_shape, candidate=candidate,
                 expected_owner_source_sha=SOURCE)
 
     def test_no_unsigned_forge_self_worker_admission(self):
