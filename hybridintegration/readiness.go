@@ -47,6 +47,18 @@ type Readiness struct{
  ResearchDispatched bool `json:"research_dispatched"`
 }
 func readinessWorkflows(experiment string)([]string,error){
+ if experiment=="P32-DEV"{
+  // The exact original-owner qualification run is independently useful
+  // development evidence, but never overrides missing/failed hosted checks.
+  // P32-DEV is deliberately NOT in requiredHybridWorkflows: it is ineligible
+  // for unattended training admission, even with four green run observations.
+  return []string{
+   "G4 CPU qualification",
+   "G5 authentic TTT CPU",
+   "G7 pinned Mamba2 CPU import",
+   "Native P32-R2 final source actor recurrence damage qualification once",
+  },nil
+ }
  if experiment=="G7-S26"{
   // S26 is a development-only, still unqualified research branch.
   // The execution admission contract intentionally DOES NOT accept it.
