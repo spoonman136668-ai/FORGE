@@ -117,9 +117,16 @@ def migrate_hybrid_lane(db):
             and old.startswith("CREATE TABLE tasks ("),
             "ORIGINAL_TASK_CHECK_CONSTRAINT_DRIFT")
     indexes={row["name"]:row["sql"] for row in db.conn.execute(
-        "SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name='tasks'")}
+        "SELECT name,sql FROM sqlite_master WHERE type='index' "
+        "AND tbl_name='tasks' AND sql IS NOT NULL")}
     triggers={row["name"]:row["sql"] for row in db.conn.execute(
         "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name='tasks'")}
+    # SQLite synthesizes two implicit PK/UNIQUE indexes (sql=NULL). They
+    # are recreated by the new table constraints, not source DDL.
+    auto_indexes=list(db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' "
+        "AND tbl_name='tasks' AND sql IS NULL"))
+    require(len(auto_indexes)==2,"IMPLICIT_TASK_UNIQUE_INDEX_DRIFT")
     require(set(indexes)==EXPECTED_INDEX and set(triggers)==EXPECTED_TRIGGERS
             and all(isinstance(x,str) for x in (*indexes.values(),*triggers.values())),
             "INDEX_OR_TRIGGER_IDENTITY_DRIFT")
