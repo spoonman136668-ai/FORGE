@@ -78,6 +78,8 @@ class CredentialFreeDisposableTests(unittest.TestCase):
                          BEFORE)
         self.assertEqual((self.scratch / STAGE_DIR / "f139" /
                           "diagnostic.py").read_bytes(), CANDIDATE_SOURCE)
+        self.assertEqual(command("-C", self.scratch / STAGE_DIR,
+                                 "config", "--get", "core.autocrlf"), "false")
         self.assertEqual(command("-C", self.repo, "rev-parse", "HEAD"), self.head)
         self.assertEqual(command("-C", self.repo, "status", "--porcelain"), "")
         self.assertEqual(json.loads(

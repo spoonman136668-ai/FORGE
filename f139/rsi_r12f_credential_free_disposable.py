@@ -114,8 +114,12 @@ def rehearse(*, repo: Path, scratch: Path, binding: dict, intent: dict,
          "PINNED_PREIMAGE_OR_NO_CHANGE")
     child = temp / STAGE_DIR
     result = subprocess.run(
-        ["git", "clone", "--quiet", "--no-hardlinks", "--",
-         str(root), str(child)],
+        # On Windows a global core.autocrlf=true can silently checkout CRLF
+        # even when the source Git blob is LF. Freeze local clone bytes to the
+        # exact Git blob on both platforms; never waive the SHA256 preimage.
+        ["git", "-c", "core.autocrlf=false", "clone",
+         "-c", "core.autocrlf=false", "--quiet", "--no-hardlinks",
+         "--", str(root), str(child)],
         check=False, capture_output=True, text=True,
         timeout=90, stdin=subprocess.DEVNULL,
     )
