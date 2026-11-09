@@ -56,7 +56,8 @@ class AuthenticatedProvider:
         if path == f"repos/{REPO}/branches/f139-owner-release-{RELEASE}":
             return {"name":"f139-owner-release-"+RELEASE,
                     "commit":{"sha":RELEASE}}
-        if path == f"repos/{REPO}/compare/{RELEASE}...{HEAD}":
+        if path == (f"repos/{REPO}/compare/{RELEASE}...{HEAD}"
+                    "?per_page=1&page=2"):
             return copy.deepcopy(self.compare)
         raise AssertionError("unexpected route "+path)
 
@@ -160,6 +161,24 @@ class ReleasePinContinuityTests(unittest.TestCase):
         with self.assertRaisesRegex(ReleaseContinuityDenied,"PROTECTED_MAIN_MOVED"):
             prove_deployed_release_pin(
                 moving,deployed_source=RELEASE,protected_source=HEAD)
+
+    def test_large_main_history_never_requests_file_patches(self):
+        self.provider.compare["ahead_by"] = 265
+        proof = self.proof()
+        self.assertTrue(proof["existing_owner_policy_authorized"])
+        comparisons = [p for p in self.provider.calls if "/compare/" in p]
+        self.assertEqual(comparisons, [
+            f"repos/{REPO}/compare/{RELEASE}...{HEAD}?per_page=1&page=2"])
+        self.assertFalse(proof["source_transition_granted"])
+
+    def test_bounded_compare_failure_never_grants_release(self):
+        def unavailable(route):
+            if "/compare/" in route:
+                raise RuntimeError("bounded provider read failed")
+            return self.provider.get(route)
+        with self.assertRaisesRegex(RuntimeError, "bounded provider read failed"):
+            prove_deployed_release_pin(
+                unavailable, deployed_source=RELEASE, protected_source=HEAD)
 
     def test_authority_is_explicit_no_replay_and_no_v8_reuse(self):
         src=inspect.getsource(run_once)

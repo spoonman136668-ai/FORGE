@@ -29,6 +29,7 @@ def file(path, *, status="added", changes=100, patch="@@ -0,0 +1 @@\n+x"):
 class ProtectedResearchSource:
     def __init__(self):
         self.counter = 0
+        self.calls = []
         self.branch = {"protected": True, "commit": {"sha": LATEST}}
         commits = [{"sha": f"{i:040x}"} for i in range(1, 4)]
         commits.append({"sha": LATEST})
@@ -46,10 +47,15 @@ class ProtectedResearchSource:
 
     def get(self, path):
         self.counter += 1
+        self.calls.append(path)
         if path == f"repos/{REPO}/branches/main":
             return copy.deepcopy(self.branch)
         if path == f"repos/{REPO}/compare/{DEPLOYED}...{LATEST}":
             return copy.deepcopy(self.compare)
+        if path == (f"repos/{REPO}/compare/{DEPLOYED}...{LATEST}"
+                    "?per_page=1&page=2"):
+            return {k: copy.deepcopy(v) for k, v in self.compare.items()
+                    if k not in ("files", "commits")}
         raise AssertionError("unauthorized GitHub route: " + path)
 
 
@@ -69,7 +75,7 @@ class SourceContinuityTests(unittest.TestCase):
     def test_isolated_three_file_rsh03_is_allowed_without_new_authority(self):
         src = ProtectedResearchSource()
         proof = self.prove(src)
-        self.assertEqual(src.counter, 3)
+        self.assertEqual(src.counter, 4)
         self.assertEqual(proof["file_count"], 3)
         self.assertEqual(proof["forward_commits"], 4)
         self.assertEqual(proof["changed_lines"], 261)
@@ -210,6 +216,45 @@ class SourceContinuityTests(unittest.TestCase):
                     prove_protected_research_only_advance(
                         ProtectedResearchSource().get,
                         deployed_source=old, protected_source=new)
+
+    def test_large_history_denied_before_any_patch_transfer(self):
+        src = ProtectedResearchSource()
+        src.compare.update(ahead_by=265, total_commits=265)
+        original = src.get
+        def bounded(route):
+            if route.endswith(f"{DEPLOYED}...{LATEST}"):
+                self.fail("out-of-budget history requested file patches")
+            return original(route)
+        with self.assertRaisesRegex(SourceContinuityDenied,
+                                    "NOT_BOUNDED_FORWARD_ANCESTRY"):
+            prove_protected_research_only_advance(
+                bounded, deployed_source=DEPLOYED, protected_source=LATEST)
+        self.assertEqual(src.counter, 2)
+
+    def test_metadata_cannot_hide_an_invalid_full_comparison(self):
+        src = ProtectedResearchSource()
+        original = src.get
+        def mismatch(route):
+            result = original(route)
+            if route.endswith(f"{DEPLOYED}...{LATEST}"):
+                result["ahead_by"] = result["total_commits"] = 5
+            return result
+        with self.assertRaisesRegex(SourceContinuityDenied,
+                                    "NOT_BOUNDED_FORWARD_ANCESTRY"):
+            prove_protected_research_only_advance(
+                mismatch, deployed_source=DEPLOYED, protected_source=LATEST)
+
+    def test_missing_or_malformed_metadata_fails_closed(self):
+        for value in (None, {}, {"ahead_by": True}, {"status": "ahead"}):
+            with self.subTest(value=value):
+                src = ProtectedResearchSource()
+                original = src.get
+                def malformed(route):
+                    return value if "?" in route else original(route)
+                with self.assertRaises(SourceContinuityDenied):
+                    prove_protected_research_only_advance(
+                        malformed, deployed_source=DEPLOYED,
+                        protected_source=LATEST)
 
 
 if __name__ == "__main__":
