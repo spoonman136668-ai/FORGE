@@ -99,13 +99,9 @@ class SignedDevelopmentTests(unittest.TestCase):
                         runner_os="windows-latest")
 
     def test_ticket_tamper_and_wrong_attempt(self):
+        # Structural changes cannot be encoded as a valid R12-B intent.
         for field, value in (
-            ("source_sha", "0" * 40),
-            ("source_tree_sha", "0" * 40),
-            ("worker_run_id", 42570000001),
-            ("worker_job_id", 128999999998),
             ("worker_run_attempt", 2),
-            ("runner_os", "ubuntu-latest"),
             ("lane", "Yggdrasil"),
             ("workflow", "new-scheduler.yml"),
             ("event", "push"),
@@ -123,10 +119,27 @@ class SignedDevelopmentTests(unittest.TestCase):
                 bad[field] = value
                 with self.assertRaises(SignedDevelopmentDenied):
                     validate_intent(bad, self.binding)
+
+        # These fields can be structurally valid for a DIFFERENT job.
+        # They are covered by the HMAC and must then match independently
+        # authenticated GitHub origin in validate_credentialed(), not be
+        # compared with a fabricated expected source in a local fixture.
+        for field, value in (
+            ("source_sha", "0" * 40),
+            ("source_tree_sha", "0" * 40),
+            ("worker_run_id", 42570000001),
+            ("worker_job_id", 128999999998),
+            ("runner_os", "ubuntu-latest"),
+        ):
+            with self.subTest(field=field):
+                other = dict(self.intent)
+                other[field] = value
+                validate_intent(other, self.binding)
                 self.assertNotEqual(
-                    _development_signature(KEY, bad),
+                    _development_signature(KEY, other),
                     _development_signature(KEY, self.intent))
-        for run in (0, 1, self.binding["failed_run_id"], True):
+
+        for run in (0, 1, self.binding["failed_run_id"], True, None):
             with self.subTest(run=run):
                 with self.assertRaises(SignedDevelopmentDenied):
                     prepare(
@@ -134,6 +147,11 @@ class SignedDevelopmentTests(unittest.TestCase):
                         source_tree_sha=TREE, worker_run_id=run,
                         worker_job_id=128999999999,
                         runner_os="windows-latest")
+        with self.assertRaises(SignedDevelopmentDenied):
+            prepare(
+                binding=self.binding, source_sha=MAIN, source_tree_sha=TREE,
+                worker_run_id=42570000000, worker_job_id=128999999999,
+                runner_os=[])
 
     def test_key_length_and_signature_domain(self):
         with self.assertRaisesRegex(

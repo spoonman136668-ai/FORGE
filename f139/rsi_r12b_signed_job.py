@@ -116,13 +116,12 @@ def prepare(*, binding: dict, source_sha: str, source_tree_sha: str,
     """Draft only: a signed payload is NOT an original-owner spend/permit."""
     need(valid_binding(binding), "ORIGINAL_BINDING_INVALID")
     need(sha40(source_sha) and sha40(source_tree_sha)
-         and worker_run_id > binding["failed_run_id"]
          and type(worker_run_id) is int
-         and worker_run_id <= MAX_RUN_ID
+         and binding["failed_run_id"] < worker_run_id <= MAX_RUN_ID
          and type(worker_job_id) is int
          and 0 < worker_job_id <= MAX_RUN_ID
-         and runner_os in RUNNER_OSES
-         and type(runner_os) is str,
+         and type(runner_os) is str
+         and runner_os in RUNNER_OSES,
          "WORKER_SOURCE_OR_RUN_INVALID")
     return {
         "schema": SCHEMA,
