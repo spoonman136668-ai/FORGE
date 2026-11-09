@@ -43,10 +43,11 @@ def _step(src: str, name: str) -> str:
 
 # Exact workflow dependency contract. These tests run in both original native
 # jobs on the frozen release candidate and in Windows PR fallback preflight.
-PRECOND = ("github.event_name == 'pull_request' && "
-           "github.event.pull_request.head.repo.full_name == github.repository && "
-           "steps.g148cache.outputs['cache-hit'] != 'true'")
-SEEDCOND = PRECOND + " && env.G156_BASE_CACHE_ELIGIBLE == 'true'"
+BASECOND = ("github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name == github.repository && "
+            "steps.g148cache.outputs['cache-hit'] != 'true'")
+PRECOND = BASECOND + " && hashFiles('scripts/check_rar_g156_dynamic_base_cache.py') != ''"
+SEEDCOND = BASECOND + " && env.G156_BASE_CACHE_ELIGIBLE == 'true'"
 
 
 def _assert_contract(src: str) -> None:
@@ -111,6 +112,7 @@ def _assert_contract_and_negatives() -> None:
         ("restore_wrong_path", mutate(RESTORE, "          path: ${{ env.G148_CACHE_PATH }}\n", "          path: /tmp/wrong-cache\n")),
         ("restore_prefix", mutate(RESTORE, "          key: ${{ env.G156_BASE_CACHE_KEY }}\n", "          key: ${{ env.G156_BASE_CACHE_KEY }}\n          restore-keys: rar-g148-win-go-\n")),
         ("restore_wrong_action", mutate(RESTORE, "actions/cache/restore@v4", "actions/cache/save@v4")),
+        ("pre_missing_optional_helper_guard", mutate(PRE, " && hashFiles('scripts/check_rar_g156_dynamic_base_cache.py') != ''", "")),
         ("pre_wrong_repository", mutate(PRE, "github.event.pull_request.head.repo.full_name == github.repository", "true")),
         ("post_wrong_repository", mutate(POST, "github.event.pull_request.head.repo.full_name == github.repository", "true")),
         ("restore_missing", src.replace("      - name: " + RESTORE + "\n" + _step(src, RESTORE), "")),
