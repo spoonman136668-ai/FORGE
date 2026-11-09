@@ -121,6 +121,10 @@ def event_mode(head):
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G156_RELEASE_FROZEN_SCOPE_REQUIRED")
         return "pr"
+    if branch == "engineering/rar-g158-optional-helper-compat-20261108":
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G158_FROZEN_HELPER_COMPAT_SCOPE_REQUIRED")
+        return "pr"
     if branch != BRANCH:
         if admiss != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
             raise ValueError("G148_ONLY_ORDINARY_TRUSTED_SOURCE_PR")
