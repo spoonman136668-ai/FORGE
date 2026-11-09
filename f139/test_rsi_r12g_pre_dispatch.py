@@ -66,7 +66,7 @@ class TwoPhaseOriginalOwnerTests(unittest.TestCase):
         self.assertTrue(doc["worker_job_id_unassigned"])
         self.assertNotIn("worker_run_id", doc["intent"])
         for key, value in (
-            ("signature_sha256", "0" * 64),
+            ("signature_sha256", "not-a-digest"),
             ("intent_sha256", "0" * 64),
             ("reservation_seq", -1),
             ("reservation_event_sha256", "0" * 64),
