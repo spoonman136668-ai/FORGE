@@ -76,8 +76,12 @@ def prove_deployed_release_pin(get: Callable[[str], object], *,
     # releasing new work, a separate exact-commit workflow ref MUST exist;
     # otherwise Actions would silently run the wrong worker code from main.
     verify_release_worker_branch(get, deployed_source)
+    # Only ancestry metadata is used here. GitHub omits file patches after
+    # page 1; request one commit on page 2 to bound transfer independently
+    # of unrelated main changes. Fixed SHA endpoints retain the same proof.
     comparison = get(f"repos/{FORGE_REPO}/compare/"
-                     f"{deployed_source}...{protected_source}")
+                     f"{deployed_source}...{protected_source}"
+                     "?per_page=1&page=2")
     need(isinstance(comparison, dict)
          and comparison.get("status") == "ahead"
          and type(comparison.get("ahead_by")) is int

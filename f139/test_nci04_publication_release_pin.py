@@ -28,7 +28,8 @@ class OriginalPublicationReleasePinTests(unittest.TestCase):
         if route == repo + "branches/f139-owner-release-" + self.owner_source:
             return {"name": "f139-owner-release-" + self.owner_source,
                     "commit": {"sha": self.owner_source}}
-        if route == repo + "compare/" + self.owner_source + "..." + "e" * 40:
+        if route == (repo + "compare/" + self.owner_source + "..." + "e" * 40
+                     + "?per_page=1&page=2"):
             return {"status": "ahead", "ahead_by": 101, "behind_by": 0,
                     "total_commits": 101,
                     "merge_base_commit": {"sha": self.owner_source}}
