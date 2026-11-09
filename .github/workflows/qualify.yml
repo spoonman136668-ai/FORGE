@@ -128,6 +128,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: G158 verify optional helper and original Go admission on Linux
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g158-optional-helper-compat-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          G156_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G156_HEAD"
+          python3 -B scripts/check_rar_g156_dynamic_base_cache.py --static
       - name: G156 static source-guard and mutation audit on Linux (release)
         if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g156-dynamic-main-cache-release-20261108' && github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
@@ -481,6 +490,16 @@ jobs:
         with:
           path: ${{ env.G148_CACHE_PATH }}
           key: ${{ env.G148_CACHE_KEY }}
+      - name: G158 verify optional helper and original Go admission on Windows
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g158-optional-helper-compat-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          G156_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g156_dynamic_base_cache.py --static
+          if ($LASTEXITCODE -ne 0) { throw 'G158_HOSTED_COMPAT_SOURCE_CONTRACT_FAILED' }
       - name: G156 static source-guard and mutation audit on Windows (release)
         if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g156-dynamic-main-cache-release-20261108' && github.event.pull_request.head.repo.full_name == github.repository
         shell: pwsh
@@ -492,7 +511,7 @@ jobs:
           python -B scripts/check_rar_g156_dynamic_base_cache.py --static
           if ($LASTEXITCODE -ne 0) { throw 'G156_STATIC_SOURCE_CONTROLS_FAILED' }
       - name: G156 derive exact same-repo PR-base Go cache key (original Go still runs)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.g148cache.outputs['cache-hit'] != 'true'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.g148cache.outputs['cache-hit'] != 'true' && hashFiles('scripts/check_rar_g156_dynamic_base_cache.py') != ''
         shell: pwsh
         env:
           G156_HEAD: ${{ github.event.pull_request.head.sha }}

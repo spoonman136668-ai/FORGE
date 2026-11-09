@@ -25,6 +25,16 @@ FILES = {
     "scripts/check_rar_g156_dynamic_base_cache.py",
 }
 FROZEN = "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT"
+COMPAT_BRANCH = "engineering/rar-g158-optional-helper-compat-20261108"
+COMPAT_BASE = "6a9bd9b87bc8d12cb0e8237c1da606aecf28c39b"
+COMPAT_TREE = "f08b8d897bb7b3adcd62956c44142d56f41415f4"
+COMPAT_FILES = {
+    "docs/FORGE-G158-OPTIONAL-HELPER-COMPAT.md",
+    ".github/workflows/qualify.yml",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+}
 
 
 
@@ -43,10 +53,11 @@ def _step(src: str, name: str) -> str:
 
 # Exact workflow dependency contract. These tests run in both original native
 # jobs on the frozen release candidate and in Windows PR fallback preflight.
-PRECOND = ("github.event_name == 'pull_request' && "
-           "github.event.pull_request.head.repo.full_name == github.repository && "
-           "steps.g148cache.outputs['cache-hit'] != 'true'")
-SEEDCOND = PRECOND + " && env.G156_BASE_CACHE_ELIGIBLE == 'true'"
+BASECOND = ("github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name == github.repository && "
+            "steps.g148cache.outputs['cache-hit'] != 'true'")
+PRECOND = BASECOND + " && hashFiles('scripts/check_rar_g156_dynamic_base_cache.py') != ''"
+SEEDCOND = BASECOND + " && env.G156_BASE_CACHE_ELIGIBLE == 'true'"
 
 
 def _assert_contract(src: str) -> None:
@@ -111,6 +122,7 @@ def _assert_contract_and_negatives() -> None:
         ("restore_wrong_path", mutate(RESTORE, "          path: ${{ env.G148_CACHE_PATH }}\n", "          path: /tmp/wrong-cache\n")),
         ("restore_prefix", mutate(RESTORE, "          key: ${{ env.G156_BASE_CACHE_KEY }}\n", "          key: ${{ env.G156_BASE_CACHE_KEY }}\n          restore-keys: rar-g148-win-go-\n")),
         ("restore_wrong_action", mutate(RESTORE, "actions/cache/restore@v4", "actions/cache/save@v4")),
+        ("pre_missing_optional_helper_guard", mutate(PRE, " && hashFiles('scripts/check_rar_g156_dynamic_base_cache.py') != ''", "")),
         ("pre_wrong_repository", mutate(PRE, "github.event.pull_request.head.repo.full_name == github.repository", "true")),
         ("post_wrong_repository", mutate(POST, "github.event.pull_request.head.repo.full_name == github.repository", "true")),
         ("restore_missing", src.replace("      - name: " + RESTORE + "\n" + _step(src, RESTORE), "")),
@@ -224,6 +236,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
         changed = git("diff", "--no-renames", "--name-only", BASE, head).splitlines()
         if len(changed) != len(FILES) or set(changed) != FILES:
             raise ValueError("G156_FROZEN_FIVE_FILE_RELEASE_SCOPE_CHANGED")
+    elif os.environ.get("GITHUB_HEAD_REF") == COMPAT_BRANCH:
+        if (admission != FROZEN or base != COMPAT_BASE or tree != COMPAT_TREE):
+            raise ValueError("G158_FROZEN_BASE_OR_ADMISSION_MISMATCH")
+        changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
+        if len(changed) != len(COMPAT_FILES) or set(changed) != COMPAT_FILES:
+            raise ValueError("G158_EXACT_FIVE_PATH_COMPAT_SCOPE_CHANGED")
     elif admission != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
         raise ValueError("G156_UNAUTHORIZED_GENERIC_PR_SOURCE")
 
@@ -265,7 +283,7 @@ def _static() -> int:
     _tree_mutation_negatives()
     if (os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("GITHUB_EVENT_NAME") != "pull_request"
-            or os.environ.get("GITHUB_HEAD_REF") != BRANCH
+            or os.environ.get("GITHUB_HEAD_REF") not in (BRANCH, COMPAT_BRANCH)
             or os.environ.get("G156_HEAD") != head):
         raise ValueError("G156_STATIC_ONLY_FROZEN_RELEASE_SOURCE")
     base = github_event_base(head)

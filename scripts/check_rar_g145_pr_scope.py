@@ -57,6 +57,16 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
+    "engineering/rar-g158-optional-helper-compat-20261108": (
+        "6a9bd9b87bc8d12cb0e8237c1da606aecf28c39b",
+        {
+            "docs/FORGE-G158-OPTIONAL-HELPER-COMPAT.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
 }
 
 
