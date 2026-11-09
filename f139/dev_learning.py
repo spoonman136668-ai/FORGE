@@ -18,7 +18,8 @@ import tracemalloc
 
 SCHEMA = "forge.f139.private-cognition-development.v1"
 GRID = (0.0, 0.05, 0.15, 0.3, 0.5, 0.7, 0.9, 1.0)
-LANES = ("Wingless", "Yggdrasil")
+LANES = ("Wingless", "Yggdrasil")  # Original owner-controlled lanes, unchanged.
+HYBRID_DEV_PREVIEW_LANE = "TTT-Hybrid"
 
 def require(ok, code):
     if not ok:
@@ -96,8 +97,13 @@ def fit(lane, generation, candidate):
                            ("ungated_recurrent_control" if lane == "Wingless"
                             else "noncompositional_recurrent_control")}
 
-def run(lane, generation, source_sha):
-    require(lane in LANES + ("Qualification",), "LANE_FORBIDDEN")
+def run(lane, generation, source_sha, *, hybrid_development_only=False):
+    # The native F139 owner, worker signed tickets and SQLite still control
+    # only the original two lanes. This explicit source-internal DEV preview
+    # does not grant a worker ticket, scientific first-use, or a new scheduler.
+    require((lane in LANES + ("Qualification",) and not hybrid_development_only)
+            or (lane == HYBRID_DEV_PREVIEW_LANE
+                and hybrid_development_only is True), "LANE_FORBIDDEN")
     require(type(generation) is int and 1 <= generation <= 100000, "GENERATION_INVALID")
     require(isinstance(source_sha, str) and re.fullmatch("[a-f0-9]{40}", source_sha),
             "SOURCE_INVALID")
@@ -109,6 +115,29 @@ def run(lane, generation, source_sha):
         choices = LANES if lane == "Qualification" else (lane,)
         results = []
         for name in choices:
+            if name == HYBRID_DEV_PREVIEW_LANE:
+                from f139 import hybrid_development
+                hybrid = hybrid_development.run(generation, source_sha)
+                require(hybrid["scientific_first_use"] is False
+                        and hybrid["actual_hybrid_research_training_executed"] is False
+                        and hybrid["deterministic_cold_replay_verified"] is True
+                        and hybrid["matched_factual_inputs"] is True
+                        and hybrid["matched_search_evaluations"] is True
+                        and hybrid["external_calls"] == 0
+                        and hybrid["owner_tickets_dispatched"] == 0
+                        and hybrid["accepted_ref_mutations"] == 0,
+                        "HYBRID_DEV_OR_AUTHORITY_INVALID")
+                results.append({
+                    "lane": name,
+                    "trained_candidate": hybrid["trained_candidate"],
+                    "trained_control": hybrid["trained_control"],
+                    "transfer_correct_delta": hybrid["transfer_correct_delta"],
+                    "classification": hybrid["classification"],
+                    "new_architecture_proven": False,
+                    "independent_scientific_validation": False,
+                    "hybrid_source_bound_debug_and_negative_evidence": hybrid,
+                })
+                continue
             candidate = fit(name, generation, True)
             control = fit(name, generation, False)
             require(candidate["training_cohort_sha256"] == control["training_cohort_sha256"]
@@ -137,13 +166,17 @@ def run(lane, generation, source_sha):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lane", required=True, choices=LANES + ("Qualification",))
+    parser.add_argument("--lane", required=True,
+                        choices=LANES + ("Qualification", HYBRID_DEV_PREVIEW_LANE))
+    parser.add_argument("--hybrid-development-only", action="store_true",
+                        help="explicit inert synthetic Hybrid F139 development, never owner dispatch")
     parser.add_argument("--generation", required=True, type=int)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     require(args.output.parent.is_dir() and not args.output.exists(), "EXCLUSIVE_OUTPUT_REQUIRED")
-    report = run(args.lane, args.generation, args.source_sha)
+    report = run(args.lane, args.generation, args.source_sha,
+                 hybrid_development_only=args.hybrid_development_only)
     with args.output.open("xb") as fp:
         fp.write((json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n").encode())
     print("F139_CPU_DEV_LEARNING=EXECUTED_NOT_NOVEL_SCIENCE")

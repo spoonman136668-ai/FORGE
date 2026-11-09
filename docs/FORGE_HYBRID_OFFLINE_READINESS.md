@@ -53,3 +53,36 @@ GPU run, package install, rerun, scientific seed use, or model promotion.
 The operator/authorized native Hybrid owner must independently obtain and
 authenticate source and original-first-use evidence. This tool only diagnoses
 the caller-supplied metadata and never upgrades a blocked candidate.
+
+## November 9 P32 development owner-versus-hosted CI reconciliation
+
+The existing read-only reporter now recognizes `P32-DEV` as a
+**development observation only** (not an unattended-execution experiment).
+For exact project SHA `7bc49166b83788efc7bfb9da82d39fc420630c46`:
+
+- The existing native project-owner workflow "Native P32-R2 final source actor
+  recurrence damage qualification once", run #42548762315, completed SUCCESS.
+  Its original-owner log records full Windows/Ubuntu WSL CPU regression before
+  589,824 actual original public-source training actions and 6,912 optimizer
+  minibatches. This is development evidence, not protected scientific acceptance.
+- Hosted G4 run #42548767052, G5 run #42548767056 and G7 run #42548767057
+  all report FAILURE on the *same* exact SHA. Their job logs were unavailable
+  in this read-only audit, so cause is **UNKNOWN** (not presumptively science
+  failure, nor presumptively infrastructure failure).
+- In the frozen P32 physical-source comparison, actor-head-only PPO achieved
+  200/200 original environment rewards for all three tested seeds; the
+  selected-positive seed 4507 fell to 104.125 under full recurrent PPO and
+  96.5 under recurrent-only PPO. The strongest conventional two-frame control
+  achieved 200/200. P32's broader frozen criterion **did not pass**. These
+  are owner-log observations, not a new independent scientific qualification.
+
+The reporter preserves the hosted failures and owner success side-by-side.
+A green focused owner run cannot override the failed hosted suite. Even
+hypothetically four green observations remain **unauthenticated caller-provided
+CI metadata**; source owner, first-use, actual cold checkpoint, runner resource
+lease, approved trainer, F139 signed ticket, SQLite migration, release and
+scientific acceptance are all **NOT VERIFIED / NOT AUTHORIZED**.
+`P32-DEV` is intentionally absent from `requiredHybridWorkflows`, so
+the existing inactive assembly cannot admit it. No changes are made to the
+existing two-lane controller, scheduled tasks, GPU runner, project repo,
+model weights, accepted refs or protected science.
