@@ -69,6 +69,59 @@ def matches_reserved_candidate(reservation: dict, candidate: Readback) -> bool:
         return False
 
 
+def binding_from_reservation_event(*, reservation: dict, row,
+                                   expected_owner_source_sha: str) -> dict:
+    """Pure historical data projection; NOT original-owner authentication.
+
+    Call only AFTER a cold R11 audit and the owner's complete ledger verifier.
+    The immutable reservation event SHA, not mutable current ledger head, must
+    survive an issuance append, unrelated events, and cold restart.
+    """
+    need(type(reservation) is dict
+         and type(expected_owner_source_sha) is str
+         and HEAD.fullmatch(expected_owner_source_sha) is not None,
+         "HISTORICAL_BINDING_INPUT_INVALID")
+    try:
+        need(reservation["schema"] == R11_SCHEMA
+             and reservation["owner_source_sha"] == expected_owner_source_sha
+             and type(row["seq"]) is int and row["seq"] > 0
+             and type(row["sha"]) is str and DIGEST.fullmatch(row["sha"])
+             and row["prior_sha"] == reservation["prior_event_head_sha256"]
+             and json.loads(row["payload"]) == reservation,
+             "HISTORICAL_RESERVATION_ROW_DRIFT")
+        packet = {
+            "schema": SCHEMA,
+            "owner_source_sha": expected_owner_source_sha,
+            "reservation_seq": row["seq"],
+            "reservation_event_sha256": row["sha"],
+            # Historical head AT reservation, never mutable current meta head.
+            "original_owner_ledger_head_sha256": row["sha"],
+            "failed_head_sha": reservation["failed_head_sha"],
+            "failed_run_id": reservation["failed_run_id"],
+            "failed_job_id": reservation["failed_job_id"],
+            "failed_log_sha256": reservation["failed_log_sha256"],
+            "source_git_blob_sha": reservation["source_git_blob_sha"],
+            "target_path": reservation["target_path"],
+            "before_sha256": reservation["before_sha256"],
+            "candidate_sha256": reservation["candidate_sha256"],
+            "task_scope_sha256": reservation["task_scope_sha256"],
+            "mechanism": reservation["mechanism"],
+            "development_only": True,
+            "original_owner_signed": False,
+            "worker_admitted": False,
+            "worker_dispatched": False,
+            "original_regression_qualified": False,
+            "scientific_first_use": False,
+            "source_promoted": False,
+            "autonomous_rsi_proven": False,
+        }
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        raise CandidateBindingDenied(
+            "F139_RSI_R12_HISTORICAL_RESERVATION_INVALID") from exc
+    packet["candidate_binding_sha256"] = sha256(canonical(packet)).hexdigest()
+    return packet
+
+
 def bind_original_candidate(*, db: Database, candidate: Readback,
                             expected_owner_source_sha: str) -> dict:
     """Produce a stable, non-executable identifier after a *cold* R11 audit.
@@ -104,33 +157,9 @@ def bind_original_candidate(*, db: Database, candidate: Readback,
          and json.loads(row["payload"]) == reserved,
          "RESERVATION_LEDGER_ROW_DRIFT")
     before_head = db.meta()["head_hash"]
-    packet = {
-        "schema": SCHEMA,
-        "owner_source_sha": expected_owner_source_sha,
-        "reservation_seq": row["seq"],
-        "reservation_event_sha256": row["sha"],
-        "original_owner_ledger_head_sha256": before_head,
-        "failed_head_sha": reserved["failed_head_sha"],
-        "failed_run_id": reserved["failed_run_id"],
-        "failed_job_id": reserved["failed_job_id"],
-        "failed_log_sha256": reserved["failed_log_sha256"],
-        "source_git_blob_sha": reserved["source_git_blob_sha"],
-        "target_path": reserved["target_path"],
-        "before_sha256": reserved["before_sha256"],
-        "candidate_sha256": reserved["candidate_sha256"],
-        "task_scope_sha256": reserved["task_scope_sha256"],
-        "mechanism": reserved["mechanism"],
-        "development_only": True,
-        "original_owner_signed": False,
-        "worker_admitted": False,
-        "worker_dispatched": False,
-        "original_regression_qualified": False,
-        "scientific_first_use": False,
-        "source_promoted": False,
-        "autonomous_rsi_proven": False,
-    }
+    result = binding_from_reservation_event(
+        reservation=reserved, row=row,
+        expected_owner_source_sha=expected_owner_source_sha)
     need(db.meta()["head_hash"] == before_head,
          "OWNER_HEAD_CHANGED_DURING_READ")
-    result = dict(packet)
-    result["candidate_binding_sha256"] = sha256(canonical(packet)).hexdigest()
     return result

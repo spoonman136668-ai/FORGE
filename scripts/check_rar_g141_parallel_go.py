@@ -91,6 +91,67 @@ def kill_children(children: list[subprocess.Popen]) -> None:
             proc.wait(timeout=12)
 
 
+def partial_failure_log(path: Path, expected_packages: set[str]) -> tuple[dict, str]:
+    """Report bounded progress and a short log tail without rerunning tests."""
+    size = path.stat().st_size
+    completed: set[str] = set()
+    with path.open("r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            match = PACKAGE_RE.match(line)
+            if match:
+                completed.add(match.group(1))
+    with path.open("rb") as stream:
+        stream.seek(max(0, size - 8192))
+        tail = stream.read().decode("utf-8", errors="replace")
+    return dict(
+        output_bytes=size,
+        completed_package_count=len(completed),
+        completed_packages=sorted(completed),
+        pending_packages=sorted(expected_packages - completed),
+        tail_limit_bytes=8192,
+    ), tail
+
+
+def partial_log_negative_control() -> None:
+    with tempfile.TemporaryDirectory(prefix="rar-g141-partial-control-") as tmp:
+        path = Path(tmp) / "probe.log"
+        path.write_text(
+            "ok  example/a 0.01s\n?  example/b [no test files]\n"
+            "PARTIAL-PACKAGE-STILL-RUNNING\n",
+            encoding="utf-8",
+        )
+        result, tail = partial_failure_log(path, {"example/a", "example/b", "example/c"})
+        if (result["completed_packages"] != ["example/a", "example/b"]
+                or result["pending_packages"] != ["example/c"]
+                or not tail.endswith("PARTIAL-PACKAGE-STILL-RUNNING\n")):
+            raise ValueError("G160_PARTIAL_LOG_NEGATIVE_CONTROL_FAILED")
+
+
+def emit_partial_failure_evidence(
+    logs: list[tuple[str, Path, object]],
+    children: list[subprocess.Popen],
+    expected_packages: set[str],
+    elapsed: float,
+) -> dict:
+    evidence = {}
+    for (label, path, handle), child in zip(logs, children):
+        try:
+            handle.flush()
+            details, tail = partial_failure_log(path, expected_packages)
+            details.update(exit_code=child.poll(), elapsed_seconds=round(elapsed, 6))
+            evidence[label] = details
+            print("G160_PARTIAL_" + label.upper() + "="
+                  + json.dumps(details, sort_keys=True), flush=True)
+            print("G160_" + label.upper() + "_TAIL_BEGIN", flush=True)
+            print(tail, flush=True)
+            print("G160_" + label.upper() + "_TAIL_END", flush=True)
+        except Exception as exc:
+            evidence[label] = dict(diagnostic_available=False, error_class=type(exc).__name__)
+            print("G160_PARTIAL_" + label.upper() + "_UNAVAILABLE="
+                  + type(exc).__name__, flush=True)
+    return evidence
+
+
 def main() -> int:
     if (
         sys.platform != "linux"
@@ -136,6 +197,7 @@ def main() -> int:
         pass
     else:
         raise ValueError("G141_NEGATIVE_PARSER_CONTROL_FAILED")
+    partial_log_negative_control()
 
     current_file, peak_file = memory_files()
     starting_current = checked_number(current_file)
@@ -200,19 +262,27 @@ def main() -> int:
                 )
                 children.append(child)
             sampled_peak = starting_current
-            while True:
-                sampled = checked_number(current_file)
-                sampled_peak = max(sampled_peak, sampled)
-                if sampled_peak > MAX_CGROUP_BYTES:
-                    raise ValueError("G141_CGROUP_MEMORY_CAP_EXCEEDED")
-                exits = [x.poll() for x in children]
-                if any(x is not None and x != 0 for x in exits):
-                    raise ValueError("G141_ORIGINAL_GO_TEST_OR_RACE_FAILED")
-                if all(x is not None for x in exits):
-                    break
-                if time.perf_counter() - run_start > MAX_SECONDS:
-                    raise ValueError("G141_PARALLEL_GO_TIMEOUT")
-                time.sleep(0.10)
+            try:
+                while True:
+                    sampled = checked_number(current_file)
+                    sampled_peak = max(sampled_peak, sampled)
+                    if sampled_peak > MAX_CGROUP_BYTES:
+                        raise ValueError("G141_CGROUP_MEMORY_CAP_EXCEEDED")
+                    exits = [x.poll() for x in children]
+                    if any(x is not None and x != 0 for x in exits):
+                        raise ValueError("G141_ORIGINAL_GO_TEST_OR_RACE_FAILED")
+                    if all(x is not None for x in exits):
+                        break
+                    if time.perf_counter() - run_start > MAX_SECONDS:
+                        raise ValueError("G141_PARALLEL_GO_TIMEOUT")
+                    time.sleep(0.10)
+            except BaseException:
+                kill_children(children)
+                report["failure_diagnostics"] = emit_partial_failure_evidence(
+                    logs, children, expected_packages,
+                    time.perf_counter() - run_start,
+                )
+                raise
             for _, _, handle in logs:
                 handle.close()
             full_peak = checked_number(peak_file)

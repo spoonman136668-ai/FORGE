@@ -1895,6 +1895,10 @@ class Database:
         # without creating or authorizing a FORGE-self worker ticket.
         from f139.rsi_r11_owner_once import audit_owner_once
         audit_owner_once(self)
+        # R12-C: cold audit of a reserved FORGE-self development issuance.
+        # No worker/scheduler/owner-tick path consumes this source-only record.
+        from f139.rsi_r12c_original_spend import audit_issuance
+        audit_issuance(self)
 
     @contextlib.contextmanager
     def transaction(self):

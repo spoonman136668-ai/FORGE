@@ -148,7 +148,7 @@ def audit_owner_once(db) -> tuple[dict, ...]:
     return tuple(reserved)
 
 
-def _authentic_original_owner(db, provider) -> str:
+def _authentic_original_owner(db, provider, *, allow_used_reservation: bool = False) -> str:
     """Fail closed unless operating the real Windows owner/release checkout."""
     import sqlite3
     import sys
@@ -192,7 +192,9 @@ def _authentic_original_owner(db, provider) -> str:
          "NATIVE_SOURCE_ACTIVATION_MISSING")
     need(db.ready() is None and not db.actives(),
          "ORIGINAL_NATIVE_WORK_BUSY")
-    need(not audit_owner_once(db), "ONE_SHOT_ALREADY_SPENT")
+    need(type(allow_used_reservation) is bool, "ORIGINAL_OWNER_SCOPE_INVALID")
+    if not allow_used_reservation:
+        need(not audit_owner_once(db), "ONE_SHOT_ALREADY_SPENT")
     protected_source = provider.protected_main()
     need(_sha40(protected_source)
          and provider.deployed_release_continuity(

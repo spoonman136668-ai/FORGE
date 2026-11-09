@@ -125,6 +125,43 @@ class SourceBindingTests(unittest.TestCase):
         self.assertEqual(
             db.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
 
+    def test_reservation_binding_immutable_after_other_events(self):
+        # Pure data projection, NOT an original owner authorization fixture.
+        from f139.local_controller import canonical
+        from f139.rsi_r12_candidate_binding import (
+            binding_from_reservation_event,
+        )
+        reserved, _ = fixture()
+        row = {
+            "seq": 24, "sha": "a" * 64,
+            "prior_sha": reserved["prior_event_head_sha256"],
+            "payload": canonical(reserved).decode("ascii"),
+        }
+        before = binding_from_reservation_event(
+            reservation=reserved, row=row,
+            expected_owner_source_sha=SOURCE)
+        self.assertEqual(before["reservation_event_sha256"], "a" * 64)
+        self.assertEqual(before["original_owner_ledger_head_sha256"], "a" * 64)
+        # A later ledger append changes current head but not the historic row.
+        after = binding_from_reservation_event(
+            reservation=reserved, row=dict(row),
+            expected_owner_source_sha=SOURCE)
+        self.assertEqual(after, before)
+        altered = dict(row)
+        altered["sha"] = "b" * 64
+        changed = binding_from_reservation_event(
+            reservation=reserved, row=altered,
+            expected_owner_source_sha=SOURCE)
+        self.assertNotEqual(
+            before["candidate_binding_sha256"],
+            changed["candidate_binding_sha256"])
+        altered = dict(row)
+        altered["payload"] = canonical({**reserved, "failed_run_id": 1}).decode()
+        with self.assertRaises(CandidateBindingDenied):
+            binding_from_reservation_event(
+                reservation=reserved, row=altered,
+                expected_owner_source_sha=SOURCE)
+
     def test_no_unsigned_forge_self_worker_admission(self):
         from f139.verify_ticket import LANES as WORKER
         from f139.local_controller import LANES as OWNER
