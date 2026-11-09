@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"reflect"
+	"sync"
 )
 
 const (
@@ -391,9 +392,21 @@ func F15Validate(x F15Report) error {
 		x.ActiveResearchChanged || x.AgentCalls != 0 || x.PaidAPICalls != 0 {
 		return errF15
 	}
-	expected, err := F15Development()
-	if err != nil || !reflect.DeepEqual(x, expected) {
+	// Reference is computed once per exact compiled source. Every candidate
+	// (including forged, rehashed negatives) still receives the complete,
+	// field-by-field comparison; the shared reference never escapes.
+	f15ValidatedReference.once.Do(func() {
+		f15ValidatedReference.report, f15ValidatedReference.err = F15Development()
+	})
+	if f15ValidatedReference.err != nil ||
+		!reflect.DeepEqual(x, f15ValidatedReference.report) {
 		return errF15
 	}
 	return nil
+}
+
+var f15ValidatedReference struct {
+	once   sync.Once
+	report F15Report
+	err    error
 }

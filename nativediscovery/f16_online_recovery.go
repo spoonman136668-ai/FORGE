@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"reflect"
+	"sync"
 )
 
 const (
@@ -339,9 +340,20 @@ func F16Validate(x F16Report) error {
 		x.ActiveResearchChanged || x.AgentCalls != 0 || x.PaidAPICalls != 0 {
 		return errF16
 	}
-	expected, err := F16Development()
-	if err != nil || !reflect.DeepEqual(x, expected) {
+	// Immutable source-bound reference, like the existing F13 validator.
+	// It never returns authority, a cached result, or mutable scientific state.
+	f16ValidatedReference.once.Do(func() {
+		f16ValidatedReference.report, f16ValidatedReference.err = F16Development()
+	})
+	if f16ValidatedReference.err != nil ||
+		!reflect.DeepEqual(x, f16ValidatedReference.report) {
 		return errF16
 	}
 	return nil
+}
+
+var f16ValidatedReference struct {
+	once   sync.Once
+	report F16Report
+	err    error
 }
