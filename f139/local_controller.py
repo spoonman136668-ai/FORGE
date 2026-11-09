@@ -1891,6 +1891,10 @@ class Database:
         # worker task or expands the original protected owner lane schema.
         from f139.rsi_r10_self_scope import audit_self_scope
         audit_self_scope(self)
+        # R11: verify source-bound, lifetime-once original-ledger reservation
+        # without creating or authorizing a FORGE-self worker ticket.
+        from f139.rsi_r11_owner_once import audit_owner_once
+        audit_owner_once(self)
 
     @contextlib.contextmanager
     def transaction(self):
