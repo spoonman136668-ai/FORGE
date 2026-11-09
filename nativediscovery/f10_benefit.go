@@ -7,6 +7,7 @@ import (
  "errors"
  "math"
  "reflect"
+ "sync"
 )
 
 const F10Schema = "forge.native-discovery.eureka-benefit-before-owner.dev.v1"
@@ -226,6 +227,21 @@ func F10Development()(F10Review,error){
  return out,nil
 }
 
+
+// Immutable per-process reference used only to validate external F10 evidence.
+// F10Development itself remains fully independent and cold-regenerating.
+var f10ValidationCanonical struct{
+ once sync.Once
+ report F10Review
+ err error
+}
+func f10CanonicalEqual(v F10Review)bool{
+ f10ValidationCanonical.once.Do(func(){
+  f10ValidationCanonical.report, f10ValidationCanonical.err=F10Development()
+ })
+ return f10ValidationCanonical.err==nil && reflect.DeepEqual(v,f10ValidationCanonical.report)
+}
+
 func F10Validate(review F10Review)error{
  if review.Schema!=F10Schema||review.DigestSHA256!=f10Digest(review)||
   !review.DevelopmentOnly||!review.SameSyntheticTrainingOnly||
@@ -235,7 +251,6 @@ func F10Validate(review F10Review)error{
   review.ExperimentIssued||review.AgentCalls!=0||review.PaidAPICalls!=0{
   return errF10
  }
- exact,err:=F10Development()
- if err!=nil||!reflect.DeepEqual(review,exact){return errF10}
+ if !f10CanonicalEqual(review){return errF10}
  return nil
 }
