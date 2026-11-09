@@ -87,6 +87,16 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
+    "engineering/rar-g162-eureka-race-profile-20261109": (
+        "74c5804ada71bc28ce322aebcee31e1872e7158e",
+        {
+            "docs/FORGE-G162-PINNED-NATIVEDISCOVERY-RACE-PROFILE.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
 }
 
 

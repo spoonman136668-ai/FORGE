@@ -133,6 +133,10 @@ def event_mode(head):
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G161_FROZEN_ANCESTRY_SCOPE_REQUIRED")
         return "pr"
+    if branch == "engineering/rar-g162-eureka-race-profile-20261109":
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G162_FROZEN_PROFILE_SCOPE_REQUIRED")
+        return "pr"
     if branch != BRANCH:
         if admiss != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
             raise ValueError("G148_ONLY_ORDINARY_TRUSTED_SOURCE_PR")
