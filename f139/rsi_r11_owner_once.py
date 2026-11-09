@@ -150,17 +150,31 @@ def audit_owner_once(db) -> tuple[dict, ...]:
 
 def _authentic_original_owner(db, provider) -> str:
     """Fail closed unless operating the real Windows owner/release checkout."""
-    from f139.local_controller import SingleOwner
     import sqlite3
-    # Original python -m f139.local_controller runs as __main__, whereas
-    # the standalone signed CLI imports its canonical package identity.
-    # Both execute the same original guarded DB/GET interfaces.
-    need(type(db).__name__ == "Database"
-         and type(db).__module__ in ("__main__", "f139.local_controller")
-         and type(getattr(db, "conn", None)) is sqlite3.Connection
-         and type(provider).__name__ == "GitHub"
-         and type(provider).__module__ in ("__main__", "f139.local_controller"),
+    import sys
+    from f139 import local_controller as native
+    # The original CLI executes as __main__ under python -m. Reconcile the
+    # exact source FILE and TYPE identity; untrusted lookalike classes cannot
+    # become a verified GitHub adapter or write into the owner ledger.
+    cli = sys.modules.get("__main__")
+    original_cli = (
+        cli is not None and
+        getattr(cli, "__file__", None) is not None and
+        Path(cli.__file__).resolve() == Path(native.__file__).resolve() and
+        type(db) is getattr(cli, "Database", None) and
+        type(provider) is getattr(cli, "GitHub", None))
+    canonical_cli = (
+        type(db) is native.Database and type(provider) is native.GitHub)
+    need((original_cli or canonical_cli)
+         and type(getattr(db, "conn", None)) is sqlite3.Connection,
          "ORIGINAL_OWNER_INSTANCE_REQUIRED")
+    # Do not accept arbitrary runner injection or shadowed release verifier
+    # when the method is called from a future authenticated owner source.
+    need(type(provider).__dict__.get("_command") is not None
+         and getattr(provider, "runner", None) is type(provider)._command
+         and vars(provider) == {"runner": type(provider)._command},
+         "ORIGINAL_GITHUB_ADAPTER_DRIFT")
+    SingleOwner = native.SingleOwner
     need(os.name == "nt", "WINDOWS_ORIGINAL_ONLY")
     home = os.environ.get("LOCALAPPDATA", "")
     need(bool(home) and
