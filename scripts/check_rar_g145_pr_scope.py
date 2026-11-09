@@ -47,6 +47,17 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g148_go_cache.py",
         },
     ),
+    "engineering/rar-g155-dynamic-main-cache-dev-20261108": (
+        "a62f469de1d5316c04d063246c30a5812bc8857d",
+        {
+            "docs/FORGE-G155-DYNAMIC-MAIN-GO-CACHE-DEV.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g155_dynamic_base_cache.py",
+            "nativediscovery/g155_compiler_cache_dev_test.go",
+        },
+    ),
 }
 
 

@@ -472,6 +472,36 @@ jobs:
         with:
           path: ${{ env.G148_CACHE_PATH }}
           key: ${{ env.G148_CACHE_KEY }}
+      - name: G155 derive dynamic exact-main Go seed from original event base (DEV)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g155-dynamic-main-cache-dev-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          G155_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_CACHE_HIT: ${{ steps.g148cache.outputs['cache-hit'] }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g155_dynamic_base_cache.py --pre
+          if ($LASTEXITCODE -ne 0) { throw 'G155_BASE_SOURCE_AND_KEY_PRECHECK_FAILED' }
+      - name: G155 restore dynamically derived qualified-main compiled Go seed (DEV)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g155-dynamic-main-cache-dev-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        id: g155base
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.G148_CACHE_PATH }}
+          key: ${{ env.G155_BASE_CACHE_KEY }}
+      - name: G155 attest dynamic protected-main compiler seed before full original Go (DEV)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g155-dynamic-main-cache-dev-20261108' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: pwsh
+        env:
+          G155_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_HEAD: ${{ github.event.pull_request.head.sha }}
+          G148_CACHE_HIT: ${{ steps.g148cache.outputs['cache-hit'] }}
+          G155_BASE_HIT: ${{ steps.g155base.outputs['cache-hit'] }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B scripts/check_rar_g155_dynamic_base_cache.py --post
+          if ($LASTEXITCODE -ne 0) { throw 'G155_DYNAMIC_MAIN_CACHE_CUSTODY_FAILED' }
       - name: Frozen native action-consequence development receipt
         if: github.head_ref == 'engineering/native-discovery-f0-learning-evaluator-20261107'
         shell: bash
