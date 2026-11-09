@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from hashlib import sha256
 from pathlib import Path
 
 from f139.rsi_r10_self_scope import AFTER_RUN, NOT_BEFORE_UTC
@@ -142,8 +143,16 @@ def audit_owner_once(db) -> tuple[dict, ...]:
 
 def _authentic_original_owner(db, provider) -> str:
     """Fail closed unless operating the real Windows owner/release checkout."""
-    from f139.local_controller import Database, GitHub, SingleOwner
-    need(type(db) is Database and type(provider) is GitHub,
+    from f139.local_controller import SingleOwner
+    import sqlite3
+    # Original python -m f139.local_controller runs as __main__, whereas
+    # the standalone signed CLI imports its canonical package identity.
+    # Both execute the same original guarded DB/GET interfaces.
+    need(type(db).__name__ == "Database"
+         and type(db).__module__ in ("__main__", "f139.local_controller")
+         and type(getattr(db, "conn", None)) is sqlite3.Connection
+         and type(provider).__name__ == "GitHub"
+         and type(provider).__module__ in ("__main__", "f139.local_controller"),
          "ORIGINAL_OWNER_INSTANCE_REQUIRED")
     need(os.name == "nt", "WINDOWS_ORIGINAL_ONLY")
     home = os.environ.get("LOCALAPPDATA", "")
@@ -184,8 +193,12 @@ def _payload(row: Readback, *, source: str, prior: str) -> dict:
          and type(row.job_id) is int and row.job_id > 0
          and _sha64(row.log_sha256)
          and _sha40(row.source_git_blob_sha)
+         and p.schema == "forge.f139.rsi-r6.source-only-known-repair.v1"
+         and p.original_failure_class == FAILURE
          and p.parent_sha == row.original_head_sha
          and p.path == row.path
+         and type(p.source) is bytes
+         and sha256(p.source).hexdigest() == p.candidate_sha256
          and _sha64(p.task_scope_sha256)
          and _sha64(p.original_sha256)
          and _sha64(p.candidate_sha256)
