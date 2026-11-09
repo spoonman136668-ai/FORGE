@@ -87,6 +87,16 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
+    "engineering/rar-g166-f23-race-profile-20261109": (
+        "0e122eb8e571ddddee1dea4168cf18cfc7dc019d",
+        {
+            "docs/FORGE-G166-PINNED-F23-RACE-PROFILE.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
 }
 
 
