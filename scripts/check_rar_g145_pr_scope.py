@@ -67,6 +67,16 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
+    "engineering/rar-g160-partial-go-diagnostics-20261109": (
+        "21b8649569bd9577c325da1ea99ecac81ff5df89",
+        {
+            "docs/FORGE-G160-G141-PARTIAL-GO-DIAGNOSTICS.md",
+            "scripts/check_rar_g141_parallel_go.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
 }
 
 

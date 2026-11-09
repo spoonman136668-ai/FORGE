@@ -242,6 +242,19 @@ def _release_scope(base: str, tree: str, head: str) -> None:
         changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
         if len(changed) != len(COMPAT_FILES) or set(changed) != COMPAT_FILES:
             raise ValueError("G158_EXACT_FIVE_PATH_COMPAT_SCOPE_CHANGED")
+    elif os.environ.get("GITHUB_HEAD_REF") == "engineering/rar-g160-partial-go-diagnostics-20261109":
+        if (admission != FROZEN or base != "21b8649569bd9577c325da1ea99ecac81ff5df89" or tree != "ddf7d95fe7883b0d12b700c9a19c89a87a1aaa6f"):
+            raise ValueError("G160_FROZEN_BASE_OR_ADMISSION_MISMATCH")
+        changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
+        expected = {
+            "docs/FORGE-G160-G141-PARTIAL-GO-DIAGNOSTICS.md",
+            "scripts/check_rar_g141_parallel_go.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        }
+        if len(changed) != len(expected) or set(changed) != expected:
+            raise ValueError("G160_EXACT_FIVE_PATH_DIAGNOSTIC_SCOPE_CHANGED")
     elif admission != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
         raise ValueError("G156_UNAUTHORIZED_GENERIC_PR_SOURCE")
 
