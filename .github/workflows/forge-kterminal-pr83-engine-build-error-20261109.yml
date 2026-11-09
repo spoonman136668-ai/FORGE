@@ -1,0 +1,161 @@
+name: K Terminal PR83 exact SHA Go engine build error diagnosis
+on:
+  push:
+    branches: [qualification/kterminal-v3-fill-report-20261108]
+    paths: [.github/workflows/forge-kterminal-pr83-engine-build-error-20261109.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr83-engine-diagnostic-d4a9356b
+  cancel-in-progress: false
+jobs:
+  owner-local-package:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 115
+    env:
+      KTERM_SHA: 6f2ea133b6f11fc6c502b727cfa755480506a779
+      KTERM_TREE: d4a9356bfcc8fc23ea00d4a771fe4427c680b004
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOENV: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Admit existing owner Windows runner without trading authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-v3-fill-report-20261108' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows') { throw 'KTERM_OWNER_LOCAL_HOST_IDENTITY_REFUSED' }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
+              'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')) {
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_OWNER_LOCAL_BROKER_ENV_REFUSED'}
+          }
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_GUI_EXISTING_PROCESS_PRESERVED_SKIP'
+          }
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          if($session -eq 0 -or
+             @(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session }).Count -eq 0){
+            throw 'KTERM_GUI_INTERACTIVE_SESSION_UNVERIFIED'
+          }
+          $profilePath=[Environment]::GetFolderPath('UserProfile')
+          if(-not $profilePath -or $profilePath -notmatch '(?i)^[A-Z]:\\Users\\[^\\]+$' -or
+             $profilePath -match '(?i)\\(public|default|systemprofile)$') {throw 'KTERM_OWNER_LOCAL_INTERACTIVE_PROFILE_UNVERIFIED'}
+          $download=Join-Path $profilePath 'Downloads'
+          if(-not(Test-Path -LiteralPath $download -PathType Container)){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_DIRECTORY_UNAVAILABLE'}
+          if((Get-Item -LiteralPath $download -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_LINK_REFUSED'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-engine-diagnostic-owner-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_OWNER_LOCAL_STALE_WORKSPACE'}
+          [void][IO.Directory]::CreateDirectory($root)
+          Write-Host 'KTERM_OWNER_LOCAL_ISOLATION_AND_DISARM=PASS'
+      - name: Stage exact private source in disposable Git checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-engine-diagnostic-owner-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          [void][IO.Directory]::CreateDirectory($stage)
+          & git -C $stage init -q *> (Join-Path $root 'git-init-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_GIT_INIT_FAILED'}
+          $cached=Join-Path $env:PUBLIC 'KTerminal'
+          $source='https://github.com/Kboomllc/K-Terminal.git'
+          if(Test-Path -LiteralPath $cached -PathType Container){
+            $tree=''
+            try {$tree=(& git -C $cached rev-parse ($env:KTERM_SHA+'^{tree}') 2>$null | Out-String).Trim()}catch {$tree=''}
+            if($LASTEXITCODE -eq 0 -and $tree -ceq $env:KTERM_TREE){$source=$cached}
+          }
+          & git -C $stage fetch -q --no-tags --depth=1 $source $env:KTERM_SHA *> (Join-Path $root 'git-fetch-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_EXISTING_PRIVATE_SOURCE_UNAVAILABLE'}
+          & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'git-checkout-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_CHECKOUT_FAILED'}
+          $head=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          if($head -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
+              @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_OWNER_LOCAL_EXACT_SOURCE_DRIFT'}
+          foreach($private in @('.env','config.json','data')){
+            if(Test-Path -LiteralPath (Join-Path $stage $private)){throw 'KTERM_OWNER_LOCAL_PRIVATE_RUNTIME_STATE_REFUSED'}
+          }
+          Write-Host 'KTERM_OWNER_LOCAL_EXACT_SHA_TREE=PASS;PRIVATE_SOURCE_NOT_PUBLISHED=TRUE'
+      - name: Pinned Go compiler for same source qualified in FORGE run 42521898369
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Isolate and classify original Go engine link build failure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-engine-diagnostic-owner-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          $log=Join-Path $root 'engine-build-private.log'
+          $env:GOCACHE=Join-Path $stage '.build\cache'
+          $env:GOMODCACHE=Join-Path $stage '.build\modules'
+          $env:GOPATH=Join-Path $stage '.build\go'
+          $env:GOTMPDIR=Join-Path $stage '.build\temp'
+          foreach($dir in @($env:GOCACHE,$env:GOMODCACHE,$env:GOPATH,$env:GOTMPDIR)){
+            [void][IO.Directory]::CreateDirectory($dir)
+          }
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){
+            throw 'KTERM_ENGINE_DIAGNOSTIC_TOOLCHAIN_DRIFT'
+          }
+          Push-Location $stage
+          try{
+            $started=[Diagnostics.Stopwatch]::StartNew()
+            $flags='-s -w -X k-terminal/pkg.NativeTimingDefaultEnabled=1 -X k-terminal/pkg.NativeTimingBuildRevision=20261006-stage3-readiness-r1'
+            & go build -trimpath -ldflags $flags -o K-Terminal-Engine.exe . *> $log
+            $code=$LASTEXITCODE
+            $started.Stop()
+            if($code -eq 0){
+              if(-not(Test-Path -LiteralPath (Join-Path $stage 'K-Terminal-Engine.exe') -PathType Leaf)){
+                throw 'KTERM_ENGINE_OUTPUT_MISSING'
+              }
+              Write-Host ('KTERM_PR83_ENGINE_EXACT_SOURCE_BUILD=PASS;DURATION_MS='+$started.ElapsedMilliseconds+';BROKER_WRITES=0')
+            }else{
+              $raw=if(Test-Path -LiteralPath $log){[IO.File]::ReadAllText($log)}else{''}
+              $class='OTHER_ENGINE_BUILD_FAILURE'
+              if($raw -match '(?i)(could not resolve host|module lookup disabled|proxyconnect|no such host|connection refused|TLS handshake|connection reset)'){$class='NETWORK_OR_DEPENDENCY'}
+              elseif($raw -match '(?i)(not enough space|disk full|No space left on device)'){$class='DISK_EXHAUSTION'}
+              elseif($raw -match '(?i)(not enough memory|out of memory|cannot allocate memory|paging file is too small)'){$class='MEMORY_EXHAUSTION'}
+              elseif($raw -match '(?i)(access is denied|permission denied|sharing violation|being used by another process)'){$class='FILE_ACCESS_OR_LOCK'}
+              elseif($raw -match '(?i)(undefined:|syntax error:|cannot use .* as|not enough arguments|too many arguments|no required module provides package)'){$class='GO_COMPILATION_OR_IMPORT'}
+              elseif($raw -match '(?i)(link:|linker|invalid -X|symbol not found)'){$class='GO_LINKER'}
+              elseif($raw -match '(?i)(build constraints exclude|C compiler|cgo:)'){$class='BUILD_TAG_OR_CGO'}
+              elseif($raw -match '(?i)(fatal error:|signal: killed|exit status 137)'){$class='GO_PROCESS_CRASH'}
+              elseif($raw -match '(?i)(no such file|path does not exist|cannot find the path specified)'){$class='PATH_OR_INPUT_MISSING'}
+              $goErr=($raw -match '(?m)^\s*#\s+(?:k-terminal|runtime|internal|github\.com)/')
+              $goMissing=($raw -match '(?i)cannot find package|module lookup|no required module')
+              $goFatal=($raw -match '(?i)fatal error:|signal: killed')
+              Write-Host ('KTERM_PR83_ENGINE_EXACT_SOURCE_BUILD=FAIL;CLASS='+$class+';DURATION_MS='+$started.ElapsedMilliseconds+';GO_DIAGNOSTIC_HEADER='+$goErr+';MODULE_MISSING='+$goMissing+';PROCESS_FATAL='+$goFatal+';OUTPUT_BYTES='+$raw.Length+';BROKER_WRITES=0')
+              throw 'KTERM_ENGINE_DIAGNOSTIC_FAILURE'
+            }
+          }finally{Pop-Location}
+      - name: Remove temporary private source and fixtures
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr83-engine-diagnostic-owner-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root) {
+            $path=[IO.Path]::GetFullPath($root)
+            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+            if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
+               [IO.Path]::GetFileName($path) -cne ('kterm-pr83-engine-diagnostic-owner-'+$env:GITHUB_RUN_ID)){
+              throw 'KTERM_OWNER_LOCAL_PRIVATE_CLEANUP_REFUSED'
+            }
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_OWNER_LOCAL_PRIVATE_TEMP_CLEAN=PASS;PUBLIC_PRIVATE_FILES=0'
