@@ -1887,6 +1887,10 @@ class Database:
         # No new owner admission, worker, dispatch, or scientific authority.
         from f139.rsi_r8_owner_custody import audit_observed_scopes
         audit_observed_scopes(self)
+        # R10 one-shot development-only reservation audit. It never admits a
+        # worker task or expands the original protected owner lane schema.
+        from f139.rsi_r10_self_scope import audit_self_scope
+        audit_self_scope(self)
 
     @contextlib.contextmanager
     def transaction(self):

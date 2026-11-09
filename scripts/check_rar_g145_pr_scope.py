@@ -58,7 +58,7 @@ FROZEN_SCOPES = {
         },
     ),
     "engineering/rar-g158-optional-helper-compat-20261108": (
-        "36a7a1e1f4f6de7d4ec71cfd90bd38fc47a9c844",
+        "6a9bd9b87bc8d12cb0e8237c1da606aecf28c39b",
         {
             "docs/FORGE-G158-OPTIONAL-HELPER-COMPAT.md",
             ".github/workflows/qualify.yml",
