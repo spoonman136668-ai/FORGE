@@ -9,6 +9,7 @@ import (
  "errors"
  "io"
  "reflect"
+ "sync"
 )
 
 const (
@@ -416,6 +417,17 @@ func F13Development()(F13Report,error){
  out.DigestSHA256=f13Digest(out)
  return out,nil
 }
+// The expected source report is immutable for one exact compiled Go program.
+// Cache only the expensive reference *inside* validation: no result is ever
+// returned, edited or accepted from this cache; all negative cases still
+// compare every field against the full frozen developmental computation.
+// Cache identity is the compiled package's exact source, not an external
+// unverified disk artifact or model/runner state.
+var f13ValidatedReference struct {
+ once sync.Once
+ report F13Report
+ err error
+}
 func F13Validate(out F13Report)error{
  if out.Schema!=F13Schema||out.DigestSHA256!=f13Digest(out)||
   !out.DevelopmentOnly||!out.EarlierNegativePreserved||
@@ -423,7 +435,10 @@ func F13Validate(out F13Report)error{
   out.FullProcessEfficiencyProven||out.OwnerEligible||
   out.DispatchAuthorized||out.LiveFORGEResearchChanged||
   out.AgentCalls!=0||out.PaidAPICalls!=0{return errF13}
- exact,err:=F13Development()
- if err!=nil||!reflect.DeepEqual(out,exact){return errF13}
+ f13ValidatedReference.once.Do(func(){
+  f13ValidatedReference.report,f13ValidatedReference.err=F13Development()
+ })
+ if f13ValidatedReference.err!=nil||
+  !reflect.DeepEqual(out,f13ValidatedReference.report){return errF13}
  return nil
 }
