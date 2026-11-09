@@ -77,6 +77,16 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
+    "engineering/rar-g161-verified-pr-ancestry-20261109": (
+        "ad9026d2e551b054fc944d536ded37fe20a1aaa4",
+        {
+            "docs/FORGE-G161-G145-PR-ANCESTRY.md",
+            ".github/workflows/qualify.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
 }
 
 
