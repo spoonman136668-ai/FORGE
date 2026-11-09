@@ -40,6 +40,12 @@ COMMANDS = {
          "-p", "test_*.py", "-v"),  # one final full regression
         ("python", "-B", "-m", "compileall", "-q", "yggdrasil", "scripts"),
     ),
+    "TTT-Hybrid": (
+        # Existing credential-free fixed worker. No original worlds or GPU.
+        ("python", "-B", "-m", "pytest", "-q", "tests/test_model.py"),
+        ("python", "-B", "-m", "pytest", "-q"),
+        ("python", "-B", "-m", "compileall", "-q", "scripts", "tests"),
+    ),
 }
 R7_COMMANDS = {
     "Wingless": (

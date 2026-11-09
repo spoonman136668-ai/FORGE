@@ -29,7 +29,7 @@ SCHEMA = "forge.f139.windows-controller.v1"
 ZERO = "0" * 64
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 TICKET = re.compile(r"f139-[a-z0-9][a-z0-9-]{2,47}\Z")
-LANES = {"Wingless", "Yggdrasil", "Qualification"}
+LANES = {"Wingless", "Yggdrasil", "Qualification", "TTT-Hybrid"}
 ALLOWED_STAGES = {"READY", "START_RISK", "WAIT_PROVIDER", "VERIFIED", "QUARANTINED"}
 LIMIT_PER_DAY = 288  # Sustained two developments per ten minutes, 24/7 capacity.
 MAX_ZIP_BYTES = 2_000_000
@@ -3536,12 +3536,12 @@ class GitHub:
                     import base64
                     intent = json.loads(base64.b64decode(encoded,validate=True))
                     lane = intent["lane"]
-                    require(lane in ("Wingless","Yggdrasil"),
-                            "NATIVE_LANE_FORBIDDEN")
+                    from f139.nci04_native_contract import REPOS
+                    require(lane in REPOS, "NATIVE_LANE_FORBIDDEN")
                     sha = intent["target_commit"]
                     require(isinstance(sha,str) and SHA.fullmatch(sha) is not None,
                             "NATIVE_TARGET_COMMIT_INVALID")
-                    native_repo = "spoonman136668-ai/" + lane
+                    native_repo = REPOS[lane][0]
                     key = (native_repo, sha)
                     if key not in target_trees:
                         raw_commit = self.runner([
