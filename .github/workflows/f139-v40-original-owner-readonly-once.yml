@@ -1,7 +1,7 @@
 name: FORGE V40 existing-owner read-only preflight once
 on:
   push:
-    branches: [qualification/f139-v40-original-owner-readonly-20261109]
+    branches: [qualification/f139-v40-original-owner-readonly-r2-20261109]
 permissions:
   contents: read
   issues: read
@@ -41,14 +41,14 @@ jobs:
           $ErrorActionPreference='Stop'
           $text=Get-Content '.github/workflows/f139-v40-original-owner-readonly-once.yml' -Raw
           $marker='      - name: Original-owner read-only or disposable-copy preflight'
-          $offset=$text.IndexOf($marker)
+          $offset=$text.LastIndexOf($marker)
           if($offset -lt 0){throw 'V40_INVOCATION_BLOCK_MISSING'}
           $block=$text.Substring($offset)
-          $block=$block.Substring($block.IndexOf('        run: |')+18)
+          $block=$block.Substring($block.IndexOf("`n",$block.IndexOf('        run: |'))+1)
           $block=($block -split "`n" | ForEach-Object {$_ -replace '^          ',''}) -join "`n"
           $tokens=$null;$errors=$null
           [void][Management.Automation.Language.Parser]::ParseInput($block,[ref]$tokens,[ref]$errors)
-          if($errors.Count -ne 0){throw 'V40_INVOCATION_SYNTAX_INVALID'}
+          if($errors.Count -ne 0){$errors | ForEach-Object {Write-Host $_.Message};throw 'V40_INVOCATION_SYNTAX_INVALID'}
           if($block -match '(?i)\b(Stop-ScheduledTask|Start-ScheduledTask|Disable-ScheduledTask|Enable-ScheduledTask|Register-ScheduledTask|Stop-Process|Invoke-Expression)\b') {
             throw 'V40_OWNER_MUTATION_COMMAND_DENIED'
           }
@@ -80,7 +80,7 @@ jobs:
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
              $env:GITHUB_EVENT_NAME -cne 'push' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
-             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v40-original-owner-readonly-20261109' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/f139-v40-original-owner-readonly-r2-20261109' -or
              $env:OPENAI_API_KEY) {throw 'V40_READONLY_ROUTE_IDENTITY_DRIFT'}
           $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
           if($event.created -ne $true -or $event.deleted -ne $false -or
