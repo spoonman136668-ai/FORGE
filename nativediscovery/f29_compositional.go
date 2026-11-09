@@ -228,7 +228,7 @@ func f29Trial(kind string,seed uint32,sched string,cold bool)(F29Trial,[]byte,er
         if predicted==actual{tr.Accuracy++;tr.PhaseAccuracy[t/12]++}
         loss-=math.Log(math.Max(p[actual],1e-9))
         acts=append(acts,action);sensors=append(sensors,next);preds=append(preds,p)
-        if isCandidate{e=cm.observe(cue,action,next)}else{e=base.observe(cue,action,next,false)}
+        if isCandidate{e=cm.observe(cue,action,next)}else{e=base.observe(cue,action,next,false,false)}
         if e!=nil{return F29Trial{},nil,e}
     }
     tr.NLL=loss/48;tr.TransferSeen=48
