@@ -56,7 +56,10 @@ jobs:
         run: |
           set -euo pipefail
           python -B -m unittest discover -s f139 -p 'test_*.py' -v
-          python -B -m compileall -q f139
+          # In-memory compilation: compileall writes __pycache__, which makes
+          # G61's original clean-checkout invariant fail during full Go tests.
+          python -B -c "import pathlib; [compile(p.read_bytes(), str(p), 'exec') for p in sorted(pathlib.Path('f139').glob('*.py'))]"
+          test -z "$(git status --porcelain --untracked-files=all)"
       - name: Complete original Go tests without unrelated G145 benchmark selector
         shell: bash
         run: |
