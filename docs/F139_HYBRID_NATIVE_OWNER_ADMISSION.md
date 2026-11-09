@@ -1,4 +1,19 @@
-# F139 Hybrid native owner-lane admission — migration qualified, NOT yet owner-deployed
+# F139 Hybrid source-only owner admission — native worker NOT released
+
+The original two-lane native workflow is intentionally **unchanged** in this
+source-only implementation. The existing F139 owner cannot migrate the live
+SQLite task schema until the independently qualified Git blob of the signed
+TTT-Hybrid worker (`74dd90e6d71da6b53898c7a80d5362f1b0e6af27`) is installed on the
+exact clean protected FORGE main and the original owner performs all
+its existing authority checks. This blob pin is a necessary source check,
+**not** worker release, runtime, scientific first-use or operator approval.
+
+The complete admission PR #1637 at `95920f5d` passed dedicated Linux/Windows
+full original qualification (Actions run #42595865764), but the required G145
+public check correctly rejected its two workflow-file changes. This source
+release excludes those files; the restricted worker must be released through
+an independently authorized, G145-compliant owner path. No G145 exception,
+new controller or task scheduler is created.
 
 This change extends the original FORGE F139 native-development intake (not
 another controller, scheduler or model trainer) to the **TTT-Hybrid** identity.

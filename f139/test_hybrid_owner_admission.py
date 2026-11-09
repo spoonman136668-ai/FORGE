@@ -8,6 +8,7 @@ from unittest.mock import patch
 from f139.local_controller import Database
 from f139.hybrid_owner_admission import (
     OLD_CHECK, NEW_CHECK, audit_hybrid_lane, is_migrated, migrate_hybrid_lane,
+    QUALIFIED_HYBRID_WORKER_BLOB, require_qualified_worker_blob,
 )
 
 
@@ -53,6 +54,14 @@ class HybridOwnerMigrationTests(unittest.TestCase):
         # Unbacked Hybrid task is NEVER accepted as authentic owner admission.
         with self.assertRaises(Exception):
             self.db.verify()
+
+    def test_worker_not_qualified_never_unlocks_original_owner_migration(self):
+        for candidate in ("8eab7972ba1b30eabf1e38477aff60b598cdeb2f",
+                          "0" * 40, "", None):
+            with self.subTest(value=candidate), self.assertRaisesRegex(
+                    ValueError, "QUALIFIED_WORKER_NOT_RELEASED"):
+                require_qualified_worker_blob(candidate)
+        require_qualified_worker_blob(QUALIFIED_HYBRID_WORKER_BLOB)
 
     def test_no_implicit_source_migration_or_unapproved_owner(self):
         self.assertFalse(audit_hybrid_lane(self.db))

@@ -1899,8 +1899,11 @@ class Database:
         # No worker/scheduler/owner-tick path consumes this source-only record.
         from f139.rsi_r12c_original_spend import audit_issuance
         audit_issuance(self)
-        # Original owner-controlled, append-only TTT-Hybrid task CHECK
-        # migration: never silently changes an existing SQLite installation.
+        # R12-G: cold original SHA-chain audit of at most one PRE-dispatch
+        # ticket, sealed before GitHub run/job IDs can possibly exist.
+        from f139.rsi_r12g_pre_dispatch import audit_preissued
+        audit_preissued(self)
+        # Preserve RSI R12-G verification while cold-auditing Hybrid tasks.
         from f139.hybrid_owner_admission import audit_hybrid_lane
         audit_hybrid_lane(self)
 
@@ -5068,6 +5071,11 @@ def cli(argv=None):
             require(_git_hybrid("rev-parse","HEAD")==db.meta()["source_sha"]
                     and _git_hybrid("status","--porcelain","--untracked-files=all")=="",
                     "HYBRID_MIGRATION_CHECKOUT_DRIFT")
+            # The original owner cannot migrate a Hybrid lane before the
+            # exact independently qualified native worker is on main.
+            from f139.hybrid_owner_admission import require_qualified_worker_blob
+            require_qualified_worker_blob(_git_hybrid(
+                "rev-parse","HEAD:.github/workflows/forge-f139-development-worker.yml"))
             with SingleOwner(args.db.with_suffix(".lock")):
                 from f139.hybrid_owner_admission import migrate_hybrid_lane
                 upgraded=migrate_hybrid_lane(db)

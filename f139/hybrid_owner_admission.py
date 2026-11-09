@@ -14,6 +14,17 @@ KIND="HYBRID_LANE_SCHEMA_ADMITTED"
 SCHEMA="forge.f139.hybrid-native-development-lane-migration.v1"
 OLD_CHECK="lane TEXT NOT NULL CHECK(lane IN ('Wingless','Yggdrasil','Qualification'))"
 NEW_CHECK="lane TEXT NOT NULL CHECK(lane IN ('Wingless','Yggdrasil','Qualification','TTT-Hybrid'))"
+# The exact previously cross-platform-qualified Hybrid worker Git blob.
+# The original two-lane worker cannot be treated as a released Hybrid worker.
+QUALIFIED_HYBRID_WORKER_BLOB="74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
+
+
+def require_qualified_worker_blob(value: str) -> None:
+    """Necessary original-worker source check, never runtime authority."""
+    require(type(value) is str and value == QUALIFIED_HYBRID_WORKER_BLOB,
+            "QUALIFIED_WORKER_NOT_RELEASED")
+
+
 EXPECTED_INDEX={"only_one_active_f139_task"}
 EXPECTED_TRIGGERS={"guard_two_native_active","prevent_task_delete"}
 FIELDS={"schema","source_sha","prior_event_head_sha256",
