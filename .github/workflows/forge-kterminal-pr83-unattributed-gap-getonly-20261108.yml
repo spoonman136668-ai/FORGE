@@ -81,8 +81,17 @@ jobs:
             try{$tree=(& git -C $cached rev-parse ($env:KTERM_SHA+'^{tree}') 2>$null|Out-String).Trim()}catch{$tree=''}
             if($LASTEXITCODE -eq 0 -and $tree -ceq $env:KTERM_TREE){$src=$cached}
           }
-          & git -C $stage fetch -q --no-tags --depth=1 $src $env:KTERM_SHA *> (Join-Path $root 'private-fetch.log')
-          if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_PRIVATE_SOURCE_UNAVAILABLE'}
+          # A source-only GET can fail transiently after a preceding owner
+          # build succeeds. Retry this exact SHA at most three times; no
+          # branch/ref changes, credential copying, or source substitutions.
+          $fetched=$false
+          for($attempt=1;$attempt -le 3;$attempt++){
+            $privateLog=Join-Path $root ('private-fetch-'+$attempt+'.log')
+            & git -C $stage fetch -q --no-tags --depth=1 $src $env:KTERM_SHA *> $privateLog
+            if($LASTEXITCODE -eq 0){$fetched=$true;break}
+            if($attempt -lt 3){Start-Sleep -Seconds (2*$attempt)}
+          }
+          if(-not $fetched){throw 'KTERM_GETONLY_PRIVATE_SOURCE_UNAVAILABLE_AFTER_BOUNDED_RETRY'}
           & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'private-checkout.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_GETONLY_CHECKOUT_FAILED'}
           $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
