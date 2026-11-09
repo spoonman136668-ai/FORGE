@@ -1899,6 +1899,10 @@ class Database:
         # No worker/scheduler/owner-tick path consumes this source-only record.
         from f139.rsi_r12c_original_spend import audit_issuance
         audit_issuance(self)
+        # R12-G: cold original SHA-chain audit of at most one PRE-dispatch
+        # ticket, sealed before GitHub run/job IDs can possibly exist.
+        from f139.rsi_r12g_pre_dispatch import audit_preissued
+        audit_preissued(self)
 
     @contextlib.contextmanager
     def transaction(self):
