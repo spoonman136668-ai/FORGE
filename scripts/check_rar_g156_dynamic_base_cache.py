@@ -25,6 +25,16 @@ FILES = {
     "scripts/check_rar_g156_dynamic_base_cache.py",
 }
 FROZEN = "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT"
+COMPAT_BRANCH = "engineering/rar-g158-optional-helper-compat-20261108"
+COMPAT_BASE = "6a9bd9b87bc8d12cb0e8237c1da606aecf28c39b"
+COMPAT_TREE = "f08b8d897bb7b3adcd62956c44142d56f41415f4"
+COMPAT_FILES = {
+    "docs/FORGE-G158-OPTIONAL-HELPER-COMPAT.md",
+    ".github/workflows/qualify.yml",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+}
 
 
 
@@ -226,6 +236,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
         changed = git("diff", "--no-renames", "--name-only", BASE, head).splitlines()
         if len(changed) != len(FILES) or set(changed) != FILES:
             raise ValueError("G156_FROZEN_FIVE_FILE_RELEASE_SCOPE_CHANGED")
+    elif os.environ.get("GITHUB_HEAD_REF") == COMPAT_BRANCH:
+        if (admission != FROZEN or base != COMPAT_BASE or tree != COMPAT_TREE):
+            raise ValueError("G158_FROZEN_BASE_OR_ADMISSION_MISMATCH")
+        changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
+        if len(changed) != len(COMPAT_FILES) or set(changed) != COMPAT_FILES:
+            raise ValueError("G158_EXACT_FIVE_PATH_COMPAT_SCOPE_CHANGED")
     elif admission != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
         raise ValueError("G156_UNAUTHORIZED_GENERIC_PR_SOURCE")
 
@@ -267,7 +283,7 @@ def _static() -> int:
     _tree_mutation_negatives()
     if (os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("GITHUB_EVENT_NAME") != "pull_request"
-            or os.environ.get("GITHUB_HEAD_REF") != BRANCH
+            or os.environ.get("GITHUB_HEAD_REF") not in (BRANCH, COMPAT_BRANCH)
             or os.environ.get("G156_HEAD") != head):
         raise ValueError("G156_STATIC_ONLY_FROZEN_RELEASE_SOURCE")
     base = github_event_base(head)
