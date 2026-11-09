@@ -141,6 +141,7 @@ jobs:
             other atomic.Int64
             deniedClass atomic.Int64
             exactBTC string
+            exactBTCAccountRead string
             scopePortfolio string
           }
           var exactCoinbaseOrder = regexp.MustCompile("^/api/v3/brokerage/orders/historical/[A-Za-z0-9-]+$")
@@ -152,7 +153,8 @@ jobs:
             }
             path:=req.URL.EscapedPath()
             switch {
-            case path=="/api/v3/brokerage/accounts":
+            case path=="/api/v3/brokerage/accounts" ||
+              (f.exactBTCAccountRead!="" && path==f.exactBTCAccountRead):
               if f.account.Add(1)>12 {return nil,fmt.Errorf("account read cap")}
             case path=="/api/v3/brokerage/key_permissions":
               if f.permission.Add(1)>8 {return nil,fmt.Errorf("permission read cap")}
@@ -230,6 +232,10 @@ jobs:
               return
             }
             fence.exactBTC="/v2/accounts/"+url.PathEscape(onlyBTC.String())+"/transactions"
+            // The original portfolio breakdown verifies base precision using
+            // one exact GET /v3/brokerage/accounts/{authenticated BTC UUID}.
+            // This permits only that SAME already-verified account.
+            fence.exactBTCAccountRead="/api/v3/brokerage/accounts/"+url.PathEscape(onlyBTC.String())
             fence.scopePortfolio=anchor.portfolioID
             started:=time.Now()
             // Existing original application proof: no local ledger, TP adoption, order
