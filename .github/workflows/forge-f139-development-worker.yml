@@ -53,7 +53,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   execute:
-    if: ${{ !startsWith(inputs.ticket, 'f139-nci04-') }}
+    if: ${{ !startsWith(inputs.ticket, 'f139-nci04-') && !startsWith(inputs.ticket, 'f139-rsi-') }}
     strategy:
       fail-fast: false
       matrix:
@@ -830,3 +830,99 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           compression-level: 0
+
+  # FORGE-self RSI is NOT an ordinary owner/native lane. Credentialed
+  # HMAC validation cannot prove the original Windows owner's SQLite spend.
+  # Keep this distinct route closed until an independently authenticated
+  # original-owner terminal receipt is qualified and deployed.
+  rsi-authorize:
+    if: ${{ startsWith(inputs.ticket, 'f139-rsi-') && inputs.target_package == 'f139-rsi-self-v1' && inputs.lane == 'Qualification' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      authorization: ${{ steps.check.outputs.authorization }}
+      original_ledger_verified: ${{ steps.check.outputs.original_ledger_verified }}
+    env:
+      F139_RSI_NATIVE_BUNDLE: ${{ inputs.native_bundle }}
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_TARGET_PACKAGE: ${{ inputs.target_package }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate original operator policy and exact Git tree without worker signing key
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $issueRaw = & gh api repos/spoonman136668-ai/FORGE/issues/807
+          if($LASTEXITCODE -ne 0) { throw 'RSI_R12H_ORIGINAL_ISSUE_UNAVAILABLE' }
+          $commitRaw = & gh api "repos/spoonman136668-ai/FORGE/git/commits/$env:GITHUB_SHA"
+          if($LASTEXITCODE -ne 0) { throw 'RSI_R12H_SOURCE_TREE_UNAVAILABLE' }
+          $commit = ($commitRaw -join "`n") | ConvertFrom-Json -ErrorAction Stop
+          if($commit.sha -cne $env:GITHUB_SHA -or $commit.tree.sha -cnotmatch '^[a-f0-9]{40}$') {
+            throw 'RSI_R12H_PROTECTED_SOURCE_TREE_DRIFT'
+          }
+          $issueText = ($issueRaw -join "`n")
+          $bytes = [Text.Encoding]::UTF8.GetBytes($issueText)
+          "F139_RSI_POLICY_BASE64=$([Convert]::ToBase64String($bytes))" >> $env:GITHUB_ENV
+          "F139_RSI_SOURCE_TREE_SHA=$($commit.tree.sha)" >> $env:GITHUB_ENV
+      - name: Verify RSI original HMAC and provider binding, WITHOUT source execution
+        id: check
+        shell: pwsh
+        env:
+          F139_WORKER_HMAC_KEY: ${{ secrets.F139_WORKER_HMAC_KEY }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $json = & python -B -m f139.rsi_r12h_worker_entry
+          if($LASTEXITCODE -ne 0) { throw 'RSI_R12H_HMAC_OR_PROVIDER_UNVERIFIED' }
+          $proof = ($json -join "`n") | ConvertFrom-Json -ErrorAction Stop
+          if($proof.schema -cne 'forge.f139.rsi-r12h.credentialed-origin-check.v1' -or
+             $proof.ticket -cne $env:F139_TICKET -or
+             $proof.source_sha -cne $env:GITHUB_SHA -or
+             -not $proof.credentialed_hmac_verified -or
+             $proof.original_owner_sqlite_ledger_verified -or
+             $proof.credential_free_worker_admitted -or
+             $proof.scientific_first_use -or
+             $proof.authorization_sha256 -cnotmatch '^[a-f0-9]{64}$') {
+            throw 'RSI_R12H_ORIGINAL_AUTHORITY_NOT_ESTABLISHED'
+          }
+          "authorization=$($proof.authorization_sha256)" >> $env:GITHUB_OUTPUT
+          # Explicit non-authorizing result. Never turn a shared HMAC into
+          # a purported original owner one-use SQLite attestation.
+          "original_ledger_verified=false" >> $env:GITHUB_OUTPUT
+          Write-Host 'RSI_R12H_HMAC_AND_PROVIDER=VERIFIED'
+          Write-Host 'F139_RSI_ORIGINAL_LEDGER_VERIFIED=false'
+
+  rsi-execute:
+    needs: rsi-authorize
+    if: ${{ startsWith(inputs.ticket, 'f139-rsi-') && inputs.target_package == 'f139-rsi-self-v1' && needs.rsi-authorize.result == 'success' && needs.rsi-authorize.outputs.original_ledger_verified == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      F139_RSI_AUTHORIZATION: ${{ needs.rsi-authorize.outputs.authorization }}
+      F139_RSI_OWNER_LEDGER_VERIFIED: ${{ needs.rsi-authorize.outputs.original_ledger_verified }}
+    steps:
+      - name: Fail closed without original-only lifetime-one terminal proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:F139_RSI_OWNER_LEDGER_VERIFIED -cne 'true' -or
+             $env:F139_RSI_AUTHORIZATION -cnotmatch '^[a-f0-9]{64}$' -or
+             $env:F139_WORKER_HMAC_KEY -or $env:GH_TOKEN -or
+             $env:GITHUB_TOKEN -or $env:OPENAI_API_KEY) {
+            throw 'RSI_R12H_CREDENTIAL_FREE_WORKER_NOT_AUTHORIZED'
+          }
+          # No candidate runner installed until original terminal custody
+          # and separate full source qualification are complete.
+          throw 'RSI_R12H_ORIGINAL_OWNER_TERMINAL_CUSTODY_NOT_IMPLEMENTED'
