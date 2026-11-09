@@ -126,3 +126,61 @@ func TestReadinessRejectsForeignInputAndForgedAuthority(t *testing.T){
   if VerifyReadiness(x)==nil{t.Fatal("forged readiness output",x)}
  }
 }
+
+func TestReadinessP32OwnerPassCannotOverrideFailedHostedSuite(t *testing.T){
+ sha:="7bc49166b83788efc7bfb9da82d39fc420630c46"
+ names,err:=readinessWorkflows("P32-DEV")
+ if err!=nil||len(names)!=4{t.Fatal("P32 development workflow identity changed",err)}
+ ids:=[]uint64{42548767052,42548767056,42548767057,42548762315}
+ runs:=make([]researchobserver.Run,0,4)
+ for i,name:=range names{
+  verdict:="failure"
+  if i==3{verdict="success"}
+  runs=append(runs,syntheticRun(sha,name,"completed",verdict,ids[i]))
+ }
+ out,err:=DiagnoseHybrid(readinessSnapshot(t,sha,runs),sha,"P32-DEV")
+ if err!=nil||VerifyReadiness(out)!=nil{t.Fatal(err)}
+ if out.EngineeringCICompleteInSuppliedSnapshot||
+  out.Disposition!="BLOCKED_INCOMPLETE_OR_FAILED_ENGINEERING_CI"||
+  out.Required[3].Classification!="PASS_CI_METADATA_ONLY"||
+  out.Required[0].Classification!="FAILED_OR_NONPASS_CI"||
+  out.Required[1].Classification!="FAILED_OR_NONPASS_CI"||
+  out.Required[2].Classification!="FAILED_OR_NONPASS_CI"||
+  out.GitHubSourceAuthenticated||out.FirstUseAuthenticated||
+  out.ScientificAccepted||out.ExecutionAuthorized||out.ResearchDispatched{
+  t.Fatalf("owner success wrongly elevated despite hosted CI failures: %+v",out)
+ }
+ if _,err:=requireHybridEngineeringSuite(runs,sha,"P32-DEV");err==nil{
+  t.Fatal("development-only P32 became an unattended execution candidate")
+ }
+}
+
+func TestReadinessP32EvenAllGreenIsNotOwnerAdmission(t *testing.T){
+ sha:=strings.Repeat("b",40)
+ names,err:=readinessWorkflows("P32-DEV")
+ if err!=nil{t.Fatal(err)}
+ runs:=make([]researchobserver.Run,0,len(names))
+ for i,name:=range names{
+  runs=append(runs,syntheticRun(sha,name,"completed","success",uint64(42560000000+i)))
+ }
+ out,err:=DiagnoseHybrid(readinessSnapshot(t,sha,runs),sha,"P32-DEV")
+ if err!=nil||VerifyReadiness(out)!=nil{t.Fatal(err)}
+ if !out.EngineeringCICompleteInSuppliedSnapshot||
+  out.GitHubSourceAuthenticated||out.FullCrossPlatformRegressionVerified||
+  out.FirstUseAuthenticated||out.ScientificAccepted||
+  out.ExecutionAuthorized||out.ResearchDispatched{
+  t.Fatal("P32 fabricated owner or science authority",out)
+ }
+ if _,err:=requireHybridEngineeringSuite(runs,sha,"P32-DEV");err==nil{
+  t.Fatal("all-green caller P32 metadata unexpectedly authorized source")
+ }
+ dup:=append(append([]researchobserver.Run(nil),runs...),runs[3])
+ dup[len(dup)-1].RunID=42560000099
+ dup[len(dup)-1].URL="https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/actions/runs/42560000099"
+ blocked,err:=DiagnoseHybrid(readinessSnapshot(t,sha,dup),sha,"P32-DEV")
+ if err!=nil||VerifyReadiness(blocked)!=nil||
+  blocked.EngineeringCICompleteInSuppliedSnapshot||
+  blocked.Required[3].Classification!="AMBIGUOUS_MULTIPLE_EXACT_SHA_RUNS"{
+  t.Fatal("duplicate owner run incorrectly treated as qualified",err,blocked)
+ }
+}
