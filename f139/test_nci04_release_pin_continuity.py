@@ -85,6 +85,20 @@ class ReleasePinContinuityTests(unittest.TestCase):
         self.assertFalse(proof["scientific_first_use"])
         self.assertEqual(len(self.provider.calls),5)
 
+    def test_next_release_may_parse_expanded_shape_without_new_rights(self):
+        # Simulation for a FUTURE qualified original owner source only.
+        # The currently installed release source is old and still requires
+        # the two-lane policy; this test never changes the live issue.
+        body = json.loads(self.provider.issue["body"])
+        body["lanes"] = ["Wingless", "Yggdrasil", "FORGE-self"]
+        self.provider.issue["body"] = json.dumps(body, sort_keys=True)
+        proof = self.proof()
+        self.assertTrue(proof["existing_owner_policy_authorized"])
+        self.assertTrue(proof["new_commits_are_uninstalled"])
+        self.assertFalse(proof["source_transition_granted"])
+        self.assertFalse(proof["scientific_first_use"])
+        self.assertEqual(len(self.provider.calls), 5)
+
     def test_authentic_owner_policy_pin_required(self):
         self.deny(lambda p:p.issue.update(author_association="NONE"),
                   "POLICY_OWNER_IDENTITY")

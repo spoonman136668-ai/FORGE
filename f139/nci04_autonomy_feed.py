@@ -27,6 +27,12 @@ OWNER = "spoonman136668-ai"
 FORGE_REPO = "spoonman136668-ai/FORGE"
 POLICY_ISSUE = 807
 POLICY_SCHEMA = "forge.f139.native-autonomy-feed-owner-policy.v1"
+# The existing Wingless/Yggdrasil feeder always retains its exact two
+# independent research targets.  The optional FORGE-self member is ONLY
+# original-owner RSI issuance scope, never a feeder candidate or a new queue.
+NATIVE_FEED_LANES = ("Wingless", "Yggdrasil")
+SELF_LANE = "FORGE-self"
+EXPANDED_OWNER_LANES = (*NATIVE_FEED_LANES, SELF_LANE)
 TITLE_PREFIX = "F139 autonomy DEV:"
 LABEL = "f139-native-development-eligible"
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
@@ -130,7 +136,9 @@ def inspect_policy(raw: dict, source_sha: str) -> dict:
             and type(doc["enabled"]) is bool
             and doc["source_sha"] == source_sha
             and doc["title_prefix"] == TITLE_PREFIX
-            and doc["lanes"] == ["Wingless", "Yggdrasil"]
+            and type(doc["lanes"]) is list
+            and tuple(doc["lanes"]) in (
+                NATIVE_FEED_LANES, EXPANDED_OWNER_LANES)
             and doc["max_issue_creations_per_cycle"] == 2
             and doc["require_owner_authored_pr"] is True
             and doc["require_single_head_commit_delta"] is True
@@ -321,7 +329,10 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
                 raise
             steering_unavailable = True
     candidates, rejected = [], []
-    for lane in policy["lanes"]:
+    # An owner-approved FORGE-self development attempt must pass the
+    # independent original-owner lifetime-one RSI ledger/worker gates.
+    # Never coerce the extra policy member into this native feeder.
+    for lane in NATIVE_FEED_LANES:
         repo = REPOS[lane][0]
         docs = get("repos/" + repo + "/pulls?state=open&per_page=100&page=1")
         require(isinstance(docs, list) and len(docs) <= 100,
