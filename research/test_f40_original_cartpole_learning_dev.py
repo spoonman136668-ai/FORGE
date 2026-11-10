@@ -86,7 +86,20 @@ class F40MechanismTests(unittest.TestCase):
                 self.assertIn(w['seed'],f40.EVAL_SEEDS)
                 self.assertEqual(64, len(w['actions_sha256']))
                 self.assertEqual(7, w['steps'])
-        self.assertEqual('F40_DEV_NO_GO', report['classification'])
+        self.assertEqual('F40_ORIGINAL_RUNTIME_UNVERIFIED', report['classification'])
+        self.assertFalse(report['frozen_thresholds_met'])
+
+    def test_fake_source_string_cannot_label_original_science(self):
+        train, _ = f40.training(FakeGym())
+        model = f40.fit_models(train)
+        report = f40.assess(FakeGym(), model, f40.digest(train), f40.ORIGINAL)
+        self.assertEqual('F40_ORIGINAL_RUNTIME_UNVERIFIED', report['classification'])
+        self.assertNotIn(report['classification'],
+                         ('F40_DEV_NO_GO', 'F40_DEV_SIGNAL_UNVERIFIED'))
+        self.assertIs(type(report['frozen_thresholds_met']), bool)
+        self.assertEqual(report['report_sha256'],
+                         f40.digest({k: v for k, v in report.items()
+                                     if k != 'report_sha256'}))
 
     def test_first_use_and_terminal_guards(self):
         for seed in f40.FIRST_USE_FORBIDDEN:

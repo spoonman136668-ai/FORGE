@@ -232,11 +232,14 @@ def assess(gym, models, training_hash, source):
     report['selected_conventional'] = conventional
     report['candidate_mean_gain'] = cand['mean_return'] - best['mean_return']
     report['per_seed_gains_ge_10'] = sum(c['return'] >= b['return']+10 for c,b in zip(cand['worlds'],best['worlds']))
-    report['classification'] = 'F40_DEV_NO_GO'
-    if (report['candidate_mean_gain'] >= 20 and report['per_seed_gains_ge_10'] >= 6
-            and all(cand['mean_return'] >= report['arms'][k]['mean_return']+20
-                    for k in ('wrong-action','no-learned-dynamics'))):
-        report['classification'] = 'F40_DEV_SIGNAL_UNVERIFIED'
+    # This function intentionally accepts interface fixtures for structural testing.
+    # Scores here are never an ORIGINAL environment result; only main() can
+    # classify them after exact Git pin, module origin and original trace checks.
+    report['frozen_thresholds_met'] = bool(
+        report['candidate_mean_gain'] >= 20 and report['per_seed_gains_ge_10'] >= 6
+        and all(cand['mean_return'] >= report['arms'][k]['mean_return']+20
+                for k in ('wrong-action', 'no-learned-dynamics')))
+    report['classification'] = 'F40_ORIGINAL_RUNTIME_UNVERIFIED'
     report['report_sha256'] = digest(report)
     return report
 
@@ -276,9 +279,18 @@ def main(argv=None):
     result['train_action_counts'] = counts
     result['training_environment_seconds'] = t1-t0
     result['fitting_seconds'] = t2-t1
-    result['report_sha256'] = digest({k:v for k,v in result.items() if k!='report_sha256'})
+    # Re-attest exact original source and imported Gymnasium after every
+    # real episode. FakeGym or an unpinned checkout must never produce an
+    # original-runtime NO_GO or signal classification.
+    original_gym(root)
     if git(root, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching'):
         raise ValueError('F40_PINNED_ORIGINAL_CHECKOUT_MUTATED')
+    if result['classification'] != 'F40_ORIGINAL_RUNTIME_UNVERIFIED':
+        raise ValueError('F40_PREATTESTED_CLASSIFICATION_REFUSED')
+    result['classification'] = (
+        'F40_DEV_SIGNAL_UNVERIFIED' if result['frozen_thresholds_met']
+        else 'F40_DEV_NO_GO')
+    result['report_sha256'] = digest({k:v for k,v in result.items() if k!='report_sha256'})
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(canonical(result)+b'\n')
     print('F40_ORIGINAL_GYMNASIUM_DEV=' + result['classification'], 'digest=' + result['report_sha256'])
