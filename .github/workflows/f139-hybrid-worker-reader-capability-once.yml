@@ -1,0 +1,58 @@
+name: FORGE Hybrid existing worker reader capability (one-shot GET only)
+on:
+  push:
+    branches: ['operations/f139-hybrid-worker-readonly-capability-once-20261110']
+permissions:
+  contents: read
+jobs:
+  exact-private-reader:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai' && github.event.created == true && github.ref == 'refs/heads/operations/f139-hybrid-worker-readonly-capability-once-20261110' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Probe existing FORGE hosted worker token against exact Hybrid metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -B - <<'PY'
+          import json, os, re, subprocess
+          assert os.environ['GITHUB_REPOSITORY']=='spoonman136668-ai/FORGE'
+          assert os.environ['GITHUB_ACTOR']=='spoonman136668-ai'
+          assert os.environ['GITHUB_EVENT_NAME']=='push' and os.environ['GITHUB_RUN_ATTEMPT']=='1'
+          with open(os.environ['GITHUB_EVENT_PATH']) as stream:
+              event=json.load(stream)
+          assert event['created'] is True and event['deleted'] is False and event['forced'] is False
+          assert event['before']=='0'*40 and event['after']==os.environ['GITHUB_SHA']
+          assert event['sender']['login']=='spoonman136668-ai'
+          project='spoonman136668-ai/TTT-Hybrid-Lab'
+          target='6df5aa3f0dd5a99867098166aeed5b0fc70b4ec2'
+          tree='1159dc3e20a9c457e17d74805edee942985efa07'
+          report=dict(schema='forge.f139.hybrid-worker-reader-capability.v1',
+              repository=project,target_sha=target,target_tree=tree,
+              identity='FORGE_GITHUB_TOKEN_CONTENTS_READ_HOSTED_WORKER',
+              native_worker_source='2c7caad5a4502d4b874a11d57207a35cf033eb08',
+              native_worker_blob='74dd90e6d71da6b53898c7a80d5362f1b0e6af27',
+              requests=0,repository_visible=False,exact_commit_tree_readable=False,
+              checkout_executed=False,private_source_downloaded=False,
+              owner_mutations=0,dispatches=0,scientific_first_use=False,
+              model_calls=0,new_credentials=False,new_controller=False)
+          for route in ('repos/'+project,'repos/'+project+'/git/commits/'+target):
+              result=subprocess.run(['gh','api',route],stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,timeout=30,check=False)
+              report['requests']+=1
+              if result.returncode:
+                  match=re.search(rb'HTTP (403|404)',result.stderr)
+                  report['http_status']=int(match.group(1)) if match else None
+                  report['status']='BLOCKED_PRIVATE_READER' if match else 'UNVERIFIED_READER_TRANSPORT'
+                  break
+              data=json.loads(result.stdout)
+              if route=='repos/'+project:
+                  assert data['full_name']==project and data['private'] is True
+                  report['repository_visible']=True
+              else:
+                  assert data['sha']==target and data['tree']['sha']==tree
+                  report['exact_commit_tree_readable']=True
+                  report['status']='METADATA_READ_PASS_CHECKOUT_STILL_UNVERIFIED'
+          print('F139_HYBRID_WORKER_READER='+json.dumps(report,sort_keys=True,separators=(',',':')))
+          PY
