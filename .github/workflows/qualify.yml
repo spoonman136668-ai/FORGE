@@ -241,6 +241,103 @@ jobs:
           test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
           grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
           ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+      - name: G176 pinned F34 F10 matched race AB and full candidate Go (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g167-f24-f11-canonical-validation-ab-20261109' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          G176_HEAD: ${{ github.event.pull_request.head.sha }}
+          G176_BASE_SHA: 9f04db87a01701b458bd4aa6b1c4428b06a3c17e
+          G176_BASE_TREE: f690239ebf9121c653e2305f1527cb6112cb9fb9
+          G176_CANDIDATE_SHA: 9913e6c0c645beff2d423de5d07d3ddc580cb905
+          G176_CANDIDATE_TREE: 2ef06c0910e4cc6cf6ef1cbec60b3592249a00d9
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G176_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git fetch --no-tags --depth=1 origin "$G176_BASE_SHA"
+          git fetch --no-tags --depth=1 origin "$G176_CANDIDATE_SHA"
+          baseline="$RUNNER_TEMP/rar-g176-base"
+          candidate="$RUNNER_TEMP/rar-g176-candidate"
+          git worktree add --detach "$baseline" "$G176_BASE_SHA"
+          git worktree add --detach "$candidate" "$G176_CANDIDATE_SHA"
+          test "$(git -C "$baseline" rev-parse HEAD)" = "$G176_BASE_SHA"
+          test "$(git -C "$candidate" rev-parse HEAD)" = "$G176_CANDIDATE_SHA"
+          test "$(git -C "$baseline" rev-parse HEAD^{tree})" = "$G176_BASE_TREE"
+          test "$(git -C "$candidate" rev-parse HEAD^{tree})" = "$G176_CANDIDATE_TREE"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f10_benefit.go)" = "a3405aca6fa6c119f3687970453849179843c191"
+          test "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f10_benefit.go)" = "66d4ae9a116c9e0a1c34ca51a8cfc0e827dcfb3c"
+          test "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f10_canonical_validation_test.go)" = "89e0a77905c06745b901de4fb57572bd5d825e42"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f10_benefit_test.go)" = "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f10_benefit_test.go)"
+          test "$(git -C "$baseline" rev-parse HEAD:docs/NATIVE-DISCOVERY-F33-ACTION-GOAL-TRANSFER.md)" = "$(git -C "$candidate" rev-parse HEAD:docs/NATIVE-DISCOVERY-F33-ACTION-GOAL-TRANSFER.md)"
+          test "$(git -C "$baseline" rev-parse HEAD:docs/NATIVE-DISCOVERY-F34-ISSUANCE-CUSTODY-AUDIT.md)" = "$(git -C "$candidate" rev-parse HEAD:docs/NATIVE-DISCOVERY-F34-ISSUANCE-CUSTODY-AUDIT.md)"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f33_goal_control.go)" = "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f33_goal_control.go)"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f33_goal_control_test.go)" = "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f33_goal_control_test.go)"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f34_issuance_custody_audit_test.go)" = "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f34_issuance_custody_audit_test.go)"
+          test "$(git diff --no-renames --name-only "$G176_BASE_SHA" "$G176_CANDIDATE_SHA" | sort)" = "$(printf 'docs/FORGE-G174-F10-CANONICAL-VALIDATION.md\nnativediscovery/f10_benefit.go\nnativediscovery/f10_canonical_validation_test.go\nnativediscovery/f11_canonical_validation_test.go\nnativediscovery/f11_causal_posterior.go\nnativediscovery/f12_canonical_validation_test.go\nnativediscovery/f12_hidden_dynamics.go\n' | sort)"
+          test -z "$(git -C "$baseline" status --porcelain --untracked-files=all)"
+          test -z "$(git -C "$candidate" status --porcelain --untracked-files=all)"
+          export GOFLAGS=-p=4 GOMAXPROCS=2 GOMEMLIMIT=1536MiB GOTOOLCHAIN=local
+          test "$(go version | awk '{print $3}')" = "go1.23.12"
+          cd "$baseline"
+          go test -race -count=1 -json -run '^TestF10NoOwnerAdmissionByTamperedOrRehashedDevelopmentEvidence$' ./nativediscovery > "$RUNNER_TEMP/g176-baseline.jsonl"
+          cd "$candidate"
+          go test -race -count=1 -json -run '^TestF10NoOwnerAdmissionByTamperedOrRehashedDevelopmentEvidence$' ./nativediscovery > "$RUNNER_TEMP/g176-candidate.jsonl"
+          python3 -B - "$RUNNER_TEMP/g176-baseline.jsonl" "$RUNNER_TEMP/g176-candidate.jsonl" "$RUNNER_TEMP/g176-receipt.json" "$G176_BASE_SHA" "$G176_CANDIDATE_SHA" "$G176_CANDIDATE_TREE" <<'PY'
+          import json,sys
+          from pathlib import Path
+          base_file,candidate_file,receipt,source_sha,candidate_sha,candidate_tree=sys.argv[1:7]
+          root="TestF10NoOwnerAdmissionByTamperedOrRehashedDevelopmentEvidence"
+          def read(path):
+              events=[]
+              for row in Path(path).read_text(encoding="utf-8").splitlines():
+                  obj=json.loads(row)
+                  if obj.get("Package")!="github.com/spoonman136668-ai/forge/nativediscovery":
+                      raise SystemExit("G176_PACKAGE_IDENTITY_DRIFT")
+                  if obj.get("Test","").startswith(root) and obj.get("Action") in ("pass","fail","skip"):
+                      events.append((obj["Test"],obj["Action"],obj.get("Elapsed")))
+              parent=[x for x in events if x[0]==root]
+              if len(parent)!=1 or parent[0][1]!="pass" or not parent[0][2]:
+                  raise SystemExit("G176_PARENT_TEST_NOT_PASS")
+              nested=[x for x in events if x[0].startswith(root+"/")]
+              if len(nested)!=23 or len(events)!=24:
+                  raise SystemExit("G176_ORIGINAL_23_NEGATIVES_CHANGED")
+              return events,parent[0][2]
+          old,old_s=read(base_file)
+          new,new_s=read(candidate_file)
+          if sorted((a,b) for a,b,_ in old)!=sorted((a,b) for a,b,_ in new):
+              raise SystemExit("G176_NEGATIVE_EVENT_PARITY_FAILED")
+          ratio=old_s/new_s
+          receipt_data=dict(schema="forge.rar-g176.f34-f10-ab.dev.v1",baseline_source_sha=source_sha,
+              candidate_source_sha=candidate_sha,candidate_source_tree=candidate_tree,
+              baseline_test_seconds=old_s,candidate_test_seconds=new_s,
+              speedup_ratio=round(ratio,4),original_test_event_count=len(old),
+              candidate_test_event_count=len(new),original_negative_subtests=23,
+              original_events_identical=True,minimum_ratio=1.5,
+              scientific_firstuse=False,owner_authorized=False,deployment=False)
+          Path(receipt).write_text(json.dumps(receipt_data,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+          print("G176_F10_AB_RECEIPT="+json.dumps(receipt_data,sort_keys=True),flush=True)
+          if ratio<1.5: raise SystemExit("G176_FROZEN_SPEEDUP_NO_GO")
+          PY
+          go test -race -count=1 -run '^TestF10CanonicalValidationColdAndConcurrent$' ./nativediscovery
+          GOFLAGS=-p=2 go test -count=1 ./...
+          GOFLAGS=-p=4 go test -race -count=1 ./...
+          GOFLAGS=-p=2 go vet ./...
+          GOFLAGS=-p=2 go build ./...
+          test "$(git rev-parse HEAD)" = "$G176_CANDIDATE_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$G176_CANDIDATE_TREE"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "G176_F10_FULL_GO=PASS"
+      - name: Retain G176 matched F10 AB evidence (DEV ONLY)
+        if: always() && github.head_ref == 'engineering/rar-g167-f24-f11-canonical-validation-ab-20261109'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g176-f10-ab-${{ runner.os }}-9913e6c0c645beff2d423de5d07d3ddc580cb905
+          path: |
+            ${{ runner.temp }}/g176-baseline.jsonl
+            ${{ runner.temp }}/g176-candidate.jsonl
+            ${{ runner.temp }}/g176-receipt.json
+          retention-days: 7
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
@@ -656,6 +753,103 @@ jobs:
         with:
           name: rar-g133-full-f139-suite-abba
           path: ${{ runner.temp }}/rar-g133-f139-suite-abba.json
+          if-no-files-found: error
+      - name: G176 pinned F34 F10 matched race AB and full candidate Go (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g167-f24-f11-canonical-validation-ab-20261109' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          G176_HEAD: ${{ github.event.pull_request.head.sha }}
+          G176_BASE_SHA: 9f04db87a01701b458bd4aa6b1c4428b06a3c17e
+          G176_BASE_TREE: f690239ebf9121c653e2305f1527cb6112cb9fb9
+          G176_CANDIDATE_SHA: 9913e6c0c645beff2d423de5d07d3ddc580cb905
+          G176_CANDIDATE_TREE: 2ef06c0910e4cc6cf6ef1cbec60b3592249a00d9
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G176_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git fetch --no-tags --depth=1 origin "$G176_BASE_SHA"
+          git fetch --no-tags --depth=1 origin "$G176_CANDIDATE_SHA"
+          baseline="$RUNNER_TEMP/rar-g176-base"
+          candidate="$RUNNER_TEMP/rar-g176-candidate"
+          git worktree add --detach "$baseline" "$G176_BASE_SHA"
+          git worktree add --detach "$candidate" "$G176_CANDIDATE_SHA"
+          test "$(git -C "$baseline" rev-parse HEAD)" = "$G176_BASE_SHA"
+          test "$(git -C "$candidate" rev-parse HEAD)" = "$G176_CANDIDATE_SHA"
+          test "$(git -C "$baseline" rev-parse HEAD^{tree})" = "$G176_BASE_TREE"
+          test "$(git -C "$candidate" rev-parse HEAD^{tree})" = "$G176_CANDIDATE_TREE"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f10_benefit.go)" = "a3405aca6fa6c119f3687970453849179843c191"
+          test "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f10_benefit.go)" = "66d4ae9a116c9e0a1c34ca51a8cfc0e827dcfb3c"
+          test "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f10_canonical_validation_test.go)" = "89e0a77905c06745b901de4fb57572bd5d825e42"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f10_benefit_test.go)" = "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f10_benefit_test.go)"
+          test "$(git -C "$baseline" rev-parse HEAD:docs/NATIVE-DISCOVERY-F33-ACTION-GOAL-TRANSFER.md)" = "$(git -C "$candidate" rev-parse HEAD:docs/NATIVE-DISCOVERY-F33-ACTION-GOAL-TRANSFER.md)"
+          test "$(git -C "$baseline" rev-parse HEAD:docs/NATIVE-DISCOVERY-F34-ISSUANCE-CUSTODY-AUDIT.md)" = "$(git -C "$candidate" rev-parse HEAD:docs/NATIVE-DISCOVERY-F34-ISSUANCE-CUSTODY-AUDIT.md)"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f33_goal_control.go)" = "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f33_goal_control.go)"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f33_goal_control_test.go)" = "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f33_goal_control_test.go)"
+          test "$(git -C "$baseline" rev-parse HEAD:nativediscovery/f34_issuance_custody_audit_test.go)" = "$(git -C "$candidate" rev-parse HEAD:nativediscovery/f34_issuance_custody_audit_test.go)"
+          test "$(git diff --no-renames --name-only "$G176_BASE_SHA" "$G176_CANDIDATE_SHA" | sort)" = "$(printf 'docs/FORGE-G174-F10-CANONICAL-VALIDATION.md\nnativediscovery/f10_benefit.go\nnativediscovery/f10_canonical_validation_test.go\nnativediscovery/f11_canonical_validation_test.go\nnativediscovery/f11_causal_posterior.go\nnativediscovery/f12_canonical_validation_test.go\nnativediscovery/f12_hidden_dynamics.go\n' | sort)"
+          test -z "$(git -C "$baseline" status --porcelain --untracked-files=all)"
+          test -z "$(git -C "$candidate" status --porcelain --untracked-files=all)"
+          export GOFLAGS=-p=4 GOMAXPROCS=2 GOMEMLIMIT=1536MiB GOTOOLCHAIN=local
+          test "$(go version | awk '{print $3}')" = "go1.23.12"
+          cd "$baseline"
+          go test -race -count=1 -json -run '^TestF10NoOwnerAdmissionByTamperedOrRehashedDevelopmentEvidence$' ./nativediscovery > "$RUNNER_TEMP/g176-baseline.jsonl"
+          cd "$candidate"
+          go test -race -count=1 -json -run '^TestF10NoOwnerAdmissionByTamperedOrRehashedDevelopmentEvidence$' ./nativediscovery > "$RUNNER_TEMP/g176-candidate.jsonl"
+          python3 -B - "$RUNNER_TEMP/g176-baseline.jsonl" "$RUNNER_TEMP/g176-candidate.jsonl" "$RUNNER_TEMP/g176-receipt.json" "$G176_BASE_SHA" "$G176_CANDIDATE_SHA" "$G176_CANDIDATE_TREE" <<'PY'
+          import json,sys
+          from pathlib import Path
+          base_file,candidate_file,receipt,source_sha,candidate_sha,candidate_tree=sys.argv[1:7]
+          root="TestF10NoOwnerAdmissionByTamperedOrRehashedDevelopmentEvidence"
+          def read(path):
+              events=[]
+              for row in Path(path).read_text(encoding="utf-8").splitlines():
+                  obj=json.loads(row)
+                  if obj.get("Package")!="github.com/spoonman136668-ai/forge/nativediscovery":
+                      raise SystemExit("G176_PACKAGE_IDENTITY_DRIFT")
+                  if obj.get("Test","").startswith(root) and obj.get("Action") in ("pass","fail","skip"):
+                      events.append((obj["Test"],obj["Action"],obj.get("Elapsed")))
+              parent=[x for x in events if x[0]==root]
+              if len(parent)!=1 or parent[0][1]!="pass" or not parent[0][2]:
+                  raise SystemExit("G176_PARENT_TEST_NOT_PASS")
+              nested=[x for x in events if x[0].startswith(root+"/")]
+              if len(nested)!=23 or len(events)!=24:
+                  raise SystemExit("G176_ORIGINAL_23_NEGATIVES_CHANGED")
+              return events,parent[0][2]
+          old,old_s=read(base_file)
+          new,new_s=read(candidate_file)
+          if sorted((a,b) for a,b,_ in old)!=sorted((a,b) for a,b,_ in new):
+              raise SystemExit("G176_NEGATIVE_EVENT_PARITY_FAILED")
+          ratio=old_s/new_s
+          receipt_data=dict(schema="forge.rar-g176.f34-f10-ab.dev.v1",baseline_source_sha=source_sha,
+              candidate_source_sha=candidate_sha,candidate_source_tree=candidate_tree,
+              baseline_test_seconds=old_s,candidate_test_seconds=new_s,
+              speedup_ratio=round(ratio,4),original_test_event_count=len(old),
+              candidate_test_event_count=len(new),original_negative_subtests=23,
+              original_events_identical=True,minimum_ratio=1.5,
+              scientific_firstuse=False,owner_authorized=False,deployment=False)
+          Path(receipt).write_text(json.dumps(receipt_data,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+          print("G176_F10_AB_RECEIPT="+json.dumps(receipt_data,sort_keys=True),flush=True)
+          if ratio<1.5: raise SystemExit("G176_FROZEN_SPEEDUP_NO_GO")
+          PY
+          go test -race -count=1 -run '^TestF10CanonicalValidationColdAndConcurrent$' ./nativediscovery
+          GOFLAGS=-p=2 go test -count=1 ./...
+          GOFLAGS=-p=4 go test -race -count=1 ./...
+          GOFLAGS=-p=2 go vet ./...
+          GOFLAGS=-p=2 go build ./...
+          test "$(git rev-parse HEAD)" = "$G176_CANDIDATE_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$G176_CANDIDATE_TREE"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "G176_F10_FULL_GO=PASS"
+      - name: Retain G176 matched F10 AB evidence (DEV ONLY)
+        if: always() && github.head_ref == 'engineering/rar-g167-f24-f11-canonical-validation-ab-20261109'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g176-f10-ab-${{ runner.os }}-9913e6c0c645beff2d423de5d07d3ddc580cb905
+          path: |
+            ${{ runner.temp }}/g176-baseline.jsonl
+            ${{ runner.temp }}/g176-candidate.jsonl
+            ${{ runner.temp }}/g176-receipt.json
+          retention-days: 7
           if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}

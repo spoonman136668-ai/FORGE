@@ -20,6 +20,18 @@ HYBRID_WORKER_PATH = ".github/workflows/forge-f139-development-worker.yml"
 HYBRID_WORKER_BEFORE = "8eab7972ba1b30eabf1e38477aff60b598cdeb2f"
 HYBRID_WORKER_AFTER = "74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
 FROZEN_SCOPES = {
+    # Frozen G176 F34 Go-source development qualification, not generic owner/merge rights.
+    "engineering/rar-g167-f24-f11-canonical-validation-ab-20261109": (
+        "4adc6d8b7397e555deee46440bbce40ff2265f39",
+        {
+            ".github/workflows/qualify.yml",
+            "docs/FORGE-G174-F10-SOURCE-MATCHED-AB.md",
+            "docs/FORGE-G176-F34-SOURCE-PINNED-AB.md",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Operator-authorized exact V40 read-only invocation qualification.
     'engineering/f139-v40-qualified-readonly-route-20261109': (
         '32de33753c874102de9672d2768e4b7c0b866b25',
