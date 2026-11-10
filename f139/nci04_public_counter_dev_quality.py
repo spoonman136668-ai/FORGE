@@ -66,8 +66,14 @@ def _loss(rule):
     return total / n_scenarios
 
 
-def _signature(rule):
-    """Finite public-grid fingerprint, NOT a universal equivalence certificate."""
+def _signature_bytes(rule):
+    """Complete exact decision vector on the bounded public regression domain.
+
+    The fixed DEV regret world draws trial counts only from (2, 4, 8);
+    SIGNATURE_MAX_TRIALS=10 therefore covers EVERY possible public history
+    observed by its scoring function. This is an exact domain equality key,
+    never a claim of equivalence on unseen training counts or environments.
+    """
     outcomes = bytearray()
     for n0 in range(1, SIGNATURE_MAX_TRIALS + 1):
         for n1 in range(1, SIGNATURE_MAX_TRIALS + 1):
@@ -75,7 +81,12 @@ def _signature(rule):
                 selection = _decision(rule, s0, n0, s1, n1)
                 outcomes.append(2 if selection is None else selection)
     assert len(outcomes) == 4225
-    return sha256(outcomes).hexdigest()
+    return bytes(outcomes)
+
+
+def _signature(rule):
+    """Finite public-grid fingerprint, NOT a universal equivalence certificate."""
+    return sha256(_signature_bytes(rule)).hexdigest()
 
 
 def _metric(loss):
@@ -96,13 +107,23 @@ def assess(programs):
     parsed = {name: parse(program) for name, program in programs.items()}
     baseline = {name: _loss(name) for name in ("empirical", "laplace")}
     strongest = min(baseline, key=baseline.get)
+    # Cache only inside this explicit fixed development cohort. The key is
+    # the COMPLETE decision vector, not its SHA digest or source/AST identity:
+    # two different programs can share exactly the same actions/ties on this
+    # scoring world, and then their expected regret MUST match for every seed.
+    if max(TRIAL_COUNTS) > SIGNATURE_MAX_TRIALS:
+        raise ValueError("F139_DEV_QUALITY_SIGNATURE_DOMAIN_TOO_SMALL")
+    by_exact_decisions = {}
     results = {}
     for name, tree in parsed.items():
-        loss = _loss(tree)
+        decisions = _signature_bytes(tree)
+        if decisions not in by_exact_decisions:
+            by_exact_decisions[decisions] = _loss(tree)
+        loss = by_exact_decisions[decisions]
         results[name] = {
             "program_sha256": sha256(programs[name].encode("ascii")).hexdigest(),
             "mean_regret": _metric(loss),
-            "finite_public_grid_signature_sha256": _signature(tree),
+            "finite_public_grid_signature_sha256": sha256(decisions).hexdigest(),
             "beats_strongest_control_on_this_synthetic_dev_grid": loss < baseline[strongest],
         }
     return {
@@ -113,6 +134,9 @@ def assess(programs):
         "strongest_control": strongest,
         "controls": {name: _metric(loss) for name, loss in baseline.items()},
         "programs": results,
+        "distinct_fixed_dev_decision_behaviors": len(by_exact_decisions),
+        "redundant_regret_evaluations_avoided": len(parsed) - len(by_exact_decisions),
+        "candidate_source_bytes_and_negative_results_preserved": True,
         "finite_grid_equality_is_global_equivalence_proof": False,
         "independent_source_custody_proven": False,
         "scientific_first_use": False,
