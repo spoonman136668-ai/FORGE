@@ -124,9 +124,14 @@ class CredentialedOwnerPrivatePayloadBindingTests(unittest.TestCase):
             (payload+b" ", provider),
             (payload.replace(b"scripts/native_example.py",b"scripts/native_other.py"),provider),
             (payload,{**provider,"git_blob_sha":"e"*40}),
-            (payload,{**provider,"commit_sha":"e"*40}),
+            # The valid storage commit now uses e*40; mutate to a genuinely
+            # distinct SHA so this negative cannot silently become a no-op.
+            (payload,{**provider,"commit_sha":"0"*40}),
+            (payload,{**provider,"tree_sha":"0"*40}),
             (payload,{**provider,"path":"f139/private-native/other.json"}),
         ):
+            self.assertTrue(raw != payload or doc != provider,
+                            "negative fixture must actually change bytes or provider")
             with self.subTest(bytes=len(raw),provider=doc), self.assertRaises(ValueError):
                 verify(ref, raw, doc, inp, sig)
 
