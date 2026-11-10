@@ -765,3 +765,100 @@ jobs:
           test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
+
+
+  # Operator-authorized ephemeral F43 DEV evaluation; only existing draft #1614.
+  # Does not admit protected first-use, owner changes, scheduling or promotion.
+  f43_training_calibrated_contradiction_dev_once:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.number == 1614 &&
+      github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' &&
+      github.event.pull_request.head.ref == 'research/eureka-f8-portable-cold-continuation-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout F43 frozen-source research candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm preregistration and frozen F40/F41/F42 source SHA identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:docs/NATIVE-DISCOVERY-F43-CALIBRATED-CONTRADICTION-DEV.md)" = '0000e899a75a57969050f30eecf761258a185e12'
+          test "$(git rev-parse HEAD:research/f43_train_calibrated_contradiction_dev.py)" = '3a79383ec142eb08f8a60ec0c591aee3ce9a2c8e'
+          test "$(git hash-object --no-filters research/f43_train_calibrated_contradiction_dev.py)" = '3a79383ec142eb08f8a60ec0c591aee3ce9a2c8e'
+          test "$(git rev-parse HEAD:research/test_f43_train_calibrated_contradiction_dev.py)" = 'e75610cfbc9181f23b5aa71fe460ecd5bbcf43ee'
+          test "$(git rev-parse HEAD:research/f42_original_actuator_reversal_dev.py)" = 'd66af2c4a734b61e36b43562071c9dfdba354768'
+          test "$(git rev-parse HEAD:research/f41_original_mountaincar_dev.py)" = 'ffea5f9ccc6f9b9c19eb1e9127fb985327d77a2e'
+          test "$(git rev-parse HEAD:research/f40_original_cartpole_learning_dev.py)" = '9d3a8612edf6d3516cf6a6fe374c94049955a5b2'
+          echo 'F43_SOURCE_PROTOCOL_NEGATIVE_PRESERVATION=PASS'
+      - name: Checkout pinned original Farama Gymnasium in separate path
+        uses: actions/checkout@v4
+        with:
+          repository: Farama-Foundation/Gymnasium
+          ref: e6be96abfb0a9df36da5e7884522c4f1f2432e53
+          path: external-gymnasium
+          persist-credentials: false
+      - name: Setup verified Python 3.11 for original environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install exact previously verified public dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --no-input \
+            'numpy==1.26.4' 'cloudpickle==3.1.1' \
+            'typing-extensions==4.12.2' 'farama-notifications==0.0.4'
+      - name: Qualify focused F43 fake-original refusal and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research -p test_f43_train_calibrated_contradiction_dev.py -v
+          echo 'F43_FOCUSED_NEGATIVE_TESTS=PASS'
+      - name: Run real pinned MountainCar physics with F43 hidden command reversals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f43_train_calibrated_contradiction_dev.py \
+            "$GITHUB_WORKSPACE/external-gymnasium" \
+            "$RUNNER_TEMP/f43-original-contradiction-dev.json"
+          F43_REPORT="$RUNNER_TEMP/f43-original-contradiction-dev.json" python -B - <<'PY'
+          import json, os
+          from pathlib import Path
+          d = json.loads(Path(os.environ['F43_REPORT']).read_text())
+          assert d['schema'] == 'forge.eureka.original-fault-calibrated-dev.f43.v1'
+          assert d['source'] == 'e6be96abfb0a9df36da5e7884522c4f1f2432e53'
+          assert d['training_sha256'] == '174dee337d801c1046bd0d26b0ff0c50f89adf36cce4489c43100b4ea0dd1f34'
+          assert d['training_episodes'] == 96 and d['train_transitions'] == 18138
+          assert d['train_action_counts'] == [7107,3011,8020]
+          assert 0.02 <= d['training_only_tau'] <= 0.75 and d['calibration_n'] >= 1000
+          assert d['classification'] in ('F43_DEV_NO_GO','F43_DEV_SIGNAL_UNVERIFIED')
+          assert len(d['arms']) == 9
+          assert all(len(v['worlds']) == 6 for v in d['arms'].values())
+          assert all(w['cold_matches'] and w['probes'] <= 16 for v in d['arms'].values() for w in v['worlds'])
+          assert all(w['probes']==0 for w in d['arms']['calibrated-contradiction']['worlds'])
+          assert d['development_only'] and not d['scientific_accepted']
+          assert not d['first_use_consumed'] and not d['owner_eligible']
+          assert d['original_physics_with_external_actuator_fault'] and not d['unmodified_original_gymnasium_task']
+          print('F43_FROZEN_DEV_CLASSIFICATION='+d['classification'])
+          print('F43_FROZEN_DEV_ARMS='+json.dumps({k:{'fault_mean':v['fault_mean_return'],'retention_mean':v['no_fault_mean_return'],'returns':[x['return'] for x in v['worlds'][:4]],'flips':[x['flips'] for x in v['worlds'][:4]]} for k,v in d['arms'].items()},sort_keys=True))
+          print('F43_FROZEN_DEV_GAIN='+str(d['candidate_mean_gain']))
+          print('F43_FROZEN_DEV_RETENTION_MARGIN='+str(d['no_fault_retention_margin']))
+          print('F43_FROZEN_DEV_TAU='+str(d['training_only_tau']))
+          print('F43_FROZEN_DEV_REPORT_SHA256='+d['report_sha256'])
+          PY
+      - name: Preserve original-source F43 research receipt even on NO_GO
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f43-original-contradiction-pr1614-one-shot
+          path: ${{ runner.temp }}/f43-original-contradiction-dev.json
+          if-no-files-found: warn
+          retention-days: 45
