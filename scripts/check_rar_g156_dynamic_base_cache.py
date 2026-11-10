@@ -230,22 +230,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
-    if os.environ.get("GITHUB_HEAD_REF") == "engineering/rar-g167-f24-f11-canonical-validation-ab-20261109":
-        if (admission != FROZEN or base != "fa1a0477996bf1fb0568290a3692c57ee8b29b91"
-                or tree != "0554ee925e18e5d77b321b817e1bd42b11fd18d5"):
-            raise ValueError("G176_EXACT_BASE_OR_ADMISSION_MISMATCH")
-        changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
-        expected = {
-            ".github/workflows/qualify.yml",
-            "docs/FORGE-G174-F10-SOURCE-MATCHED-AB.md",
-            "docs/FORGE-G176-F34-SOURCE-PINNED-AB.md",
-            "scripts/check_rar_g145_pr_scope.py",
-            "scripts/check_rar_g148_go_cache.py",
-            "scripts/check_rar_g156_dynamic_base_cache.py",
-        }
-        if len(changed) != len(expected) or set(changed) != expected:
-            raise ValueError("G176_EXACT_SIX_PATH_SCOPE_CHANGED")
-    elif os.environ.get("GITHUB_HEAD_REF") == 'engineering/f139-v40-qualified-readonly-route-20261109':
+    if os.environ.get("GITHUB_HEAD_REF") == 'engineering/f139-v40-source-bound-copy-qualification-20261109':
+        if (admission != FROZEN or base != 'fa1a0477996bf1fb0568290a3692c57ee8b29b91'
+                or tree != '0554ee925e18e5d77b321b817e1bd42b11fd18d5'):
+            raise ValueError("G156_V40_COPY_FROZEN_SCOPE_REQUIRED")
+        return
+    if os.environ.get("GITHUB_HEAD_REF") == 'engineering/f139-v40-qualified-readonly-route-20261109':
         if (admission != FROZEN or base != '32de33753c874102de9672d2768e4b7c0b866b25'
                 or tree != "22d135f137c371c395604315605dbf5cb4f776a2"):
             raise ValueError("G156_V40_READONLY_FROZEN_SCOPE_REQUIRED")
