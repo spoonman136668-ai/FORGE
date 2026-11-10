@@ -105,14 +105,16 @@ def assess(programs):
                    for name, program in programs.items())):
         raise ValueError("F139_DEV_QUALITY_INVALID_INPUT")
     parsed = {name: parse(program) for name, program in programs.items()}
+    # Validate the COMPLETE score-domain identity before scoring even the
+    # controls: an expanded or altered world must never use stale signatures.
+    if max(TRIAL_COUNTS) > SIGNATURE_MAX_TRIALS:
+        raise ValueError("F139_DEV_QUALITY_SIGNATURE_DOMAIN_TOO_SMALL")
     baseline = {name: _loss(name) for name in ("empirical", "laplace")}
     strongest = min(baseline, key=baseline.get)
     # Cache only inside this explicit fixed development cohort. The key is
     # the COMPLETE decision vector, not its SHA digest or source/AST identity:
     # two different programs can share exactly the same actions/ties on this
     # scoring world, and then their expected regret MUST match for every seed.
-    if max(TRIAL_COUNTS) > SIGNATURE_MAX_TRIALS:
-        raise ValueError("F139_DEV_QUALITY_SIGNATURE_DOMAIN_TOO_SMALL")
     by_exact_decisions = {}
     results = {}
     for name, tree in parsed.items():
