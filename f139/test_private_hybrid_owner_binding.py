@@ -6,9 +6,13 @@ from f139.nci04_signed_native import admit_native_intent, sign_native_intent
 from f139.private_hybrid_owner_binding import (
     PrivateOwnerBindingDenied, verify_credentialed_owner_binding,
 )
-from f139.test_private_hybrid_reference import (
-    PrivatePayloadCustodyTests, OWNER, COMMIT, TREE, MD, canonical,
-)
+from f139 import test_private_hybrid_reference as reference_fixtures
+from f139.private_hybrid_reference import canonical
+
+OWNER = reference_fixtures.OWNER
+COMMIT = reference_fixtures.COMMIT
+TREE = reference_fixtures.TREE
+MD = reference_fixtures.MD
 from f139.verify_ticket import signature as sign_controller, Untrusted
 
 KEY = "f139-original-owner-synthetic-test-key-0123456789"
@@ -19,7 +23,7 @@ RUN = "39513290000"
 
 
 def fixture():
-    ref, payload, provider = PrivatePayloadCustodyTests.fixture()
+    ref, payload, provider = reference_fixtures.PrivatePayloadCustodyTests.fixture()
     candidate = parse_intent(
         payload, protected_main=OWNER, target_commit=COMMIT, target_tree_sha=TREE)
     ticket = "f139-nci04-i" + ISSUE + "-" + OWNER[:12] + "-" + candidate.intent_sha256[:8]
