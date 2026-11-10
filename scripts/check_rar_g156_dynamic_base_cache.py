@@ -235,6 +235,22 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or tree != '0554ee925e18e5d77b321b817e1bd42b11fd18d5'):
             raise ValueError("G156_V40_COPY_FROZEN_SCOPE_REQUIRED")
         return
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/rar-g167-f24-f11-canonical-validation-ab-20261109":
+        if (admission != FROZEN or base != "feb75e7490256a6930698742a43b8d12384fbbca"
+                or tree != "548dd8a0cc7b9ea3db278aa82dc6a22e0c350929"):
+            raise ValueError("G177_FROZEN_MAIN_SHA_TREE_REQUIRED")
+        changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
+        expected = {
+            ".github/workflows/qualify.yml",
+            "docs/FORGE-G174-F10-SOURCE-MATCHED-AB.md",
+            "docs/FORGE-G177-F36-SOURCE-BOUND-GO-REGRESSION.md",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        }
+        if len(changed) != len(expected) or set(changed) != expected:
+            raise ValueError("G177_EXACT_SIX_PATH_SCOPE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == 'engineering/f139-v40-qualified-readonly-route-20261109':
         if (admission != FROZEN or base != '32de33753c874102de9672d2768e4b7c0b866b25'
                 or tree != "22d135f137c371c395604315605dbf5cb4f776a2"):
