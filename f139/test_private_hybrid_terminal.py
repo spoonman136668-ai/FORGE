@@ -131,10 +131,24 @@ class PrivateTerminalSyntheticTests(unittest.TestCase):
         for change in ({"ticket": "forged"}, {"provided_owner_hmac_pair_matched": False},
                        {"authorization_binding_sha256": "0"*64},
                        {"private_payload_sha256": "0"*64},
+                       {"reference_sha256": "0"*64},
                        {"original_owner_live_issue_verified": True},
                        {"private_worker_executed": True}, {"schema": "untrusted"}):
             with self.subTest(change=change), self.assertRaises(PrivateTerminalDenied):
                 inspect(raw, meta, admission, {**bound, **change}, ref)
+
+    def test_verified_reference_bytes_cannot_be_substituted(self):
+        raw, _, meta, admission, bound, ref = example()
+        # Same authorized native intent but different private storage blob
+        # identity must fail the original binding's canonical reference hash.
+        changes = (
+            {"private_payload_blob_sha": "0"*40},
+            {"before_sha256": "0"*64},
+            {"owner_authorization_sha256": "0"*64},
+        )
+        for change in changes:
+            with self.subTest(change=change), self.assertRaises(PrivateTerminalDenied):
+                inspect(raw, meta, admission, bound, {**ref, **change})
 
     def test_private_ref_target_and_storage_mismatch(self):
         raw, _, meta, admission, bound, ref = example()
