@@ -120,6 +120,8 @@ def verify_private_provider_terminal(raw_zip, authenticated_meta, admission,
              admission.authorization_sha256
          and verified_owner_binding.get("private_payload_sha256") ==
              admission.intent.intent_sha256
+         and verified_owner_binding.get("reference_sha256") ==
+             digest(canonical(verified_private_reference))
          and verified_owner_binding.get("owner_source_sha") == admission.source_sha
          and verified_owner_binding.get("private_target_commit") ==
              admission.intent.target_commit
