@@ -49,7 +49,9 @@ class PrivateHybridReferenceTests(unittest.TestCase):
     def test_exact_reference_and_public_projection_contain_no_private_code(self):
         ref = parse()
         self.assertEqual(set(ref), FIELDS)
-        projected = public_identity(ref)
+        projected = public_identity(canonical(ref), owner_source_sha=OWNER,
+                                    private_commit=COMMIT, private_tree=TREE,
+                                    authenticated_repository_metadata=MD)
         self.assertFalse(projected["worker_authorized"])
         self.assertFalse(projected["signed_worker_qualified"])
         for forbidden in ("private_payload_path", "private_payload_blob_sha",
@@ -117,7 +119,9 @@ class PrivateHybridReferenceTests(unittest.TestCase):
 
     def test_public_projection_is_not_an_authenticator(self):
         with self.assertRaises(PrivateReferenceDenied):
-            public_identity({"schema": SCHEMA})
+            public_identity(canonical({"schema": SCHEMA}), owner_source_sha=OWNER,
+                            private_commit=COMMIT, private_tree=TREE,
+                            authenticated_repository_metadata=MD)
         with self.assertRaises(PrivateReferenceDenied):
             parse(sample(owner_signed_intent_sha256="bad"))
 
