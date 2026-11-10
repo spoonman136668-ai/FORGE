@@ -22,7 +22,7 @@ HYBRID_WORKER_AFTER = "74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
 FROZEN_SCOPES = {
     # Frozen G176 F34 Go-source development qualification, not generic owner/merge rights.
     "engineering/rar-g167-f24-f11-canonical-validation-ab-20261109": (
-        "4adc6d8b7397e555deee46440bbce40ff2265f39",
+        "fa1a0477996bf1fb0568290a3692c57ee8b29b91",
         {
             ".github/workflows/qualify.yml",
             "docs/FORGE-G174-F10-SOURCE-MATCHED-AB.md",

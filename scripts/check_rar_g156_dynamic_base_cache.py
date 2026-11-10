@@ -231,8 +231,8 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/rar-g167-f24-f11-canonical-validation-ab-20261109":
-        if (admission != FROZEN or base != "4adc6d8b7397e555deee46440bbce40ff2265f39"
-                or tree != "5f081e222f8b55cb3af67c02643c0149cfa5b192"):
+        if (admission != FROZEN or base != "fa1a0477996bf1fb0568290a3692c57ee8b29b91"
+                or tree != "0554ee925e18e5d77b321b817e1bd42b11fd18d5"):
             raise ValueError("G176_EXACT_BASE_OR_ADMISSION_MISMATCH")
         changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
         expected = {

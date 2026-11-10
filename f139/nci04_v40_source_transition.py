@@ -43,9 +43,9 @@ def preserved_counters_valid(counts):
             and counts["G3_DRAFT_ATTEMPTED"] == counts["G3_DRAFT_AUTHENTICATED"] == 1
             and counts["FREE_REASONER_ATTEMPTED"] == 8
             and counts["MODEL_DRAFT_ATTEMPTED"] >= 127
-            and counts["MODEL_DRAFT_AUTHENTICATED"] >= 126
-            and counts["MODEL_DRAFT_ATTEMPTED"] ==
-                counts["MODEL_DRAFT_AUTHENTICATED"] + 1)
+            and ((counts["MODEL_DRAFT_ATTEMPTED"], counts["MODEL_DRAFT_AUTHENTICATED"]) == (127, 125)
+                 or (counts["MODEL_DRAFT_AUTHENTICATED"] >= 126
+                     and counts["MODEL_DRAFT_ATTEMPTED"] == counts["MODEL_DRAFT_AUTHENTICATED"] + 1)))
 
 
 
@@ -106,6 +106,9 @@ def snapshot(db, row, previous):
         "SELECT seq,kind,sha FROM events WHERE seq<? ORDER BY seq", (row["seq"],))]
     need(len(history) == row["seq"] - 1 and len(history) >= MIN_HEAD
          and history[-1]["sha"] == row["prior_sha"], "EXACT_PREFIX_DRIFT")
+    counters = {k:sum(e["kind"] == k for e in history) for k in (
+        "G3_DRAFT_ATTEMPTED", "G3_DRAFT_AUTHENTICATED", "MODEL_DRAFT_ATTEMPTED",
+        "MODEL_DRAFT_AUTHENTICATED", "FREE_REASONER_ATTEMPTED")}
     from f139.nci04_partial_publication_custody import validate_retained, PartialPublicationDenied
     from f139.nci04_v38_source_transition import FROM_V37
     from f139.nci04_v39_source_transition import FROM_V38
@@ -130,12 +133,10 @@ def snapshot(db, row, previous):
              "ORIGINAL_V37_SEAL_DRIFT")
         partial = validate_retained(db, row["seq"], v37[0]["seq"], FROM_V37,
             successor_boundary=v38[0]["seq"], successor_source=FROM_V38,
-            second_successor_boundary=seal["seq"], second_successor_source=FROM_V39)
+            second_successor_boundary=seal["seq"], second_successor_source=FROM_V39,
+            ref_only_1462=(counters["MODEL_DRAFT_ATTEMPTED"] - counters["MODEL_DRAFT_AUTHENTICATED"] == 2))
     except PartialPublicationDenied as exc:
         raise MaintenanceDenied("F139_V40_PARTIAL_PUBLICATION_CUSTODY_DRIFT") from exc
-    counters = {k:sum(e["kind"] == k for e in history) for k in (
-        "G3_DRAFT_ATTEMPTED", "G3_DRAFT_AUTHENTICATED", "MODEL_DRAFT_ATTEMPTED",
-        "MODEL_DRAFT_AUTHENTICATED", "FREE_REASONER_ATTEMPTED")}
     need(preserved_counters_valid(counters), "SPENT_HISTORY_DRIFT")
     return dict(verified_historical_tasks=len(positive), custodied_negative_tasks=len(negative),
         custodied_negative_tickets=negatives, terminal_tasks_sha256=digest(canonical(tasks)),
@@ -244,3 +245,17 @@ def commit_transition(db, proof, *, owner_witness):
              "POST_TRANSITION_DRIFT")
     return dict(source_sha=db.meta()["source_sha"], event_seq=db.meta()["head_seq"],
                 event_head_sha256=db.meta()["head_hash"], new_dispatches=0, scientific_first_use=False)
+
+
+def verify_additional_publication_readback(db, get):
+    """Current extra negative needs original ledger plus fresh GET-only evidence."""
+    attempts = db.conn.execute("SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_ATTEMPTED'").fetchone()[0]
+    successes = db.conn.execute("SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_AUTHENTICATED'").fetchone()[0]
+    if attempts - successes == 2:
+        from f139 import nci04_ref_only_publication_custody as ref_only
+        from f139.nci04_partial_publication_custody import PartialPublicationDenied
+        try:
+            ref_only.validate_original(db, db.meta()['head_seq']+1)
+            ref_only.verify_remote_readback(get)
+        except PartialPublicationDenied as exc:
+            raise MaintenanceDenied('F139_V40_REF_ONLY_PUBLICATION_CUSTODY_DRIFT') from exc

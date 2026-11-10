@@ -30,17 +30,35 @@ Nothing applies automatically or changes the existing task schema or policy.
 The custody parser accepts the third growth epoch only for the exact sealed
 3dd63467 -> 54d556c3 -> 42c70d74 source sequence. Legacy one/two-epoch calls
 retain their prior rejection of third-epoch growth. Every additional publication
-attempt must have an authenticated outcome; only the original already-custodied
-negative stays unresolved. Consumed identities, eight spent free-reasoner calls
+attempt must have an authenticated outcome or the exact separately frozen
+event1462 ref-only negative described below. Unknown pending attempts stay blocked. Consumed identities, eight spent free-reasoner calls
 and all prior counters/negative receipts remain preserved, never reset.
 
 Readback `42634108093` observed event 1462, 113 VERIFIED/56 QUARANTINED tasks,
 127 publication attempts/125 authentications and a latest MODEL_DRAFT_ATTEMPTED.
 Those observations set source/history/task/counter floors, not a readiness PASS.
 127/125 still has an extra unresolved attempt: empty native READY/in-flight
-rows cannot authorize a source transition. The successor refuses that state.
-It needs at least 127 attempts/126 authenticated outcomes and retains the one
-original sealed negative; future growth is allowed only with original custody.
+rows cannot authorize a source transition. The initial successor refused that state. Authentic native read-only run
+42725094500/job129528719041 verified the original route and diagnosed exact
+event1462, then failed safely with PARTIAL_PUBLICATION_CUSTODY_DRIFT.
+Fresh bounded GETs found its Yggdrasil branch still at unchanged parent
+992ef142aaa551156749a1de484a971b9a0c092f, with no PR.
+
+The source-qualified reconciliation preserves BOTH consumed failed attempts:
+the original draft1239 partial-source negative and exact event1462 ref-only
+negative. It neither appends an authenticated success nor retries a write.
+A typed partial-publication-pair.v1 packet binds the native diagnostic run/job,
+exact event/hash/prior/payload, parent/blob/source bytes and repeated GET-only
+branch/no-PR readback. Only the exact witnessed 1462 prefix with 127 attempts,
+125 authentications and those two identities is eligible. The prior 127/126
+fully acknowledged path retains its existing semantics. Unknown pending events,
+changed parent/source, any PR or counter/source/epoch drift remain failures.
+
+The existing V40 preflight performs fresh native remote readback before snapshot.
+Only a later fully cold-verified ORIGINAL V40 source seal could retire event1462
+for intake; source qualification and read-only diagnostics cannot do so. Existing
+shared live handoff still rejects V40 and its native wrapper remains read-only.
+No original ledger/source/policy, model repo/ref, scheduler or science changes.
 
 ## Native entrypoint — read-only/copy only
 
