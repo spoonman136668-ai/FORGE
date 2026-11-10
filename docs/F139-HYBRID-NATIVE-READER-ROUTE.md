@@ -9,8 +9,8 @@ The native candidate contract and feeder recognize TTT-Hybrid, but the REAL
 GitHub.native_repo_get transport rejects its exact repository prefix. The
 feeder tests' FakeProvider bypassed that transport boundary. A regression
 through the real GitHub object reproduced F139_NATIVE_FEED_ROUTE_INVALID
-before any provider call. Add only repos/spoonman136668-ai/TTT-Hybrid-Lab/
-to the existing read-only allowlist. No generic owner prefix, new transport,
+before any provider call. Add the exact repos/spoonman136668-ai/TTT-Hybrid-Lab/ child prefix and
+exact repository metadata roots to the existing read-only allowlist. No generic owner prefix, new transport,
 credential, controller, queue, worker, source transition or policy change.
 
 The regression covers real native GET argument construction for branch,
@@ -48,3 +48,30 @@ changed. The repair PR also had an initial isolation failure caused by an
 unnecessary forbidden-project literal in a negative fixture. Remove that
 fixture; the unchanged isolation guard and other foreign/unrelated repository
 negative controls remain mandatory. Repeat full regression on final source.
+
+## Public issue publication boundary
+
+The existing compiler nests the complete after_base64 patch in intent_base64,
+which the public FORGE owner issue publisher sends as its body. A regression
+using a real compiler-produced synthetic Hybrid patch demonstrated that the
+old publisher accepted it without any source visibility check. No real private
+patch was posted during qualification. Access is not publication authority.
+The repaired publisher verifies typed lane/intent/repository identity, then
+performs an authenticated exact repository-metadata GET immediately before
+POST. Only full_name==expected and private is literally False permits public
+publication. Private/missing/unknown visibility, metadata read failure, wrong
+source identity, invalid/ambiguous encoding fail before POST. Existing public
+Wingless/Yggdrasil publication paths remain qualified; neither project is
+currently private. This is a demonstrated missing boundary, not a science claim.
+A future private-worker route must keep source payloads inside the private
+project and expose only reviewed non-sensitive identifiers/receipts to FORGE.
+
+Private-project alternative probe42789421315, source815fbf85774e02beca0d63ad3e6a9799f1c671ce,
+uses its OWN existing contents:read identity, fixed6df5aa3 source checkout,
+two hosted OSes, no candidate code/model/GPU/source upload. Both jobs failed
+BEFORE runner assignment, with zero steps. This is an infrastructure startup
+failure; private-owner checkout capability remains UNVERIFIED. The connector
+exposes per-check annotation counts but rejects the annotations endpoint, so
+the underlying startup cause is not established. Do not label it a code,
+credential or billing failure without the actual startup annotation. No retry,
+permission change, new credential or native/GPU fallback was silently applied.

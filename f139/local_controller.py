@@ -3152,7 +3152,7 @@ class GitHub:
             "repos/spoonman136668-ai/Yggdrasil/",
             "repos/spoonman136668-ai/TTT-Hybrid-Lab/",
         )
-        require(isinstance(route, str) and route.startswith(allowed)
+        require(isinstance(route, str) and (route.startswith(allowed) or route in tuple(x[:-1] for x in allowed))
                 and "/../" not in route and not route.endswith("/..")
                 and "\\" not in route and " " not in route
                 and not route.startswith(("http://", "https://")),
@@ -3180,6 +3180,29 @@ class GitHub:
                 and isinstance(body, str)
                 and 0 < len(body.encode("utf-8")) <= MAX_BODY_BYTES,
                 "NATIVE_FEED_ISSUE_PAYLOAD_INVALID")
+        # Public issue bodies contain intent_base64, including the full patch.
+        # Private-source execution must use its own separately qualified route;
+        # a read credential or encoded payload is not publication authority.
+        from f139.nci04_owner_issue import decode_unique
+        from f139.nci04_native_contract import REPOS
+        try:
+            record = json.loads(body, object_pairs_hook=decode_unique)
+            if type(record) is not dict or type(record.get("intent_base64")) is not str:
+                raise ValueError("untyped intent")
+            intent = json.loads(base64.b64decode(record["intent_base64"],validate=True),
+                                object_pairs_hook=decode_unique)
+            if type(intent) is not dict:
+                raise ValueError("untyped intent")
+            lane = record.get("lane")
+            repository = REPOS[lane][0]
+            if intent.get("lane") != lane or intent.get("target_repository") != repository:
+                raise ValueError("source identity mismatch")
+        except (ValueError,TypeError,KeyError,binascii.Error) as exc:
+            raise F139Error("F139_NATIVE_FEED_PUBLICATION_INTENT_INVALID") from None
+        visibility = self.native_repo_get("repos/"+repository)
+        require(isinstance(visibility,dict) and visibility.get("full_name") == repository
+                and visibility.get("private") is False,
+                "NATIVE_FEED_SOURCE_NOT_VERIFIED_PUBLIC")
         raw = self.runner([
             "--method", "POST", "repos/"+REPO+"/issues",
             "-f", "title="+title, "-f", "body="+body,
