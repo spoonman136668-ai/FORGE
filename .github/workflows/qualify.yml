@@ -241,6 +241,73 @@ jobs:
           test "$(grep -Rl --include='*.go' -E 'exec.Command' cmd/forge-synthetic-supervisor | wc -l)" -eq 1
           grep -q -E 'exec.Command' cmd/forge-synthetic-supervisor/main_test.go
           ! grep -E 'exec.Command' cmd/forge-synthetic-supervisor/main.go
+      - name: G179 pinned F38 exact-source complete Go regression (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g167-f24-f11-canonical-validation-ab-20261109' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          G179_HEAD: ${{ github.event.pull_request.head.sha }}
+          G179_BASE_SHA: 93a4b57dc9cf4afae9f4fdfe388b64edb858dded
+          G179_BASE_TREE: c67be2da8d1a7cd18f66abcdaddaf94f11e9850d
+          G179_CANDIDATE_SHA: 00e608658c5067e972a2f4dc3c7cff364913f9c2
+          G179_CANDIDATE_TREE: 58b9fa236a44b02abe0a88facb62c8ba6db9b797
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G179_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git fetch --no-tags --depth=1 origin "$G179_BASE_SHA"
+          git fetch --no-tags --depth=1 origin "$G179_CANDIDATE_SHA"
+          test "$(git rev-parse "$G179_BASE_SHA^{tree}")" = "$G179_BASE_TREE"
+          test "$(git rev-parse "$G179_CANDIDATE_SHA^{tree}")" = "$G179_CANDIDATE_TREE"
+          test "$(git diff --no-renames --name-only "$G179_BASE_SHA" "$G179_CANDIDATE_SHA" | sort)" = "$(printf 'docs/FORGE-G174-F10-CANONICAL-VALIDATION.md\nnativediscovery/f10_benefit.go\nnativediscovery/f10_canonical_validation_test.go\nnativediscovery/f11_canonical_validation_test.go\nnativediscovery/f11_causal_posterior.go\nnativediscovery/f12_canonical_validation_test.go\nnativediscovery/f12_hidden_dynamics.go\n' | sort)"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f10_benefit_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f10_benefit_test.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:docs/NATIVE-DISCOVERY-F35-ISSUANCE-FROZEN-GOAL-CONTROL.md")" = "$(git rev-parse "$G179_CANDIDATE_SHA:docs/NATIVE-DISCOVERY-F35-ISSUANCE-FROZEN-GOAL-CONTROL.md")"
+          test "$(git rev-parse "$G179_BASE_SHA:docs/NATIVE-DISCOVERY-F36-TWO-ACTUATOR-CAUSAL-CONTROL.md")" = "$(git rev-parse "$G179_CANDIDATE_SHA:docs/NATIVE-DISCOVERY-F36-TWO-ACTUATOR-CAUSAL-CONTROL.md")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f35_issuance_frozen_goal_control.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f35_issuance_frozen_goal_control.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f35_issuance_frozen_goal_control_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f35_issuance_frozen_goal_control_test.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f36_two_actuator.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f36_two_actuator.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f36_two_actuator_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f36_two_actuator_test.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:docs/NATIVE-DISCOVERY-F37-OBSERVATION-CALIBRATION.md")" = "$(git rev-parse "$G179_CANDIDATE_SHA:docs/NATIVE-DISCOVERY-F37-OBSERVATION-CALIBRATION.md")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f37_observation_calibration.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f37_observation_calibration.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f37_observation_calibration_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f37_observation_calibration_test.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:docs/NATIVE-DISCOVERY-F38-HELDOUT-CALIBRATION-CONTROL.md")" = "$(git rev-parse "$G179_CANDIDATE_SHA:docs/NATIVE-DISCOVERY-F38-HELDOUT-CALIBRATION-CONTROL.md")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f38_heldout_calibration_control.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f38_heldout_calibration_control.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f38_heldout_calibration_control_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f38_heldout_calibration_control_test.go")"
+          candidate="$RUNNER_TEMP/rar-g179-f38-candidate"
+          git worktree add --detach "$candidate" "$G179_CANDIDATE_SHA"
+          test "$(git -C "$candidate" rev-parse HEAD)" = "$G179_CANDIDATE_SHA"
+          test "$(git -C "$candidate" rev-parse HEAD^{tree})" = "$G179_CANDIDATE_TREE"
+          test -z "$(git -C "$candidate" status --porcelain --untracked-files=all)"
+          export GOFLAGS=-p=2 GOMAXPROCS=2 GOMEMLIMIT=1536MiB GOTOOLCHAIN=local
+          test "$(go version | awk '{print $3}')" = "go1.23.12"
+          cd "$candidate"
+          packages="$(go list ./... | wc -l | tr -d ' ')"
+          test "$packages" = "138"
+          begin=$SECONDS
+          go test -count=1 ./...
+          regular_seconds=$((SECONDS-begin))
+          begin=$SECONDS
+          GOFLAGS=-p=4 go test -race -count=1 ./...
+          race_seconds=$((SECONDS-begin))
+          begin=$SECONDS
+          go vet ./...
+          vet_seconds=$((SECONDS-begin))
+          begin=$SECONDS
+          go build ./...
+          build_seconds=$((SECONDS-begin))
+          test "$(git rev-parse HEAD)" = "$G179_CANDIDATE_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$G179_CANDIDATE_TREE"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          printf '{"schema":"forge.rar-g179.f38-full-go.dev.v1","source_sha":"%s","source_tree":"%s","source_parent_sha":"%s","go_version":"go1.23.12","original_package_count":%s,"original_negative_tests_unfiltered":true,"original_science_unchanged":true,"regular_seconds":%s,"race_seconds":%s,"vet_seconds":%s,"build_seconds":%s,"scientific_firstuse":false,"owner_authorized":false,"deployment":false}\n' "$G179_CANDIDATE_SHA" "$G179_CANDIDATE_TREE" "$G179_BASE_SHA" "$packages" "$regular_seconds" "$race_seconds" "$vet_seconds" "$build_seconds" > "$RUNNER_TEMP/g179-f38-source-receipt.json"
+          cat "$RUNNER_TEMP/g179-f38-source-receipt.json"
+          echo "G179_F38_EXACT_SOURCE_FULL_GO=PASS"
+      - name: Retain G179 exact-source complete F38 Go receipt (DEV ONLY)
+        if: always() && github.head_ref == 'engineering/rar-g167-f24-f11-canonical-validation-ab-20261109'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g179-f38-full-go-${{ runner.os }}-00e608658c5067e972a2f4dc3c7cff364913f9c2
+          path: ${{ runner.temp }}/g179-f38-source-receipt.json
+          retention-days: 7
+          if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}
         uses: actions/upload-artifact@v4
@@ -656,6 +723,73 @@ jobs:
         with:
           name: rar-g133-full-f139-suite-abba
           path: ${{ runner.temp }}/rar-g133-f139-suite-abba.json
+          if-no-files-found: error
+      - name: G179 pinned F38 exact-source complete Go regression (DEV ONLY)
+        if: github.event_name == 'pull_request' && github.head_ref == 'engineering/rar-g167-f24-f11-canonical-validation-ab-20261109' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          G179_HEAD: ${{ github.event.pull_request.head.sha }}
+          G179_BASE_SHA: 93a4b57dc9cf4afae9f4fdfe388b64edb858dded
+          G179_BASE_TREE: c67be2da8d1a7cd18f66abcdaddaf94f11e9850d
+          G179_CANDIDATE_SHA: 00e608658c5067e972a2f4dc3c7cff364913f9c2
+          G179_CANDIDATE_TREE: 58b9fa236a44b02abe0a88facb62c8ba6db9b797
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$G179_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git fetch --no-tags --depth=1 origin "$G179_BASE_SHA"
+          git fetch --no-tags --depth=1 origin "$G179_CANDIDATE_SHA"
+          test "$(git rev-parse "$G179_BASE_SHA^{tree}")" = "$G179_BASE_TREE"
+          test "$(git rev-parse "$G179_CANDIDATE_SHA^{tree}")" = "$G179_CANDIDATE_TREE"
+          test "$(git diff --no-renames --name-only "$G179_BASE_SHA" "$G179_CANDIDATE_SHA" | sort)" = "$(printf 'docs/FORGE-G174-F10-CANONICAL-VALIDATION.md\nnativediscovery/f10_benefit.go\nnativediscovery/f10_canonical_validation_test.go\nnativediscovery/f11_canonical_validation_test.go\nnativediscovery/f11_causal_posterior.go\nnativediscovery/f12_canonical_validation_test.go\nnativediscovery/f12_hidden_dynamics.go\n' | sort)"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f10_benefit_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f10_benefit_test.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:docs/NATIVE-DISCOVERY-F35-ISSUANCE-FROZEN-GOAL-CONTROL.md")" = "$(git rev-parse "$G179_CANDIDATE_SHA:docs/NATIVE-DISCOVERY-F35-ISSUANCE-FROZEN-GOAL-CONTROL.md")"
+          test "$(git rev-parse "$G179_BASE_SHA:docs/NATIVE-DISCOVERY-F36-TWO-ACTUATOR-CAUSAL-CONTROL.md")" = "$(git rev-parse "$G179_CANDIDATE_SHA:docs/NATIVE-DISCOVERY-F36-TWO-ACTUATOR-CAUSAL-CONTROL.md")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f35_issuance_frozen_goal_control.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f35_issuance_frozen_goal_control.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f35_issuance_frozen_goal_control_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f35_issuance_frozen_goal_control_test.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f36_two_actuator.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f36_two_actuator.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f36_two_actuator_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f36_two_actuator_test.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:docs/NATIVE-DISCOVERY-F37-OBSERVATION-CALIBRATION.md")" = "$(git rev-parse "$G179_CANDIDATE_SHA:docs/NATIVE-DISCOVERY-F37-OBSERVATION-CALIBRATION.md")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f37_observation_calibration.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f37_observation_calibration.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f37_observation_calibration_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f37_observation_calibration_test.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:docs/NATIVE-DISCOVERY-F38-HELDOUT-CALIBRATION-CONTROL.md")" = "$(git rev-parse "$G179_CANDIDATE_SHA:docs/NATIVE-DISCOVERY-F38-HELDOUT-CALIBRATION-CONTROL.md")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f38_heldout_calibration_control.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f38_heldout_calibration_control.go")"
+          test "$(git rev-parse "$G179_BASE_SHA:nativediscovery/f38_heldout_calibration_control_test.go")" = "$(git rev-parse "$G179_CANDIDATE_SHA:nativediscovery/f38_heldout_calibration_control_test.go")"
+          candidate="$RUNNER_TEMP/rar-g179-f38-candidate"
+          git worktree add --detach "$candidate" "$G179_CANDIDATE_SHA"
+          test "$(git -C "$candidate" rev-parse HEAD)" = "$G179_CANDIDATE_SHA"
+          test "$(git -C "$candidate" rev-parse HEAD^{tree})" = "$G179_CANDIDATE_TREE"
+          test -z "$(git -C "$candidate" status --porcelain --untracked-files=all)"
+          export GOFLAGS=-p=2 GOMAXPROCS=2 GOMEMLIMIT=1536MiB GOTOOLCHAIN=local
+          test "$(go version | awk '{print $3}')" = "go1.23.12"
+          cd "$candidate"
+          packages="$(go list ./... | wc -l | tr -d ' ')"
+          test "$packages" = "138"
+          begin=$SECONDS
+          go test -count=1 ./...
+          regular_seconds=$((SECONDS-begin))
+          begin=$SECONDS
+          GOFLAGS=-p=4 go test -race -count=1 ./...
+          race_seconds=$((SECONDS-begin))
+          begin=$SECONDS
+          go vet ./...
+          vet_seconds=$((SECONDS-begin))
+          begin=$SECONDS
+          go build ./...
+          build_seconds=$((SECONDS-begin))
+          test "$(git rev-parse HEAD)" = "$G179_CANDIDATE_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$G179_CANDIDATE_TREE"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          printf '{"schema":"forge.rar-g179.f38-full-go.dev.v1","source_sha":"%s","source_tree":"%s","source_parent_sha":"%s","go_version":"go1.23.12","original_package_count":%s,"original_negative_tests_unfiltered":true,"original_science_unchanged":true,"regular_seconds":%s,"race_seconds":%s,"vet_seconds":%s,"build_seconds":%s,"scientific_firstuse":false,"owner_authorized":false,"deployment":false}\n' "$G179_CANDIDATE_SHA" "$G179_CANDIDATE_TREE" "$G179_BASE_SHA" "$packages" "$regular_seconds" "$race_seconds" "$vet_seconds" "$build_seconds" > "$RUNNER_TEMP/g179-f38-source-receipt.json"
+          cat "$RUNNER_TEMP/g179-f38-source-receipt.json"
+          echo "G179_F38_EXACT_SOURCE_FULL_GO=PASS"
+      - name: Retain G179 exact-source complete F38 Go receipt (DEV ONLY)
+        if: always() && github.head_ref == 'engineering/rar-g167-f24-f11-canonical-validation-ab-20261109'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rar-g179-f38-full-go-${{ runner.os }}-00e608658c5067e972a2f4dc3c7cff364913f9c2
+          path: ${{ runner.temp }}/g179-f38-source-receipt.json
+          retention-days: 7
           if-no-files-found: error
       - name: Retain private-fixture phase diagnosis
         if: ${{ always() && github.head_ref == 'engineering/f139-sqlite-phase-diagnostics-20261107' }}

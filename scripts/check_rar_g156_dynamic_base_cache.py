@@ -230,6 +230,24 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/rar-g167-f24-f11-canonical-validation-ab-20261109":
+        if (admission != FROZEN or base != "2c7caad5a4502d4b874a11d57207a35cf033eb08"
+                or tree != "406c97f14e846591570854eaf485e2139dbf9adc"):
+            raise ValueError("G179_FROZEN_MAIN_SOURCE_REQUIRED")
+        changed = git("diff", "--no-renames", "--name-only", base, head).splitlines()
+        expected = {
+            ".github/workflows/qualify.yml",
+            "docs/FORGE-G174-F10-SOURCE-MATCHED-AB.md",
+            "docs/FORGE-G177-F36-SOURCE-BOUND-GO-REGRESSION.md",
+            "docs/FORGE-G178-F37-SOURCE-BOUND-GO-REGRESSION.md",
+            "docs/FORGE-G179-F38-SOURCE-BOUND-GO-REGRESSION.md",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        }
+        if len(changed) != len(expected) or set(changed) != expected:
+            raise ValueError("G179_EXACT_EIGHT_PATH_SCOPE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == 'engineering/f139-v40-explicit-owner-handoff-20261109':
         if (admission != FROZEN or base != 'feb75e7490256a6930698742a43b8d12384fbbca'
                 or tree != '548dd8a0cc7b9ea3db278aa82dc6a22e0c350929'):
