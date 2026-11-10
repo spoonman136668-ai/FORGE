@@ -63,5 +63,52 @@ class DevelopmentQualityTests(unittest.TestCase):
                          self.result["programs"])
 
 
+class AdvisoryScreenTests(unittest.TestCase):
+    def test_real_originals_rejected_without_treating_ci_as_reward(self):
+        from f139.nci04_public_counter_dev_quality import screen_development_candidates
+        result = screen_development_candidates(PROGRAMS)
+        self.assertEqual(result["mode"], "NON_AUTHORIZING_SYNTHETIC_DEV_SELECTION")
+        self.assertEqual(result["disposition"], "DEV_NO_GO")
+        self.assertIsNone(result["candidate"])
+        self.assertEqual(result["best_observed_candidate_for_diagnostics"], "pr838")
+        self.assertEqual(result["strongest_control"], "laplace")
+        from fractions import Fraction
+        self.assertLess(Fraction(result["absolute_regret_gain_exact"]), 0)
+        self.assertEqual(Fraction(result["predeclared_absolute_regret_gain_floor_exact"]),
+                         Fraction(1, 100))
+        self.assertFalse(result["equal_evidence_and_complete_cost_independently_proven"])
+        for key in ("scientific_first_use", "scientific_accepted",
+                    "optimizer_training_authorized", "dispatch_authorized",
+                    "accepted_ref_mutation_authorized"):
+            self.assertIs(result[key], False)
+
+    def test_dictionary_order_and_duplicate_names_do_not_change_no_go(self):
+        from f139.nci04_public_counter_dev_quality import screen_development_candidates
+        from fractions import Fraction
+        report = screen_development_candidates(dict(reversed(list(PROGRAMS.items()))))
+        self.assertEqual(report["disposition"], "DEV_NO_GO")
+        self.assertIsNone(report["candidate"])
+        self.assertEqual(report["best_observed_candidate_for_diagnostics"], "pr838")
+        self.assertEqual(report["owner_selection_unchanged"], True)
+        self.assertIs(type(Fraction(report["absolute_regret_gain_exact"])), Fraction)
+
+    def test_promising_mock_is_only_advisory_not_permission(self):
+        from f139 import nci04_public_counter_dev_quality as quality
+        from unittest.mock import patch
+        fake = {
+            "strongest_control": "laplace",
+            "controls": {"laplace": {"exact_fraction": "1/10"}},
+            "programs": {"candidate_a": {"mean_regret": {"exact_fraction": "1/20"}}},
+        }
+        with patch.object(quality, "assess", return_value=fake):
+            result = quality.screen_development_candidates({"candidate_a": PROGRAMS["pr847"]})
+        self.assertEqual(result["candidate"], "candidate_a")
+        self.assertEqual(result["disposition"],
+                         "PROMISING_DEV_ONLY_REQUIRES_NEW_INDEPENDENT_EVIDENCE")
+        self.assertFalse(result["optimizer_training_authorized"])
+        self.assertFalse(result["scientific_accepted"])
+        self.assertFalse(result["dispatch_authorized"])
+
+
 if __name__ == "__main__":
     unittest.main()
