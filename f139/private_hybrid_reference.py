@@ -106,18 +106,18 @@ def parse_reference(raw, *, owner_source_sha, private_commit, private_tree,
     return value
 
 
-def public_identity(qualified_reference):
-    """Only a digest and target *identity*; never serialize private payload."""
-    need(type(qualified_reference) is dict
-         and set(qualified_reference) == FIELDS
-         and qualified_reference.get("schema") == SCHEMA,
-         "VALIDATED_REFERENCE_REQUIRED")
+def public_identity(raw, *, owner_source_sha, private_commit, private_tree,
+                    authenticated_repository_metadata):
+    """Project only a revalidated reference; never echo private source bytes."""
+    ref = parse_reference(raw, owner_source_sha=owner_source_sha,
+                          private_commit=private_commit, private_tree=private_tree,
+                          authenticated_repository_metadata=authenticated_repository_metadata)
     return {
         "schema": PUBLIC_SCHEMA,
         "lane": LANE,
-        "reference_sha256": hashlib.sha256(canonical(qualified_reference)).hexdigest(),
-        "controller_source_sha": qualified_reference["controller_source_sha"],
-        "private_target_commit": qualified_reference["private_target_commit"],
+        "reference_sha256": hashlib.sha256(canonical(ref)).hexdigest(),
+        "controller_source_sha": ref["controller_source_sha"],
+        "private_target_commit": ref["private_target_commit"],
         "scientific_first_use": False,
         "worker_authorized": False,
         "signed_worker_qualified": False,
