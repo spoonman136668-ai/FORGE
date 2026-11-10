@@ -121,44 +121,46 @@ jobs:
             # The previous run failed only AFTER these tests, in full suite.
             Write-Host 'KTERM_PR86_FOCUSED_REUSE=PASS;RUN=42711519222;MS=69613;SOURCE_SHA=c0e85088e7ff2e7c8d989dc93f89df16a462d659'
             $fullClock=[Diagnostics.Stopwatch]::StartNew()
-            & go test -p 1 -count=1 -timeout 60m ./... *> (Join-Path $root 'private-full-regression.log')
+            & go test -json -p 1 -count=1 -timeout 60m ./... *> (Join-Path $root 'private-full-regression.jsonl')
             $fullClock.Stop()
-            if($LASTEXITCODE -ne 0){
-              # Classify complete-suite failure without publishing private logs.
-              # Only synthetic Go test names, bounded package paths, and aggregate
-              # statistics leave the disposable owner workspace.
-              $diag=Join-Path $root 'private-full-regression.log'
-              if(-not(Test-Path -LiteralPath $diag -PathType Leaf)){throw 'KTERM_PR86_FULL_TEST_LOG_MISSING'}
+            $goExit=$LASTEXITCODE
+            if($goExit -ne 0){
+              # Go -json events are parsed only from the isolated local file.
+              # No raw test messages, paths, exchange bodies or logs are shown.
+              $diag=Join-Path $root 'private-full-regression.jsonl'
+              if(-not(Test-Path -LiteralPath $diag -PathType Leaf)){throw 'KTERM_PR86_FULL_JSON_LOG_MISSING'}
               $failedTests=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
               $failedPackages=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-              $linesRead=0
-              $failMarkers=0
-              $timedOut=$false
-              $buildFailed=$false
-              $resourceFail=$false
-              $goToolError=$false
+              $events=0
+              $badLines=0
+              $timeout=$false
+              $panic=$false
+              $toolError=$false
               foreach($line in [IO.File]::ReadLines($diag)){
-                $linesRead++
-                # Test failure marker can occur with a PowerShell capture prefix.
-                if($line -match '--- FAIL:\s+(Test[A-Za-z0-9_]+)'){
-                  $name=$Matches[1]
-                  if($failedTests.Count -lt 24){[void]$failedTests.Add($name)}
+                if(-not $line.StartsWith('{')){$badLines++;continue}
+                try {
+                  $ev=ConvertFrom-Json -InputObject $line -ErrorAction Stop
+                } catch {$badLines++;continue}
+                if($ev.Action -ceq 'fail'){
+                  if($ev.Package -cmatch '^k-terminal(?:/[A-Za-z0-9_.-]+)*$' -and $failedPackages.Count -lt 20){
+                    [void]$failedPackages.Add([string]$ev.Package)
+                  }
+                  if($ev.Test -cmatch '^Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_./-]+)?$' -and $failedTests.Count -lt 24){
+                    [void]$failedTests.Add([string]$ev.Test)
+                  }
                 }
-                if($line -match '(?<![A-Za-z0-9_])FAIL\s+(k-terminal(?:/[A-Za-z0-9_./-]+)?)'){
-                  $name=$Matches[1]
-                  if($failedPackages.Count -lt 20){[void]$failedPackages.Add($name)}
+                if($ev.Action -ceq 'output' -and $ev.Output -is [string]){
+                  if($ev.Output.Contains('panic: test timed out')){$timeout=$true}
+                  if($ev.Output.Contains('panic:')){$panic=$true}
+                  if($ev.Output -match '^go: (?:error|cannot|failed|invalid|module|unknown|parsing|download)'){$toolError=$true}
                 }
-                if($line -match '(?i)(?<![a-z])FAIL(?![A-Za-z0-9_])'){$failMarkers++}
-                if($line -match 'panic: test timed out after'){$timedOut=$true}
-                if($line -match '(?i)(out of memory|not enough memory|no space left|disk is full|paging file is too small)'){$resourceFail=$true}
-                if($line -match '(?:^| )# k-terminal/|(?:^| )go: build |(?:^| )FAIL\s+build failed'){$buildFailed=$true}
-                if($line -match '^go: (?:error|cannot|failed|invalid|module|unknown|parsing|download)'){$goToolError=$true}
+                $events++
               }
-              foreach($test in @($failedTests | Sort-Object)){Write-Host ('KTERM_PR86_FULL_FAILED_TEST='+$test)}
-              foreach($pkg in @($failedPackages | Sort-Object)){Write-Host ('KTERM_PR86_FULL_FAILED_PACKAGE='+$pkg)}
+              foreach($test in @($failedTests | Sort-Object)){Write-Host ('KTERM_PR86_FAILED_TEST='+$test)}
+              foreach($pkg in @($failedPackages | Sort-Object)){Write-Host ('KTERM_PR86_FAILED_PACKAGE='+$pkg)}
               $logBytes=(Get-Item -LiteralPath $diag).Length
               $logDigest=(Get-FileHash -LiteralPath $diag -Algorithm SHA256).Hash.ToLowerInvariant()
-              Write-Host ('KTERM_PR86_FULL_DIAGNOSTIC=FAIL;EXIT='+$LASTEXITCODE+';TESTS='+$failedTests.Count+';PACKAGES='+$failedPackages.Count+';MARKERS='+$failMarkers+';LINES='+$linesRead+';BYTES='+$logBytes+';TIMEOUT='+$timedOut+';BUILD='+$buildFailed+';RESOURCE='+$resourceFail+';GO_TOOL_ERROR='+$goToolError+';LOG_SHA256='+$logDigest+';MS='+$fullClock.ElapsedMilliseconds)
+              Write-Host ('KTERM_PR86_FULL_JSON_DIAGNOSTIC=FAIL;EXIT='+$goExit+';TESTS='+$failedTests.Count+';PACKAGES='+$failedPackages.Count+';EVENTS='+$events+';MALFORMED='+$badLines+';TIMEOUT='+$timeout+';PANIC='+$panic+';TOOL_ERROR='+$toolError+';BYTES='+$logBytes+';LOG_SHA256='+$logDigest+';MS='+$fullClock.ElapsedMilliseconds)
               throw 'KTERM_PR86_FULL_WINDOWS_REGRESSION_FAILED'
             }
             Write-Host ('KTERM_PR86_FULL_WINDOWS_REGRESSION=PASS;MS='+$fullClock.ElapsedMilliseconds)
