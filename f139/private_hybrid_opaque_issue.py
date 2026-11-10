@@ -80,6 +80,113 @@ class PrivateOpaqueIssue:
     private_payload_blob_sha: str
 
 
+
+def prepare_private_provider_commitment(payload_raw, before_raw, *,
+                                        owner_source_sha,
+                                        authenticated_repository_metadata,
+                                        authenticated_target_commit,
+                                        authenticated_target_tree,
+                                        authenticated_target_file,
+                                        authenticated_storage_file):
+    """PRIVATE-PROVIDER ONLY: verify real original file and stored intent bytes.
+
+    This produces a bounded PUBLIC source-free issue body BEFORE original-owner
+    HMAC signing. The caller must prove that both Git file mappings came from
+    the private repository's authenticated provider. The function has no
+    filesystem/network access, returns no source/path/credentials, and cannot
+    attest GitHub-provider authenticity by itself. Never send either raw input
+    to the public FORGE issue publisher or original owner telemetry.
+    """
+    from f139.nci04_native_contract import (
+        NativeContractError, parse_intent,
+    )
+    from f139.private_hybrid_reference import PATH
+
+    need(type(payload_raw) is bytes and 0 < len(payload_raw) <= 60000
+         and type(before_raw) is bytes and 0 < len(before_raw) <= 32768,
+         "PRIVATE_PROVIDER_BYTES_BOUNDED")
+    need(type(owner_source_sha) is str
+         and SHA40.fullmatch(owner_source_sha) is not None
+         and type(authenticated_target_commit) is str
+         and SHA40.fullmatch(authenticated_target_commit) is not None
+         and type(authenticated_target_tree) is str
+         and SHA40.fullmatch(authenticated_target_tree) is not None,
+         "PRIVATE_PROVIDER_SOURCE_UNQUALIFIED")
+    md = authenticated_repository_metadata
+    need(type(md) is dict and set(md) == {"full_name", "private"}
+         and md["full_name"] == REPOSITORY and md["private"] is True,
+         "PRIVATE_PROVIDER_VISIBILITY")
+    try:
+        doc = json.loads(payload_raw, object_pairs_hook=unique)
+        need(type(doc) is dict and canonical(doc) == payload_raw,
+             "PRIVATE_INTENT_NONCANONICAL")
+        candidate = parse_intent(
+            payload_raw, protected_main=owner_source_sha,
+            target_commit=authenticated_target_commit,
+            target_tree_sha=authenticated_target_tree)
+    except (ValueError, TypeError, UnicodeError, NativeContractError) as exc:
+        raise PrivateOpaqueIssueDenied(
+            "F139_PRIVATE_HYBRID_ISSUE_PRIVATE_INTENT_INVALID") from exc
+    need(candidate.lane == LANE and type(candidate.path) is str
+         and PATH.fullmatch(candidate.path) is not None
+         and candidate.before_sha256 == hashlib.sha256(before_raw).hexdigest(),
+         "PRIVATE_BASELINE_BYTES_OR_SOURCE_PATH_DRIFT")
+
+    def blob_sha(raw):
+        return hashlib.sha1(
+            b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
+
+    original = authenticated_target_file
+    need(type(original) is dict and set(original) == {
+        "repository", "commit_sha", "tree_sha", "path", "git_blob_sha",
+    } and original["repository"] == REPOSITORY
+         and original["commit_sha"] == authenticated_target_commit
+         and original["tree_sha"] == authenticated_target_tree
+         and original["path"] == candidate.path
+         and original["git_blob_sha"] == blob_sha(before_raw),
+         "PRIVATE_BASELINE_GIT_BLOB_NOT_AUTHENTICATED")
+    observed = authenticated_storage_file
+    payload_sha = hashlib.sha256(payload_raw).hexdigest()
+    need(type(observed) is dict and set(observed) == {
+        "repository", "commit_sha", "tree_sha", "path", "git_blob_sha",
+    } and observed["repository"] == REPOSITORY
+         and type(observed["commit_sha"]) is str
+         and SHA40.fullmatch(observed["commit_sha"]) is not None
+         and observed["commit_sha"] != authenticated_target_commit
+         and type(observed["tree_sha"]) is str
+         and SHA40.fullmatch(observed["tree_sha"]) is not None
+         and observed["path"] == "f139/private-native/" + payload_sha + ".json"
+         and observed["git_blob_sha"] == blob_sha(payload_raw),
+         "PRIVATE_STORAGE_GIT_BLOB_NOT_AUTHENTICATED")
+    public = {
+        "schema": SCHEMA, "kind": KIND, "lane": LANE,
+        "source_sha": owner_source_sha, "repository": REPOSITORY,
+        "private_target_commit": authenticated_target_commit,
+        "private_target_tree": authenticated_target_tree,
+        "private_payload_commit": observed["commit_sha"],
+        "private_payload_tree": observed["tree_sha"],
+        "private_payload_sha256": payload_sha,
+        "private_payload_blob_sha": observed["git_blob_sha"],
+        "scientific_first_use": False, "paid_model_calls": 0,
+        "accepted_ref_mutations": 0,
+    }
+    need(set(public) == FIELDS, "PRIVATE_PUBLIC_SCHEMA_DRIFT")
+    body = canonical(public)
+    need(0 < len(body) <= MAX_BODY, "PUBLIC_ISSUE_BODY_TOO_LARGE")
+    return {
+        "schema": "forge.f139.private-provider-source-free-issue-preparation.v1",
+        "issue_body": body.decode("ascii"),
+        "issue_body_sha256": hashlib.sha256(body).hexdigest(),
+        "private_payload_sha256": payload_sha,
+        "real_baseline_blob_bytes_matched": True,
+        "real_storage_blob_bytes_matched": True,
+        "public_private_code_emitted": False,
+        "original_owner_live_issue_verified": False,
+        "private_worker_executed": False,
+        "scientific_first_use": False,
+    }
+
+
 def inspect_private_opaque_issue(raw, *, owner_source_sha,
                                  authenticated_repository_metadata,
                                  authenticated_target_commit,
