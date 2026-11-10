@@ -202,10 +202,12 @@ class PrivatePayloadCustodyTests(unittest.TestCase):
 
     def test_tampered_private_payload_never_passes(self):
         ref, payload, observed = self.fixture()
-        for value in (payload+b" ", payload.replace(b"synthetic", b"modified"),
+        for value in (payload+b" ", payload.replace(b"scripts/native_example.py", b"scripts/native_other.py"),
                       b"{}", b"", payload[:1]):
-            with self.subTest(value=value[:30]), self.assertRaises(PrivateReferenceDenied):
-                self.check(ref, value, observed)
+            with self.subTest(value=value[:30]):
+                self.assertNotEqual(value, payload, "tamper fixture must change bytes")
+                with self.assertRaises(PrivateReferenceDenied):
+                    self.check(ref, value, observed)
 
     def test_private_provider_blob_identity_and_commit_tree_are_mandatory(self):
         ref, payload, observed = self.fixture()
