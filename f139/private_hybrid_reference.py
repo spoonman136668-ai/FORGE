@@ -122,3 +122,70 @@ def public_identity(raw, *, owner_source_sha, private_commit, private_tree,
         "worker_authorized": False,
         "signed_worker_qualified": False,
     }
+
+def verify_private_payload(ref_raw, payload_raw, *, owner_source_sha,
+                           private_commit, private_tree,
+                           authenticated_repository_metadata, provider_file):
+    """Verify an existing private Git blob against the public hash reference.
+
+    Caller MUST independently authenticate repository metadata and the
+    provider_file tree/blob mapping with the private repository's OWN reader.
+    This is an inert integrity check only. A hash named owner_* is NOT proof
+    of the original owner's signature or worker authorization.
+    """
+    from f139.nci04_native_contract import (
+        NativeContractError, parse_intent,
+    )
+
+    ref = parse_reference(ref_raw, owner_source_sha=owner_source_sha,
+                          private_commit=private_commit, private_tree=private_tree,
+                          authenticated_repository_metadata=authenticated_repository_metadata)
+    need(type(payload_raw) is bytes and 0 < len(payload_raw) <= 60000,
+         "PRIVATE_PAYLOAD_SIZE")
+    need(hashlib.sha256(payload_raw).hexdigest() == ref["private_payload_sha256"],
+         "PRIVATE_PAYLOAD_DIGEST_DRIFT")
+    # Recompute Git blob SHA-1 as an identity cross-check, not as a substitute
+    # for the SHA-256 payload digest or authenticated provider tree lookup.
+    blob = hashlib.sha1(b"blob " + str(len(payload_raw)).encode("ascii") +
+                        b"\0" + payload_raw).hexdigest()
+    observed = provider_file
+    need(type(observed) is dict and set(observed) == {
+        "repository", "commit_sha", "tree_sha", "path", "git_blob_sha",
+    } and observed["repository"] == REPOSITORY
+         and observed["commit_sha"] == private_commit
+         and observed["tree_sha"] == private_tree
+         and observed["path"] == ref["private_payload_path"]
+         and observed["git_blob_sha"] == ref["private_payload_blob_sha"]
+         and observed["git_blob_sha"] == blob,
+         "AUTHENTICATED_PRIVATE_BLOB_DRIFT")
+    try:
+        parsed = json.loads(payload_raw, object_pairs_hook=_unique)
+        need(type(parsed) is dict and canonical(parsed) == payload_raw,
+             "PRIVATE_PAYLOAD_NONCANONICAL")
+        candidate = parse_intent(payload_raw, protected_main=owner_source_sha,
+                                 target_commit=private_commit,
+                                 target_tree_sha=private_tree)
+    except (NativeContractError, UnicodeError, ValueError, TypeError) as exc:
+        raise PrivateReferenceDenied("F139_PRIVATE_HYBRID_REF_NATIVE_INTENT_INVALID") from exc
+    need(candidate.lane == LANE
+         and candidate.path == ref["source_path"]
+         and candidate.before_sha256 == ref["before_sha256"]
+         and candidate.after_sha256 == ref["after_sha256"]
+         and candidate.intent_sha256 == ref["owner_signed_intent_sha256"],
+         "PRIVATE_INTENT_REFERENCE_MISMATCH")
+    # Never expose candidate.after_bytes, after_base64 or private source paths
+    # in the public projection or receipt. Owner-signature and execution
+    # verification are explicitly outside this data-only gate.
+    return {
+        "schema": "forge.f139.private-hybrid-payload-integrity.v1",
+        "reference_sha256": hashlib.sha256(ref_raw).hexdigest(),
+        "private_payload_sha256": ref["private_payload_sha256"],
+        "private_commit": private_commit,
+        "owner_source_sha": owner_source_sha,
+        "private_blob_integrity_verified": True,
+        "owner_signature_verified": False,
+        "signed_worker_qualified": False,
+        "candidate_code_executed": False,
+        "private_code_emitted": False,
+        "scientific_first_use": False,
+    }
