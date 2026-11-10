@@ -35,7 +35,7 @@ WINGLESS_R8_TRAINING = "research/native/itd02/outcome/training_session.go"
 # modules at its repository root. Permit this strict source *family* without
 # disclosing any private module filename in public FORGE code or issues.
 # This is data-only eligibility, never approval of the file or its contents.
-HYBRID_ROOT_NATIVE = re.compile(r"native_[a-z0-9][a-z0-9_]{0,79}\.py\Z")
+HYBRID_ROOT_NATIVE = re.compile(r"native_p[0-9]{2}[a-z]?_[a-z0-9][a-z0-9_]{0,75}\.py\Z")
 
 
 def model_source_path_allowed(lane: str, path: str) -> bool:
