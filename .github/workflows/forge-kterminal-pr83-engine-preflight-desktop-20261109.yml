@@ -1,7 +1,7 @@
-name: K Terminal PR89 actual native SELL owner WAL to PAPER witness qualification
+name: K Terminal PR91 signed cold BUY-SELL to original witness full Windows qualification
 on:
   push:
-    branches: [qualification/kterminal-pr89-paper-sell-owner-bridge-20261110]
+    branches: [qualification/kterminal-pr91-original-cold-join-20261110]
     paths: [.github/workflows/forge-kterminal-pr83-engine-preflight-desktop-20261109.yml]
 permissions:
   contents: read
@@ -13,8 +13,8 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 36faeff6bbbed3ae5c0a0fee1928018c44af7d3e
-      KTERM_TREE: 2b552eb95d24941d320140ac6fa2bc80a6906aa4
+      KTERM_SHA: 8ca52d52c8a10ea142f3bee0a8aa3dba43e0f9ff
+      KTERM_TREE: 8f3e29557b29e8c52491ba80c3e033058c0d84ac
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -32,7 +32,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-pr89-paper-sell-owner-bridge-20261110' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-pr91-original-cold-join-20261110' -or
              $env:GITHUB_EVENT_NAME -cne 'push' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
@@ -58,7 +58,7 @@ jobs:
           $download=Join-Path $profilePath 'Downloads'
           if(-not(Test-Path -LiteralPath $download -PathType Container)){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_DIRECTORY_UNAVAILABLE'}
           if((Get-Item -LiteralPath $download -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'KTERM_OWNER_LOCAL_DOWNLOAD_LINK_REFUSED'}
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr89-full-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr91-full-owner-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $root){throw 'KTERM_OWNER_LOCAL_STALE_WORKSPACE'}
           [void][IO.Directory]::CreateDirectory($root)
           Write-Host 'KTERM_OWNER_LOCAL_ISOLATION_AND_DISARM=PASS'
@@ -66,7 +66,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr89-full-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr91-full-owner-'+$env:GITHUB_RUN_ID)
           $stage=Join-Path $root 'source'
           [void][IO.Directory]::CreateDirectory($stage)
           & git -C $stage init -q *> (Join-Path $root 'git-init-private.log')
@@ -100,7 +100,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_OWNER_LOCAL_GO_VERSION_DRIFT'}
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr89-full-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr91-full-owner-'+$env:GITHUB_RUN_ID)
           $stage=Join-Path $root 'source'
           $env:GOCACHE=Join-Path $root 'go-cache'
           $env:GOMODCACHE=Join-Path $root 'go-modules'
@@ -120,25 +120,25 @@ jobs:
             # negative controls and exact prior ownership/pressure tests, then
             # perform fresh mandatory full regression on the new source SHA.
             $focusedClock=[Diagnostics.Stopwatch]::StartNew()
-            & go test -p 1 -count=10 -timeout 15m -run '^(TestPaperOriginalSellOwnerBridge|TestOriginalCustodyWitness|TestSignedCustodyAllocations|TestPressureTPCycleConcurrentFeedAndSizing|TestPortableBuyOrigin|TestPaperTPConcurrentReservations|TestPaperTPReservationReport)' ./pkg *> (Join-Path $root 'private-focused.log')
+            & go test -p 1 -count=10 -timeout 15m -run '^(TestPaperOriginalColdJoin|TestPaperOriginalSellOwnerBridge|TestOriginalCustodyWitness|TestSignedCustodyAllocations|TestPressureTPCycleConcurrentFeedAndSizing|TestPortableBuyOrigin|TestPaperTPConcurrentReservations|TestPaperTPReservationReport)' ./pkg *> (Join-Path $root 'private-focused.log')
             $focusedClock.Stop()
             $focusedExit=$LASTEXITCODE
             if($focusedExit -ne 0){
               $found=0
               foreach($line in [IO.File]::ReadLines((Join-Path $root 'private-focused.log'))){
                 if($line -match '--- FAIL:\s+(Test[A-Za-z0-9_]+)'){
-                  Write-Host ('KTERM_PR89_FOCUSED_FAILED_TEST='+$Matches[1])
+                  Write-Host ('KTERM_PR91_FOCUSED_FAILED_TEST='+$Matches[1])
                   $found++
                 } elseif($line -match 'tranche-pressure-cycle_test\.go:(\d+):'){
-                  Write-Host ('KTERM_PR89_FOCUSED_PRESSURE_TEST_LINE='+$Matches[1])
+                  Write-Host ('KTERM_PR91_FOCUSED_PRESSURE_TEST_LINE='+$Matches[1])
                   $found++
                 }
                 if($found -ge 16){break}
               }
-              Write-Host ('KTERM_PR89_FOCUSED=FAIL;EXIT='+$focusedExit+';DIAG_COUNT='+$found+';MS='+$focusedClock.ElapsedMilliseconds)
-              throw 'KTERM_PR89_FOCUSED_FAILED'
+              Write-Host ('KTERM_PR91_FOCUSED=FAIL;EXIT='+$focusedExit+';DIAG_COUNT='+$found+';MS='+$focusedClock.ElapsedMilliseconds)
+              throw 'KTERM_PR91_FOCUSED_FAILED'
             }
-            Write-Host ('KTERM_PR89_FOCUSED=PASS;COUNT=10;MS='+$focusedClock.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
+            Write-Host ('KTERM_PR91_FOCUSED=PASS;COUNT=10;MS='+$focusedClock.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
             $fullClock=[Diagnostics.Stopwatch]::StartNew()
             & go test -json -p 1 -count=1 -timeout 60m ./... *> (Join-Path $root 'private-full-regression.jsonl')
             $fullClock.Stop()
@@ -147,7 +147,7 @@ jobs:
               # Go -json events are parsed only from the isolated local file.
               # No raw test messages, paths, exchange bodies or logs are shown.
               $diag=Join-Path $root 'private-full-regression.jsonl'
-              if(-not(Test-Path -LiteralPath $diag -PathType Leaf)){throw 'KTERM_PR89_FULL_JSON_LOG_MISSING'}
+              if(-not(Test-Path -LiteralPath $diag -PathType Leaf)){throw 'KTERM_PR91_FULL_JSON_LOG_MISSING'}
               $failedTests=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
               $failedPackages=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
               $events=0
@@ -175,17 +175,17 @@ jobs:
                 }
                 $events++
               }
-              foreach($test in @($failedTests | Sort-Object)){Write-Host ('KTERM_PR89_FAILED_TEST='+$test)}
-              foreach($pkg in @($failedPackages | Sort-Object)){Write-Host ('KTERM_PR89_FAILED_PACKAGE='+$pkg)}
+              foreach($test in @($failedTests | Sort-Object)){Write-Host ('KTERM_PR91_FAILED_TEST='+$test)}
+              foreach($pkg in @($failedPackages | Sort-Object)){Write-Host ('KTERM_PR91_FAILED_PACKAGE='+$pkg)}
               $logBytes=(Get-Item -LiteralPath $diag).Length
               $logDigest=(Get-FileHash -LiteralPath $diag -Algorithm SHA256).Hash.ToLowerInvariant()
-              Write-Host ('KTERM_PR89_FULL_JSON_DIAGNOSTIC=FAIL;EXIT='+$goExit+';TESTS='+$failedTests.Count+';PACKAGES='+$failedPackages.Count+';EVENTS='+$events+';MALFORMED='+$badLines+';TIMEOUT='+$timeout+';PANIC='+$panic+';TOOL_ERROR='+$toolError+';BYTES='+$logBytes+';LOG_SHA256='+$logDigest+';MS='+$fullClock.ElapsedMilliseconds)
-              throw 'KTERM_PR89_FULL_WINDOWS_REGRESSION_FAILED'
+              Write-Host ('KTERM_PR91_FULL_JSON_DIAGNOSTIC=FAIL;EXIT='+$goExit+';TESTS='+$failedTests.Count+';PACKAGES='+$failedPackages.Count+';EVENTS='+$events+';MALFORMED='+$badLines+';TIMEOUT='+$timeout+';PANIC='+$panic+';TOOL_ERROR='+$toolError+';BYTES='+$logBytes+';LOG_SHA256='+$logDigest+';MS='+$fullClock.ElapsedMilliseconds)
+              throw 'KTERM_PR91_FULL_WINDOWS_REGRESSION_FAILED'
             }
-            Write-Host ('KTERM_PR89_FULL_WINDOWS_REGRESSION=PASS;MS='+$fullClock.ElapsedMilliseconds)
+            Write-Host ('KTERM_PR91_FULL_WINDOWS_REGRESSION=PASS;MS='+$fullClock.ElapsedMilliseconds)
             & go vet ./... *> (Join-Path $root 'private-vet.log')
-            if($LASTEXITCODE -ne 0){throw 'KTERM_PR89_GO_VET_FAILED'}
-            Write-Host 'KTERM_PR89_GO_VET=PASS'
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PR91_GO_VET_FAILED'}
+            Write-Host 'KTERM_PR91_GO_VET=PASS'
           }finally{Pop-Location}
           # The exact source must independently pass its new full regression:
           # PR83's earlier receipts do not qualify this new SHA.
@@ -210,7 +210,7 @@ jobs:
             if(-not(Test-Path -LiteralPath 'K-Terminal-Engine.exe' -PathType Leaf)) {
               throw 'KTERM_ORIGINAL_ENGINE_PREFLIGHT_OUTPUT_MISSING'
             }
-            Write-Host ('KTERM_PR89_EXACT_ENGINE_PREFLIGHT=PASS;MS='+$warmTime.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
+            Write-Host ('KTERM_PR91_EXACT_ENGINE_PREFLIGHT=PASS;MS='+$warmTime.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
           }finally{Pop-Location}
           # Preserve the existing canonical build script byte-for-byte.
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> (Join-Path $root 'private-build.log')
@@ -243,7 +243,7 @@ jobs:
               elseif($raw -match '(?i)(compiler|compilation error|syntax error|undefined:|invalid operation|error CS[0-9]+)'){$class='COMPILATION_DIAGNOSTIC'}
               elseif($raw -match '(?i)(Unrecognized|not recognized as the name|not recognized as an internal)'){$class='TOOL_UNAVAILABLE'}
             }
-            Write-Host ('KTERM_PR89_BUILD_DIAGNOSTIC=FAIL;CLASS='+$class+';OUTPUT_PRESENT='+[bool]($raw.Length -gt 0)+';BROKER_WRITES=0')
+            Write-Host ('KTERM_PR91_BUILD_DIAGNOSTIC=FAIL;CLASS='+$class+';OUTPUT_PRESENT='+[bool]($raw.Length -gt 0)+';BROKER_WRITES=0')
             throw 'KTERM_OWNER_LOCAL_COMPLETE_BUILD_FAILED'
           }
           Write-Host 'KTERM_OWNER_LOCAL_COMPLETE_DESKTOP_BUILD=PASS'
@@ -255,7 +255,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_LAUNCHER_LIFECYCLE_FAILED'}
           Write-Host 'KTERM_OWNER_LOCAL_LAUNCH_LIFECYCLE=PASS'
           $package=Join-Path $root 'stage'
-          $zip=Join-Path $root ('KTerminal-PR89-FullQualification-'+$env:KTERM_SHA.Substring(0,12)+'-R'+$env:GITHUB_RUN_ID+'.zip')
+          $zip=Join-Path $root ('KTerminal-PR91-FullQualification-'+$env:KTERM_SHA.Substring(0,12)+'-R'+$env:GITHUB_RUN_ID+'.zip')
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'verification\package-first-install.ps1') -SourceRoot $stage -StageDirectory $package -ZipPath $zip *> (Join-Path $root 'private-package.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_OWNER_LOCAL_COMPLETE_ZIP_PACKAGE_FAILED'}
           $unpack=Join-Path $root 'unpacked'
@@ -297,7 +297,7 @@ jobs:
             if($gui.HasExited){throw 'KTERM_GUI_EARLY_EXIT'}
             if(-not $visible){throw 'KTERM_GUI_VISIBLE_NATIVE_WINDOW_UNVERIFIED'}
             if(Test-Path -LiteralPath (Join-Path $install 'config.json')){throw 'KTERM_GUI_UNEXPECTED_CONFIG'}
-            Write-Host 'KTERM_PR89_REAL_NATIVE_GUI=PASS;ISOLATED=TRUE;NO_BROKER_AUTH=TRUE;LIVE_ORDERS=0'
+            Write-Host 'KTERM_PR91_REAL_NATIVE_GUI=PASS;ISOLATED=TRUE;NO_BROKER_AUTH=TRUE;LIVE_ORDERS=0'
           } finally {
             if($null -ne $gui){
               $gui.Refresh()
@@ -330,12 +330,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr89-full-owner-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr91-full-owner-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $root) {
             $path=[IO.Path]::GetFullPath($root)
             $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
             if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
-               [IO.Path]::GetFileName($path) -cne ('kterm-pr89-full-owner-'+$env:GITHUB_RUN_ID)){
+               [IO.Path]::GetFileName($path) -cne ('kterm-pr91-full-owner-'+$env:GITHUB_RUN_ID)){
               throw 'KTERM_OWNER_LOCAL_PRIVATE_CLEANUP_REFUSED'
             }
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
