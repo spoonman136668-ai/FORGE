@@ -101,6 +101,10 @@ def verify_credentialed_owner_binding(
         "ticket": admission.ticket,
         "issue_number": admission.issue_number,
         "issue_id": admission.issue_id,
+        # The public issue-body digest is part of the original native HMAC.
+        # Preserve it for later comparison with the verified GitHub issue,
+        # never just an issue number or self-asserted source digest.
+        "issue_body_sha256": issue_body_sha256,
         "authorization_binding_sha256": admission.authorization_sha256,
         # This records only a cryptographic match to the provided original
         # key. Proof of the *live* original owner requires a real issued ticket,
