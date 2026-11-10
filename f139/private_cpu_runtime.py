@@ -99,12 +99,17 @@ def extract_python(archive, root):
                     shutil.copyfileobj(incoming,output,1024*1024)
                 path.chmod(m.mode & 0o755)
         for m in rows:
-            if m.issym():(root/m.name).symlink_to(m.linkname)
+            if m.issym():
+                destination=root/m.name
+                destination.parent.mkdir(parents=True,exist_ok=True)
+                destination.symlink_to(m.linkname)
         for m in rows:
             if m.islnk():
                 target=root/posixpath.normpath(m.linkname)
                 need(target.is_file() and not target.is_symlink(),'HARDLINK_TARGET_NOT_REGULAR')
-                os.link(target,root/m.name)
+                destination=root/m.name
+                destination.parent.mkdir(parents=True,exist_ok=True)
+                os.link(target,destination)
 
 def freeze_wheels(folder):
     rows=[];names=set();total=0

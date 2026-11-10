@@ -55,6 +55,18 @@ class RuntimeArtifacts(unittest.TestCase):
             self.assertEqual((root/'python/bin/python3.11').read_bytes(),b'bin')
             with self.assertRaises(r.RuntimeDenied):r.extract_python(archive,root)
 
+    @unittest.skipUnless(os.name=='posix','Linux runtime symlink extraction')
+    def test_real_archive_link_only_parent_directory_is_created(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);archive=root/'python.tgz'
+            with tarfile.open(archive,'w:gz') as out:
+                out.addfile(member('python/bin/python3.11',size=3),io.BytesIO(b'bin'))
+                out.addfile(member('python/share/terminfo/a/adm1178',size=3),io.BytesIO(b'key'))
+                out.addfile(member('python/share/terminfo/1/1178',tarfile.SYMTYPE,'../a/adm1178'))
+            r.extract_python(archive,root)
+            self.assertEqual((root/'python/share/terminfo/1/1178').read_bytes(),b'key')
+            self.assertTrue((root/'python/share/terminfo/1/1178').is_symlink())
+
     def test_tar_bad_link_cannot_leave_a_partially_extracted_python(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);archive=root/'python.tgz'
