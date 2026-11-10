@@ -111,6 +111,56 @@ jobs:
           foreach($dir in @($env:GOCACHE,$env:GOMODCACHE,$env:K_TERMINAL_TEST_WORKSPACE,
               $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,
               $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){[void][IO.Directory]::CreateDirectory($dir)}
+          # Classify private Go build diagnostics without printing raw logs,
+          # compiler paths, environment variables, or any source content.
+          function ReportKTermEngineFailure([string]$phase,[string]$logPath,[int]$status) {
+            $raw=if(Test-Path -LiteralPath $logPath -PathType Leaf){[IO.File]::ReadAllText($logPath)}else{''}
+            $bytes=if(Test-Path -LiteralPath $logPath -PathType Leaf){(Get-Item -LiteralPath $logPath).Length}else{0}
+            $digest=if(Test-Path -LiteralPath $logPath -PathType Leaf){(Get-FileHash -LiteralPath $logPath -Algorithm SHA256).Hash.ToLowerInvariant()}else{'NO_LOG'}
+            $class='UNCLASSIFIED'
+            if($raw -match '(?i)(not enough memory|out of memory|cannot allocate memory|paging file is too small)'){$class='RESOURCE_MEMORY'}
+            elseif($raw -match '(?i)(not enough space|no space left|disk full|disk is full|insufficient disk space)'){$class='RESOURCE_DISK'}
+            elseif($raw -match '(?i)(sharing violation|access is denied|permission denied|being used by another process|file is locked)'){$class='RESOURCE_FILE_LOCK'}
+            elseif($raw -match '(?i)(build cache|GOCACHE|buildID|cache directory|permission to write.*cache)'){$class='BUILD_CACHE'}
+            elseif($raw -match '(?i)(proxyconnect|TLS handshake|no such host|network is unreachable|connection refused|module lookup disabled|missing go.sum entry)'){$class='DEPENDENCY_NETWORK_OR_LOCK'}
+            elseif($raw -match '(?i)(go: (?:error|download|cannot|failed)|cannot find module|module requires|unknown revision)'){$class='GO_DEPENDENCY_OR_TOOLCHAIN'}
+            elseif($raw -match '(?i)(linker|link:|relocation|duplicate symbol|symbol not found|undefined symbol)'){$class='LINKER'}
+            elseif($raw -match '(?i)(syntax error|undefined:|cannot use .* as .*|too many arguments|not enough arguments|invalid operation|no required module provides package)'){$class='SOURCE_COMPILE'}
+            elseif($raw -match '(?i)(compile:|compiler|build constraints exclude|no Go files|not recognized as the name|executable file not found)'){$class='TOOLCHAIN_OR_SOURCE'}
+            elseif($raw -match '(?i)(timed out|deadline exceeded|interrupted|operation canceled|process killed|signal: killed)'){$class='INTERRUPTED_OR_TIMEOUT'}
+            Write-Host ('KTERM_PR93_ENGINE_DIAGNOSTIC=FAIL;PHASE='+$phase+';CLASS='+$class+';EXIT='+$status+';LOG_BYTES='+$bytes+';LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE;LIVE_ORDERS=0')
+          }
+          # Early original-engine compile is diagnostic, NOT acceptance. Use
+          # the canonical BUILD.ps1 Go caches now, so compiler/toolchain and
+          # module failures surface before the 30-minute regression. The
+          # required focused tests, full exact-source regression, vet and
+          # post-regression engine/build/GUI remain unchanged and mandatory.
+          $originalGOCACHE=$env:GOCACHE
+          $originalGOMODCACHE=$env:GOMODCACHE
+          $diagnosticFlags='-s -w -X k-terminal/pkg.NativeTimingDefaultEnabled=1 -X k-terminal/pkg.NativeTimingBuildRevision=20261006-stage3-readiness-r1'
+          $env:GOCACHE=Join-Path $stage '.build\cache'
+          $env:GOMODCACHE=Join-Path $stage '.build\modules'
+          $env:GOPATH=Join-Path $stage '.build\go'
+          $env:GOTMPDIR=Join-Path $stage '.build\temp'
+          foreach($dir in @($env:GOCACHE,$env:GOMODCACHE,$env:GOPATH,$env:GOTMPDIR)){[void][IO.Directory]::CreateDirectory($dir)}
+          $earlyLog=Join-Path $root 'private-engine-early-diagnostic.log'
+          Push-Location $stage
+          try {
+            $earlyClock=[Diagnostics.Stopwatch]::StartNew()
+            & go build -trimpath -ldflags $diagnosticFlags -o (Join-Path $root 'diagnostic-only-engine.exe') . *> $earlyLog
+            $earlyClock.Stop()
+            if($LASTEXITCODE -ne 0) {
+              ReportKTermEngineFailure 'EARLY_BEFORE_TESTS' $earlyLog $LASTEXITCODE
+              throw 'KTERM_PR93_EARLY_ENGINE_DIAGNOSTIC_FAILED'
+            }
+            Write-Host ('KTERM_PR93_EARLY_ENGINE_DIAGNOSTIC=PASS;NOT_ACCEPTANCE=TRUE;MS='+$earlyClock.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
+          }finally{
+            Pop-Location
+            $env:GOCACHE=$originalGOCACHE
+            $env:GOMODCACHE=$originalGOMODCACHE
+            Remove-Item Env:GOPATH -ErrorAction SilentlyContinue
+            Remove-Item Env:GOTMPDIR -ErrorAction SilentlyContinue
+          }
           # Run new source-specific tests before mandatory exact-SHA full regression.
           # All test output stays in the owner-local disposable workspace.
           # No Coinbase credentials, LIVE mode or order POST is available.
@@ -205,6 +255,7 @@ jobs:
             & go build -trimpath -ldflags $flags -o K-Terminal-Engine.exe . *> (Join-Path $root 'private-engine-preflight.log')
             $warmTime.Stop()
             if($LASTEXITCODE -ne 0) {
+              ReportKTermEngineFailure 'AFTER_FULL_REGRESSION' (Join-Path $root 'private-engine-preflight.log') $LASTEXITCODE
               throw 'KTERM_ORIGINAL_ENGINE_CACHE_PREFLIGHT_FAILED'
             }
             if(-not(Test-Path -LiteralPath 'K-Terminal-Engine.exe' -PathType Leaf)) {
