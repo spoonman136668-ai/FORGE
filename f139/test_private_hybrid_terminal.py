@@ -115,12 +115,14 @@ class PrivateTerminalSyntheticTests(unittest.TestCase):
             {"private_job_id": meta["private_job_id"]+1},
             {"private_artifact_id": meta["private_artifact_id"]+1},
             {"original_owner_run_id": meta["original_owner_run_id"]+1},
-            {"source_sha": "f"*40}, {"private_commit": "f"*40},
-            {"private_tree": "f"*40}, {"digest": "sha256:"+"0"*64},
+            {"source_sha": "f"*40}, {"private_commit": "0"*40},
+            {"private_tree": "0"*40}, {"digest": "sha256:"+"0"*64},
             {"size_in_bytes": meta["size_in_bytes"]+1},
             {"extra": "forged"},
         )
         for mutation in mutations:
+            self.assertNotEqual({**meta, **mutation}, meta,
+                                "negative control must alter real provider metadata")
             with self.subTest(mutation=mutation), self.assertRaises(PrivateTerminalDenied):
                 inspect(raw, {**meta, **mutation}, admission, bound, ref)
 
