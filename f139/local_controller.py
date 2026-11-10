@@ -3150,6 +3150,7 @@ class GitHub:
             "repos/"+REPO+"/",
             "repos/spoonman136668-ai/Wingless/",
             "repos/spoonman136668-ai/Yggdrasil/",
+            "repos/spoonman136668-ai/TTT-Hybrid-Lab/",
         )
         require(isinstance(route, str) and route.startswith(allowed)
                 and "/../" not in route and not route.endswith("/..")

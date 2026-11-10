@@ -201,6 +201,33 @@ class NativeAutonomyFeedTests(unittest.TestCase):
             api.native_repo_get(
                 "repos/spoonman136668-ai/Wingless/contents/../secret")
 
+    def test_real_native_reader_accepts_exact_hybrid_repository_get_routes(self):
+        # Exercise the real transport boundary; feeder FakeProvider alone
+        # cannot detect a missing repository in GitHub.native_repo_get.
+        seen = []
+        api = GitHub(runner=lambda args: (seen.append(args) or b'{"private":true}'))
+        prefix = "repos/spoonman136668-ai/TTT-Hybrid-Lab/"
+        for suffix in ("branches/main", "git/commits/"+"a"*40,
+                       "pulls?state=open&per_page=100", "pulls/55/files?per_page=100",
+                       "contents/scripts/native_qualified_policy.py?ref="+"b"*40,
+                       "compare/"+"a"*40+"..."+"b"*40+"?per_page=1&page=2"):
+            route = prefix+suffix
+            self.assertEqual(api.native_repo_get(route), {"private": True})
+            self.assertEqual(seen[-1], [route])
+        self.assertEqual(len(seen), 6)
+        before = list(seen)
+        for route in (prefix+"contents/../secret", prefix+"contents/..",
+                      prefix+"contents/unsafe\\file", prefix+"contents/unsafe file",
+                      "https://api.github.com/"+prefix+"branches/main",
+                      "repos/foreign/TTT-Hybrid-Lab/branches/main",
+                      "repos/spoonman136668-ai/TTT-Hybrid-Lab-other/branches/main",
+                      "repos/spoonman136668-ai/K-Terminal/branches/main",
+                      "repos/spoonman136668-ai/ckb-plane/branches/main",
+                      "--method POST"):
+            with self.subTest(route=route), self.assertRaisesRegex(Exception, "NATIVE_FEED_ROUTE_INVALID"):
+                api.native_repo_get(route)
+        self.assertEqual(seen, before)
+
     def test_staged_third_lane_does_not_enter_original_native_feeder(self):
         p = FakeProvider()
         baseline = prepare_feed(
