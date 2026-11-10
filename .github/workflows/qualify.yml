@@ -765,3 +765,101 @@ jobs:
           test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
+
+
+  # One-shot F44 DEV original-physics robustness evaluation on existing research PR #1614.
+  # No autonomous owner admission, first-use, new workflow, scheduler or deployment.
+  f44_original_fault_robustness_dev_once:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.number == 1614 &&
+      github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' &&
+      github.event.pull_request.head.ref == 'research/eureka-f8-portable-cold-continuation-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact F44 development candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check F44 preregistration and byte-for-byte frozen F43 model
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:docs/NATIVE-DISCOVERY-F44-FAULT-SCHEDULE-ROBUSTNESS-DEV.md)" = 'dba3eabb356c7fbb73fd17335760e1ba8b895520'
+          test "$(git rev-parse HEAD:research/f44_fault_schedule_robustness_dev.py)" = 'efb5024629f15d888d30804175a564ca45f6567a'
+          test "$(git hash-object --no-filters research/f44_fault_schedule_robustness_dev.py)" = 'efb5024629f15d888d30804175a564ca45f6567a'
+          test "$(git rev-parse HEAD:research/test_f44_fault_schedule_robustness_dev.py)" = '1cfde709f383d55928c5f7aa525bca3a93e6fab5'
+          test "$(git rev-parse HEAD:research/f43_train_calibrated_contradiction_dev.py)" = '3a79383ec142eb08f8a60ec0c591aee3ce9a2c8e'
+          test "$(git rev-parse HEAD:research/f42_original_actuator_reversal_dev.py)" = 'd66af2c4a734b61e36b43562071c9dfdba354768'
+          test "$(git rev-parse HEAD:research/f41_original_mountaincar_dev.py)" = 'ffea5f9ccc6f9b9c19eb1e9127fb985327d77a2e'
+          test "$(git rev-parse HEAD:research/f40_original_cartpole_learning_dev.py)" = '9d3a8612edf6d3516cf6a6fe374c94049955a5b2'
+          echo 'F44_PRESET_PROTOCOL_AND_PREVIOUS_NEGATIVES=PASS'
+      - name: Checkout source-pinned original Gymnasium separately
+        uses: actions/checkout@v4
+        with:
+          repository: Farama-Foundation/Gymnasium
+          ref: e6be96abfb0a9df36da5e7884522c4f1f2432e53
+          path: external-gymnasium
+          persist-credentials: false
+      - name: Setup verified Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install same pinned original public environment dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --no-input \
+            'numpy==1.26.4' 'cloudpickle==3.1.1' \
+            'typing-extensions==4.12.2' 'farama-notifications==0.0.4'
+      - name: Run F44 fake-original, first-use and frozen source focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research -p test_f44_fault_schedule_robustness_dev.py -v
+          echo 'F44_FOCUSED_NEGATIVE_TESTS=PASS'
+      - name: Evaluate untouched F43 candidate and controls on real F44 original physics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f44_fault_schedule_robustness_dev.py \
+            "$GITHUB_WORKSPACE/external-gymnasium" \
+            "$RUNNER_TEMP/f44-original-fault-schedules-dev.json"
+          F44_REPORT="$RUNNER_TEMP/f44-original-fault-schedules-dev.json" python -B - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=json.loads(Path(os.environ['F44_REPORT']).read_text())
+          assert d['schema']=='forge.eureka.f44.original-mountaincar-external-fault-robustness-dev.v1'
+          assert d['source']=='e6be96abfb0a9df36da5e7884522c4f1f2432e53'
+          assert d['train_sha256']=='174dee337d801c1046bd0d26b0ff0c50f89adf36cce4489c43100b4ea0dd1f34'
+          assert d['train_episodes']==96 and d['train_transitions']==18138
+          assert d['train_action_counts']==[7107,3011,8020]
+          assert len(d['arms'])==9 and len(d['fault_seeds'])==8 and len(d['retention_seeds'])==4
+          assert all(len(a['worlds'])==12 for a in d['arms'].values())
+          assert all(w['cold_matches'] and w['forced_probes']<=16 for a in d['arms'].values() for w in a['worlds'])
+          assert all(w['forced_probes']==0 for w in d['arms']['calibrated-contradiction']['worlds'])
+          assert d['classification'] in ('F44_DEV_NO_GO','F44_DEV_SIGNAL_UNVERIFIED')
+          assert d['development_only'] and not d['scientific_accepted']
+          assert not d['first_use_consumed'] and not d['owner_eligible']
+          assert d['original_physics_with_external_faults'] and not d['unmodified_original_gymnasium_task']
+          print('F44_ORIGINAL_DEV_CLASSIFICATION='+d['classification'])
+          print('F44_DEV_RESULTS='+json.dumps({k:{'fault_mean':a['fault_mean_return'],'retention_mean':a['retention_mean_return'],'fault_returns':[w['return'] for w in a['worlds'][:8]],'fault_flips':[w['flips'] for w in a['worlds'][:8]],'ns_per_step':a['fault_decision_ns_per_step']} for k,a in d['arms'].items()},sort_keys=True))
+          print('F44_CANDIDATE_GAIN='+str(d['candidate_mean_gain']))
+          print('F44_PAIRED_WINS_GE10='+str(d['candidate_seed_wins_ge10']))
+          print('F44_RETENTION_MARGIN='+str(d['retention_margin']))
+          print('F44_DECISION_COST_RATIO='+str(d['decision_cost_ratio_to_strongest']))
+          print('F44_CANONICAL_REPORT_SHA256='+d['report_sha256'])
+          PY
+      - name: Preserve all F44 development data, including negative outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f44-original-fault-robustness-pr1614-one-shot
+          path: ${{ runner.temp }}/f44-original-fault-schedules-dev.json
+          if-no-files-found: warn
+          retention-days: 45
