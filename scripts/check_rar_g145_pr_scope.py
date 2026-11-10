@@ -20,17 +20,10 @@ HYBRID_WORKER_PATH = ".github/workflows/forge-f139-development-worker.yml"
 HYBRID_WORKER_BEFORE = "8eab7972ba1b30eabf1e38477aff60b598cdeb2f"
 HYBRID_WORKER_AFTER = "74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
 FROZEN_SCOPES = {
-    # G177 frozen source-bound engineering qualification, not owner or merge authority.
-    "engineering/rar-g167-f24-f11-canonical-validation-ab-20261109": (
-        "feb75e7490256a6930698742a43b8d12384fbbca",
-        {
-            ".github/workflows/qualify.yml",
-            "docs/FORGE-G174-F10-SOURCE-MATCHED-AB.md",
-            "docs/FORGE-G177-F36-SOURCE-BOUND-GO-REGRESSION.md",
-            "scripts/check_rar_g145_pr_scope.py",
-            "scripts/check_rar_g148_go_cache.py",
-            "scripts/check_rar_g156_dynamic_base_cache.py",
-        },
+    # Exact owner-approved V40 handoff engineering source; no live approval inferred.
+    'engineering/f139-v40-explicit-owner-handoff-20261109': (
+        'feb75e7490256a6930698742a43b8d12384fbbca',
+        {'docs/F139-V40-EXPLICIT-OWNER-HANDOFF.md', 'f139/nci04_v40_guarded_owner_handoff.py', '.github/workflows/f139-v38-original-owner-release.yml', 'f139/test_nci04_v38_source_transition.py', 'f139/nci04_v32_original_owner_transition_cli.py', 'scripts/check_rar_g148_go_cache.py', 'scripts/check_rar_g145_pr_scope.py', 'f139/check_v40_release_source.py', 'scripts/check_rar_g156_dynamic_base_cache.py', 'f139/test_nci04_v40_owner_handoff.py', 'f139/nci04_v40_owner_handoff_approval.py'},
     ),
     # Operator-authorized source-bound build and disposable-copy qualification only.
     'engineering/f139-v40-source-bound-copy-qualification-20261109': (
@@ -294,7 +287,7 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         if payload.get("number") != HYBRID_RELEASE_PR:
             raise ValueError("G145_HYBRID_RELEASE_ORIGINAL_PR_REQUIRED")
         return admit_hybrid_workflow_release(head_sha, base_sha, request, git)
-    if branch in {'engineering/f139-v40-qualified-readonly-route-20261109', 'engineering/f139-v40-source-bound-copy-qualification-20261109'}:
+    if branch in {'engineering/f139-v40-explicit-owner-handoff-20261109', 'engineering/f139-v40-qualified-readonly-route-20261109', 'engineering/f139-v40-source-bound-copy-qualification-20261109'}:
         request = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))['pull_request']
         if (request.get('user', {}).get('login') != 'spoonman136668-ai'
                 or request.get('author_association') != 'OWNER'):
