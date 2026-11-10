@@ -89,6 +89,67 @@ class DevelopmentQualityTests(unittest.TestCase):
                          self.result["programs"])
 
 
+
+# NOV10_F139_COHORT: original publicly visible Yggdrasil PR file diffs.
+# Source refs: github.com/spoonman136668-ai/Yggdrasil/pull/<PR>/files.
+# Inert trusted arithmetic grammar only; never execute candidate Python.
+# A finite public-grid equality is not a global equivalence certificate.
+NOV10_F139_COHORT = {
+    869: "max add two success mul success total",
+    867: "max min two success mul success total",
+    866: "add min two success mul success total",
+    865: "mul min two success mul success total",
+    864: "mul max two success mul success total",
+    861: "add max two success mul success total",
+    860: "add max two total mul success total",
+    859: "mul max two total mul success total",
+    858: "mul min two total mul success total",
+    857: "add min two total mul success total",
+    856: "add add two total mul success total",
+    855: "mul add two total mul success total",
+    854: "mul add one total mul success total",
+    852: "add add one total mul success total",
+    851: "add add failure total mul success total",
+    850: "mul add failure total mul success total",
+}
+
+
+class November10OriginalCohortTests(unittest.TestCase):
+    def test_public_proposals_preserve_negative_result_without_owner_authority(self):
+        programs = {
+            f"pr{number}": "rate " + numerator + " add add total zero add zero zero"
+            for number, numerator in NOV10_F139_COHORT.items()
+        }
+        result = assess(programs)
+        self.assertEqual(len(programs), 16)
+        self.assertEqual(result["fixed_scenarios"], 54)
+        self.assertEqual(result["grid_decision_cases"], 4225)
+        self.assertEqual(result["strongest_control"], "laplace")
+        self.assertEqual(result["controls"]["laplace"]["decimal"], "0.050400401845")
+        self.assertEqual(result["distinct_fixed_dev_decision_behaviors"], 13)
+        self.assertEqual(result["redundant_regret_evaluations_avoided"], 3)
+        self.assertEqual(
+            min(v["mean_regret"]["decimal"] for v in result["programs"].values()),
+            "0.067387319411")
+        self.assertEqual(result["programs"]["pr861"]["mean_regret"]["exact_fraction"],
+                         "488406937/7247757312")
+        self.assertEqual(result["programs"]["pr869"]["mean_regret"]["decimal"],
+                         "0.074761040923")
+        self.assertEqual(result["programs"]["pr856"]["mean_regret"],
+                         result["programs"]["pr861"]["mean_regret"])
+        self.assertEqual(
+            result["programs"]["pr867"]["finite_public_grid_signature_sha256"],
+            result["programs"]["pr865"]["finite_public_grid_signature_sha256"])
+        for name, candidate in result["programs"].items():
+            with self.subTest(name=name):
+                self.assertFalse(candidate[
+                    "beats_strongest_control_on_this_synthetic_dev_grid"])
+        self.assertFalse(result["scientific_first_use"])
+        self.assertFalse(result["scientific_accepted"])
+        self.assertFalse(result["dispatch_authorized"])
+        self.assertFalse(result["owner_policy_modified"])
+
+
 class AdvisoryScreenTests(unittest.TestCase):
     def test_real_originals_rejected_without_treating_ci_as_reward(self):
         from f139.nci04_public_counter_dev_quality import screen_development_candidates
