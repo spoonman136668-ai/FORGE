@@ -51,6 +51,32 @@ class DevelopmentQualityTests(unittest.TestCase):
             self.assertIs(r[name], False, name)
         self.assertEqual(r["mode"], "SYNTHETIC_DEVELOPMENT_DIAGNOSTIC_ONLY")
 
+    def test_exact_decision_cache_avoids_duplicate_regret_without_merging_sources(self):
+        from f139 import nci04_public_counter_dev_quality as quality
+        from unittest.mock import patch
+        with patch.object(quality, "_loss", wraps=quality._loss) as run:
+            result = quality.assess(PROGRAMS)
+        # Two competent controls, two distinct candidate behaviors; not three
+        # candidate evaluations. The two original different Git source hashes
+        # and both diagnostic records stay separately visible.
+        self.assertEqual(run.call_count, 4)
+        self.assertEqual(result["distinct_fixed_dev_decision_behaviors"], 2)
+        self.assertEqual(result["redundant_regret_evaluations_avoided"], 1)
+        self.assertTrue(result["candidate_source_bytes_and_negative_results_preserved"])
+        self.assertNotEqual(result["programs"]["pr838"]["program_sha256"],
+                            result["programs"]["pr846"]["program_sha256"])
+        self.assertEqual(result["programs"]["pr838"]["mean_regret"],
+                         result["programs"]["pr846"]["mean_regret"])
+        self.assertNotEqual(result["programs"]["pr847"]["mean_regret"],
+                            result["programs"]["pr846"]["mean_regret"])
+
+    def test_complete_fixed_dev_support_required_for_exact_caching(self):
+        from f139 import nci04_public_counter_dev_quality as quality
+        from unittest.mock import patch
+        with patch.object(quality, "TRIAL_COUNTS", (12,)):
+            with self.assertRaisesRegex(ValueError, "SIGNATURE_DOMAIN_TOO_SMALL"):
+                quality.assess(PROGRAMS)
+
     def test_invalid_program_or_input_rejected(self):
         for bad in ({}, {"bad": 3}, {" ": PROGRAMS["pr847"]},
                     {"pr847": "rate wrong"}, {"pr847": ""},
