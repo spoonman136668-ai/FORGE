@@ -1,0 +1,58 @@
+name: Release exact completed K Terminal qualification capacity once
+on:
+  push:
+    branches: [operations/release-kterminal-42723816573-once-20261109]
+permissions:
+  actions: write
+jobs:
+  cancel-exact-qualification:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai' && github.event.created == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify exact original run before one cancellation request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/operations/release-kterminal-42723816573-once-20261109
+          python3 - <<'PY'
+          import json, os, urllib.request
+          base = 'https://api.github.com/repos/spoonman136668-ai/FORGE'
+          run_id = 42723816573
+          def request(path, method='GET'):
+              req = urllib.request.Request(base + path, method=method, headers={
+                  'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              })
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = response.read(1000000)
+                  return response.status, json.loads(raw) if raw else None
+          event = json.load(open(os.environ['GITHUB_EVENT_PATH']))
+          assert event['created'] is True and event['deleted'] is False and event['forced'] is False
+          assert event['before'] == '0' * 40 and event['after'] == os.environ['GITHUB_SHA']
+          assert event['sender']['login'] == 'spoonman136668-ai'
+          _, run = request('/actions/runs/' + str(run_id))
+          assert run['id'] == run_id and run['repository']['id'] == 1413298198
+          assert run['head_sha'] == '00d6efe6e588881ab1d953a88c357d10c3ad19ca'
+          assert run['head_branch'] == 'qualification/kterminal-pr86-signed-buy-origin-20261109'
+          assert run['path'] == '.github/workflows/forge-kterminal-pr83-engine-preflight-desktop-20261109.yml'
+          assert run['actor']['login'] == 'spoonman136668-ai' and run['event'] == 'push'
+          assert run['run_attempt'] == 1
+          if run['status'] == 'completed':
+              print('EXACT_KTERMINAL_RUN_ALREADY_TERMINAL_NO_ACTION')
+          else:
+              assert run['status'] == 'in_progress'
+              _, jobs = request('/actions/runs/' + str(run_id) + '/jobs')
+              active = [j for j in jobs['jobs'] if j['status'] == 'in_progress']
+              assert len(active) == 1
+              assert active[0]['id'] == 129524203331
+              assert active[0]['name'] == 'owner-local-package'
+              assert active[0]['runner_name'] == 'FORGE-CODEX-REMOTE'
+              status, _ = request('/actions/runs/' + str(run_id) + '/cancel', 'POST')
+              assert status == 202
+              print('EXACT_KTERMINAL_QUALIFICATION_CANCEL_REQUESTED')
+          PY
