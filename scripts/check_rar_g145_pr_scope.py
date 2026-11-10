@@ -20,6 +20,11 @@ HYBRID_WORKER_PATH = ".github/workflows/forge-f139-development-worker.yml"
 HYBRID_WORKER_BEFORE = "8eab7972ba1b30eabf1e38477aff60b598cdeb2f"
 HYBRID_WORKER_AFTER = "74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
 FROZEN_SCOPES = {
+    # Operator-authorized source-bound build and disposable-copy qualification only.
+    'engineering/f139-v40-source-bound-copy-qualification-20261109': (
+        'fa1a0477996bf1fb0568290a3692c57ee8b29b91',
+        {'docs/F139-V40-SOURCE-BOUND-COPY-QUALIFICATION.md', 'f139/test_v40_readonly_workflow_scope.py', 'scripts/check_rar_g145_pr_scope.py', '.github/workflows/f139-g54-v9-owner-cutover.yml', 'scripts/check_rar_g148_go_cache.py', 'scripts/check_rar_g156_dynamic_base_cache.py'},
+    ),
     # Operator-authorized exact V40 read-only invocation qualification.
     'engineering/f139-v40-qualified-readonly-route-20261109': (
         '32de33753c874102de9672d2768e4b7c0b866b25',
@@ -277,7 +282,7 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         if payload.get("number") != HYBRID_RELEASE_PR:
             raise ValueError("G145_HYBRID_RELEASE_ORIGINAL_PR_REQUIRED")
         return admit_hybrid_workflow_release(head_sha, base_sha, request, git)
-    if branch == 'engineering/f139-v40-qualified-readonly-route-20261109':
+    if branch in {'engineering/f139-v40-qualified-readonly-route-20261109', 'engineering/f139-v40-source-bound-copy-qualification-20261109'}:
         request = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))['pull_request']
         if (request.get('user', {}).get('login') != 'spoonman136668-ai'
                 or request.get('author_association') != 'OWNER'):

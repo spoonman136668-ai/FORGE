@@ -230,6 +230,11 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == 'engineering/f139-v40-source-bound-copy-qualification-20261109':
+        if (admission != FROZEN or base != 'fa1a0477996bf1fb0568290a3692c57ee8b29b91'
+                or tree != '0554ee925e18e5d77b321b817e1bd42b11fd18d5'):
+            raise ValueError("G156_V40_COPY_FROZEN_SCOPE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == 'engineering/f139-v40-qualified-readonly-route-20261109':
         if (admission != FROZEN or base != '32de33753c874102de9672d2768e4b7c0b866b25'
                 or tree != "22d135f137c371c395604315605dbf5cb4f776a2"):

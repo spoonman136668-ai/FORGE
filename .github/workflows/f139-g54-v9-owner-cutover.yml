@@ -3637,7 +3637,7 @@ jobs:
           Write-Host 'F139_G54_STATUS_READ_ONLY=PASS'
 
   v40-invocation-qualification:
-    if: ${{ github.actor == 'spoonman136668-ai' && github.event_name == 'issue_comment' && github.event.issue.number == 807 && startsWith(github.event.comment.body, 'F139-V40-READONLY ') }}
+    if: ${{ github.actor == 'spoonman136668-ai' && github.event_name == 'issue_comment' && github.event.issue.number == 807 && (startsWith(github.event.comment.body, 'F139-V40-READONLY ') || startsWith(github.event.comment.body, 'F139-V40-QUALIFY-COPY ')) }}
     runs-on: windows-latest
     timeout-minutes: 10
     permissions:
@@ -3656,7 +3656,12 @@ jobs:
           if($offset -lt 0){throw 'V40_INVOCATION_BLOCK_MISSING'}
           $block=$text.Substring($offset)
           $block=$block.Substring($block.IndexOf("`n",$block.IndexOf('        run: |'))+1)
-          $block=($block -split "`n" | ForEach-Object {$_ -replace '^          ',''}) -join "`n"
+          $scriptLines=@()
+          foreach($line in ($block -split "`n")) {
+            if($line.Length -gt 0 -and $line -notmatch '^          '){break}
+            $scriptLines+=($line -replace '^          ','')
+          }
+          $block=$scriptLines -join "`n"
           $tokens=$null;$errors=$null
           [void][Management.Automation.Language.Parser]::ParseInput($block,[ref]$tokens,[ref]$errors)
           if($errors.Count -ne 0){throw 'V40_INVOCATION_SYNTAX_INVALID'}
@@ -3667,7 +3672,7 @@ jobs:
           Write-Host 'V40_INVOCATION_PARSE_AND_CONTROLS=PASS'
   v40-owner-readonly:
     needs: v40-invocation-qualification
-    if: ${{ github.actor == 'spoonman136668-ai' && github.event_name == 'issue_comment' && github.event.issue.number == 807 && startsWith(github.event.comment.body, 'F139-V40-READONLY ') }}
+    if: ${{ github.actor == 'spoonman136668-ai' && github.event_name == 'issue_comment' && github.event.issue.number == 807 && (startsWith(github.event.comment.body, 'F139-V40-READONLY ') || startsWith(github.event.comment.body, 'F139-V40-QUALIFY-COPY ')) }}
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 15
     permissions:
@@ -3679,7 +3684,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - uses: actions/setup-go@v5
+        if: startsWith(github.event.comment.body, 'F139-V40-QUALIFY-COPY ')
+        with:
+          go-version: '1.23.12'
+          cache: false
       - name: V40 original-owner read-only preflight
+        id: candidate
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3702,7 +3713,8 @@ jobs:
              $event.sender.login -cne 'spoonman136668-ai' -or
              $event.comment.author_association -cne 'OWNER' -or
              [int64]$event.comment.id -le 0 -or
-             [string]$event.comment.body -cne ('F139-V40-READONLY '+$candidate)) {
+             ([string]$event.comment.body -cne ('F139-V40-READONLY '+$candidate) -and
+              [string]$event.comment.body -cne ('F139-V40-QUALIFY-COPY '+$candidate))) {
             throw 'V40_EXACT_OWNER_READONLY_EVENT_REQUIRED'
           }
           if((& git rev-parse HEAD | Out-String).Trim() -cne $candidate -or
@@ -3761,8 +3773,69 @@ jobs:
              $body.new_scheduler -ne $false -or $body.new_queue -ne $false -or
              $body.title_prefix -cne 'F139 autonomy DEV:') {throw 'V40_ORIGINAL_POLICY_DRIFT'}
           Write-Host 'V40_EXISTING_ORIGINAL_OWNER_ROUTE=VERIFIED'
-          & $python -B -m f139.nci04_v40_original_owner_transition_cli --db $db --target $candidate --preflight-only
-          if($LASTEXITCODE -ne 0){throw 'V40_ORIGINAL_READONLY_PREFLIGHT_FAILED_NO_OWNER_MUTATION'}
+          $copyMode=[string]$event.comment.body -ceq ('F139-V40-QUALIFY-COPY '+$candidate)
+          if($copyMode) {
+            $toolchain=((& go version | Out-String).Trim() -replace '^go version ','')
+            if($LASTEXITCODE -ne 0 -or $toolchain -cne 'go1.23.12 windows/amd64') {throw 'V40_COPY_EXACT_TOOLCHAIN_REQUIRED'}
+            $candidateDir=Join-Path $env:RUNNER_TEMP ('f139-v40-candidate-'+$env:GITHUB_RUN_ID)
+            if(Test-Path -LiteralPath $candidateDir){throw 'V40_COPY_BUILD_COLLISION'}
+            New-Item -ItemType Directory -Path $candidateDir -ErrorAction Stop | Out-Null
+            $binary=Join-Path $candidateDir 'f139-genenv-source.exe'
+            $env:GOOS='windows';$env:GOARCH='amd64';$env:CGO_ENABLED='0'
+            $env:GOTOOLCHAIN='local';$env:GOAMD64='v1';$env:GOFLAGS=''
+            & go build -trimpath -buildvcs=false -o $binary ./cmd/f139-genenv-source
+            if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $binary -PathType Leaf) -or
+               (Get-Item -LiteralPath $binary).Length -gt 16000000) {throw 'V40_COPY_CANDIDATE_BUILD_FAILED'}
+            $binaryHash=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            $preflightLines=& $python -B -m f139.nci04_v40_original_owner_transition_cli --db $db --target $candidate --preflight-only --rehearse-copy
+            if($LASTEXITCODE -ne 0){throw 'V40_ORIGINAL_COPY_QUALIFICATION_FAILED_NO_OWNER_MUTATION'}
+            $report=($preflightLines -join "`n") | ConvertFrom-Json
+            $copy=$report.copied_history_rehearsal
+            if($report.schema -cne 'forge.f139.v40.readonly-preflight.v1' -or
+               $report.source_sha -cne $old -or $report.candidate_source_sha -cne $candidate -or
+               $report.owner_mutations -ne 0 -or $report.new_dispatches -ne 0 -or
+               $report.source_transition_authorized -ne $false -or $report.live_migration_enabled -ne $false -or
+               $report.scientific_first_use -ne $false -or $copy.copied_history_only -ne $true -or
+               $copy.cold_transition_verified -ne $true -or $copy.native_activation_in_copy_verified -ne $true -or
+               $copy.original_owner_mutations -ne 0 -or $copy.new_dispatches -ne 0 -or
+               $copy.scientific_first_use -ne $false -or $copy.prior_utility_reused_for_development_only -ne $true -or
+               $copy.production_executable_qualified -ne $false -or
+               $copy.actual_typed_generator.executable_sha256 -cne $binaryHash -or
+               $copy.actual_typed_generator.model_calls -ne 0 -or $copy.actual_typed_generator.publications -ne 0 -or
+               $copy.actual_typed_generator.native_dispatches -ne 0) {throw 'V40_COPY_OR_BUILD_BYTE_PARITY_UNVERIFIED'}
+            if((& git rev-parse HEAD | Out-String).Trim() -cne $candidate -or
+               @(& git status --porcelain --untracked-files=all).Count -ne 0) {throw 'V40_COPY_SOURCE_CHANGED_DURING_BUILD'}
+            $manifest=[ordered]@{
+              schema='forge.f139.v40.source-bound-copy-build.v1';source_sha=$candidate
+              source_tree=((& git rev-parse 'HEAD^{tree}' | Out-String).Trim());binary_sha256=$binaryHash
+              toolchain=$toolchain;goos='windows';goarch='amd64';cgo_enabled=0;goamd64='v1'
+              build_flags=@('-trimpath','-buildvcs=false');run_id=$env:GITHUB_RUN_ID
+              source_bound_build_verified=$true;candidate_matches_rehearsed_binary=$true
+              copied_history_rehearsal=$copy;original_head_seq=$report.original_head_seq
+              original_head_sha256=$report.original_head_sha256;preserved_counters=$report.preserved_counters
+              original_owner_mutations=0;publications=0;native_dispatches=0
+              production_release_authorized=$false;scientific_first_use=$false
+            }
+            $manifest | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $candidateDir 'manifest.json') -Encoding utf8
+            Write-Host ('V40_SOURCE_BOUND_COPY_BUILD='+($manifest | ConvertTo-Json -Depth 12 -Compress))
+            "path=$candidateDir" >> $env:GITHUB_OUTPUT
+          } else {
+            & $python -B -m f139.nci04_v40_original_owner_transition_cli --db $db --target $candidate --preflight-only
+            if($LASTEXITCODE -ne 0){throw 'V40_ORIGINAL_READONLY_PREFLIGHT_FAILED_NO_OWNER_MUTATION'}
+          }
           if((& git -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
              @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {throw 'V40_POSTREAD_ORIGINAL_SOURCE_DRIFT'}
+          $finalMain=Read-Frozen 'repos/spoonman136668-ai/FORGE/branches/main'
+          $finalPolicy=Read-Frozen 'repos/spoonman136668-ai/FORGE/issues/807'
+          if($finalMain.protected -ne $true -or $finalMain.commit.sha -cne $candidate -or
+             $finalPolicy.state -cne 'open' -or $finalPolicy.user.login -cne 'spoonman136668-ai' -or
+             [string]$finalPolicy.body -cne [string]$policy.body) {throw 'V40_POSTREAD_MAIN_OR_POLICY_DRIFT'}
           Write-Host 'V40_ORIGINAL_READONLY_PREFLIGHT=PASS'
+      - name: Retain public-source candidate utility and sanitized receipt
+        if: startsWith(github.event.comment.body, 'F139-V40-QUALIFY-COPY ')
+        uses: actions/upload-artifact@v4
+        with:
+          name: f139-v40-source-bound-copy-build-${{ github.sha }}-r${{ github.run_id }}
+          path: ${{ steps.candidate.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14
