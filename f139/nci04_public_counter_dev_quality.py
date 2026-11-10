@@ -121,3 +121,46 @@ def assess(programs):
         "dispatch_authorized": False,
         "owner_policy_modified": False,
     }
+
+
+FROZEN_DEV_GAIN_FLOOR = Fraction(1, 100)  # Exactly 0.01 expected regret.
+
+
+def screen_development_candidates(programs):
+    """Advisory selection after an exact DEV score, with mandatory abstention.
+
+    This may identify a candidate worth a *new, independent, preregistered*
+    evaluation. It never certifies a reward, promotes an optimizer, dispatches
+    an owner task, or changes the existing candidate generator's choice.
+    """
+    report = assess(programs)
+    control = report["strongest_control"]
+    control_loss = Fraction(report["controls"][control]["exact_fraction"])
+    # Tie-breaking is stable across input dictionary order; no outcome access.
+    candidate = min(sorted(report["programs"]), key=lambda name: Fraction(
+        report["programs"][name]["mean_regret"]["exact_fraction"]))
+    candidate_loss = Fraction(
+        report["programs"][candidate]["mean_regret"]["exact_fraction"])
+    gain = control_loss - candidate_loss
+    meets_floor = gain >= FROZEN_DEV_GAIN_FLOOR
+    return {
+        "schema": "forge.f139.public-counter-development-screen.v1",
+        "mode": "NON_AUTHORIZING_SYNTHETIC_DEV_SELECTION",
+        "disposition": ("PROMISING_DEV_ONLY_REQUIRES_NEW_INDEPENDENT_EVIDENCE"
+                        if meets_floor else "DEV_NO_GO"),
+        "candidate": candidate if meets_floor else None,
+        "best_observed_candidate_for_diagnostics": candidate,
+        "strongest_control": control,
+        "candidate_mean_regret_exact": str(candidate_loss),
+        "control_mean_regret_exact": str(control_loss),
+        "absolute_regret_gain_exact": str(gain),
+        "predeclared_absolute_regret_gain_floor_exact": str(FROZEN_DEV_GAIN_FLOOR),
+        "equal_evidence_and_complete_cost_independently_proven": False,
+        "development_signal_only": True,
+        "owner_selection_unchanged": True,
+        "scientific_first_use": False,
+        "scientific_accepted": False,
+        "optimizer_training_authorized": False,
+        "dispatch_authorized": False,
+        "accepted_ref_mutation_authorized": False,
+    }
