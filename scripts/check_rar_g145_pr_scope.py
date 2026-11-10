@@ -20,6 +20,19 @@ HYBRID_WORKER_PATH = ".github/workflows/forge-f139-development-worker.yml"
 HYBRID_WORKER_BEFORE = "8eab7972ba1b30eabf1e38477aff60b598cdeb2f"
 HYBRID_WORKER_AFTER = "74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
 FROZEN_SCOPES = {
+    # Exact G178 F37 DEVELOPMENT qualification only. Never merge/owner/first-use.
+    "engineering/rar-g167-f24-f11-canonical-validation-ab-20261109": (
+        "2c7caad5a4502d4b874a11d57207a35cf033eb08",
+        {
+            ".github/workflows/qualify.yml",
+            "docs/FORGE-G174-F10-SOURCE-MATCHED-AB.md",
+            "docs/FORGE-G177-F36-SOURCE-BOUND-GO-REGRESSION.md",
+            "docs/FORGE-G178-F37-SOURCE-BOUND-GO-REGRESSION.md",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Exact owner-approved V40 handoff engineering source; no live approval inferred.
     'engineering/f139-v40-explicit-owner-handoff-20261109': (
         'feb75e7490256a6930698742a43b8d12384fbbca',
