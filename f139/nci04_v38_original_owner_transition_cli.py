@@ -214,6 +214,9 @@ def main(argv=None, *, _contract=None):
             api = GitHub()
             verify_remote_readback(api.native_repo_get)
             try:
+                additional_readback = getattr(contract, "verify_additional_publication_readback", None)
+                if callable(additional_readback):
+                    additional_readback(db, api.native_repo_get)
                 report = contract.readonly_snapshot(db)
                 # Executed only after the original mutex was acquired. The
                 # normal owner may have created a proposal during that wait.
