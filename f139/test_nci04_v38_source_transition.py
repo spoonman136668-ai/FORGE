@@ -214,7 +214,7 @@ class V38ReleaseGuardTests(unittest.TestCase):
         from pathlib import Path
         import subprocess
         source=(Path(__file__).resolve().parents[1]/'.github/workflows/f139-v38-original-owner-release.yml').read_text()
-        segment=source.split('  recover-pretransition-v38:',1)[1].split('        run: |',1)[1]
+        segment=source.split('  recover-pretransition-v38:',1)[1].split('  handoff-v40:',1)[0].split('        run: |',1)[1]
         script='\n'.join(line[10:] for line in segment.splitlines() if line.startswith('          '))
         checker="$code=[Console]::In.ReadToEnd();$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseInput($code,[ref]$tokens,[ref]$errors);if($errors.Count -gt 0){$errors | ForEach-Object {$_.Message};exit 1};exit 0"
         result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',checker],

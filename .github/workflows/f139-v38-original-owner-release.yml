@@ -1,4 +1,4 @@
-name: FORGE F139 V39 guarded original-owner prospective redundancy-filter installation
+name: FORGE F139 original-owner handoff (V39 sealed, V40 explicit)
 on:
   push:
     branches: ['f139-owner-release-*']
@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   install-v39:
-    if: github.actor == 'spoonman136668-ai' && github.event.created == true && github.ref == format('refs/heads/f139-owner-release-{0}', github.sha) && github.sha != '54d556c3fdf1023d650f76c48ffb1bdc5ccc9135'
+    if: github.actor == 'spoonman136668-ai' && github.event.created == true && github.ref == format('refs/heads/f139-owner-release-{0}', github.sha) && github.sha == '42c70d74dd93ef90d0f4618fefefe2206b81eafe'
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 30
     steps:
@@ -766,3 +766,582 @@ jobs:
             }
             throw
           } finally {if($ownerLock){$ownerLock.Dispose()}}
+
+  handoff-v40:
+    if: github.actor == 'spoonman136668-ai' && github.event.created == true && github.ref == format('refs/heads/f139-owner-release-{0}', github.sha) && github.sha != '42c70d74dd93ef90d0f4618fefefe2206b81eafe'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.12'
+          cache: false
+      - name: Explicitly approved original V39 to V40 guarded source handoff
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $old='42c70d74dd93ef90d0f4618fefefe2206b81eafe'
+          $name='FORGE-F139-UnifiedController'
+          $target=$env:GITHUB_SHA
+          if($env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_REF -cne ('refs/heads/f139-owner-release-'+$target) -or
+             $target -cnotmatch '^[a-f0-9]{40}$' -or
+             (& git rev-parse HEAD | Out-String).Trim() -cne $target) {
+            throw 'F139_V40_WRONG_ORIGINAL_OWNER_RELEASE_EVENT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+             [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'F139_V40_ESCALATED_OWNER_REQUIRED'
+          }
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          if($event.created -ne $true -or $event.deleted -ne $false -or
+             $event.forced -ne $false -or $event.before -cne ('0'*40) -or
+             $event.after -cne $target -or $event.sender.login -cne 'spoonman136668-ai') {
+            throw 'F139_V40_IMMUTABLE_CREATE_ONLY_EVENT_REQUIRED'
+          }
+          function Read-V40GitHub([string]$route) {
+            # Reuse the owner's bounded GET-only transport; writes stay one-shot.
+            if($route.StartsWith('https://api.github.com/')) {$route=$route.Substring(23)}
+            if($route -cne 'user' -and -not $route.StartsWith('repos/spoonman136668-ai/FORGE/')) {
+              throw 'F139_V40_READ_ROUTE_DENIED'
+            }
+            $PSNativeCommandUseErrorActionPreference=$false
+            $raw=(& python -B -c 'import sys; from f139.local_controller import GitHub; sys.stdout.buffer.write(GitHub._command([sys.argv[1]]))' $route | Out-String)
+            if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($raw)) {
+              throw 'F139_V40_BOUNDED_READ_UNAVAILABLE'
+            }
+            return ($raw | ConvertFrom-Json -ErrorAction Stop)
+          }
+          $main=(Read-V40GitHub 'repos/spoonman136668-ai/FORGE/branches/main')
+          if($LASTEXITCODE -ne 0 -or $main.protected -ne $true) {
+            throw 'F139_V40_PROTECTED_MAIN_UNAVAILABLE'
+          }
+          $protected=[string]$main.commit.sha
+          if($protected -cne $target){throw 'F139_V40_EXACT_CURRENT_MAIN_REQUIRED'}
+          # Separate explicit OWNER approval is required; qualification is not authority.
+          # Native owner's existing gh session supplies admin READ only here.
+          $workflowToken=$env:GH_TOKEN
+          try {
+            Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+            $localOwner=[string](Read-V40GitHub 'user').login
+            if($localOwner -cne 'spoonman136668-ai'){throw 'F139_V40_NATIVE_GH_OWNER_NOT_VERIFIED'}
+            $approvalLines=& python -B -m f139.nci04_v40_guarded_owner_handoff --target $target --plan-only
+            if($LASTEXITCODE -ne 0){throw 'F139_V40_EXPLICIT_OWNER_APPROVAL_REQUIRED'}
+            $approval=($approvalLines -join "`n") | ConvertFrom-Json
+            if($approval.schema -cne 'forge.f139.v40.owner-handoff-plan.v1' -or
+               $approval.source_sha -cne $target -or $approval.from_source_sha -cne $old -or
+               $approval.owner_source_transition -ne $true -or
+               $approval.pause_resume_existing_task -ne $true -or
+               $approval.owner_policy_source_update -ne $true -or
+               $approval.create_immutable_owner_release_ref -ne $true -or
+               $approval.hybrid_admission -ne $false -or $approval.scientific_first_use -ne $false) {
+              throw 'F139_V40_OWNER_APPROVAL_PLAN_SCOPE_DRIFT'
+            }
+            Write-Host ('F139_V40_OWNER_APPROVAL_PLAN='+($approval | ConvertTo-Json -Depth 8 -Compress))
+          } finally {$env:GH_TOKEN=$workflowToken}
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {
+            throw 'F139_V40_ORIGINAL_TASK_TOPOLOGY_DRIFT'
+          }
+          $principal=[string]$task.Principal.UserId
+          $sid=''
+          try {$sid=(New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value} catch {}
+          if($principal -ine $identity.Name -and $sid -cne $identity.User.Value) {
+            throw 'F139_V40_ORIGINAL_OWNER_SID_DRIFT'
+          }
+          function Field([string]$key) {
+            $match=[regex]::Match([string]$task.Actions[0].Arguments,
+                     '(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $match.Success){throw 'F139_V40_ORIGINAL_TASK_ARGUMENT_DRIFT'}
+            return $match.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $dbPath=Field 'Database'
+          $python=Field 'PythonExe'
+          if(-not(Test-Path -LiteralPath $dbPath -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_V40_DEPLOYED_V38_SOURCE_DRIFT'
+          }
+          function Read-V40OwnerPolicy {
+            # The existing independent read fallback remains read-only.
+            try {return (Read-V40GitHub 'repos/spoonman136668-ai/FORGE/issues/807')}
+            catch {Write-Verbose 'F139_V40_BOUNDED_POLICY_READ_FAILED'}
+            Write-Host 'F139_V40_POLICY_READ_TRANSPORT_FALLBACK=READ_ONLY'
+            try {
+              return (Invoke-RestMethod -Method Get -MaximumRedirection 0 -TimeoutSec 30 -ErrorAction Stop `
+                -Uri 'https://api.github.com/repos/spoonman136668-ai/FORGE/issues/807' `
+                -Headers @{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';
+                           'X-GitHub-Api-Version'='2022-11-28'})
+            } catch {
+              throw 'F139_V40_POLICY_READ_UNAVAILABLE_NO_OWNER_MUTATION'
+            }
+          }
+          & $python -B -m f139.check_v40_release_source
+          if($LASTEXITCODE -ne 0){throw 'F139_V40_RELEASE_SOURCE_MANIFEST_DRIFT'}
+          $policy=Read-V40OwnerPolicy
+          $priorBody=[string]$policy.body
+          $ownerPolicy=$priorBody | ConvertFrom-Json
+          if($policy.state -cne 'open' -or
+             $policy.user.login -cne 'spoonman136668-ai' -or
+             $ownerPolicy.schema -cne 'forge.f139.native-autonomy-feed-owner-policy.v1' -or
+             $ownerPolicy.enabled -ne $true -or $ownerPolicy.source_sha -cne $old -or
+             $ownerPolicy.scientific_first_use -ne $false -or
+             $ownerPolicy.max_issue_creations_per_cycle -ne 2 -or
+             $ownerPolicy.new_controller -ne $false -or
+             $ownerPolicy.new_scheduler -ne $false -or
+             $ownerPolicy.new_queue -ne $false -or $ownerPolicy.paid_model_calls -ne 0) {
+            throw 'F139_V40_SOURCE_PINNED_OWNER_POLICY_DRIFT'
+          }
+          $release=(Read-V40GitHub "repos/spoonman136668-ai/FORGE/branches/f139-owner-release-$target")
+          if($LASTEXITCODE -ne 0 -or $release.commit.sha -cne $target -or
+             $release.protected -ne $true) {
+            throw 'F139_V40_IMMUTABLE_RELEASE_REF_NOT_QUALIFIED'
+          }
+          # A generic protected=true response is not evidence of an
+          # immutable source: inspect the active, no-bypass update+delete rule.
+          $allRules=@(Read-V40GitHub 'repos/spoonman136668-ai/FORGE/rulesets')
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_V40_RELEASE_RULESET_READ_DENIED'
+          }
+          $matching=@($allRules | Where-Object {
+            $_.name -ceq 'FORGE F139 immutable owner release refs' -and
+            $_.target -ceq 'branch' -and $_.enforcement -ceq 'active'
+          })
+          if($matching.Count -ne 1 -or [int64]$matching[0].id -le 0) {
+            throw 'F139_V40_RELEASE_RULESET_NOT_UNIQUE_OR_ACTIVE'
+          }
+          # The short-lived GitHub Actions token has issues:write but no
+          # administration:read; GitHub omits bypass_actors for that token.
+          # Authenticate to the already-verified local owner gh session for
+          # the one sensitive ruleset detail read, then restore the Actions
+          # token for the original guarded issue-policy PATCH.
+          $workflowToken=$env:GH_TOKEN
+          try {
+            Remove-Item -Path Env:GH_TOKEN -ErrorAction SilentlyContinue
+            $localOwner=[string](Read-V40GitHub 'user').login
+            if($LASTEXITCODE -ne 0 -or $localOwner -cne 'spoonman136668-ai') {
+              throw 'F139_V40_LOCAL_OWNER_GH_IDENTITY_NOT_VERIFIED'
+            }
+            $rule=(Read-V40GitHub ("repos/spoonman136668-ai/FORGE/rulesets/"+$matching[0].id))
+            if($LASTEXITCODE -ne 0 -or $null -eq $rule -or
+               @($rule.PSObject.Properties.Name) -cnotcontains 'bypass_actors') {
+              throw 'F139_V40_ADMIN_READBACK_BYPASS_FIELD_UNAVAILABLE'
+            }
+          } finally {
+            $env:GH_TOKEN=$workflowToken
+          }
+          if($null -eq $rule -or
+             [string]$rule.name -cne 'FORGE F139 immutable owner release refs' -or
+             [string]$rule.target -cne 'branch' -or
+             [string]$rule.enforcement -cne 'active' -or
+             @($rule.bypass_actors).Count -ne 0 -or
+             @($rule.conditions.ref_name.include).Count -ne 1 -or
+             [string]$rule.conditions.ref_name.include[0] -cne 'refs/heads/f139-owner-release-*' -or
+             @($rule.conditions.ref_name.exclude).Count -ne 0) {
+            throw 'F139_V40_RELEASE_RULESET_SCOPE_OR_BYPASS_DRIFT'
+          }
+          $lockTypes=@($rule.rules | ForEach-Object {[string]$_.type} | Sort-Object)
+          if($lockTypes.Count -ne 2 -or $lockTypes[0] -cne 'deletion' -or
+             $lockTypes[1] -cne 'update') {
+            throw 'F139_V40_RELEASE_RULESET_LOCK_WEAKENED'
+          }
+          $finalMain=(Read-V40GitHub 'repos/spoonman136668-ai/FORGE/branches/main')
+          if($LASTEXITCODE -ne 0 -or $finalMain.protected -ne $true -or
+             $finalMain.commit.sha -cne $protected){throw 'F139_V40_PROTECTED_MAIN_MOVED'}
+          Write-Host 'F139_V40_RELEASE_REF_IMMUTABILITY=VERIFIED'
+          Write-Host 'F139_V40_ORIGINAL_OWNER_PROTECTED_PREFLIGHT=PASS'
+          $ownerLock=$null
+          $preflightLines=& $python -B -m f139.nci04_v40_original_owner_transition_cli --db $dbPath --target $target --preflight-only --rehearse-copy
+          if($LASTEXITCODE -ne 0){throw 'F139_V40_RUNNING_OWNER_READONLY_PREFLIGHT_FAILED'}
+          $preflight=($preflightLines -join "`n") | ConvertFrom-Json
+          if($preflight.schema -cne 'forge.f139.v40.readonly-preflight.v1' -or
+             $preflight.source_sha -cne $old -or $preflight.owner_mutations -ne 0 -or
+             $preflight.source_transition_authorized -ne $false -or $preflight.live_migration_enabled -ne $false -or
+             $preflight.original_head_seq -ne $approval.expected_original_head_seq -or
+             $preflight.original_head_sha256 -cne $approval.expected_original_head_sha256 -or
+             $preflight.copied_history_rehearsal.actual_typed_generator.executable_sha256 -cne $approval.binary_sha256 -or
+             $preflight.scientific_first_use -ne $false -or $preflight.new_dispatches -ne 0) {
+            throw 'F139_V40_APPROVAL_ORIGINAL_CUSTODY_LEASE_MOVED'
+          }
+          Write-Host 'F139_V40_RUNNING_OWNER_READONLY_PREFLIGHT=PASS'
+          # One existing-kernel-lease wait, then recheck the just-read original
+          # head before disabling the existing task. No polling/replay owner.
+          Add-Type -Path (Join-Path $env:GITHUB_WORKSPACE 'f139/F139OriginalOwnerMutex.cs') -ErrorAction Stop
+          $ownerLock=[F139OriginalOwnerMutex]::Acquire([IO.Path]::ChangeExtension($dbPath,'.lock'),900000)
+          try {
+            @'
+          import pathlib, sqlite3, sys
+          path=pathlib.Path(sys.argv[1]).resolve()
+          conn=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,isolation_level=None)
+          try:
+              conn.execute("PRAGMA query_only=ON")
+              row=conn.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              assert row==(sys.argv[2],int(sys.argv[3]),sys.argv[4],1,1), "F139_V40_ORIGINAL_LEASE_MOVED"
+              assert conn.execute("SELECT COUNT(*) FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER')").fetchone()[0]==0, "F139_V40_NEW_ORIGINAL_WORK"
+          finally:
+              conn.close()
+          '@ | & $python -B - $dbPath $old ([string]$preflight.original_head_seq) ([string]$preflight.original_head_sha256)
+            if($LASTEXITCODE -ne 0){throw 'F139_V40_PREQUIESCE_ORIGINAL_HEAD_DRIFT'}
+          } catch {$ownerLock.Dispose();$ownerLock=$null;throw}
+          $quiesced=$false
+          $mutationPossible=$false
+          $resumed=$false
+          $initialBody=$priorBody
+          $policyPausePossible=$false
+          $pausedBody=$null
+          try {
+            try {
+              Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+              $quiesced=$true
+              if([string]$task.State -ceq 'Running') {
+                Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+              }
+              for($i=0;$i -lt 40;$i++) {
+                $children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+                    Where-Object {$_.CommandLine -and
+                      $_.CommandLine.Contains('f139.local_controller') -and
+                      $_.CommandLine.Contains($dbPath)})
+                if($children.Count -eq 0){break}
+                Start-Sleep -Seconds 1
+              }
+              if($children.Count -ne 0 -or
+                 [string](Get-ScheduledTask -TaskName $name).State -cne 'Disabled') {
+                throw 'F139_V40_ORIGINAL_OWNER_NOT_QUIESCENT'
+              }
+            } finally {
+                $ownerLock.Dispose()
+              $ownerLock=$null
+            }
+            & git -C $root fetch --no-tags origin $target
+            if($LASTEXITCODE -ne 0 -or
+               (& git -C $root rev-parse FETCH_HEAD | Out-String).Trim() -cne $target) {
+              throw 'F139_V40_SOURCE_FETCH_NOT_IMMUTABLE'
+            }
+            & git -C $root checkout --detach $target
+            if($LASTEXITCODE -eq 0) {
+              & git -C $root checkout-index --force -- genenv/genenv.go cmd/f139-genenv-source/main.go f139/nci04_genenv_source.py f139/nci04_model_free_search.py f139/nci04_genenv_owner_backend.py f139/fixtures/model_free_yggdrasil_992ef.py promptlineage/lineage.go f139/nci04_prompt_source.py f139/nci04_prompt_program.py f139/nci04_native_contract.py f139/nci04_portfolio_source_boundary.py
+            }
+            if($LASTEXITCODE -ne 0 -or
+               (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $target -or
+               @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
+              throw 'F139_V40_INSTALL_CHECKOUT_DRIFT'
+            }
+            Set-Location -LiteralPath $root
+            $toolchain=((& go version | Out-String).Trim() -replace '^go version ','')
+            if($LASTEXITCODE -ne 0 -or $toolchain -cne 'go1.23.12 windows/amd64') {
+              throw 'F139_V40_QUALIFIED_GO_TOOLCHAIN_REQUIRED'
+            }
+            $utilityDir=Join-Path (Join-Path (Split-Path $dbPath -Parent) 'genenv-source') $target
+            if(Test-Path -LiteralPath $utilityDir) { throw 'F139_V40_EXECUTABLE_CUSTODY_COLLISION' }
+            New-Item -ItemType Directory -Path $utilityDir -ErrorAction Stop | Out-Null
+            $genenv=Join-Path $utilityDir 'f139-genenv-source.exe'
+            $env:GOOS='windows'
+            $env:GOARCH='amd64'
+            $env:CGO_ENABLED='0'
+            $env:GOTOOLCHAIN='local'
+            $env:GOAMD64='v1'
+            $env:GOFLAGS=''
+            & go build -trimpath -buildvcs=false -o $genenv ./cmd/f139-genenv-source
+            if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $genenv -PathType Leaf)) {
+              throw 'F139_V40_EXACT_SOURCE_UTILITY_BUILD_FAILED'
+            }
+            if((Get-Item -LiteralPath $genenv).Length -gt 16000000) {
+              throw 'F139_V40_EXECUTABLE_OVERSIZED'
+            }
+            $binaryHash=(Get-FileHash -LiteralPath $genenv -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($binaryHash -cne $approval.binary_sha256){throw 'F139_V40_APPROVED_BINARY_DRIFT'}
+            Write-Host ('F139_V40_GENENV_EXECUTABLE_SHA256='+$binaryHash)
+            $backupDir=Join-Path (Split-Path $dbPath -Parent) (
+               'f139-v40-before-'+$env:GITHUB_RUN_ID)
+            $backup=Join-Path $backupDir 'state.sqlite'
+            # A SQLite file alone is NOT a self-contained cold backup:
+            # owner verification requires the two original negative ZIPs.
+            if(Test-Path -LiteralPath $backupDir) {
+              throw 'F139_V40_PRETRANSITION_BACKUP_COLLISION'
+            }
+            New-Item -ItemType Directory -Path $backupDir -ErrorAction Stop | Out-Null
+            @'
+          from contextlib import closing
+          import hashlib, json, pathlib, shutil, sqlite3, sys
+          from f139.local_controller import Database, SingleOwner
+          from f139.nci04_native_contract import canonical
+          from f139.nci04_v40_source_transition import validate_idle, idle_gate_predicates, MaintenanceDenied, preserved_counters_valid
+          from f139.nci04_v32_original_owner_transition_cli import copy_provider_archives, copy_generation_executable
+          from f139.nci04_negative_owner_store import (
+              TICKET as FIRST_TICKET, RUN_ID as FIRST_RUN, ARTIFACT_SHA as FIRST_SHA)
+          from f139.nci04_split_negative_custody import (
+              TICKET as SECOND_TICKET, RUN_ID as SECOND_RUN, ARTIFACT_SHA256 as SECOND_SHA)
+          path, backup = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          assert not backup.exists() and backup.parent.is_dir(), "F139_V40_BACKUP_ALREADY_EXISTS"
+          db=Database.open_readonly(path)
+          try:
+              with SingleOwner(path.with_suffix(".lock")):
+                  g3_attempt=db.conn.execute(
+                      "SELECT COUNT(*) FROM events WHERE kind='G3_DRAFT_ATTEMPTED'").fetchone()[0]
+                  g3_success=db.conn.execute(
+                      "SELECT COUNT(*) FROM events WHERE kind='G3_DRAFT_AUTHENTICATED'").fetchone()[0]
+                  model_attempt=db.conn.execute(
+                      "SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_ATTEMPTED'").fetchone()[0]
+                  model_success=db.conn.execute(
+                      "SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_AUTHENTICATED'").fetchone()[0]
+                  free_attempt=db.conn.execute(
+                      "SELECT COUNT(*) FROM events WHERE kind='FREE_REASONER_ATTEMPTED'").fetchone()[0]
+                  assert preserved_counters_valid({
+                      "G3_DRAFT_ATTEMPTED":g3_attempt,
+                      "G3_DRAFT_AUTHENTICATED":g3_success,
+                      "MODEL_DRAFT_ATTEMPTED":model_attempt,
+                      "MODEL_DRAFT_AUTHENTICATED":model_success,
+                      "FREE_REASONER_ATTEMPTED":free_attempt,
+                  }), "F139_V40_ORIGINAL_BOUNDED_MODEL_HISTORY_DRIFT"
+                  try:
+                      validate_idle(db)
+                  except MaintenanceDenied as exc:
+                      if str(exc) == "F139_V40_IDLE_GENUINE_V39_REQUIRED":
+                          try:
+                              diagnostic = idle_gate_predicates(db)
+                          except Exception:
+                              print("F139_V40_IDLE_GATE_DIAGNOSTIC=UNAVAILABLE", flush=True)
+                          else:
+                              print("F139_V40_IDLE_GATE_READONLY=" +
+                                    json.dumps(diagnostic, sort_keys=True), flush=True)
+                      raise
+                  original=db.meta().copy()
+                  from f139.nci04_v38_original_owner_transition_cli import rollback_view
+                  original_view_sha256=hashlib.sha256(canonical(rollback_view(db.conn))).hexdigest()
+                  assert (original["head_seq"] == int(sys.argv[5]) and
+                          original["head_hash"] == sys.argv[6]), "F139_V40_PREFLIGHT_LEASE_MOVED"
+                  # Copy the historical provider bytes to the NEW backup root;
+                  # an on-host SQLite-only clone can accidentally pass by
+                  # resolving original archives outside its own backup.
+                  custody_manifest={}
+                  for ticket, run_id, expected_sha in (
+                          (FIRST_TICKET,FIRST_RUN,FIRST_SHA),
+                          (SECOND_TICKET,SECOND_RUN,SECOND_SHA)):
+                      relative=pathlib.Path("native-negative") / ticket / str(run_id) / "ubuntu-latest.zip"
+                      source=path.parent / relative
+                      current=path.parent
+                      for component in relative.parts[:-1]:
+                          current=current / component
+                          assert current.is_dir() and not current.is_symlink(), "F139_V40_ORIGINAL_CUSTODY_PATH_UNSAFE"
+                      assert source.is_file() and not source.is_symlink(), "F139_V40_ORIGINAL_CUSTODY_ARCHIVE_MISSING"
+                      assert source.stat().st_size <= 2_000_000, "F139_V40_ORIGINAL_CUSTODY_ARCHIVE_OVERSIZED"
+                      assert hashlib.sha256(source.read_bytes()).hexdigest()==expected_sha, "F139_V40_ORIGINAL_CUSTODY_HASH_DRIFT"
+                      copied=backup.parent / relative
+                      copied.parent.mkdir(parents=True,exist_ok=True)
+                      assert copied.parent.is_dir() and not copied.parent.is_symlink(), "F139_V40_BACKUP_CUSTODY_PATH_UNSAFE"
+                      assert not copied.exists() and not copied.is_symlink(), "F139_V40_BACKUP_CUSTODY_ARCHIVE_COLLISION"
+                      shutil.copyfile(source,copied)
+                      assert hashlib.sha256(copied.read_bytes()).hexdigest()==expected_sha, "F139_V40_BACKUP_CUSTODY_COPY_HASH_DRIFT"
+                      custody_manifest[relative.as_posix()]=expected_sha
+                  custody_manifest.update(copy_provider_archives(db, backup.parent))
+                  custody_manifest.update(copy_generation_executable(db, backup.parent))
+                  with closing(sqlite3.connect(str(backup))) as out:
+                      db.conn.backup(out)
+                  custody_manifest["state.sqlite"]=hashlib.sha256(backup.read_bytes()).hexdigest()
+                  (backup.parent / "manifest.sha256.json").write_bytes(canonical(custody_manifest))
+                  # Verification occurs against a fully isolated backup root,
+                  # not the original database's sibling evidence files.
+                  cold=Database.open_readonly(backup)
+                  try:
+                      cold.verify()
+                      assert cold.meta() == original, "F139_V40_COLD_BACKUP_HEAD_DRIFT"
+                      assert hashlib.sha256(canonical(rollback_view(cold.conn))).hexdigest()==original_view_sha256, "F139_V40_COLD_BACKUP_LOGICAL_DRIFT"
+                      assert cold.conn.execute(
+                          "SELECT COUNT(*) FROM events").fetchone()[0] == original["head_seq"]
+                  finally:
+                      cold.close()
+                  assert db.meta() == original, "F139_V40_BACKUP_WINDOW_HEAD_MOVED"
+                  pathlib.Path(str(backup)+".sha256").write_text(
+                      hashlib.sha256(backup.read_bytes()).hexdigest()+"\n")
+                  receipt=dict(schema="forge.f139.v40.original-cold-backup.v1",
+                      source_sha=original["source_sha"],target_source_sha=sys.argv[3],
+                      expected_original_head_seq=original["head_seq"],expected_original_head_sha256=original["head_hash"],
+                      sqlite_sha256=hashlib.sha256(backup.read_bytes()).hexdigest(),
+                      logical_view_sha256=original_view_sha256,
+                      archive_manifest_sha256=hashlib.sha256((backup.parent/"manifest.sha256.json").read_bytes()).hexdigest())
+                  (backup.parent/"v40-backup-receipt.json").write_bytes(canonical(receipt))
+                  print("F139_V40_ORIGINAL_G54_G3_MODEL_CUSTODY=PASS")
+                  print("F139_V40_ORIGINAL_COLD_CUSTODY_BUNDLE=PASS")
+          finally:
+              db.close()
+          '@ | & $python -B - $dbPath $backup $target ([string]$env:GITHUB_RUN_ID) ([string]$preflight.original_head_seq) ([string]$preflight.original_head_sha256)
+            if($LASTEXITCODE -ne 0) {
+              throw 'F139_V40_ORIGINAL_APPROVAL_OR_BACKUP_FAILED'
+            }
+            if(-not(Test-Path -LiteralPath ($backup+'.sha256') -PathType Leaf)) {
+              throw 'F139_V40_COLD_BACKUP_RECEIPT_MISSING'
+            }
+            $expectedBackupHash=(Get-Content -LiteralPath ($backup+'.sha256') -Raw).Trim()
+            $actualBackupHash=(Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($expectedBackupHash -cne $actualBackupHash) {
+              throw 'F139_V40_BACKUP_SHA256_MISMATCH'
+            }
+            # Qualified source must also deny inference on the actual owner.
+            @'
+          import pathlib, sys
+          from f139.nci04_free_reasoner_provider import _post_one, FreeReasonerUnavailable
+          try:
+              _post_one(b"{}", "not-a-credential")
+          except FreeReasonerUnavailable as exc:
+              assert str(exc) == "F139_EXTERNAL_MODEL_DISABLED_BY_OWNER"
+          else:
+              raise AssertionError("F139_V40_EXTERNAL_MODEL_TRANSPORT_NOT_DISABLED")
+          print("F139_V40_EXTERNAL_MODEL_TRANSPORT=DISABLED")
+          '@ | & $python -B -
+            if($LASTEXITCODE -ne 0){throw 'F139_V40_MODEL_FREE_OWNER_CHECK_FAILED'}
+            # Pause only the exact leased old policy, AFTER idle backup verification.
+            # No native tick is running; the source CLI independently requires paused policy.
+            $currentPolicy=Read-V40OwnerPolicy
+            if([string]$currentPolicy.body -cne $priorBody) {
+              throw 'F139_V40_POLICY_MOVED_BEFORE_PAUSE'
+            }
+            $ownerPolicy.enabled=$false
+            $pausedBody=$ownerPolicy | ConvertTo-Json -Compress -Depth 12
+            $policyPausePossible=$true
+            & gh api -X PATCH repos/spoonman136668-ai/FORGE/issues/807 -f "body=$pausedBody" --silent
+            if($LASTEXITCODE -ne 0){throw 'F139_V40_POLICY_PAUSE_UNVERIFIED'}
+            $paused=Read-V40OwnerPolicy
+            if([string]$paused.body -cne $pausedBody){throw 'F139_V40_POLICY_PAUSE_READBACK_DRIFT'}
+            $priorBody=$pausedBody
+            # Exactly the original wrapper's DPAPI owner-key handling. Never
+            # print, serialize, copy to files, or pass the key on a command line.
+            $workflowToken=$env:GH_TOKEN
+            try {
+              Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+              if([string](Read-V40GitHub 'user').login -cne 'spoonman136668-ai'){throw 'F139_V40_NATIVE_GH_OWNER_REVOKED'}
+              $keyFile=Field 'EncryptedKeyFile'
+              $secure=Import-Clixml -LiteralPath $keyFile
+              if(-not($secure -is [Security.SecureString])){throw 'F139_V40_ORIGINAL_DPAPI_KEY_TYPE_DENIED'}
+              $ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+              try {$env:F139_WORKER_HMAC_KEY=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}
+              finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
+              if($env:F139_WORKER_HMAC_KEY.Length -lt 32){throw 'F139_V40_ORIGINAL_DPAPI_KEY_INVALID'}
+              $mutationPossible=$true
+              & $python -B -m f139.nci04_v40_guarded_owner_handoff --db $dbPath --backup $backup --target $target --event-id ([string]$approval.comment_id) --owner-approval-comment ([string]$approval.comment_id) --genenv-executable $genenv --genenv-toolchain $toolchain
+              if($LASTEXITCODE -ne 0){throw 'F139_V40_ORIGINAL_SOURCE_AND_EXECUTABLE_TRANSITION_DENIED'}
+            } finally {
+              Remove-Item Env:F139_WORKER_HMAC_KEY -ErrorAction SilentlyContinue
+              $env:GH_TOKEN=$workflowToken
+            }
+            # Maintenance owner CLI reactivates the original native authority only
+            # after its one-shot source event is independently cold-verified.
+            # Never create a second activation or independent worker.
+            $current=(Read-V40OwnerPolicy)
+            if($LASTEXITCODE -ne 0 -or
+               $current.state -cne 'open' -or
+               [string]$current.body -cne $priorBody) {
+              throw 'F139_V40_POLICY_CHANGED_DURING_CUTOVER'
+            }
+            $ownerPolicy.source_sha=$target
+            $ownerPolicy.enabled=$true
+            $newBody=$ownerPolicy | ConvertTo-Json -Compress -Depth 12
+            & gh api -X PATCH repos/spoonman136668-ai/FORGE/issues/807 -f "body=$newBody" --silent
+            if($LASTEXITCODE -ne 0) {
+              throw 'F139_V40_POLICY_SOURCE_PROMOTION_FAILED'
+            }
+            $check=(Read-V40OwnerPolicy)
+            $readback=[string]$check.body | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $readback.enabled -ne $true -or
+               $readback.source_sha -cne $target -or
+               $readback.scientific_first_use -ne $false -or
+               $readback.new_controller -ne $false) {
+              throw 'F139_V40_POLICY_READBACK_DRIFT'
+            }
+            $statusText=& $python -B -m f139.local_controller --db $dbPath status
+            if($LASTEXITCODE -ne 0){throw 'F139_V40_LEDGER_FINAL_STATUS_FAILED'}
+            $status=$statusText | ConvertFrom-Json
+            if($status.status.meta.source_sha -cne $target -or
+               $status.status.meta.enabled -ne 1 -or
+               $status.status.meta.legacy_suspended -ne 1) {
+              throw 'F139_V40_LEDGER_FINAL_SOURCE_DRIFT'
+            }
+            Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            Start-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            $resumed=$true
+            $final=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            if([string]$final.State -cnotin @('Running','Ready')) {
+              throw 'F139_V40_ORIGINAL_TASK_NOT_RESUMED'
+            }
+            Write-Host 'F139_V40_ORIGINAL_SOURCE_CUTOVER=PASS'
+            Write-Host ('F139_V40_ORIGINAL_LEDGER_HEAD='+$status.status.meta.head_seq+':'+$status.status.meta.head_hash)
+            Write-Host 'F139_V40_ORIGINAL_NATIVE_REACTIVATION=PASS'
+            Write-Host 'F139_V40_EXISTING_TASK_RESUMED=PASS'
+            Write-Host 'F139_V40_SCIENTIFIC_FIRST_USE=FALSE'
+            Write-Host 'F139_V40_NEW_CONTROLLER=FALSE'
+            Write-Host 'F139_V40_PAID_API_CALLS=0'
+          } catch {
+            if($quiesced -and -not $mutationPossible) {
+              try {
+                if($policyPausePossible) {
+                  $observedPolicy=Read-V40OwnerPolicy
+                  if([string]$observedPolicy.body -ceq $pausedBody) {
+                    & gh api -X PATCH repos/spoonman136668-ai/FORGE/issues/807 -f "body=$initialBody" --silent
+                    if($LASTEXITCODE -ne 0){throw 'F139_V40_PRETRANSITION_POLICY_RESTORE_UNVERIFIED'}
+                    $restoredPolicy=Read-V40OwnerPolicy
+                    if([string]$restoredPolicy.body -cne $initialBody) {
+                      throw 'F139_V40_PRETRANSITION_POLICY_RESTORE_DRIFT'
+                    }
+                  } elseif([string]$observedPolicy.body -cne $initialBody) {
+                    throw 'F139_V40_PRETRANSITION_POLICY_CONFLICT_HOLD'
+                  }
+                }
+                & git -C $root checkout --detach $old | Out-Null
+                if($LASTEXITCODE -eq 0) {
+                  Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                  Start-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                }
+              } catch {
+                Write-Warning 'F139_V40_SAFE_PRETRANSITION_RECOVERY_UNVERIFIED'
+              }
+            }
+            # A partial Enable-ScheduledTask can succeed before the subsequent
+            # Start-ScheduledTask fails. Never assume the original task is
+            # still disabled merely because $resumed is false. All post-
+            # mutation failure paths must restore and verify quiescence.
+            if($mutationPossible) {
+              try {
+                # First disable future triggers even if stopping the
+                # partially started task fails. Then attempt to stop its
+                # existing instance; verify process absence independently.
+                Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                try {
+                  Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                } catch {
+                  Write-Warning 'F139_V40_POSTMUTATION_STOP_UNVERIFIED'
+                }
+                for($hold=0;$hold -lt 40;$hold++) {
+                  $remaining=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+                    Where-Object {$_.CommandLine -and
+                      $_.CommandLine.Contains('f139.local_controller') -and
+                      $_.CommandLine.Contains($dbPath)})
+                  if($remaining.Count -eq 0){break}
+                  Start-Sleep -Seconds 1
+                }
+                if([string](Get-ScheduledTask -TaskName $name -ErrorAction Stop).State -cne 'Disabled' -or
+                   $remaining.Count -ne 0) {
+                  throw 'F139_V40_POSTMUTATION_QUIESCENCE_UNVERIFIED'
+                }
+                Write-Warning 'F139_V40_POSTMUTATION_EXISTING_TASK_DISABLED_AND_QUIESCENT'
+              } catch {
+                Write-Warning 'F139_V40_POSTMUTATION_EXISTING_TASK_HOLD_UNVERIFIED'
+              }
+            }
+            throw
+          }
