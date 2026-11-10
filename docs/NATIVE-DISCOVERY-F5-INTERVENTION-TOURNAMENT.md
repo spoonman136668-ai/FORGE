@@ -1,0 +1,28 @@
+# FORGE Eureka F5 — bounded training-only intervention tournament
+
+## Source and scope freeze (before implementation)
+- **F4 exact parent:** `3306e1404bce7056bff877274d48a36138181e36` on branch `research/eureka-f4-training-archive-20261108`. F4 is not merged. F5 is a *stacked isolated development branch* and any F5 pull request must target that F4 branch, not protected main, to avoid duplicating F4 changes.
+- Existing F3 compiled candidate types and generated source SHA, F4 archive identities and original F2 synthetic action-consequence world are reused read-only. No source/experiment changes to F0–F4, F139 installed owner, external Wingless/Yggdrasil repos, controller, FSA, queues or current scientific first-use ledgers.
+- This is a human-authored, deterministic source-only engineering mechanism. **Not autonomous source improvement or accepted scientific discovery**. No agent, model inference, API spend, scheduled runner, promotion or deployment.
+
+## Frozen falsifiable engineering hypothesis
+A **disagreement-driven intervention planner** can choose some action-consequence queries that separate the three existing F3 compiled hypotheses more than an uninformed fixed/random query policy, given the same available observations and a strict six-query budget. A tie/no-disagreement, absence of transfer, or defeat by a strong conventional estimator is a valid negative.
+
+### Exact evaluation schedule
+- Development-only synthetic seeds **17 and 31**, identical to existing published F3 TRAIN seeds; **do not touch F3 synthetic holdout seeds 59 or 83** or new research cohorts.
+- Each policy `disagreement`, `fixed`, `random` begins with exactly 48 fully observed F2 regime-0 training transitions. These are identical across arms.
+- At most **six unique regime-1 cue × mode** probe coordinates per arm, without replacement. Action is step parity `step % 2`, identical for all arms. One selected probe produces exactly one genuine environment observation via `f2make` after selection, using probe event index `50+step`. The environment generator is used by the assay only, not the proposal planner; the planner sees only model predictions, previous observed actions/effects and the frozen queried-coordinate set.
+- The disagreement policy maximizes pairwise distinct F3 candidate readouts on remaining coordinates before action and observes one outcome. When all predictions tie, it uses the first unused coordinate. `fixed` uses the predeclared F2 probe coordinate order `(0,0),(1,0),(2,0),(3,0),(0,1),(2,1)`; `random` chooses a deterministic, seeded index among unused coordinates without observing outcomes first.
+- Compiled learners `f3Direct`, `f3CueTransfer`, `f3ModeTransfer` all see the same action/consequence observations **within each arm**. Their signed evidence scores get +1/-1 for agreement/disagreement between *pre-update prediction* of action-0 normalized effect and the actual normalized observed effect. Rank by score only, deterministic source ID tie-break. No post-result policy tuning.
+- Strong conventional per-arm controls: contextual tabular `f2Tab`, factorized 32-hypothesis `f2Factor`, and existing F2 native relational learner. They each receive exactly that arm's 48 training transitions and 6 interventions. F2 native is frozen before the final score. Report all scores, not only the winning F3 candidate.
+- Report 64 existing **development-only** changed-regime scored decisions per selected model and each control (the existing published F2 generator; no learning during scoring). Equal observation/action budget does **not** imply matched whole-process compute; record predictor-invocation counts, no runtime/CPU superiority claim. No new holdout, science first-use or scientific acceptance.
+- Complete candidate retention: three generated mechanisms, source SHA fingerprints, F4 behavioral duplicate labels, full observed probe trajectory and selected candidate per seed and policy. Do not call a novel readout scientifically better merely because probe disagreement or accuracy is higher.
+
+## Required negative/qualification controls
+- Deterministic rerun and readback; identical parent F4/F3 source identity; forbid unknown candidate, invalid strategy, repeated query, out-of-budget query, effect out of {-1,+1}, mismatched training seed, changed seed set, forged selection, altered observation/prediction, scored-outcome learning, missing controls, tampered lineage, unauthorized flags or paid/agent count.
+- Regression is complete exact-source Linux+Windows: all original F139 Python tests, all Go tests, Linux race, vet, build, original isolation guard; never skip or edit those checks. New focused tests must demonstrate information-seeking selection versus fixed and random, not assume a gain in downstream accuracy.
+- Engineering outcome: **PASS** only if candidate source, negative controls and mandatory full regression pass. Scientific outcome is always **UNVERIFIED / NOT ACCEPTED** on this reused synthetic development data. No RSI claim.
+- F5 is inert until its pure `F5Development` preview is explicitly called by tests or a future separately authorized source-only consumer. No new automatic owner hook, workflow, scheduler, FSA admission or original science dispatch.
+
+## Future independent gate, not covered by this change
+To test a real Eureka performance claim, freeze **new, independently protected unfamiliar-world originals**, deterministic action budgets, strongest fully trained intervention-learning competitors, exact matched CPU/wall/memory costs, multi-seed no-leakage first-use, causal ablations, retention/interference and FSA-authorized acceptance **before** revealing outcomes. A positive synthetic F5 preview cannot trigger that work automatically.
