@@ -99,7 +99,8 @@ def _publication_prefix(db, boundary):
 
 def validate_retained(db, boundary, frozen_boundary, source_sha, *,
                       successor_boundary=None, successor_source=None,
-                      second_successor_boundary=None, second_successor_source=None):
+                      second_successor_boundary=None, second_successor_source=None,
+                      ref_only_1462=False):
     """Keep the exact V37 negative while permitting fully authenticated growth.
 
     Frozen 102/101 counts belong to the original V37 seal, never the growing
@@ -123,8 +124,17 @@ def validate_retained(db, boundary, frozen_boundary, source_sha, *,
          'SECOND_SUCCESSOR_EPOCH_BOUNDARY')
     packet = validate_original(db, frozen_boundary)
     attempts, successes = _publication_prefix(db, boundary)
+    need(type(ref_only_1462) is bool, 'REF_ONLY_MODE_INVALID')
+    negatives = {IDENTITY}
+    if ref_only_1462:
+        from f139 import nci04_ref_only_publication_custody as ref_only
+        need(second_successor_source == ref_only.SOURCE, 'REF_ONLY_ORIGINAL_EPOCH_REQUIRED')
+        negative = ref_only.validate_original(db, boundary)
+        negatives.add(ref_only.IDENTITY)
+        packet = dict(schema='forge.f139.partial-publication-pair.v1',
+                      original_negative=packet, ref_only_negative=negative)
     need(len(attempts) >= 102 and len(successes) >= 101
-         and set(attempts)-set(successes)=={IDENTITY}, 'UNRESOLVED_GROWTH')
+         and set(attempts)-set(successes)==negatives, 'UNRESOLVED_GROWTH')
     hashes = [v.get('source_after_sha256') for v in attempts.values()]
     need(all(isinstance(h, str) and re.fullmatch('[a-f0-9]{64}', h) for h in hashes)
          and len(set(hashes)) == len(hashes) and hashes.count(AFTER) == 1,
@@ -207,4 +217,26 @@ def custodied_ids(db):
         and doc['partial_publication_custody']==custody_packet()
         and row['seq']==doc['original_head_seq']+1, 'SOURCE_SEAL_CUSTODY_DRIFT')
     validate_original(db,row['seq'])
-    return frozenset({IDENTITY})
+    retired = {IDENTITY}
+    paired = []
+    for item in db.conn.execute("SELECT seq,payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq"):
+        document = json.loads(item['payload'])
+        packet = document.get('partial_publication_custody')
+        if (document.get('schema') == 'forge.f139.source-transition.v35'
+                and isinstance(packet, dict)
+                and packet.get('schema') == 'forge.f139.partial-publication-pair.v1'):
+            paired.append((item, document))
+    if paired:
+        from f139 import nci04_ref_only_publication_custody as ref_only
+        from f139.nci04_v40_source_transition import FIELDS as V40_FIELDS
+        need(len(paired) == 1, 'DUPLICATE_REF_ONLY_SEAL')
+        item, document = paired[0]
+        negative = ref_only.validate_original(db, item['seq'])
+        need(set(document) == V40_FIELDS and document['from_source_sha'] == ref_only.SOURCE
+             and item['seq'] == document['original_head_seq']+1
+             and document['partial_publication_custody'] == dict(
+                 schema='forge.f139.partial-publication-pair.v1',
+                 original_negative=custody_packet(), ref_only_negative=negative),
+             'REF_ONLY_SOURCE_SEAL_CUSTODY_DRIFT')
+        retired.add(ref_only.IDENTITY)
+    return frozenset(retired)
