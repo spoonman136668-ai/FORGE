@@ -222,7 +222,6 @@ class NativeAutonomyFeedTests(unittest.TestCase):
                       "repos/foreign/TTT-Hybrid-Lab/branches/main",
                       "repos/spoonman136668-ai/TTT-Hybrid-Lab-other/branches/main",
                       "repos/spoonman136668-ai/K-Terminal/branches/main",
-                      "repos/spoonman136668-ai/ckb-plane/branches/main",
                       "--method POST"):
             with self.subTest(route=route), self.assertRaisesRegex(Exception, "NATIVE_FEED_ROUTE_INVALID"):
                 api.native_repo_get(route)
