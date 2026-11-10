@@ -11,6 +11,7 @@ from f139.private_hybrid_reference import canonical
 from f139.private_hybrid_opaque_issue import (
     FIELDS, KIND, LABEL, OWNER, SCHEMA, PrivateOpaqueIssueDenied,
     bind_private_issue_to_credentialed_reference, inspect_private_opaque_issue,
+    prepare_private_provider_commitment,
 )
 from f139 import test_private_hybrid_owner_binding as synthetic
 
@@ -111,6 +112,110 @@ class PrivateHybridOpaqueIssueTests(unittest.TestCase):
         for sensitive in ("private_payload_path", "after_base64", "native_signature",
                           "source_path", synthetic.KEY):
             self.assertNotIn(sensitive, json.dumps(out))
+
+    def test_real_private_source_first_prepares_only_opaque_public_body(self):
+        public, issue_api, kw, issue, ref, bound, payload, _ = fixture()
+        before = b"def synthetic():\\n    return 0\\n"
+        def blob(raw):
+            return hashlib.sha1(
+                b"blob " + str(len(raw)).encode("ascii") +
+                b"\0" + raw).hexdigest()
+        original = {
+            "repository": REPOSITORY,
+            "commit_sha": synthetic.COMMIT,
+            "tree_sha": synthetic.TREE,
+            "path": ref["source_path"],
+            "git_blob_sha": blob(before),
+        }
+        args = {
+            "owner_source_sha": synthetic.OWNER,
+            "authenticated_repository_metadata": synthetic.MD,
+            "authenticated_target_commit": synthetic.COMMIT,
+            "authenticated_target_tree": synthetic.TREE,
+            "authenticated_target_file": original,
+            "authenticated_storage_file": kw["authenticated_storage_file"],
+        }
+        outcome = prepare_private_provider_commitment(payload, before, **args)
+        self.assertEqual(outcome["issue_body"], issue_api["body"])
+        self.assertEqual(outcome["issue_body_sha256"], issue.issue_body_sha256)
+        self.assertEqual(outcome["private_payload_sha256"],
+                         hashlib.sha256(payload).hexdigest())
+        self.assertTrue(outcome["real_baseline_blob_bytes_matched"])
+        self.assertTrue(outcome["real_storage_blob_bytes_matched"])
+        self.assertFalse(outcome["public_private_code_emitted"])
+        self.assertFalse(outcome["original_owner_live_issue_verified"])
+        self.assertFalse(outcome["private_worker_executed"])
+        self.assertFalse(outcome["scientific_first_use"])
+        self.assertEqual(parse_issue(
+            {**issue_api, "body": outcome["issue_body"]}, kw), issue)
+        self.assertEqual(join(issue, bound, ref)["issue_body_sha256"],
+                         outcome["issue_body_sha256"])
+        for forbidden in ("after_base64", "intent_base64",
+                          "source_path", "private_payload_path",
+                          "def synthetic", synthetic.KEY,
+                          "owner_authorization_sha256", "native_signature"):
+            self.assertNotIn(forbidden, outcome["issue_body"])
+            self.assertNotIn(forbidden, json.dumps(outcome))
+        return outcome
+
+    def test_preissue_real_original_and_storage_blob_drifts_fail_closed(self):
+        _, _, kw, _, ref, _, payload, _ = fixture()
+        before = b"def synthetic():\\n    return 0\\n"
+        original_sha = hashlib.sha1(
+            b"blob " + str(len(before)).encode("ascii") +
+            b"\0" + before).hexdigest()
+        original = {
+            "repository": REPOSITORY,
+            "commit_sha": synthetic.COMMIT,
+            "tree_sha": synthetic.TREE,
+            "path": ref["source_path"],
+            "git_blob_sha": original_sha,
+        }
+        arguments = {
+            "owner_source_sha": synthetic.OWNER,
+            "authenticated_repository_metadata": synthetic.MD,
+            "authenticated_target_commit": synthetic.COMMIT,
+            "authenticated_target_tree": synthetic.TREE,
+            "authenticated_target_file": original,
+            "authenticated_storage_file": kw["authenticated_storage_file"],
+        }
+        bad_inputs = (
+            (payload, b"", arguments),
+            (payload, before + b"edited", arguments),
+            (payload + b" ", before, arguments),
+            (b"{}", before, arguments),
+            (payload, before, {**arguments,
+                "owner_source_sha": "0"*40}),
+            (payload, before, {**arguments,
+                "authenticated_repository_metadata": {
+                    "full_name": REPOSITORY, "private": False}}),
+            (payload, before, {**arguments,
+                "authenticated_target_commit": "0"*40}),
+            (payload, before, {**arguments,
+                "authenticated_target_tree": "0"*40}),
+            (payload, before, {**arguments,
+                "authenticated_target_file": {**original,
+                    "path": "tests/test_other_native.py"}}),
+            (payload, before, {**arguments,
+                "authenticated_target_file": {**original,
+                    "git_blob_sha": "0"*40}}),
+            (payload, before, {**arguments,
+                "authenticated_storage_file": {
+                    **kw["authenticated_storage_file"],
+                    "git_blob_sha": "0"*40}}),
+            (payload, before, {**arguments,
+                "authenticated_storage_file": {
+                    **kw["authenticated_storage_file"],
+                    "commit_sha": synthetic.COMMIT}}),
+            (payload, before, {**arguments,
+                "authenticated_storage_file": {
+                    **kw["authenticated_storage_file"],
+                    "path": "f139/private-native/other.json"}}),
+        )
+        for i, (p, source, opts) in enumerate(bad_inputs):
+            self.assertTrue(p != payload or source != before or opts != arguments)
+            with self.subTest(case=i), self.assertRaises(PrivateOpaqueIssueDenied):
+                prepare_private_provider_commitment(p, source, **opts)
 
     def test_public_issue_is_frozen_before_final_private_ref_exists(self):
         public, api, kw, issue, ref, binding, payload, inputs = fixture()
