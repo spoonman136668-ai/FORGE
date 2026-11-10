@@ -25,6 +25,7 @@ MAX_BYTES = 2048
 FIELDS = frozenset({
     "schema", "lane", "repository", "controller_source_sha",
     "private_target_commit", "private_target_tree", "source_path",
+    "private_payload_commit", "private_payload_tree",
     "before_sha256", "after_sha256", "private_payload_path",
     "private_payload_blob_sha", "private_payload_sha256",
     "owner_signed_intent_sha256", "owner_authorization_sha256",
@@ -85,6 +86,14 @@ def parse_reference(raw, *, owner_source_sha, private_commit, private_tree,
     need(type(value["source_path"]) is str
          and PATH.fullmatch(value["source_path"]) is not None,
          "NARROW_SOURCE_PATH")
+    # The private payload's storage commit/tree is independently authenticated.
+    # It is NOT the frozen research source commit/tree and must never be used as
+    # the candidate's target_commit/target_tree or to mutate the baseline.
+    need(type(value["private_payload_commit"]) is str
+         and SHA40.fullmatch(value["private_payload_commit"]) is not None
+         and type(value["private_payload_tree"]) is str
+         and SHA40.fullmatch(value["private_payload_tree"]) is not None,
+         "PRIVATE_PAYLOAD_STORAGE_IDENTITY_INVALID")
     for field in ("before_sha256", "after_sha256", "private_payload_sha256",
                   "owner_signed_intent_sha256", "owner_authorization_sha256"):
         need(type(value[field]) is str
@@ -129,8 +138,10 @@ def verify_private_payload(ref_raw, payload_raw, *, owner_source_sha,
     """Verify an existing private Git blob against the public hash reference.
 
     Caller MUST independently authenticate repository metadata and the
-    provider_file tree/blob mapping with the private repository's OWN reader.
-    This is an inert integrity check only. A hash named owner_* is NOT proof
+    provider_file *storage commit/tree/blob* mapping with the private project's
+    OWN reader. The separate private target commit/tree remains the unchanged
+    research baseline for parsing the native intent. Hashes alone are not
+    provider authentication or owner signature proof.
     of the original owner's signature or worker authorization.
     """
     from f139.nci04_native_contract import (
@@ -152,8 +163,8 @@ def verify_private_payload(ref_raw, payload_raw, *, owner_source_sha,
     need(type(observed) is dict and set(observed) == {
         "repository", "commit_sha", "tree_sha", "path", "git_blob_sha",
     } and observed["repository"] == REPOSITORY
-         and observed["commit_sha"] == private_commit
-         and observed["tree_sha"] == private_tree
+         and observed["commit_sha"] == ref["private_payload_commit"]
+         and observed["tree_sha"] == ref["private_payload_tree"]
          and observed["path"] == ref["private_payload_path"]
          and observed["git_blob_sha"] == ref["private_payload_blob_sha"]
          and observed["git_blob_sha"] == blob,
