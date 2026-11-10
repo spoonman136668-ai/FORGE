@@ -31,7 +31,9 @@ class PrivateSandboxControls(unittest.TestCase):
         (runtime/'python/bin/python3.11').write_bytes(b'fixture only')
         probe=root/'probe.py';probe.write_text('pass')
         for name in ('passwd','group'):(root/name).write_text('fixture identity')
-        return runtime,probe
+        # Windows temporary paths can use 8.3 aliases; the recipe deliberately
+        # canonicalizes inputs before constructing its mount/command inventory.
+        return runtime.resolve(),probe.resolve()
 
     def test_recipe_has_no_host_home_windows_gpu_secret_or_writable_runtime_bind(self):
         with tempfile.TemporaryDirectory() as tmp:
