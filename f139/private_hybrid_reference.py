@@ -23,7 +23,7 @@ SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 # Root-native modules are a project-owned private naming family; no exact
 # private basename is embedded in FORGE's public repository.
 PATH = re.compile(
-    r"(?:scripts/native_[a-zA-Z0-9_]+|tests/test_native_[a-zA-Z0-9_]+|native_[a-z0-9][a-z0-9_]{0,79})\.py\Z"
+    r"(?:scripts/native_[a-zA-Z0-9_]+|tests/test_native_[a-zA-Z0-9_]+|native_p[0-9]{2}[a-z]?_[a-z0-9][a-z0-9_]{0,75})\.py\Z"
 )
 MAX_BYTES = 2048
 FIELDS = frozenset({
