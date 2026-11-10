@@ -10,6 +10,8 @@ from f139.private_hybrid_reference import (
 OWNER = "a" * 40
 COMMIT = "b" * 40
 TREE = "c" * 40
+STORAGE_COMMIT = "e" * 40
+STORAGE_TREE = "f" * 40
 MD = {"full_name": REPOSITORY, "private": True}
 
 
@@ -21,6 +23,8 @@ def sample(**changes):
         "controller_source_sha": OWNER,
         "private_target_commit": COMMIT,
         "private_target_tree": TREE,
+        "private_payload_commit": STORAGE_COMMIT,
+        "private_payload_tree": STORAGE_TREE,
         "source_path": "scripts/native_example.py",
         "before_sha256": "1" * 64,
         "after_sha256": "2" * 64,
@@ -173,8 +177,8 @@ class PrivatePayloadCustodyTests(unittest.TestCase):
                      owner_signed_intent_sha256=payload_digest,
                      private_payload_path="f139/private-native/" + payload_digest + ".json",
                      private_payload_blob_sha=blob)
-        observed = {"repository": REPOSITORY, "commit_sha": COMMIT,
-                    "tree_sha": TREE, "path": ref["private_payload_path"],
+        observed = {"repository": REPOSITORY, "commit_sha": STORAGE_COMMIT,
+                    "tree_sha": STORAGE_TREE, "path": ref["private_payload_path"],
                     "git_blob_sha": blob}
         return ref, payload, observed
 
@@ -212,11 +216,24 @@ class PrivatePayloadCustodyTests(unittest.TestCase):
     def test_private_provider_blob_identity_and_commit_tree_are_mandatory(self):
         ref, payload, observed = self.fixture()
         for edit in ({"repository": "spoonman136668-ai/FORGE"},
-                     {"commit_sha": "f"*40}, {"tree_sha": "f"*40},
+                     {"commit_sha": COMMIT}, {"tree_sha": TREE},
+                     {"commit_sha": "0"*40}, {"tree_sha": "0"*40},
                      {"path": "f139/private-native/foreign.json"},
                      {"git_blob_sha": "f"*40}, {"extra": "anything"}):
             with self.subTest(edit=edit), self.assertRaises(PrivateReferenceDenied):
                 self.check(ref, payload, {**observed, **edit})
+
+    def test_storage_commit_is_independent_of_unchanged_research_source(self):
+        ref, payload, observed = self.fixture()
+        self.assertNotEqual(ref["private_target_commit"], ref["private_payload_commit"])
+        self.assertNotEqual(ref["private_target_tree"], ref["private_payload_tree"])
+        self.assertTrue(self.check(ref, payload, observed)["private_blob_integrity_verified"])
+        for changes in ({"private_payload_commit": COMMIT},
+                        {"private_payload_tree": TREE},
+                        {"private_payload_commit": "not-a-sha"},
+                        {"private_payload_tree": "not-a-tree"}):
+            with self.subTest(changes=changes), self.assertRaises(PrivateReferenceDenied):
+                self.check({**ref, **changes}, payload, observed)
 
     def test_private_ref_and_native_intent_cannot_disagree(self):
         ref, payload, observed = self.fixture()
