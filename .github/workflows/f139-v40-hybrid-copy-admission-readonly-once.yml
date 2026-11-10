@@ -1,0 +1,163 @@
+name: FORGE V40 Hybrid original-history copy admission (read only once)
+on:
+  push:
+    branches: ['operations/f139-v40-hybrid-copy-admission-readonly-once-v2-20261110']
+permissions:
+  contents: read
+  issues: read
+jobs:
+  qualify-readonly-harness:
+    if: github.actor == 'spoonman136668-ai' && github.event.created == true && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Existing migration negatives and inert script qualification
+        shell: bash
+        run: |
+          python -B - <<'PY'
+          import ast, os
+          from pathlib import Path
+          import subprocess, tempfile
+          text=Path('.github/workflows/f139-v40-hybrid-copy-admission-readonly-once.yml').read_text()
+          script=text.split('  copied-original-history:',1)[1].split('        run: |\n',1)[1]
+          script='\n'.join(line[10:] if line.startswith('          ') else line for line in script.splitlines())
+          body=script.split("@'\n",1)[1].split("\n'@",1)[0]
+          ast.parse(body)
+          for forbidden in ('Disable-ScheduledTask','Enable-ScheduledTask','Start-ScheduledTask','Stop-ScheduledTask','Register-ScheduledTask','Import-Clixml','EncryptedKeyFile','--method','PATCH','POST'):
+              assert forbidden not in script
+          if os.name=='nt':
+              with tempfile.TemporaryDirectory() as temporary:
+                  path=Path(temporary)/'copy-readonly.ps1';path.write_text(script,encoding='utf-8')
+                  command="$t=$null;$e=$null;[System.Management.Automation.Language.Parser]::ParseFile('"+str(path).replace("'","''")+"',[ref]$t,[ref]$e)>$null;if($e.Count){$e|ForEach-Object{Write-Error $_};exit 1}"
+                  subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',command],check=True,timeout=30)
+          print('COPY_READONLY_HARNESS_INERT_PARSE=PASS')
+          PY
+          python -B -m unittest discover -s f139 -p test_hybrid_owner_admission.py -v
+          python -B -m unittest discover -s f139 -p test_hybrid_native_admission.py -v
+          python -B -m unittest discover -s f139 -p test_three_lane_fairness.py -v
+  copied-original-history:
+    needs: qualify-readonly-harness
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai' && github.event.created == true && github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '2c7caad5a4502d4b874a11d57207a35cf033eb08'
+          persist-credentials: false
+      - name: Qualify migration only on disposable copy of original V40 history
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             (& git rev-parse HEAD | Out-String).Trim() -cne '2c7caad5a4502d4b874a11d57207a35cf033eb08' -or
+             @(& git status --porcelain --untracked-files=all).Count -ne 0){throw 'COPY_EXACT_ORIGINAL_2c7caad5a4502d4b874a11d57207a35cf033eb08_REQUIRED'}
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          if($event.created -ne $true -or $event.deleted -ne $false -or $event.forced -ne $false -or
+             $event.before -cne ('0'*40) -or $event.after -cne $env:GITHUB_SHA){throw 'COPY_CREATE_ONLY_REQUIRED'}
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'COPY_ORIGINAL_ADMIN_REQUIRED'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready') -or @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){throw 'COPY_ORIGINAL_TASK_TOPOLOGY_DRIFT'}
+          $principal=[string]$task.Principal.UserId
+          $sid=''
+          try {$sid=(New-Object Security.Principal.NTAccount($principal)).Translate([Security.Principal.SecurityIdentifier]).Value} catch {}
+          if($principal -ine $identity.Name -and $sid -cne $identity.User.Value){throw 'COPY_ORIGINAL_SID_DRIFT'}
+          function Field([string]$key) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'COPY_ORIGINAL_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot';$db=Field 'Database';$python=Field 'PythonExe'
+          $expected=Join-Path $env:LOCALAPPDATA 'FORGE-F139/state.sqlite'
+          if([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expected) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne '2c7caad5a4502d4b874a11d57207a35cf033eb08' -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0){throw 'COPY_DEPLOYED_2c7caad5a4502d4b874a11d57207a35cf033eb08_DRIFT'}
+          $policy=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | Out-String) | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0){throw 'COPY_POLICY_UNAVAILABLE'}
+          $pin=$policy.body | ConvertFrom-Json
+          if($pin.source_sha -cne '2c7caad5a4502d4b874a11d57207a35cf033eb08' -or $pin.enabled -ne $true -or (@($pin.lanes) -join '|') -cne 'Wingless|Yggdrasil'){throw 'COPY_TWO_LANE_POLICY_REQUIRED'}
+          @'
+          from contextlib import closing
+          import json, pathlib, shutil, sqlite3, sys, tempfile
+          from f139.local_controller import Database, SingleOwner
+          from f139.nci04_native_contract import canonical, digest
+          from f139.nci04_v32_original_owner_transition_cli import copy_provider_archives, copy_generation_executable
+          from f139.nci04_v38_original_owner_transition_cli import rollback_view
+          from f139.hybrid_owner_admission import audit_hybrid_lane, is_migrated, migrate_hybrid_lane
+          from f139.nci04_negative_owner_store import TICKET as FIRST, RUN_ID as FIRST_RUN, ARTIFACT_SHA as FIRST_SHA
+          from f139.nci04_split_negative_custody import TICKET as SECOND, RUN_ID as SECOND_RUN, ARTIFACT_SHA256 as SECOND_SHA
+          path=pathlib.Path(sys.argv[1]).resolve()
+          assert path.is_file() and not path.is_symlink()
+          with SingleOwner(path.with_suffix('.lock')), closing(Database.open_readonly(path)) as original:
+              before=original.meta().copy()
+              assert before['source_sha']=='2c7caad5a4502d4b874a11d57207a35cf033eb08' and before['enabled']==1 and before['legacy_suspended']==1
+              assert before['head_seq']>=1464 and original.dual_native_schema()
+              assert not original.actives() and original.ready() is None and not is_migrated(original)
+              changes=original.conn.total_changes
+              view=rollback_view(original.conn)
+              counters={kind:original.conn.execute('SELECT COUNT(*) FROM events WHERE kind=?',(kind,)).fetchone()[0]
+                  for kind in ('MODEL_DRAFT_ATTEMPTED','MODEL_DRAFT_AUTHENTICATED','G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED','FREE_REASONER_ATTEMPTED')}
+              events=[tuple(row) for row in original.conn.execute('SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq')]
+              tasks=[tuple(row) for row in original.conn.execute('SELECT * FROM tasks ORDER BY ticket')]
+              with tempfile.TemporaryDirectory(prefix='f139-v40-hybrid-copy-only-') as temporary:
+                  root=pathlib.Path(temporary)
+                  for ticket,run,wanted in ((FIRST,FIRST_RUN,FIRST_SHA),(SECOND,SECOND_RUN,SECOND_SHA)):
+                      relative=pathlib.Path('native-negative')/ticket/str(run)/'ubuntu-latest.zip'
+                      origin=path.parent/relative
+                      assert origin.is_file() and not origin.is_symlink() and origin.stat().st_size<=2_000_000
+                      assert all(not parent.is_symlink() for parent in origin.parents)
+                      assert digest(origin.read_bytes())==wanted
+                      dest=root/relative;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(origin,dest)
+                      assert digest(dest.read_bytes())==wanted
+                  copy_provider_archives(original,root)
+                  copy_generation_executable(original,root)
+                  copied=root/'state.sqlite'
+                  with closing(sqlite3.connect(str(copied))) as out:original.conn.backup(out)
+                  with closing(Database(copied)) as rehearsal:
+                      assert rehearsal.meta()==before and rollback_view(rehearsal.conn)==view
+                      with SingleOwner(copied.with_suffix('.lock')):
+                          assert migrate_hybrid_lane(rehearsal) is True
+                          assert audit_hybrid_lane(rehearsal) is True
+                          after=rehearsal.meta().copy()
+                          assert after['source_sha']==before['source_sha'] and after['head_seq']==before['head_seq']+1
+                          assert [tuple(row) for row in rehearsal.conn.execute('SELECT * FROM tasks ORDER BY ticket')]==tasks
+                          assert [tuple(row) for row in rehearsal.conn.execute('SELECT seq,kind,payload,prior_sha,sha FROM events WHERE seq<=? ORDER BY seq',(before['head_seq'],))]==events
+                          copied_view=rollback_view(rehearsal.conn)
+                          assert {k:v for k,v in copied_view['tables'].items() if k not in ('meta','events')}=={k:v for k,v in view['tables'].items() if k not in ('meta','events')}
+                          assert migrate_hybrid_lane(rehearsal) is False and rehearsal.meta()==after
+                  with closing(Database.open_readonly(copied)) as cold:
+                      assert audit_hybrid_lane(cold) is True and cold.meta()==after and cold.dual_native_schema()
+                  assert original.meta()==before and original.conn.total_changes==changes
+                  assert rollback_view(original.conn)==view and audit_hybrid_lane(original) is False
+              print('F139_V40_HYBRID_COPY_ADMISSION='+json.dumps(dict(
+                  schema='forge.f139.v40.hybrid-original-copy-admission.v1',source_sha=before['source_sha'],
+                  original_head_seq=before['head_seq'],original_head_sha256=before['head_hash'],
+                  original_logical_view_sha256=digest(canonical(view)),original_events_sha256=digest(canonical(events)),
+                  task_rows_sha256=digest(canonical(tasks)),preserved_counters=counters,
+                  original_owner_mutations=0,original_hybrid_admitted=False,copied_schema_admission=True,
+                  copied_event_seq=after['head_seq'],copied_event_sha256=after['head_hash'],
+                  all_original_rows_events_preserved=True,cold_verification=True,replay_noop_verified=True,
+                  native_two_slots_preserved=True,new_dispatches=0,publications=0,model_calls=0,
+                  scientific_first_use=False,policy_changed=False,task_changed=False,new_controller=False),sort_keys=True))
+          '@ | & $python -B - $db
+          if($LASTEXITCODE -ne 0){throw 'COPY_ADMISSION_QUALIFICATION_FAILED_ORIGINAL_UNCHANGED'}
+          $final=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | Out-String) | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or [string]$final.body -cne [string]$policy.body -or
+             [string](Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController').State -cnotin @('Running','Ready')){throw 'COPY_POLICY_OR_TASK_DRIFT'}
+          Write-Host 'F139_V40_HYBRID_COPY_ORIGINAL_TASK_UNCHANGED=PASS'
