@@ -77,6 +77,34 @@ def fixture():
     return public, issue_api, verify_kw, inspected, ref, binding, payload, inputs
 
 
+
+def synthetic_candidate_revision(payload, original):
+    """Fixture for a real single-commit one-file GitHub compare *shape* only."""
+    import base64
+    after = base64.b64decode(json.loads(payload)["after_base64"], validate=True)
+    after_git_blob = hashlib.sha1(
+        b"blob " + str(len(after)).encode("ascii") +
+        b"\0" + after).hexdigest()
+    candidate_commit = "7" * 40
+    head = {
+        "repository": REPOSITORY,
+        "commit_sha": candidate_commit,
+        "tree_sha": "8" * 40,
+        "path": original["path"],
+        "git_blob_sha": after_git_blob,
+    }
+    comparison = {
+        "status": "ahead", "ahead_by": 1, "behind_by": 0, "total_commits": 1,
+        "base_commit": {"sha": original["commit_sha"]},
+        "merge_base_commit": {"sha": original["commit_sha"]},
+        "commits": [{"sha": candidate_commit,
+                     "parents": [{"sha": original["commit_sha"]}]}],
+        "files": [{"filename": original["path"], "status": "modified",
+                   "sha": after_git_blob, "changes": 1}],
+    }
+    return after, head, comparison
+
+
 def parse_issue(raw, kw):
     return inspect_private_opaque_issue(raw, **kw)
 
@@ -135,12 +163,17 @@ class PrivateHybridOpaqueIssueTests(unittest.TestCase):
             "authenticated_target_file": original,
             "authenticated_storage_file": kw["authenticated_storage_file"],
         }
-        outcome = prepare_private_provider_commitment(payload, before, **args)
+        after, head, comparison = synthetic_candidate_revision(payload, original)
+        args["authenticated_candidate_file"] = head
+        args["authenticated_candidate_comparison"] = comparison
+        outcome = prepare_private_provider_commitment(payload, before, after, **args)
         self.assertEqual(outcome["issue_body"], issue_api["body"])
         self.assertEqual(outcome["issue_body_sha256"], issue.issue_body_sha256)
         self.assertEqual(outcome["private_payload_sha256"],
                          hashlib.sha256(payload).hexdigest())
         self.assertTrue(outcome["real_baseline_blob_bytes_matched"])
+        self.assertTrue(outcome["real_after_blob_bytes_matched"])
+        self.assertTrue(outcome["single_commit_single_source_delta_verified"])
         self.assertTrue(outcome["real_storage_blob_bytes_matched"])
         self.assertFalse(outcome["public_private_code_emitted"])
         self.assertFalse(outcome["original_owner_live_issue_verified"])
@@ -171,7 +204,10 @@ class PrivateHybridOpaqueIssueTests(unittest.TestCase):
             "path": ref["source_path"],
             "git_blob_sha": original_sha,
         }
+        after, head, comparison = synthetic_candidate_revision(payload, original)
         arguments = {
+            "authenticated_candidate_file": head,
+            "authenticated_candidate_comparison": comparison,
             "owner_source_sha": synthetic.OWNER,
             "authenticated_repository_metadata": synthetic.MD,
             "authenticated_target_commit": synthetic.COMMIT,
@@ -215,7 +251,67 @@ class PrivateHybridOpaqueIssueTests(unittest.TestCase):
         for i, (p, source, opts) in enumerate(bad_inputs):
             self.assertTrue(p != payload or source != before or opts != arguments)
             with self.subTest(case=i), self.assertRaises(PrivateOpaqueIssueDenied):
-                prepare_private_provider_commitment(p, source, **opts)
+                prepare_private_provider_commitment(p, source, after, **opts)
+
+
+    def test_candidate_revision_must_be_verified_one_file_modified(self):
+        _, _, kw, _, ref, _, payload, _ = fixture()
+        before = b"def synthetic():\\n    return 0\\n"
+        original = {
+            "repository": REPOSITORY, "commit_sha": synthetic.COMMIT,
+            "tree_sha": synthetic.TREE, "path": ref["source_path"],
+            "git_blob_sha": hashlib.sha1(
+                b"blob " + str(len(before)).encode() +
+                b"\0" + before).hexdigest(),
+        }
+        after, head, comparison = synthetic_candidate_revision(payload, original)
+        args = {
+            "owner_source_sha": synthetic.OWNER,
+            "authenticated_repository_metadata": synthetic.MD,
+            "authenticated_target_commit": synthetic.COMMIT,
+            "authenticated_target_tree": synthetic.TREE,
+            "authenticated_target_file": original,
+            "authenticated_storage_file": kw["authenticated_storage_file"],
+            "authenticated_candidate_file": head,
+            "authenticated_candidate_comparison": comparison,
+        }
+        for change in (
+            {"after": after + b"modified"},
+            {"head": {**head, "git_blob_sha": "0"*40}},
+            {"head": {**head, "commit_sha": synthetic.COMMIT}},
+            {"head": {**head, "tree_sha": "bad"}},
+            {"head": {**head, "path": "tests/test_model.py"}},
+            {"compare": {**comparison, "total_commits": 2}},
+            {"compare": {**comparison, "ahead_by": True}},
+            {"compare": {**comparison, "behind_by": 1}},
+            {"compare": {**comparison, "merge_base_commit": {"sha": "0"*40}}},
+            {"compare": {**comparison, "commits": []}},
+            {"compare": {**comparison, "commits": [
+                {"sha": head["commit_sha"], "parents": [
+                    {"sha": synthetic.COMMIT}, {"sha": "0"*40}]}]}},
+            {"compare": {**comparison, "files": [
+                *comparison["files"], {"filename": "tests/test_unrelated.py",
+                                       "status": "added", "sha": "a"*40,
+                                       "changes": 1}]}},
+            {"compare": {**comparison, "files": [
+                {**comparison["files"][0], "status": "added"}]}},
+            {"compare": {**comparison, "files": [
+                {**comparison["files"][0], "sha": "0"*40}]}},
+            {"compare": {**comparison, "files": [
+                {**comparison["files"][0], "changes": False}]}},
+            {"storage": {**kw["authenticated_storage_file"],
+                         "commit_sha": head["commit_sha"]}},
+        ):
+            with self.subTest(change=tuple(change)):
+                observed = {**args}
+                new_after = change.get("after", after)
+                observed["authenticated_candidate_file"] = change.get("head", head)
+                observed["authenticated_candidate_comparison"] = change.get("compare", comparison)
+                observed["authenticated_storage_file"] = change.get(
+                    "storage", kw["authenticated_storage_file"])
+                with self.assertRaises(PrivateOpaqueIssueDenied):
+                    prepare_private_provider_commitment(
+                        payload, before, new_after, **observed)
 
     def test_public_issue_is_frozen_before_final_private_ref_exists(self):
         public, api, kw, issue, ref, binding, payload, inputs = fixture()

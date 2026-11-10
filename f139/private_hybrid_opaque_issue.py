@@ -81,14 +81,22 @@ class PrivateOpaqueIssue:
 
 
 
-def prepare_private_provider_commitment(payload_raw, before_raw, *,
+def prepare_private_provider_commitment(payload_raw, before_raw, after_raw, *,
                                         owner_source_sha,
                                         authenticated_repository_metadata,
                                         authenticated_target_commit,
                                         authenticated_target_tree,
                                         authenticated_target_file,
-                                        authenticated_storage_file):
-    """PRIVATE-PROVIDER ONLY: verify real original file and stored intent bytes.
+                                        authenticated_storage_file,
+                                        authenticated_candidate_file,
+                                        authenticated_candidate_comparison):
+    """PRIVATE-PROVIDER ONLY: verify original + after source and stored intent.
+
+    The original and *after* file MUST be independently authenticated private
+    Git blobs at immutable base/head commits, whose provider comparison proves
+    exactly one source-modifying commit and exactly one modified source file.
+    Two-file source+test research PRs must be reconciled by their scoped owner;
+    neither a source hash nor this function can waive the single-file policy.
 
     This produces a bounded PUBLIC source-free issue body BEFORE original-owner
     HMAC signing. The caller must prove that both Git file mappings came from
@@ -103,7 +111,8 @@ def prepare_private_provider_commitment(payload_raw, before_raw, *,
     from f139.private_hybrid_reference import PATH
 
     need(type(payload_raw) is bytes and 0 < len(payload_raw) <= 60000
-         and type(before_raw) is bytes and 0 < len(before_raw) <= 32768,
+         and type(before_raw) is bytes and 0 < len(before_raw) <= 32768
+         and type(after_raw) is bytes and 0 < len(after_raw) <= 32768,
          "PRIVATE_PROVIDER_BYTES_BOUNDED")
     need(type(owner_source_sha) is str
          and SHA40.fullmatch(owner_source_sha) is not None
@@ -129,8 +138,10 @@ def prepare_private_provider_commitment(payload_raw, before_raw, *,
             "F139_PRIVATE_HYBRID_ISSUE_PRIVATE_INTENT_INVALID") from exc
     need(candidate.lane == LANE and type(candidate.path) is str
          and PATH.fullmatch(candidate.path) is not None
-         and candidate.before_sha256 == hashlib.sha256(before_raw).hexdigest(),
-         "PRIVATE_BASELINE_BYTES_OR_SOURCE_PATH_DRIFT")
+         and candidate.before_sha256 == hashlib.sha256(before_raw).hexdigest()
+         and candidate.after_sha256 == hashlib.sha256(after_raw).hexdigest()
+         and candidate.after_bytes == after_raw,
+         "PRIVATE_BASELINE_OR_AFTER_BYTES_DRIFT")
 
     def blob_sha(raw):
         return hashlib.sha1(
@@ -145,6 +156,54 @@ def prepare_private_provider_commitment(payload_raw, before_raw, *,
          and original["path"] == candidate.path
          and original["git_blob_sha"] == blob_sha(before_raw),
          "PRIVATE_BASELINE_GIT_BLOB_NOT_AUTHENTICATED")
+    # Compare a real candidate HEAD against the frozen private baseline.
+    # The project-owned provider must independently authenticate both Git
+    # object identities and the provider comparison, not caller assertions.
+    revision = authenticated_candidate_file
+    need(type(revision) is dict and set(revision) == {
+        "repository", "commit_sha", "tree_sha", "path", "git_blob_sha",
+    } and revision["repository"] == REPOSITORY
+         and type(revision["commit_sha"]) is str
+         and SHA40.fullmatch(revision["commit_sha"]) is not None
+         and revision["commit_sha"] != authenticated_target_commit
+         and type(revision["tree_sha"]) is str
+         and SHA40.fullmatch(revision["tree_sha"]) is not None
+         and revision["path"] == candidate.path
+         and revision["git_blob_sha"] == blob_sha(after_raw),
+         "PRIVATE_CANDIDATE_HEAD_SOURCE_NOT_AUTHENTICATED")
+    comparison = authenticated_candidate_comparison
+    need(type(comparison) is dict
+         and comparison.get("status") == "ahead"
+         and type(comparison.get("ahead_by")) is int
+         and comparison["ahead_by"] == 1
+         and type(comparison.get("behind_by")) is int
+         and comparison["behind_by"] == 0
+         and type(comparison.get("total_commits")) is int
+         and comparison["total_commits"] == 1
+         and type(comparison.get("base_commit")) is dict
+         and comparison["base_commit"].get("sha") == authenticated_target_commit
+         and type(comparison.get("merge_base_commit")) is dict
+         and comparison["merge_base_commit"].get("sha") == authenticated_target_commit,
+         "PRIVATE_CANDIDATE_COMPARE_ANCESTRY_INVALID")
+    commits = comparison.get("commits")
+    need(type(commits) is list and len(commits) == 1
+         and type(commits[0]) is dict
+         and commits[0].get("sha") == revision["commit_sha"]
+         and type(commits[0].get("parents")) is list
+         and len(commits[0]["parents"]) == 1
+         and type(commits[0]["parents"][0]) is dict
+         and commits[0]["parents"][0].get("sha") ==
+             authenticated_target_commit,
+         "PRIVATE_CANDIDATE_COMMIT_NOT_DIRECT_CHILD")
+    changed = comparison.get("files")
+    need(type(changed) is list and len(changed) == 1
+         and type(changed[0]) is dict
+         and changed[0].get("filename") == candidate.path
+         and changed[0].get("status") == "modified"
+         and changed[0].get("sha") == revision["git_blob_sha"]
+         and type(changed[0].get("changes")) is int
+         and changed[0]["changes"] > 0,
+         "PRIVATE_CANDIDATE_NOT_EXACTLY_ONE_SOURCE_FILE")
     observed = authenticated_storage_file
     payload_sha = hashlib.sha256(payload_raw).hexdigest()
     need(type(observed) is dict and set(observed) == {
@@ -153,6 +212,7 @@ def prepare_private_provider_commitment(payload_raw, before_raw, *,
          and type(observed["commit_sha"]) is str
          and SHA40.fullmatch(observed["commit_sha"]) is not None
          and observed["commit_sha"] != authenticated_target_commit
+         and observed["commit_sha"] != revision["commit_sha"]
          and type(observed["tree_sha"]) is str
          and SHA40.fullmatch(observed["tree_sha"]) is not None
          and observed["path"] == "f139/private-native/" + payload_sha + ".json"
@@ -179,6 +239,8 @@ def prepare_private_provider_commitment(payload_raw, before_raw, *,
         "issue_body_sha256": hashlib.sha256(body).hexdigest(),
         "private_payload_sha256": payload_sha,
         "real_baseline_blob_bytes_matched": True,
+        "real_after_blob_bytes_matched": True,
+        "single_commit_single_source_delta_verified": True,
         "real_storage_blob_bytes_matched": True,
         "public_private_code_emitted": False,
         "original_owner_live_issue_verified": False,

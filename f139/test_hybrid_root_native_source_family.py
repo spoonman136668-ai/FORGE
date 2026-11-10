@@ -21,6 +21,7 @@ from f139.private_hybrid_opaque_issue import (
     PrivateOpaqueIssueDenied, prepare_private_provider_commitment,
 )
 from f139 import test_private_hybrid_reference as fixtures
+from f139.test_private_hybrid_opaque_issue import synthetic_candidate_revision
 
 
 def blob(data: bytes) -> str:
@@ -108,13 +109,16 @@ class HybridRootNativeEligibilityTests(unittest.TestCase):
                     private_commit=fixtures.COMMIT, private_tree=fixtures.TREE,
                     authenticated_repository_metadata=fixtures.MD)
                 self.assertEqual(checked["source_path"], path)
+                after, head, comparison = synthetic_candidate_revision(payload, target)
                 output = prepare_private_provider_commitment(
-                    payload, before, owner_source_sha=fixtures.OWNER,
+                    payload, before, after, owner_source_sha=fixtures.OWNER,
                     authenticated_repository_metadata=fixtures.MD,
                     authenticated_target_commit=fixtures.COMMIT,
                     authenticated_target_tree=fixtures.TREE,
                     authenticated_target_file=target,
-                    authenticated_storage_file=stored)
+                    authenticated_storage_file=stored,
+                    authenticated_candidate_file=head,
+                    authenticated_candidate_comparison=comparison)
                 public = json.loads(output["issue_body"])
                 self.assertEqual(public["private_payload_sha256"],
                                  hashlib.sha256(payload).hexdigest())
@@ -143,14 +147,17 @@ class HybridRootNativeEligibilityTests(unittest.TestCase):
                         private_commit=fixtures.COMMIT,
                         private_tree=fixtures.TREE,
                         authenticated_repository_metadata=fixtures.MD)
+                after, head, comparison = synthetic_candidate_revision(payload, target)
                 with self.assertRaises(PrivateOpaqueIssueDenied):
                     prepare_private_provider_commitment(
-                        payload, before, owner_source_sha=fixtures.OWNER,
+                        payload, before, after, owner_source_sha=fixtures.OWNER,
                         authenticated_repository_metadata=fixtures.MD,
                         authenticated_target_commit=fixtures.COMMIT,
                         authenticated_target_tree=fixtures.TREE,
                         authenticated_target_file=target,
-                        authenticated_storage_file=stored)
+                        authenticated_storage_file=stored,
+                        authenticated_candidate_file=head,
+                        authenticated_candidate_comparison=comparison)
 
 
 if __name__ == "__main__":
