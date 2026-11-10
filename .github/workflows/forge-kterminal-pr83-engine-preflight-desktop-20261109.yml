@@ -6,15 +6,15 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: kterminal-pr86-full-window-3e4eeb8f
+  group: kterminal-pr86-full-window-cc01d57b
   cancel-in-progress: false
 jobs:
   owner-local-package:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: c0e85088e7ff2e7c8d989dc93f89df16a462d659
-      KTERM_TREE: 3e4eeb8f9a5fd982858cc0a92300f6d28fe952b9
+      KTERM_SHA: baac0541d42ecabf9fa2897cc06c135c708ee52f
+      KTERM_TREE: cc01d57be09b10a869a64ac4d137725f8eb440f4
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -116,10 +116,29 @@ jobs:
           # No Coinbase credentials, LIVE mode or order POST is available.
           Push-Location $stage
           try {
-            # Exact K Terminal source SHA was unchanged. Reuse the already
-            # PASS focused test receipt from run 42711519222 (69,613 ms).
-            # The previous run failed only AFTER these tests, in full suite.
-            Write-Host 'KTERM_PR86_FOCUSED_REUSE=PASS;RUN=42711519222;MS=69613;SOURCE_SHA=c0e85088e7ff2e7c8d989dc93f89df16a462d659'
+            # The candidate SHA changed by a test-only frozen-candle repair.
+            # Exercise that concurrent test repeatedly, together with the
+            # signed-origin negative controls, before full regression.
+            $focusedClock=[Diagnostics.Stopwatch]::StartNew()
+            & go test -p 1 -count=10 -timeout 15m -run '^(TestPressureTPCycleConcurrentFeedAndSizing|TestPortableBuyOrigin|TestPaperTPConcurrentReservations|TestPaperTPReservationReport)' ./pkg *> (Join-Path $root 'private-focused.log')
+            $focusedClock.Stop()
+            $focusedExit=$LASTEXITCODE
+            if($focusedExit -ne 0){
+              $found=0
+              foreach($line in [IO.File]::ReadLines((Join-Path $root 'private-focused.log'))){
+                if($line -match '--- FAIL:\s+(Test[A-Za-z0-9_]+)'){
+                  Write-Host ('KTERM_PR86_FOCUSED_FAILED_TEST='+$Matches[1])
+                  $found++
+                } elseif($line -match 'tranche-pressure-cycle_test\.go:(\d+):'){
+                  Write-Host ('KTERM_PR86_FOCUSED_PRESSURE_TEST_LINE='+$Matches[1])
+                  $found++
+                }
+                if($found -ge 16){break}
+              }
+              Write-Host ('KTERM_PR86_FOCUSED=FAIL;EXIT='+$focusedExit+';DIAG_COUNT='+$found+';MS='+$focusedClock.ElapsedMilliseconds)
+              throw 'KTERM_PR86_FOCUSED_FAILED'
+            }
+            Write-Host ('KTERM_PR86_FOCUSED=PASS;COUNT=10;MS='+$focusedClock.ElapsedMilliseconds+';SOURCE_SHA='+$env:KTERM_SHA)
             $fullClock=[Diagnostics.Stopwatch]::StartNew()
             & go test -json -p 1 -count=1 -timeout 60m ./... *> (Join-Path $root 'private-full-regression.jsonl')
             $fullClock.Stop()
