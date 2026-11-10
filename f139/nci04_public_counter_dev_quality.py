@@ -1,0 +1,123 @@
+"""Pure, non-authorizing development quality assessment of typed public-counter programs.
+
+Exact Bernoulli enumeration, not an original FORGE/Yggdrasil science trial.
+This module does not read owner history, select parents, publish, or dispatch.
+No synthetic regret number is optimizer reward or acceptance evidence.
+"""
+from __future__ import annotations
+
+from fractions import Fraction
+from hashlib import sha256
+from itertools import product
+from math import comb
+import re
+
+from f139.nci04_prompt_program import _public_counter_value, parse
+
+SCHEMA = "forge.f139.public-counter-development-quality.v1"
+PROBABILITIES = (Fraction(1, 4), Fraction(1, 2), Fraction(3, 4))
+TRIAL_COUNTS = (2, 4, 8)
+SIGNATURE_MAX_TRIALS = 10
+MAX_PROGRAMS = 16
+
+
+def _decision(rule, success0, trials0, success1, trials1):
+    """Compute decisions using nonnegative integers, never execute candidate Python."""
+    if rule == "empirical":
+        left, right = success0 * trials1, success1 * trials0
+    elif rule == "laplace":
+        left = (success0 + 1) * (trials1 + 2)
+        right = (success1 + 1) * (trials0 + 2)
+    else:
+        numerator, denominator = rule
+        numerator0 = _public_counter_value(numerator, success0, trials0 - success0)
+        numerator1 = _public_counter_value(numerator, success1, trials1 - success1)
+        denominator0 = _public_counter_value(denominator, success0, trials0 - success0)
+        denominator1 = _public_counter_value(denominator, success1, trials1 - success1)
+        if denominator0 <= 0 or denominator1 <= 0:
+            return None
+        left, right = numerator0 * denominator1, numerator1 * denominator0
+    return 0 if left > right else 1 if left < right else None
+
+
+def _binomial(trials, successes, probability):
+    return comb(trials, successes) * probability ** successes * (
+        1 - probability) ** (trials - successes)
+
+
+def _loss(rule):
+    """Uniform average over 54 fixed scenarios; abstention incurs half regret."""
+    total = Fraction()
+    n_scenarios = 0
+    for p0 in PROBABILITIES:
+        for p1 in PROBABILITIES:
+            if p0 == p1:
+                continue
+            optimal = 0 if p0 > p1 else 1
+            gap = abs(p0 - p1)
+            for n0, n1 in product(TRIAL_COUNTS, repeat=2):
+                n_scenarios += 1
+                for s0, s1 in product(range(n0 + 1), range(n1 + 1)):
+                    selected = _decision(rule, s0, n0, s1, n1)
+                    regret = (Fraction(1, 2) if selected is None
+                              else Fraction(int(selected != optimal)))
+                    total += gap * regret * _binomial(n0, s0, p0) * _binomial(n1, s1, p1)
+    assert n_scenarios == 54
+    return total / n_scenarios
+
+
+def _signature(rule):
+    """Finite public-grid fingerprint, NOT a universal equivalence certificate."""
+    outcomes = bytearray()
+    for n0 in range(1, SIGNATURE_MAX_TRIALS + 1):
+        for n1 in range(1, SIGNATURE_MAX_TRIALS + 1):
+            for s0, s1 in product(range(n0 + 1), range(n1 + 1)):
+                selection = _decision(rule, s0, n0, s1, n1)
+                outcomes.append(2 if selection is None else selection)
+    assert len(outcomes) == 4225
+    return sha256(outcomes).hexdigest()
+
+
+def _metric(loss):
+    return {"exact_fraction": str(loss), "decimal": format(float(loss), ".12f")}
+
+
+def assess(programs):
+    """Compare untrusted typed programs with two competent conventional controls.
+
+    No inference about original tasks, unknown worlds, or scientific benefit.
+    Callers must separately authenticate any claimed PR source provenance.
+    """
+    if (type(programs) is not dict or not 1 <= len(programs) <= MAX_PROGRAMS
+            or any(type(name) is not str or not re.fullmatch(r"[a-z0-9_-]{1,48}", name)
+                   or type(program) is not str
+                   for name, program in programs.items())):
+        raise ValueError("F139_DEV_QUALITY_INVALID_INPUT")
+    parsed = {name: parse(program) for name, program in programs.items()}
+    baseline = {name: _loss(name) for name in ("empirical", "laplace")}
+    strongest = min(baseline, key=baseline.get)
+    results = {}
+    for name, tree in parsed.items():
+        loss = _loss(tree)
+        results[name] = {
+            "program_sha256": sha256(programs[name].encode("ascii")).hexdigest(),
+            "mean_regret": _metric(loss),
+            "finite_public_grid_signature_sha256": _signature(tree),
+            "beats_strongest_control_on_this_synthetic_dev_grid": loss < baseline[strongest],
+        }
+    return {
+        "schema": SCHEMA,
+        "mode": "SYNTHETIC_DEVELOPMENT_DIAGNOSTIC_ONLY",
+        "fixed_scenarios": 54,
+        "grid_decision_cases": 4225,
+        "strongest_control": strongest,
+        "controls": {name: _metric(loss) for name, loss in baseline.items()},
+        "programs": results,
+        "finite_grid_equality_is_global_equivalence_proof": False,
+        "independent_source_custody_proven": False,
+        "scientific_first_use": False,
+        "scientific_accepted": False,
+        "optimizer_training_authorized": False,
+        "dispatch_authorized": False,
+        "owner_policy_modified": False,
+    }
