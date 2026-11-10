@@ -22,6 +22,7 @@ from f139.private_hybrid_opaque_issue import (
 )
 from f139 import test_private_hybrid_reference as fixtures
 from f139.test_private_hybrid_opaque_issue import synthetic_candidate_revision
+from f139.nci04_native_worker import COMMANDS, commands_for
 
 
 def blob(data: bytes) -> str:
@@ -128,6 +129,26 @@ class HybridRootNativeEligibilityTests(unittest.TestCase):
                                      "after_base64", "owner_authorization_sha256",
                                      "private_payload_path", path):
                     self.assertNotIn(private_only, output["issue_body"])
+
+    def test_hybrid_fixed_worker_compiles_root_native_and_preserves_full_suite(self):
+        # Source path is synthetic: never embed or emit an actual private module.
+        _, payload, _, _, _ = example("native_p64k_synthetic.py")
+        candidate = parse_intent(
+            payload, protected_main=fixtures.OWNER,
+            target_commit=fixtures.COMMIT, target_tree_sha=fixtures.TREE)
+        fixed = commands_for(candidate)
+        self.assertEqual(fixed, COMMANDS["TTT-Hybrid"])
+        self.assertEqual(fixed[0], (
+            "python", "-B", "-m", "pytest", "-q", "tests/test_model.py"))
+        self.assertEqual(fixed[1], (
+            "python", "-B", "-m", "pytest", "-q"))
+        self.assertEqual(fixed[-1], (
+            "python", "-B", "-m", "compileall", "-q", "."))
+        self.assertFalse(any(candidate.path in argv for argv in fixed))
+        self.assertFalse(any("after_base64" in argv for argv in fixed))
+        self.assertEqual(len(fixed), 3)
+        # Existing native tests are not bypassed by compiling root files.
+        self.assertEqual(fixed[1][-2:], ("pytest", "-q"))
 
     def test_wrong_private_path_cannot_be_laundered_through_reference(self):
         for path in ("native_random.py", "model.py",
