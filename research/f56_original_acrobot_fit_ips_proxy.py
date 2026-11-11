@@ -228,7 +228,7 @@ def score():
                              "bootstrap_draws":BOOTSTRAP_COUNT},
         "classification":("F56_FIT_ONE_STEP_PROXY_SIGNAL_UNVERIFIED" if signal
                           else "F56_FIT_ONE_STEP_NO_GO"),
-        "cold_exact_roots":len(folds),"new_original_environment_resets":0,
+        "cold_exact_roots":len(folds),"recollected_historical_fit_resets":48,\n        "new_scored_or_unfamiliar_reset_seeds":0,
         "fresh_scored_episodes":0,"scientific_first_use":False,
         "scientific_accepted":False,"episodic_policy_return_proven":False,
         "unfamiliar_physics_transfer_proven":False,"autonomous_rsi_proven":False
