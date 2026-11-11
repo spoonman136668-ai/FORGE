@@ -142,3 +142,43 @@ func TestNativeCandidateDigestBindsFullAcceptedContext(t *testing.T){
   })
  }
 }
+
+
+// TestNativeCandidateDigestRejectsMalformedUTF8 prevents json.Marshal's
+// replacement-character normalization from aliasing distinct original bytes.
+func TestNativeCandidateDigestRejectsMalformedUTF8(t *testing.T){
+ cases:=[]struct{name string;mutate func(*Proposal,string)}{
+  {"owner",func(p *Proposal,value string){p.OwnerID=value;p.Lease.OwnerID=value}},
+  {"worker",func(p *Proposal,value string){p.Claim.WorkerID=value;p.Lease.WorkerID=value}},
+  {"original_run",func(p *Proposal,value string){p.Claim.OriginalRunID=value}},
+ }
+ for _,tc:=range cases{
+  t.Run(tc.name,func(t *testing.T){
+   for _,bad:=range []byte{0xff,0xfe}{
+    p:=fixture()
+    tc.mutate(&p,"identity-"+string([]byte{bad}))
+    result,err:=Prepare(p)
+    if !errors.Is(err,ErrNoScienceAuthority)||result!=(Review{}){
+     t.Fatalf("malformed UTF-8 accepted: %+v, %v",result,err)
+    }
+   }
+  })
+ }
+ // Valid Unicode is allowed. Distinct encoded byte sequences remain distinct.
+ a:=fixture()
+ a.OwnerID="owner-\u00e9"
+ a.Lease.OwnerID=a.OwnerID
+ one,err:=Prepare(a)
+ if err!=nil{t.Fatalf("valid Unicode rejected: %v",err)}
+ b:=fixture()
+ b.OwnerID="owner-e\u0301"
+ b.Lease.OwnerID=b.OwnerID
+ two,err:=Prepare(b)
+ if err!=nil||two.CandidateDigest==one.CandidateDigest{
+  t.Fatalf("valid, byte-distinct Unicode aliases: %v",err)
+ }
+ if !errors.Is(AuthorizeLiveOriginal(one),ErrNoScienceAuthority)||
+  !errors.Is(AuthorizeLiveOriginal(two),ErrNoScienceAuthority){
+  t.Fatal("Unicode source-only preview granted live first-use")
+ }
+}
