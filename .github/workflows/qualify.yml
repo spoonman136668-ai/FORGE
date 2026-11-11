@@ -765,3 +765,97 @@ jobs:
           test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
+
+
+  # Exact-branch, one-time F49 non-production synthetic research DEV trial.
+  f49_corroborated_change_dev_once:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' &&
+      github.event.pull_request.head.ref == 'research/eureka-f49-noise-change-point-20261110' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout frozen single-PR development source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify prospective F49 sources before any evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:docs/NATIVE-DISCOVERY-F49-NOISE-AWARE-CHANGEPOINT-DEV.md)" = '840dd2ab6b180036482e5b1d90e8c1b2eb9654ab'
+          test "$(git rev-parse HEAD:research/f49_noise_aware_changepoint_dev.py)" = '6ef6eac5fea652811f1dbc02f5de62c7f20e8494'
+          test "$(git hash-object --no-filters research/f49_noise_aware_changepoint_dev.py)" = '6ef6eac5fea652811f1dbc02f5de62c7f20e8494'
+          test "$(git rev-parse HEAD:research/test_f49_noise_aware_changepoint_dev.py)" = '3efe01cec54e180bd54c5e6c8ff59bd3abcd5f16'
+          test "$(git rev-parse HEAD:AGENTS.md)" = '39926d2277ac01c8114f03561bd8e001fcc3b582'
+          echo 'F49_PINNED_SOURCE_BEFORE_DEV=PASS'
+      - name: Set up Python 3.11 (standard library only)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: FIT-only focused controls, physical contract and protected-seed refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research -p 'test_f49_noise_aware_changepoint_dev.py' -v
+          echo 'F49_FIT_ONLY_SOURCE_TESTS=PASS'
+      - name: Execute once the frozen synthetic F49 trial and preserve negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f49_noise_aware_changepoint_dev.py \
+            "$RUNNER_TEMP/f49-noise-aware-causal-dev.json"
+          F49_REPORT="$RUNNER_TEMP/f49-noise-aware-causal-dev.json" python -B - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          d=json.loads(Path(os.environ["F49_REPORT"]).read_text())
+          assert d["schema"]=="forge.eureka.f49.noise-aware-corroborated-change-synthetic-dev.v1"
+          assert d["synthetic_only"] and not d["external_original_physics"]
+          assert d["training_transitions"]==1152 and d["fit_action_counts"]==[480,384,288]
+          assert len(d["train_seeds"])==8 and len(d["transfer_seeds"])==24
+          assert len(d["retention_seeds"])==12 and len(d["arms"])==9
+          assert d["fit_only_stationary_replay"]["episodes"]==96
+          assert d["fit_only_stationary_replay"]["records"]==1152
+          assert all(len(a["worlds"])==36 for a in d["arms"].values())
+          assert all(len(w["episodes"])==4 for a in d["arms"].values() for w in a["worlds"])
+          assert all(e["steps"]==12 and e["cold_matches"] for a in d["arms"].values()
+                     for w in a["worlds"] for e in w["episodes"])
+          assert d["classification"] in ("F49_DEV_NO_GO","F49_DEV_SIGNAL_UNVERIFIED")
+          assert not d["scientific_accepted"] and not d["first_use_consumed"]
+          assert not d["owner_eligible"] and not d["general_rsi_proven"]
+          copy={k:v for k,v in d.items() if k!="report_sha256"}
+          sha=hashlib.sha256(json.dumps(copy,sort_keys=True,separators=(",",":"),
+                                        allow_nan=False).encode()).hexdigest()
+          assert sha==d["report_sha256"]
+          print("F49_FROZEN_RESULT="+d["classification"])
+          print("F49_ALL_ARMS="+json.dumps({k:{
+            "transfer_success":v["transfer_success"],
+            "retention_success":v["retention_success"],
+            "transfer_return":v["transfer_return"],
+            "reset_worlds":v["reset_worlds"],
+            "stable_update_worlds":v["stable_update_worlds"],
+            "ns_per_step":v["decision_ns_per_step"]
+          } for k,v in d["arms"].items()},sort_keys=True))
+          print("F49_FIT_FALSE_ALARMS="+json.dumps(d["fit_only_stationary_replay"],sort_keys=True))
+          print("F49_STRONGEST_CONVENTIONAL="+d["strongest_conventional"])
+          print("F49_SUCCESS_GAIN="+str(d["success_gain"]))
+          print("F49_RETURN_GAIN="+str(d["return_gain"]))
+          print("F49_PAIRED_WIN_WORLDS="+str(d["paired_world_success_wins"]))
+          print("F49_RETENTION_MARGIN="+str(d["retention_margin"]))
+          print("F49_DECISION_COST_RATIO="+str(d["cost_ratio"]))
+          print("F49_REPORT_SHA256="+d["report_sha256"])
+          PY
+      - name: Archive positive or negative complete F49 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f49-noise-aware-changepoint-dev-once
+          path: ${{ runner.temp }}/f49-noise-aware-causal-dev.json
+          if-no-files-found: warn
+          retention-days: 45
