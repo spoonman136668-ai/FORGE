@@ -40,6 +40,10 @@ jobs:
           # Restore LF from this exact commit without fetching/replaying source.
           if [ "$RUNNER_OS" = "Windows" ]; then
             git -c core.autocrlf=false checkout-index --force --all
+            # AGENTS.md carries a checkout attribute that still changes bytes
+            # on Windows; restore original blob directly, without conversion.
+            git show HEAD:AGENTS.md > AGENTS.md
+            test "$(git hash-object --no-filters AGENTS.md)" = 39926d2277ac01c8114f03561bd8e001fcc3b582
           fi
           python3 -B -m unittest discover -s research -p 'test_f57_original_acrobot_reward_*py' -v
           python3 -B research/f57_original_acrobot_reward_admission.py
