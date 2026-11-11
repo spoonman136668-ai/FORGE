@@ -1,4 +1,4 @@
-name: K Terminal P5 paired broker ACK delay sensitivity
+name: K Terminal P5 unknown broker ACK no-repost matrix
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -91,15 +91,150 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Run paired exact-source isolated broker network-ACK latency sensitivity tests
+      - name: Probe previously untested timeout HTTP 503 and malformed-ACK no-repost negatives
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_ACK_GO_TOOLCHAIN_MISMATCH'}
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_UNKNOWN_NEGATIVE_GO_VERSION_MISMATCH'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
           $src=Join-Path $root 'source'
-          $env:K_TERMINAL_EXECUTION_MODE='PAPER'
-          $env:K_TERMINAL_STAGE3_BUY_FIRST_DEFERRED_SAMPLES='3'
+          $testFile=Join-Path $src 'pkg\kterm_unknown_outcome_temporary_test.go'
+          if(Test-Path -LiteralPath $testFile){throw 'KTERM_UNKNOWN_NEGATIVE_FILE_PREEXISTS'}
+          $test=@'
+package pkg
+
+import (
+  "context"
+  "encoding/json"
+  "fmt"
+  "io"
+  "net/http"
+  "os"
+  "path/filepath"
+  "strings"
+  "testing"
+  "time"
+)
+
+// Only added in a temporary, owner-verified checkout, never committed into
+// the original K Terminal source. Its in-memory transport refuses all
+// unknown HTTP routes and does not use real brokerage credentials.
+func TestKTermTemporaryUnknownPostMatrix(t *testing.T) {
+  type receipt struct {
+    Product string `json:"product"`
+    Failure string `json:"failure"`
+    Posts int `json:"posts"`
+    ReplayPosts int `json:"replay_posts"`
+    State string `json:"state"`
+    Durable bool `json:"durable"`
+  }
+  var receipts []receipt
+  for _, product := range []string{"BTC-USDC","XRP-USDC"} {
+    for _, kind := range []string{"lost_timeout_after_transport","transient_503","malformed_success_200"} {
+      name := product+"/"+kind
+      t.Run(name, func(t *testing.T) {
+        h,n,cache := stage3BuyFirstDeferredFixture(t,product,false)
+        stage3BuyLifecycleAuthority(t,n) // Synthetic exclusive authority; no external venue.
+        evidenceRoot := t.TempDir()
+        fp,err := os.OpenFile(filepath.Join(evidenceRoot,"request-evidence.jsonl"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600)
+        if err != nil {t.Fatal(err)}
+        defer fp.Close()
+        var evidence []NativeOrderEvidence
+        n.Record=func(v NativeOrderEvidence) error {
+          raw,e := json.Marshal(v); if e!=nil{return e}
+          if _,e=fp.Write(append(raw,'\n'));e!=nil{return e}
+          if e=fp.Sync();e!=nil{return e}
+          evidence=append(evidence,v)
+          return nil
+        }
+        posts,books,clocks := 0,0,0
+        var submitted AdvancedOrderRequest
+        base := lookupRoundTripFunc(func(req *http.Request) (*http.Response,error) {
+          switch req.URL.Path {
+          case "/api/v3/brokerage/best_bid_ask":
+            books++
+            return makerBookResponse(makerTestBook(n.Snapshot.BestBid,n.Snapshot.BestAsk,product,time.Now()),time.Now()),nil
+          case "/api/v3/brokerage/time":
+            clocks++
+            return makerTimeResponse(time.Now()),nil
+          case "/api/v3/brokerage/orders":
+            posts++
+            if req.Method!=http.MethodPost {return nil,fmt.Errorf("non-POST order transport denied")}
+            if e:=json.NewDecoder(req.Body).Decode(&submitted);e!=nil{return nil,e}
+            if submitted.ProductID!=product || submitted.Side!=OrderSideBuy ||
+              submitted.OrderConfiguration.LimitLimitGTC==nil ||
+              !submitted.OrderConfiguration.LimitLimitGTC.PostOnly ||
+              submitted.ClientOrderID=="" {return nil,fmt.Errorf("maker/scope/identity violated")}
+            switch kind {
+            case "lost_timeout_after_transport":
+              time.Sleep(125*time.Millisecond) // Intentional bounded loss after a POST was intercepted.
+              return nil,context.DeadlineExceeded
+            case "transient_503":
+              return lookupFixtureResponse(map[string]any{"success":false,"error_response":map[string]string{"error":"TEMPORARILY_UNAVAILABLE"}},http.StatusServiceUnavailable),nil
+            case "malformed_success_200":
+              return &http.Response{StatusCode:http.StatusOK,Status:"200 OK",Header:make(http.Header),
+                Body:io.NopCloser(strings.NewReader("{\"success\":true,\"success_response\":"))},nil
+            default:
+              return nil,fmt.Errorf("invalid failure control")
+            }
+          default:
+            return nil,fmt.Errorf("non-fixture HTTP route denied: %s",req.URL.Path)
+          }
+        })
+        h.advancedOrderManager=nativeQuoteRecoveryFixture(t,n,lookupRoundTripFunc(func(req *http.Request) (*http.Response,error) {
+          return (nativeGuardedTransport{gate:n.Authorize,base:base}).RoundTrip(req)
+        }))
+        h.advancedOrderManager.UseNativeMarketCache(cache)
+        original := n.Signal
+        receiptDir:=t.TempDir()
+        _,err=h.ExecuteNativeSignal(n,receiptDir)
+        if !IsOrderSubmissionOutcomeUnknown(err) {t.Fatalf("unknown outcome not classified: %v",err)}
+        if posts!=1 || books!=1 || clocks!=1 || n.Requests!=1 || n.Signal!=original {
+          t.Fatalf("bad protected source submission: posts=%d books=%d clocks=%d request=%d",posts,books,clocks,n.Requests)
+        }
+        if len(evidence)!=2 || evidence[0].State!="REQUEST_READY" ||
+          evidence[1].State!="OUTCOME_UNKNOWN" || evidence[0].EventID!=original.EventID ||
+          evidence[1].EventID!=original.EventID || evidence[1].Error=="" {
+          t.Fatalf("unknown event was not durably distinguished from a rejection")
+        }
+        if e:=fp.Sync();e!=nil{t.Fatal(e)}
+        persisted,e:=stage3ReadJournalRecords(filepath.Join(evidenceRoot,"request-evidence.jsonl"))
+        if e!=nil || len(persisted)!=2 || persisted[1].State!="OUTCOME_UNKNOWN" {
+          t.Fatalf("required unknown event missing from reopened evidence: %v",e)
+        }
+        reloaded,e:=NewTrancheController(filepath.Dir(h.tranches.path),h.tranches.state.Scope)
+        if e!=nil {t.Fatal(e)}
+        reservation,ok:=reloaded.state.Reservations[original.EventID]
+        if !ok || reservation.ClientID!=submitted.ClientOrderID ||
+          reservation.Quantity<=0 || reservation.Price<=0 {
+          t.Fatalf("unknown order reservation missing or altered")
+        }
+        beforePosts:=posts
+        restarted:=&NativeConstruction{Signal:original}
+        result,replayErr:=h.ExecuteNativeSignal(restarted,receiptDir)
+        output,ok:=result.(map[string]any)
+        if replayErr!=nil || !ok || output["status"]!="DUPLICATE_NO_REPLAY" ||
+          posts!=beforePosts || restarted.Requests!=0 {
+          t.Fatalf("unknown result replay submitted an order: posts=%d err=%v",posts,replayErr)
+        }
+        receipts=append(receipts,receipt{Product:product,Failure:kind,
+          Posts:posts,ReplayPosts:posts-beforePosts,State:evidence[1].State,Durable:true})
+      })
+    }
+  }
+  if len(receipts)!=6 {t.Fatalf("incomplete original-source unknown outcome negative matrix")}
+  raw,err:=json.Marshal(struct {Schema string `json:"schema"`; Cases []receipt `json:"cases"`}{
+    Schema:"kterm.synthetic-unknown-outcome-matrix.v1",Cases:receipts})
+  if err!=nil {t.Fatal(err)}
+  if e:=os.WriteFile(os.Getenv("KTERM_UNKNOWN_MATRIX_OUTPUT"),raw,0600);e!=nil{t.Fatal(e)}
+}
+          '@
+          [IO.File]::WriteAllText($testFile,$test,[Text.UTF8Encoding]::new($false))
+          $status=@(& git -C $src status --porcelain)
+          if($status.Count -ne 1 -or [string]$status[0] -notmatch '^\?\? pkg/kterm_unknown_outcome_temporary_test\.go$'){
+            throw 'KTERM_UNKNOWN_NEGATIVE_UNEXPECTED_WORKTREE'
+          }
+          $env:KTERM_UNKNOWN_MATRIX_OUTPUT=Join-Path $root 'private-unknown-matrix.json'
           $env:K_TERMINAL_P5_LATENCY='0'
           $env:K_TERMINAL_NATIVE_TIMING='0'
           $env:K_TERMINAL_GITHUB_TOKEN=''
@@ -107,110 +242,38 @@ jobs:
           $env:HTTPS_PROXY='http://127.0.0.1:9'
           $env:ALL_PROXY='http://127.0.0.1:9'
           $env:NO_PROXY=''
-          # Existing source-owned fixture directly intercepts every
-          # book/clock/order HTTP request and refuses unknown destinations.
-          # Only timing controls vary; no real order or external broker.
-          $cohorts=@(
-            [pscustomobject]@{Name='fast-offline';Book=2;Clock=1;Post=5},
-            [pscustomobject]@{Name='specified-network';Book=180;Clock=120;Post=2000}
-          )
-          $results=@{}
-          foreach($arm in $cohorts){
-            $env:K_TERMINAL_HOTFIX_NETWORK_PROFILE=$arm.Name
-            $env:K_TERMINAL_HOTFIX_BOOK_MS=[string]$arm.Book
-            $env:K_TERMINAL_HOTFIX_CLOCK_MS=[string]$arm.Clock
-            $env:K_TERMINAL_HOTFIX_POST_MS=[string]$arm.Post
-            $env:K_TERMINAL_HOTFIX_BALANCE_MS='1'
-            $env:K_TERMINAL_STAGE3_BUY_FIRST_DEFERRED_LABEL=('PR94-paired-ack-'+$arm.Name)
-            $output=Join-Path $root ('private-ack-'+$arm.Name+'.json')
-            $log=Join-Path $root ('private-ack-'+$arm.Name+'.log')
-            if(Test-Path -LiteralPath $output){throw 'KTERM_ACK_NOT_FRESH'}
-            $env:K_TERMINAL_STAGE3_BUY_FIRST_DEFERRED_OUTPUT=$output
-            $clock=[Diagnostics.Stopwatch]::StartNew()
-            Push-Location $src
-            try {
-              & go test -run '^TestStage3BuyFirstDeferredCompleteReadinessWorkload$' -count=1 -timeout 10m ./pkg *> $log
-              $code=$LASTEXITCODE
-            } finally {Pop-Location}
-            $clock.Stop()
-            if($code -ne 0 -or -not [IO.File]::Exists($output)){
-              Write-Host ('KTERM_ACK_'+$arm.Name+'=FAIL;PRIVATE_LOG_SHA256='+
-                (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
-              throw 'KTERM_ACK_SOURCE_FIXTURE_FAILED'
-            }
-            $p=[IO.File]::ReadAllText($output)|ConvertFrom-Json
-            if($p.build_label -cne $env:K_TERMINAL_STAGE3_BUY_FIRST_DEFERRED_LABEL -or
-               $p.injected_network_profile.name -cne $arm.Name -or
-               [int]$p.injected_network_profile.book_per_http_request_ms -ne $arm.Book -or
-               [int]$p.injected_network_profile.clock_per_http_request_ms -ne $arm.Clock -or
-               [int]$p.injected_network_profile.post_response_headers_ms -ne $arm.Post -or
-               @($p.results).Count -ne 4) {throw 'KTERM_ACK_PROFILE_CONTRACT_DRIFT'}
-            $data=@{}
-            foreach($product in @('BTC-USDC','XRP-USDC')){
-              foreach($workload in @('first-eligible','confirmed-accounting-deferred')){
-                $matches=@($p.results|Where-Object {$_.product -ceq $product -and $_.workload -ceq $workload})
-                if($matches.Count -ne 1){throw 'KTERM_ACK_MISSING_PRODUCT_WORKLOAD'}
-                $g=$matches[0]
-                if(@($g.individual_events).Count -ne 3){throw 'KTERM_ACK_INCOMPLETE_COHORT'}
-                $ready=@();$response=@();$return=@();$transport=@()
-                foreach($event in $g.individual_events){
-                  if([int]$event.mock_order_posts -ne 1 -or
-                     [int]$event.book_requests -ne 1 -or
-                     [int]$event.clock_requests -ne 1 -or
-                     $event.in_process_reload_and_receipt_no_replay_passed -ne $true -or
-                     [double]$event.mandatory_evidence_bytes -le 0){
-                    throw 'KTERM_ACK_MAKER_ONE_POST_AND_DURABILITY_GUARDS_FAILED'
-                  }
-                  $a=[double]$event.full_first_transport_ready_ms
-                  $b=[double]$event.post_response_headers_ms
-                  $c=[double]$event.execute_entry_to_return_ms
-                  $d=[double]$event.received_to_actual_mock_transport_ms
-                  foreach($value in @($a,$b,$c,$d)){
-                    if([double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt 0 -or $value -gt 30000){
-                      throw 'KTERM_ACK_INVALID_TIMING_RECEIPT'
-                    }
-                  }
-                  if($d -lt $a -or $c -lt $b){throw 'KTERM_ACK_CLOCK_OR_SPAN_ORDER_INVERSION'}
-                  $ready+= $a;$response+= $b;$return+= $c;$transport+= $d
-                }
-                $metric=[pscustomobject]@{
-                  Ready=($ready|Measure-Object -Average).Average
-                  Response=($response|Measure-Object -Average).Average
-                  Return=($return|Measure-Object -Average).Average
-                  Transport=($transport|Measure-Object -Average).Average
-                }
-                $key=$product+'/'+$workload
-                $data[$key]=$metric
-                Write-Host ('KTERM_ACK_ARM=PASS;PROFILE='+$arm.Name+
-                  ';PRODUCT='+$product+';WORKLOAD='+$workload+';N=3'+
-                  ';SOURCE_TO_TRANSPORT_MEAN_MS='+[Math]::Round($metric.Transport,2)+
-                  ';FIRST_READY_MEAN_MS='+[Math]::Round($metric.Ready,2)+
-                  ';MOCK_RESPONSE_HEADER_MEAN_MS='+[Math]::Round($metric.Response,2)+
-                  ';EXECUTE_RETURN_MEAN_MS='+[Math]::Round($metric.Return,2)+
-                  ';MOCK_POSTS=3;REAL_POSTS=0;REPLAY_POSTS=0')
+          $log=Join-Path $root 'private-unknown-matrix-test.log'
+          $clock=[Diagnostics.Stopwatch]::StartNew()
+          Push-Location $src
+          try {
+            & go test -run '^TestKTermTemporaryUnknownPostMatrix$' -count=1 -timeout 10m ./pkg *> $log
+            $code=$LASTEXITCODE
+          } finally {Pop-Location}
+          $clock.Stop()
+          if($code -ne 0 -or -not [IO.File]::Exists($env:KTERM_UNKNOWN_MATRIX_OUTPUT)){
+            Write-Host ('KTERM_UNKNOWN_NEGATIVE=FAIL;PRIVATE_LOG_SHA256='+(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
+            throw 'KTERM_UNKNOWN_NEGATIVE_ORIGINAL_TRANSPORT_FAILED'
+          }
+          $p=[IO.File]::ReadAllText($env:KTERM_UNKNOWN_MATRIX_OUTPUT)|ConvertFrom-Json
+          if($p.schema -cne 'kterm.synthetic-unknown-outcome-matrix.v1' -or @($p.cases).Count -ne 6){
+            throw 'KTERM_UNKNOWN_NEGATIVE_REPORT_INVALID'
+          }
+          foreach($product in @('BTC-USDC','XRP-USDC')){
+            foreach($failure in @('lost_timeout_after_transport','transient_503','malformed_success_200')){
+              $x=@($p.cases|Where-Object {$_.product -ceq $product -and $_.failure -ceq $failure})
+              if($x.Count -ne 1 -or $x[0].state -cne 'OUTCOME_UNKNOWN' -or
+                 $x[0].posts -ne 1 -or $x[0].replay_posts -ne 0 -or $x[0].durable -ne $true){
+                throw 'KTERM_UNKNOWN_NEGATIVE_MISSING_CASE_OR_GUARD'
               }
+              Write-Host ('KTERM_UNKNOWN_NEGATIVE_CASE=PASS;PRODUCT='+$product+
+                ';CONDITION='+$failure+';MOCK_POSTS=1;REPLAY_POSTS=0'+
+                ';DURABLE_UNKNOWN_RECEIPT=TRUE;EXACT_MAKER_RESERVATION_RETAINED=TRUE')
             }
-            $results[$arm.Name]=$data
-            Write-Host ('KTERM_ACK_COHORT=PASS;PROFILE='+$arm.Name+
-              ';EVENTS=12;ORIGINAL_TEST=PASS;WALL_MS='+$clock.ElapsedMilliseconds+
-              ';SOURCE='+$env:KTERM_SHA+';BROKER_IO=NONE')
           }
-          foreach($key in $results['fast-offline'].Keys){
-            $fast=$results['fast-offline'][$key]
-            $slow=$results['specified-network'][$key]
-            $diff=$slow.Response-$fast.Response
-            if($diff -lt 1500 -or $diff -gt 5000){
-              throw 'KTERM_ACK_INJECTED_RESPONSE_NOT_OBSERVED'
-            }
-            if($slow.Return -le $fast.Return + 1500){
-              throw 'KTERM_ACK_RESPONSE_DELAY_NOT_IN_END_TO_END_RETURN'
-            }
-            Write-Host ('KTERM_ACK_DELTA=PASS;CASE='+$key+
-              ';RESPONSE_DELTA_MEAN_MS='+[Math]::Round($diff,2)+
-              ';RETURN_DELTA_MEAN_MS='+[Math]::Round($slow.Return-$fast.Return,2)+
-              ';READY_DELTA_MEAN_MS='+[Math]::Round($slow.Ready-$fast.Ready,2))
-          }
-          Write-Host 'KTERM_ACK_SENSITIVITY=PASS;ARMS=2;SAMPLES=24;ALL_MAKER_ONLY=TRUE;DURABLE_REPLAY_NO_REPOST=PASS;REAL_ORDERS=0;LIVE_CAUSAL_LATENCY=UNVERIFIED'
+          Write-Host ('KTERM_UNKNOWN_NEGATIVE=PASS;SOURCE_SHA='+$env:KTERM_SHA+
+            ';CASES=6;MOCK_POSTS=6;LIVE_POSTS=0;UNKNOWN_STATES_DURABLE=6'+
+            ';DUPLICATE_REPLAY_POSTS=0;TOOLCHAIN_GUARD=PASS;WORKTREE_TEST_ONLY=TRUE'+
+            ';TOTAL_WALL_MS='+$clock.ElapsedMilliseconds+';FIELD_TIMEOUT_CAUSE=UNVERIFIED')
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
