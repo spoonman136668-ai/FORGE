@@ -57,3 +57,77 @@ jobs:
           Write-Output 'F139_OWNER_SQLITE_UNTOUCHED=TRUE'
           Write-Output 'F139_ORIGINAL_TASK_UNTOUCHED=TRUE'
           Write-Output 'F139_NATIVE_DEVELOPMENT_NO_NEW_DISPATCH=TRUE'
+
+  owner-private-custody-route-readonly:
+    # Exact once-only GitHub push. Never rerun this gate for a different commit.
+    if: ${{ github.event.head_commit.message == 'F139_OWNER_EXISTING_ROUTE_READONLY_PREFLIGHT_20261111' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    permissions: {}
+    steps:
+      - name: Authenticate original existing owner-host identity (no checkout)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/fix/f139-restore-reconciliation-20261023' -or
+              $env:GITHUB_EVENT_NAME -cne 'push' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1') {
+            throw 'F139_PRIVATE_ROUTE_WRONG_OWNER_RUNNER_OR_REPLAY'
+          }
+          Write-Output 'F139_EXISTING_OWNER_RUNNER_IDENTITY=PASS'
+          Write-Output 'F139_PRODUCTION_EXPORT=NOT_EXECUTED'
+          Write-Output 'F139_PRIVATE_SOURCE_NOT_CHECKED_OUT=TRUE'
+      - name: Existing private rbackup and Cloudflare credential-route readiness only
+        shell: pwsh
+        env:
+          CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'F139_PRIVATE_ROUTE_RUNNER_CHANGED'
+          }
+          $tokenPresent = -not [string]::IsNullOrWhiteSpace(
+            $(if ($env:CF_TOKEN_PRIMARY) {$env:CF_TOKEN_PRIMARY} else {$env:CF_TOKEN_ALT}))
+          $accountPresent = -not [string]::IsNullOrWhiteSpace(
+            $(if ($env:CF_ACCOUNT_SECRET) {$env:CF_ACCOUNT_SECRET}
+              elseif ($env:CF_ACCOUNT_VAR) {$env:CF_ACCOUNT_VAR}
+              else {$env:CF_ACCOUNT_ALT}))
+          Write-Output ('F139_EXISTING_CLOUDFLARE_ACTIONS_TOKEN_PRESENT=' + $tokenPresent.ToString().ToUpperInvariant())
+          Write-Output ('F139_EXISTING_CLOUDFLARE_ACCOUNT_PRESENT=' + $accountPresent.ToString().ToUpperInvariant())
+          # Do not print a credential, authenticated gh metadata, private source,
+          # database/account identity, key path or personal file contents.
+          $gh = Get-Command gh -ErrorAction SilentlyContinue
+          $isPrivate = $false
+          $canPush = $false
+          if ($gh) {
+            $rawPrivate = @(& gh api repos/spoonman136668-ai/rbackup --jq '.private' 2>$null)
+            if ($LASTEXITCODE -eq 0) { $isPrivate = (($rawPrivate | Out-String).Trim() -ceq 'true') }
+            $rawPush = @(& gh api repos/spoonman136668-ai/rbackup --jq '.permissions.push' 2>$null)
+            if ($LASTEXITCODE -eq 0) { $canPush = (($rawPush | Out-String).Trim() -ceq 'true') }
+          }
+          Write-Output ('F139_EXISTING_OWNER_GH_CLI_AVAILABLE=' + [bool]$gh)
+          Write-Output ('F139_OWNER_GH_PRIVATE_RBACKUP_READ=' + $isPrivate.ToString().ToUpperInvariant())
+          Write-Output ('F139_OWNER_GH_PRIVATE_RBACKUP_PUSH_SCOPE=' + $canPush.ToString().ToUpperInvariant())
+          $age = Get-Command age -ErrorAction SilentlyContinue
+          $agegen = Get-Command age-keygen -ErrorAction SilentlyContinue
+          Write-Output ('F139_AGE_CLI_AVAILABLE=' + [bool]$age)
+          Write-Output ('F139_AGE_KEYGEN_AVAILABLE=' + [bool]$agegen)
+          $primary = Join-Path $env:LOCALAPPDATA 'rbackup-custody\primary\identity.txt'
+          $recovery = Join-Path $env:LOCALAPPDATA 'rbackup-custody\recovery\identity.txt'
+          $primaryPresent = Test-Path -LiteralPath $primary -PathType Leaf
+          $recoveryPresent = Test-Path -LiteralPath $recovery -PathType Leaf
+          Write-Output ('F139_OWNER_PRIMARY_AGE_FILE_PRESENT=' + $primaryPresent.ToString().ToUpperInvariant())
+          Write-Output ('F139_OWNER_RECOVERY_AGE_FILE_PRESENT=' + $recoveryPresent.ToString().ToUpperInvariant())
+          Write-Output 'F139_PRIVATE_BACKUP_SOURCE_READ=NOT_ATTEMPTED'
+          Write-Output 'F139_D1_PROVIDER_CALLS=0'
+          Write-Output 'F139_D1_EXPORT=NOT_EXECUTED'
+          Write-Output 'F139_CIPHERTEXT_PRIVATE_UPLOAD=NOT_EXECUTED'
+          Write-Output 'F139_ORIGINAL_CONTROLLER_UNTOUCHED=TRUE'
