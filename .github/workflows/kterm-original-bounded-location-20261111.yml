@@ -13,7 +13,7 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 5
     steps:
-      - name: Locate only named K Terminal folders under the owner profile
+      - name: Read named original app shortcut metadata without file or process mutation
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -23,80 +23,92 @@ jobs:
              $env:GITHUB_EVENT_NAME -cne 'push' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
              $env:RUNNER_OS -cne 'Windows' -or
-             $env:COMPUTERNAME -cne 'LINKDEADKB'){
-             throw 'KTERM_LOCATION_OWNER_IDENTITY_REFUSED'
+             $env:COMPUTERNAME -cne 'LINKDEADKB') {
+            throw 'KTERM_SHORTCUT_OWNER_IDENTITY_REFUSED'
           }
-          $bases=@(
+          # Only explicitly K-Terminal-named .lnk files at well-known shell
+          # shortcut directories, not generic recent files or unrelated apps.
+          $roots=@(
+            (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'),
+            (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'),
             (Join-Path $env:USERPROFILE 'Desktop'),
-            (Join-Path $env:USERPROFILE 'Documents'),
-            (Join-Path $env:USERPROFILE 'Downloads'),
-            (Join-Path $env:SystemDrive 'Users\Runner\Desktop')
+            (Join-Path $env:PUBLIC 'Desktop')
           )
-          $seen=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-          $queue=New-Object 'System.Collections.Generic.Queue[object]'
-          foreach($base in $bases){
-            if(-not [IO.Directory]::Exists($base)){continue}
-            $p=[IO.Path]::GetFullPath($base).TrimEnd('\')
-            if($seen.Add($p)){ $queue.Enqueue([pscustomobject]@{Path=$p;Depth=0}) }
-          }
-          $visited=0
-          $exeCandidates=0
-          $installedCandidates=0
-          $pendingCandidates=0
-          $qualifiedCandidateHashRead=0
-          $maxVisited=160
-          while($queue.Count -gt 0 -and $visited -lt $maxVisited){
-            $item=$queue.Dequeue()
-            $visited++
-            $root=$item.Path
-            $di=$null
-            try {$di=Get-Item -LiteralPath $root -Force -ErrorAction Stop} catch {continue}
+          $namePattern='(?i)^(?:K.?Terminal|KABOOM(?: Terminal)?|Kboom)(?:.*)\.lnk$'
+          $entries=New-Object 'System.Collections.Generic.List[string]'
+          $inspected=0
+          $shortcuts=0
+          $targetCandidates=0
+          $configured=0
+          $pending=0
+          $signatures=0
+          $unavailable=0
+          $capped=$false
+          $visited=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+          foreach($root in $roots) {
+            if(-not [IO.Directory]::Exists($root)){continue}
+            $di=Get-Item -LiteralPath $root -Force -ErrorAction Stop
             if(($di.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){continue}
-            $launcher=Join-Path $root 'K-Terminal.exe'
-            if([IO.File]::Exists($launcher)){
-              $exeCandidates++
-              $config=[IO.File]::Exists((Join-Path $root 'config.json'))
-              $data=[IO.Directory]::Exists((Join-Path $root 'data'))
-              if($config -and $data){
-                $installedCandidates++
-                if([IO.File]::Exists((Join-Path $root 'pending-program-update.json'))){$pendingCandidates++}
-                try{
-                  $hash=(Get-FileHash -LiteralPath $launcher -Algorithm SHA256 -ErrorAction Stop).Hash
-                  if($hash -cmatch '^[A-F0-9]{64}$'){$qualifiedCandidateHashRead++}
-                }catch{}
+            $dirs=@($di.FullName)
+            # One level of Start Menu grouping only; no recursively exploring profiles.
+            if($root -like '*Start Menu*'){
+              foreach($group in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)){
+                if(($group.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and
+                   $group.Name -match '(?i)K.?Terminal|KABOOM|Kboom'){
+                  $dirs+= $group.FullName
+                }
               }
             }
-            if($item.Depth -ge 3){continue}
-            $children=@()
-            try{$children=@(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction Stop)}catch{continue}
-            foreach($child in $children){
-              if(($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){continue}
-              $name=$child.Name
-              # Traverse only folders whose names look like the original app,
-              # owner desktop staging containers or edition folders.
-              if($item.Depth -ge 1 -and
-                 $name -notmatch '(?i)K.?Terminal|KABOOM|Alerts.Fixed|Codex|Runner|Personal|Business|Install|Program'){
-                continue
+            foreach($dir in $dirs){
+              if(-not $visited.Add($dir)){continue}
+              $inspected++
+              foreach($link in @(Get-ChildItem -LiteralPath $dir -File -Filter '*.lnk' -ErrorAction SilentlyContinue)){
+                if($link.Name -match $namePattern -and
+                   ($link.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){
+                  if($entries.Count -ge 20){$capped=$true;break}
+                  [void]$entries.Add($link.FullName)
+                }
               }
-              $candidate=[IO.Path]::GetFullPath($child.FullName)
-              if($seen.Add($candidate)){$queue.Enqueue([pscustomobject]@{Path=$candidate;Depth=($item.Depth+1)})}
+              if($capped){break}
             }
+            if($capped){break}
           }
-          $complete=($queue.Count -eq 0)
-          Write-Host ('KTERM_LOCATION_BOUNDED=PASS;EXACT_HOST=TRUE;VISITED_DIRS='+$visited+
-            ';SCAN_COMPLETE='+$complete+
-            ';CANDIDATE_EXES='+$exeCandidates+
-            ';CONFIGURED_INSTALLATIONS='+$installedCandidates+
-            ';PENDING_UPDATE_CANDIDATES='+$pendingCandidates+
-            ';HASH_READABLE_CONFIGURED='+$qualifiedCandidateHashRead)
-          if(-not $complete){
-            Write-Host 'KTERM_LOCATION_RESULT=INCOMPLETE;REASON=160_DIRECTORY_LIMIT'
-          }elseif($installedCandidates -eq 0){
-            Write-Host 'KTERM_LOCATION_RESULT=NO_CONFIGURED_INSTALL_UNDER_BOUNDED_HISTORIC_PROFILE'
-          }elseif($installedCandidates -eq 1 -and $pendingCandidates -eq 0){
-            Write-Host 'KTERM_LOCATION_RESULT=ONE_CONFIGURED_INSTALL_NO_PENDING_UPDATE;SOURCE_QUALIFICATION_STILL_REQUIRED'
-          }else{
-            Write-Host 'KTERM_LOCATION_RESULT=AMBIGUOUS_OR_HAS_PENDING_UPDATE;NO_LAUNCH_ALLOWED'
+          $shell=$null
+          if($entries.Count -gt 0){$shell=New-Object -ComObject WScript.Shell}
+          foreach($lnk in $entries){
+            $shortcuts++
+            try{
+              # Existing .lnk metadata only. Never run the target or call Save().
+              $shortcut=$shell.CreateShortcut($lnk)
+              $target=[string]$shortcut.TargetPath
+              if($target -notmatch '^[A-Ha-h]:\\' -or
+                 [IO.Path]::GetFileName($target) -notmatch '(?i)^(K-Terminal\.exe|START K-Terminal\.bat)$'){continue}
+              $folder=[IO.Path]::GetDirectoryName($target)
+              $exe=Join-Path $folder 'K-Terminal.exe'
+              if(-not [IO.File]::Exists($exe)){continue}
+              $meta=Get-Item -LiteralPath $exe -Force -ErrorAction Stop
+              if(($meta.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){continue}
+              $targetCandidates++
+              if([IO.File]::Exists((Join-Path $folder 'config.json')) -and
+                 [IO.Directory]::Exists((Join-Path $folder 'data'))){
+                $configured++
+                if([IO.File]::Exists((Join-Path $folder 'pending-program-update.json'))){$pending++}
+                if([IO.File]::Exists((Join-Path $folder 'source-manifest.json')) -or
+                   [IO.File]::Exists((Join-Path $folder 'package-manifest.json'))){$signatures++}
+              }
+            }catch{$unavailable++}
           }
-          Write-Host 'KTERM_LOCATION_NO_APP_LAUNCH=TRUE;NO_BROKER=TRUE;NO_CONFIG_CONTENTS_READ=TRUE;NO_FILE_MUTATION=TRUE;NO_SCHEDULE=TRUE'
+          if($null -ne $shell){[void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)}
+          Write-Host ('KTERM_SHORTCUT_READONLY=PASS;EXACT_OWNER=TRUE;SHELL_DIRS='+$inspected+
+            ';APP_NAMED_SHORTCUTS='+$shortcuts+';LOCAL_EXE_CANDIDATES='+$targetCandidates+
+            ';CONFIGURED_INSTALLATIONS='+$configured+';PENDING_UPDATE_CONFIGURED='+$pending+
+            ';SOURCE_MANIFEST_CONFIGURED='+$signatures+';PARSE_ERRORS='+$unavailable+
+            ';CAP_REACHED='+$capped)
+          if($capped){Write-Host 'KTERM_SHORTCUT_RESULT=INCOMPLETE_CAP_NO_CLAIM'}
+          elseif($configured -eq 0){Write-Host 'KTERM_SHORTCUT_RESULT=NO_CONFIGURED_INSTALL_VIA_APP_SHORTCUTS'}
+          elseif($configured -eq 1 -and $pending -eq 0){
+            Write-Host 'KTERM_SHORTCUT_RESULT=ONE_APP_SHORTCUT_CANDIDATE;BINARY_SOURCE_CUSTODY_UNVERIFIED;NO_LAUNCH'
+          }else{Write-Host 'KTERM_SHORTCUT_RESULT=AMBIGUOUS_OR_PENDING_UPDATE;NO_LAUNCH'}
+          Write-Host 'KTERM_SHORTCUT_SAFE=PASS;NO_CONFIG_CONTENT_READ=TRUE;NO_LOG_READ=TRUE;NO_CREDENTIAL_READ=TRUE;NO_APP_LAUNCH=TRUE;NO_FILE_WRITE=TRUE;NO_BROKER_IO=TRUE;NO_SCHEDULE=TRUE'
