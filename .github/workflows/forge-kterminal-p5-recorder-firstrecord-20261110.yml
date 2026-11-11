@@ -1,4 +1,4 @@
-name: K Terminal P5 seven-second accounting wait visibility proof
+name: K Terminal P5 scoped account publication barrier verification
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -91,193 +91,199 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Verify original seven-second accounting wait is measurable and P5 safe
+      - name: Test original account publication barrier under delayed GET-only fee/book evidence
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_P5_WAIT_GO_VERSION_DRIFT'}
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_PUBLICATION_GO_VERSION_DRIFT'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
           $src=Join-Path $root 'source'
-          $file=Join-Path $src 'pkg\kterm_p5_wait_private_temp_test.go'
-          if(Test-Path -LiteralPath $file){throw 'KTERM_P5_WAIT_TEST_EXISTS'}
+          $file=Join-Path $src 'pkg\kterm_account_publication_temp_test.go'
+          if(Test-Path -LiteralPath $file){throw 'KTERM_PUBLICATION_TEST_ALREADY_PRESENT'}
           $test=@'
           package pkg
           
           import (
-              "bytes"
-              "encoding/json"
-              "fmt"
-              "os"
-              "strconv"
-              "testing"
-              "time"
+           "context"
+           "fmt"
+           "net/http"
+           "sync"
+           "sync/atomic"
+           "testing"
+           "time"
           )
           
-          // TEMPORARY OWNER CHECKOUT ONLY, not a production source modification.
-          // Exercises the original confirmed-BUY-settlement wait and projects its
-          // original timing spans through the existing privacy-safe P5 allowlist.
-          func TestKTermTemporaryP5SevenSecondAccountingVisibility(t *testing.T) {
-              t.Setenv("K_TERMINAL_P5_LATENCY", "1")
-              h,n,cache := nativeConfirmedAccountingDeferFixture(t)
-              original := n.Signal
-              posts:=0
-              accountingDeferManager(t,h,n,cache,&posts)
-              // Use the SAME guarded final transport wrapper that production
-              // uses, but retain the fixture's in-memory-only broker responder.
-              client:=h.advancedOrderManager.auth.sharedHTTPClient()
-              base:=client.Transport
-              if base==nil {t.Fatal("in-memory fixture transport absent")}
-              client.Transport=nativeGuardedTransport{gate:n.Authorize,base:base}
-              t.Cleanup(func(){client.Transport=base})
-              n.timing = &nativeConstructionTiming{}
-              var evidence []NativeOrderEvidence
-              n.Record = func(e NativeOrderEvidence) error {
-                  evidence=append(evidence,e)
-                  return nil
+          // Development-only exact-source negative control. No production logic changes.
+          // All Coinbase-shaped requests are intercepted inside the unit-test process.
+          func TestKTermTemporaryAncillarySnapshotPublicationBarrier(t *testing.T) {
+           for _, mode := range []string{"fee-held","book-held","fee-error"} {
+            t.Run(mode,func(t *testing.T){
+             k:=lookupFixtureRequest(t)
+             auth:=NewReadOnlyAuthenticator(k.APIKey.KeyName,k.APIKey.KeySecret)
+             cfg:=&Config{AccountID:lookupA,SyntheticTP:SyntheticTPConfig{ProductID:"BTC-USDC",BaseAccountID:lookupB}}
+             orders:=NewAdvancedOrderManager(auth,"isolated-fixture",nil)
+             balance:=NewBalanceChecker(auth,lookupA)
+             cache:=NewNativeSnapshotCache(cfg,"test-config",lookupPortfolio,"LIVE",orders,balance)
+             cache.value.ProductAt=time.Now().UTC()
+             cache.value.QuoteAt=time.Now().UTC()
+             cache.value.BestBid="77000"
+             cache.value.BestAsk="77001"
+             cache.value.AvailableBase="0.1"
+             cache.value.AvailableQuote="100"
+             cache.value.MakerFeeRate="0.001"
+             cache.value.AccountAt=time.Now().UTC().Add(-time.Minute)
+             if mode=="book-held" {cache.value.QuoteAt=time.Now().UTC().Add(-2*time.Second)}
+             oldRevision,changed:=cache.accountRevisionEvidence()
+             gateEntered:=make(chan struct{})
+             gateRelease:=make(chan struct{})
+             var once sync.Once
+             release:=func(){once.Do(func(){close(gateRelease)})}
+             t.Cleanup(release)
+             var accounts,fees,books,mutations,foreign atomic.Int32
+             mkAccount:=func(id,currency,value string)map[string]any{
+               a:=lookupFixtureAccount(id,currency,lookupPortfolio)
+               a["available_balance"]=map[string]string{"value":value,"currency":currency}
+               a["hold"]=map[string]string{"value":"0","currency":currency}
+               return a
+             }
+             transport:=lookupRoundTripFunc(func(req *http.Request)(*http.Response,error){
+              if req.Method!=http.MethodGet {
+                mutations.Add(1)
+                return nil,fmt.Errorf("read-only test refused mutation")
               }
-              begun:=time.Now()
-              p5:=newP5LatencyObserver("native_order",begun)
-              if p5==nil { t.Fatal("opt-in P5 observer not available") }
-              p5.mark("journal_admission")
-              done:=make(chan struct{})
-              defer close(done)
-              go func() {
-                  ticker:=time.NewTicker(100*time.Millisecond)
-                  defer ticker.Stop()
-                  for {
-                      select {
-                      case <-done: return
-                      case <-ticker.C:
-                          cache.mu.Lock()
-                          cache.value.AccountAt=time.Now().UTC()
-                          if time.Since(begun)>=7*time.Second {
-                              cache.value.AvailableBase=strconv.FormatFloat(h.syntheticTP.position.Snapshot().Quantity,'f',8,64)
-                          }
-                          cache.mu.Unlock()
-                      }
-                  }
-              }()
-              receiptDir:=t.TempDir()
-              result,err:=h.ExecuteNativeSignal(n,receiptDir)
-              p5.mark("native_execute_return")
-              p5.observeNativeTiming(n.timing)
-              p5.mark("post_execute_evidence")
-              record:=p5.safeRecord(err==nil)
-              elapsed:=time.Since(begun)
-              if err!=nil || result==nil || posts!=1 || n.Requests!=1 ||
-                 elapsed<7*time.Second || elapsed>=nativeConfirmedAccountingDeferWindow {
-                  t.Fatalf("original seven-second fixture safety failed: requests=%d posts=%d elapsed=%s err=%v",n.Requests,posts,elapsed,err)
+              if req.URL.Host!="api.coinbase.com" {
+                foreign.Add(1)
+                return nil,fmt.Errorf("test refused unknown host")
               }
-              if len(evidence)!=2 || evidence[0].State!="REQUEST_READY" || evidence[1].State!="RESULT" ||
-                 evidence[0].EventID!=original.EventID || evidence[1].EventID!=original.EventID {
-                  t.Fatal("exact original evidence source/identity was not preserved")
+              switch req.URL.Path {
+               case "/api/v3/brokerage/accounts":
+                 accounts.Add(1)
+                 return lookupFixtureResponse(lookupFixturePage([]map[string]any{
+                   mkAccount(lookupA,"USDC","100"),
+                   mkAccount(lookupB,"BTC","0.2"),
+                 },false,""),200),nil
+               case "/api/v3/brokerage/transaction_summary":
+                 fees.Add(1)
+                 if mode=="fee-held"||mode=="fee-error"{
+                   close(gateEntered)
+                   select {
+                    case <-gateRelease:
+                    case <-req.Context().Done():return nil,req.Context().Err()
+                   }
+                 }
+                 if mode=="fee-error"{
+                   return lookupFixtureResponse(map[string]string{"error":"injected-fee-failure"},503),nil
+                 }
+                 return lookupFixtureResponse(map[string]any{
+                   "fee_tier":map[string]string{"maker_fee_rate":"0.001","taker_fee_rate":"0.002"},
+                 },200),nil
+               case "/api/v3/brokerage/best_bid_ask":
+                 books.Add(1)
+                 if mode=="book-held"{
+                   close(gateEntered)
+                   select{
+                    case <-gateRelease:
+                    case <-req.Context().Done():return nil,req.Context().Err()
+                   }
+                 }
+                 return lookupFixtureResponse(map[string]any{
+                   "pricebooks":[]any{map[string]any{
+                     "product_id":"BTC-USDC",
+                     "bids":[]any{map[string]string{"price":"77000"}},
+                     "asks":[]any{map[string]string{"price":"77001"}},
+                   }},
+                 },200),nil
+               default:
+                 foreign.Add(1)
+                 return nil,fmt.Errorf("test refused unexpected GET path")
               }
-              restarted:=&NativeConstruction{Signal:original}
-              replay,replayErr:=h.ExecuteNativeSignal(restarted,receiptDir)
-              dup,ok:=replay.(map[string]any)
-              if replayErr!=nil || !ok || dup["status"]!="DUPLICATE_NO_REPLAY" || posts!=1 || restarted.Requests!=0 {
-                  t.Fatalf("deferred accepted order could be replayed: err=%v posts=%d",replayErr,posts)
-              }
-              wait,waitExists:=record.StagesMS["order_accounting_wait"]
-              ready,readyExists:=record.StagesMS["order_first_transport_ready"]
-              response,responseExists:=record.StagesMS["order_post_to_response_headers"]
-              if !waitExists || !readyExists || !responseExists ||
-                 wait<6800 || wait>=10000 || ready<6800 ||
-                 response>1000 || record.TotalMS<7000 || record.TotalMS>=10000 {
-                  t.Fatalf("P5 stage contract failed: wait=%d ready=%d response=%d total=%d waitpresent=%t readypresent=%t responsepresent=%t",wait,ready,response,record.TotalMS,waitExists,readyExists,responseExists)
-              }
-              if record.Operation!="native_order" || record.Schema!=1 || len(record.Trace)!=16 || !record.Success {
-                  t.Fatal("P5 envelope/source/opt-in unexpectedly changed")
-              }
-              safe,marshalErr:=json.Marshal(record)
-              if marshalErr!=nil { t.Fatal(marshalErr) }
-              for _,s:=range []string{original.EventID,original.DefinitionID,original.ProductID,
-                  "event_id","client_order_id","account_id","coinbase_request","error",
-                  "request_sha256","timing_span","native_started_at"} {
-                  if len(s)>=4 && bytes.Contains(safe,[]byte(s)) {
-                      t.Fatalf("privacy barrier failed: forbidden data type %q",s)
-                  }
-              }
-              var fields map[string]json.RawMessage
-              if err:=json.Unmarshal(safe,&fields);err!=nil{t.Fatal(err)}
-              if len(fields)<6 || len(fields)>7 {t.Fatalf("P5 field envelope changed: keys=%d",len(fields))}
-              for name:=range fields {
-                  switch name {
-                  case "schema","operation","random_trace","total_ms","success","stages_ms","record_count_buckets":
-                  default: t.Fatalf("unexpected private P5 key: %s",name)
-                  }
-              }
-              for stage:=range record.StagesMS {
-                  if !p5SafeStages[stage] {t.Fatalf("unapproved timing key was exposed")}
-              }
-              out:=struct{
-                  Schema string `json:"schema"`
-                  SourceSHA string `json:"source_sha"`
-                  WaitMS int64 `json:"accounting_wait_ms"`
-                  ReadyMS int64 `json:"first_transport_ready_ms"`
-                  ResponseMS int64 `json:"mock_order_response_ms"`
-                  TotalMS int64 `json:"total_ms"`
-                  InitialPosts int `json:"mock_posts"`
-                  ReplayPosts int `json:"replay_posts"`
-                  PrivateIdentityExcluded bool `json:"privacy_pass"`
-              }{"kterm.synthetic-p5-native-wait.v1","5f56896a1aeefdf5e412d47210026dd6d882229f",wait,ready,response,record.TotalMS,posts,posts-1,true}
-              encoded,e:=json.Marshal(out)
-              if e!=nil{t.Fatal(e)}
-              name:=os.Getenv("KTERM_P5_WAIT_PRIVATE_REPORT")
-              if name=="" { t.Fatal("no private report destination") }
-              if e=os.WriteFile(name,encoded,0600);e!=nil{t.Fatal(e)}
-              fmt.Println("KTERM_P5_WAIT_TEMP_TEST=PASS")
+             })
+             auth.readTransport=transport
+             cache.client=&http.Client{Transport:transport,Timeout:2*time.Second}
+             ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second)
+             t.Cleanup(cancel)
+             done:=make(chan error,1)
+             go func(){done<-cache.Refresh(ctx)}()
+             select{
+              case <-gateEntered:
+              case <-time.After(time.Second):t.Fatal("original Refresh did not reach expected ancillary GET")
+             }
+             // The authenticated account GET has completed before this held read.
+             if accounts.Load()!=1 || fees.Load()!=1 {t.Fatal("account/fee request ordering changed")}
+             before,_:=cache.Current()
+             if before.AvailableBase!="0.1" || !before.AccountAt.Before(time.Now().Add(-30*time.Second)){
+                t.Fatal("original publisher performed unsafe partial account commit")
+             }
+             pendingRevision,_:=cache.accountRevisionEvidence()
+             if pendingRevision!=oldRevision {t.Fatal("unready GET advanced the account revision")}
+             select {
+              case <-changed:t.Fatal("unready GET sent premature notification")
+              default:
+             }
+             release()
+             var result error
+             select {
+              case result=<-done:
+              case <-time.After(time.Second):t.Fatal("original Refresh did not finish after ancillary release")
+             }
+             after,_:=cache.Current()
+             newRevision,_:=cache.accountRevisionEvidence()
+             if mode=="fee-error" {
+                if result==nil || after.AvailableBase!="0.1" || newRevision!=oldRevision {
+                   t.Fatal("failed fee read changed scoped account balance/revision")
+                }
+                select{case <-changed:t.Fatal("failed fee read sent ready notification");default:}
+             }else{
+                if result!=nil || after.AvailableBase!="0.2" || newRevision<=oldRevision ||
+                   after.MakerFeeRate!="0.001" || after.AccountAt.Before(time.Now().Add(-2*time.Second)){
+                   t.Fatal("verified full composite snapshot not published after release")
+                }
+                select{case <-changed:default:t.Fatal("fresh completed snapshot omitted revision notification")}
+             }
+             wantBooks:=int32(0)
+             if mode=="book-held"{wantBooks=1}
+             if accounts.Load()!=1||fees.Load()!=1||books.Load()!=wantBooks||
+                mutations.Load()!=0||foreign.Load()!=0 {
+               t.Fatalf("fixture request or mutation boundary drift accounts=%d fees=%d books=%d mutations=%d unknown=%d",
+                 accounts.Load(),fees.Load(),books.Load(),mutations.Load(),foreign.Load())
+             }
+             fmt.Printf("KTERM_SNAPSHOT_BARRIER=PASS;CASE=%s;ACCOUNT_GETS=1;FEE_GETS=1;BOOK_GETS=%d;BROKER_WRITES=0;SCOPED_REVISION_SAFE=TRUE\n",mode,wantBooks)
+            })
+           }
           }
           '@
           [IO.File]::WriteAllText($file,$test,[Text.UTF8Encoding]::new($false))
           $status=@(& git -C $src status --porcelain)
-          if($status.Count -ne 1 -or [string]$status[0] -notmatch '^\?\? pkg/kterm_p5_wait_private_temp_test\.go$'){throw 'KTERM_P5_WAIT_WORKTREE_DRIFT'}
-          $env:KTERM_P5_WAIT_PRIVATE_REPORT=Join-Path $root 'private-p5-wait-result.json'
-          $env:K_TERMINAL_NATIVE_TIMING='0'
+          if($status.Count -ne 1 -or [string]$status[0] -notmatch '^\?\? pkg/kterm_account_publication_temp_test\.go$'){
+            throw 'KTERM_PUBLICATION_WORKTREE_SCOPE_CHANGED'
+          }
           $env:K_TERMINAL_P5_LATENCY='0'
+          $env:K_TERMINAL_NATIVE_TIMING='0'
           $env:K_TERMINAL_GITHUB_TOKEN=''
           $env:HTTP_PROXY='http://127.0.0.1:9'
           $env:HTTPS_PROXY='http://127.0.0.1:9'
           $env:ALL_PROXY='http://127.0.0.1:9'
           $env:NO_PROXY=''
-          $log=Join-Path $root 'private-p5-wait-test.log'
+          $privateLog=Join-Path $root 'private-snapshot-barrier.log'
           Push-Location $src
-          try {
-            & go test -run '^TestKTermTemporaryP5SevenSecondAccountingVisibility$' -count=1 -timeout 10m ./pkg *> $log
-            $code=$LASTEXITCODE
-          } finally {Pop-Location}
-          if($code -ne 0 -or -not [IO.File]::Exists($env:KTERM_P5_WAIT_PRIVATE_REPORT)){
-            $privateLog=[IO.File]::ReadAllText($log)
-            $failType='UNCLASSIFIED'
-            if($privateLog.Contains('P5 stage contract failed')){$failType='STAGE_VALUES'}
-            if($privateLog.Contains('P5 field envelope changed')){$failType='SCHEMA_ENVELOPE'}
-            if($privateLog.Contains('original seven-second fixture safety failed')){$failType='ORIGINAL_WAIT_TEST'}
-            if($privateLog.Contains('deferred accepted order could be replayed')){$failType='DUPLICATE_CONTROL'}
-            if($privateLog.Contains('exact original evidence source')){$failType='EVIDENCE_STATE'}
-            if($privateLog.Contains('privacy barrier failed')){$failType='PRIVACY_CONTROL'}
-            if($privateLog.Contains('P5 envelope/source/opt-in unexpectedly changed')){$failType='OBSERVER_ENVELOPE'}
-            if($privateLog.Contains('undefined:') -or $privateLog.Contains('syntax error')){$failType='GO_BUILD'}
-            Write-Host ('KTERM_P5_WAIT_FAILURE_CLASS='+$failType)
-            if($failType -eq 'STAGE_VALUES'){
-              $m=[regex]::Match($privateLog,'P5 stage contract failed: wait=([0-9]+) ready=([0-9]+) response=([0-9]+) total=([0-9]+) waitpresent=(true|false) readypresent=(true|false) responsepresent=(true|false)')
-              if($m.Success){
-                Write-Host ('KTERM_P5_SAFE_STAGE_DIAG=WAIT_MS='+$m.Groups[1].Value+';READY_MS='+$m.Groups[2].Value+';MOCK_POST_MS='+$m.Groups[3].Value+';TOTAL_MS='+$m.Groups[4].Value+';WAIT_PRESENT='+$m.Groups[5].Value+';READY_PRESENT='+$m.Groups[6].Value+';POST_PRESENT='+$m.Groups[7].Value)
-              }
-            }
-            Write-Host ('KTERM_P5_WAIT=FAIL;PRIVATE_LOG_SHA256='+(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
-            throw 'KTERM_P5_WAIT_VISIBILITY_TEST_FAILED'
+          try{
+            & go test -v -run '^TestKTermTemporaryAncillarySnapshotPublicationBarrier$' -count=1 -timeout 2m ./pkg *> $privateLog
+            $exit=$LASTEXITCODE
+          }finally{Pop-Location}
+          if($exit -ne 0){
+            Write-Host ('KTERM_SNAPSHOT_BARRIER=FAIL;PRIVATE_LOG_SHA256='+
+              (Get-FileHash -LiteralPath $privateLog -Algorithm SHA256).Hash.ToLowerInvariant())
+            throw 'KTERM_PUBLICATION_ORIGINAL_SOURCE_TEST_FAILED'
           }
-          $r=[IO.File]::ReadAllText($env:KTERM_P5_WAIT_PRIVATE_REPORT)|ConvertFrom-Json
-          if($r.schema -cne 'kterm.synthetic-p5-native-wait.v1' -or $r.source_sha -cne $env:KTERM_SHA -or
-             $r.accounting_wait_ms -lt 6800 -or $r.accounting_wait_ms -ge 10000 -or
-             $r.first_transport_ready_ms -lt 6800 -or $r.mock_order_response_ms -gt 1000 -or
-             $r.total_ms -lt 7000 -or $r.total_ms -ge 10000 -or $r.mock_posts -ne 1 -or
-             $r.replay_posts -ne 0 -or $r.privacy_pass -ne $true){throw 'KTERM_P5_WAIT_RESULT_CONTRACT_FAILED'}
-          Write-Host ('KTERM_P5_WAIT=PASS;SOURCE_SHA='+$r.source_sha+
-            ';ACCOUNTING_WAIT_MS='+$r.accounting_wait_ms+';FIRST_TRANSPORT_READY_MS='+$r.first_transport_ready_ms+
-            ';MOCK_RESPONSE_MS='+$r.mock_order_response_ms+';FULL_WALL_MS='+$r.total_ms+
-            ';ORIGINAL_ACCOUNTING_WAIT=TRUE;P5_SAFE_PRIVACY=PASS;EXACT_ONE_MOCK_POST=TRUE'+
-            ';DUPLICATE_POSTS=0;REAL_BROKER_IO=0;SOURCE_TREE_UNCHANGED=TRUE;FIELD_CAUSE=UNVERIFIED')
+          $marks=@([IO.File]::ReadAllLines($privateLog)|Where-Object {$_ -match '^KTERM_SNAPSHOT_BARRIER=PASS;CASE=(fee-held|book-held|fee-error);'})
+          if($marks.Count -ne 3 -or
+             @($marks|Where-Object {$_ -notmatch ';BROKER_WRITES=0;SCOPED_REVISION_SAFE=TRUE$'}).Count -ne 0){
+            throw 'KTERM_PUBLICATION_EVIDENCE_INCOMPLETE'
+          }
+          foreach($marker in $marks){Write-Host $marker}
+          Write-Host ('KTERM_SNAPSHOT_BARRIER_GATE=PASS;CASE_COUNT=3;SOURCE_SHA='+$env:KTERM_SHA+
+            ';NO_RELEASE_OR_LIVE_BROKER=TRUE;ORIGINAL_COMPOSITE_SCOPE_RETAINED=TRUE'+
+            ';PERFORMANCE_GAIN=UNMEASURED;FIELD_CAUSE=UNVERIFIED')
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
