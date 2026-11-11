@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from hashlib import sha256
-import subprocess
+from pathlib import Path
 import unittest
 
 from f139.rsi_r13_source_falsifier import (
@@ -11,18 +11,19 @@ from f139.rsi_r13_source_falsifier import (
     inspect_and_propose, rank_review_options,
 )
 
-PARENT = "e4052145d35feca0063ae6435b2636afe94662d6"
+# Original bytes are authenticated by the exact pinned Git blob, but stored in
+# this repository so future shallow CI checkouts need no historical commit.
+FIXTURE = Path(__file__).resolve().parent / "testdata" / "rsi_r13_original_watchdog.go.txt"
+EXPECTED_CANDIDATE_BLOB = "2911bc2005f229941500ae1a28e4d8c887c382d5"
 
 
-def committed(path: str, ref: str) -> bytes:
-    result = subprocess.run(
-        ["git", "show", ref + ":" + path],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        check=False, timeout=20,
-    )
-    if result.returncode:
-        raise AssertionError("exact original Git source unavailable: " + path)
-    return result.stdout
+def original_source() -> bytes:
+    if FIXTURE.is_symlink() or not FIXTURE.is_file():
+        raise AssertionError("original R13 source fixture missing or unsafe")
+    raw = FIXTURE.read_bytes()
+    if git_blob(raw) != ORIGINAL_BLOB:
+        raise AssertionError("original R13 source fixture Git blob drift")
+    return raw
 
 
 def memory(task: str, family: str, option: str, outcome: str,
@@ -36,14 +37,17 @@ def memory(task: str, family: str, option: str, outcome: str,
 class R13SourceFalsifierTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.before = committed(TARGET, PARENT)
-        cls.after = committed(TARGET, "HEAD")
+        cls.before = original_source()
+        cls.after = inspect_and_propose(
+            path=TARGET, source=cls.before,
+            expected_blob=ORIGINAL_BLOB).candidate
 
     def test_authentic_existing_go_source_and_exact_generated_patch(self) -> None:
         self.assertEqual(git_blob(self.before), ORIGINAL_BLOB)
         result = inspect_and_propose(
             path=TARGET, source=self.before, expected_blob=ORIGINAL_BLOB)
         self.assertEqual(result.candidate, self.after)
+        self.assertEqual(git_blob(result.candidate), EXPECTED_CANDIDATE_BLOB)
         self.assertNotEqual(result.before_sha256, result.after_sha256)
         self.assertEqual(sha256(self.after).hexdigest(), result.after_sha256)
         self.assertEqual(result.hazard, "bounded-json-truncation-after-stat")
