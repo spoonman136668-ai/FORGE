@@ -7,15 +7,20 @@ package nativefirstuse
 import (
  "crypto/sha256"
  "encoding/hex"
+ "encoding/json"
  "errors"
- "fmt"
- "strings"
+ "unicode/utf8"
 
  "github.com/spoonman136668-ai/forge/originalclaim"
  "github.com/spoonman136668-ai/forge/workerlease"
 )
 
 const Schema = "forge.f74.native-two-lane-firstuse-source-bound.v1"
+// Domain-separated v2: hash the entire accepted proposal, not a subset of
+// fields. The previous digest omitted lease and both cohort source/high-water
+// details, allowing distinct snapshots to share one candidate identity.
+// This remains source-only and never grants original first-use authority.
+const CandidateDigestDomain = "FORGE-F74-NATIVE-FIRSTUSE-CANDIDATE-V2\n"
 var ErrNoScienceAuthority = errors.New("F74_NO_INDEPENDENT_CURRENT_OWNER_AND_TWO_LANE_FIRST_USE_CUSTODY")
 
 type LaneSnapshot struct {
@@ -79,13 +84,33 @@ func validSnapshot(s LaneSnapshot)bool{
   hexN(s.SourceCommitSHA,40)&&hexN(s.LedgerSHA256,64)&&
   s.OwnerEpoch>0&&s.SequenceHighwater>0
 }
+// JSON replaces malformed UTF-8 with U+FFFD. Reject it in *every* proposal
+// string before encoding so distinct owner/worker/original bytes cannot alias.
+// Other validators currently restrict most fields to ASCII, but enumerate all
+// strings here to keep the digest boundary safe if that policy later changes.
+func validProposalUTF8(p Proposal)bool{
+ c,l:=p.Claim,p.Lease
+ fields:=[]string{
+  c.Schema,c.Lane,c.ExperimentID,c.FrozenSHA256,c.IntentSHA256,
+  c.SourceCommitSHA,c.OriginalRunID,c.WorkerID,
+  l.Lane,l.ExperimentID,l.IntentSHA256,l.OwnerID,l.WorkerID,
+  p.OwnerID,p.FrozenDecisionSHA256,p.PolicySHA256,p.BudgetSHA256,
+ }
+ for _,snapshot:=range p.Snapshots{
+  fields=append(fields,snapshot.Lane,snapshot.SourceCommitSHA,snapshot.LedgerSHA256)
+ }
+ for _,value:=range fields{
+  if !utf8.ValidString(value){return false}
+ }
+ return true
+}
 // Pure source-level interlock. The inputs are NOT treated as independent
 // evidence; they may be caller-provided. Never allow this function's
 // synthetic success to become a live Cloudflare or worker authorization.
 func Prepare(p Proposal)(Review,error){
  var zero Review
  c,l:=p.Claim,p.Lease
- if c.Schema!=originalclaim.Schema||!c.FirstUseConsumed||
+ if !validProposalUTF8(p)||c.Schema!=originalclaim.Schema||!c.FirstUseConsumed||
   (c.Lane!="Wingless"&&c.Lane!="Yggdrasil")||
   !validName(c.ExperimentID)||!hexN(c.SourceCommitSHA,40)||
   !hexN(c.FrozenSHA256,64)||!hexN(c.IntentSHA256,64)||
@@ -121,14 +146,12 @@ func Prepare(p Proposal)(Review,error){
    return zero,ErrNoScienceAuthority
   }
  }
- data:=strings.Join([]string{
-  Schema,c.Lane,c.ExperimentID,c.SourceCommitSHA,c.FrozenSHA256,
-  c.IntentSHA256,p.FrozenDecisionSHA256,p.PolicySHA256,p.BudgetSHA256,
-  p.OwnerID,fmt.Sprint(p.OwnerEpoch),fmt.Sprint(p.ActionNumerator),
-  fmt.Sprint(p.ActionDenominator),p.Snapshots[0].LedgerSHA256,
-  p.Snapshots[1].LedgerSHA256,
- },"\x00")
- digest:=sha256.Sum256([]byte(data))
+ // JSON encodes every scalar, both ordered snapshots, and each nested
+ // claim/lease field unambiguously. Go's struct-field order is stable, unlike
+ // an ad hoc delimiter stream or a selectively hashed field list.
+ canonical,err:=json.Marshal(p)
+ if err!=nil{return zero,ErrNoScienceAuthority}
+ digest:=sha256.Sum256(append([]byte(CandidateDigestDomain),canonical...))
  return Review{
   Schema:Schema,CandidateDigest:hex.EncodeToString(digest[:]),Lane:c.Lane,
   SourceAndLeaseCorrespondenceVerified:true,
