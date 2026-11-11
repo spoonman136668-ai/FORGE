@@ -1,23 +1,22 @@
-name: K Terminal P5 atomic snapshot overlap DEV comparison
+name: K Terminal native snapshot freshness exact-source Windows qualification
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
     paths: [.github/workflows/forge-kterminal-p5-recorder-firstrecord-20261110.yml]
 permissions:
   contents: read
-  actions: read
 concurrency:
   group: kterminal-pr88-full-window-ae11818c
   cancel-in-progress: false
 jobs:
   owner-local-paper-qualification:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 20
+    timeout-minutes: 115
     env:
-      KTERM_SHA: 5f56896a1aeefdf5e412d47210026dd6d882229f
-      KTERM_BASE: bcebdc1a7a0487f9d6061a8e643c76069335d896
-      KTERM_RECORDER_BLOB: afbef54ac539df0e7dc001c1c44a0edd2dea0a25
-      KTERM_TEST_BLOB: d7ce3ba615a98f83c1a0f3c1a1308603835487ca
+      KTERM_SHA: 5c62f8e8fbe662204063f6a4474721d59640b877
+      KTERM_BASE: 5f56896a1aeefdf5e412d47210026dd6d882229f
+      KTERM_NATIVE_SNAPSHOT_BLOB: 588d234d550b809af235eaf4334d4a0f3ba5041d
+      KTERM_SNAPSHOT_TEST_BLOB: b4afb4bd9b7605d40d0ba56926dd65bc82350b71
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -54,7 +53,7 @@ jobs:
           if(Test-Path -LiteralPath $root){throw 'KTERM_P5_WORKSPACE_NOT_FRESH'}
           [void][IO.Directory]::CreateDirectory($root)
           Write-Host 'KTERM_P5_OWNER_ISOLATED_DISARMED=PASS;NO_BROKER_WRITES=TRUE'
-      - name: Stage pinned private K Terminal candidate and compare only two recorder files
+      - name: Stage pinned private K Terminal candidate and verify two-file patch
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -70,241 +69,75 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_P5_CHECKOUT_FAILED'}
           $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
           $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
-          $parent=(& git -C $stage rev-parse 'HEAD~8' | Out-String).Trim()
-          $rec=(& git -C $stage rev-parse 'HEAD:verification/KTerminal-Live-Session-Recorder-v1.2.ps1' | Out-String).Trim()
-          $test=(& git -C $stage rev-parse 'HEAD:verification/test-kterminal-recorder-v1.2.ps1' | Out-String).Trim()
+          $parent=(& git -C $stage rev-parse 'HEAD~2' | Out-String).Trim()
+          $rec=(& git -C $stage rev-parse 'HEAD:pkg/native-snapshot.go' | Out-String).Trim()
+          $test=(& git -C $stage rev-parse 'HEAD:pkg/native-snapshot-freshness_test.go' | Out-String).Trim()
           if($sha -cne $env:KTERM_SHA -or $parent -cne $env:KTERM_BASE -or
-             $rec -cne $env:KTERM_RECORDER_BLOB -or $test -cne $env:KTERM_TEST_BLOB -or
+             $rec -cne $env:KTERM_NATIVE_SNAPSHOT_BLOB -or $test -cne $env:KTERM_SNAPSHOT_TEST_BLOB -or
              $tree -cnotmatch '^[0-9a-f]{40}$' -or
              @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_P5_SOURCE_CUSTODY_REFUSED'}
-          $changed=@(& git -C $stage diff --name-only HEAD~8 HEAD)
-          $expected=@('verification/KTerminal-Live-Session-Recorder-v1.2.ps1','verification/test-kterminal-recorder-v1.2.ps1')
+          $changed=@(& git -C $stage diff --name-only HEAD~2 HEAD)
+          $expected=@('pkg/native-snapshot.go','pkg/native-snapshot-freshness_test.go')
           if($changed.Count -ne 2 -or @($changed | Where-Object {$_ -cnotin $expected}).Count -ne 0){
-            throw 'KTERM_P5_TWO_FILE_SCOPE_DRIFT'
+            throw 'KTERM_SNAPSHOT_TWO_FILE_SCOPE_DRIFT'
           }
           foreach($private in @('.env','config.json','data')){
             if(Test-Path -LiteralPath (Join-Path $stage $private)){throw 'KTERM_P5_PRIVATE_STATE_REFUSED'}
           }
-          Write-Host ('KTERM_P5_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';TWO_FILE_SCOPE=PASS')
+          Write-Host ('KTERM_P5_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';TWO_FILE_SCOPE=PASS;SOURCE_PARENT_PR94=VERIFIED')
       - name: Pinned Windows Go toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Compare source-locked serial refresh with bounded atomic overlapping GET trial
+      - name: Focused in-memory GET-only native freshness test then mandatory full Windows regression
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_OVERLAP_GO_VERSION_DRIFT'}
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_SNAPSHOT_GO_TOOLCHAIN_DRIFT'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          $src=Join-Path $root 'source'
-          $file=Join-Path $src 'pkg\kterm_overlap_private_temp_test.go'
-          if(Test-Path -LiteralPath $file){throw 'KTERM_OVERLAP_TEMP_TEST_ALREADY_PRESENT'}
-          $test=@'
-          package pkg
-          
-          import (
-              "context"
-              "fmt"
-              "math"
-              "net/http"
-              "sort"
-              "sync/atomic"
-              "testing"
-              "time"
-          )
-          
-          type ktermTestFee struct { fees coinbaseTransactionSummary; err error }
-          type ktermTestBook struct { bid,ask string; err error }
-          
-          // DEV comparator only. This function is NOT part of the shipped product.
-          // It preserves original all-or-nothing account/fee/book publication.
-          func ktermOverlappedCandidate(ctx context.Context,c *NativeSnapshotCache) error {
-              s,_:=c.Current()
-              accounts,err:=c.balances.fetchAllAccountsV3Context(ctx)
-              if err!=nil{return err}
-              quote,base,err:=migrationScopedAccounts(accounts,c.config.AccountID,c.config.SyntheticTP.BaseAccountID,s.PortfolioID,s.ProductID)
-              if err!=nil{return err}
-              s.AvailableQuote=quote.AvailableBalance.Value
-              s.HeldQuote=quote.Hold.Value
-              s.AvailableBase=base.AvailableBalance.Value
-              s.HeldBase=base.Hold.Value
-              feeCh:=make(chan ktermTestFee,1)
-              bookCh:=make(chan ktermTestBook,1)
-              go func(){
-                  var fees coinbaseTransactionSummary
-                  e:=c.get(ctx,"/api/v3/brokerage/transaction_summary?product_type=SPOT",&fees,true)
-                  feeCh<-ktermTestFee{fees:fees,err:e}
-              }()
-              go func(){
-                  if !s.QuoteAt.IsZero() && time.Since(s.QuoteAt)<=time.Second {
-                      bookCh<-ktermTestBook{bid:s.BestBid,ask:s.BestAsk}
-                      return
-                  }
-                  var data map[string]any
-                  e:=c.get(ctx,"/api/v3/brokerage/best_bid_ask?product_ids="+s.ProductID,&data,true)
-                  if e!=nil{bookCh<-ktermTestBook{err:e};return}
-                  rows,ok:=data["pricebooks"].([]any)
-                  if !ok||len(rows)!=1 {bookCh<-ktermTestBook{err:fmt.Errorf("missing or extra books")};return}
-                  b,ok:=rows[0].(map[string]any)
-                  if !ok||b["product_id"]!=s.ProductID {bookCh<-ktermTestBook{err:fmt.Errorf("book scope")};return}
-                  bids,ok1:=b["bids"].([]any);asks,ok2:=b["asks"].([]any)
-                  if !ok1||!ok2||len(bids)==0||len(asks)==0 {bookCh<-ktermTestBook{err:fmt.Errorf("missing bid/ask")};return}
-                  bid,ok1:=bids[0].(map[string]any);ask,ok2:=asks[0].(map[string]any)
-                  if !ok1||!ok2 {bookCh<-ktermTestBook{err:fmt.Errorf("malformed bid/ask")};return}
-                  bidPrice,ok1:=bid["price"].(string);askPrice,ok2:=ask["price"].(string)
-                  if !ok1||!ok2 {bookCh<-ktermTestBook{err:fmt.Errorf("non-string book price")};return}
-                  bookCh<-ktermTestBook{bid:bidPrice,ask:askPrice}
-              }()
-              fees:=<-feeCh
-              book:=<-bookCh
-              if fees.err!=nil{return fees.err}
-              if book.err!=nil{return book.err}
-              s.MakerFeeRate=fees.fees.Tier.Maker
-              s.BestBid=book.bid;s.BestAsk=book.ask
-              s.QuoteSourceProductID=s.ProductID
-              s.QuoteAt=time.Now().UTC();s.QuoteBookAt=time.Time{}
-              s.AccountAt=time.Now().UTC()
-              s.BasisVerified=true
-              s.ID=fmt.Sprintf("%s-test-atomic",s.ConfigID)
-              summary:=fees.fees.displaySummary(time.Now().UTC())
-              c.mu.Lock()
-              if c.value.QuoteAt.After(s.QuoteAt) {
-                  s.QuoteAt=c.value.QuoteAt;s.QuoteBookAt=c.value.QuoteBookAt
-                  s.BestBid=c.value.BestBid;s.BestAsk=c.value.BestAsk
-                  s.QuoteSourceProductID=c.value.QuoteSourceProductID
-              }
-              if summary.VolumeUSD==nil&&c.feeSummary!=nil {summary.VolumeUSD,summary.AsOf=c.feeSummary.VolumeUSD,c.feeSummary.AsOf}
-              c.feeSummary=summary;c.value=s;c.err=nil
-              c.mu.Unlock()
-              return nil
-          }
-          func ktermRunOne(t *testing.T,variant,mode string)(time.Duration,[3]int32){
-              t.Helper()
-              k:=lookupFixtureRequest(t)
-              auth:=NewReadOnlyAuthenticator(k.APIKey.KeyName,k.APIKey.KeySecret)
-              cfg:=&Config{AccountID:lookupA,SyntheticTP:SyntheticTPConfig{ProductID:"BTC-USDC",BaseAccountID:lookupB}}
-              orders:=NewAdvancedOrderManager(auth,"isolated-test",nil)
-              balance:=NewBalanceChecker(auth,lookupA)
-              cache:=NewNativeSnapshotCache(cfg,"local-compare",lookupPortfolio,"LIVE",orders,balance)
-              cache.value.ProductAt=time.Now().UTC()
-              cache.value.QuoteAt=time.Now().UTC().Add(-3*time.Second)
-              cache.value.AvailableBase="0.1"
-              cache.value.AvailableQuote="100"
-              cache.value.MakerFeeRate="0.001"
-              cache.value.AccountAt=time.Now().UTC().Add(-time.Minute)
-              revision,changed:=cache.accountRevisionEvidence()
-              var ac,fe,bo,nonGET,foreign atomic.Int32
-              account:=func(id,currency,val string)map[string]any {
-                  a:=lookupFixtureAccount(id,currency,lookupPortfolio)
-                  if mode=="scope-error" {a["retail_portfolio_id"]="foreign"}
-                  a["available_balance"]=map[string]string{"value":val,"currency":currency}
-                  a["hold"]=map[string]string{"value":"0","currency":currency}
-                  return a
-              }
-              transport:=lookupRoundTripFunc(func(r *http.Request)(*http.Response,error){
-                  if r.Method!=http.MethodGet {nonGET.Add(1);return nil,fmt.Errorf("mutation forbidden")}
-                  if r.URL.Host!="api.coinbase.com"{foreign.Add(1);return nil,fmt.Errorf("foreign host")}
-                  switch r.URL.Path{
-                  case "/api/v3/brokerage/accounts":
-                      ac.Add(1)
-                      return lookupFixtureResponse(lookupFixturePage([]map[string]any{
-                          account(lookupA,"USDC","100"),account(lookupB,"BTC","0.2")},false,""),200),nil
-                  case "/api/v3/brokerage/transaction_summary":
-                      fe.Add(1)
-                      if mode=="healthy" {
-                          select {case <-time.After(350*time.Millisecond):case <-r.Context().Done():return nil,r.Context().Err()}
-                      }
-                      if mode=="fee-error" {return lookupFixtureResponse(map[string]string{"error":"deliberate"},503),nil}
-                      return lookupFixtureResponse(map[string]any{"fee_tier":map[string]string{"maker_fee_rate":"0.001","taker_fee_rate":"0.002"}},200),nil
-                  case "/api/v3/brokerage/best_bid_ask":
-                      bo.Add(1)
-                      if mode=="healthy" {
-                          select {case <-time.After(350*time.Millisecond):case <-r.Context().Done():return nil,r.Context().Err()}
-                      }
-                      return lookupFixtureResponse(map[string]any{"pricebooks":[]any{map[string]any{
-                          "product_id":"BTC-USDC","bids":[]any{map[string]string{"price":"77000"}},
-                          "asks":[]any{map[string]string{"price":"77001"}},
-                      }}},200),nil
-                  default:foreign.Add(1);return nil,fmt.Errorf("disallowed GET")
-                  }
-              })
-              auth.readTransport=transport
-              auth.sharedHTTPClient().Transport=transport
-              cache.client=&http.Client{Transport:transport,Timeout:3*time.Second}
-              ctx,cancel:=context.WithTimeout(context.Background(),4*time.Second)
-              defer cancel()
-              start:=time.Now()
-              var err error
-              if variant=="serial" {err=cache.Refresh(ctx)}else{err=ktermOverlappedCandidate(ctx,cache)}
-              elapsed:=time.Since(start)
-              got,_:=cache.Current()
-              after,_:=cache.accountRevisionEvidence()
-              counts:=[3]int32{ac.Load(),fe.Load(),bo.Load()}
-              if nonGET.Load()!=0||foreign.Load()!=0||counts[0]!=1 {t.Fatalf("%s %s unqualified I/O count=%v",variant,mode,counts)}
-              if mode=="healthy" {
-                  if err!=nil||got.AvailableBase!="0.2"||got.MakerFeeRate!="0.001"||
-                      got.BestBid!="77000"||got.BestAsk!="77001"||after<=revision||
-                      counts[1]!=1||counts[2]!=1 {t.Fatalf("%s successful composite mismatch: %v %v",variant,err,counts)}
-                  select{case <-changed:default:t.Fatal("successful snapshot no revision")}
-              } else {
-                  if err==nil||got.AvailableBase!="0.1"||after!=revision {t.Fatalf("%s negative published unsafe state: %v %v",variant,err,counts)}
-                  select{case <-changed:t.Fatal("failed source emitted revision");default:}
-                  if mode=="scope-error"&&(counts[1]!=0||counts[2]!=0){t.Fatal("invalid scope caused ancillary GET")}
-                  if mode=="fee-error"&&counts[1]!=1 {t.Fatal("fee negative did not execute")}
-              }
-              return elapsed,counts
-          }
-          func TestKTermTemporaryOverlapReadCandidate(t *testing.T) {
-              var baseline,candidate []float64
-              for i:=0;i<3;i++ {
-                  x,_:=ktermRunOne(t,"serial","healthy");baseline=append(baseline,float64(x.Microseconds())/1000)
-                  y,_:=ktermRunOne(t,"candidate","healthy");candidate=append(candidate,float64(y.Microseconds())/1000)
-              }
-              sort.Float64s(baseline);sort.Float64s(candidate)
-              b,c:=baseline[1],candidate[1]
-              if math.IsNaN(b)||math.IsNaN(c)||c<=0||b/c<1.60 {
-                  t.Fatalf("simulated overlap did not meaningfully shorten atomic publication: %.3f vs %.3f",b,c)
-              }
-              for _,mode:=range []string{"scope-error","fee-error"}{
-                  _,original:=ktermRunOne(t,"serial",mode)
-                  _,alternative:=ktermRunOne(t,"candidate",mode)
-                  fmt.Printf("KTERM_OVERLAP_NEGATIVE=PASS;MODE=%s;SERIAL_GETS=%d/%d/%d;CANDIDATE_GETS=%d/%d/%d;NO_PREMATURE_AUTH=TRUE\n",
-                    mode,original[0],original[1],original[2],alternative[0],alternative[1],alternative[2])
-              }
-              fmt.Printf("KTERM_OVERLAP_COMPARE=PASS;ORIGINAL_MS=%.3f;CANDIDATE_MS=%.3f;SIMULATED_SPEEDUP=%.3f;SUCCESS_REQUESTS=1/1/1;ATOMIC_REVISIONS=PASS;NO_LIVE_BROKER=TRUE;SOURCE_CHANGE=NONE\n",b,c,b/c)
-          }
-          '@
-          [IO.File]::WriteAllText($file,$test,[Text.UTF8Encoding]::new($false))
-          $status=@(& git -C $src status --porcelain)
-          if($status.Count -ne 1 -or [string]$status[0] -notmatch '^\?\? pkg/kterm_overlap_private_temp_test\.go$'){throw 'KTERM_OVERLAP_SOURCE_TREE_CHANGED'}
-          $env:HTTP_PROXY='http://127.0.0.1:9'
-          $env:HTTPS_PROXY='http://127.0.0.1:9'
-          $env:ALL_PROXY='http://127.0.0.1:9'
-          $env:NO_PROXY=''
-          $env:K_TERMINAL_GITHUB_TOKEN=''
-          $env:K_TERMINAL_P5_LATENCY='0'
-          $env:K_TERMINAL_NATIVE_TIMING='0'
-          $log=Join-Path $root 'private-overlap-result.log'
-          Push-Location $src
-          try{
-            & go test -v -run '^TestKTermTemporaryOverlapReadCandidate$' -count=1 -timeout 3m ./pkg *> $log
-            $exit=$LASTEXITCODE
-          }finally{Pop-Location}
-          if($exit -ne 0){
-            $v=[IO.File]::ReadAllText($log)
-            $class='UNKNOWN'
-            if($v.Contains('[build failed]')){$class='GO_COMPILE'}
-            if($v.Contains('simulated overlap did not')){$class='NO_SPEEDUP'}
-            if($v.Contains('unqualified I/O')){$class='IO_BOUNDARY'}
-            if($v.Contains('negative published unsafe state')){$class='SAFETY'}
-            Write-Host ('KTERM_OVERLAP_TRIAL=FAIL;CLASS='+$class+';PRIVATE_LOG_SHA256='+(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
-            throw 'KTERM_OVERLAP_TRIAL_UNQUALIFIED'
-          }
-          $marks=@([IO.File]::ReadAllLines($log)|Where-Object {$_ -match '^KTERM_OVERLAP_(COMPARE|NEGATIVE)=PASS;'})
-          if($marks.Count -ne 3 -or @($marks|Where-Object {$_ -match 'BROKER_WRITES=[1-9]'}).Count -ne 0){throw 'KTERM_OVERLAP_PRIVATE_RECEIPT_INCOMPLETE'}
-          foreach($mark in $marks){Write-Host $mark}
-          Write-Host ('KTERM_OVERLAP_DEV_GATE=PASS;SOURCE_SHA='+$env:KTERM_SHA+';NO_PRODUCT_SOURCE_PATCH=TRUE;FAILURE_GET_BUDGET=REVIEW;FIELD_CAUSE=UNVERIFIED')
+          $stage=Join-Path $root 'source'
+          $env:RUNNER_TEMP=Join-Path $root 'test-temp'
+          $env:GOCACHE=Join-Path $root 'go-cache'
+          $env:GOMODCACHE=Join-Path $root 'go-modules'
+          $env:K_TERMINAL_TEST_WORKSPACE=Join-Path $root 'test-workspace'
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'test-workspace\tail'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'test-workspace\post'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'test-workspace\private'
+          foreach($dir in @($env:RUNNER_TEMP,$env:GOCACHE,$env:GOMODCACHE,$env:K_TERMINAL_TEST_WORKSPACE,
+              $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,
+              $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){[void][IO.Directory]::CreateDirectory($dir)}
+          Push-Location $stage
+          try {
+            $focused=Join-Path $root 'private-native-snapshot-focused.log'
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            & go test -p 1 -count=1 -timeout 3m -run '^TestNativeSnapshotAccountTimestampAndFeePublicationAreAtomic$' ./pkg *> $focused
+            $code=$LASTEXITCODE
+            $clock.Stop()
+            if($code -ne 0){
+              $digest=(Get-FileHash -LiteralPath $focused -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ('KTERM_SNAPSHOT_FOCUSED=FAIL;EXIT='+$code+';PRIVATE_LOG_SHA256='+$digest+';PRIVATE_LOG_NOT_UPLOADED=TRUE')
+              throw 'KTERM_SNAPSHOT_FOCUSED_UNQUALIFIED'
+            }
+            Write-Host ('KTERM_SNAPSHOT_FOCUSED=PASS;MS='+$clock.ElapsedMilliseconds+';CASES=4;BROKER_POST=0')
+            $full=Join-Path $root 'private-go-full.jsonl'
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            & go test -json -p 1 -count=1 -timeout 60m ./... *> $full
+            $code=$LASTEXITCODE
+            $clock.Stop()
+            if($code -ne 0){
+              $digest=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ('KTERM_SNAPSHOT_FULL_WINDOWS_REGRESSION=FAIL;EXIT='+$code+';LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE')
+              throw 'KTERM_SNAPSHOT_FULL_REGRESSION_FAILED'
+            }
+            Write-Host ('KTERM_SNAPSHOT_FULL_WINDOWS_REGRESSION=PASS;MS='+$clock.ElapsedMilliseconds)
+            & go vet ./... *> (Join-Path $root 'private-go-vet.log')
+            if($LASTEXITCODE -ne 0){throw 'KTERM_SNAPSHOT_VET_FAILED'}
+            Write-Host 'KTERM_SNAPSHOT_VET=PASS'
+          } finally { Pop-Location }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> (Join-Path $root 'private-build.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_SNAPSHOT_ORIGINAL_BUILD_FAILED'}
+          Write-Host ('KTERM_SNAPSHOT_ORIGINAL_BUILD=PASS;SOURCE_SHA='+$env:KTERM_SHA+';NO_INSTALL=TRUE;LIVE_ORDERS=0')
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
