@@ -8,6 +8,7 @@ import base64
 import copy
 import json
 import unittest
+from unittest.mock import patch
 
 from f139.local_controller import GitHub, F139Error
 from f139.nci04_native_contract import canonical
@@ -49,14 +50,12 @@ class NativeSuccessionCatalogTests(unittest.TestCase):
         def runner(args):
             self.calls.append(tuple(args))
             route = args[0]
-            if route == (
-                "repos/spoonman136668-ai/FORGE/issues?state=open&labels="
-                "f139-native-development-eligible&per_page=100&page=1"):
-                return json.dumps(self.docs[:100]).encode("utf-8")
-            if route == (
-                "repos/spoonman136668-ai/FORGE/issues?state=open&labels="
-                "f139-native-development-eligible&per_page=100&page=2"):
-                return json.dumps(self.docs[100:]).encode("utf-8")
+            prefix = ("repos/spoonman136668-ai/FORGE/issues?state=open&labels="
+                      "f139-native-development-eligible&per_page=100&page=")
+            if route.startswith(prefix) and route[len(prefix):].isdigit():
+                page = int(route[len(prefix):])
+                if page > 0:
+                    return json.dumps(self.docs[(page-1)*100:page*100]).encode("utf-8")
             for (lane, sha), tree in self.trees.items():
                 if route != "repos/spoonman136668-ai/" + lane + "/git/commits/" + sha:
                     continue
@@ -105,6 +104,43 @@ class NativeSuccessionCatalogTests(unittest.TestCase):
         self.assertEqual([item.number for item in result], list(range(1000, 1135)))
         self.assertEqual(sum('/git/commits/' in args[0] for args in self.calls), 14)
         self.assertEqual(len(self.calls), 16)
+
+
+    def test_exactly_200_open_issues_is_complete_not_truncated(self):
+        self.docs = [source_issue(NEW_MAIN, 1000+i, 5951240000+i)
+                     for i in range(200)]
+        result = self.api().native_eligible_issues(NEW_MAIN)
+        self.assertEqual(len(result), 200)
+        pages = [args[0] for args in self.calls if
+                 "/issues?state=open&labels=" in args[0]]
+        self.assertEqual(len(pages), 3)
+        self.assertTrue(pages[-1].endswith("page=3"))
+        self.assertEqual(sum("/git/commits/" in args[0]
+                             for args in self.calls), 1)
+        self.assertTrue(all(not any("POST" in word for word in args)
+                            for args in self.calls))
+
+    def test_201st_issue_is_accessible_and_cross_page_duplicate_is_denied(self):
+        self.docs = [source_issue(NEW_MAIN, 1000+i, 5951240000+i)
+                     for i in range(201)]
+        result = self.api().native_eligible_issues(NEW_MAIN)
+        self.assertEqual(len(result), 201)
+        self.assertEqual(result[-1].number, 1200)
+        self.assertTrue(any(args[0].endswith("page=3")
+                            for args in self.calls))
+        self.docs[-1]["id"] = self.docs[0]["id"]
+        with self.assertRaisesRegex(F139Error,
+                                    "NATIVE_DUPLICATE_OR_INVALID_ISSUE_IDENTITY"):
+            self.api().native_eligible_issues(NEW_MAIN)
+
+    def test_bounded_catalog_sentinel_distinguishes_exact_cap_from_overflow(self):
+        self.docs = [source_issue(NEW_MAIN, 1000+i, 5951240000+i)
+                     for i in range(200)]
+        with patch("f139.local_controller.NATIVE_ISSUE_CATALOG_MAX_PAGES", 2):
+            self.assertEqual(len(self.api().native_eligible_issues(NEW_MAIN)), 200)
+            self.docs.append(source_issue(NEW_MAIN, 1200, 5951240200))
+            with self.assertRaisesRegex(F139Error, "NATIVE_CATALOG_TRUNCATED"):
+                self.api().native_eligible_issues(NEW_MAIN)
 
     def test_identical_sha_in_other_repository_cannot_reuse_tree(self):
         other = source_issue(NEW_MAIN, 704, 5951234569, lane="Yggdrasil")
