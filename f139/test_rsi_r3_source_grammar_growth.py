@@ -59,7 +59,7 @@ class GrammarGrowthTests(unittest.TestCase):
             self.assertFalse(getattr(p, flag))
         self.assertEqual(BASE, committed_source())
         checked_out = (ROOT / TARGET).read_bytes()
-        self.assertIn(checked_out, (BASE, BASE.replace(b"\\n", b"\\r\\n")))
+        self.assertIn(checked_out, (BASE, BASE.replace(b"\n", b"\r\n")))
 
     def test_revised_real_g1_source_generates_new_g2_after_feedback(self):
         g1 = reviewed_g1()
