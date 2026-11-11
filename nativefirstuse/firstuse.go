@@ -7,15 +7,19 @@ package nativefirstuse
 import (
  "crypto/sha256"
  "encoding/hex"
+ "encoding/json"
  "errors"
- "fmt"
- "strings"
 
  "github.com/spoonman136668-ai/forge/originalclaim"
  "github.com/spoonman136668-ai/forge/workerlease"
 )
 
 const Schema = "forge.f74.native-two-lane-firstuse-source-bound.v1"
+// Domain-separated v2: hash the entire accepted proposal, not a subset of
+// fields. The previous digest omitted lease and both cohort source/high-water
+// details, allowing distinct snapshots to share one candidate identity.
+// This remains source-only and never grants original first-use authority.
+const CandidateDigestDomain = "FORGE-F74-NATIVE-FIRSTUSE-CANDIDATE-V2\n"
 var ErrNoScienceAuthority = errors.New("F74_NO_INDEPENDENT_CURRENT_OWNER_AND_TWO_LANE_FIRST_USE_CUSTODY")
 
 type LaneSnapshot struct {
@@ -121,14 +125,12 @@ func Prepare(p Proposal)(Review,error){
    return zero,ErrNoScienceAuthority
   }
  }
- data:=strings.Join([]string{
-  Schema,c.Lane,c.ExperimentID,c.SourceCommitSHA,c.FrozenSHA256,
-  c.IntentSHA256,p.FrozenDecisionSHA256,p.PolicySHA256,p.BudgetSHA256,
-  p.OwnerID,fmt.Sprint(p.OwnerEpoch),fmt.Sprint(p.ActionNumerator),
-  fmt.Sprint(p.ActionDenominator),p.Snapshots[0].LedgerSHA256,
-  p.Snapshots[1].LedgerSHA256,
- },"\x00")
- digest:=sha256.Sum256([]byte(data))
+ // JSON encodes every scalar, both ordered snapshots, and each nested
+ // claim/lease field unambiguously. Go's struct-field order is stable, unlike
+ // an ad hoc delimiter stream or a selectively hashed field list.
+ canonical,err:=json.Marshal(p)
+ if err!=nil{return zero,ErrNoScienceAuthority}
+ digest:=sha256.Sum256(append([]byte(CandidateDigestDomain),canonical...))
  return Review{
   Schema:Schema,CandidateDigest:hex.EncodeToString(digest[:]),Lane:c.Lane,
   SourceAndLeaseCorrespondenceVerified:true,
