@@ -1,4 +1,4 @@
-name: K Terminal P5 exact PAPER first render Stage1 acceptance
+name: K Terminal P5 original order timing stage profile
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -91,154 +91,100 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Download previously qualified UI-prepared PAPER artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          artifact-ids: 13849230989
-          run-id: 43006860291
-          repository: spoonman136668-ai/FORGE
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/kterm-p5-firstfile-${{ github.run_id }}/artifact
-      - name: Validate exact prepared UI ZIP and run original hidden WPF Windows PowerShell 5.1 tests
+      - name: Profile exact original 24-event journal-to-order path with no real broker
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_ORDER_GO_TOOLCHAIN_DRIFT'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          $zip=Join-Path $root 'artifact\K-Terminal-PAPER-UI-PREPARED-5f56896a\K-Terminal-PAPER-UI-PREPARED-5f56896a.zip'
-          if(-not [IO.File]::Exists($zip)){throw 'KTERM_UI_ACCEPTANCE_EXPECTED_ZIP_NOT_FOUND'}
-          $digest=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($digest -cne '9ae2a46d8c108c5afbef6a8b6066bf9350bfd51d10aebdd2f643f296834c5688'){
-            throw 'KTERM_UI_ACCEPTANCE_ZIP_SHA_DRIFT'
-          }
-          $archive=[IO.Compression.ZipFile]::OpenRead($zip)
-          try {
-            $entries=@($archive.Entries | Where-Object {$_.Name})
-            if($entries.Count -ne 71){throw 'KTERM_UI_ACCEPTANCE_MEMBER_COUNT_DRIFT'}
-            $seen=@{}
-            foreach($entry in $entries){
-              $name=$entry.FullName
-              if($seen.ContainsKey($name) -or
-                 $name -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
-                 $name -match '(^/|^\.\.|/\.\./|:|\\)' -or $entry.Length -gt 150MB){
-                throw 'KTERM_UI_ACCEPTANCE_UNSAFE_ARCHIVE'
-              }
-              $seen[$name]=$true
-            }
-            $manifestEntry=$archive.GetEntry('ACCEPTANCE-MANIFEST.json')
-            if($null -eq $manifestEntry){throw 'KTERM_UI_ACCEPTANCE_MANIFEST_MISSING'}
-            $sr=New-Object IO.StreamReader($manifestEntry.Open())
-            try{$manifest=$sr.ReadToEnd()|ConvertFrom-Json}finally{$sr.Dispose()}
-            if($manifest.schema -cne 'kterminal.paper.ui-prepared.v1' -or
-               $manifest.source_sha -cne $env:KTERM_SHA -or
-               $manifest.source_tree -cne '8996ef668f167215edcbfd306ac819e53b3b4b86' -or
-               $manifest.not_live_deployable -ne $true -or @($manifest.files).Count -ne 70){
-              throw 'KTERM_UI_ACCEPTANCE_SOURCE_SCOPE_INVALID'
-            }
-            foreach($f in $manifest.files){
-              $entry=$archive.GetEntry([string]$f.path)
-              if($null -eq $entry -or $entry.Length -ne [long]$f.bytes){throw 'KTERM_UI_ACCEPTANCE_FILE_SIZE_DRIFT'}
-              $stream=$entry.Open()
-              try {
-                $sha=[Security.Cryptography.SHA256]::Create()
-                try{$actual=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}
-                finally{$sha.Dispose()}
-              }finally{$stream.Dispose()}
-              if($actual -cne [string]$f.sha256){throw 'KTERM_UI_ACCEPTANCE_ENTRY_HASH_DRIFT'}
-            }
-          }finally{$archive.Dispose()}
-          $pkg=Join-Path $root 'prepared-ui-package'
-          if(Test-Path -LiteralPath $pkg){throw 'KTERM_UI_ACCEPTANCE_STAGE_NOT_FRESH'}
-          [IO.Compression.ZipFile]::ExtractToDirectory($zip,$pkg)
-          $compiled=(Get-FileHash -LiteralPath (Join-Path $pkg 'KTerminal.UI.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($compiled -cne '3898fa567ebaccf14284e3b740c7a78da995d9fc20c1383f6c2b28435e770269'){
-            throw 'KTERM_UI_ACCEPTANCE_DLL_SHA_DRIFT'
-          }
-          $uim=[IO.File]::ReadAllText((Join-Path $pkg 'ui-runtime-manifest.json'))|ConvertFrom-Json
-          if($uim.sha256 -cne $compiled -or @($uim.sources).Count -ne 13){
-            throw 'KTERM_UI_ACCEPTANCE_RUNTIME_MANIFEST_DRIFT'
-          }
-          Write-Host ('KTERM_UI_ACCEPTANCE_EXACT_ARTIFACT=PASS;SOURCE_SHA='+$env:KTERM_SHA+
-            ';ZIP_SHA256='+$digest+';UI_DLL_SHA256='+$compiled+';FILES=71')
-          # Original vendor-side verification checks hidden WPF window structure,
-          # cached XAML reuse, light/dark theme depth, stale DLL fallback and
-          # corrupt DLL refusal. It uses only a fresh synthetic user profile.
-          $fixture=Join-Path $root 'ui-test-temp'
-          $output=Join-Path $root 'ui-test-evidence'
-          [void][IO.Directory]::CreateDirectory($fixture)
-          [void][IO.Directory]::CreateDirectory($output)
-          $env:TEMP=$fixture
-          $env:TMP=$fixture
-          $env:HTTP_PROXY='http://127.0.0.1:9'
-          $env:HTTPS_PROXY='http://127.0.0.1:9'
-          $env:ALL_PROXY='http://127.0.0.1:9'
-          $env:NO_PROXY=''
-          $env:K_TERMINAL_GITHUB_TOKEN=''
-          # The original Stage1 harness uses disposable synthetic snapshots
-          # and hidden WPF app-owner windows. It runs the actual packaged
-          # intelligence viewer in guarded local PowerShell child processes.
-          # No K-Terminal engine or launcher is started; all results remain
-          # under the new runner-temp root and are deleted on cleanup.
-          $fixture=Join-Path $root 'stage1-test-temp'
-          $output=Join-Path $root 'stage1-evidence-private'
-          [void][IO.Directory]::CreateDirectory($fixture)
-          [void][IO.Directory]::CreateDirectory($output)
-          $env:TEMP=$fixture
-          $env:TMP=$fixture
-          $env:K_TERMINAL_EXECUTION_MODE='PAPER'
-          $env:K_TERMINAL_SELECTED_ASSET='BTC-USDC'
+          $src=Join-Path $root 'source'
+          $private=Join-Path $root 'private-order-profile.json'
+          $log=Join-Path $root 'private-order-profile-build-test.log'
+          if(Test-Path -LiteralPath $private){throw 'KTERM_ORDER_PROFILE_OUTPUT_NOT_FRESH'}
+          $env:K_TERMINAL_STAGE3_JOURNAL_PROFILE_OUTPUT=$private
+          $env:K_TERMINAL_STAGE3_JOURNAL_PROFILE_LABEL='current-pr94-local-order-profile'
+          $env:K_TERMINAL_STAGE3_REQUIRE_JOURNAL_DIAGNOSTICS='1'
+          $env:K_TERMINAL_HOTFIX_NETWORK_PROFILE='fast-offline'
           $env:K_TERMINAL_P5_LATENCY='0'
           $env:K_TERMINAL_NATIVE_TIMING='0'
+          $env:K_TERMINAL_GITHUB_TOKEN=''
+          $env:KTERMINAL_G19_EVIDENCE=''
+          $env:KTERMINAL_G20B_WEBSOCKET_EVIDENCE=''
+          $env:KTERMINAL_G18_SAME_OWNER_EVIDENCE=''
+          # Any accidental external HTTP call must fail. The source-authored
+          # test intercepts all book, clock and POST transport in memory.
           $env:HTTP_PROXY='http://127.0.0.1:9'
           $env:HTTPS_PROXY='http://127.0.0.1:9'
           $env:ALL_PROXY='http://127.0.0.1:9'
           $env:NO_PROXY=''
-          $env:K_TERMINAL_GITHUB_TOKEN=''
-          $log=Join-Path $root 'private-performance-stage1.log'
           $clock=[Diagnostics.Stopwatch]::StartNew()
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $root 'source\verification\test-performance-stage1.ps1') -Root $pkg -Edition personal -OutputDirectory $output *> $log
-          $exit=$LASTEXITCODE
+          Push-Location $src
+          try{
+            & go test -run '^TestStage3NativeJournalCompleteReadinessProfile$' -count=1 -timeout 12m ./pkg *> $log
+            $exit=$LASTEXITCODE
+          } finally {Pop-Location}
           $clock.Stop()
-          $result=Join-Path $output 'stage1-results.json'
-          if($exit -ne 0 -or -not [IO.File]::Exists($result)){
-            Write-Host ('KTERM_STAGE1_OFFLINE_UI=FAIL;PRIVATE_LOG_SHA256='+
-              (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()+
-              ';RAW_LOG_PRIVATE=TRUE')
-            throw 'KTERM_STAGE1_ORIGINAL_UI_TEST_FAILED'
+          if($exit -ne 0 -or -not [IO.File]::Exists($private)){
+            Write-Host ('KTERM_ORDER_PROFILE=FAIL;RAW_PRIVATE_LOG_SHA256='+
+              (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
+            throw 'KTERM_ORDER_EXACT_SOURCE_PROFILE_FAILED'
           }
-          $p=[IO.File]::ReadAllText($result)|ConvertFrom-Json
-          if($p.result -cne 'PASS' -or $p.edition -cne 'personal' -or
-             $p.invisible -ne $true -or $p.no_engine_or_api -ne $true -or
-             $p.background_child_count -ne 0 -or @($p.cases).Count -lt 12 -or
-             @($p.cases | Where-Object {$_.result -cne 'PASS'}).Count -ne 0) {
-            throw 'KTERM_STAGE1_PROOF_SEMANTICS_FAILED'
+          $p=[IO.File]::ReadAllText($private)|ConvertFrom-Json
+          if([string]$p.build_label -cne 'current-pr94-local-order-profile' -or
+             @($p.individual_events).Count -ne 24 -or
+             [string]$p.injected_network_profile.name -cne 'fast-offline' -or
+             [int]$p.injected_network_profile.book_per_http_request_ms -ne 2 -or
+             [int]$p.injected_network_profile.clock_per_http_request_ms -ne 1 -or
+             [int]$p.injected_network_profile.post_response_headers_ms -ne 5){
+            throw 'KTERM_ORDER_PROFILE_SOURCE_OR_COHORT_INVALID'
           }
-          $cold=@($p.cases|Where-Object {$_.name -ceq 'accepted-cold-first-open-current-data'})
-          $fresh=@($p.cases|Where-Object {$_.name -ceq 'changed-reopen-clears-before-fresh-readiness'})
-          $cached=@($p.cases|Where-Object {$_.name -ceq 'unchanged-reopen-requalifies-cache'})
-          $isolation=@($p.cases|Where-Object {$_.name -ceq 'same-root-different-owner-mode-product-isolation'})
-          $orphans=@($p.cases|Where-Object {$_.name -ceq 'all-owner-close-no-orphan'})
-          if($cold.Count -ne 1 -or $fresh.Count -ne 1 -or
-             $cached.Count -ne 1 -or $isolation.Count -ne 1 -or $orphans.Count -ne 1) {
-            throw 'KTERM_STAGE1_MISSING_CRITICAL_NEGATIVE_OR_TIMING_CASE'
+          function Summary([double[]]$Values){
+            $ordered=@($Values | Sort-Object)
+            if($ordered.Count -ne 12){throw 'KTERM_ORDER_EXPECTED_TWELVE_SAMPLES'}
+            foreach($v in $ordered){if([double]::IsNaN($v) -or [double]::IsInfinity($v) -or $v -lt 0 -or $v -gt 600000){throw 'KTERM_ORDER_INVALID_TIMING'}}
+            $median=($ordered[5]+$ordered[6])/2
+            $p95=$ordered[[int][Math]::Ceiling(0.95*$ordered.Count)-1]
+            return [pscustomobject]@{P50=[Math]::Round($median,3);P95=[Math]::Round($p95,3);Max=[Math]::Round($ordered[-1],3)}
           }
-          $coldShell=[double]$cold[0].click_to_shell_wall_ms
-          $coldFresh=[double]$cold[0].click_to_fresh_data_wall_ms
-          $reload=[double]$fresh[0].reopen_to_fresh_data_wall_ms
-          $unchanged=[double]$cached[0].reopen_to_fresh_data_wall_ms
-          if($coldShell -lt 0 -or $coldFresh -lt $coldShell -or $reload -lt 0 -or $unchanged -lt 0){
-            throw 'KTERM_STAGE1_TIMING_RECEIPT_INVALID'
+          $all=@($p.individual_events)
+          foreach($record in $all){
+            if($record.state -cne 'RESULT' -or
+               [int]$record.intercepted_post_count -ne 1 -or
+               [int]$record.durable_reservation_count -ne 1 -or
+               @($record.transport_ready).Count -ne 1 -or
+               @($record.attempt_outcomes).Count -ne 1 -or
+               $record.attempt_outcomes[0].transport_entered -ne $true -or
+               $record.attempt_outcomes[0].submission_outcome_unknown -ne $false -or
+               [string]::IsNullOrWhiteSpace([string]$record.accepted_order_id) -or
+               [string]::IsNullOrWhiteSpace([string]$record.accepted_client_id) -or
+               $null -eq $record.transport_ready[0].received_to_transport_ready_ms -or
+               $null -eq $record.transport_ready[0].journal_entry_to_transport_ready_ms){
+              throw 'KTERM_ORDER_ONE_POST_OR_REPLAY_CONTRACT_FAILED'
+            }
+            $received=[double]$record.transport_ready[0].received_to_transport_ready_ms
+            $ready=[double]$record.transport_ready[0].full_transport_ready_ms
+            $journal=[double]$record.transport_ready[0].journal_entry_to_transport_ready_ms
+            if($received -lt $ready -or $journal -lt $ready){throw 'KTERM_ORDER_PHASE_CLOCK_INVERSION'}
           }
-          Write-Host ('KTERM_STAGE1_OFFLINE_UI=PASS;SOURCE_SHA='+$env:KTERM_SHA+
-            ';CASES='+@($p.cases).Count+
-            ';COLD_SHELL_MS='+[Math]::Round($coldShell,1)+
-            ';COLD_CURRENT_DATA_MS='+[Math]::Round($coldFresh,1)+
-            ';CHANGED_REOPEN_FRESH_MS='+[Math]::Round($reload,1)+
-            ';UNCHANGED_REOPEN_MS='+[Math]::Round($unchanged,1)+
-            ';TOTAL_TEST_MS='+$clock.ElapsedMilliseconds+
-            ';STALENESS_AND_SCOPE_NEGATIVES=PASS;OWNER_ISOLATION=PASS;NO_ORPHANS=TRUE'+
-            ';INVISIBLE_WINDOW=TRUE;BROKER_IO=0;PRODUCT_ENGINE_STARTED=FALSE;FIELD_RECONCILIATION=UNVERIFIED')
-
+          foreach($product in @('BTC-USDC','XRP-USDC')){
+            $cohort=@($all | Where-Object {$_.product_id -ceq $product})
+            if($cohort.Count -ne 12){throw 'KTERM_ORDER_MISSING_PRODUCT_COHORT'}
+            $received=Summary ([double[]]@($cohort | ForEach-Object {[double]$_.transport_ready[0].received_to_transport_ready_ms}))
+            $journal=Summary ([double[]]@($cohort | ForEach-Object {[double]$_.transport_ready[0].journal_entry_to_transport_ready_ms}))
+            $execute=Summary ([double[]]@($cohort | ForEach-Object {[double]$_.execution_wall_ms}))
+            Write-Host ('KTERM_ORDER_SYNTHETIC=PASS;PRODUCT='+$product+
+              ';N=12;SOURCE_TO_FIRST_TRANSPORT_P50_MS='+$received.P50+
+              ';P95_MS='+$received.P95+';MAX_MS='+$received.Max+
+              ';JOURNAL_TO_TRANSPORT_P50_MS='+$journal.P50+
+              ';P95_MS='+$journal.P95+';MAX_MS='+$journal.Max+
+              ';EXECUTE_WALL_P50_MS='+$execute.P50+
+              ';P95_MS='+$execute.P95+';MAX_MS='+$execute.Max+
+              ';SYNTHETIC_POSTS=12;LIVE_POSTS=0')
+          }
+          Write-Host ('KTERM_ORDER_PROFILE=PASS;SOURCE_SHA='+$env:KTERM_SHA+
+            ';EVENTS=24;ACTUAL_BROKER_REQUESTS=0;ONE_MOCK_POST_PER_EVENT=TRUE'+
+            ';DURABLE_RESERVATION_RELOAD=PASS;JOURNAL_FRESHNESS_GUARDS=RETAINED'+
+            ';TOTAL_PROFILE_MS='+$clock.ElapsedMilliseconds+';FIELD_LATENCY=UNVERIFIED')
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
