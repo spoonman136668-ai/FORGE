@@ -13,10 +13,10 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 091d52b29c22c78d48a6248b816dce29be635fe0
+      KTERM_SHA: db778512a3a45ae6bd280fdb05cc2bc54e4e9552
       KTERM_BASE: bcebdc1a7a0487f9d6061a8e643c76069335d896
       KTERM_RECORDER_BLOB: afbef54ac539df0e7dc001c1c44a0edd2dea0a25
-      KTERM_TEST_BLOB: 461ada6bdfa7d18bc8da024b5c786e6f44c68102
+      KTERM_TEST_BLOB: 3b9bf48465f3dd949337a157874f47b936948d26
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -69,14 +69,14 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_P5_CHECKOUT_FAILED'}
           $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
           $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
-          $parent=(& git -C $stage rev-parse 'HEAD~2' | Out-String).Trim()
+          $parent=(& git -C $stage rev-parse 'HEAD~3' | Out-String).Trim()
           $rec=(& git -C $stage rev-parse 'HEAD:verification/KTerminal-Live-Session-Recorder-v1.2.ps1' | Out-String).Trim()
           $test=(& git -C $stage rev-parse 'HEAD:verification/test-kterminal-recorder-v1.2.ps1' | Out-String).Trim()
           if($sha -cne $env:KTERM_SHA -or $parent -cne $env:KTERM_BASE -or
              $rec -cne $env:KTERM_RECORDER_BLOB -or $test -cne $env:KTERM_TEST_BLOB -or
              $tree -cnotmatch '^[0-9a-f]{40}$' -or
              @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_P5_SOURCE_CUSTODY_REFUSED'}
-          $changed=@(& git -C $stage diff --name-only HEAD~2 HEAD)
+          $changed=@(& git -C $stage diff --name-only HEAD~3 HEAD)
           $expected=@('verification/KTerminal-Live-Session-Recorder-v1.2.ps1','verification/test-kterminal-recorder-v1.2.ps1')
           if($changed.Count -ne 2 -or @($changed | Where-Object {$_ -cnotin $expected}).Count -ne 0){
             throw 'KTERM_P5_TWO_FILE_SCOPE_DRIFT'
@@ -120,6 +120,10 @@ jobs:
                 'RECORDER_NEW_SOURCE_SAFE_EVENT_MISSING','RECORDER_SYNTHETIC_P5_NOT_OBSERVED')
             $label='UNCLASSIFIED'
             $raw=[IO.File]::ReadAllText($focusedLog)
+            $stages=[regex]::Matches($raw,'KTERM_P5_TEST_STAGE_[A-Z0-9_]{3,65}=START')
+            $stage='NO_STAGE'
+            if($stages.Count -gt 0){$stage=$stages[$stages.Count-1].Value}
+            Write-Host ('KTERM_P5_FOCUSED_LAST_SAFE_STAGE='+$stage)
             foreach($term in $known){if($raw.Contains($term)){$label=$term;break}}
             # The first run reported UNCLASSIFIED after a 4.9 s focused test.
             # Preserve privacy: emit ONLY a bounded static test exception token.
