@@ -38,7 +38,17 @@ func readBounded(path string,target any)error{
   return fmt.Errorf("witness input missing, nonregular, or oversized")
  }
  f,err:=os.Open(path);if err!=nil{return err};defer f.Close()
+ if err:=verifyOpenedWitness(info,f);err!=nil{return err}
  return decodeBoundedWitness(f,target)
+}
+// Lstat is a path check, not a guarantee about a subsequently opened handle.
+// Reject a replaced file or post-Lstat growth/shrinkage before parsing it.
+func verifyOpenedWitness(checked os.FileInfo,f *os.File)error{
+ opened,err:=f.Stat()
+ if err!=nil||!opened.Mode().IsRegular()||opened.Size()!=checked.Size()||!os.SameFile(checked,opened){
+  return errors.New("witness input changed between check and open")
+ }
+ return nil
 }
 // A reader-size sentinel is checked BEFORE parsing or mutating the target.
 func decodeBoundedWitness(in io.Reader,target any)error{

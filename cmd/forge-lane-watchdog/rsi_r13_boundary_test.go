@@ -84,3 +84,39 @@ func TestR13FilesystemContractPreserved(t *testing.T){
  }
  if err:=readBounded("relative.json",&valid);err==nil{t.Fatal("relative path admitted")}
 }
+
+
+func TestR13OpenedFileIdentityRejectsReplacedPath(t *testing.T){
+ dir:=t.TempDir()
+ path:=filepath.Join(dir,"witness.json")
+ if err:=os.WriteFile(path,[]byte(`{"source":"original"}`),0600);err!=nil{t.Fatal(err)}
+ original,err:=os.Lstat(path);if err!=nil{t.Fatal(err)}
+ if err:=os.Rename(path,path+".old");err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(path,[]byte(`{"source":"swapped"}`),0600);err!=nil{t.Fatal(err)}
+ opened,err:=os.Open(path);if err!=nil{t.Fatal(err)};defer opened.Close()
+ // Original decoder would accept the different regular file.
+ var legacy map[string]any
+ if err:=r13LegacyDecoder(opened,&legacy);err!=nil{t.Fatal(err)}
+ if legacy["source"]!="swapped"{t.Fatal("legacy path replacement not reproduced")}
+ if err:=verifyOpenedWitness(original,opened);err==nil{
+  t.Fatal("replaced path accepted as original opened witness")
+ }
+ // A stable file at the same path remains acceptable on a fresh read.
+ var stable map[string]any
+ if err:=readBounded(path,&stable);err!=nil{t.Fatal(err)}
+ if stable["source"]!="swapped"{t.Fatal("stable file rejected or changed")}
+}
+
+func TestR13OpenedFileRejectsSameInodeSizeDrift(t *testing.T){
+ path:=filepath.Join(t.TempDir(),"witness.json")
+ if err:=os.WriteFile(path,[]byte("{}"),0600);err!=nil{t.Fatal(err)}
+ original,err:=os.Lstat(path);if err!=nil{t.Fatal(err)}
+ opened,err:=os.Open(path);if err!=nil{t.Fatal(err)};defer opened.Close()
+ if err:=os.WriteFile(path,[]byte(`{"value":1}`),0600);err!=nil{t.Fatal(err)}
+ // os.SameFile still matches: size comparison must independently deny.
+ changed,err:=opened.Stat();if err!=nil{t.Fatal(err)}
+ if !os.SameFile(original,changed){t.Fatal("size-change fixture replaced inode")}
+ if err:=verifyOpenedWitness(original,opened);err==nil{
+  t.Fatal("same-inode size drift accepted")
+ }
+}

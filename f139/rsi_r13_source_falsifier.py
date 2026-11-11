@@ -26,7 +26,17 @@ ANCHOR_READER = (
     'func run('
 )
 REPLACEMENT_READER = (
+    ' if err:=verifyOpenedWitness(info,f);err!=nil{return err}\n'
     ' return decodeBoundedWitness(f,target)\n'
+    '}\n'
+    '// Lstat is a path check, not a guarantee about a subsequently opened handle.\n'
+    '// Reject a replaced file or post-Lstat growth/shrinkage before parsing it.\n'
+    'func verifyOpenedWitness(checked os.FileInfo,f *os.File)error{\n'
+    ' opened,err:=f.Stat()\n'
+    ' if err!=nil||!opened.Mode().IsRegular()||opened.Size()!=checked.Size()||!os.SameFile(checked,opened){\n'
+    '  return errors.New("witness input changed between check and open")\n'
+    ' }\n'
+    ' return nil\n'
     '}\n'
     '// A reader-size sentinel is checked BEFORE parsing or mutating the target.\n'
     'func decodeBoundedWitness(in io.Reader,target any)error{\n'
