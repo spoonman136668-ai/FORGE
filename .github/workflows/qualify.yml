@@ -35,6 +35,12 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          # Windows Git checkout may CRLF-convert pristine content, breaking
+          # F57's intentionally byte-exact original Git-blob pin assertions.
+          # Restore LF from this exact commit without fetching/replaying source.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            git -c core.autocrlf=false checkout-index --force --all
+          fi
           python3 -B -m unittest discover -s research -p 'test_f57_original_acrobot_reward_*py' -v
           python3 -B research/f57_original_acrobot_reward_admission.py
 
