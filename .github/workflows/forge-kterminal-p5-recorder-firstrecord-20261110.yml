@@ -1,4 +1,4 @@
-name: K Terminal P5 original two-journal WPF acceptance timing
+name: K Terminal P5 paired broker ACK delay sensitivity
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -91,155 +91,126 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Test original two-log LiveReader to hidden WPF event row with incomplete and duplicate controls
+      - name: Run paired exact-source isolated broker network-ACK latency sensitivity tests
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_ACK_GO_TOOLCHAIN_MISMATCH'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
           $src=Join-Path $root 'source'
-          $fixture=Join-Path $root 'event-fixture'
-          [void][IO.Directory]::CreateDirectory($fixture)
-          $script=Join-Path $root 'private-event-wpf-test.ps1'
-          $log=Join-Path $root 'private-event-wpf-test.log'
-          $payload=@'
-          param([Parameter(Mandatory=$true)][string]$Root,
-                [Parameter(Mandatory=$true)][string]$Fixture)
-          $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          if($PSVersionTable.PSVersion.Major -ne 5 -or
-             [Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA'){
-            throw 'KTERM_EVENT_WPF_NEEDS_POWERSHELL_51_STA'
-          }
-          Add-Type -AssemblyName PresentationFramework
-          Add-Type -AssemblyName System.Web.Extensions
-          Add-Type -Path (Join-Path $Root 'journal-reader.cs') -ReferencedAssemblies @('System.dll','System.Core.dll','System.Web.Extensions.dll')
-          Add-Type -Path (Join-Path $Root 'event-presentation.cs') -ReferencedAssemblies @('System.dll','System.Core.dll')
-          . (Join-Path $Root 'display-timezone.ps1')
-          $tokens=$null;$errors=$null
-          $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $Root 'dashboard-ui.ps1'),[ref]$tokens,[ref]$errors)
-          if(@($errors).Count -ne 0){throw 'KTERM_EVENT_WPF_ORIGINAL_DASHBOARD_PARSE_FAILED'}
-          foreach($name in @('ConvertTo-KTerminalEventColumns','New-KTerminalEventRow',
-              'Show-KTerminalOrderActivity','Refresh-EventStream')){
-            $definition=$ast.Find({
-              param($node)
-              $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
-            },$true)
-            if($null -eq $definition){throw ('KTERM_EVENT_WPF_ORIGINAL_HANDLER_MISSING_'+$name)}
-            . ([scriptblock]::Create($definition.Extent.Text))
-          }
-          $converter=[Windows.Media.BrushConverter]::new()
-          $brushPrimary=$converter.ConvertFromString('#E8F5F5')
-          $brushMuted=$converter.ConvertFromString('#859D9D')
-          $brushAccent=$converter.ConvertFromString('#13D4D4')
-          $brushNegative=$converter.ConvertFromString('#E6596E')
-          $script:authorityEventLine=''
-          $script:eventRenderedNotice=''
-          $script:eventNotice=$null
-          $script:eventQueue=[Collections.Generic.Queue[string]]::new()
-          $script:eventReplayRows=0
-          $script:eventNextRead=[datetime]::MinValue
-          $script:eventReadJob=$null
-          $script:p5DesktopEnabled=$false
-          $script:selectedAsset='BTC-USDC'
-          $script:nativeChart=$null
-          $script:displayTimeZone='UTC'
-          $view=[Windows.Controls.ListBox]::new()
-          $head=[Windows.Controls.Grid]::new()
-          for($i=0;$i-lt9;$i++){
-            $column=[Windows.Controls.ColumnDefinition]::new()
-            $column.Width=[Windows.GridLength]::new(96)
-            $head.ColumnDefinitions.Add($column)
-          }
-          $controls=@{EventStream=$view;EventHeaderGrid=$head}
-          $window=[Windows.Window]::new()
-          $window.ShowInTaskbar=$false
-          $window.Width=800;$window.Height=350
-          $window.Content=$view
-          # Create a real WPF visual tree but never make the window visible.
-          $window.Visibility=[Windows.Visibility]::Hidden
-          $first=Join-Path $Fixture 'ckb-execution.log'
-          $second=Join-Path $Fixture 'k-terminal-execution.log'
-          $oldStamp=[DateTimeOffset]::UtcNow.AddMinutes(-2).ToString('yyyy-MM-ddTHH:mm:ss.fffzzz',[Globalization.CultureInfo]::InvariantCulture)
-          $old='['+$oldStamp+'] BUY L1 | ACCEPTED | HISTORICAL_SYNTHETIC'
-          [IO.File]::WriteAllText($first,$old+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
-          [IO.File]::WriteAllText($second,'',[Text.UTF8Encoding]::new($false))
-          $script:eventTail=[KTerminal.Journal.LiveReader]::new([string[]]@($first,$second))
-          $tick=[Windows.Threading.DispatcherTimer]::new()
-          $tick.Interval=[TimeSpan]::FromMilliseconds(50)
-          $tick.Add_Tick({Refresh-EventStream})
-          function Pump([int]$max,[scriptblock]$done) {
-            $timer=[Diagnostics.Stopwatch]::StartNew()
-            do{
-              $frame=[Windows.Threading.DispatcherFrame]::new()
-              $wake=[Windows.Threading.DispatcherTimer]::new()
-              $wake.Interval=[TimeSpan]::FromMilliseconds(10)
-              $wake.Add_Tick({$wake.Stop();$frame.Continue=$false}.GetNewClosure())
-              $wake.Start()
-              [Windows.Threading.Dispatcher]::PushFrame($frame)
-              if(& $done){return $timer.ElapsedMilliseconds}
-            }while($timer.ElapsedMilliseconds -lt $max)
-            return -1
-          }
-          function HasRow([string]$stamp){
-            foreach($entry in $view.Items){
-              if($entry -is [Windows.Controls.Grid] -and [string]$entry.Tag -ceq $stamp){
-                if($entry.Children.Count -lt 3 -or $entry.Children[2].Text -notmatch 'ACCEPTED'){
-                  throw 'KTERM_EVENT_WPF_ACCEPTED_STATUS_RENDER_INCORRECT'
+          $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+          $env:K_TERMINAL_STAGE3_BUY_FIRST_DEFERRED_SAMPLES='3'
+          $env:K_TERMINAL_P5_LATENCY='0'
+          $env:K_TERMINAL_NATIVE_TIMING='0'
+          $env:K_TERMINAL_GITHUB_TOKEN=''
+          $env:HTTP_PROXY='http://127.0.0.1:9'
+          $env:HTTPS_PROXY='http://127.0.0.1:9'
+          $env:ALL_PROXY='http://127.0.0.1:9'
+          $env:NO_PROXY=''
+          # Existing source-owned fixture directly intercepts every
+          # book/clock/order HTTP request and refuses unknown destinations.
+          # Only timing controls vary; no real order or external broker.
+          $cohorts=@(
+            [pscustomobject]@{Name='fast-offline';Book=2;Clock=1;Post=5},
+            [pscustomobject]@{Name='specified-network';Book=180;Clock=120;Post=2000}
+          )
+          $results=@{}
+          foreach($arm in $cohorts){
+            $env:K_TERMINAL_HOTFIX_NETWORK_PROFILE=$arm.Name
+            $env:K_TERMINAL_HOTFIX_BOOK_MS=[string]$arm.Book
+            $env:K_TERMINAL_HOTFIX_CLOCK_MS=[string]$arm.Clock
+            $env:K_TERMINAL_HOTFIX_POST_MS=[string]$arm.Post
+            $env:K_TERMINAL_HOTFIX_BALANCE_MS='1'
+            $env:K_TERMINAL_STAGE3_BUY_FIRST_DEFERRED_LABEL=('PR94-paired-ack-'+$arm.Name)
+            $output=Join-Path $root ('private-ack-'+$arm.Name+'.json')
+            $log=Join-Path $root ('private-ack-'+$arm.Name+'.log')
+            if(Test-Path -LiteralPath $output){throw 'KTERM_ACK_NOT_FRESH'}
+            $env:K_TERMINAL_STAGE3_BUY_FIRST_DEFERRED_OUTPUT=$output
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            Push-Location $src
+            try {
+              & go test -run '^TestStage3BuyFirstDeferredCompleteReadinessWorkload$' -count=1 -timeout 10m ./pkg *> $log
+              $code=$LASTEXITCODE
+            } finally {Pop-Location}
+            $clock.Stop()
+            if($code -ne 0 -or -not [IO.File]::Exists($output)){
+              Write-Host ('KTERM_ACK_'+$arm.Name+'=FAIL;PRIVATE_LOG_SHA256='+
+                (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
+              throw 'KTERM_ACK_SOURCE_FIXTURE_FAILED'
+            }
+            $p=[IO.File]::ReadAllText($output)|ConvertFrom-Json
+            if($p.build_label -cne $env:K_TERMINAL_STAGE3_BUY_FIRST_DEFERRED_LABEL -or
+               $p.injected_network_profile.name -cne $arm.Name -or
+               [int]$p.injected_network_profile.book_per_http_request_ms -ne $arm.Book -or
+               [int]$p.injected_network_profile.clock_per_http_request_ms -ne $arm.Clock -or
+               [int]$p.injected_network_profile.post_response_headers_ms -ne $arm.Post -or
+               @($p.results).Count -ne 4) {throw 'KTERM_ACK_PROFILE_CONTRACT_DRIFT'}
+            $data=@{}
+            foreach($product in @('BTC-USDC','XRP-USDC')){
+              foreach($workload in @('first-eligible','confirmed-accounting-deferred')){
+                $matches=@($p.results|Where-Object {$_.product -ceq $product -and $_.workload -ceq $workload})
+                if($matches.Count -ne 1){throw 'KTERM_ACK_MISSING_PRODUCT_WORKLOAD'}
+                $g=$matches[0]
+                if(@($g.individual_events).Count -ne 3){throw 'KTERM_ACK_INCOMPLETE_COHORT'}
+                $ready=@();$response=@();$return=@();$transport=@()
+                foreach($event in $g.individual_events){
+                  if([int]$event.mock_order_posts -ne 1 -or
+                     [int]$event.book_requests -ne 1 -or
+                     [int]$event.clock_requests -ne 1 -or
+                     $event.in_process_reload_and_receipt_no_replay_passed -ne $true -or
+                     [double]$event.mandatory_evidence_bytes -le 0){
+                    throw 'KTERM_ACK_MAKER_ONE_POST_AND_DURABILITY_GUARDS_FAILED'
+                  }
+                  $a=[double]$event.full_first_transport_ready_ms
+                  $b=[double]$event.post_response_headers_ms
+                  $c=[double]$event.execute_entry_to_return_ms
+                  $d=[double]$event.received_to_actual_mock_transport_ms
+                  foreach($value in @($a,$b,$c,$d)){
+                    if([double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt 0 -or $value -gt 30000){
+                      throw 'KTERM_ACK_INVALID_TIMING_RECEIPT'
+                    }
+                  }
+                  if($d -lt $a -or $c -lt $b){throw 'KTERM_ACK_CLOCK_OR_SPAN_ORDER_INVERSION'}
+                  $ready+= $a;$response+= $b;$return+= $c;$transport+= $d
                 }
-                return $true
+                $metric=[pscustomobject]@{
+                  Ready=($ready|Measure-Object -Average).Average
+                  Response=($response|Measure-Object -Average).Average
+                  Return=($return|Measure-Object -Average).Average
+                  Transport=($transport|Measure-Object -Average).Average
+                }
+                $key=$product+'/'+$workload
+                $data[$key]=$metric
+                Write-Host ('KTERM_ACK_ARM=PASS;PROFILE='+$arm.Name+
+                  ';PRODUCT='+$product+';WORKLOAD='+$workload+';N=3'+
+                  ';SOURCE_TO_TRANSPORT_MEAN_MS='+[Math]::Round($metric.Transport,2)+
+                  ';FIRST_READY_MEAN_MS='+[Math]::Round($metric.Ready,2)+
+                  ';MOCK_RESPONSE_HEADER_MEAN_MS='+[Math]::Round($metric.Response,2)+
+                  ';EXECUTE_RETURN_MEAN_MS='+[Math]::Round($metric.Return,2)+
+                  ';MOCK_POSTS=3;REAL_POSTS=0;REPLAY_POSTS=0')
               }
             }
-            return $false
+            $results[$arm.Name]=$data
+            Write-Host ('KTERM_ACK_COHORT=PASS;PROFILE='+$arm.Name+
+              ';EVENTS=12;ORIGINAL_TEST=PASS;WALL_MS='+$clock.ElapsedMilliseconds+
+              ';SOURCE='+$env:KTERM_SHA+';BROKER_IO=NONE')
           }
-          try{
-            $tick.Start()
-            $replay=Pump 1800 {HasRow $oldStamp}
-            if($replay -lt 0){throw 'KTERM_EVENT_WPF_INITIAL_REPLAY_MISSING'}
-            # The source's first display page marks startup replay; the new
-            # accepted row below must be fresh and distinct from old history.
-            $stamp=[DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffzzz',[Globalization.CultureInfo]::InvariantCulture)
-            $line='['+$stamp+'] BUY L1 | ACCEPTED | SYNTHETIC_MAKER_ONLY_ACCEPTED'
-            $bytes=[Text.UTF8Encoding]::new($false)
-            $half=$line.Substring(0,$line.Length-8)
-            [IO.File]::AppendAllText($first,$half,$bytes)
-            $premature=Pump 350 {HasRow $stamp}
-            if($premature -ge 0){throw 'KTERM_EVENT_WPF_INCOMPLETE_JOURNAL_ROW_DISPLAYED'}
-            $acceptedStart=[Diagnostics.Stopwatch]::StartNew()
-            [IO.File]::AppendAllText($first,$line.Substring($half.Length)+[Environment]::NewLine,$bytes)
-            $elapsed=Pump 2500 {HasRow $stamp}
-            if($elapsed -lt 0){throw 'KTERM_EVENT_WPF_NEW_ACCEPTED_NOT_VISIBLE'}
-            $acceptedStart.Stop()
-            $count=@($view.Items|Where-Object {$_ -is [Windows.Controls.Grid] -and [string]$_.Tag -ceq $stamp}).Count
-            if($count -ne 1){throw 'KTERM_EVENT_WPF_DUPLICATE_BEFORE_OVERLAP'}
-            # Same durable record in both original observed logs must remain
-            # exactly one displayed event; zero inferred fills or duplicate
-            # accepted-order rows.
-            [IO.File]::AppendAllText($second,$line+[Environment]::NewLine,$bytes)
-            $null=Pump 450 {$false}
-            $count=@($view.Items|Where-Object {$_ -is [Windows.Controls.Grid] -and [string]$_.Tag -ceq $stamp}).Count
-            if($count -ne 1){throw 'KTERM_EVENT_WPF_TWO_SOURCE_OVERLAP_NOT_DEDUPLICATED'}
-            Write-Output ('KTERM_EVENT_WPF=PASS;SOURCE_TO_HIDDEN_WPF_ITEM_MS='+$elapsed+
-              ';WPF_POLL_MS=50;SOURCE_POLL_MIN_MS=200;INCOMPLETE_ROW_REFUSED=TRUE'+
-              ';DUPLICATE_CROSS_LOG_ROWS=1;ORIGINAL_READER=TRUE;ORIGINAL_REFRESH_HANDLER=TRUE'+
-              ';ORIGINAL_EVENT_ROW_FACTORY=TRUE;ORDER_ACK_IS_SYNTHETIC=TRUE'+
-              ';FULL_DESKTOP_STARTED=FALSE;VENUE_REQUESTS=0;REAL_PIXEL_PAINT=UNVERIFIED')
-          }finally{$tick.Stop();$window.Close()}
-          '@
-          [IO.File]::WriteAllText($script,$payload,[Text.UTF8Encoding]::new($false))
-          $clock=[Diagnostics.Stopwatch]::StartNew()
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File $script -Root $src -Fixture $fixture *> $log
-          $exit=$LASTEXITCODE
-          $clock.Stop()
-          if($exit -ne 0){
-            Write-Host ('KTERM_EVENT_WPF=FAIL;PRIVATE_LOG_SHA256='+
-              (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
-            throw 'KTERM_EVENT_WPF_SOURCE_HARNESS_FAILED'
+          foreach($key in $results['fast-offline'].Keys){
+            $fast=$results['fast-offline'][$key]
+            $slow=$results['specified-network'][$key]
+            $diff=$slow.Response-$fast.Response
+            if($diff -lt 1500 -or $diff -gt 5000){
+              throw 'KTERM_ACK_INJECTED_RESPONSE_NOT_OBSERVED'
+            }
+            if($slow.Return -le $fast.Return + 1500){
+              throw 'KTERM_ACK_RESPONSE_DELAY_NOT_IN_END_TO_END_RETURN'
+            }
+            Write-Host ('KTERM_ACK_DELTA=PASS;CASE='+$key+
+              ';RESPONSE_DELTA_MEAN_MS='+[Math]::Round($diff,2)+
+              ';RETURN_DELTA_MEAN_MS='+[Math]::Round($slow.Return-$fast.Return,2)+
+              ';READY_DELTA_MEAN_MS='+[Math]::Round($slow.Ready-$fast.Ready,2))
           }
-          $marks=@([IO.File]::ReadAllLines($log)|Where-Object {$_ -match '^KTERM_EVENT_WPF=PASS;'})
-          if($marks.Count -ne 1){throw 'KTERM_EVENT_WPF_RESULT_CARDINALITY_FAILED'}
-          Write-Host $marks[0]
-          Write-Host ('KTERM_EVENT_WPF_HARNESS=PASS;WALL_MS='+$clock.ElapsedMilliseconds+
-            ';SOURCE_SHA='+$env:KTERM_SHA+';NO_INSTALL=TRUE;NO_BROKER_IO=TRUE')
+          Write-Host 'KTERM_ACK_SENSITIVITY=PASS;ARMS=2;SAMPLES=24;ALL_MAKER_ONLY=TRUE;DURABLE_REPLAY_NO_REPOST=PASS;REAL_ORDERS=0;LIVE_CAUSAL_LATENCY=UNVERIFIED'
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
