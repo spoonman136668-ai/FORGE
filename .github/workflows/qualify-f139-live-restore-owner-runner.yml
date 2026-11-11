@@ -6,7 +6,7 @@ permissions:
   contents: read
 concurrency:
   group: f139-live-restore-sourceonly
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   owner-runner-sourceonly:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
@@ -131,3 +131,229 @@ jobs:
           Write-Output 'F139_D1_EXPORT=NOT_EXECUTED'
           Write-Output 'F139_CIPHERTEXT_PRIVATE_UPLOAD=NOT_EXECUTED'
           Write-Output 'F139_ORIGINAL_CONTROLLER_UNTOUCHED=TRUE'
+
+  owner-private-d1-encrypted-export-once:
+    # Bounded first-attempt only. A rerun is NOT permission to repeat an indeterminate export.
+    if: ${{ github.event.head_commit.message == 'F139_OWNER_D1_ENCRYPTED_BACKUP_ONCE_20261111' && github.run_attempt == 1 }}
+    needs: owner-runner-sourceonly
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    permissions: {}
+    steps:
+      - name: Existing owner-scoped private ciphertext production and recovery
+        shell: pwsh
+        env:
+          CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          # No public checkout, public artifact, plaintext file, key transfer,
+          # CKB service, new controller/runner or scientific first-use.
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/fix/f139-restore-reconciliation-20261023' -or
+              $env:GITHUB_EVENT_NAME -cne 'push' -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1') {
+            throw 'F139_EXPORT_OWNER_RUNNER_REPLAY_OR_BRANCH_DENIED'
+          }
+          $privateRepo = 'spoonman136668-ai/rbackup'
+          $privateHead = '87aff33b409ce1e7c23297ef76363b476234a3d4'
+          $readHead = '30d992097f30d74bd17a06f7ccb3bc131722acc9'
+          $sourcePin = 'd7820a34855fa7ecb202621b2bdea2398c231deadd6e8452ece75965617af76b'
+          $s = [string]$env:GITHUB_RUN_ID
+          if ($s -cnotmatch '^[1-9][0-9]{5,18}$') { throw 'F139_RUN_ID_INVALID' }
+          $work = Join-Path $env:RUNNER_TEMP ('f139-owner-d1-private-' + $s)
+          if (Test-Path -LiteralPath $work) { throw 'F139_WORK_DIRECTORY_REUSE_DENIED' }
+          New-Item -ItemType Directory -Path $work -ErrorAction Stop | Out-Null
+          $vault = Join-Path $work 'private-rbackup-source'
+          $f62 = Join-Path $work 'f62-qualified-source'
+          $exportLog = Join-Path $work 'export-result-private.txt'
+          $uploadLog = Join-Path $work 'upload-result-private.txt'
+          $restoreLog = Join-Path $work 'restore-result-private.txt'
+          $primary = Join-Path $env:LOCALAPPDATA 'rbackup-custody\primary\identity.txt'
+          $recovery = Join-Path $env:LOCALAPPDATA 'rbackup-custody\recovery\identity.txt'
+          if (-not (Test-Path -LiteralPath $primary -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $recovery -PathType Leaf) -or
+              -not (Get-Command age -ErrorAction SilentlyContinue) -or
+              -not (Get-Command age-keygen -ErrorAction SilentlyContinue) -or
+              -not (Get-Command gh -ErrorAction SilentlyContinue) -or
+              -not (Get-Command python -ErrorAction SilentlyContinue)) {
+            throw 'F139_EXISTING_OWNER_RECOVERY_RUNTIME_UNAVAILABLE'
+          }
+          $cftoken = if ($env:CF_TOKEN_PRIMARY) {$env:CF_TOKEN_PRIMARY} else {$env:CF_TOKEN_ALT}
+          $cfaccount = if ($env:CF_ACCOUNT_SECRET) {$env:CF_ACCOUNT_SECRET}
+                       elseif ($env:CF_ACCOUNT_VAR) {$env:CF_ACCOUNT_VAR}
+                       else {$env:CF_ACCOUNT_ALT}
+          if ([string]::IsNullOrWhiteSpace($cftoken) -or
+              $cfaccount -cnotmatch '^[a-fA-F0-9]{32}$') {
+            throw 'F139_ORIGINAL_CLOUDFLARE_SECRET_ROUTE_UNAVAILABLE'
+          }
+          $private = @(& gh api "repos/$privateRepo" --jq '.private' 2>$null)
+          if ($LASTEXITCODE -ne 0 -or ($private | Out-String).Trim() -cne 'true') {
+            throw 'F139_PRIVATE_VAULT_IDENTITY_UNAVAILABLE'
+          }
+          $canWrite = @(& gh api "repos/$privateRepo" --jq '.permissions.push' 2>$null)
+          if ($LASTEXITCODE -ne 0 -or ($canWrite | Out-String).Trim() -cne 'true') {
+            throw 'F139_PRIVATE_VAULT_WRITE_ACCESS_NOT_ATTESTED'
+          }
+          # Original owner gh credentials remain confined to this trusted Windows
+          # user; do not emit them or copy them into any public source or artifact.
+          $ghAccess = (& gh auth token 2>$null | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ghAccess.Length -lt 20) {
+            throw 'F139_PRIVATE_RELEASE_TOKEN_UNAVAILABLE'
+          }
+          Write-Output 'F139_ORIGINAL_PRIVATE_OWNER_AND_PROVIDER_SECRETS=PASS'
+          # Original private code and original qualified read-only Worker auditor,
+          # each checked out by immutable SHA before any provider export POST.
+          & gh repo clone $privateRepo $vault -- --branch recovery/f139-stream-encrypted-d1-export-20261026 --single-branch --quiet *> (Join-Path $work 'private-clone.log')
+          if ($LASTEXITCODE -ne 0 -or
+              ((& git -C $vault rev-parse HEAD | Out-String).Trim() -cne $privateHead) -or
+              ((& git -C $vault status --porcelain | Out-String).Trim().Length -ne 0)) {
+            throw 'F139_PRIVATE_EXPORT_SOURCE_PIN_DRIFT'
+          }
+          & git clone --quiet --single-branch --branch engineering/f62-existing-d1-firstuse-migration-preflight-20261015-r1 https://github.com/spoonman136668-ai/FORGE.git $f62 *> (Join-Path $work 'read-source-clone.log')
+          if ($LASTEXITCODE -ne 0 -or
+              ((& git -C $f62 rev-parse HEAD | Out-String).Trim() -cne $readHead) -or
+              ((& git -C $f62 hash-object (Join-Path $f62 'd1retention\install_remote.py') | Out-String).Trim() -cne 'f9dc7963f3aca80233177b38d468ca699de36dc1')) {
+            throw 'F139_F62_ORIGINAL_CLOUDFLARE_AUDITOR_DRIFT'
+          }
+          $env:CLOUDFLARE_API_TOKEN = $cftoken
+          $env:CLOUDFLARE_ACCOUNT_ID = $cfaccount.ToLowerInvariant()
+          $json = Join-Path $work 'bound-source-private.json'
+          $auditor = @'
+          import hashlib, json, os, pathlib, sys
+          sys.path.insert(0,str(pathlib.Path(sys.argv[1])/'d1retention'))
+          import install_remote as c, r18c_witness as witness
+          expected='d7820a34855fa7ecb202621b2bdea2398c231deadd6e8452ece75965617af76b'
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          api=c.Cloudflare(account,os.environ['CLOUDFLARE_API_TOKEN'])
+          database=c.single_deployed_database(api).lower()
+          digest=hashlib.sha256((account+':'+database).encode('ascii')).hexdigest()
+          if digest!=expected: raise RuntimeError('F139_LIVE_WORKER_D1_SOURCE_DRIFT')
+          objects,foreign=c.schema_snapshot(api,database)
+          if objects!=c.EXPECTED_OBJECTS or foreign!=witness.BASELINE_SCHEMA_SHA256:
+              raise RuntimeError('F139_LIVE_ORIGINAL_ARCHIVE_SCHEMA_DRIFT')
+          for name in ('forge_research_originals','forge_research_seals'):
+              rows=c.sql_query(api,database,'SELECT COUNT(*) AS n FROM '+name)
+              if len(rows)!=1 or rows[0].get('n')!=6:
+                  raise RuntimeError('F139_ORIGINAL_SIX_SEALED_ARCHIVES_DRIFT')
+          with open(sys.argv[2],'x',encoding='utf-8') as f:
+              json.dump({'database_id':database,'source_id_sha256':digest},f)
+          print('F139_FRESH_LIVE_D1_BOUND_SOURCE=PASS')
+          '@
+          $auditor | & python -B - $f62 $json *> (Join-Path $work 'source-audit-private.log')
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $json)) {
+            throw 'F139_LIVE_D1_SOURCE_REVALIDATION_BLOCKED_BEFORE_EXPORT'
+          }
+          $pinned = Get-Content -Raw -LiteralPath $json | ConvertFrom-Json
+          if ($pinned.source_id_sha256 -cne $sourcePin -or
+              $pinned.database_id -cnotmatch '^[a-f0-9-]{36}$') {
+            throw 'F139_D1_SOURCE_PIN_CHANGED_BEFORE_EXPORT'
+          }
+          Write-Output 'F139_FRESH_LIVE_WORKER_D1_SOURCE=PASS'
+          $localVault = Join-Path $env:LOCALAPPDATA 'rbackup-custody\backup-archive'
+          if (-not (Test-Path -LiteralPath $localVault)) {
+            New-Item -ItemType Directory -Path $localVault -ErrorAction Stop | Out-Null
+          }
+          if (-not (Test-Path -LiteralPath $localVault -PathType Container) -or
+              (Get-Item -LiteralPath $localVault).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) {
+            throw 'F139_LOCAL_CIPHERTEXT_DESTINATION_UNSAFE'
+          }
+          $archive = Join-Path $localVault ('f139-production-d1-' + $s + '.age')
+          if (Test-Path -LiteralPath $archive) { throw 'F139_EXISTING_PRODUCTION_ARCHIVE_NO_REPLAY' }
+          # The owner explicitly approved potential D1 query interruption.
+          # One exporter execution only; uncertain POST/timeout is NOT retried.
+          $env:CLOUDFLARE_D1_DATABASE_ID = [string]$pinned.database_id
+          Push-Location -LiteralPath $vault
+          try {
+            & python -B scripts/d1_encrypted_export.py --execute --acknowledge-query-pause --local-only --accept-same-disk-loss-risk --expected-source-id-sha256 $sourcePin --primary-identity $primary --recovery-identity $recovery --output $archive *> $exportLog
+            $exportCode = $LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
+          $exportText = if (Test-Path -LiteralPath $exportLog) { Get-Content -Raw -LiteralPath $exportLog } else { '' }
+          if ($exportCode -ne 0 -or
+              $exportText -cnotmatch 'D1_EXPORT_STREAM_ENCRYPTED=PASS' -or
+              $exportText -cnotmatch 'D1_TWO_IDENTITY_CIPHERTEXT_VERIFY=PASS' -or
+              $exportText -cnotmatch 'D1_VERIFIED_FORGE_SOURCE_PIN_MATCH=PASS') {
+            Write-Output 'F139_D1_EXPORT=INDETERMINATE_OR_FAILED_NO_RETRY'
+            throw 'F139_ORIGINAL_PRODUCTION_EXPORT_RECONCILIATION_REQUIRED'
+          }
+          Write-Output 'F139_REAL_D1_ENCRYPTED_EXPORT_AND_TWO_OWNER_KEYS=PASS'
+          # Private GitHub Release upload with original qualified upload/download
+          # implementation. Never publish the archive as a public FORGE artifact.
+          $env:RBACKUP_WRITE_TOKEN = $ghAccess
+          try {
+            & python -B (Join-Path $vault 'scripts/upload_ciphertext_to_rbackup.py') --archive $archive --checkout $vault *> $uploadLog
+            $uploadCode = $LASTEXITCODE
+          } finally {
+            Remove-Item Env:RBACKUP_WRITE_TOKEN -ErrorAction SilentlyContinue
+            $ghAccess = $null
+          }
+          $uploadText = if (Test-Path -LiteralPath $uploadLog) { Get-Content -Raw -LiteralPath $uploadLog } else { '' }
+          if ($uploadCode -ne 0 -or $uploadText -cnotmatch 'RBACKUP_UPLOAD_READBACK=PASS') {
+            Write-Output 'F139_PRIVATE_RELEASE_UPLOAD=FAILED_LOCAL_ENCRYPTED_ARCHIVE_RETAINED_NO_RETRY'
+            throw 'F139_PRIVATE_CIPHERTEXT_CUSTODY_RECONCILE'
+          }
+          $tag = [regex]::Match($uploadText,'(?m)^RBACKUP_RELEASE_TAG=(f139-d1-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16})\s*$').Groups[1].Value
+          $digest = [regex]::Match($uploadText,'(?m)^RBACKUP_ARCHIVE_SHA256=([0-9a-f]{64})\s*$').Groups[1].Value
+          if (-not $tag -or -not $digest) { throw 'F139_PRIVATE_ARCHIVE_RECEIPT_INVALID' }
+          Write-Output 'F139_PRIVATE_ENCRYPTED_RELEASE_UPLOAD_READBACK=PASS'
+          # Independently pull the PRIVATE retained ciphertext and restore that
+          # downloaded copy (not the producer's local source archive).
+          & gh release download $tag --repo $privateRepo --dir $work --clobber *> (Join-Path $work 'private-download.log')
+          if ($LASTEXITCODE -ne 0) { throw 'F139_PRIVATE_ENCRYPTED_RELEASE_DOWNLOAD_FAILED' }
+          $name = 'f139-d1-' + $digest.Substring(0,16) + '.age'
+          $retrieved = Join-Path $work $name
+          if (-not (Test-Path -LiteralPath $retrieved -PathType Leaf) -or
+              (Get-FileHash -LiteralPath $retrieved -Algorithm SHA256).Hash.ToLowerInvariant() -cne $digest) {
+            throw 'F139_DOWNLOADED_PRIVATE_AGE_DIGEST_MISMATCH'
+          }
+          & python -B (Join-Path $vault 'scripts/d1_isolated_restore_verify.py') --local-only --accept-same-disk-loss-risk --ciphertext $retrieved --primary-identity $primary --recovery-identity $recovery *> $restoreLog
+          $restoreCode = $LASTEXITCODE
+          $restoreText = if (Test-Path -LiteralPath $restoreLog) { Get-Content -Raw -LiteralPath $restoreLog } else { '' }
+          if ($restoreCode -ne 0 -or $restoreText -cnotmatch 'D1_TWO_IDENTITY_ISOLATED_MEMORY_RESTORES=PASS') {
+            Write-Output 'F139_PRIVATE_RETAINED_ARCHIVE_RESTORE=FAILED_CIPHERTEXT_RETAINED_NO_RETRY'
+            throw 'F139_OWNER_RESTORE_RECONCILIATION_REQUIRED'
+          }
+          Write-Output 'F139_REDOWNLOADED_PRIVATE_CIPHERTEXT_HASH=PASS'
+          Write-Output 'F139_TWO_OWNER_KEY_SQLITE_MEMORY_RESTORES=PASS'
+          # Only nonsecret audit metadata is sent to the PRIVATE repo; no token,
+          # account/db ID, plaintext, bookmark, signed URL or key material.
+          $byteCount = [regex]::Match($uploadText,'(?m)^RBACKUP_ARCHIVE_BYTES=([0-9]+)\s*$').Groups[1].Value
+          $tableCount = [regex]::Match($restoreText,'(?m)^D1_RESTORED_TABLES=([0-9]+)\s*$').Groups[1].Value
+          $rowCount = [regex]::Match($restoreText,'(?m)^D1_RESTORED_TOTAL_ROWS=([0-9]+)\s*$').Groups[1].Value
+          $privateNote = @"
+          ### F139 real production D1 encrypted recovery — one-shot
+          FORGE triggering SHA: $env:GITHUB_SHA
+          Exact private qualified exporter SHA: $privateHead
+          Qualified read-only provider source: $readHead
+          Original Worker-bound source fingerprint: $sourcePin
+          Private GitHub Release tag: $tag
+          Ciphertext SHA-256: $digest
+          Ciphertext bytes: $byteCount
+          Private asset re-download exact-hash match: PASS
+          Owner dual-key decrypt and two isolated in-memory SQLite restores: PASS
+          Restored user tables: $tableCount
+          Restored total rows: $rowCount
+          OFF-HOST INDEPENDENT RESTORE: UNVERIFIED (same workstation)
+          SAME-DISK KEY LOSS PROTECTION: FALSE (owner-accepted local-only risk)
+          FSA SCIENTIFIC FIRST USE: DENIED
+          No Cloudflare schema mutation, new controller or scientific dispatch.
+          "@
+          $privateNotePath = Join-Path $work 'private-backup-receipt.md'
+          [IO.File]::WriteAllText($privateNotePath,$privateNote,[Text.UTF8Encoding]::new($false))
+          & gh issue comment 4 --repo $privateRepo --body-file $privateNotePath *> (Join-Path $work 'private-issue-comment.log')
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output 'F139_PRIVATE_CUSTODY_ISSUE_RECEIPT=UNVERIFIED_ARCHIVE_AND_RESTORE_PASS'
+            throw 'F139_PRIVATE_CUSTODY_REPORT_NOT_ANCHORED'
+          }
+          Write-Output 'F139_PRIVATE_CUSTODY_ISSUE_RECEIPT=PASS'
+          Write-Output 'F139_D1_BACKUP_AND_SAME_HOST_RECOVERY=PASS'
+          Write-Output 'F139_OFFHOST_INDEPENDENT_RESTORE=UNVERIFIED'
+          Write-Output 'F139_FSA_FIRST_USE=DENIED'
