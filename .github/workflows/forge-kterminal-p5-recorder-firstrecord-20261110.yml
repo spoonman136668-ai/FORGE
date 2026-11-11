@@ -1,4 +1,4 @@
-name: K Terminal P5 source-locked offline PAPER artifact acceptance
+name: K Terminal P5 source-locked prepared UI PAPER package
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -99,116 +99,203 @@ jobs:
           repository: spoonman136668-ai/FORGE
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/kterm-p5-firstfile-${{ github.run_id }}/artifact
-      - name: Verify exact ZIP content then execute original relocated offline PAPER acceptance
+      - name: Verify frozen ZIP then compile and source-verify original WPF UI assembly
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          $download=Join-Path $root 'artifact\K-Terminal-PAPER-ACCEPTANCE-5f56896a'
-          $zip=Join-Path $download 'K-Terminal-PAPER-ACCEPTANCE-5f56896a.zip'
-          if(-not [IO.File]::Exists($zip)){throw 'KTERM_G22_EXPECTED_ARTIFACT_NOT_FOUND'}
-          if(@(Get-ChildItem -LiteralPath $download -File).Count -ne 1){throw 'KTERM_G22_ARTIFACT_SCOPE_DRIFT'}
-          $zipsha=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($zipsha -cne 'ad21bc5b3016b025a26675573bc654126b7d78f609ee37784f74e475a52cf5bc'){
-            throw 'KTERM_G22_PREVIOUSLY_QUALIFIED_ZIP_HASH_DRIFT'
+          $src=Join-Path $root 'source'
+          $zip=Join-Path $root 'artifact\K-Terminal-PAPER-ACCEPTANCE-5f56896a\K-Terminal-PAPER-ACCEPTANCE-5f56896a.zip'
+          if(-not [IO.File]::Exists($zip)){throw 'KTERM_UI_QUALIFIED_BASE_ZIP_MISSING'}
+          $baseHash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($baseHash -cne 'ad21bc5b3016b025a26675573bc654126b7d78f609ee37784f74e475a52cf5bc'){
+            throw 'KTERM_UI_QUALIFIED_BASE_ZIP_SHA_DRIFT'
           }
           $archive=[IO.Compression.ZipFile]::OpenRead($zip)
           try {
-            $entries=@($archive.Entries|Where-Object {$_.Name})
-            if($entries.Count -ne 70){throw 'KTERM_G22_ARCHIVE_FILE_COUNT_DRIFT'}
+            $members=@($archive.Entries | Where-Object {$_.Name})
+            if($members.Count -ne 70){throw 'KTERM_UI_BASE_ZIP_ENTRY_COUNT_DRIFT'}
             $seen=@{}
-            foreach($e in $entries){
-              $name=$e.FullName
-              if([string]::IsNullOrWhiteSpace($name) -or $seen.ContainsKey($name) -or
-                 $name -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
+            foreach($member in $members){
+              $name=$member.FullName
+              if($seen.ContainsKey($name) -or
                  $name -match '(^/|^\.\.|/\.\./|:|\\)' -or
-                 $e.Length -gt 150MB){throw 'KTERM_G22_ARCHIVE_ENTRY_REFUSED'}
+                 $name -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
+                 $member.Length -gt 150MB){throw 'KTERM_UI_BASE_ZIP_ENTRY_REFUSED'}
               $seen[$name]=$true
             }
-            if(-not $seen.ContainsKey('ACCEPTANCE-MANIFEST.json')){throw 'KTERM_G22_MISSING_MANIFEST'}
-            $manifestEntry=$archive.GetEntry('ACCEPTANCE-MANIFEST.json')
-            $sr=New-Object IO.StreamReader($manifestEntry.Open())
-            try{$manifest=($sr.ReadToEnd()|ConvertFrom-Json)}finally{$sr.Dispose()}
-            if($manifest.schema -cne 'kterminal.paper.staging.v1' -or
-               $manifest.source_sha -cne $env:KTERM_SHA -or
-               $manifest.source_tree -cne '8996ef668f167215edcbfd306ac819e53b3b4b86' -or
-               $manifest.live_deployment_qualified -ne $false -or
-               $manifest.no_config_or_private_state -ne $true -or
-               @($manifest.files).Count -ne 69) {throw 'KTERM_G22_MANIFEST_PROVENANCE_DRIFT'}
-            foreach($item in $manifest.files){
-              $e=$archive.GetEntry([string]$item.path)
-              if($null -eq $e -or $e.Length -ne [long]$item.bytes){throw 'KTERM_G22_MANIFEST_MEMBER_DRIFT'}
-              $s=$e.Open()
-              try{
+            $mentry=$archive.GetEntry('ACCEPTANCE-MANIFEST.json')
+            if($null -eq $mentry){throw 'KTERM_UI_BASE_MANIFEST_MISSING'}
+            $reader=New-Object IO.StreamReader($mentry.Open())
+            try{$m=$reader.ReadToEnd() | ConvertFrom-Json}finally{$reader.Dispose()}
+            if($m.schema -cne 'kterminal.paper.staging.v1' -or
+               $m.source_sha -cne $env:KTERM_SHA -or
+               $m.source_tree -cne '8996ef668f167215edcbfd306ac819de1f4d39' -or
+               $m.live_deployment_qualified -ne $false -or @($m.files).Count -ne 69){
+              throw 'KTERM_UI_BASE_SOURCE_MANIFEST_REFUSED'
+            }
+            foreach($row in $m.files){
+              $entry=$archive.GetEntry([string]$row.path)
+              if($null -eq $entry -or $entry.Length -ne [long]$row.bytes){throw 'KTERM_UI_BASE_ENTRY_SIZE_DRIFT'}
+              $stream=$entry.Open()
+              try {
                 $hasher=[Security.Cryptography.SHA256]::Create()
-                try{$digest=([BitConverter]::ToString($hasher.ComputeHash($s))).Replace('-','').ToLowerInvariant()}
+                try{$sha=([BitConverter]::ToString($hasher.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}
                 finally{$hasher.Dispose()}
-              }finally{$s.Dispose()}
-              if($digest -cne [string]$item.sha256){throw 'KTERM_G22_MANIFEST_HASH_DRIFT'}
+              }finally{$stream.Dispose()}
+              if($sha -cne [string]$row.sha256){throw 'KTERM_UI_BASE_CONTENT_HASH_DRIFT'}
             }
           }finally{$archive.Dispose()}
-          $pkg=Join-Path $root 'artifact-unpacked'
-          if(Test-Path -LiteralPath $pkg){throw 'KTERM_G22_EXTRACT_ROOT_EXISTS'}
-          [IO.Compression.ZipFile]::ExtractToDirectory($zip,$pkg)
-          $engine=Join-Path $pkg 'K-Terminal-Engine.exe'
-          $launcher=Join-Path $pkg 'K-Terminal.exe'
-          if(-not [IO.File]::Exists($engine) -or -not [IO.File]::Exists($launcher)){
-            throw 'KTERM_G22_MISSING_NORMAL_BINARIES'
+          $package=Join-Path $root 'ui-prepared-package'
+          if(Test-Path -LiteralPath $package){throw 'KTERM_UI_PACKAGE_ROOT_NOT_FRESH'}
+          [IO.Compression.ZipFile]::ExtractToDirectory($zip,$package)
+          if(Test-Path -LiteralPath (Join-Path $package 'KTerminal.UI.dll')){
+            throw 'KTERM_UI_OLD_PACKAGE_ALREADY_HAS_DLL'
           }
-          $build=( & go version -m $engine | Out-String )
-          if($build -notmatch ('vcs\.revision='+[regex]::Escape($env:KTERM_SHA)) -or
-             $build -notmatch 'vcs\.modified=false'){throw 'KTERM_G22_ENGINE_NOT_EXACT_CLEAN_BUILD'}
-          Write-Host ('KTERM_G22_ARTIFACT_CUSTODY=PASS;SOURCE_SHA='+$env:KTERM_SHA+
-            ';ZIP_SHA256='+$zipsha+';ENTRIES=70;NO_CONFIG=TRUE;NO_DATA=TRUE')
-          # The existing original source G22 harness performs isolated PAPER
-          # startup, refusal of a stale BUY, forced restart and synthetic
-          # localhost WS accepted fill. It explicitly does NOT exercise LIVE.
-          $fixture=Join-Path $root 'paper-runtime'
-          [void][IO.Directory]::CreateDirectory($fixture)
-          $env:RUNNER_TEMP=$fixture
-          $env:K_TERMINAL_EXECUTION_MODE='PAPER'
-          $env:K_TERMINAL_SELECTED_ASSET='BTC-USDC'
-          $env:K_TERMINAL_P5_LATENCY='0'
-          $env:K_TERMINAL_NATIVE_TIMING='0'
-          $env:HTTP_PROXY='http://127.0.0.1:9'
-          $env:HTTPS_PROXY='http://127.0.0.1:9'
-          $env:ALL_PROXY='http://127.0.0.1:9'
-          $env:NO_PROXY=''
-          $env:K_TERMINAL_GITHUB_TOKEN=''
-          $tools=Join-Path $root 'source\tools\graphify'
-          $proof=Join-Path $fixture 'private-g22-proof.json'
-          $privateLog=Join-Path $root 'private-g22-runtime.log'
+          Write-Host ('KTERM_UI_BASE_ZIP=PASS;SOURCE='+$env:KTERM_SHA+';FILES=70;OLD_RELEASE_UI_DLL=ABSENT')
+          $uiLog=Join-Path $root 'private-ui-compiler.log'
           $clock=[Diagnostics.Stopwatch]::StartNew()
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $tools 'g22_relocated_acceptance.ps1') -SourceRoot $pkg -SourceSHA $env:KTERM_SHA -EvidencePath $proof -VerificationToolsRoot $tools *> $privateLog
-          $exit=$LASTEXITCODE
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $src 'verification\build-ui-runtime.ps1') -Root $src *> $uiLog
+          $code=$LASTEXITCODE
           $clock.Stop()
-          if($exit -ne 0 -or -not [IO.File]::Exists($proof)){
-            $digest=(Get-FileHash -LiteralPath $privateLog -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-Host ('KTERM_G22_OFFLINE_RUNTIME=FAIL;PRIVATE_LOG_SHA256='+$digest+';RAW_LOGS_PRIVATE=TRUE')
-            throw 'KTERM_G22_EXACT_PACKAGE_RUNTIME_FAILED'
+          if($code -ne 0){
+            Write-Host ('KTERM_UI_ORIGINAL_BUILDER=FAIL;LOG_SHA256='+(Get-FileHash -LiteralPath $uiLog -Algorithm SHA256).Hash.ToLowerInvariant()+';PRIVATE_LOG=TRUE')
+            throw 'KTERM_UI_SOURCE_COMPILATION_FAILED'
           }
-          $p=Get-Content -LiteralPath $proof -Raw|ConvertFrom-Json
-          $expectedEngine=(Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash.ToLowerInvariant()
-          $expectedLauncher=(Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($p.schema -cne 'kterminal.ice.g22-relocated-package.v1' -or
-             $p.source_sha -cne $env:KTERM_SHA -or
-             $p.source_engine_sha256 -cne $expectedEngine -or
-             $p.staged_engine_sha256 -cne $expectedEngine -or
-             $p.source_launcher_sha256 -cne $expectedLauncher -or
-             $p.staged_launcher_sha256 -cne $expectedLauncher -or
-             $p.untagged_engine_normal_paper_startup_passed -ne $true -or
-             $p.untagged_engine_positive_local_ws_passed -ne $true -or
-             $p.forced_engine_restart_passed -ne $true -or
-             $p.exact_restart_revision -ne 0 -or
-             $p.zero_real_broker_orders -ne $true -or
-             $p.private_history_accessed -ne $false -or
-             $p.actual_launcher_wpf_interactive_session_run -ne $false -or
-             $p.full_g22_installed_gui_qualified -ne $false){
-            throw 'KTERM_G22_PROOF_BOUNDARY_MISMATCH'
+          $dll=Join-Path $src 'KTerminal.UI.dll'
+          $uiManifestPath=Join-Path $src 'ui-runtime-manifest.json'
+          if(-not [IO.File]::Exists($dll)){throw 'KTERM_UI_COMPILED_DLL_MISSING'}
+          $manifest=[IO.File]::ReadAllText($uiManifestPath)|ConvertFrom-Json
+          $dllhash=(Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($manifest.schema_version -ne 1 -or $manifest.assembly -cne 'KTerminal.UI.dll' -or
+             $manifest.sha256 -cne $dllhash -or @($manifest.sources).Count -ne 13 -or
+             (Get-Item -LiteralPath $dll).Length -lt 4096){throw 'KTERM_UI_SOURCE_MANIFEST_INVALID'}
+          foreach($row in $manifest.sources){
+            $name=[string]$row.path
+            if([IO.Path]::GetFileName($name) -cne $name -or $name -match '[:/\\]'){
+              throw 'KTERM_UI_SOURCE_MANIFEST_UNSAFE_PATH'
+            }
+            $sourceFile=Join-Path $src $name
+            $packagedSource=Join-Path $package $name
+            if(-not [IO.File]::Exists($sourceFile) -or -not [IO.File]::Exists($packagedSource)){
+              throw 'KTERM_UI_SOURCE_OR_PACKAGE_FILE_MISSING'
+            }
+            $sourcehash=(Get-FileHash -LiteralPath $sourceFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            $packagehash=(Get-FileHash -LiteralPath $packagedSource -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($sourcehash -cne [string]$row.sha256 -or $packagehash -cne $sourcehash){
+              throw 'KTERM_UI_COMPILED_INPUT_SOURCE_DRIFT'
+            }
           }
-          Write-Host ('KTERM_G22_OFFLINE_RUNTIME=PASS;RUN_MS='+$clock.ElapsedMilliseconds+
-            ';NORMAL_ENGINE_PAPER=PASS;LOCAL_WS_SYNTHETIC=PASS;COLD_RESTART=PASS;BROKER_POSTS=0;INTERACTIVE_GUI=UNVERIFIED;FIELD_LATENCY=UNVERIFIED')
+          Copy-Item -LiteralPath $dll -Destination (Join-Path $package 'KTerminal.UI.dll') -ErrorAction Stop
+          Copy-Item -LiteralPath $uiManifestPath -Destination (Join-Path $package 'ui-runtime-manifest.json') -Force -ErrorAction Stop
+          # Probe the original, manifest-enforcing UI loader with PS5.1 STA.
+          # Reflection only: no window, no app launch, no input or network.
+          $probe=Join-Path $root 'private-ui-reflection-probe.ps1'
+          $probeSource=@'
+          param([Parameter(Mandatory=$true)][string]$Root)
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($PSVersionTable.PSVersion.Major -ne 5){throw 'UI_REFLECTION_NOT_WINDOWS_POWERSHELL_51'}
+          . (Join-Path $Root 'ui-runtime-loader.ps1')
+          Import-KTerminalUIRuntime
+          foreach($typeName in @('KTerminal.Appearance.Palette','KTerminal.Diagnostics.DashboardLog',
+              'KTerminal.Charting.CandlestickChart','KTerminal.Launch.SessionHost')) {
+            if(-not($typeName -as [type])){throw 'UI_REFLECTION_REQUIRED_TYPE_ABSENT'}
+          }
+          $assembly=[KTerminal.Appearance.Palette].Assembly
+          if([IO.Path]::GetFileName($assembly.Location) -cne 'KTerminal.UI.dll' -or
+             -not [IO.Path]::GetFullPath($assembly.Location).StartsWith(
+               [IO.Path]::GetFullPath($Root).TrimEnd('\')+'\',
+               [StringComparison]::OrdinalIgnoreCase)){
+            throw 'UI_REFLECTION_UNEXPECTED_ASSEMBLY_PATH'
+          }
+          Write-Output 'KTERM_UI_COMPILED_REFLECTION=PASS;NO_WINDOW=TRUE'
+          '@
+          [IO.File]::WriteAllText($probe,$probeSource,[Text.UTF8Encoding]::new($false))
+          $probeLog=Join-Path $root 'private-ui-reflection.log'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File $probe -Root $package *> $probeLog
+          if($LASTEXITCODE -ne 0 -or -not [IO.File]::ReadAllText($probeLog).Contains('KTERM_UI_COMPILED_REFLECTION=PASS')){
+            Write-Host ('KTERM_UI_REFLECTION=FAIL;LOG_SHA256='+(Get-FileHash -LiteralPath $probeLog -Algorithm SHA256).Hash.ToLowerInvariant()+';PRIVATE_LOG=TRUE')
+            throw 'KTERM_UI_RELEASE_DLL_LOADER_FAILED'
+          }
+          $parseCount=0
+          foreach($script in @(Get-ChildItem -LiteralPath $package -File -Filter '*.ps1')){
+            $tokens=$null;$errors=$null
+            $null=[Management.Automation.Language.Parser]::ParseFile($script.FullName,[ref]$tokens,[ref]$errors)
+            if($errors.Count -ne 0){throw 'KTERM_UI_PACKAGED_PS51_SYNTAX_ERROR'}
+            $parseCount++
+          }
+          if($parseCount -lt 25){throw 'KTERM_UI_PACKAGED_PS51_SCRIPT_SCOPE_INCOMPLETE'}
+          $interactive=[Environment]::UserInteractive
+          $session=(Get-Process -Id $PID).SessionId
+          Write-Host ('KTERM_UI_ORIGINAL_BUILDER=PASS;MS='+$clock.ElapsedMilliseconds+
+            ';UI_DLL_SHA256='+$dllhash+';SOURCE_INPUTS=13;REFLECTION=PASS;PS51_PARSED='+$parseCount+
+            ';OWNER_SESSION_ID='+$session+';USER_INTERACTIVE='+$interactive+';WINDOWS_OPENED=0')
+      - name: Create amended 71-member ZIP with compiled UI and verify every hash
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
+          $package=Join-Path $root 'ui-prepared-package'
+          if(-not [IO.File]::Exists((Join-Path $package 'KTerminal.UI.dll'))){throw 'KTERM_UI_REPACK_MISSING_ASSEMBLY'}
+          $files=@(Get-ChildItem -LiteralPath $package -Recurse -File | Where-Object {
+            $_.Name -cne 'ACCEPTANCE-MANIFEST.json'
+          } | Sort-Object FullName)
+          if($files.Count -ne 70){throw 'KTERM_UI_REPACK_MEMBER_COUNT_DRIFT'}
+          $m=[ordered]@{schema='kterminal.paper.ui-prepared.v1';source_sha=$env:KTERM_SHA;
+            source_tree='8996ef668f167215edcbfd306ac819de1f4d39';
+            base_zip_sha256='ad21bc5b3016b025a26675573bc654126b7d78f609ee37784f74e475a52cf5bc';
+            prior_full_windows_regression=42941369948;prior_paper_engine_acceptance=43005709048;
+            ui_assembly_compiled_by='verification/build-ui-runtime.ps1';
+            no_config_or_private_state=$true;not_live_deployable=$true;files=@()}
+          foreach($f in $files){
+            $rel=$f.FullName.Substring($package.Length+1).Replace('\','/')
+            if($rel -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
+               $rel -match '(^/|^\.\.|/\.\./|:)' -or $f.Length -gt 150MB){throw 'KTERM_UI_REPACK_UNSAFE_MEMBER'}
+            $m.files += [ordered]@{path=$rel;bytes=[long]$f.Length;
+              sha256=(Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+          }
+          $manifestPath=Join-Path $package 'ACCEPTANCE-MANIFEST.json'
+          [IO.File]::WriteAllText($manifestPath,($m|ConvertTo-Json -Depth 7),[Text.UTF8Encoding]::new($false))
+          $zip=Join-Path $root 'K-Terminal-PAPER-UI-PREPARED-5f56896a.zip'
+          [IO.Compression.ZipFile]::CreateFromDirectory($package,$zip,[IO.Compression.CompressionLevel]::Optimal,$false)
+          $reader=[IO.Compression.ZipFile]::OpenRead($zip)
+          try{
+            $entries=@($reader.Entries|Where-Object {$_.Name})
+            if($entries.Count -ne 71){throw 'KTERM_UI_REPACK_ZIP_COUNT_INVALID'}
+            $seen=@{}
+            foreach($e in $entries){
+              if($seen.ContainsKey($e.FullName) -or
+                 $e.FullName -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
+                 $e.FullName -match '(^/|^\.\.|/\.\./|:)'){throw 'KTERM_UI_REPACK_ZIP_UNSAFE_PATH'}
+              $seen[$e.FullName]=$true
+            }
+            foreach($item in $m.files){
+              $entry=$reader.GetEntry($item.path)
+              if($null -eq $entry -or $entry.Length -ne $item.bytes){throw 'KTERM_UI_REPACK_ARCHIVE_LENGTH_DRIFT'}
+              $stream=$entry.Open()
+              try{
+                $hasher=[Security.Cryptography.SHA256]::Create()
+                try{$hash=([BitConverter]::ToString($hasher.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}
+                finally{$hasher.Dispose()}
+              }finally{$stream.Dispose()}
+              if($hash -cne [string]$item.sha256){throw 'KTERM_UI_REPACK_CONTENT_HASH_DRIFT'}
+            }
+          }finally{$reader.Dispose()}
+          if((Get-Item -LiteralPath $zip).Length -gt 100MB){throw 'KTERM_UI_REPACK_ZIP_TOO_LARGE'}
+          Write-Host ('KTERM_UI_PREPARED_ZIP=PASS;MEMBERS=71;ZIP_SHA256='+
+            (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()+
+            ';SOURCE_SHA='+$env:KTERM_SHA+';NO_PRIVATE_CONFIG=TRUE;NO_RUNTIME_INSTALL=TRUE;LIVE_ORDERS=0;INTERACTIVE_GUI=UNVERIFIED')
+      - name: Upload only the separately named source-qualified UI-prepared PAPER archive
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: K-Terminal-PAPER-UI-PREPARED-5f56896a
+          path: ${{ runner.temp }}/kterm-p5-firstfile-${{ github.run_id }}/K-Terminal-PAPER-UI-PREPARED-5f56896a.zip
+          retention-days: 14
+          if-no-files-found: error
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
