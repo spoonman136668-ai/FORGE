@@ -1,0 +1,137 @@
+name: K Terminal historical local synthetic development benchmark
+on:
+  push:
+    branches: [qualification/kterm-historical-local-benchmark-20261111]
+    paths: [.github/workflows/kterm-historical-local-benchmark-20261111.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr88-full-window-ae11818c
+  cancel-in-progress: false
+jobs:
+  isolated-synthetic-benchmark:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 28
+    env:
+      KTERM_SHA: 5a8e7f0bf126ed126a30c31f7dde13d1fb9c2e9e
+      KTERM_BASE: bcebdc1a7a0487f9d6061a8e643c76069335d896
+      KTERM_BENCH_BLOB: 89bd77bee54c899ce560b61948d91f2e8584cb8d
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOENV: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Admit approved Windows owner, disarm broker and stage disposable root
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterm-historical-local-benchmark-20261111' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows') { throw 'KTERM_BENCH_OWNER_REFUSED' }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET')) {
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_BENCH_BROKER_ENV_REFUSED'}
+          }
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_BENCH_RUNNING_APP_PRESERVED_REFUSED'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-historical-bench-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){ throw 'KTERM_BENCH_ROOT_NOT_FRESH' }
+          [void][IO.Directory]::CreateDirectory($root)
+          Write-Host 'KTERM_BENCH_DISARMED_OWNER=PASS;NO_BROKER=TRUE'
+      - name: Fetch exact private source and prove one new test-only file
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-historical-bench-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          [void][IO.Directory]::CreateDirectory($stage)
+          & git -C $stage init -q *> (Join-Path $root 'private-init.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_BENCH_GIT_INIT_FAILED'}
+          & git -C $stage fetch -q --no-tags --depth=2 https://github.com/Kboomllc/K-Terminal.git $env:KTERM_SHA *> (Join-Path $root 'private-fetch.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_BENCH_PRIVATE_SOURCE_UNAVAILABLE'}
+          & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'private-checkout.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_BENCH_CHECKOUT_FAILED'}
+          $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          $base=(& git -C $stage rev-parse 'HEAD~1' | Out-String).Trim()
+          $blob=(& git -C $stage rev-parse 'HEAD:pkg/historical-pnl-warm-local-benchmark_test.go' | Out-String).Trim()
+          $changed=@(& git -C $stage diff --name-only HEAD~1 HEAD)
+          if($sha -cne $env:KTERM_SHA -or $base -cne $env:KTERM_BASE -or
+             $tree -cnotmatch '^[0-9a-f]{40}$' -or $blob -cne $env:KTERM_BENCH_BLOB -or
+             $changed.Count -ne 1 -or $changed[0] -cne 'pkg/historical-pnl-warm-local-benchmark_test.go' -or
+             @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_BENCH_SOURCE_OR_SCOPE_REFUSED'}
+          foreach($private in @('.env','config.json','data')){
+            if(Test-Path -LiteralPath (Join-Path $stage $private)){throw 'KTERM_BENCH_PRIVATE_STATE_REFUSED'}
+          }
+          Write-Host ('KTERM_BENCH_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';ONE_BENCH_FILE=TRUE')
+      - name: Existing pinned Windows Go toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Measure synthetic warm local costs without live app or exchange
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_BENCH_GO_VERSION_DRIFT'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-historical-bench-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          $env:RUNNER_TEMP=Join-Path $root 'test-temp'
+          $env:GOCACHE=Join-Path $root 'go-cache'
+          $env:GOMODCACHE=Join-Path $root 'go-modules'
+          foreach($dir in @($env:RUNNER_TEMP,$env:GOCACHE,$env:GOMODCACHE)){[void][IO.Directory]::CreateDirectory($dir)}
+          $log=Join-Path $root 'private-synthetic-benchmark.log'
+          Push-Location $stage
+          try {
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            & go test -run '^$' -bench '^BenchmarkHistoricalPnLWarmLocal135318$' -benchtime=2x -count=2 -benchmem -timeout 20m ./pkg *> $log
+            $exit=$LASTEXITCODE
+            $clock.Stop()
+          } finally { Pop-Location }
+          $digest=(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($exit -ne 0){
+            Write-Host ('KTERM_BENCH_DEV=FAIL;LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE')
+            throw 'KTERM_BENCH_FAILED'
+          }
+          $raw=[IO.File]::ReadAllText($log)
+          $pattern='(?m)^BenchmarkHistoricalPnLWarmLocal135318/(merge_warm_overlap|full_scope_digest|encode_full_jsonl|load_cached_jsonl)-\d+\s+\d+\s+(\d+(?:\.\d+)?)\s+ns/op\s+(\d+)\s+B/op\s+(\d+)\s+allocs/op'
+          $samples=[regex]::Matches($raw,$pattern)
+          if($samples.Count -ne 8){throw 'KTERM_BENCH_EXPECTED_8_DEV_SAMPLES_MISSING'}
+          foreach($sample in $samples){
+            $part=$sample.Groups[1].Value
+            $ms=[Math]::Round([double]::Parse($sample.Groups[2].Value,[Globalization.CultureInfo]::InvariantCulture)/1000000,3)
+            $bytes=$sample.Groups[3].Value
+            $allocs=$sample.Groups[4].Value
+            Write-Host ('KTERM_BENCH_SAMPLE=DEV_SYNTHETIC;OP='+$part+';MS_PER_OP='+$ms+';B_PER_OP='+$bytes+';ALLOCS='+$allocs)
+          }
+          Write-Host ('KTERM_BENCH_DEV=PASS;SYNTHETIC_RECORDS=135318;BENCH_TIME_MS='+$clock.ElapsedMilliseconds+';LOG_SHA256='+$digest+';NO_FINANCIAL_BEHAVIOR_CHANGE=TRUE;FIELD_LATENCY_UNVERIFIED=TRUE')
+      - name: Dispose only this temporary source and fixture
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base=$env:RUNNER_TEMP
+          $root=Join-Path $base ('kterm-historical-bench-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){
+            $path=[IO.Path]::GetFullPath($root)
+            $scope=[IO.Path]::GetFullPath($base).TrimEnd('\')+'\'
+            if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
+               [IO.Path]::GetFileName($path) -cne ('kterm-historical-bench-'+$env:GITHUB_RUN_ID)){
+              throw 'KTERM_BENCH_CLEANUP_REFUSED'
+            }
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_BENCH_CLEANUP=PASS;NO_PRIVATE_SOURCE_RETAINED=TRUE;LIVE_ORDERS=0'
