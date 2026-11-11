@@ -18,6 +18,28 @@ MAX_OUTPUT = 100000
 MAX_EXCERPT = 12000
 TIMEOUT_SEC = 110
 
+# D2K Go diagnostics have no entitlement to owner HMAC/ticket data,
+# GH credentials, action identity, or inherited arbitrary environment.
+# Keep only operating-system and Go runtime settings; disable module
+# downloads and ambient user-level Go configuration.
+_GO_CHILD_ENV_KEYS = frozenset((
+    "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC",
+    "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA",
+    "APPDATA", "TMP", "TEMP", "TMPDIR", "LANG", "LC_ALL",
+    "GOROOT", "GOPATH", "GOCACHE", "GOMODCACHE",
+    "GOFLAGS", "GOMAXPROCS", "GOMEMLIMIT", "CGO_ENABLED", "CC", "CXX",
+))
+
+
+def _go_child_environment(source):
+    env = {key: value for key, value in source.items()
+           if key.upper() in _GO_CHILD_ENV_KEYS}
+    # No outbound dependency fetching and no unaudited Go user overrides.
+    env.update(GOPROXY="off", GOSUMDB="off",
+               GOTOOLCHAIN="local", GOENV="off")
+    return env
+
+
 class _WindowsDiagnosticJob:
     """Bound a D2K child and its descendants to one Windows Job Object.
 
@@ -164,6 +186,9 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
     KILL_ON_JOB_CLOSE Job Object. Failed Windows admission is an error, never
     a silent fallback to process.kill() of only the direct child.
     """
+    # Defence in depth: even direct bounded_run callers cannot pass through
+    # arbitrary signed-ticket or host secrets in the test process environment.
+    env = _go_child_environment(env)
     job = _WindowsDiagnosticJob() if os.name == "nt" else None
     process = None
     try:
@@ -256,20 +281,27 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
             raise subprocess.TimeoutExpired(command, timeout, output=raw)
         return subprocess.CompletedProcess(command, returncode, raw)
     finally:
-        if process is not None and process.poll() is None:
-            if job is not None:
-                job.close()
-            else:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+        if process is not None:
             try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-            process.wait(timeout=5)
-        if job is not None:
+                # Always close the owned tree even if the direct child has
+                # exited and no descendant holds our stdout pipe open.
+                # POSIX groups may survive the group leader's exit; Windows
+                # Job members likewise survive until KILL_ON_JOB_CLOSE.
+                if job is not None:
+                    job.close()
+                else:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            finally:
+                if process.poll() is None:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                    process.wait(timeout=5)
+        elif job is not None:
             job.close()
 
 
@@ -278,10 +310,7 @@ def diagnose(inputs: dict, *, command_runner=None, clock=time.monotonic):
     demand(inputs["ticket"].startswith("f139-d2k-")
            and inputs["target_package"] in D2K_PACKAGES,
            "D2K_TARGET_NOT_AUTHORIZED")
-    env = os.environ.copy()
-    env.pop("F139_WORKER_HMAC_KEY", None)
-    env.pop("GH_TOKEN", None)
-    env.pop("GITHUB_TOKEN", None)
+    env = _go_child_environment(os.environ)
     cmd = ["go", "test", "-count=1", "-timeout=90s", inputs["target_package"]]
     began=clock()
     try:
