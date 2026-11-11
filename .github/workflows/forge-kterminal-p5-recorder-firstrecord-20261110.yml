@@ -174,8 +174,6 @@ jobs:
               wait,waitExists:=record.StagesMS["order_accounting_wait"]
               ready,readyExists:=record.StagesMS["order_first_transport_ready"]
               response,responseExists:=record.StagesMS["order_post_to_response_headers"]
-              fmt.Printf("KTERM_P5_NUMERIC_DIAG=WAIT_MS=%d;READY_MS=%d;RESPONSE_MS=%d;TOTAL_MS=%d;WAIT_PRESENT=%t;READY_PRESENT=%t;RESPONSE_PRESENT=%t\\n",
-                  wait,ready,response,record.TotalMS,waitExists,readyExists,responseExists)
               if !waitExists || !readyExists || !responseExists ||
                  wait<6800 || wait>=10000 || ready<6800 ||
                  response>1000 || record.TotalMS<7000 || record.TotalMS>=10000 {
@@ -242,54 +240,17 @@ jobs:
             $code=$LASTEXITCODE
           } finally {Pop-Location}
           if($code -ne 0 -or -not [IO.File]::Exists($env:KTERM_P5_WAIT_PRIVATE_REPORT)){
-            $private=[IO.File]::ReadAllText($log)
-            $class='UNCLASSIFIED'
-            $patterns=@(
-              @('ACCOUNT_WAIT_METRICS','P5 did not separate real source wait'),
-              @('SCHEMA_OMITEMPTY','P5 field envelope changed'),
-              @('SEVEN_SEC_EXECUTION','original seven-second fixture safety failed'),
-              @('REPLAY_CONTROL','deferred accepted order could be replayed'),
-              @('EVIDENCE_CONTROL','exact original evidence source'),
-              @('PRIVACY_BARRIER','privacy barrier failed'),
-              @('SOURCE_SYNTAX','syntax error'),
-              @('SOURCE_BUILD','build failed'),
-              @('MISSING_TEST','no tests to run')
-            )
-            foreach($entry in $patterns){if($private.Contains([string]$entry[1])){$class=[string]$entry[0];break}}
-            Write-Host ('KTERM_P5_WAIT_FAILURE_CLASS='+$class)
-            $nums=@([IO.File]::ReadAllLines($log)|Where-Object {$_ -match '^KTERM_P5_NUMERIC_DIAG=[A-Z0-9_;=.]+
-            throw 'KTERM_P5_WAIT_VISIBILITY_TEST_FAILED'
-          }
-          $r=[IO.File]::ReadAllText($env:KTERM_P5_WAIT_PRIVATE_REPORT)|ConvertFrom-Json
-          if($r.schema -cne 'kterm.synthetic-p5-native-wait.v1' -or $r.source_sha -cne $env:KTERM_SHA -or
-             $r.accounting_wait_ms -lt 6800 -or $r.accounting_wait_ms -ge 10000 -or
-             $r.first_transport_ready_ms -lt 6800 -or $r.mock_order_response_ms -gt 1000 -or
-             $r.total_ms -lt 7000 -or $r.total_ms -ge 10000 -or $r.mock_posts -ne 1 -or
-             $r.replay_posts -ne 0 -or $r.privacy_pass -ne $true){throw 'KTERM_P5_WAIT_RESULT_CONTRACT_FAILED'}
-          Write-Host ('KTERM_P5_WAIT=PASS;SOURCE_SHA='+$r.source_sha+
-            ';ACCOUNTING_WAIT_MS='+$r.accounting_wait_ms+';FIRST_TRANSPORT_READY_MS='+$r.first_transport_ready_ms+
-            ';MOCK_RESPONSE_MS='+$r.mock_order_response_ms+';FULL_WALL_MS='+$r.total_ms+
-            ';ORIGINAL_ACCOUNTING_WAIT=TRUE;P5_SAFE_PRIVACY=PASS;EXACT_ONE_MOCK_POST=TRUE'+
-            ';DUPLICATE_POSTS=0;REAL_BROKER_IO=0;SOURCE_TREE_UNCHANGED=TRUE;FIELD_CAUSE=UNVERIFIED')
-      - name: Remove private source and local test fixtures
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $base=$env:RUNNER_TEMP
-          $root=Join-Path $base ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          if(Test-Path -LiteralPath $root) {
-            $path=[IO.Path]::GetFullPath($root)
-            $scope=[IO.Path]::GetFullPath($base).TrimEnd('\')+'\'
-            if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
-               [IO.Path]::GetFileName($path) -cne ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)){
-              throw 'KTERM_P5_PRIVATE_CLEANUP_REFUSED'
-            }
-            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
-          }
-          Write-Host 'KTERM_P5_PRIVATE_CLEANUP=PASS;PUBLIC_PRIVATE_FILES=0;LIVE_ORDERS=0'
-})
-            if($nums.Count -eq 1){Write-Host $nums[0]}
+            $privateLog=[IO.File]::ReadAllText($log)
+            $failType='UNCLASSIFIED'
+            if($privateLog.Contains('P5 did not separate real source wait')){$failType='STAGE_VALUES'}
+            if($privateLog.Contains('P5 field envelope changed')){$failType='SCHEMA_ENVELOPE'}
+            if($privateLog.Contains('original seven-second fixture safety failed')){$failType='ORIGINAL_WAIT_TEST'}
+            if($privateLog.Contains('deferred accepted order could be replayed')){$failType='DUPLICATE_CONTROL'}
+            if($privateLog.Contains('exact original evidence source')){$failType='EVIDENCE_STATE'}
+            if($privateLog.Contains('privacy barrier failed')){$failType='PRIVACY_CONTROL'}
+            if($privateLog.Contains('P5 envelope/source/opt-in unexpectedly changed')){$failType='OBSERVER_ENVELOPE'}
+            if($privateLog.Contains('undefined:') -or $privateLog.Contains('syntax error')){$failType='GO_BUILD'}
+            Write-Host ('KTERM_P5_WAIT_FAILURE_CLASS='+$failType)
             Write-Host ('KTERM_P5_WAIT=FAIL;PRIVATE_LOG_SHA256='+(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
             throw 'KTERM_P5_WAIT_VISIBILITY_TEST_FAILED'
           }
