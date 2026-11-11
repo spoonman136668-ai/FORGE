@@ -97,5 +97,94 @@ class D2KPackageDiagnosticTests(unittest.TestCase):
             diagnose(authorized(),command_runner=lambda *a,**k:
                      SimpleNamespace(returncode=-9,stdout=b"unexpected signal"))
 
+    @staticmethod
+    def _descendant_alive(pid):
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+            api = ctypes.WinDLL("kernel32", use_last_error=True)
+            api.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            api.OpenProcess.restype = wintypes.HANDLE
+            api.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            api.GetExitCodeProcess.restype = wintypes.BOOL
+            api.CloseHandle.argtypes = [wintypes.HANDLE]
+            h = api.OpenProcess(0x1000, False, pid)
+            if not h:
+                return False
+            try:
+                result = wintypes.DWORD()
+                if not api.GetExitCodeProcess(h, ctypes.byref(result)):
+                    raise AssertionError("child process state unreadable")
+                return result.value == 259  # STILL_ACTIVE
+            finally:
+                api.CloseHandle(h)
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        # Linux CI can leave an exited orphan as a harmless init-owned zombie.
+        from pathlib import Path
+        stat = Path("/proc") / str(pid) / "stat"
+        if stat.is_file() and stat.read_text().rsplit(")", 1)[1].strip().startswith("Z"):
+            return False
+        return True
+
+    def test_real_descendant_held_stdout_negative_is_cleaned(self):
+        """A legitimate parent exit must never leave a 30-second test child alive."""
+        import tempfile
+        import time
+        from pathlib import Path
+        script = (
+            "import subprocess,sys;"
+            "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],"
+            "stdout=sys.stdout,stderr=sys.stderr);"
+            "open(sys.argv[1],'w').write(str(p.pid));"
+            "print('parent done',flush=True)"
+        )
+        with tempfile.TemporaryDirectory(prefix="forge-rsi-r14-") as d:
+            pidfile = Path(d) / "child.pid"
+            began = time.monotonic()
+            pid = None
+            try:
+                with self.assertRaisesRegex(Untrusted, "D2K_CAPTURE_READER_STALLED"):
+                    bounded_run([sys.executable, "-c", script, str(pidfile)],
+                                env=os.environ.copy(), timeout=12)
+                self.assertTrue(pidfile.is_file(), "test parent did not spawn child")
+                pid = int(pidfile.read_text())
+                for _ in range(20):
+                    if not self._descendant_alive(pid):
+                        break
+                    time.sleep(0.1)
+                self.assertFalse(self._descendant_alive(pid),
+                                 "original bounded diagnostic leaked a live descendant")
+                self.assertLess(time.monotonic() - began, 8)
+            finally:
+                if pid is None and pidfile.exists():
+                    pid = int(pidfile.read_text())
+                if pid is not None and self._descendant_alive(pid):
+                    if sys.platform == "win32":
+                        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                                       stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, timeout=5,
+                                       check=False)
+                    else:
+                        import signal
+                        os.kill(pid, signal.SIGKILL)
+
+    def test_regular_small_output_preserved(self):
+        result = bounded_run(
+            [sys.executable, "-c", "print('ok',flush=True)"],
+            env=os.environ.copy(), timeout=8)
+        self.assertEqual((result.returncode, result.stdout), (0, b"ok\n"))
+
+    def test_bounded_tree_cleanup_does_not_admit_worker_or_science(self):
+        """The signed D2K receipt and exact diagnostic command remain intact."""
+        report = diagnose(authorized(), command_runner=lambda *a, **kw:
+                          SimpleNamespace(returncode=0, stdout=b"ok"))
+        self.assertFalse(report["scientific_first_use"])
+        self.assertEqual(report["paid_model_calls"], 0)
+        self.assertEqual(report["outcome"], "PASS")
+        self.assertEqual(report["target_package"], "./planner")
+
 if __name__=="__main__":
     unittest.main()
