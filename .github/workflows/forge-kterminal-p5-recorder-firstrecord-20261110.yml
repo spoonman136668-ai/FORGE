@@ -1,4 +1,4 @@
-name: K Terminal P5 after-ack lifecycle and local WS custody
+name: K Terminal P5 original two-journal WPF acceptance timing
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -91,163 +91,155 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Profile original response-to-retry lifecycle with mandatory evidence and confirmed reducer lag
+      - name: Test original two-log LiveReader to hidden WPF event row with incomplete and duplicate controls
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_AFTER_POST_GO_VERSION_DRIFT'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
           $src=Join-Path $root 'source'
-          $private=Join-Path $root 'post-ack-lifecycle.json'
-          $log=Join-Path $root 'private-post-ack-lifecycle.log'
-          $env:K_TERMINAL_STAGE3_BUY_LIFECYCLE_OUTPUT=$private
-          $env:K_TERMINAL_STAGE3_BUY_LIFECYCLE_LABEL='PR94-post-ack-brokerfree-v1'
-          $env:K_TERMINAL_STAGE3_BUY_LIFECYCLE_SAMPLES='2'
-          $env:K_TERMINAL_STAGE3_CANCELED_BUY_BOOK_REUSE='1'
-          $env:K_TERMINAL_HOTFIX_NETWORK_PROFILE='fast-offline'
-          $env:K_TERMINAL_P5_LATENCY='0'
-          $env:K_TERMINAL_NATIVE_TIMING='0'
-          $env:K_TERMINAL_GITHUB_TOKEN=''
-          $env:HTTP_PROXY='http://127.0.0.1:9'
-          $env:HTTPS_PROXY='http://127.0.0.1:9'
-          $env:ALL_PROXY='http://127.0.0.1:9'
-          $env:NO_PROXY=''
-          $clock=[Diagnostics.Stopwatch]::StartNew()
-          Push-Location $src
-          try {
-            & go test -run '^TestStage3NativeBuyLifecycleReadinessProfile$' -count=1 -timeout 10m ./pkg *> $log
-            $exit=$LASTEXITCODE
-          } finally {Pop-Location}
-          $clock.Stop()
-          if($exit -ne 0 -or -not [IO.File]::Exists($private)){
-            Write-Host ('KTERM_AFTER_POST_LIFECYCLE=FAIL;PRIVATE_LOG_SHA256='+
-              (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
-            throw 'KTERM_AFTER_POST_SOURCE_TEST_FAILED'
+          $fixture=Join-Path $root 'event-fixture'
+          [void][IO.Directory]::CreateDirectory($fixture)
+          $script=Join-Path $root 'private-event-wpf-test.ps1'
+          $log=Join-Path $root 'private-event-wpf-test.log'
+          $payload=@'
+          param([Parameter(Mandatory=$true)][string]$Root,
+                [Parameter(Mandatory=$true)][string]$Fixture)
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($PSVersionTable.PSVersion.Major -ne 5 -or
+             [Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA'){
+            throw 'KTERM_EVENT_WPF_NEEDS_POWERSHELL_51_STA'
           }
-          $p=[IO.File]::ReadAllText($private) | ConvertFrom-Json
-          if($p.build_label -cne 'PR94-post-ack-brokerfree-v1' -or
-             $p.injected_network_profile.name -cne 'fast-offline' -or
-             $p.expected_canceled_buy_decision_book_reuse -ne $true -or
-             @($p.individual_events).Count -ne 16){
-            throw 'KTERM_AFTER_POST_PROFILE_SCOPE_INCOMPLETE'
+          Add-Type -AssemblyName PresentationFramework
+          Add-Type -AssemblyName System.Web.Extensions
+          Add-Type -Path (Join-Path $Root 'journal-reader.cs') -ReferencedAssemblies @('System.dll','System.Core.dll','System.Web.Extensions.dll')
+          Add-Type -Path (Join-Path $Root 'event-presentation.cs') -ReferencedAssemblies @('System.dll','System.Core.dll')
+          . (Join-Path $Root 'display-timezone.ps1')
+          $tokens=$null;$errors=$null
+          $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $Root 'dashboard-ui.ps1'),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'KTERM_EVENT_WPF_ORIGINAL_DASHBOARD_PARSE_FAILED'}
+          foreach($name in @('ConvertTo-KTerminalEventColumns','New-KTerminalEventRow',
+              'Show-KTerminalOrderActivity','Refresh-EventStream')){
+            $definition=$ast.Find({
+              param($node)
+              $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+            },$true)
+            if($null -eq $definition){throw ('KTERM_EVENT_WPF_ORIGINAL_HANDLER_MISSING_'+$name)}
+            . ([scriptblock]::Create($definition.Extent.Text))
           }
-          function Stats([double[]]$values){
-            $v=@($values | Sort-Object)
-            if($v.Count -ne 4){throw 'KTERM_AFTER_POST_EXPECTED_FOUR_VALUES_PER_WORKLOAD'}
-            foreach($x in $v){
-              if([double]::IsNaN($x) -or [double]::IsInfinity($x) -or $x -lt 0 -or $x -gt 60000){
-                throw 'KTERM_AFTER_POST_INVALID_ELAPSED'
-              }
-            }
-            return [pscustomobject]@{P50=[Math]::Round(($v[1]+$v[2])/2,3);
-              Max=[Math]::Round($v[3],3)}
+          $converter=[Windows.Media.BrushConverter]::new()
+          $brushPrimary=$converter.ConvertFromString('#E8F5F5')
+          $brushMuted=$converter.ConvertFromString('#859D9D')
+          $brushAccent=$converter.ConvertFromString('#13D4D4')
+          $brushNegative=$converter.ConvertFromString('#E6596E')
+          $script:authorityEventLine=''
+          $script:eventRenderedNotice=''
+          $script:eventNotice=$null
+          $script:eventQueue=[Collections.Generic.Queue[string]]::new()
+          $script:eventReplayRows=0
+          $script:eventNextRead=[datetime]::MinValue
+          $script:eventReadJob=$null
+          $script:p5DesktopEnabled=$false
+          $script:selectedAsset='BTC-USDC'
+          $script:nativeChart=$null
+          $script:displayTimeZone='UTC'
+          $view=[Windows.Controls.ListBox]::new()
+          $head=[Windows.Controls.Grid]::new()
+          for($i=0;$i-lt9;$i++){
+            $column=[Windows.Controls.ColumnDefinition]::new()
+            $column.Width=[Windows.GridLength]::new(96)
+            $head.ColumnDefinitions.Add($column)
           }
-          $items=@($p.individual_events)
-          $workloads=@('definite-maker-rejection','definite-rejection-confirmed-fill-lag',
-            'confirmed-cancel-settled','confirmed-cancel-reducer-lag')
-          foreach($product in @('BTC-USDC','XRP-USDC')){
-            foreach($workload in $workloads){
-              $sample=@($items|Where-Object {$_.product_id -ceq $product -and $_.workload -ceq $workload})
-              if($sample.Count -ne 2){throw 'KTERM_AFTER_POST_MISSING_EXACT_PRODUCT_WORKLOAD'}
-              foreach($r in $sample){
-                if([int]$r.simulated_order_posts -ne 2 -or @($r.mandatory_evidence).Count -lt 2 -or
-                   $r.original_received_at -eq '' -or
-                   [double]$r.full_retry_inclusive_transport_ready_ms -lt [double]$r.full_first_transport_ready_ms -or
-                   [double]$r.actual_lifecycle_return_ms -lt [double]$r.initial_execute_return_ms){
-                  throw 'KTERM_AFTER_POST_REQUIRED_GUARD_OR_EXACT_POSTS_FAILED'
+          $controls=@{EventStream=$view;EventHeaderGrid=$head}
+          $window=[Windows.Window]::new()
+          $window.ShowInTaskbar=$false
+          $window.Width=800;$window.Height=350
+          $window.Content=$view
+          # Create a real WPF visual tree but never make the window visible.
+          $window.Visibility=[Windows.Visibility]::Hidden
+          $first=Join-Path $Fixture 'ckb-execution.log'
+          $second=Join-Path $Fixture 'k-terminal-execution.log'
+          $oldStamp=[DateTimeOffset]::UtcNow.AddMinutes(-2).ToString('yyyy-MM-ddTHH:mm:ss.fffzzz',[Globalization.CultureInfo]::InvariantCulture)
+          $old='['+$oldStamp+'] BUY L1 | ACCEPTED | HISTORICAL_SYNTHETIC'
+          [IO.File]::WriteAllText($first,$old+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText($second,'',[Text.UTF8Encoding]::new($false))
+          $script:eventTail=[KTerminal.Journal.LiveReader]::new([string[]]@($first,$second))
+          $tick=[Windows.Threading.DispatcherTimer]::new()
+          $tick.Interval=[TimeSpan]::FromMilliseconds(50)
+          $tick.Add_Tick({Refresh-EventStream})
+          function Pump([int]$max,[scriptblock]$done) {
+            $timer=[Diagnostics.Stopwatch]::StartNew()
+            do{
+              $frame=[Windows.Threading.DispatcherFrame]::new()
+              $wake=[Windows.Threading.DispatcherTimer]::new()
+              $wake.Interval=[TimeSpan]::FromMilliseconds(10)
+              $wake.Add_Tick({$wake.Stop();$frame.Continue=$false}.GetNewClosure())
+              $wake.Start()
+              [Windows.Threading.Dispatcher]::PushFrame($frame)
+              if(& $done){return $timer.ElapsedMilliseconds}
+            }while($timer.ElapsedMilliseconds -lt $max)
+            return -1
+          }
+          function HasRow([string]$stamp){
+            foreach($entry in $view.Items){
+              if($entry -is [Windows.Controls.Grid] -and [string]$entry.Tag -ceq $stamp){
+                if($entry.Children.Count -lt 3 -or $entry.Children[2].Text -notmatch 'ACCEPTED'){
+                  throw 'KTERM_EVENT_WPF_ACCEPTED_STATUS_RENDER_INCORRECT'
                 }
+                return $true
               }
             }
+            return $false
           }
-          foreach($workload in $workloads){
-            $samples=@($items|Where-Object {$_.workload -ceq $workload})
-            $first=Stats ([double[]]@($samples|ForEach-Object {[double]$_.received_to_first_transport_ready_ms}))
-            $last=Stats ([double[]]@($samples|ForEach-Object {[double]$_.received_to_last_transport_ready_ms}))
-            $return=Stats ([double[]]@($samples|ForEach-Object {[double]$_.actual_lifecycle_return_ms}))
-            $obs=Stats ([double[]]@($samples|ForEach-Object {[double]$_.fixture_observation_including_publisher_join_wall_ms}))
-            Write-Host ('KTERM_AFTER_POST_COHORT=PASS;WORKLOAD='+$workload+
-              ';N=4;SOURCE_TO_FIRST_READY_P50_MS='+$first.P50+';MAX_MS='+$first.Max+
-              ';SOURCE_TO_LAST_READY_P50_MS='+$last.P50+';MAX_MS='+$last.Max+
-              ';ACTUAL_LIFECYCLE_P50_MS='+$return.P50+';MAX_MS='+$return.Max+
-              ';FIXTURE_OBSERVATION_P50_MS='+$obs.P50+';MAX_MS='+$obs.Max)
-          }
-          Write-Host ('KTERM_AFTER_POST_LIFECYCLE=PASS;COHORTS=8;EVENTS=16;SYNTHETIC_MAKER_POSTS=32;LIVE_POSTS=0'+
-            ';REJECTION_RETRY_RETAINED=TRUE;CONFIRMED_CANCELLATION_GUARDS=TRUE;DURABLE_REQUEST_AND_RESERVATION=PASS'+
-            ';PROFILE_WALL_MS='+$clock.ElapsedMilliseconds+';REAL_DISPLAY_LATENCY=UNVERIFIED')
-      - name: Verify actual original user WS loopback, committed fill and exact cold process custody
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          $src=Join-Path $root 'source'
-          $private=Join-Path $root 'post-ack-ws-profile.json'
-          $g19=Join-Path $root 'post-ack-original-owner.json'
-          $g20b=Join-Path $root 'post-ack-loopback-user-ws.json'
-          $log=Join-Path $root 'private-post-ack-ws.log'
-          $env:K_TERMINAL_STAGE3_JOURNAL_PROFILE_OUTPUT=$private
-          $env:K_TERMINAL_STAGE3_JOURNAL_PROFILE_LABEL='PR94-G20B-transport-to-actual-accounting'
-          $env:K_TERMINAL_STAGE3_REQUIRE_JOURNAL_DIAGNOSTICS='1'
-          $env:KTERMINAL_G19_EVIDENCE=$g19
-          $env:KTERMINAL_G20B_WEBSOCKET_EVIDENCE=$g20b
-          $env:KTERMINAL_G18_SAME_OWNER_EVIDENCE=''
-          $env:KTERMINAL_SOURCE_SHA=$env:KTERM_SHA
-          $env:K_TERMINAL_HOTFIX_NETWORK_PROFILE='fast-offline'
-          $env:K_TERMINAL_STAGE3_BUY_LIFECYCLE_OUTPUT=''
-          $env:HTTP_PROXY='http://127.0.0.1:9'
-          $env:HTTPS_PROXY='http://127.0.0.1:9'
-          $env:ALL_PROXY='http://127.0.0.1:9'
-          $env:NO_PROXY=''
+          try{
+            $tick.Start()
+            $replay=Pump 1800 {HasRow $oldStamp}
+            if($replay -lt 0){throw 'KTERM_EVENT_WPF_INITIAL_REPLAY_MISSING'}
+            # The source's first display page marks startup replay; the new
+            # accepted row below must be fresh and distinct from old history.
+            $stamp=[DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffzzz',[Globalization.CultureInfo]::InvariantCulture)
+            $line='['+$stamp+'] BUY L1 | ACCEPTED | SYNTHETIC_MAKER_ONLY_ACCEPTED'
+            $bytes=[Text.UTF8Encoding]::new($false)
+            $half=$line.Substring(0,$line.Length-8)
+            [IO.File]::AppendAllText($first,$half,$bytes)
+            $premature=Pump 350 {HasRow $stamp}
+            if($premature -ge 0){throw 'KTERM_EVENT_WPF_INCOMPLETE_JOURNAL_ROW_DISPLAYED'}
+            $acceptedStart=[Diagnostics.Stopwatch]::StartNew()
+            [IO.File]::AppendAllText($first,$line.Substring($half.Length)+[Environment]::NewLine,$bytes)
+            $elapsed=Pump 2500 {HasRow $stamp}
+            if($elapsed -lt 0){throw 'KTERM_EVENT_WPF_NEW_ACCEPTED_NOT_VISIBLE'}
+            $acceptedStart.Stop()
+            $count=@($view.Items|Where-Object {$_ -is [Windows.Controls.Grid] -and [string]$_.Tag -ceq $stamp}).Count
+            if($count -ne 1){throw 'KTERM_EVENT_WPF_DUPLICATE_BEFORE_OVERLAP'}
+            # Same durable record in both original observed logs must remain
+            # exactly one displayed event; zero inferred fills or duplicate
+            # accepted-order rows.
+            [IO.File]::AppendAllText($second,$line+[Environment]::NewLine,$bytes)
+            $null=Pump 450 {$false}
+            $count=@($view.Items|Where-Object {$_ -is [Windows.Controls.Grid] -and [string]$_.Tag -ceq $stamp}).Count
+            if($count -ne 1){throw 'KTERM_EVENT_WPF_TWO_SOURCE_OVERLAP_NOT_DEDUPLICATED'}
+            Write-Output ('KTERM_EVENT_WPF=PASS;SOURCE_TO_HIDDEN_WPF_ITEM_MS='+$elapsed+
+              ';WPF_POLL_MS=50;SOURCE_POLL_MIN_MS=200;INCOMPLETE_ROW_REFUSED=TRUE'+
+              ';DUPLICATE_CROSS_LOG_ROWS=1;ORIGINAL_READER=TRUE;ORIGINAL_REFRESH_HANDLER=TRUE'+
+              ';ORIGINAL_EVENT_ROW_FACTORY=TRUE;ORDER_ACK_IS_SYNTHETIC=TRUE'+
+              ';FULL_DESKTOP_STARTED=FALSE;VENUE_REQUESTS=0;REAL_PIXEL_PAINT=UNVERIFIED')
+          }finally{$tick.Stop();$window.Close()}
+          '@
+          [IO.File]::WriteAllText($script,$payload,[Text.UTF8Encoding]::new($false))
           $clock=[Diagnostics.Stopwatch]::StartNew()
-          Push-Location $src
-          try {
-            & go test -run '^TestStage3NativeJournalCompleteReadinessProfile$' -count=1 -timeout 10m ./pkg *> $log
-            $exit=$LASTEXITCODE
-          } finally {Pop-Location}
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File $script -Root $src -Fixture $fixture *> $log
+          $exit=$LASTEXITCODE
           $clock.Stop()
-          if($exit -ne 0 -or -not [IO.File]::Exists($private) -or
-             -not [IO.File]::Exists($g19) -or -not [IO.File]::Exists($g20b)){
-            Write-Host ('KTERM_AFTER_POST_WS=FAIL;PRIVATE_LOG_SHA256='+
+          if($exit -ne 0){
+            Write-Host ('KTERM_EVENT_WPF=FAIL;PRIVATE_LOG_SHA256='+
               (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
-            throw 'KTERM_AFTER_POST_WS_OR_OWNER_CHAIN_FAILED'
+            throw 'KTERM_EVENT_WPF_SOURCE_HARNESS_FAILED'
           }
-          $a=[IO.File]::ReadAllText($private)|ConvertFrom-Json
-          $b=[IO.File]::ReadAllText($g20b)|ConvertFrom-Json
-          $c=[IO.File]::ReadAllText($g19)|ConvertFrom-Json
-          if($a.build_label -cne 'PR94-G20B-transport-to-actual-accounting' -or
-             @($a.individual_events).Count -ne 24 -or
-             $b.schema -cne 'kterminal.ice.g20b-offline-user-frame.v1' -or
-             $b.source_sha -cne $env:KTERM_SHA -or
-             $b.positive_user_frames_delivered -ne 2 -or
-             $b.original_ws_read_connection -ne $true -or
-             $b.original_ws_handle_user_events -ne $true -or
-             $b.actual_loopback_ws_transport -ne $true -or
-             $b.original_accounting_owner_retained -ne $true -or
-             $b.operator_callbacks -ne 1 -or
-             $b.operator_filled_lines -ne 1 -or
-             $b.operator_tracked_lines -ne 1 -or
-             $b.duplicate_fill_revision -ne $b.confirmed_fill_revision -or
-             $b.confirmed_fill_revision -le $b.initial_revision -or
-             $b.heartbeat_sequence_without_false_gap -ne $true -or
-             $b.websocket_user_health_observed -ne $true -or
-             $b.forced_independent_process_restart -ne $true -or
-             $b.cold_process_revision -ne 0 -or
-             $b.durable_economics_conserved -ne $true -or
-             $b.real_coinbase_wss_connected -ne $false -or
-             $b.authenticated_user_subscription -ne $false -or
-             $b.real_broker_orders_sent -ne 0 -or
-             $b.installed_user_data_touched -ne $false -or
-             $c.schema -cne 'kterminal.ice.g19-production-event-boundary.v1' -or
-             $c.source_sha -cne $env:KTERM_SHA -or
-             $c.original_owner_retained -ne $true -or
-             $c.child_fresh_process_recovered -ne $true){
-            throw 'KTERM_AFTER_POST_WS_OR_COLD_PROOF_INVALID'
-          }
-          Write-Host ('KTERM_AFTER_POST_WS=PASS;SOURCE_SHA='+$env:KTERM_SHA+
-            ';JOURNAL_EVENTS=24;LOOPBACK_WS_FRAMES=2;ORIGINAL_ACCOUNTING_OWNER=TRUE'+
-            ';ACCOUNTING_COMMIT_BEFORE_SUBSCRIBER=PASS;DUPLICATE_NO_REVISION=PASS'+
-            ';OPERATOR_FILLED=1;OPERATOR_TRACKED=1;HEARTBEAT_SEQUENCE=PASS'+
-            ';FORCED_INDEPENDENT_COLD_RECOVERY=PASS;BROKER_POSTS=0;REAL_COINBASE_WSS=FALSE'+
-            ';PROFILE_WALL_MS='+$clock.ElapsedMilliseconds+';WPF_VISIBLE_ACK=UNVERIFIED')
+          $marks=@([IO.File]::ReadAllLines($log)|Where-Object {$_ -match '^KTERM_EVENT_WPF=PASS;'})
+          if($marks.Count -ne 1){throw 'KTERM_EVENT_WPF_RESULT_CARDINALITY_FAILED'}
+          Write-Host $marks[0]
+          Write-Host ('KTERM_EVENT_WPF_HARNESS=PASS;WALL_MS='+$clock.ElapsedMilliseconds+
+            ';SOURCE_SHA='+$env:KTERM_SHA+';NO_INSTALL=TRUE;NO_BROKER_IO=TRUE')
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
