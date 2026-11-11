@@ -765,3 +765,59 @@ jobs:
           test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
+
+  f57_fsa_no_execution_source_only_once:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' &&
+      github.event.pull_request.head.ref == 'research/eureka-f51-original-acrobot-20261110' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout source-only F57 without stored credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify exact F57 prereg and preflight source/negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD:docs/NATIVE-DISCOVERY-F57-ORIGINAL-ACROBOT-REWARD-TRIAL.md)" = '026af1ee4f734e2160936df71935aa6f0b455fdf'
+          test "$(git rev-parse HEAD:research/f57_original_acrobot_reward_admission.py)" = '008631b2b72c4161627e3dab3a729b294cc07a93'
+          test "$(git rev-parse HEAD:research/test_f57_original_acrobot_reward_admission.py)" = '9b432278adcf385f275ee6136866fe71e2aba01a'
+          test "$(git rev-parse HEAD:research/f56_original_acrobot_fit_ips_proxy.py)" = '00a6901daa1b479e96d923bf46daa5a1f1be45b4'
+          test "$(git rev-parse HEAD:research/f51_original_acrobot_transfer_dev.py)" = 'd3114ac66589e6b9f623318da721449090cfd54a'
+          test "$(git rev-parse HEAD:AGENTS.md)" = '39926d2277ac01c8114f03561bd8e001fcc3b582'
+          echo 'F57_PROSPECTIVE_SOURCE_CUSTODY=PASS'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pure standard-library F57 nine negative/admission unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/research" python -B -m unittest discover -s research -p 'test_f57_original_acrobot_reward_admission.py' -v
+          echo 'F57_FAIL_CLOSED_NINE_TESTS=PASS'
+      - name: F57 blocked native-FSA preflight, never original experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f57_original_acrobot_reward_admission.py | tee "$RUNNER_TEMP/f57-admission.log"
+          grep -qx 'F57_ADMISSION=F57_AUTHORITY_BLOCKED_NO_FIRST_USE' "$RUNNER_TEMP/f57-admission.log"
+          grep -qx 'F57_SOURCE_ONLY_PREFLIGHT=PASS; SCIENCE_NOT_RUN' "$RUNNER_TEMP/f57-admission.log"
+          echo 'F57_FSA_UNAUTHORIZED_NO_FRESH_SCIENCE=PASS'
+      - name: Upload only source-only preflight output to FORGE Actions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f57-source-only-fsa-admission-not-science
+          path: ${{ runner.temp }}/f57-admission.log
+          if-no-files-found: warn
+          retention-days: 45
