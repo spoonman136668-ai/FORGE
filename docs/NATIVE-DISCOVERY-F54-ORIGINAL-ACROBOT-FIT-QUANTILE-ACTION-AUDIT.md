@@ -1,0 +1,30 @@
+# Eureka F54 — original-Acrobot FIT-only quantile-margin action audit
+
+**Prospective frozen source-only study, 2026-11-11 ET.** This protocol is committed **before** any F54 implementation and FIT-only output. F53 source checkpoint: `f98058ec94ad557e152a057b15e9457473c10d91`, previous exact tree `25835175b4813bc1ab90a723b675efc5a2e3ed74`, protected FORGE main `e4052145d35feca0063ae6435b2636afe94662d6`. F53 source blob `cd8bc0d1163569adaa69371697e3448bfd4b4e01`; F51 source blob `d3114ac66589e6b9f623318da721449090cfd54a`. Existing draft PR #1692 only.
+
+## Why this gate exists
+
+F53 genuine original-source FIT-only audit showed original FQI argmax differs from strong momentum on 2,716 of 8,974 original public training observations, but a fixed +4.0 Q margin produced exactly **zero** F53 supported/margin-only overrides (audit report `acbaf04290e19d1db759a2fd409febe96f713e7999656c663652afc3c2867b9f`; original run #42991555129). This is a negative FIT-only observation, **not** permission to alter frozen F53 or tune on its untouched scored seeds.
+
+**Falsifiable engineering hypothesis:** A single training-only scale-calibrated action-advantage threshold, held fixed after FIT, makes at least one supported action override of the conventional momentum policy on existing FIT observations while respecting the original per-action support filters. If zero, record `F54_FIT_NO_ACTIVATION` and preserve it. A nonzero result is only `F54_FIT_ACTIVATION_UNVERIFIED`: it says nothing about real return, causal learning, unfamiliar transfer or RSI.
+
+## Source, data, calibration frozen before implementation
+
+- Only official upstream Farama Gymnasium v1.2.3 commit `365080941ea3a815ac09e57a7d4ee263a142651d`; original Acrobot Git blob `28c440af281858c30e95fb6023f19923065d64fe`. Use Python 3.11, NumPy 2.0.2, original imported module path verification, OPENBLAS_NUM_THREADS=1.
+- Reproduce **only the original F51 FIT training**: 6 book root seeds `(21011,21017,21019,21023,21029,21031)`, eight episodes/root, 8,974 genuine actions, action counts `[3604,1824,3546]`, tuple digest `63d31930006ec2f465e4becd989c1a0b922e15a0842ef991fe424074d436a31a`; original 40-pass fully trained FQI model digest `968c8353334256634707097ff510bcbee60177253280850f7ed56f7a0c1a93a1`. Reject drift, alternative physics, hidden state or fitted-model mismatch.
+- Preserve F53 original per-action support covariance inverses (ridge 0.05) and per-action **90th percentile** training leverage thresholds *without modification*. Observations are the six public values only. For each original FIT observation calculate original momentum choice `h=2 if obs[5]>=0 else 0`, original 3-action FQI `Q`, and greedy `g=argmax Q` (lowest-index ties). Make `D={Q(g)-Q(h): g!=h and advantage>0}`. Require nonempty finite `D`. Compute exactly one `T=np.quantile(D,0.75)` using NumPy's default linear estimator; require finite positive `T`. Freeze the value before making any action decision; **do not** adjust T after seeing outcomes.
+- Candidate `quantile-supported`: choose `g` iff `g != h`, `Q(g)-Q(h)>=T`, and `phi.T inv_g phi <= support90[g]` and `phi.T inv_h phi <= support90[h]`; otherwise choose `h`. No online adaptation, mode access, reward-based tuning or threshold refit. This is deliberately a training-distribution activation feasibility test.
+- Five frozen comparison arms: candidate `quantile-supported`; `momentum-rule`; `frozen-fqi`; `quantile-margin-only` (identical T, omit both support checks); `f53-fixed-margin` (F53's unchanged +4.0 and support90); `rotated-credit` negative control (rotate action rows `theta[[1,2,0]]`, same T and support90). The list has **six** arms, not five; all six must be evaluated. Rotated-credit is diagnostic, not a validated counterfactual scientific baseline.
+
+## FIT-only scoring and stop classification
+
+For all 8,974 **recorded FIT observations only**, count per-arm physical action frequencies, disagreements with momentum, matches to recorded behavior actions; raw FQI disagreements; positive `D` count, min/p50/p75/p90/max Q margins; all four support pass/fail cross-tab conditions among margin-qualified discrepancies; action supported activation count; and original source/model/support/cohort hashes. Repeat the **pure action audit** on unchanged FIT observations with cold fresh policy objects and require byte-identical deterministic content hashes. Every action must be integer 0,1,2, no nonfinite Q/leverage, no hidden-state inputs. The action audit must not call `evaluate`, `score`, or `env.reset` for any F51/F53 transfer/retention/scored or protected seeds. No 144 F53 episodes, no replay, no unseen data consumption.
+
+- All original custody, deterministic replay, and finite checks succeed + candidate overrides >=1 and margin-only overrides >=1 -> `F54_FIT_ACTIVATION_UNVERIFIED`.
+- All original custody, deterministic replay, and finite checks succeed but zero candidate overrides -> `F54_FIT_NO_ACTIVATION`.
+- Missing original source, transcript/model drift, test/custody error or nondeterminism -> `F54_RUNTIME_BLOCKED` (not scientific failure). No post-result threshold tuning.
+- A passing engineering run or activation never becomes `SCIENTIFIC_PASS`; **scientific return and generalization remain UNVERIFIED**.
+
+## Authority and isolation
+
+Only additive F54 protocol/source/tests on the existing isolated draft/unmerged PR. Temporary short-lived original-Python public GitHub Actions FIT-only job is allowed for engineering qualification, then restore original `qualify.yml` Git blob `8b6710df902710d088fe9658da718d22244e5151`, followed by mandatory exact-final-source 8/8 Linux/Windows original regression. Evidence lives on FORGE PR/Actions, not the user's Library. Do not run scored or first-use science without separately qualified FORGE-native FSA authority. No new controller, scheduler, scheduled task, private runner, owner/FSA action, CKB-plane dependency, paid API, user credentials, Wingless/Yggdrasil/Hybrid change, merge, promotion, or deployment. F51/F52/F53 frozen results are never overwritten.
