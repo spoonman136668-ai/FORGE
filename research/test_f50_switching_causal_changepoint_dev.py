@@ -4,7 +4,7 @@ import json
 import math
 import unittest
 
-import f50_noise_aware_changepoint_dev as f50
+import f50_switching_causal_changepoint_dev as f50
 
 
 class F50FitOnlyTests(unittest.TestCase):
