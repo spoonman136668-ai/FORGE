@@ -124,8 +124,10 @@ jobs:
             # The first run reported UNCLASSIFIED after a 4.9 s focused test.
             # Preserve privacy: emit ONLY a bounded static test exception token.
             if($label -eq 'UNCLASSIFIED'){
-              $match=[regex]::Match($raw,'RECORDER_[A-Z0-9_]{3,80}')
-              if($match.Success){$label=$match.Value}
+              $tokens=[regex]::Matches($raw,'RECORDER_[A-Z0-9_]{3,80}')
+              # The initial smoke test emitted PASS markers before a later
+              # failure; its earliest token is not the failing assertion.
+              if($tokens.Count -gt 0){$label=$tokens[$tokens.Count-1].Value}
               elseif($raw -match '(?i)Start-Process'){ $label='CHILD_PROCESS_START_OR_ARGUMENT' }
               elseif($raw -match '(?i)ParserError|At .+\.ps1:\d+ char:'){ $label='POWERSHELL_PARSER_OR_SYNTAX' }
               elseif($raw -match '(?i)property .* cannot be found|you cannot call a method on a null'){ $label='POWERSHELL_STRICT_PROPERTY_OR_NULL' }
