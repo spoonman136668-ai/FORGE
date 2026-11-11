@@ -179,6 +179,30 @@ def _resume_windows_primary_thread(process):
         api.CloseHandle(thread)
 
 
+def _posix_wait_unreaped(process, timeout):
+    """Observe child exit without releasing its PID/process-group identity.
+
+    Popen.wait()/poll() reap immediately. A successful wait followed by
+    os.killpg(PID, SIGKILL) is unsafe if PID/PGID has been recycled in between.
+    Retain the direct child as an unreaped zombie until the final group signal.
+    Only the finalizer is allowed to call process.wait().
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        status = os.waitid(os.P_PID, process.pid,
+                           os.WEXITED | os.WNOWAIT | os.WNOHANG)
+        if status is not None:
+            if status.si_code == os.CLD_EXITED:
+                return status.si_status
+            if status.si_code in (os.CLD_KILLED, os.CLD_DUMPED):
+                return -status.si_status
+            demand(False, "D2K_POSIX_CHILD_EXIT_STATUS_UNTRUSTED")
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise subprocess.TimeoutExpired(process.args, timeout)
+        time.sleep(min(0.02, left))
+
+
 def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
     """Capture bounded output and clean up inherited-pipe descendants.
 
@@ -224,7 +248,9 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
                         pass
             except (OSError, ValueError) as exc:
                 cleanup_errors.append(type(exc).__name__)
-            if process.poll() is None:
+            # Never Popen.poll()/wait() on POSIX before the final group
+            # signal: those calls reap the leader and permit PGID reuse.
+            if job is not None and process.poll() is None:
                 try:
                     process.kill()
                 except ProcessLookupError:
@@ -256,11 +282,13 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
         reader.start()
         timed_out = False
         try:
-            returncode = process.wait(timeout=timeout)
+            returncode = (process.wait(timeout=timeout)
+                          if job is not None else _posix_wait_unreaped(process, timeout))
         except subprocess.TimeoutExpired:
             timed_out = True
             stop_tree()
-            returncode = process.wait(timeout=5)
+            returncode = (process.wait(timeout=5)
+                          if job is not None else _posix_wait_unreaped(process, 5))
         reader.join(timeout=2)
         # Parent exit does not prove that inherited stdout handles closed.
         orphaned = reader.is_alive() and not timed_out and not overflow.is_set()
@@ -295,7 +323,18 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
                     except ProcessLookupError:
                         pass
             finally:
-                if process.poll() is None:
+                if job is None:
+                    # Reap only AFTER all possible process-group signals:
+                    # until now the child PID cannot be recycled.
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            process.kill()
+                        except ProcessLookupError:
+                            pass
+                        process.wait(timeout=5)
+                elif process.poll() is None:
                     try:
                         process.kill()
                     except ProcessLookupError:

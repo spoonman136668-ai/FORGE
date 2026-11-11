@@ -228,6 +228,30 @@ class D2KPackageDiagnosticTests(unittest.TestCase):
                         import signal
                         os.kill(pid, signal.SIGKILL)
 
+    @unittest.skipIf(sys.platform == "win32", "POSIX unreaped child identity")
+    def test_posix_retains_group_leader_until_final_signal(self):
+        """The cleanup group signal must precede the Popen leader reap."""
+        import signal
+        from f139 import issue_diagnostic
+        real_killpg = os.killpg
+        observed = []
+        def inspect_group(pgid, signo):
+            self.assertEqual(signo, signal.SIGKILL)
+            status = os.waitid(os.P_PID, pgid,
+                               os.WEXITED | os.WNOWAIT | os.WNOHANG)
+            self.assertIsNotNone(status,
+                                 "leader reaped before final group cleanup")
+            observed.append(pgid)
+            return real_killpg(pgid, signo)
+        with mock.patch.object(issue_diagnostic.os, "killpg",
+                               side_effect=inspect_group):
+            completed = bounded_run(
+                [sys.executable, "-c", "print('done', flush=True)"],
+                env=os.environ.copy(), timeout=8)
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, b"done\n")
+        self.assertEqual(len(observed), 1)
+
     def test_direct_bounded_runner_also_sanitizes_credentials(self):
         from f139.issue_diagnostic import _go_child_environment
         raw = {"PATH": os.environ.get("PATH", ""),
