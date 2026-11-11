@@ -104,7 +104,8 @@ class R13SourceFalsifierTests(unittest.TestCase):
                         excluded_task_ids=frozenset({"heldout-a"}),
                         use_memory=True)
         corrupt = [
-            (valid, valid),  # source record replay
+            (valid, valid),  # task-ID replay
+            (valid, replace(valid, task_id="renamed-replay")),  # same source + test
             (replace(valid, task_id="heldout-a"),),
             (replace(valid, source_family=TARGET),),
             (replace(valid, source_sha256="0"),),

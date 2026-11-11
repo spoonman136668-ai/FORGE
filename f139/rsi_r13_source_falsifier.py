@@ -142,12 +142,12 @@ def rank_review_options(*, options: tuple[str, ...], history: tuple[Prior, ...],
          and all(type(s) is str and 0 < len(s) <= 80 for s in excluded_task_ids)
          and type(current_family) is str and 0 < len(current_family) <= 120
          and type(use_memory) is bool, "HISTORY_SHAPE")
-    seen = set()
+    seen_tasks, seen_evidence = set(), set()
     scores = {s: 0 for s in options}
     for prior in history:
         need(type(prior) is Prior and
              type(prior.task_id) is str and 0 < len(prior.task_id) <= 80 and
-             prior.task_id not in seen and prior.task_id not in excluded_task_ids
+             prior.task_id not in seen_tasks and prior.task_id not in excluded_task_ids
              and type(prior.source_family) is str
              and 0 < len(prior.source_family) <= 120
              and prior.source_family != current_family
@@ -158,7 +158,11 @@ def rank_review_options(*, options: tuple[str, ...], history: tuple[Prior, ...],
              and SHA64.fullmatch(prior.test_sha256) is not None
              and prior.outcome in ("PASS", "FAIL")
              and prior.cohort == "train", "HISTORY_LEAK_OR_DRIFT")
-        seen.add(prior.task_id)
+        # A renamed task cannot replay the same original source/test result.
+        evidence = (prior.source_sha256, prior.test_sha256)
+        need(evidence not in seen_evidence, "EVIDENCE_PAIR_REPLAY")
+        seen_tasks.add(prior.task_id)
+        seen_evidence.add(evidence)
         if use_memory and prior.mechanism in scores:
             scores[prior.mechanism] += 1 if prior.outcome == "PASS" else -1
     # Fully deterministic tie-break follows caller-declared option order.
