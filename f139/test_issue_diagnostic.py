@@ -171,6 +171,18 @@ class D2KPackageDiagnosticTests(unittest.TestCase):
                         import signal
                         os.kill(pid, signal.SIGKILL)
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows suspended-start contract")
+    def test_windows_rapid_parent_exit_still_assigned_before_running(self):
+        # Old attach-after-Popen fails intermittently for immediate exits.
+        # Repeated quick exits must work on the original native Windows CI.
+        for attempt in range(8):
+            with self.subTest(attempt=attempt):
+                completed = bounded_run(
+                    [sys.executable, "-c", "import sys;sys.stdout.write('short')"],
+                    env=os.environ.copy(), timeout=8)
+                self.assertEqual((completed.returncode, completed.stdout),
+                                 (0, b"short"))
+
     def test_regular_small_output_preserved(self):
         result = bounded_run(
             [sys.executable, "-c", "print('ok',flush=True)"],

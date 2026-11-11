@@ -92,6 +92,71 @@ class _WindowsDiagnosticJob:
                        "D2K_WINDOWS_JOB_CLOSE_FAILED")
 
 
+
+def _resume_windows_primary_thread(process):
+    """Resume exactly one still-suspended primary thread, after Job admission.
+
+    Popen closes the CreateProcess primary-thread handle internally. Enumerate
+    the new suspended PID's threads through Toolhelp, refusing ambiguous or
+    inaccessible state. Returning zero from ResumeThread means the child was
+    already runnable and is therefore a containment failure, not success.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    class ThreadEntry(ctypes.Structure):
+        _fields_ = (
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ThreadID", wintypes.DWORD),
+            ("th32OwnerProcessID", wintypes.DWORD),
+            ("tpBasePri", wintypes.LONG),
+            ("tpDeltaPri", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+        )
+
+    api = ctypes.WinDLL("kernel32", use_last_error=True)
+    api.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    api.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    api.Thread32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(ThreadEntry)]
+    api.Thread32First.restype = wintypes.BOOL
+    api.Thread32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(ThreadEntry)]
+    api.Thread32Next.restype = wintypes.BOOL
+    api.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    api.OpenThread.restype = wintypes.HANDLE
+    api.ResumeThread.argtypes = [wintypes.HANDLE]
+    api.ResumeThread.restype = wintypes.DWORD
+    api.CloseHandle.argtypes = [wintypes.HANDLE]
+    api.CloseHandle.restype = wintypes.BOOL
+    snapshot = api.CreateToolhelp32Snapshot(0x00000004, 0)  # all threads
+    demand(snapshot and snapshot != ctypes.c_void_p(-1).value,
+           "D2K_WINDOWS_THREAD_SNAPSHOT_FAILED")
+    try:
+        entry = ThreadEntry()
+        entry.dwSize = ctypes.sizeof(entry)
+        demand(bool(api.Thread32First(snapshot, ctypes.byref(entry))),
+               "D2K_WINDOWS_THREAD_SNAPSHOT_EMPTY")
+        threads = []
+        while True:
+            if entry.th32OwnerProcessID == process.pid:
+                threads.append(entry.th32ThreadID)
+            if not api.Thread32Next(snapshot, ctypes.byref(entry)):
+                demand(ctypes.get_last_error() == 18,
+                       "D2K_WINDOWS_THREAD_SNAPSHOT_INCOMPLETE")
+                break
+        demand(len(threads) == 1, "D2K_WINDOWS_PRIMARY_THREAD_AMBIGUOUS")
+    finally:
+        api.CloseHandle(snapshot)
+    thread = api.OpenThread(0x0002, False, threads[0])  # THREAD_SUSPEND_RESUME
+    demand(bool(thread), "D2K_WINDOWS_PRIMARY_THREAD_OPEN_FAILED")
+    try:
+        # Exactly one CREATE_SUSPENDED level must be present.
+        demand(api.ResumeThread(thread) == 1,
+               "D2K_WINDOWS_PRIMARY_THREAD_RESUME_FAILED")
+    finally:
+        api.CloseHandle(thread)
+
+
 def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
     """Capture bounded output and clean up inherited-pipe descendants.
 
@@ -105,12 +170,15 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
         process = subprocess.Popen(
             command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, env=env, bufsize=0,
-            creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP
+            creationflags=((subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000004)
                            if os.name == "nt" else 0),
             start_new_session=(os.name != "nt"))
-        # Attach before any reader is started or test result accepted.
+        # 0x4 = CREATE_SUSPENDED. No user code or descendant can execute
+        # before the Job Object accepts the child and the sole primary thread
+        # has been resumed. Failure closes the Job and kills the child.
         if job is not None:
             job.attach(process)
+            _resume_windows_primary_thread(process)
 
         chunks = []
         total = [0]
