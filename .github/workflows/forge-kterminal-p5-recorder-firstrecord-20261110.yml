@@ -177,7 +177,7 @@ jobs:
               if !waitExists || !readyExists || !responseExists ||
                  wait<6800 || wait>=10000 || ready<6800 ||
                  response>1000 || record.TotalMS<7000 || record.TotalMS>=10000 {
-                  t.Fatalf("P5 did not separate real source wait from mocked response: wait=%d ready=%d response=%d total=%d",wait,ready,response,record.TotalMS)
+                  t.Fatalf("P5 stage contract failed: wait=%d ready=%d response=%d total=%d waitpresent=%t readypresent=%t responsepresent=%t",wait,ready,response,record.TotalMS,waitExists,readyExists,responseExists)
               }
               if record.Operation!="native_order" || record.Schema!=1 || len(record.Trace)!=16 || !record.Success {
                   t.Fatal("P5 envelope/source/opt-in unexpectedly changed")
@@ -242,7 +242,7 @@ jobs:
           if($code -ne 0 -or -not [IO.File]::Exists($env:KTERM_P5_WAIT_PRIVATE_REPORT)){
             $privateLog=[IO.File]::ReadAllText($log)
             $failType='UNCLASSIFIED'
-            if($privateLog.Contains('P5 did not separate real source wait')){$failType='STAGE_VALUES'}
+            if($privateLog.Contains('P5 stage contract failed')){$failType='STAGE_VALUES'}
             if($privateLog.Contains('P5 field envelope changed')){$failType='SCHEMA_ENVELOPE'}
             if($privateLog.Contains('original seven-second fixture safety failed')){$failType='ORIGINAL_WAIT_TEST'}
             if($privateLog.Contains('deferred accepted order could be replayed')){$failType='DUPLICATE_CONTROL'}
@@ -251,6 +251,12 @@ jobs:
             if($privateLog.Contains('P5 envelope/source/opt-in unexpectedly changed')){$failType='OBSERVER_ENVELOPE'}
             if($privateLog.Contains('undefined:') -or $privateLog.Contains('syntax error')){$failType='GO_BUILD'}
             Write-Host ('KTERM_P5_WAIT_FAILURE_CLASS='+$failType)
+            if($failType -eq 'STAGE_VALUES'){
+              $m=[regex]::Match($privateLog,'P5 stage contract failed: wait=([0-9]+) ready=([0-9]+) response=([0-9]+) total=([0-9]+) waitpresent=(true|false) readypresent=(true|false) responsepresent=(true|false)')
+              if($m.Success){
+                Write-Host ('KTERM_P5_SAFE_STAGE_DIAG=WAIT_MS='+$m.Groups[1].Value+';READY_MS='+$m.Groups[2].Value+';MOCK_POST_MS='+$m.Groups[3].Value+';TOTAL_MS='+$m.Groups[4].Value+';WAIT_PRESENT='+$m.Groups[5].Value+';READY_PRESENT='+$m.Groups[6].Value+';POST_PRESENT='+$m.Groups[7].Value)
+              }
+            }
             Write-Host ('KTERM_P5_WAIT=FAIL;PRIVATE_LOG_SHA256='+(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
             throw 'KTERM_P5_WAIT_VISIBILITY_TEST_FAILED'
           }
