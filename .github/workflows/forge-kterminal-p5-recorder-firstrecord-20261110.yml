@@ -13,10 +13,10 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: db778512a3a45ae6bd280fdb05cc2bc54e4e9552
+      KTERM_SHA: 4bf63a80c3d5cfd429be4d047cf86e75aa5800ed
       KTERM_BASE: bcebdc1a7a0487f9d6061a8e643c76069335d896
       KTERM_RECORDER_BLOB: afbef54ac539df0e7dc001c1c44a0edd2dea0a25
-      KTERM_TEST_BLOB: 3b9bf48465f3dd949337a157874f47b936948d26
+      KTERM_TEST_BLOB: 8dffbfe8e2d0b8f5c13abfc476875012377446c3
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -63,20 +63,20 @@ jobs:
           & git -C $stage init -q *> (Join-Path $root 'private-git-init.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_P5_GIT_INIT_FAILED'}
           $source='https://github.com/Kboomllc/K-Terminal.git'
-          & git -C $stage fetch -q --no-tags --depth=4 $source $env:KTERM_SHA *> (Join-Path $root 'private-git-fetch.log')
+          & git -C $stage fetch -q --no-tags --depth=5 $source $env:KTERM_SHA *> (Join-Path $root 'private-git-fetch.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_P5_PRIVATE_SOURCE_UNAVAILABLE'}
           & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'private-git-checkout.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_P5_CHECKOUT_FAILED'}
           $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
           $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
-          $parent=(& git -C $stage rev-parse 'HEAD~3' | Out-String).Trim()
+          $parent=(& git -C $stage rev-parse 'HEAD~4' | Out-String).Trim()
           $rec=(& git -C $stage rev-parse 'HEAD:verification/KTerminal-Live-Session-Recorder-v1.2.ps1' | Out-String).Trim()
           $test=(& git -C $stage rev-parse 'HEAD:verification/test-kterminal-recorder-v1.2.ps1' | Out-String).Trim()
           if($sha -cne $env:KTERM_SHA -or $parent -cne $env:KTERM_BASE -or
              $rec -cne $env:KTERM_RECORDER_BLOB -or $test -cne $env:KTERM_TEST_BLOB -or
              $tree -cnotmatch '^[0-9a-f]{40}$' -or
              @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_P5_SOURCE_CUSTODY_REFUSED'}
-          $changed=@(& git -C $stage diff --name-only HEAD~3 HEAD)
+          $changed=@(& git -C $stage diff --name-only HEAD~4 HEAD)
           $expected=@('verification/KTerminal-Live-Session-Recorder-v1.2.ps1','verification/test-kterminal-recorder-v1.2.ps1')
           if($changed.Count -ne 2 -or @($changed | Where-Object {$_ -cnotin $expected}).Count -ne 0){
             throw 'KTERM_P5_TWO_FILE_SCOPE_DRIFT'
