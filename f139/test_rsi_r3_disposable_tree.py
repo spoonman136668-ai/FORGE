@@ -6,10 +6,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from f139.rsi_r3_source_cycle import R3Denied, TARGET, fingerprint, rehearsal
-from f139.rsi_r3_disposable_tree import (MARKER, SCHEMA, git,
-                                         stage_generations, staged_source)
+from f139.rsi_r3_source_cycle import (R3Denied, TARGET, fingerprint,
+                                       generate, rehearsal, source_for)
+from f139 import rsi_r3_disposable_tree as stage_module
+from f139.rsi_r3_disposable_tree import (MARKER, END, SCHEMA, git,
+                                         stage_generations, staged_selector,
+                                         staged_source)
 from f139.test_rsi_r3_source_cycle import G1, G2
 
 
@@ -65,6 +69,48 @@ class DisposableTreeTests(unittest.TestCase):
             self.assertEqual(git(root, "status", "--porcelain", "--untracked-files=all"), "")
         self.assertEqual((self.repo / TARGET).read_bytes(), before)
         self.assertEqual(git(self.repo, "rev-parse", "HEAD"), self.sha)
+
+    def test_actual_staged_g1_selects_g2_from_verified_checkout_bytes(self):
+        a, b = self.stage()
+        g1_module = (self.scratch / "rsi-r3-g1" / TARGET).read_bytes()
+        selected = staged_selector(g1_module)
+        self.assertEqual(fingerprint(selected), a.generated_source_sha256)
+        g2 = generate(parent_source=selected, generation=2, feedback=G2,
+                      used_operators=frozenset({0, self.generations[0].operator}))
+        self.assertEqual(g2, self.generations[1])
+        self.assertEqual(g2.operator, 3)
+        # Replaying G0 instead would select 2: the staged generation
+        # contains the effective feedback-sensitive parent policy.
+        other = generate(parent_source=source_for(0), generation=2,
+                         feedback=G2, used_operators=frozenset({0, 1}))
+        self.assertEqual(other.operator, 2)
+        self.assertNotEqual(other.source_sha256, b.generated_source_sha256)
+
+    def test_staged_selector_rejects_tampering_before_execution(self):
+        self.stage()
+        tracked = (self.scratch / "rsi-r3-g1" / TARGET).read_bytes()
+        expected = self.generations[0].source
+        self.assertEqual(staged_selector(tracked), expected)
+        for corrupt in (tracked + b"UNTRUSTED_TRAILER",
+                        tracked.replace(expected, b"import os\\n", 1),
+                        tracked.replace(END, b"", 1),
+                        tracked + MARKER):
+            with self.subTest(corrupt=corrupt[-40:]), self.assertRaises(R3Denied):
+                staged_selector(corrupt)
+
+    def test_counterfeit_staged_g1_fails_before_g2_clone(self):
+        original = stage_module.staged_source
+
+        def counterfeit(before, generation):
+            staged = original(before, generation)
+            if generation.generation == 1:
+                return staged.replace(generation.source, source_for(0), 1)
+            return staged
+
+        with patch.object(stage_module, "staged_source", side_effect=counterfeit):
+            with self.assertRaisesRegex(R3Denied, "STAGED_PARENT_SOURCE_DRIFT"):
+                self.stage()
+        self.assertFalse((self.scratch / "rsi-r3-g2").exists())
 
     def test_original_dirty_source_preimage_and_scratch_rejected(self):
         for altered in [dict(head="0"*40), dict(blob="0"*64),
