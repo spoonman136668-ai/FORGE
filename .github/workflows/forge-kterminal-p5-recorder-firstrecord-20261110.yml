@@ -1,4 +1,4 @@
-name: K Terminal P5 recorder first-file capture source-qualified Windows regression
+name: K Terminal P5 source-locked PAPER acceptance package
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -90,102 +90,135 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Focused original PowerShell 5.1 recorder test then full Windows regression
+      - name: Rebuild exact source and create non-installable PAPER acceptance ZIP
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_P5_GO_TOOLCHAIN_DRIFT'}
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_PAPER_GO_VERSION_DRIFT'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          $stage=Join-Path $root 'source'
-          $env:RUNNER_TEMP=Join-Path $root 'test-temp'
-          $env:GOCACHE=Join-Path $root 'go-cache'
-          $env:GOMODCACHE=Join-Path $root 'go-modules'
-          $env:K_TERMINAL_TEST_WORKSPACE=Join-Path $root 'test-workspace'
-          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'test-workspace\tail'
-          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'test-workspace\post'
-          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'test-workspace\private'
-          foreach($dir in @($env:RUNNER_TEMP,$env:GOCACHE,$env:GOMODCACHE,$env:K_TERMINAL_TEST_WORKSPACE,
-              $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,
-              $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){[void][IO.Directory]::CreateDirectory($dir)}
-          $rec=Join-Path $stage 'verification\KTerminal-Live-Session-Recorder-v1.2.ps1'
-          $test=Join-Path $stage 'verification\test-kterminal-recorder-v1.2.ps1'
-          $focusedLog=Join-Path $root 'private-focused-recorder.log'
-          $clock=[Diagnostics.Stopwatch]::StartNew()
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Recorder $rec *> $focusedLog
-          $code=$LASTEXITCODE
-          $clock.Stop()
-          if($code -ne 0){
-            $known=@('RECORDER_NEW_SOURCE_FIRST_RECORD_MISSED','RECORDER_PREEXISTING_DATA_REPLAYED',
-                'RECORDER_NEW_SOURCE_INITIAL_POLL_NOT_OBSERVED','RECORDER_NEW_SOURCE_PRIVATE_INPUT_LEAK',
-                'RECORDER_NEW_SOURCE_SAFE_EVENT_MISSING','RECORDER_SYNTHETIC_P5_NOT_OBSERVED')
-            $label='UNCLASSIFIED'
-            $raw=[IO.File]::ReadAllText($focusedLog)
-            $stages=[regex]::Matches($raw,'KTERM_P5_(?:TEST_STAGE_[A-Z0-9_]{3,65}=START|NEW_FIXTURE_ERROR=LINE_[0-9]{1,4})')
-            $stage='NO_STAGE'
-            if($stages.Count -gt 0){$stage=$stages[$stages.Count-1].Value}
-            Write-Host ('KTERM_P5_FOCUSED_LAST_SAFE_STAGE='+$stage)
-            foreach($term in $known){if($raw.Contains($term)){$label=$term;break}}
-            # The first run reported UNCLASSIFIED after a 4.9 s focused test.
-            # Preserve privacy: emit ONLY a bounded static test exception token.
-            if($label -eq 'UNCLASSIFIED'){
-              $tokens=[regex]::Matches($raw,'RECORDER_[A-Z0-9_]{3,80}')
-              # The initial smoke test emitted PASS markers before a later
-              # failure; its earliest token is not the failing assertion.
-              if($tokens.Count -gt 0){$label=$tokens[$tokens.Count-1].Value}
-              elseif($raw -match '(?i)Start-Process'){ $label='CHILD_PROCESS_START_OR_ARGUMENT' }
-              elseif($raw -match '(?i)ParserError|At .+\.ps1:\d+ char:'){ $label='POWERSHELL_PARSER_OR_SYNTAX' }
-              elseif($raw -match '(?i)property .* cannot be found|you cannot call a method on a null'){ $label='POWERSHELL_STRICT_PROPERTY_OR_NULL' }
-              elseif($raw -match '(?i)access is denied|sharing violation'){ $label='WINDOWS_PROCESS_OR_FILE_ACCESS' }
-            }
-            # The legacy fixture emitted its PASS marker before the new
-            # fixture failed without one of the known assertion names.
-            # Report only the failing script's line number and approved
-            # exception category; never emit its path, content or raw output.
-            $loc=[regex]::Matches($raw,'(?i)test-kterminal-recorder-v1\\.2\\.ps1:(\\d{1,4})')
-            $line='UNAVAILABLE'
-            if($loc.Count -gt 0){$line=$loc[$loc.Count-1].Groups[1].Value}
-            $class='OTHER'
-            foreach($pair in @(
-              @('(?i)PropertyNotFoundException|property .*cannot be found','PROPERTY_NOT_FOUND'),
-              @('(?i)MethodException|Cannot find an overload','METHOD_OR_OVERLOAD'),
-              @('(?i)ParameterBindingException|Cannot bind argument','PARAMETER_BINDING'),
-              @('(?i)Start-Process|process cannot be started','CHILD_PROCESS_START'),
-              @('(?i)ParserError|Unexpected token','POWERSHELL_PARSER'),
-              @('(?i)UnauthorizedAccessException|Access is denied','ACCESS_DENIED'),
-              @('(?i)DirectoryNotFoundException|Could not find a part of the path','PATH_NOT_FOUND'),
-              @('(?i)NullReferenceException|You cannot call a method on a null','NULL_REFERENCE'),
-              @('(?i)RuntimeException','RUNTIME_EXCEPTION')
-            )) {
-              if($raw -match $pair[0]){$class=$pair[1];break}
-            }
-            Write-Host ('KTERM_P5_PRIVATE_ERROR_LOCATION=LINE_'+$line+';CATEGORY='+$class)
-            $digest=(Get-FileHash -LiteralPath $focusedLog -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-Host ('KTERM_P5_FOCUSED=FAIL;CLASS='+$label+';LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE')
-            throw 'KTERM_P5_FOCUSED_FAILED'
+          $src=Join-Path $root 'source'
+          $pkg=Join-Path $root 'paper-package'
+          if(Test-Path -LiteralPath $pkg){throw 'KTERM_PAPER_PACKAGE_ROOT_NOT_FRESH'}
+          [void][IO.Directory]::CreateDirectory($pkg)
+          # No target installation paths are touched. The original BUILD.ps1
+          # emits binaries into this throwaway, source-pinned checkout only.
+          $buildlog=Join-Path $root 'private-paper-build.log'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $src 'BUILD.ps1') *> $buildlog
+          if($LASTEXITCODE -ne 0) {
+            Write-Host ('KTERM_PAPER_BUILD=FAIL;LOG_SHA256='+(Get-FileHash -LiteralPath $buildlog -Algorithm SHA256).Hash.ToLowerInvariant())
+            throw 'KTERM_PAPER_BUILD_FAILED'
           }
-          Write-Host ('KTERM_P5_FOCUSED=PASS;ORIGINAL_POWERSHELL_51=TRUE;MS='+$clock.ElapsedMilliseconds)
-          Push-Location $stage
-          try {
-            $full=Join-Path $root 'private-go-full.jsonl'
-            $clock=[Diagnostics.Stopwatch]::StartNew()
-            & go test -json -p 1 -count=1 -timeout 60m ./... *> $full
-            $code=$LASTEXITCODE
-            $clock.Stop()
-            if($code -ne 0){
-              $digest=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
-              Write-Host ('KTERM_P5_FULL_WINDOWS_REGRESSION=FAIL;EXIT='+$code+';LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE')
-              throw 'KTERM_P5_FULL_REGRESSION_FAILED'
+          $bins=@('K-Terminal.exe','K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe',
+            'K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe',
+            'K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe')
+          foreach($name in $bins){
+            $srcFile=Join-Path $src $name
+            if(-not [IO.File]::Exists($srcFile) -or (Get-Item -LiteralPath $srcFile).Length -lt 4096){
+              throw 'KTERM_PAPER_REQUIRED_BINARY_MISSING'
             }
-            Write-Host ('KTERM_P5_FULL_WINDOWS_REGRESSION=PASS;MS='+$clock.ElapsedMilliseconds)
-            & go vet ./... *> (Join-Path $root 'private-go-vet.log')
-            if($LASTEXITCODE -ne 0){throw 'KTERM_P5_VET_FAILED'}
-            Write-Host 'KTERM_P5_VET=PASS'
-          } finally { Pop-Location }
-          # The original canonical build is invoked without altering installed files,
-          # configuration, credentials or application runtime.
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> (Join-Path $root 'private-build.log')
-          if($LASTEXITCODE -ne 0){throw 'KTERM_P5_ORIGINAL_BUILD_FAILED'}
-          Write-Host 'KTERM_P5_ORIGINAL_BUILD=PASS;NO_INSTALL=TRUE;LIVE_ORDERS=0'
+            Copy-Item -LiteralPath $srcFile -Destination (Join-Path $pkg $name) -ErrorAction Stop
+          }
+          $meta=(& go version -m (Join-Path $src 'K-Terminal-Engine.exe') | Out-String)
+          if($meta -notmatch ('vcs\.revision='+[regex]::Escape($env:KTERM_SHA)) -or
+             $meta -notmatch 'vcs\.modified=false'){
+            throw 'KTERM_PAPER_BINARY_SOURCE_PROVENANCE_UNVERIFIED'
+          }
+          # Allowlist runtime source files by suffix and exclude admin/build
+          # tools, development tests and anything outside the source root.
+          $runtime=@(Get-ChildItem -LiteralPath $src -File -ErrorAction Stop | Where-Object {
+            (($_.Extension -ceq '.ps1' -or $_.Extension -ceq '.cs') -and
+             $_.Name -cnotin @('BUILD.ps1','HEALTH.ps1','UPDATE-PROGRAM-FILES.ps1') -and
+             $_.Name -cnotmatch '^test-') -or
+            $_.Name -cin @('edition.json','VERSION','LAUNCHER-REVISION','ui-runtime-manifest.json')
+          })
+          if($runtime.Count -lt 38 -or $runtime.Count -gt 85){throw 'KTERM_PAPER_RUNTIME_SOURCE_SET_DRIFT'}
+          foreach($file in $runtime){
+            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $pkg $file.Name) -ErrorAction Stop
+          }
+          $assets=Join-Path $pkg 'assets'
+          [void][IO.Directory]::CreateDirectory($assets)
+          foreach($name in @('kt-logo-source.png','roadmap-2027.png')){
+            Copy-Item -LiteralPath (Join-Path $src ('assets\'+$name)) -Destination (Join-Path $assets $name) -ErrorAction Stop
+          }
+          $diag=Join-Path $pkg 'diagnostics'
+          [void][IO.Directory]::CreateDirectory($diag)
+          Copy-Item -LiteralPath (Join-Path $src 'verification\KTerminal-Live-Session-Recorder-v1.2.ps1') -Destination (Join-Path $diag 'KTerminal-Live-Session-Recorder-v1.2.ps1')
+          Copy-Item -LiteralPath (Join-Path $src 'docs\P5-SAFE-LATENCY-RUNTIME.md') -Destination (Join-Path $diag 'P5-SAFE-LATENCY-RUNTIME.md')
+          $notice=@'
+          K TERMINAL PRIVATE PAPER ACCEPTANCE STAGING -- DO NOT INSTALL OR LAUNCH
+          Frozen source SHA: 5f56896a1aeefdf5e412d47210026dd6d882229f
+          Regression: FORGE run 42941369948, PASS on frozen source.
+          This ZIP contains no config.json, data, broker credentials, order
+          history, or production installation. This separate packaging run
+          rebuilds from unchanged source and checks the generated archive;
+          it does not rerun the previously passing full Windows regression.
+          The binaries are normal program binaries, not technically incapable
+          of being configured LIVE later. This is NOT a qualified LIVE build,
+          deployment package, installer, or authentic field performance receipt.
+          The original 5-minute reconciliation latency is NOT yet resolved.
+          '@
+          [IO.File]::WriteAllText((Join-Path $pkg 'DO_NOT_INSTALL_OR_LAUNCH.txt'),
+            $notice,[Text.UTF8Encoding]::new($false))
+          Write-Host ('KTERM_PAPER_BUILD=PASS;ENGINE_SOURCE=EXACT;BINARIES='+$bins.Count+
+            ';RUNTIME_SOURCE_FILES='+$runtime.Count+';NO_APP_EXECUTION=TRUE;NO_INSTALL=TRUE')
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $list=@(Get-ChildItem -LiteralPath $pkg -File -Recurse -ErrorAction Stop|Sort-Object FullName)
+          if($list.Count -lt 48 -or $list.Count -gt 120){throw 'KTERM_PAPER_FILE_COUNT_UNEXPECTED'}
+          $m=[ordered]@{schema='kterminal.paper.staging.v1';source_sha=$env:KTERM_SHA;
+            source_tree='8996ef668f167215edcbfd306ac819e53b3b4b86';
+            prior_full_regression_run=42941369948;
+            no_config_or_private_state=$true;live_deployment_qualified=$false;files=@()}
+          foreach($f in $list){
+            $rel=$f.FullName.Substring($pkg.Length+1).Replace('\','/')
+            if($rel -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
+               $rel -match '(^/|^\.\.|/\.\./|:)' -or $f.Length -gt 150MB){
+              throw 'KTERM_PAPER_DISALLOWED_ENTRY'
+            }
+            $m.files += [ordered]@{path=$rel;bytes=[long]$f.Length;
+              sha256=(Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+          }
+          [IO.File]::WriteAllText((Join-Path $pkg 'ACCEPTANCE-MANIFEST.json'),
+            ($m|ConvertTo-Json -Depth 7),[Text.UTF8Encoding]::new($false))
+          $zip=Join-Path $root 'K-Terminal-PAPER-ACCEPTANCE-5f56896a.zip'
+          [IO.Compression.ZipFile]::CreateFromDirectory($pkg,$zip,
+            [IO.Compression.CompressionLevel]::Optimal,$false)
+          $reader=[IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $entries=@($reader.Entries|Where-Object {$_.Name})
+            $seen=@{}
+            if($entries.Count -ne $list.Count+1){throw 'KTERM_PAPER_ZIP_COUNT_MISMATCH'}
+            foreach($entry in $entries){
+              if($seen.ContainsKey($entry.FullName) -or
+                $entry.FullName -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
+                $entry.FullName -match '(^/|^\.\.|/\.\./|:)'){
+                throw 'KTERM_PAPER_ZIP_ENTRY_REFUSED'
+              }
+              $seen[$entry.FullName]=$true
+            }
+            foreach($item in $m.files){
+              $entry=$reader.GetEntry($item.path)
+              if($null -eq $entry -or $entry.Length -ne $item.bytes){throw 'KTERM_PAPER_ZIP_FILE_MISMATCH'}
+              $stream=$entry.Open()
+              try {
+                $sha=[Security.Cryptography.SHA256]::Create()
+                try{$digest=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}
+                finally{$sha.Dispose()}
+              }finally{$stream.Dispose()}
+              if($digest -cne $item.sha256){throw 'KTERM_PAPER_ZIP_HASH_MISMATCH'}
+            }
+          }finally{$reader.Dispose()}
+          if((Get-Item -LiteralPath $zip).Length -gt 100MB){throw 'KTERM_PAPER_ZIP_TOO_LARGE'}
+          Write-Host ('KTERM_PAPER_ZIP=PASS;FILES='+($list.Count+1)+
+            ';ZIP_SHA256='+(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()+
+            ';NO_CONFIG_OR_DATA=TRUE;RELEASE_ACCEPTANCE=UNVERIFIED;NO_INSTALL=TRUE;LIVE_ORDERS=0')
+      - name: Upload private non-installable PAPER staging archive
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: K-Terminal-PAPER-ACCEPTANCE-5f56896a
+          path: ${{ runner.temp }}/kterm-p5-firstfile-${{ github.run_id }}/K-Terminal-PAPER-ACCEPTANCE-5f56896a.zip
+          retention-days: 14
+          if-no-files-found: error
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
