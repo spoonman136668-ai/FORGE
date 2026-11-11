@@ -77,6 +77,13 @@ def _episode(raw, seed, mode):
             raise ValueError("F57_ORIGINAL_REWARD_DOMAIN_INVALID")
         if type(term) is not bool or type(trunc) is not bool:
             raise ValueError("F57_TERMINATION_FLAGS_INVALID")
+        # Original Farama Acrobot-v1: 0 only on terminal success, -1
+        # otherwise. TimeLimit sets truncation at step 500 regardless of
+        # termination, so both flags can legitimately be true at that step.
+        if reward != (0.0 if term else -1.0):
+            raise ValueError("F57_ORIGINAL_REWARD_SEMANTICS_INVALID")
+        if trunc != (idx+1 == f57.MAX_STEPS):
+            raise ValueError("F57_ORIGINAL_500_STEP_TIMELIMIT_INVALID")
         if (term or trunc) and idx!=len(trace)-1:
             raise ValueError("F57_ACTIONS_AFTER_TERMINAL")
         terminated=term
@@ -87,8 +94,6 @@ def _episode(raw, seed, mode):
         previous=new
     if not (terminated or truncated):
         raise ValueError("F57_EPISODE_UNTERMINATED")
-    if terminated and truncated:
-        raise ValueError("F57_ORIGINAL_TERMINAL_TRUNCATION_CONFLICT")
     if terminated and reward_total>0:
         raise ValueError("F57_ACROBOT_REWARD_INCONSISTENT")
     return {

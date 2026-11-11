@@ -15,7 +15,11 @@ SNAP="a"*64
 def episode(seed,mode,steps,action=2):
     trace=[]
     for idx in range(steps):
-        trace.append([list(OBS),action,-1.,list(OBS),idx==steps-1,False])
+        done=idx==steps-1
+        term=done and steps<a.MAX_STEPS
+        trunc=done and steps==a.MAX_STEPS
+        trace.append([list(OBS),action,0. if term else -1.,
+                      list(OBS),term,trunc])
     return {"seed":seed,"mode":mode,"trace":trace,
             "model_snapshot_sha256":SNAP,"decision_ns":steps*15,
             "episode_wall_seconds":max(.01,steps*.01)}
@@ -78,8 +82,8 @@ class PureF57ReceiptGate(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"COLD_REPLAY_MISMATCH"):
             s.assess_untrusted_evidence(m)
         m=copy.deepcopy(self.synthetic_positive)
-        m["arms"]["quantile-supported"]["cold_transfer"][0]["trace"][0][2]=0.
-        with self.assertRaisesRegex(ValueError,"COLD_REPLAY_MISMATCH"):
+        m["arms"]["quantile-supported"]["cold_transfer"][0]["trace"][0][2]=-1.
+        with self.assertRaisesRegex(ValueError,"ORIGINAL_REWARD_SEMANTICS_INVALID"):
             s.assess_untrusted_evidence(m)
         m=copy.deepcopy(self.synthetic_positive)
         m["arms"]["quantile-supported"]["cold_transfer"][0]["model_snapshot_sha256"]="b"*64
@@ -101,7 +105,7 @@ class PureF57ReceiptGate(unittest.TestCase):
         m=copy.deepcopy(self.synthetic_positive)
         m["arms"]["momentum-rule"]["transfer"][0]["return"]=2000.0
         result=s.assess_untrusted_evidence(m)
-        self.assertEqual(result["arm_metrics"]["momentum-rule"]["transfer_mean_return"],-25.)
+        self.assertEqual(result["arm_metrics"]["momentum-rule"]["transfer_mean_return"],-24.)
         self.assertNotIn("scientific_pass",result)
         self.assertEqual(result["disposition"],s.UNVERIFIED)
         bad=copy.deepcopy(self.synthetic_positive)
@@ -125,6 +129,42 @@ class PureF57ReceiptGate(unittest.TestCase):
             elif label=="missing_control":
                 del m["arms"]["always-td"]
             with self.subTest(label=label),self.assertRaises(ValueError):
+                s.assess_untrusted_evidence(m)
+
+    def test_pinned_farama_reward_and_time_limit_contract(self):
+        # Pure synthetic structures: no original seed is consumed here.
+        good=copy.deepcopy(self.synthetic_negative)
+        for kind,mode,seeds in (
+            ("transfer","nips",a.PROPOSED_TRANSFER),
+            ("retention","book",a.PROPOSED_RETENTION)):
+            ep=episode(seeds[0],mode,a.MAX_STEPS)
+            for key in (kind,"cold_"+kind):
+                good["arms"]["momentum-rule"][key][0]=copy.deepcopy(ep)
+        self.assertEqual(
+            s.assess_untrusted_evidence(good)["nominal_cold_episodes_checked"],168)
+        both=copy.deepcopy(good)
+        for key in ("transfer","cold_transfer"):
+            step=both["arms"]["momentum-rule"][key][0]["trace"][-1]
+            step[4]=True
+            step[2]=0.
+        self.assertEqual(
+            s.assess_untrusted_evidence(both)["nominal_cold_episodes_checked"],168)
+        for fault,expected in (
+            ("early_truncation","500_STEP_TIMELIMIT"),
+            ("missing_500_truncation","500_STEP_TIMELIMIT"),
+            ("nonterminal_zero_reward","REWARD_SEMANTICS"),
+            ("terminal_minus_one_reward","REWARD_SEMANTICS")):
+            m=copy.deepcopy(good)
+            episodes=m["arms"]["momentum-rule"]["transfer"]
+            if fault=="early_truncation":
+                episodes[1]["trace"][-1][5]=True
+            elif fault=="missing_500_truncation":
+                episodes[0]["trace"][-1][5]=False
+            elif fault=="nonterminal_zero_reward":
+                episodes[1]["trace"][0][2]=0.
+            else:
+                episodes[1]["trace"][-1][2]=-1.
+            with self.subTest(fault=fault),self.assertRaisesRegex(ValueError,expected):
                 s.assess_untrusted_evidence(m)
 
     def test_terminal_and_continuity_negative_controls(self):
