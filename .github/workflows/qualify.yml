@@ -765,3 +765,82 @@ jobs:
           test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
+
+
+  # One-time, development-only F46 synthetic causal information experiment.
+  # Exact new research branch and own-repository PR only; no owner/scheduler/first-use.
+  f46_synthetic_causal_information_dev_once:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' &&
+      github.event.pull_request.head.ref == 'research/eureka-f46-causal-info-transfer-20261110'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact research PR candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen protocol, source-only model and original isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:docs/NATIVE-DISCOVERY-F46-CAUSAL-INFORMATION-TRANSFER-DEV.md)" = 'ce05962714a8656db67c92ed355785b9105a5a9d'
+          test "$(git rev-parse HEAD:research/f46_causal_information_dev.py)" = 'dd32efc988ea10375cb33065bc5cabe172f3c4bb'
+          test "$(git hash-object --no-filters research/f46_causal_information_dev.py)" = 'dd32efc988ea10375cb33065bc5cabe172f3c4bb'
+          test "$(git rev-parse HEAD:research/test_f46_causal_information_dev.py)" = '685bd1dd897ad534d210e42525df9292b6870d2d'
+          test "$(git rev-parse HEAD:AGENTS.md)" = '39926d2277ac01c8114f03561bd8e001fcc3b582'
+          echo 'F46_PROSPECTIVE_PROTOCOL_AND_MAIN_ISOLATION=PASS'
+      - name: Set up Python 3.11 without external Python dependency
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run FIT-only structural tests and first-use refusal controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research -p test_f46_causal_information_dev.py -v
+          echo 'F46_FOCUSED_NO_HELDOUT_TESTS=PASS'
+      - name: Execute frozen real synthetic action-consequence F46 evaluation once
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f46_causal_information_dev.py \
+            "$RUNNER_TEMP/f46-causal-information-synthetic-dev.json"
+          F46_REPORT="$RUNNER_TEMP/f46-causal-information-synthetic-dev.json" python -B - <<'PY'
+          import json,hashlib,os
+          from pathlib import Path
+          d=json.loads(Path(os.environ['F46_REPORT']).read_text())
+          assert d['schema']=='forge.eureka.f46.causal-information-synthetic-dev.v1'
+          assert d['synthetic_only'] and not d['original_gymnasium_used']
+          assert d['training_transitions']==640 and len(d['arms'])==8
+          assert len(d['transfer_seeds'])==24 and len(d['retention_seeds'])==8
+          assert all(len(a['worlds'])==32 for a in d['arms'].values())
+          assert all(len(w['episodes'])==4 for a in d['arms'].values() for w in a['worlds'])
+          assert all(ep['cold_matches'] for a in d['arms'].values() for w in a['worlds'] for ep in w['episodes'])
+          assert not d['scientific_accepted'] and not d['first_use_consumed']
+          assert not d['owner_eligible'] and not d['general_rsi_proven']
+          assert d['classification'] in ('F46_DEV_NO_GO','F46_DEV_SIGNAL_UNVERIFIED')
+          copy={k:v for k,v in d.items() if k!='report_sha256'}
+          proof=hashlib.sha256(json.dumps(copy,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
+          assert d['report_sha256']==proof
+          print('F46_FROZEN_DEV_CLASSIFICATION='+d['classification'])
+          print('F46_FROZEN_DEV_ARMS='+json.dumps({k:{'transfer_success':v['transfer_success_rate'],'transfer_mean_return':v['transfer_mean_return'],'retention_success':v['retention_success_rate'],'ns_per_action':v['transfer_decision_ns_per_action']} for k,v in d['arms'].items()},sort_keys=True))
+          print('F46_FROZEN_DEV_GAIN='+str(d['success_rate_gain']))
+          print('F46_FROZEN_DEV_RETURN_GAIN='+str(d['return_gain']))
+          print('F46_FROZEN_DEV_PAIRED_WORLD_WINS='+str(d['paired_world_success_wins']))
+          print('F46_FROZEN_DEV_DECISION_COST_RATIO='+str(d['cost_ratio']))
+          print('F46_FROZEN_DEV_REPORT_SHA256='+d['report_sha256'])
+          PY
+      - name: Preserve F46 positive or negative source-only development receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f46-synthetic-causal-information-once
+          path: ${{ runner.temp }}/f46-causal-information-synthetic-dev.json
+          if-no-files-found: warn
+          retention-days: 45
