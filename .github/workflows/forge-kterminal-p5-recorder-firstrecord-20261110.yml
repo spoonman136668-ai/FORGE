@@ -271,6 +271,28 @@ jobs:
             $exit=$LASTEXITCODE
           }finally{Pop-Location}
           if($exit -ne 0){
+            $detail=[IO.File]::ReadAllText($privateLog)
+            $class='UNCLASSIFIED'
+            foreach($entry in @(
+              @{name='GO_COMPILE';token='[build failed]'},
+              @{name='NO_ANCILLARY_GET';token='original Refresh did not reach expected ancillary GET'},
+              @{name='ACCOUNT_FEE_ORDER';token='account/fee request ordering changed'},
+              @{name='PREMATURE_COMMIT';token='original publisher performed unsafe partial account commit'},
+              @{name='PREMATURE_REVISION';token='unready GET advanced the account revision'},
+              @{name='PREMATURE_NOTIFY';token='unready GET sent premature notification'},
+              @{name='REFRESH_TIMEOUT';token='original Refresh did not finish after ancillary release'},
+              @{name='FAIL_FEE_PUBLISHED';token='failed fee read changed scoped account balance/revision'},
+              @{name='FAIL_FEE_NOTIFIED';token='failed fee read sent ready notification'},
+              @{name='SUCCESS_COMMIT_INVALID';token='verified full composite snapshot not published after release'},
+              @{name='SUCCESS_NOTIFY_MISSING';token='fresh completed snapshot omitted revision notification'},
+              @{name='HTTP_SCOPE_DRIFT';token='fixture request or mutation boundary drift'}
+            )){if($detail.Contains([string]$entry.token)){$class=$entry.name;break}}
+            if($class -eq 'UNCLASSIFIED' -and $detail.Contains('undefined:')){$class='GO_COMPILE_UNDEFINED'}
+            $case='UNKNOWN'
+            foreach($name in @('fee-held','book-held','fee-error')){
+              if($detail.Contains('TestKTermTemporaryAncillarySnapshotPublicationBarrier/'+$name)){$case=$name}
+            }
+            Write-Host ('KTERM_SNAPSHOT_FAILURE_CLASS='+$class+';CASE='+$case)
             Write-Host ('KTERM_SNAPSHOT_BARRIER=FAIL;PRIVATE_LOG_SHA256='+
               (Get-FileHash -LiteralPath $privateLog -Algorithm SHA256).Hash.ToLowerInvariant())
             throw 'KTERM_PUBLICATION_ORIGINAL_SOURCE_TEST_FAILED'
