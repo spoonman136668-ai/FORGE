@@ -13,10 +13,10 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: c88f46b1d6fa520c481128b9524dbba95b91ab2b
+      KTERM_SHA: 879bd65f75e1544d2125aa184596a2a8f8b972d3
       KTERM_BASE: 5f56896a1aeefdf5e412d47210026dd6d882229f
       KTERM_NATIVE_SNAPSHOT_BLOB: b381089816414485ca9b8f76334aa649d42336a9
-      KTERM_SNAPSHOT_TEST_BLOB: eaf0abb3a25666139d46c347051b53604a1e3712
+      KTERM_SNAPSHOT_TEST_BLOB: 91311e52d0f0f99b14caad0f227996583ef03d75
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -69,14 +69,14 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_P5_CHECKOUT_FAILED'}
           $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
           $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
-          $parent=(& git -C $stage rev-parse 'HEAD~5' | Out-String).Trim()
+          $parent=(& git -C $stage rev-parse 'HEAD~6' | Out-String).Trim()
           $rec=(& git -C $stage rev-parse 'HEAD:pkg/native-snapshot.go' | Out-String).Trim()
           $test=(& git -C $stage rev-parse 'HEAD:pkg/native-snapshot-freshness_test.go' | Out-String).Trim()
           if($sha -cne $env:KTERM_SHA -or $parent -cne $env:KTERM_BASE -or
              $rec -cne $env:KTERM_NATIVE_SNAPSHOT_BLOB -or $test -cne $env:KTERM_SNAPSHOT_TEST_BLOB -or
              $tree -cnotmatch '^[0-9a-f]{40}$' -or
              @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_P5_SOURCE_CUSTODY_REFUSED'}
-          $changed=@(& git -C $stage diff --name-only HEAD~5 HEAD)
+          $changed=@(& git -C $stage diff --name-only HEAD~6 HEAD)
           $expected=@('pkg/native-snapshot.go','pkg/native-snapshot-freshness_test.go')
           if($changed.Count -ne 2 -or @($changed | Where-Object {$_ -cnotin $expected}).Count -ne 0){
             throw 'KTERM_SNAPSHOT_TWO_FILE_SCOPE_DRIFT'
