@@ -4,6 +4,7 @@
 package main
 
 import(
+ "bytes"
  "crypto/ed25519"
  "encoding/hex"
  "encoding/json"
@@ -37,7 +38,15 @@ func readBounded(path string,target any)error{
   return fmt.Errorf("witness input missing, nonregular, or oversized")
  }
  f,err:=os.Open(path);if err!=nil{return err};defer f.Close()
- dec:=json.NewDecoder(io.LimitReader(f,65537));dec.DisallowUnknownFields()
+ return decodeBoundedWitness(f,target)
+}
+// A reader-size sentinel is checked BEFORE parsing or mutating the target.
+func decodeBoundedWitness(in io.Reader,target any)error{
+ raw,err:=io.ReadAll(io.LimitReader(in,65537))
+ if err!=nil||len(raw)==0||len(raw)>65536{
+  return errors.New("witness input read failed or changed size")
+ }
+ dec:=json.NewDecoder(bytes.NewReader(raw));dec.DisallowUnknownFields()
  if err:=dec.Decode(target);err!=nil{return err}
  var extra any
  if !errors.Is(dec.Decode(&extra),io.EOF){return fmt.Errorf("trailing witness input rejected")}
