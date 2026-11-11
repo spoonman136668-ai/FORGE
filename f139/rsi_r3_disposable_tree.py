@@ -12,7 +12,8 @@ import subprocess
 import sys
 
 from f139.rsi_r3_source_cycle import (
-    Generation, R3Denied, TARGET, fingerprint, verify,
+    Generation, R3Denied, RANK_EXPRESSIONS, TARGET, fingerprint,
+    generate, source_for, verify,
 )
 
 SCHEMA = "forge.f139.rsi-r3.disposable-source-tree.v1"
@@ -65,6 +66,23 @@ def staged_source(original: bytes, generation: Generation) -> bytes:
     return output
 
 
+def staged_selector(module_source: bytes) -> bytes:
+    """Read only a byte-exact reviewed selector from a staged FORGE module.
+
+    A checkout can hold unrelated or malicious source. Never import the
+    checkout module; the reviewed generator executes only the finite grammar.
+    """
+    need(type(module_source) is bytes, "STAGED_SELECTOR_INPUT_INVALID")
+    parts = module_source.split(MARKER)
+    need(len(parts) == 2 and parts[1].endswith(END),
+         "STAGED_SELECTOR_BOUNDARY_INVALID")
+    selected = parts[1][:-len(END)]
+    need(0 < len(selected) < 2048 and any(
+        selected == source_for(i) for i in range(len(RANK_EXPRESSIONS))),
+        "STAGED_SELECTOR_NOT_REVIEWED_GRAMMAR")
+    return selected
+
+
 def _safe_source(repo: Path, scratch: Path, expected_head: str,
                  expected_target_sha256: str) -> None:
     need(repo.is_dir() and scratch.is_dir() and
@@ -105,6 +123,28 @@ def stage_generations(repo: Path, scratch: Path,
     origin, parent, parent_head = expected_head, repo, expected_head
     receipts: list[Staged] = []
     for g in generations:
+        if receipts:
+            # G2 must be reproducible by executing the actual tracked G1
+            # selector, not a cached or caller-supplied in-memory substitute.
+            prior = receipts[-1]
+            need(g.generation == prior.generation + 1
+                 and git(parent, "rev-parse", "HEAD") == parent_head
+                 and git(parent, "status", "--porcelain", "--untracked-files=all") == "",
+                 "STAGED_PARENT_HEAD_OR_WORKTREE_DRIFT")
+            tracked = (parent / TARGET).read_bytes()
+            need(fingerprint(tracked) == prior.target_sha256,
+                 "STAGED_PARENT_MODULE_DRIFT")
+            staged_parent = staged_selector(tracked)
+            need(fingerprint(staged_parent) == prior.generated_source_sha256
+                 and staged_parent == generations[g.generation - 2].source,
+                 "STAGED_PARENT_SOURCE_DRIFT")
+            used = frozenset({0} | {row.operator for row in
+                                    generations[:g.generation - 1]})
+            rerun = generate(parent_source=staged_parent,
+                             generation=g.generation,
+                             feedback=g.observed_training,
+                             used_operators=used)
+            need(rerun == g, "STAGED_PARENT_FEEDBACK_REPLAY_DRIFT")
         child = scratch / ("rsi-r3-g%d" % g.generation)
         need(not child.exists() and not child.is_symlink(), "CHILD_ALREADY_EXISTS")
         subprocess_result = subprocess.run(
