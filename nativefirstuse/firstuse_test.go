@@ -98,3 +98,47 @@ func TestNativeFirstUsePublicExecutionAlwaysDenied(t *testing.T){
   }
  }
 }
+
+
+// TestNativeCandidateDigestBindsFullAcceptedContext prevents a source-only
+// identity alias: two admissible proposals must not have the same digest when
+// either research lane's first-use context or the owner's lease changes.
+func TestNativeCandidateDigestBindsFullAcceptedContext(t *testing.T){
+ baseline,err:=Prepare(fixture())
+ if err!=nil{t.Fatal(err)}
+ cases:=[]struct{name string;mutate func(*Proposal)}{
+  {"original_run",func(p *Proposal){p.Claim.OriginalRunID="FORGE_F74_ANOTHER_RUN"}},
+  {"claim_frozen_source",func(p *Proposal){p.Claim.FrozenSHA256=rep("9",64)}},
+  {"claim_worker",func(p *Proposal){p.Claim.WorkerID="native-shadow-worker-2";p.Lease.WorkerID=p.Claim.WorkerID}},
+  {"current_owner",func(p *Proposal){p.OwnerID="FORGE-native-next-owner";p.Lease.OwnerID=p.OwnerID}},
+  {"lease_sequence",func(p *Proposal){p.Lease.LeaseSequence++}},
+  {"lease_expiry",func(p *Proposal){p.Lease.ExpiresAtUnix++}},
+  {"observation_time",func(p *Proposal){p.AtUnix++}},
+  {"wingless_source",func(p *Proposal){p.Snapshots[0].SourceCommitSHA=rep("5",40)}},
+  {"yggdrasil_source",func(p *Proposal){p.Snapshots[1].SourceCommitSHA=rep("6",40)}},
+  {"wingless_highwater",func(p *Proposal){p.Snapshots[0].SequenceHighwater++}},
+  {"yggdrasil_highwater",func(p *Proposal){p.Snapshots[1].SequenceHighwater++}},
+  {"wingless_consumed",func(p *Proposal){p.Snapshots[0].ConsumedCount++}},
+  {"yggdrasil_consumed",func(p *Proposal){p.Snapshots[1].ConsumedCount++}},
+  {"wingless_active",func(p *Proposal){p.Snapshots[0].ActiveCount++}},
+  {"yggdrasil_active",func(p *Proposal){p.Snapshots[1].ActiveCount++}},
+  {"wingless_uncertain",func(p *Proposal){p.Snapshots[0].UncertainCount++}},
+  {"yggdrasil_uncertain",func(p *Proposal){p.Snapshots[1].UncertainCount++}},
+  {"wingless_ledger",func(p *Proposal){p.Snapshots[0].LedgerSHA256=rep("7",64)}},
+  {"yggdrasil_ledger",func(p *Proposal){p.Snapshots[1].LedgerSHA256=rep("8",64)}},
+  {"budget",func(p *Proposal){p.BudgetSHA256=rep("0",64)}},
+ }
+ for _,tc:=range cases{
+  t.Run(tc.name,func(t *testing.T){
+   p:=fixture();tc.mutate(&p)
+   got,err:=Prepare(p)
+   if err!=nil{t.Fatalf("valid altered input rejected: %v",err)}
+   if got.CandidateDigest==baseline.CandidateDigest{
+    t.Fatalf("distinct %s shared a candidate digest",tc.name)
+   }
+   if !errors.Is(AuthorizeLiveOriginal(got),ErrNoScienceAuthority){
+    t.Fatal("source digest changed live first-use denial")
+   }
+  })
+ }
+}
