@@ -1,0 +1,96 @@
+name: K Terminal original installed-root passive metadata admission
+on:
+  push:
+    branches: [qualification/kterm-original-runtime-readonly-20261111]
+    paths: [.github/workflows/kterm-original-install-roots-metadata-20261111.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr88-full-window-ae11818c
+  cancel-in-progress: false
+jobs:
+  original-installed-roots-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Read only two historically documented installation roots
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterm-original-runtime-readonly-20261111' -or
+             $env:GITHUB_WORKFLOW -cne 'K Terminal original installed-root passive metadata admission' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows') {throw 'KTERM_INSTALL_ROUTES_OWNER_REFUSED'}
+          # Original owner-host identity is historically reported as LINKDEADKB.
+          # A runner name does not prove the underlying machine is that host.
+          $match=([string]$env:COMPUTERNAME -ceq 'LINKDEADKB')
+          Write-Host ('KTERM_INSTALL_OWNER_MACHINE_MATCH='+$match)
+          if(-not $match){
+            Write-Host 'KTERM_INSTALL_ROUTES_CHECK=UNVERIFIED;REASON=HISTORICAL_MACHINE_IDENTITY_MISMATCH'
+            Write-Host 'KTERM_INSTALL_NO_LAUNCH=TRUE;NO_BROKER_REQUESTS=TRUE;NO_MUTATION=TRUE'
+            return
+          }
+          $base=Join-Path $env:SystemDrive 'Users\Runner\Desktop'
+          # Exact 2026-10-18 owner-documented candidates. No recursive search.
+          $cases=@(
+            [pscustomobject]@{Name='BTC';Root=Join-Path $base 'Runner\Personal K-Terminal v1.1.5 - BTC Migrated'},
+            [pscustomobject]@{Name='XRP';Root=Join-Path $base 'JaeRunner\Personal K-Terminal v1.1.5'}
+          )
+          $processes=@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue)
+          foreach($item in $cases){
+            $root=[IO.Path]::GetFullPath($item.Root).TrimEnd('\')
+            $present=[IO.Directory]::Exists($root)
+            $launcher=$false
+            $engine=$false
+            $config=$false
+            $data=$false
+            $pending=$false
+            $sourceManifest=$false
+            $hashReadable=$false
+            $processMatched=$false
+            if($present){
+              $rootItem=Get-Item -LiteralPath $root -Force -ErrorAction Stop
+              if(($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw 'KTERM_INSTALL_ROOT_REPARSE_REFUSED'
+              }
+              $exe=Join-Path $root 'K-Terminal.exe'
+              $enginePath=Join-Path $root 'K-Terminal-Engine.exe'
+              $launcher=[IO.File]::Exists($exe)
+              $engine=[IO.File]::Exists($enginePath)
+              $config=[IO.File]::Exists((Join-Path $root 'config.json'))
+              $data=[IO.Directory]::Exists((Join-Path $root 'data'))
+              $pending=[IO.File]::Exists((Join-Path $root 'pending-program-update.json'))
+              $sourceManifest=[IO.File]::Exists((Join-Path $root 'source-manifest.json'))
+              if($launcher){
+                $exeFile=Get-Item -LiteralPath $exe -Force -ErrorAction Stop
+                if(($exeFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                  throw 'KTERM_INSTALL_EXE_REPARSE_REFUSED'
+                }
+                $digest=(Get-FileHash -LiteralPath $exe -Algorithm SHA256 -ErrorAction Stop).Hash
+                $hashReadable=($digest -cmatch '^[A-F0-9]{64}$')
+              }
+              foreach($process in $processes){
+                $processPath=''
+                try{$processPath=[string]$process.MainModule.FileName}catch{}
+                if($processPath -and
+                  ($processPath -ieq $exe -or $processPath -ieq $enginePath)){
+                  $processMatched=$true
+                }
+              }
+            }
+            Write-Host ('KTERM_INSTALL_CANDIDATE='+$item.Name+
+              ';ROOT_PRESENT='+$present+
+              ';LAUNCHER_PRESENT='+$launcher+
+              ';ENGINE_PRESENT='+$engine+
+              ';CONFIG_PRESENT='+$config+
+              ';DATA_PRESENT='+$data+
+              ';PENDING_UPDATE_PRESENT='+$pending+
+              ';SOURCE_MANIFEST_PRESENT='+$sourceManifest+
+              ';EXE_HASH_READABLE='+$hashReadable+
+              ';ORIGINAL_PROCESS_MATCH='+$processMatched)
+          }
+          Write-Host 'KTERM_INSTALL_ROUTES_CHECK=PASS;CHECK=METADATA_ONLY;NO_LAUNCH=TRUE;NO_CONTENTS_READ=TRUE;NO_BROKER_REQUESTS=TRUE;NO_MUTATION=TRUE'
