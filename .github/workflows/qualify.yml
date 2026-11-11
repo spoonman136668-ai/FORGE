@@ -765,3 +765,91 @@ jobs:
           test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
+
+
+  # One-shot only: F48 synthetic delayed-credit mechanism, existing public runner.
+  f48_regime_reset_credit_dev_once:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' &&
+      github.event.pull_request.head.ref == 'research/eureka-f48-delayed-regime-reset-20261110' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact prospective F48 candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check frozen F48 protocol, mechanism and no-owner guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:docs/NATIVE-DISCOVERY-F48-DELAYED-CREDIT-REGIME-RESET-DEV.md)" = 'e23ed86dc2eb86902545ec744fc950294bbca002'
+          test "$(git rev-parse HEAD:research/f48_regime_reset_credit_dev.py)" = '2e2c9665fb6557a682cf788d678f6818e51fd995'
+          test "$(git hash-object --no-filters research/f48_regime_reset_credit_dev.py)" = '2e2c9665fb6557a682cf788d678f6818e51fd995'
+          test "$(git rev-parse HEAD:research/test_f48_regime_reset_credit_dev.py)" = '04531a80f584529abca9df2c14c0cdd3cba93ca5'
+          test "$(git rev-parse HEAD:AGENTS.md)" = '39926d2277ac01c8114f03561bd8e001fcc3b582'
+          echo 'F48_SOURCE_AND_PROSPECTIVE_CUSTODY=PASS'
+      - name: Python 3.11 public source-only runner
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run FIT-only structural tests without heldout evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research -p test_f48_regime_reset_credit_dev.py -v
+          echo 'F48_FIT_ONLY_NEGATIVE_TESTS=PASS'
+      - name: Execute frozen original F48 synthetic action-consequence DEV once
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f48_regime_reset_credit_dev.py \
+            "$RUNNER_TEMP/f48-delayed-regime-dev.json"
+          F48_REPORT="$RUNNER_TEMP/f48-delayed-regime-dev.json" python -B - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          d=json.loads(Path(os.environ["F48_REPORT"]).read_text())
+          assert d["schema"]=="forge.eureka.f48.delayed-credit-regime-reset-synthetic-dev.v1"
+          assert d["synthetic_only"] and not d["original_external_environment"]
+          assert d["train_transitions"]==768 and d["train_action_counts"]==[288,288,192]
+          assert len(d["fit_seeds"])==8 and len(d["transfer_seeds"])==24
+          assert len(d["retention_seeds"])==12 and len(d["arms"])==9
+          assert all(len(v["worlds"])==36 for v in d["arms"].values())
+          assert all(len(w["episodes"])==4 for v in d["arms"].values() for w in v["worlds"])
+          assert all(e["steps"]==8 and e["cold_matches"] for v in d["arms"].values()
+                     for w in v["worlds"] for e in w["episodes"])
+          assert d["classification"] in ("F48_DEV_NO_GO","F48_DEV_SIGNAL_UNVERIFIED")
+          assert not d["scientific_accepted"] and not d["first_use_consumed"]
+          assert not d["owner_eligible"] and not d["general_rsi_proven"]
+          copy={k:v for k,v in d.items() if k!="report_sha256"}
+          sha=hashlib.sha256(json.dumps(copy,sort_keys=True,separators=(",",":"),
+                                        allow_nan=False).encode()).hexdigest()
+          assert sha==d["report_sha256"]
+          print("F48_FROZEN_DEV_RESULT="+d["classification"])
+          print("F48_DEV_ARMS="+json.dumps({k:{"transfer_success":v["transfer_success"],
+            "transfer_return":v["transfer_return"],"retention_success":v["retention_success"],
+            "reset_worlds":v["reset_worlds"],"stable_update_worlds":v["stable_update_worlds"],
+            "decision_ns_per_action":v["decision_ns_per_action"]} for k,v in d["arms"].items()},sort_keys=True))
+          print("F48_STRONGEST_CONVENTIONAL="+d["strongest_conventional"])
+          print("F48_SUCCESS_GAIN="+str(d["success_gain"]))
+          print("F48_PAIRED_WORLD_WINS="+str(d["paired_world_wins"]))
+          print("F48_RETURN_GAIN="+str(d["return_gain"]))
+          print("F48_RETENTION_MARGIN="+str(d["retention_margin"]))
+          print("F48_DECISION_COST_RATIO="+str(d["cost_ratio"]))
+          print("F48_FIT_SOURCE_SHA256="+d["fit_sha256"])
+          print("F48_REPORT_SHA256="+d["report_sha256"])
+          PY
+      - name: Preserve authentic negative or positive F48 DEV report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f48-delayed-regime-dev-once
+          path: ${{ runner.temp }}/f48-delayed-regime-dev.json
+          if-no-files-found: warn
+          retention-days: 45
