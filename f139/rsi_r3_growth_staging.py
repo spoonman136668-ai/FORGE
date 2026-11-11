@@ -101,7 +101,7 @@ def _reviewed_program(growth: Growth, original: bytes) -> dict:
             "FORGE_RSI_R3_GROWTH_STAGE_GROWTH_RECORD_INVALID") from exc
     # Execute only the exact, authenticated AST-local revised FORGE source.
     # This is an ordinary test process, not a sandbox for arbitrary code.
-    env = {"__name__": "forge_rsi_r3_disposable_dev"}
+    env = {"__name__": "__main__"}
     exec(compile(growth.source, TARGET, "exec"), env)
     return env
 
