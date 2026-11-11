@@ -1,0 +1,167 @@
+name: K Terminal P5 recorder first-file capture source-qualified Windows regression
+on:
+  push:
+    branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
+    paths: [.github/workflows/forge-kterminal-p5-recorder-firstrecord-20261110.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr88-full-window-ae11818c
+  cancel-in-progress: false
+jobs:
+  owner-local-paper-qualification:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 115
+    env:
+      KTERM_SHA: 091d52b29c22c78d48a6248b816dce29be635fe0
+      KTERM_BASE: bcebdc1a7a0487f9d6061a8e643c76069335d896
+      KTERM_RECORDER_BLOB: afbef54ac539df0e7dc001c1c44a0edd2dea0a25
+      KTERM_TEST_BLOB: 461ada6bdfa7d18bc8da024b5c786e6f44c68102
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOENV: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Admit previously approved Windows owner and disarmed environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-recorder-firstrecord-20261110' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows') { throw 'KTERM_P5_OWNER_IDENTITY_REFUSED' }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
+              'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')) {
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_P5_OWNER_BROKER_ENV_REFUSED'}
+          }
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_P5_EXISTING_APP_PRESERVED_REFUSED'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_P5_WORKSPACE_NOT_FRESH'}
+          [void][IO.Directory]::CreateDirectory($root)
+          Write-Host 'KTERM_P5_OWNER_ISOLATED_DISARMED=PASS;NO_BROKER_WRITES=TRUE'
+      - name: Stage pinned private K Terminal candidate and compare only two recorder files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          [void][IO.Directory]::CreateDirectory($stage)
+          & git -C $stage init -q *> (Join-Path $root 'private-git-init.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_P5_GIT_INIT_FAILED'}
+          $source='https://github.com/Kboomllc/K-Terminal.git'
+          & git -C $stage fetch -q --no-tags --depth=3 $source $env:KTERM_SHA *> (Join-Path $root 'private-git-fetch.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_P5_PRIVATE_SOURCE_UNAVAILABLE'}
+          & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'private-git-checkout.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_P5_CHECKOUT_FAILED'}
+          $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          $parent=(& git -C $stage rev-parse 'HEAD~2' | Out-String).Trim()
+          $rec=(& git -C $stage rev-parse 'HEAD:verification/KTerminal-Live-Session-Recorder-v1.2.ps1' | Out-String).Trim()
+          $test=(& git -C $stage rev-parse 'HEAD:verification/test-kterminal-recorder-v1.2.ps1' | Out-String).Trim()
+          if($sha -cne $env:KTERM_SHA -or $parent -cne $env:KTERM_BASE -or
+             $rec -cne $env:KTERM_RECORDER_BLOB -or $test -cne $env:KTERM_TEST_BLOB -or
+             $tree -cnotmatch '^[0-9a-f]{40}$' -or
+             @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_P5_SOURCE_CUSTODY_REFUSED'}
+          $changed=@(& git -C $stage diff --name-only HEAD~2 HEAD)
+          $expected=@('verification/KTerminal-Live-Session-Recorder-v1.2.ps1','verification/test-kterminal-recorder-v1.2.ps1')
+          if($changed.Count -ne 2 -or @($changed | Where-Object {$_ -cnotin $expected}).Count -ne 0){
+            throw 'KTERM_P5_TWO_FILE_SCOPE_DRIFT'
+          }
+          foreach($private in @('.env','config.json','data')){
+            if(Test-Path -LiteralPath (Join-Path $stage $private)){throw 'KTERM_P5_PRIVATE_STATE_REFUSED'}
+          }
+          Write-Host ('KTERM_P5_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';TWO_FILE_SCOPE=PASS')
+      - name: Pinned Windows Go toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Focused original PowerShell 5.1 recorder test then full Windows regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_P5_GO_TOOLCHAIN_DRIFT'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          $env:RUNNER_TEMP=Join-Path $root 'test-temp'
+          $env:GOCACHE=Join-Path $root 'go-cache'
+          $env:GOMODCACHE=Join-Path $root 'go-modules'
+          $env:K_TERMINAL_TEST_WORKSPACE=Join-Path $root 'test-workspace'
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'test-workspace\tail'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'test-workspace\post'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'test-workspace\private'
+          foreach($dir in @($env:RUNNER_TEMP,$env:GOCACHE,$env:GOMODCACHE,$env:K_TERMINAL_TEST_WORKSPACE,
+              $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,
+              $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){[void][IO.Directory]::CreateDirectory($dir)}
+          $rec=Join-Path $stage 'verification\KTerminal-Live-Session-Recorder-v1.2.ps1'
+          $test=Join-Path $stage 'verification\test-kterminal-recorder-v1.2.ps1'
+          $focusedLog=Join-Path $root 'private-focused-recorder.log'
+          $clock=[Diagnostics.Stopwatch]::StartNew()
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Recorder $rec *> $focusedLog
+          $code=$LASTEXITCODE
+          $clock.Stop()
+          if($code -ne 0){
+            $known=@('RECORDER_NEW_SOURCE_FIRST_RECORD_MISSED','RECORDER_PREEXISTING_DATA_REPLAYED',
+                'RECORDER_NEW_SOURCE_INITIAL_POLL_NOT_OBSERVED','RECORDER_NEW_SOURCE_PRIVATE_INPUT_LEAK',
+                'RECORDER_NEW_SOURCE_SAFE_EVENT_MISSING','RECORDER_SYNTHETIC_P5_NOT_OBSERVED')
+            $label='UNCLASSIFIED'
+            $raw=[IO.File]::ReadAllText($focusedLog)
+            foreach($term in $known){if($raw.Contains($term)){$label=$term;break}}
+            $digest=(Get-FileHash -LiteralPath $focusedLog -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host ('KTERM_P5_FOCUSED=FAIL;CLASS='+$label+';LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE')
+            throw 'KTERM_P5_FOCUSED_FAILED'
+          }
+          Write-Host ('KTERM_P5_FOCUSED=PASS;ORIGINAL_POWERSHELL_51=TRUE;MS='+$clock.ElapsedMilliseconds)
+          Push-Location $stage
+          try {
+            $full=Join-Path $root 'private-go-full.jsonl'
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            & go test -json -p 1 -count=1 -timeout 60m ./... *> $full
+            $code=$LASTEXITCODE
+            $clock.Stop()
+            if($code -ne 0){
+              $digest=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ('KTERM_P5_FULL_WINDOWS_REGRESSION=FAIL;EXIT='+$code+';LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE')
+              throw 'KTERM_P5_FULL_REGRESSION_FAILED'
+            }
+            Write-Host ('KTERM_P5_FULL_WINDOWS_REGRESSION=PASS;MS='+$clock.ElapsedMilliseconds)
+            & go vet ./... *> (Join-Path $root 'private-go-vet.log')
+            if($LASTEXITCODE -ne 0){throw 'KTERM_P5_VET_FAILED'}
+            Write-Host 'KTERM_P5_VET=PASS'
+          } finally { Pop-Location }
+          # The original canonical build is invoked without altering installed files,
+          # configuration, credentials or application runtime.
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> (Join-Path $root 'private-build.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_P5_ORIGINAL_BUILD_FAILED'}
+          Write-Host 'KTERM_P5_ORIGINAL_BUILD=PASS;NO_INSTALL=TRUE;LIVE_ORDERS=0'
+      - name: Remove private source and local test fixtures
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base=$env:RUNNER_TEMP
+          $root=Join-Path $base ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root) {
+            $path=[IO.Path]::GetFullPath($root)
+            $scope=[IO.Path]::GetFullPath($base).TrimEnd('\')+'\'
+            if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
+               [IO.Path]::GetFileName($path) -cne ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)){
+              throw 'KTERM_P5_PRIVATE_CLEANUP_REFUSED'
+            }
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_P5_PRIVATE_CLEANUP=PASS;PUBLIC_PRIVATE_FILES=0;LIVE_ORDERS=0'
