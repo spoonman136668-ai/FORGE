@@ -1,6 +1,7 @@
 """Frozen source-grammar growth capacity test; not an RSI performance test."""
 from dataclasses import replace
 from pathlib import Path
+import subprocess
 import unittest
 
 from f139 import rsi_r3_source_cycle as g0
@@ -9,7 +10,18 @@ from f139.rsi_r3_source_grammar_growth import (
     propose, rewrite, verify,
 )
 
-BASE = (Path(__file__).resolve().parents[1] / TARGET).read_bytes()
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def committed_source() -> bytes:
+    """Read the exact immutable Git blob, not autocrlf-transformed worktree."""
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "show", "HEAD:" + TARGET],
+        capture_output=True, timeout=20, check=True)
+    return result.stdout
+
+
+BASE = committed_source()
 G1_FEEDBACK = ((2, (12, 2, 8, 3)), (3, (12, 3, 4, 9)))
 G2_FEEDBACK = ((3, (12, 5, 5, 4)), (4, (12, 3, 9, 9)))
 
@@ -45,7 +57,9 @@ class GrammarGrowthTests(unittest.TestCase):
         for flag in ("original_owner_admitted", "autonomous_rsi_proven",
                      "scientific_first_use", "worker_dispatched", "deployed"):
             self.assertFalse(getattr(p, flag))
-        self.assertEqual(BASE, (Path(__file__).resolve().parents[1] / TARGET).read_bytes())
+        self.assertEqual(BASE, committed_source())
+        checked_out = (ROOT / TARGET).read_bytes()
+        self.assertIn(checked_out, (BASE, BASE.replace(b"\\n", b"\\r\\n")))
 
     def test_revised_real_g1_source_generates_new_g2_after_feedback(self):
         g1 = reviewed_g1()
