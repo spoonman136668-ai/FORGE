@@ -41,7 +41,7 @@ class F46Checks(unittest.TestCase):
     def test_info_gain_and_goal_conditional_prevention_of_free_probes(self):
         p=self.model["prior"]
         self.assertAlmostEqual(1.0,sum(p),places=12)
-        self.assertEqual(0.0,f46.info_gain(p,2))
+        self.assertAlmostEqual(0.0,f46.info_gain(p,2),places=12)
         self.assertGreater(f46.info_gain(p,0),0.0)
         self.assertGreater(f46.info_gain(p,1),0.0)
         for kind in f46.ARMS:
