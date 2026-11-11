@@ -1,4 +1,4 @@
-name: K Terminal P5 source-locked hidden WPF UI acceptance
+name: K Terminal P5 exact PAPER first render Stage1 acceptance
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -174,25 +174,71 @@ jobs:
           $env:ALL_PROXY='http://127.0.0.1:9'
           $env:NO_PROXY=''
           $env:K_TERMINAL_GITHUB_TOKEN=''
-          $log=Join-Path $root 'private-original-ui-acceptance.log'
+          # The original Stage1 harness uses disposable synthetic snapshots
+          # and hidden WPF app-owner windows. It runs the actual packaged
+          # intelligence viewer in guarded local PowerShell child processes.
+          # No K-Terminal engine or launcher is started; all results remain
+          # under the new runner-temp root and are deleted on cleanup.
+          $fixture=Join-Path $root 'stage1-test-temp'
+          $output=Join-Path $root 'stage1-evidence-private'
+          [void][IO.Directory]::CreateDirectory($fixture)
+          [void][IO.Directory]::CreateDirectory($output)
+          $env:TEMP=$fixture
+          $env:TMP=$fixture
+          $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+          $env:K_TERMINAL_SELECTED_ASSET='BTC-USDC'
+          $env:K_TERMINAL_P5_LATENCY='0'
+          $env:K_TERMINAL_NATIVE_TIMING='0'
+          $env:HTTP_PROXY='http://127.0.0.1:9'
+          $env:HTTPS_PROXY='http://127.0.0.1:9'
+          $env:ALL_PROXY='http://127.0.0.1:9'
+          $env:NO_PROXY=''
+          $env:K_TERMINAL_GITHUB_TOKEN=''
+          $log=Join-Path $root 'private-performance-stage1.log'
           $clock=[Diagnostics.Stopwatch]::StartNew()
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $root 'source\verification\test-ui-runtime.ps1') -Root $pkg -OutputDirectory $output *> $log
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $root 'source\verification\test-performance-stage1.ps1') -Root $pkg -Edition personal -OutputDirectory $output *> $log
           $exit=$LASTEXITCODE
           $clock.Stop()
-          $result=Join-Path $output 'ui-runtime-results.json'
+          $result=Join-Path $output 'stage1-results.json'
           if($exit -ne 0 -or -not [IO.File]::Exists($result)){
-            Write-Host ('KTERM_UI_HIDDEN_WPF=FAIL;LOG_SHA256='+(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()+';PRIVATE_LOG=TRUE')
-            throw 'KTERM_UI_ORIGINAL_HIDDEN_WPF_ACCEPTANCE_FAILED'
+            Write-Host ('KTERM_STAGE1_OFFLINE_UI=FAIL;PRIVATE_LOG_SHA256='+
+              (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()+
+              ';RAW_LOG_PRIVATE=TRUE')
+            throw 'KTERM_STAGE1_ORIGINAL_UI_TEST_FAILED'
           }
           $p=[IO.File]::ReadAllText($result)|ConvertFrom-Json
-          if($p.result -cne 'PASS' -or $p.assembly -cne 'KTerminal.UI.dll' -or
-             $p.markup_match -cne 'PASS' -or $p.prepared_window_hidden -ne $true -or
-             $p.dark_light_depth -cne 'PASS' -or
-             $p.corrupt_assembly_blocked -ne $true -or $p.stale_source_fallback -ne $true){
-            throw 'KTERM_UI_ORIGINAL_HIDDEN_WPF_PROOF_INVALID'
+          if($p.result -cne 'PASS' -or $p.edition -cne 'personal' -or
+             $p.invisible -ne $true -or $p.no_engine_or_api -ne $true -or
+             $p.background_child_count -ne 0 -or @($p.cases).Count -lt 12 -or
+             @($p.cases | Where-Object {$_.result -cne 'PASS'}).Count -ne 0) {
+            throw 'KTERM_STAGE1_PROOF_SEMANTICS_FAILED'
           }
-          Write-Host ('KTERM_UI_HIDDEN_WPF=PASS;MS='+$clock.ElapsedMilliseconds+
-            ';PREPARED_MARKUP=PASS;DARK_LIGHT=PASS;CORRUPT_DLL_REJECTED=PASS;STALE_SOURCE_FALLBACK=PASS;WINDOWS_SHOWN=0;BROKER_IO=0;REAL_APP_STARTED=FALSE')
+          $cold=@($p.cases|Where-Object {$_.name -ceq 'accepted-cold-first-open-current-data'})
+          $fresh=@($p.cases|Where-Object {$_.name -ceq 'changed-reopen-clears-before-fresh-readiness'})
+          $cached=@($p.cases|Where-Object {$_.name -ceq 'unchanged-reopen-requalifies-cache'})
+          $isolation=@($p.cases|Where-Object {$_.name -ceq 'same-root-different-owner-mode-product-isolation'})
+          $orphans=@($p.cases|Where-Object {$_.name -ceq 'all-owner-close-no-orphan'})
+          if($cold.Count -ne 1 -or $fresh.Count -ne 1 -or
+             $cached.Count -ne 1 -or $isolation.Count -ne 1 -or $orphans.Count -ne 1) {
+            throw 'KTERM_STAGE1_MISSING_CRITICAL_NEGATIVE_OR_TIMING_CASE'
+          }
+          $coldShell=[double]$cold[0].click_to_shell_wall_ms
+          $coldFresh=[double]$cold[0].click_to_fresh_data_wall_ms
+          $reload=[double]$fresh[0].reopen_to_fresh_data_wall_ms
+          $unchanged=[double]$cached[0].reopen_to_fresh_data_wall_ms
+          if($coldShell -lt 0 -or $coldFresh -lt $coldShell -or $reload -lt 0 -or $unchanged -lt 0){
+            throw 'KTERM_STAGE1_TIMING_RECEIPT_INVALID'
+          }
+          Write-Host ('KTERM_STAGE1_OFFLINE_UI=PASS;SOURCE_SHA='+$env:KTERM_SHA+
+            ';CASES='+@($p.cases).Count+
+            ';COLD_SHELL_MS='+[Math]::Round($coldShell,1)+
+            ';COLD_CURRENT_DATA_MS='+[Math]::Round($coldFresh,1)+
+            ';CHANGED_REOPEN_FRESH_MS='+[Math]::Round($reload,1)+
+            ';UNCHANGED_REOPEN_MS='+[Math]::Round($unchanged,1)+
+            ';TOTAL_TEST_MS='+$clock.ElapsedMilliseconds+
+            ';STALENESS_AND_SCOPE_NEGATIVES=PASS;OWNER_ISOLATION=PASS;NO_ORPHANS=TRUE'+
+            ';INVISIBLE_WINDOW=TRUE;BROKER_IO=0;PRODUCT_ENGINE_STARTED=FALSE;FIELD_RECONCILIATION=UNVERIFIED')
+
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
