@@ -765,3 +765,119 @@ jobs:
           test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
+
+
+  # F51 external independently sourced original Acrobot DEV, one shot on own draft PR.
+  f51_original_acrobot_external_dev_once:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' &&
+      github.event.pull_request.head.ref == 'research/eureka-f51-original-acrobot-20261110' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout F51 prospective candidate with zero stored credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen FORGE protocol, real-original code and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:docs/NATIVE-DISCOVERY-F51-ORIGINAL-ACROBOT-TRANSFER-DEV.md)" = 'ec9aa6e987052e42e6d7bd2085f959480a84a094'
+          test "$(git rev-parse HEAD:research/f51_original_acrobot_transfer_dev.py)" = 'd3114ac66589e6b9f623318da721449090cfd54a'
+          test "$(git hash-object --no-filters research/f51_original_acrobot_transfer_dev.py)" = 'd3114ac66589e6b9f623318da721449090cfd54a'
+          test "$(git rev-parse HEAD:research/test_f51_original_acrobot_transfer_dev.py)" = '7587d8032a156dd7dc1f68c8bf1561342000a5bd'
+          test "$(git rev-parse HEAD:AGENTS.md)" = '39926d2277ac01c8114f03561bd8e001fcc3b582'
+          echo 'F51_PROSPECTIVE_FORGE_SOURCE_PIN=PASS'
+      - name: Source checkout of exact external Farama original Acrobot v1.2.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c core.askPass=true clone --quiet --depth 1 --branch v1.2.3 \
+            https://github.com/Farama-Foundation/Gymnasium.git "$RUNNER_TEMP/farama-original-gymnasium"
+          cd "$RUNNER_TEMP/farama-original-gymnasium"
+          test "$(git rev-parse HEAD)" = '365080941ea3a815ac09e57a7d4ee263a142651d'
+          test "$(git rev-parse HEAD:gymnasium/envs/classic_control/acrobot.py)" = '28c440af281858c30e95fb6023f19923065d64fe'
+          test "$(git hash-object --no-filters gymnasium/envs/classic_control/acrobot.py)" = '28c440af281858c30e95fb6023f19923065d64fe'
+          echo 'F51_FARAMA_ORIGINAL_COMMIT_AND_ACROBOT_BLOB=PASS'
+      - name: Python 3.11 public runner, pinned open-source packages
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned free upstream runtime with no external model APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet 'numpy==2.0.2' 'gymnasium==1.2.3'
+          F51_ORIGINAL_GYMNASIUM_ROOT="$RUNNER_TEMP/farama-original-gymnasium" \
+          PYTHONPATH="$RUNNER_TEMP/farama-original-gymnasium:$GITHUB_WORKSPACE/research" \
+          python -B - <<'PY'
+          import f51_original_acrobot_transfer_dev as f
+          x=f.check_original()
+          assert x['upstream_commit']=='365080941ea3a815ac09e57a7d4ee263a142651d'
+          assert x['acrobot_git_blob']=='28c440af281858c30e95fb6023f19923065d64fe'
+          print('F51_PINNED_ORIGINAL_MODULE_IMPORTED=PASS')
+          PY
+      - name: FIT-only original external physics and negative-control tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export F51_ORIGINAL_GYMNASIUM_ROOT="$RUNNER_TEMP/farama-original-gymnasium"
+          export PYTHONPATH="$RUNNER_TEMP/farama-original-gymnasium:$GITHUB_WORKSPACE/research"
+          export OPENBLAS_NUM_THREADS=1
+          python -B -m unittest discover -s research -p 'test_f51_original_acrobot_transfer_dev.py' -v
+          echo 'F51_REAL_ORIGINAL_FIT_ONLY_TESTS=PASS'
+      - name: Single frozen original Acrobot F51 DEV evaluation, never if preflight fails
+        shell: bash
+        run: |
+          set -euo pipefail
+          export F51_ORIGINAL_GYMNASIUM_ROOT="$RUNNER_TEMP/farama-original-gymnasium"
+          export PYTHONPATH="$RUNNER_TEMP/farama-original-gymnasium:$GITHUB_WORKSPACE/research"
+          export OPENBLAS_NUM_THREADS=1
+          python -B research/f51_original_acrobot_transfer_dev.py \
+            "$RUNNER_TEMP/f51-original-acrobot-dev.json"
+          F51_REPORT="$RUNNER_TEMP/f51-original-acrobot-dev.json" python -B - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          r=json.loads(Path(os.environ['F51_REPORT']).read_text())
+          assert r['schema']=='forge.eureka.f51.original-acrobot-dynamics-transfer-dev.v1'
+          assert r['original_independent_environment'] and not r['synthetic_custom_environment']
+          assert not r['scientific_accepted'] and not r['protected_first_use_consumed']
+          assert not r['owner_eligible'] and not r['general_rsi_proven']
+          assert r['upstream']['upstream_commit']=='365080941ea3a815ac09e57a7d4ee263a142651d'
+          assert r['upstream']['acrobot_git_blob']=='28c440af281858c30e95fb6023f19923065d64fe'
+          assert len(r['train_seeds'])==6 and r['train_episode_count']==48
+          assert len(r['transfer_seeds'])==12 and len(r['retention_seeds'])==8
+          assert len(r['arms'])==5 and r['fqi_passes']==40
+          assert sum(r['train_action_counts'])==r['train_transition_count']
+          assert min(r['train_action_counts'])>0
+          assert all(len(a['episodes'])==20 for a in r['arms'].values())
+          assert all(e['cold_matches'] and 1<=e['steps']<=500 and
+                     sum(e['actions'])==e['steps']
+                     for a in r['arms'].values() for e in a['episodes'])
+          assert r['classification'] in ('F51_DEV_NO_GO','F51_DEV_SIGNAL_UNVERIFIED')
+          copy={k:v for k,v in r.items() if k!='report_sha256'}
+          sha=hashlib.sha256(json.dumps(copy,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
+          assert sha==r['report_sha256']
+          print('F51_FROZEN_ORIGINAL_DEV_RESULT='+r['classification'])
+          print('F51_ALL_ARMS='+json.dumps({k:{'transfer_return':v['transfer_mean_return'],
+            'transfer_successes':v['transfer_successes'],'retention_return':v['retention_mean_return'],
+            'triggered_episodes':v['triggered_transfer_episodes'],
+            'decision_ns':v['transfer_decision_ns_per_step']} for k,v in r['arms'].items()},sort_keys=True))
+          print('F51_ORIGINAL_TRAINING_TRANSITIONS='+str(r['train_transition_count']))
+          print('F51_REPORT_SHA256='+r['report_sha256'])
+          PY
+      - name: Preserve original Acrobot DEV JSON, including failure or negative outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f51-original-acrobot-v123-one-shot
+          path: ${{ runner.temp }}/f51-original-acrobot-dev.json
+          if-no-files-found: warn
+          retention-days: 45
