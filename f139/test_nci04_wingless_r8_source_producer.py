@@ -22,7 +22,7 @@ from f139.nci04_wingless_r8_source_producer import (
     R8SourceDenied, git_blob, mechanism_sha256, propose,
 )
 
-FIXTURE = Path(__file__).resolve().parent / "fixtures" / "wingless_r8_training_f8d711.go"
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "wingless_r8_training_f8d711.txt"
 HISTORY = "e" * 64
 
 STUB_R1 = """package r1
