@@ -133,6 +133,28 @@ jobs:
               elseif($raw -match '(?i)property .* cannot be found|you cannot call a method on a null'){ $label='POWERSHELL_STRICT_PROPERTY_OR_NULL' }
               elseif($raw -match '(?i)access is denied|sharing violation'){ $label='WINDOWS_PROCESS_OR_FILE_ACCESS' }
             }
+            # The legacy fixture emitted its PASS marker before the new
+            # fixture failed without one of the known assertion names.
+            # Report only the failing script's line number and approved
+            # exception category; never emit its path, content or raw output.
+            $loc=[regex]::Matches($raw,'(?i)test-kterminal-recorder-v1\\.2\\.ps1:(\\d{1,4})')
+            $line='UNAVAILABLE'
+            if($loc.Count -gt 0){$line=$loc[$loc.Count-1].Groups[1].Value}
+            $class='OTHER'
+            foreach($pair in @(
+              @('(?i)PropertyNotFoundException|property .*cannot be found','PROPERTY_NOT_FOUND'),
+              @('(?i)MethodException|Cannot find an overload','METHOD_OR_OVERLOAD'),
+              @('(?i)ParameterBindingException|Cannot bind argument','PARAMETER_BINDING'),
+              @('(?i)Start-Process|process cannot be started','CHILD_PROCESS_START'),
+              @('(?i)ParserError|Unexpected token','POWERSHELL_PARSER'),
+              @('(?i)UnauthorizedAccessException|Access is denied','ACCESS_DENIED'),
+              @('(?i)DirectoryNotFoundException|Could not find a part of the path','PATH_NOT_FOUND'),
+              @('(?i)NullReferenceException|You cannot call a method on a null','NULL_REFERENCE'),
+              @('(?i)RuntimeException','RUNTIME_EXCEPTION')
+            )) {
+              if($raw -match $pair[0]){$class=$pair[1];break}
+            }
+            Write-Host ('KTERM_P5_PRIVATE_ERROR_LOCATION=LINE_'+$line+';CATEGORY='+$class)
             $digest=(Get-FileHash -LiteralPath $focusedLog -Algorithm SHA256).Hash.ToLowerInvariant()
             Write-Host ('KTERM_P5_FOCUSED=FAIL;CLASS='+$label+';LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE')
             throw 'KTERM_P5_FOCUSED_FAILED'
