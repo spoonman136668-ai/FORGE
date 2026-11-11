@@ -1,4 +1,4 @@
-name: K Terminal P5 original order timing stage profile
+name: K Terminal P5 after-ack lifecycle and local WS custody
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -91,100 +91,163 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Profile exact original 24-event journal-to-order path with no real broker
+      - name: Profile original response-to-retry lifecycle with mandatory evidence and confirmed reducer lag
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_ORDER_GO_TOOLCHAIN_DRIFT'}
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_AFTER_POST_GO_VERSION_DRIFT'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
           $src=Join-Path $root 'source'
-          $private=Join-Path $root 'private-order-profile.json'
-          $log=Join-Path $root 'private-order-profile-build-test.log'
-          if(Test-Path -LiteralPath $private){throw 'KTERM_ORDER_PROFILE_OUTPUT_NOT_FRESH'}
-          $env:K_TERMINAL_STAGE3_JOURNAL_PROFILE_OUTPUT=$private
-          $env:K_TERMINAL_STAGE3_JOURNAL_PROFILE_LABEL='current-pr94-local-order-profile'
-          $env:K_TERMINAL_STAGE3_REQUIRE_JOURNAL_DIAGNOSTICS='1'
+          $private=Join-Path $root 'post-ack-lifecycle.json'
+          $log=Join-Path $root 'private-post-ack-lifecycle.log'
+          $env:K_TERMINAL_STAGE3_BUY_LIFECYCLE_OUTPUT=$private
+          $env:K_TERMINAL_STAGE3_BUY_LIFECYCLE_LABEL='PR94-post-ack-brokerfree-v1'
+          $env:K_TERMINAL_STAGE3_BUY_LIFECYCLE_SAMPLES='2'
+          $env:K_TERMINAL_STAGE3_CANCELED_BUY_BOOK_REUSE='1'
           $env:K_TERMINAL_HOTFIX_NETWORK_PROFILE='fast-offline'
           $env:K_TERMINAL_P5_LATENCY='0'
           $env:K_TERMINAL_NATIVE_TIMING='0'
           $env:K_TERMINAL_GITHUB_TOKEN=''
-          $env:KTERMINAL_G19_EVIDENCE=''
-          $env:KTERMINAL_G20B_WEBSOCKET_EVIDENCE=''
-          $env:KTERMINAL_G18_SAME_OWNER_EVIDENCE=''
-          # Any accidental external HTTP call must fail. The source-authored
-          # test intercepts all book, clock and POST transport in memory.
           $env:HTTP_PROXY='http://127.0.0.1:9'
           $env:HTTPS_PROXY='http://127.0.0.1:9'
           $env:ALL_PROXY='http://127.0.0.1:9'
           $env:NO_PROXY=''
           $clock=[Diagnostics.Stopwatch]::StartNew()
           Push-Location $src
-          try{
-            & go test -run '^TestStage3NativeJournalCompleteReadinessProfile$' -count=1 -timeout 12m ./pkg *> $log
+          try {
+            & go test -run '^TestStage3NativeBuyLifecycleReadinessProfile$' -count=1 -timeout 10m ./pkg *> $log
             $exit=$LASTEXITCODE
           } finally {Pop-Location}
           $clock.Stop()
           if($exit -ne 0 -or -not [IO.File]::Exists($private)){
-            Write-Host ('KTERM_ORDER_PROFILE=FAIL;RAW_PRIVATE_LOG_SHA256='+
+            Write-Host ('KTERM_AFTER_POST_LIFECYCLE=FAIL;PRIVATE_LOG_SHA256='+
               (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
-            throw 'KTERM_ORDER_EXACT_SOURCE_PROFILE_FAILED'
+            throw 'KTERM_AFTER_POST_SOURCE_TEST_FAILED'
           }
-          $p=[IO.File]::ReadAllText($private)|ConvertFrom-Json
-          if([string]$p.build_label -cne 'current-pr94-local-order-profile' -or
-             @($p.individual_events).Count -ne 24 -or
-             [string]$p.injected_network_profile.name -cne 'fast-offline' -or
-             [int]$p.injected_network_profile.book_per_http_request_ms -ne 2 -or
-             [int]$p.injected_network_profile.clock_per_http_request_ms -ne 1 -or
-             [int]$p.injected_network_profile.post_response_headers_ms -ne 5){
-            throw 'KTERM_ORDER_PROFILE_SOURCE_OR_COHORT_INVALID'
+          $p=[IO.File]::ReadAllText($private) | ConvertFrom-Json
+          if($p.build_label -cne 'PR94-post-ack-brokerfree-v1' -or
+             $p.injected_network_profile.name -cne 'fast-offline' -or
+             $p.expected_canceled_buy_decision_book_reuse -ne $true -or
+             @($p.individual_events).Count -ne 16){
+            throw 'KTERM_AFTER_POST_PROFILE_SCOPE_INCOMPLETE'
           }
-          function Summary([double[]]$Values){
-            $ordered=@($Values | Sort-Object)
-            if($ordered.Count -ne 12){throw 'KTERM_ORDER_EXPECTED_TWELVE_SAMPLES'}
-            foreach($v in $ordered){if([double]::IsNaN($v) -or [double]::IsInfinity($v) -or $v -lt 0 -or $v -gt 600000){throw 'KTERM_ORDER_INVALID_TIMING'}}
-            $median=($ordered[5]+$ordered[6])/2
-            $p95=$ordered[[int][Math]::Ceiling(0.95*$ordered.Count)-1]
-            return [pscustomobject]@{P50=[Math]::Round($median,3);P95=[Math]::Round($p95,3);Max=[Math]::Round($ordered[-1],3)}
-          }
-          $all=@($p.individual_events)
-          foreach($record in $all){
-            if($record.state -cne 'RESULT' -or
-               [int]$record.intercepted_post_count -ne 1 -or
-               [int]$record.durable_reservation_count -ne 1 -or
-               @($record.transport_ready).Count -ne 1 -or
-               @($record.attempt_outcomes).Count -ne 1 -or
-               $record.attempt_outcomes[0].transport_entered -ne $true -or
-               $record.attempt_outcomes[0].submission_outcome_unknown -ne $false -or
-               [string]::IsNullOrWhiteSpace([string]$record.accepted_order_id) -or
-               [string]::IsNullOrWhiteSpace([string]$record.accepted_client_id) -or
-               $null -eq $record.transport_ready[0].received_to_transport_ready_ms -or
-               $null -eq $record.transport_ready[0].journal_entry_to_transport_ready_ms){
-              throw 'KTERM_ORDER_ONE_POST_OR_REPLAY_CONTRACT_FAILED'
+          function Stats([double[]]$values){
+            $v=@($values | Sort-Object)
+            if($v.Count -ne 4){throw 'KTERM_AFTER_POST_EXPECTED_FOUR_VALUES_PER_WORKLOAD'}
+            foreach($x in $v){
+              if([double]::IsNaN($x) -or [double]::IsInfinity($x) -or $x -lt 0 -or $x -gt 60000){
+                throw 'KTERM_AFTER_POST_INVALID_ELAPSED'
+              }
             }
-            $received=[double]$record.transport_ready[0].received_to_transport_ready_ms
-            $ready=[double]$record.transport_ready[0].full_transport_ready_ms
-            $journal=[double]$record.transport_ready[0].journal_entry_to_transport_ready_ms
-            if($received -lt $ready -or $journal -lt $ready){throw 'KTERM_ORDER_PHASE_CLOCK_INVERSION'}
+            return [pscustomobject]@{P50=[Math]::Round(($v[1]+$v[2])/2,3);
+              Max=[Math]::Round($v[3],3)}
           }
+          $items=@($p.individual_events)
+          $workloads=@('definite-maker-rejection','definite-rejection-confirmed-fill-lag',
+            'confirmed-cancel-settled','confirmed-cancel-reducer-lag')
           foreach($product in @('BTC-USDC','XRP-USDC')){
-            $cohort=@($all | Where-Object {$_.product_id -ceq $product})
-            if($cohort.Count -ne 12){throw 'KTERM_ORDER_MISSING_PRODUCT_COHORT'}
-            $received=Summary ([double[]]@($cohort | ForEach-Object {[double]$_.transport_ready[0].received_to_transport_ready_ms}))
-            $journal=Summary ([double[]]@($cohort | ForEach-Object {[double]$_.transport_ready[0].journal_entry_to_transport_ready_ms}))
-            $execute=Summary ([double[]]@($cohort | ForEach-Object {[double]$_.execution_wall_ms}))
-            Write-Host ('KTERM_ORDER_SYNTHETIC=PASS;PRODUCT='+$product+
-              ';N=12;SOURCE_TO_FIRST_TRANSPORT_P50_MS='+$received.P50+
-              ';P95_MS='+$received.P95+';MAX_MS='+$received.Max+
-              ';JOURNAL_TO_TRANSPORT_P50_MS='+$journal.P50+
-              ';P95_MS='+$journal.P95+';MAX_MS='+$journal.Max+
-              ';EXECUTE_WALL_P50_MS='+$execute.P50+
-              ';P95_MS='+$execute.P95+';MAX_MS='+$execute.Max+
-              ';SYNTHETIC_POSTS=12;LIVE_POSTS=0')
+            foreach($workload in $workloads){
+              $sample=@($items|Where-Object {$_.product_id -ceq $product -and $_.workload -ceq $workload})
+              if($sample.Count -ne 2){throw 'KTERM_AFTER_POST_MISSING_EXACT_PRODUCT_WORKLOAD'}
+              foreach($r in $sample){
+                if([int]$r.simulated_order_posts -ne 2 -or @($r.mandatory_evidence).Count -lt 2 -or
+                   $r.original_received_at -eq '' -or
+                   [double]$r.full_retry_inclusive_transport_ready_ms -lt [double]$r.full_first_transport_ready_ms -or
+                   [double]$r.actual_lifecycle_return_ms -lt [double]$r.initial_execute_return_ms){
+                  throw 'KTERM_AFTER_POST_REQUIRED_GUARD_OR_EXACT_POSTS_FAILED'
+                }
+              }
+            }
           }
-          Write-Host ('KTERM_ORDER_PROFILE=PASS;SOURCE_SHA='+$env:KTERM_SHA+
-            ';EVENTS=24;ACTUAL_BROKER_REQUESTS=0;ONE_MOCK_POST_PER_EVENT=TRUE'+
-            ';DURABLE_RESERVATION_RELOAD=PASS;JOURNAL_FRESHNESS_GUARDS=RETAINED'+
-            ';TOTAL_PROFILE_MS='+$clock.ElapsedMilliseconds+';FIELD_LATENCY=UNVERIFIED')
+          foreach($workload in $workloads){
+            $samples=@($items|Where-Object {$_.workload -ceq $workload})
+            $first=Stats ([double[]]@($samples|ForEach-Object {[double]$_.received_to_first_transport_ready_ms}))
+            $last=Stats ([double[]]@($samples|ForEach-Object {[double]$_.received_to_last_transport_ready_ms}))
+            $return=Stats ([double[]]@($samples|ForEach-Object {[double]$_.actual_lifecycle_return_ms}))
+            $obs=Stats ([double[]]@($samples|ForEach-Object {[double]$_.fixture_observation_including_publisher_join_wall_ms}))
+            Write-Host ('KTERM_AFTER_POST_COHORT=PASS;WORKLOAD='+$workload+
+              ';N=4;SOURCE_TO_FIRST_READY_P50_MS='+$first.P50+';MAX_MS='+$first.Max+
+              ';SOURCE_TO_LAST_READY_P50_MS='+$last.P50+';MAX_MS='+$last.Max+
+              ';ACTUAL_LIFECYCLE_P50_MS='+$return.P50+';MAX_MS='+$return.Max+
+              ';FIXTURE_OBSERVATION_P50_MS='+$obs.P50+';MAX_MS='+$obs.Max)
+          }
+          Write-Host ('KTERM_AFTER_POST_LIFECYCLE=PASS;COHORTS=8;EVENTS=16;SYNTHETIC_MAKER_POSTS=32;LIVE_POSTS=0'+
+            ';REJECTION_RETRY_RETAINED=TRUE;CONFIRMED_CANCELLATION_GUARDS=TRUE;DURABLE_REQUEST_AND_RESERVATION=PASS'+
+            ';PROFILE_WALL_MS='+$clock.ElapsedMilliseconds+';REAL_DISPLAY_LATENCY=UNVERIFIED')
+      - name: Verify actual original user WS loopback, committed fill and exact cold process custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          $private=Join-Path $root 'post-ack-ws-profile.json'
+          $g19=Join-Path $root 'post-ack-original-owner.json'
+          $g20b=Join-Path $root 'post-ack-loopback-user-ws.json'
+          $log=Join-Path $root 'private-post-ack-ws.log'
+          $env:K_TERMINAL_STAGE3_JOURNAL_PROFILE_OUTPUT=$private
+          $env:K_TERMINAL_STAGE3_JOURNAL_PROFILE_LABEL='PR94-G20B-transport-to-actual-accounting'
+          $env:K_TERMINAL_STAGE3_REQUIRE_JOURNAL_DIAGNOSTICS='1'
+          $env:KTERMINAL_G19_EVIDENCE=$g19
+          $env:KTERMINAL_G20B_WEBSOCKET_EVIDENCE=$g20b
+          $env:KTERMINAL_G18_SAME_OWNER_EVIDENCE=''
+          $env:KTERMINAL_SOURCE_SHA=$env:KTERM_SHA
+          $env:K_TERMINAL_HOTFIX_NETWORK_PROFILE='fast-offline'
+          $env:K_TERMINAL_STAGE3_BUY_LIFECYCLE_OUTPUT=''
+          $env:HTTP_PROXY='http://127.0.0.1:9'
+          $env:HTTPS_PROXY='http://127.0.0.1:9'
+          $env:ALL_PROXY='http://127.0.0.1:9'
+          $env:NO_PROXY=''
+          $clock=[Diagnostics.Stopwatch]::StartNew()
+          Push-Location $src
+          try {
+            & go test -run '^TestStage3NativeJournalCompleteReadinessProfile$' -count=1 -timeout 10m ./pkg *> $log
+            $exit=$LASTEXITCODE
+          } finally {Pop-Location}
+          $clock.Stop()
+          if($exit -ne 0 -or -not [IO.File]::Exists($private) -or
+             -not [IO.File]::Exists($g19) -or -not [IO.File]::Exists($g20b)){
+            Write-Host ('KTERM_AFTER_POST_WS=FAIL;PRIVATE_LOG_SHA256='+
+              (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
+            throw 'KTERM_AFTER_POST_WS_OR_OWNER_CHAIN_FAILED'
+          }
+          $a=[IO.File]::ReadAllText($private)|ConvertFrom-Json
+          $b=[IO.File]::ReadAllText($g20b)|ConvertFrom-Json
+          $c=[IO.File]::ReadAllText($g19)|ConvertFrom-Json
+          if($a.build_label -cne 'PR94-G20B-transport-to-actual-accounting' -or
+             @($a.individual_events).Count -ne 24 -or
+             $b.schema -cne 'kterminal.ice.g20b-offline-user-frame.v1' -or
+             $b.source_sha -cne $env:KTERM_SHA -or
+             $b.positive_user_frames_delivered -ne 2 -or
+             $b.original_ws_read_connection -ne $true -or
+             $b.original_ws_handle_user_events -ne $true -or
+             $b.actual_loopback_ws_transport -ne $true -or
+             $b.original_accounting_owner_retained -ne $true -or
+             $b.operator_callbacks -ne 1 -or
+             $b.operator_filled_lines -ne 1 -or
+             $b.operator_tracked_lines -ne 1 -or
+             $b.duplicate_fill_revision -ne $b.confirmed_fill_revision -or
+             $b.confirmed_fill_revision -le $b.initial_revision -or
+             $b.heartbeat_sequence_without_false_gap -ne $true -or
+             $b.websocket_user_health_observed -ne $true -or
+             $b.forced_independent_process_restart -ne $true -or
+             $b.cold_process_revision -ne 0 -or
+             $b.durable_economics_conserved -ne $true -or
+             $b.real_coinbase_wss_connected -ne $false -or
+             $b.authenticated_user_subscription -ne $false -or
+             $b.real_broker_orders_sent -ne 0 -or
+             $b.installed_user_data_touched -ne $false -or
+             $c.schema -cne 'kterminal.ice.g19-production-event-boundary.v1' -or
+             $c.source_sha -cne $env:KTERM_SHA -or
+             $c.original_owner_retained -ne $true -or
+             $c.child_fresh_process_recovered -ne $true){
+            throw 'KTERM_AFTER_POST_WS_OR_COLD_PROOF_INVALID'
+          }
+          Write-Host ('KTERM_AFTER_POST_WS=PASS;SOURCE_SHA='+$env:KTERM_SHA+
+            ';JOURNAL_EVENTS=24;LOOPBACK_WS_FRAMES=2;ORIGINAL_ACCOUNTING_OWNER=TRUE'+
+            ';ACCOUNTING_COMMIT_BEFORE_SUBSCRIBER=PASS;DUPLICATE_NO_REVISION=PASS'+
+            ';OPERATOR_FILLED=1;OPERATOR_TRACKED=1;HEARTBEAT_SEQUENCE=PASS'+
+            ';FORCED_INDEPENDENT_COLD_RECOVERY=PASS;BROKER_POSTS=0;REAL_COINBASE_WSS=FALSE'+
+            ';PROFILE_WALL_MS='+$clock.ElapsedMilliseconds+';WPF_VISIBLE_ACK=UNVERIFIED')
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
