@@ -121,6 +121,16 @@ jobs:
             $label='UNCLASSIFIED'
             $raw=[IO.File]::ReadAllText($focusedLog)
             foreach($term in $known){if($raw.Contains($term)){$label=$term;break}}
+            # The first run reported UNCLASSIFIED after a 4.9 s focused test.
+            # Preserve privacy: emit ONLY a bounded static test exception token.
+            if($label -eq 'UNCLASSIFIED'){
+              $match=[regex]::Match($raw,'RECORDER_[A-Z0-9_]{3,80}')
+              if($match.Success){$label=$match.Value}
+              elseif($raw -match '(?i)Start-Process'){ $label='CHILD_PROCESS_START_OR_ARGUMENT' }
+              elseif($raw -match '(?i)ParserError|At .+\.ps1:\d+ char:'){ $label='POWERSHELL_PARSER_OR_SYNTAX' }
+              elseif($raw -match '(?i)property .* cannot be found|you cannot call a method on a null'){ $label='POWERSHELL_STRICT_PROPERTY_OR_NULL' }
+              elseif($raw -match '(?i)access is denied|sharing violation'){ $label='WINDOWS_PROCESS_OR_FILE_ACCESS' }
+            }
             $digest=(Get-FileHash -LiteralPath $focusedLog -Algorithm SHA256).Hash.ToLowerInvariant()
             Write-Host ('KTERM_P5_FOCUSED=FAIL;CLASS='+$label+';LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE')
             throw 'KTERM_P5_FOCUSED_FAILED'
