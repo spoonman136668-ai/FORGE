@@ -101,133 +101,133 @@ jobs:
           $testFile=Join-Path $src 'pkg\kterm_unknown_outcome_temporary_test.go'
           if(Test-Path -LiteralPath $testFile){throw 'KTERM_UNKNOWN_NEGATIVE_FILE_PREEXISTS'}
           $test=@'
-package pkg
+          package pkg
 
-import (
-  "context"
-  "encoding/json"
-  "fmt"
-  "io"
-  "net/http"
-  "os"
-  "path/filepath"
-  "strings"
-  "testing"
-  "time"
-)
+          import (
+            "context"
+            "encoding/json"
+            "fmt"
+            "io"
+            "net/http"
+            "os"
+            "path/filepath"
+            "strings"
+            "testing"
+            "time"
+          )
 
-// Only added in a temporary, owner-verified checkout, never committed into
-// the original K Terminal source. Its in-memory transport refuses all
-// unknown HTTP routes and does not use real brokerage credentials.
-func TestKTermTemporaryUnknownPostMatrix(t *testing.T) {
-  type receipt struct {
-    Product string `json:"product"`
-    Failure string `json:"failure"`
-    Posts int `json:"posts"`
-    ReplayPosts int `json:"replay_posts"`
-    State string `json:"state"`
-    Durable bool `json:"durable"`
-  }
-  var receipts []receipt
-  for _, product := range []string{"BTC-USDC","XRP-USDC"} {
-    for _, kind := range []string{"lost_timeout_after_transport","transient_503","malformed_success_200"} {
-      name := product+"/"+kind
-      t.Run(name, func(t *testing.T) {
-        h,n,cache := stage3BuyFirstDeferredFixture(t,product,false)
-        stage3BuyLifecycleAuthority(t,n) // Synthetic exclusive authority; no external venue.
-        evidenceRoot := t.TempDir()
-        fp,err := os.OpenFile(filepath.Join(evidenceRoot,"request-evidence.jsonl"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600)
-        if err != nil {t.Fatal(err)}
-        defer fp.Close()
-        var evidence []NativeOrderEvidence
-        n.Record=func(v NativeOrderEvidence) error {
-          raw,e := json.Marshal(v); if e!=nil{return e}
-          if _,e=fp.Write(append(raw,'\n'));e!=nil{return e}
-          if e=fp.Sync();e!=nil{return e}
-          evidence=append(evidence,v)
-          return nil
-        }
-        posts,books,clocks := 0,0,0
-        var submitted AdvancedOrderRequest
-        base := lookupRoundTripFunc(func(req *http.Request) (*http.Response,error) {
-          switch req.URL.Path {
-          case "/api/v3/brokerage/best_bid_ask":
-            books++
-            return makerBookResponse(makerTestBook(n.Snapshot.BestBid,n.Snapshot.BestAsk,product,time.Now()),time.Now()),nil
-          case "/api/v3/brokerage/time":
-            clocks++
-            return makerTimeResponse(time.Now()),nil
-          case "/api/v3/brokerage/orders":
-            posts++
-            if req.Method!=http.MethodPost {return nil,fmt.Errorf("non-POST order transport denied")}
-            if e:=json.NewDecoder(req.Body).Decode(&submitted);e!=nil{return nil,e}
-            if submitted.ProductID!=product || submitted.Side!=OrderSideBuy ||
-              submitted.OrderConfiguration.LimitLimitGTC==nil ||
-              !submitted.OrderConfiguration.LimitLimitGTC.PostOnly ||
-              submitted.ClientOrderID=="" {return nil,fmt.Errorf("maker/scope/identity violated")}
-            switch kind {
-            case "lost_timeout_after_transport":
-              time.Sleep(125*time.Millisecond) // Intentional bounded loss after a POST was intercepted.
-              return nil,context.DeadlineExceeded
-            case "transient_503":
-              return lookupFixtureResponse(map[string]any{"success":false,"error_response":map[string]string{"error":"TEMPORARILY_UNAVAILABLE"}},http.StatusServiceUnavailable),nil
-            case "malformed_success_200":
-              return &http.Response{StatusCode:http.StatusOK,Status:"200 OK",Header:make(http.Header),
-                Body:io.NopCloser(strings.NewReader("{\"success\":true,\"success_response\":"))},nil
-            default:
-              return nil,fmt.Errorf("invalid failure control")
+          // Only added in a temporary, owner-verified checkout, never committed into
+          // the original K Terminal source. Its in-memory transport refuses all
+          // unknown HTTP routes and does not use real brokerage credentials.
+          func TestKTermTemporaryUnknownPostMatrix(t *testing.T) {
+            type receipt struct {
+              Product string `json:"product"`
+              Failure string `json:"failure"`
+              Posts int `json:"posts"`
+              ReplayPosts int `json:"replay_posts"`
+              State string `json:"state"`
+              Durable bool `json:"durable"`
             }
-          default:
-            return nil,fmt.Errorf("non-fixture HTTP route denied: %s",req.URL.Path)
+            var receipts []receipt
+            for _, product := range []string{"BTC-USDC","XRP-USDC"} {
+              for _, kind := range []string{"lost_timeout_after_transport","transient_503","malformed_success_200"} {
+                name := product+"/"+kind
+                t.Run(name, func(t *testing.T) {
+                  h,n,cache := stage3BuyFirstDeferredFixture(t,product,false)
+                  stage3BuyLifecycleAuthority(t,n) // Synthetic exclusive authority; no external venue.
+                  evidenceRoot := t.TempDir()
+                  fp,err := os.OpenFile(filepath.Join(evidenceRoot,"request-evidence.jsonl"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600)
+                  if err != nil {t.Fatal(err)}
+                  defer fp.Close()
+                  var evidence []NativeOrderEvidence
+                  n.Record=func(v NativeOrderEvidence) error {
+                    raw,e := json.Marshal(v); if e!=nil{return e}
+                    if _,e=fp.Write(append(raw,'\n'));e!=nil{return e}
+                    if e=fp.Sync();e!=nil{return e}
+                    evidence=append(evidence,v)
+                    return nil
+                  }
+                  posts,books,clocks := 0,0,0
+                  var submitted AdvancedOrderRequest
+                  base := lookupRoundTripFunc(func(req *http.Request) (*http.Response,error) {
+                    switch req.URL.Path {
+                    case "/api/v3/brokerage/best_bid_ask":
+                      books++
+                      return makerBookResponse(makerTestBook(n.Snapshot.BestBid,n.Snapshot.BestAsk,product,time.Now()),time.Now()),nil
+                    case "/api/v3/brokerage/time":
+                      clocks++
+                      return makerTimeResponse(time.Now()),nil
+                    case "/api/v3/brokerage/orders":
+                      posts++
+                      if req.Method!=http.MethodPost {return nil,fmt.Errorf("non-POST order transport denied")}
+                      if e:=json.NewDecoder(req.Body).Decode(&submitted);e!=nil{return nil,e}
+                      if submitted.ProductID!=product || submitted.Side!=OrderSideBuy ||
+                        submitted.OrderConfiguration.LimitLimitGTC==nil ||
+                        !submitted.OrderConfiguration.LimitLimitGTC.PostOnly ||
+                        submitted.ClientOrderID=="" {return nil,fmt.Errorf("maker/scope/identity violated")}
+                      switch kind {
+                      case "lost_timeout_after_transport":
+                        time.Sleep(125*time.Millisecond) // Intentional bounded loss after a POST was intercepted.
+                        return nil,context.DeadlineExceeded
+                      case "transient_503":
+                        return lookupFixtureResponse(map[string]any{"success":false,"error_response":map[string]string{"error":"TEMPORARILY_UNAVAILABLE"}},http.StatusServiceUnavailable),nil
+                      case "malformed_success_200":
+                        return &http.Response{StatusCode:http.StatusOK,Status:"200 OK",Header:make(http.Header),
+                          Body:io.NopCloser(strings.NewReader("{\"success\":true,\"success_response\":"))},nil
+                      default:
+                        return nil,fmt.Errorf("invalid failure control")
+                      }
+                    default:
+                      return nil,fmt.Errorf("non-fixture HTTP route denied: %s",req.URL.Path)
+                    }
+                  })
+                  h.advancedOrderManager=nativeQuoteRecoveryFixture(t,n,lookupRoundTripFunc(func(req *http.Request) (*http.Response,error) {
+                    return (nativeGuardedTransport{gate:n.Authorize,base:base}).RoundTrip(req)
+                  }))
+                  h.advancedOrderManager.UseNativeMarketCache(cache)
+                  original := n.Signal
+                  receiptDir:=t.TempDir()
+                  _,err=h.ExecuteNativeSignal(n,receiptDir)
+                  if !IsOrderSubmissionOutcomeUnknown(err) {t.Fatalf("unknown outcome not classified: %v",err)}
+                  if posts!=1 || books!=1 || clocks!=1 || n.Requests!=1 || n.Signal!=original {
+                    t.Fatalf("bad protected source submission: posts=%d books=%d clocks=%d request=%d",posts,books,clocks,n.Requests)
+                  }
+                  if len(evidence)!=2 || evidence[0].State!="REQUEST_READY" ||
+                    evidence[1].State!="OUTCOME_UNKNOWN" || evidence[0].EventID!=original.EventID ||
+                    evidence[1].EventID!=original.EventID || evidence[1].Error=="" {
+                    t.Fatalf("unknown event was not durably distinguished from a rejection")
+                  }
+                  if e:=fp.Sync();e!=nil{t.Fatal(e)}
+                  persisted,e:=stage3ReadJournalRecords(filepath.Join(evidenceRoot,"request-evidence.jsonl"))
+                  if e!=nil || len(persisted)!=2 || persisted[1].State!="OUTCOME_UNKNOWN" {
+                    t.Fatalf("required unknown event missing from reopened evidence: %v",e)
+                  }
+                  reloaded,e:=NewTrancheController(filepath.Dir(h.tranches.path),h.tranches.state.Scope)
+                  if e!=nil {t.Fatal(e)}
+                  reservation,ok:=reloaded.state.Reservations[original.EventID]
+                  if !ok || reservation.ClientID!=submitted.ClientOrderID ||
+                    reservation.Quantity<=0 || reservation.Price<=0 {
+                    t.Fatalf("unknown order reservation missing or altered")
+                  }
+                  beforePosts:=posts
+                  restarted:=&NativeConstruction{Signal:original}
+                  result,replayErr:=h.ExecuteNativeSignal(restarted,receiptDir)
+                  output,ok:=result.(map[string]any)
+                  if replayErr!=nil || !ok || output["status"]!="DUPLICATE_NO_REPLAY" ||
+                    posts!=beforePosts || restarted.Requests!=0 {
+                    t.Fatalf("unknown result replay submitted an order: posts=%d err=%v",posts,replayErr)
+                  }
+                  receipts=append(receipts,receipt{Product:product,Failure:kind,
+                    Posts:posts,ReplayPosts:posts-beforePosts,State:evidence[1].State,Durable:true})
+                })
+              }
+            }
+            if len(receipts)!=6 {t.Fatalf("incomplete original-source unknown outcome negative matrix")}
+            raw,err:=json.Marshal(struct {Schema string `json:"schema"`; Cases []receipt `json:"cases"`}{
+              Schema:"kterm.synthetic-unknown-outcome-matrix.v1",Cases:receipts})
+            if err!=nil {t.Fatal(err)}
+            if e:=os.WriteFile(os.Getenv("KTERM_UNKNOWN_MATRIX_OUTPUT"),raw,0600);e!=nil{t.Fatal(e)}
           }
-        })
-        h.advancedOrderManager=nativeQuoteRecoveryFixture(t,n,lookupRoundTripFunc(func(req *http.Request) (*http.Response,error) {
-          return (nativeGuardedTransport{gate:n.Authorize,base:base}).RoundTrip(req)
-        }))
-        h.advancedOrderManager.UseNativeMarketCache(cache)
-        original := n.Signal
-        receiptDir:=t.TempDir()
-        _,err=h.ExecuteNativeSignal(n,receiptDir)
-        if !IsOrderSubmissionOutcomeUnknown(err) {t.Fatalf("unknown outcome not classified: %v",err)}
-        if posts!=1 || books!=1 || clocks!=1 || n.Requests!=1 || n.Signal!=original {
-          t.Fatalf("bad protected source submission: posts=%d books=%d clocks=%d request=%d",posts,books,clocks,n.Requests)
-        }
-        if len(evidence)!=2 || evidence[0].State!="REQUEST_READY" ||
-          evidence[1].State!="OUTCOME_UNKNOWN" || evidence[0].EventID!=original.EventID ||
-          evidence[1].EventID!=original.EventID || evidence[1].Error=="" {
-          t.Fatalf("unknown event was not durably distinguished from a rejection")
-        }
-        if e:=fp.Sync();e!=nil{t.Fatal(e)}
-        persisted,e:=stage3ReadJournalRecords(filepath.Join(evidenceRoot,"request-evidence.jsonl"))
-        if e!=nil || len(persisted)!=2 || persisted[1].State!="OUTCOME_UNKNOWN" {
-          t.Fatalf("required unknown event missing from reopened evidence: %v",e)
-        }
-        reloaded,e:=NewTrancheController(filepath.Dir(h.tranches.path),h.tranches.state.Scope)
-        if e!=nil {t.Fatal(e)}
-        reservation,ok:=reloaded.state.Reservations[original.EventID]
-        if !ok || reservation.ClientID!=submitted.ClientOrderID ||
-          reservation.Quantity<=0 || reservation.Price<=0 {
-          t.Fatalf("unknown order reservation missing or altered")
-        }
-        beforePosts:=posts
-        restarted:=&NativeConstruction{Signal:original}
-        result,replayErr:=h.ExecuteNativeSignal(restarted,receiptDir)
-        output,ok:=result.(map[string]any)
-        if replayErr!=nil || !ok || output["status"]!="DUPLICATE_NO_REPLAY" ||
-          posts!=beforePosts || restarted.Requests!=0 {
-          t.Fatalf("unknown result replay submitted an order: posts=%d err=%v",posts,replayErr)
-        }
-        receipts=append(receipts,receipt{Product:product,Failure:kind,
-          Posts:posts,ReplayPosts:posts-beforePosts,State:evidence[1].State,Durable:true})
-      })
-    }
-  }
-  if len(receipts)!=6 {t.Fatalf("incomplete original-source unknown outcome negative matrix")}
-  raw,err:=json.Marshal(struct {Schema string `json:"schema"`; Cases []receipt `json:"cases"`}{
-    Schema:"kterm.synthetic-unknown-outcome-matrix.v1",Cases:receipts})
-  if err!=nil {t.Fatal(err)}
-  if e:=os.WriteFile(os.Getenv("KTERM_UNKNOWN_MATRIX_OUTPUT"),raw,0600);e!=nil{t.Fatal(e)}
-}
           '@
           [IO.File]::WriteAllText($testFile,$test,[Text.UTF8Encoding]::new($false))
           $status=@(& git -C $src status --porcelain)
