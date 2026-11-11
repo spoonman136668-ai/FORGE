@@ -175,7 +175,9 @@ class D2KPackageDiagnosticTests(unittest.TestCase):
         result = bounded_run(
             [sys.executable, "-c", "print('ok',flush=True)"],
             env=os.environ.copy(), timeout=8)
-        self.assertEqual((result.returncode, result.stdout), (0, b"ok\n"))
+        # Python's text print uses CRLF on Windows, LF on POSIX.
+        self.assertEqual((result.returncode, result.stdout),
+                         (0, b"ok" + os.linesep.encode("ascii")))
 
     def test_bounded_tree_cleanup_does_not_admit_worker_or_science(self):
         """The signed D2K receipt and exact diagnostic command remain intact."""
