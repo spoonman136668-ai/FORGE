@@ -15,39 +15,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # F57 branch-scoped source-only correction test. Remove after qualification;
-  # this job MUST NOT instantiate Gymnasium or run any proposed evaluation seed.
-  f57_receipt_source_only:
-    if: github.event_name == 'pull_request' && github.head_ref == 'research/eureka-f51-original-acrobot-20261110' && github.event.pull_request.head.repo.full_name == github.repository
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Verify frozen F57 source-only receipt tests, no environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
-          # Windows Git checkout may CRLF-convert pristine content, breaking
-          # F57's intentionally byte-exact original Git-blob pin assertions.
-          # Restore LF from this exact commit without fetching/replaying source.
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            git -c core.autocrlf=false checkout-index --force --all
-            # AGENTS.md carries a checkout attribute that still changes bytes
-            # on Windows; restore original blob directly, without conversion.
-            git show HEAD:AGENTS.md > AGENTS.md
-            test "$(git hash-object --no-filters AGENTS.md)" = 39926d2277ac01c8114f03561bd8e001fcc3b582
-          fi
-          python3 -B -m unittest discover -s research -p 'test_f57_original_acrobot_reward_*py' -v
-          python3 -B research/f57_original_acrobot_reward_admission.py
-
   linux_f139:
     runs-on: ubuntu-latest
     timeout-minutes: 20
