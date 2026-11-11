@@ -196,7 +196,10 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-            process.kill()
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
             process.wait(timeout=5)
         if job is not None:
             job.close()

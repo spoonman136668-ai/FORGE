@@ -186,5 +186,49 @@ class D2KPackageDiagnosticTests(unittest.TestCase):
         self.assertEqual(report["outcome"], "PASS")
         self.assertEqual(report["target_package"], "./planner")
 
+    def test_output_overflow_also_cleans_descendant(self):
+        """Overflow must reject and kill the whole inherited-stdout tree."""
+        import tempfile
+        import time
+        from pathlib import Path
+        script = (
+            "import subprocess,sys;"
+            "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],"
+            "stdout=sys.stdout,stderr=sys.stderr);"
+            "open(sys.argv[1],'w').write(str(p.pid));"
+            "sys.stdout.write('Z'*250000);sys.stdout.flush()"
+        )
+        with tempfile.TemporaryDirectory(prefix="forge-rsi-r14-overflow-") as d:
+            pidfile = Path(d) / "child.pid"
+            pid = None
+            try:
+                observed = bounded_run(
+                    [sys.executable, "-c", script, str(pidfile)],
+                    env=os.environ.copy(), timeout=12)
+                self.assertEqual(observed.returncode, 125)
+                self.assertLessEqual(len(observed.stdout), MAX_OUTPUT)
+                self.assertIn(b"F139_D2K_OUTPUT_LIMIT_EXCEEDED",
+                              observed.stdout[:100])
+                self.assertTrue(pidfile.exists())
+                pid = int(pidfile.read_text())
+                for _ in range(20):
+                    if not self._descendant_alive(pid):
+                        break
+                    time.sleep(0.1)
+                self.assertFalse(self._descendant_alive(pid),
+                                 "output overflow left a live descendant")
+            finally:
+                if pid is None and pidfile.exists():
+                    pid = int(pidfile.read_text())
+                if pid is not None and self._descendant_alive(pid):
+                    if sys.platform == "win32":
+                        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                                       stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, timeout=5,
+                                       check=False)
+                    else:
+                        import signal
+                        os.kill(pid, signal.SIGKILL)
+
 if __name__=="__main__":
     unittest.main()
