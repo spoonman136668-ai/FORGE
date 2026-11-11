@@ -122,6 +122,13 @@ jobs:
               original := n.Signal
               posts:=0
               accountingDeferManager(t,h,n,cache,&posts)
+              // Use the SAME guarded final transport wrapper that production
+              // uses, but retain the fixture's in-memory-only broker responder.
+              client:=h.advancedOrderManager.auth.sharedHTTPClient()
+              base:=client.Transport
+              if base==nil {t.Fatal("in-memory fixture transport absent")}
+              client.Transport=nativeGuardedTransport{gate:n.Authorize,base:base}
+              t.Cleanup(func(){client.Transport=base})
               n.timing = &nativeConstructionTiming{}
               var evidence []NativeOrderEvidence
               n.Record = func(e NativeOrderEvidence) error {
