@@ -1,0 +1,77 @@
+name: K Terminal original runtime passive metadata only preflight
+on:
+  push:
+    branches: [qualification/kterm-original-runtime-readonly-20261111]
+    paths: [.github/workflows/kterm-original-runtime-readonly-preflight-20261111.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-pr88-full-window-ae11818c
+  cancel-in-progress: false
+jobs:
+  original-process-passive-preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Prove existing Windows owner and non-trading process-only boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterm-original-runtime-readonly-20261111' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows') {throw 'KTERM_ORIGINAL_READONLY_HOST_IDENTITY_REFUSED'}
+          if($env:GITHUB_WORKFLOW -cne 'K Terminal original runtime passive metadata only preflight'){
+            throw 'KTERM_ORIGINAL_READONLY_WORKFLOW_DRIFT'
+          }
+          # Never inherit even accidental broker credentials. Do not read
+          # registry, config, other application state, log lines or environment.
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+            'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+            'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_ORIGINAL_READONLY_BROKER_ENV_REFUSED'}
+          }
+          Write-Host 'KTERM_ORIGINAL_READONLY_OWNER_AND_NO_BROKER=PASS;NO_PROCESS_CHANGES=TRUE'
+          $app=@(Get-Process -Name 'K-Terminal' -ErrorAction SilentlyContinue)
+          $engines=@(Get-Process -Name 'K-Terminal-Engine' -ErrorAction SilentlyContinue)
+          Write-Host ('KTERM_ORIGINAL_READONLY_GUI_PROCESS_PRESENT='+[bool]($app.Count -gt 0))
+          Write-Host ('KTERM_ORIGINAL_READONLY_ENGINE_PROCESS_PRESENT='+[bool]($engines.Count -gt 0))
+          if($app.Count -ne 1){
+            Write-Host 'KTERM_ORIGINAL_READONLY_FIELD_CAPTURE_READY=FALSE;REASON=NO_UNIQUE_RUNNING_GUI'
+            Write-Host 'KTERM_ORIGINAL_READONLY_COMPLETE=PASS;BROKER_REQUESTS=0;FILE_CHANGES=0;APP_LAUNCHES=0'
+            return
+          }
+          $binary=''
+          try{$binary=[string]$app[0].MainModule.FileName}catch{}
+          if(-not $binary -or -not [IO.File]::Exists($binary) -or
+            [IO.Path]::GetFileName($binary) -cne 'K-Terminal.exe'){
+            Write-Host 'KTERM_ORIGINAL_READONLY_FIELD_CAPTURE_READY=FALSE;REASON=APP_BINARY_PROVENANCE_UNREADABLE'
+            Write-Host 'KTERM_ORIGINAL_READONLY_COMPLETE=PASS;BROKER_REQUESTS=0;FILE_CHANGES=0;APP_LAUNCHES=0'
+            return
+          }
+          $file=Get-Item -LiteralPath $binary -Force -ErrorAction Stop
+          if(($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'KTERM_ORIGINAL_READONLY_BINARY_SYMLINK_REFUSED'
+          }
+          $sha=(Get-FileHash -LiteralPath $binary -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          Write-Host ('KTERM_ORIGINAL_READONLY_RUNNING_GUI_EXE_SHA256='+$sha)
+          $root=[IO.Path]::GetDirectoryName($binary)
+          $source=Join-Path $root 'data\logs\p5-safe.jsonl'
+          $safe=$false
+          if([IO.File]::Exists($source)){
+            $s=Get-Item -LiteralPath $source -Force -ErrorAction Stop
+            $safe=(($s.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and
+              $s.Length -gt 0 -and $s.Length -le 10485760 -and
+              $s.LastWriteTimeUtc -ge [DateTime]::UtcNow.AddHours(-2))
+          }
+          Write-Host ('KTERM_ORIGINAL_READONLY_RECENT_P5_SAFE_FILE_PRESENT='+$safe)
+          # File presence is not a proof this binary emits qualified telemetry,
+          # nor is its age or length a claim about recent trading activity.
+          Write-Host 'KTERM_ORIGINAL_READONLY_FIELD_CAPTURE_READY=UNVERIFIED;REASON=ORIGINAL_BINARY_AND_LOG_PROVENANCE_NOT_QUALIFIED'
+          Write-Host 'KTERM_ORIGINAL_READONLY_COMPLETE=PASS;BROKER_REQUESTS=0;FILE_CHANGES=0;APP_LAUNCHES=0'
