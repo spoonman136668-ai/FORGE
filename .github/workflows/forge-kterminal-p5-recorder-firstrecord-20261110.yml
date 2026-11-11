@@ -1,4 +1,4 @@
-name: K Terminal P5 unknown broker ACK no-repost matrix
+name: K Terminal P5 seven-second accounting wait visibility proof
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
@@ -91,189 +91,169 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Probe previously untested timeout HTTP 503 and malformed-ACK no-repost negatives
+      - name: Verify original seven-second accounting wait is measurable and P5 safe
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_UNKNOWN_NEGATIVE_GO_VERSION_MISMATCH'}
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_P5_WAIT_GO_VERSION_DRIFT'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
           $src=Join-Path $root 'source'
-          $testFile=Join-Path $src 'pkg\kterm_unknown_outcome_temporary_test.go'
-          if(Test-Path -LiteralPath $testFile){throw 'KTERM_UNKNOWN_NEGATIVE_FILE_PREEXISTS'}
+          $file=Join-Path $src 'pkg\kterm_p5_wait_private_temp_test.go'
+          if(Test-Path -LiteralPath $file){throw 'KTERM_P5_WAIT_TEST_EXISTS'}
           $test=@'
           package pkg
-
+          
           import (
-            "context"
-            "encoding/json"
-            "fmt"
-            "io"
-            "net/http"
-            "os"
-            "path/filepath"
-            "strings"
-            "testing"
-            "time"
+              "bytes"
+              "encoding/json"
+              "fmt"
+              "os"
+              "strconv"
+              "testing"
+              "time"
           )
-
-          // Only added in a temporary, owner-verified checkout, never committed into
-          // the original K Terminal source. Its in-memory transport refuses all
-          // unknown HTTP routes and does not use real brokerage credentials.
-          func TestKTermTemporaryUnknownPostMatrix(t *testing.T) {
-            type receipt struct {
-              Product string `json:"product"`
-              Failure string `json:"failure"`
-              Posts int `json:"posts"`
-              ReplayPosts int `json:"replay_posts"`
-              State string `json:"state"`
-              Durable bool `json:"durable"`
-            }
-            var receipts []receipt
-            for _, product := range []string{"BTC-USDC","XRP-USDC"} {
-              for _, kind := range []string{"lost_timeout_after_transport","transient_503","malformed_success_200"} {
-                name := product+"/"+kind
-                t.Run(name, func(t *testing.T) {
-                  h,n,cache := stage3BuyFirstDeferredFixture(t,product,false)
-                  stage3BuyLifecycleAuthority(t,n) // Synthetic exclusive authority; no external venue.
-                  evidenceRoot := t.TempDir()
-                  fp,err := os.OpenFile(filepath.Join(evidenceRoot,"request-evidence.jsonl"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600)
-                  if err != nil {t.Fatal(err)}
-                  defer fp.Close()
-                  var evidence []NativeOrderEvidence
-                  n.Record=func(v NativeOrderEvidence) error {
-                    raw,e := json.Marshal(v); if e!=nil{return e}
-                    if _,e=fp.Write(append(raw,'\n'));e!=nil{return e}
-                    if e=fp.Sync();e!=nil{return e}
-                    evidence=append(evidence,v)
-                    return nil
-                  }
-                  posts,books,clocks := 0,0,0
-                  var submitted AdvancedOrderRequest
-                  base := lookupRoundTripFunc(func(req *http.Request) (*http.Response,error) {
-                    switch req.URL.Path {
-                    case "/api/v3/brokerage/best_bid_ask":
-                      books++
-                      return makerBookResponse(makerTestBook(n.Snapshot.BestBid,n.Snapshot.BestAsk,product,time.Now()),time.Now()),nil
-                    case "/api/v3/brokerage/time":
-                      clocks++
-                      return makerTimeResponse(time.Now()),nil
-                    case "/api/v3/brokerage/orders":
-                      posts++
-                      if req.Method!=http.MethodPost {return nil,fmt.Errorf("non-POST order transport denied")}
-                      if e:=json.NewDecoder(req.Body).Decode(&submitted);e!=nil{return nil,e}
-                      if submitted.ProductID!=product || submitted.Side!=OrderSideBuy ||
-                        submitted.OrderConfiguration.LimitLimitGTC==nil ||
-                        !submitted.OrderConfiguration.LimitLimitGTC.PostOnly ||
-                        submitted.ClientOrderID=="" {return nil,fmt.Errorf("maker/scope/identity violated")}
-                      switch kind {
-                      case "lost_timeout_after_transport":
-                        time.Sleep(125*time.Millisecond) // Intentional bounded loss after a POST was intercepted.
-                        return nil,context.DeadlineExceeded
-                      case "transient_503":
-                        return lookupFixtureResponse(map[string]any{"success":false,"error_response":map[string]string{"error":"TEMPORARILY_UNAVAILABLE"}},http.StatusServiceUnavailable),nil
-                      case "malformed_success_200":
-                        return &http.Response{StatusCode:http.StatusOK,Status:"200 OK",Header:make(http.Header),
-                          Body:io.NopCloser(strings.NewReader("{\"success\":true,\"success_response\":"))},nil
-                      default:
-                        return nil,fmt.Errorf("invalid failure control")
-                      }
-                    default:
-                      return nil,fmt.Errorf("non-fixture HTTP route denied: %s",req.URL.Path)
-                    }
-                  })
-                  h.advancedOrderManager=nativeQuoteRecoveryFixture(t,n,lookupRoundTripFunc(func(req *http.Request) (*http.Response,error) {
-                    return (nativeGuardedTransport{gate:n.Authorize,base:base}).RoundTrip(req)
-                  }))
-                  h.advancedOrderManager.UseNativeMarketCache(cache)
-                  original := n.Signal
-                  receiptDir:=t.TempDir()
-                  _,err=h.ExecuteNativeSignal(n,receiptDir)
-                  if !IsOrderSubmissionOutcomeUnknown(err) {t.Fatalf("unknown outcome not classified: %v",err)}
-                  if posts!=1 || books!=1 || clocks!=1 || n.Requests!=1 || n.Signal!=original {
-                    t.Fatalf("bad protected source submission: posts=%d books=%d clocks=%d request=%d",posts,books,clocks,n.Requests)
-                  }
-                  if len(evidence)!=2 || evidence[0].State!="REQUEST_READY" ||
-                    evidence[1].State!="OUTCOME_UNKNOWN" || evidence[0].EventID!=original.EventID ||
-                    evidence[1].EventID!=original.EventID || evidence[1].Error=="" {
-                    t.Fatalf("unknown event was not durably distinguished from a rejection")
-                  }
-                  if e:=fp.Sync();e!=nil{t.Fatal(e)}
-                  persisted,e:=stage3ReadJournalRecords(filepath.Join(evidenceRoot,"request-evidence.jsonl"))
-                  if e!=nil || len(persisted)!=2 || persisted[1].State!="OUTCOME_UNKNOWN" {
-                    t.Fatalf("required unknown event missing from reopened evidence: %v",e)
-                  }
-                  reloaded,e:=NewTrancheController(filepath.Dir(h.tranches.path),h.tranches.state.Scope)
-                  if e!=nil {t.Fatal(e)}
-                  reservation,ok:=reloaded.state.Reservations[original.EventID]
-                  if !ok || reservation.ClientID!=submitted.ClientOrderID ||
-                    reservation.Quantity<=0 || reservation.Price<=0 {
-                    t.Fatalf("unknown order reservation missing or altered")
-                  }
-                  beforePosts:=posts
-                  restarted:=&NativeConstruction{Signal:original}
-                  result,replayErr:=h.ExecuteNativeSignal(restarted,receiptDir)
-                  output,ok:=result.(map[string]any)
-                  if replayErr!=nil || !ok || output["status"]!="DUPLICATE_NO_REPLAY" ||
-                    posts!=beforePosts || restarted.Requests!=0 {
-                    t.Fatalf("unknown result replay submitted an order: posts=%d err=%v",posts,replayErr)
-                  }
-                  receipts=append(receipts,receipt{Product:product,Failure:kind,
-                    Posts:posts,ReplayPosts:posts-beforePosts,State:evidence[1].State,Durable:true})
-                })
+          
+          // TEMPORARY OWNER CHECKOUT ONLY, not a production source modification.
+          // Exercises the original confirmed-BUY-settlement wait and projects its
+          // original timing spans through the existing privacy-safe P5 allowlist.
+          func TestKTermTemporaryP5SevenSecondAccountingVisibility(t *testing.T) {
+              t.Setenv("K_TERMINAL_P5_LATENCY", "1")
+              h,n,cache := nativeConfirmedAccountingDeferFixture(t)
+              original := n.Signal
+              posts:=0
+              accountingDeferManager(t,h,n,cache,&posts)
+              n.timing = &nativeConstructionTiming{}
+              var evidence []NativeOrderEvidence
+              n.Record = func(e NativeOrderEvidence) error {
+                  evidence=append(evidence,e)
+                  return nil
               }
-            }
-            if len(receipts)!=6 {t.Fatalf("incomplete original-source unknown outcome negative matrix")}
-            raw,err:=json.Marshal(struct {Schema string `json:"schema"`; Cases []receipt `json:"cases"`}{
-              Schema:"kterm.synthetic-unknown-outcome-matrix.v1",Cases:receipts})
-            if err!=nil {t.Fatal(err)}
-            if e:=os.WriteFile(os.Getenv("KTERM_UNKNOWN_MATRIX_OUTPUT"),raw,0600);e!=nil{t.Fatal(e)}
+              begun:=time.Now()
+              p5:=newP5LatencyObserver("native_order",begun)
+              if p5==nil { t.Fatal("opt-in P5 observer not available") }
+              p5.mark("journal_admission")
+              done:=make(chan struct{})
+              defer close(done)
+              go func() {
+                  ticker:=time.NewTicker(100*time.Millisecond)
+                  defer ticker.Stop()
+                  for {
+                      select {
+                      case <-done: return
+                      case <-ticker.C:
+                          cache.mu.Lock()
+                          cache.value.AccountAt=time.Now().UTC()
+                          if time.Since(begun)>=7*time.Second {
+                              cache.value.AvailableBase=strconv.FormatFloat(h.syntheticTP.position.Snapshot().Quantity,'f',8,64)
+                          }
+                          cache.mu.Unlock()
+                      }
+                  }
+              }()
+              receiptDir:=t.TempDir()
+              result,err:=h.ExecuteNativeSignal(n,receiptDir)
+              p5.mark("native_execute_return")
+              p5.observeNativeTiming(n.timing)
+              p5.mark("post_execute_evidence")
+              record:=p5.safeRecord(err==nil)
+              elapsed:=time.Since(begun)
+              if err!=nil || result==nil || posts!=1 || n.Requests!=1 ||
+                 elapsed<7*time.Second || elapsed>=nativeConfirmedAccountingDeferWindow {
+                  t.Fatalf("original seven-second fixture safety failed: requests=%d posts=%d elapsed=%s err=%v",n.Requests,posts,elapsed,err)
+              }
+              if len(evidence)!=2 || evidence[0].State!="REQUEST_READY" || evidence[1].State!="RESULT" ||
+                 evidence[0].EventID!=original.EventID || evidence[1].EventID!=original.EventID {
+                  t.Fatal("exact original evidence source/identity was not preserved")
+              }
+              restarted:=&NativeConstruction{Signal:original}
+              replay,replayErr:=h.ExecuteNativeSignal(restarted,receiptDir)
+              dup,ok:=replay.(map[string]any)
+              if replayErr!=nil || !ok || dup["status"]!="DUPLICATE_NO_REPLAY" || posts!=1 || restarted.Requests!=0 {
+                  t.Fatalf("deferred accepted order could be replayed: err=%v posts=%d",replayErr,posts)
+              }
+              wait,waitExists:=record.StagesMS["order_accounting_wait"]
+              ready,readyExists:=record.StagesMS["order_first_transport_ready"]
+              response,responseExists:=record.StagesMS["order_post_to_response_headers"]
+              if !waitExists || !readyExists || !responseExists ||
+                 wait<6800 || wait>=10000 || ready<6800 ||
+                 response>1000 || record.TotalMS<7000 || record.TotalMS>=10000 {
+                  t.Fatalf("P5 did not separate real source wait from mocked response: wait=%d ready=%d response=%d total=%d",wait,ready,response,record.TotalMS)
+              }
+              if record.Operation!="native_order" || record.Schema!=1 || len(record.Trace)!=16 || !record.Success {
+                  t.Fatal("P5 envelope/source/opt-in unexpectedly changed")
+              }
+              safe,marshalErr:=json.Marshal(record)
+              if marshalErr!=nil { t.Fatal(marshalErr) }
+              for _,s:=range []string{original.EventID,original.DefinitionID,original.ProductID,
+                  "event_id","client_order_id","account_id","coinbase_request","error",
+                  "request_sha256","timing_span","native_started_at"} {
+                  if s!="" && bytes.Contains(safe,[]byte(s)) {
+                      t.Fatalf("privacy barrier failed: forbidden data type %q",s)
+                  }
+              }
+              var fields map[string]json.RawMessage
+              if err:=json.Unmarshal(safe,&fields);err!=nil{t.Fatal(err)}
+              if len(fields)!=7 {t.Fatalf("P5 field envelope changed: keys=%d",len(fields))}
+              for name:=range fields {
+                  switch name {
+                  case "schema","operation","random_trace","total_ms","success","stages_ms","record_count_buckets":
+                  default: t.Fatalf("unexpected private P5 key: %s",name)
+                  }
+              }
+              for stage:=range record.StagesMS {
+                  if !p5SafeStages[stage] {t.Fatalf("unapproved timing key was exposed")}
+              }
+              out:=struct{
+                  Schema string `json:"schema"`
+                  SourceSHA string `json:"source_sha"`
+                  WaitMS int64 `json:"accounting_wait_ms"`
+                  ReadyMS int64 `json:"first_transport_ready_ms"`
+                  ResponseMS int64 `json:"mock_order_response_ms"`
+                  TotalMS int64 `json:"total_ms"`
+                  InitialPosts int `json:"mock_posts"`
+                  ReplayPosts int `json:"replay_posts"`
+                  PrivateIdentityExcluded bool `json:"privacy_pass"`
+              }{"kterm.synthetic-p5-native-wait.v1","5f56896a1aeefdf5e412d47210026dd6d882229f",wait,ready,response,record.TotalMS,posts,posts-1,true}
+              encoded,e:=json.Marshal(out)
+              if e!=nil{t.Fatal(e)}
+              name:=os.Getenv("KTERM_P5_WAIT_PRIVATE_REPORT")
+              if name=="" { t.Fatal("no private report destination") }
+              if e=os.WriteFile(name,encoded,0600);e!=nil{t.Fatal(e)}
+              fmt.Println("KTERM_P5_WAIT_TEMP_TEST=PASS")
           }
           '@
-          [IO.File]::WriteAllText($testFile,$test,[Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText($file,$test,[Text.UTF8Encoding]::new($false))
           $status=@(& git -C $src status --porcelain)
-          if($status.Count -ne 1 -or [string]$status[0] -notmatch '^\?\? pkg/kterm_unknown_outcome_temporary_test\.go$'){
-            throw 'KTERM_UNKNOWN_NEGATIVE_UNEXPECTED_WORKTREE'
-          }
-          $env:KTERM_UNKNOWN_MATRIX_OUTPUT=Join-Path $root 'private-unknown-matrix.json'
-          $env:K_TERMINAL_P5_LATENCY='0'
+          if($status.Count -ne 1 -or [string]$status[0] -notmatch '^\?\? pkg/kterm_p5_wait_private_temp_test\.go$'){throw 'KTERM_P5_WAIT_WORKTREE_DRIFT'}
+          $env:KTERM_P5_WAIT_PRIVATE_REPORT=Join-Path $root 'private-p5-wait-result.json'
           $env:K_TERMINAL_NATIVE_TIMING='0'
+          $env:K_TERMINAL_P5_LATENCY='0'
           $env:K_TERMINAL_GITHUB_TOKEN=''
           $env:HTTP_PROXY='http://127.0.0.1:9'
           $env:HTTPS_PROXY='http://127.0.0.1:9'
           $env:ALL_PROXY='http://127.0.0.1:9'
           $env:NO_PROXY=''
-          $log=Join-Path $root 'private-unknown-matrix-test.log'
-          $clock=[Diagnostics.Stopwatch]::StartNew()
+          $log=Join-Path $root 'private-p5-wait-test.log'
           Push-Location $src
           try {
-            & go test -run '^TestKTermTemporaryUnknownPostMatrix$' -count=1 -timeout 10m ./pkg *> $log
+            & go test -run '^TestKTermTemporaryP5SevenSecondAccountingVisibility$' -count=1 -timeout 10m ./pkg *> $log
             $code=$LASTEXITCODE
           } finally {Pop-Location}
-          $clock.Stop()
-          if($code -ne 0 -or -not [IO.File]::Exists($env:KTERM_UNKNOWN_MATRIX_OUTPUT)){
-            Write-Host ('KTERM_UNKNOWN_NEGATIVE=FAIL;PRIVATE_LOG_SHA256='+(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
-            throw 'KTERM_UNKNOWN_NEGATIVE_ORIGINAL_TRANSPORT_FAILED'
+          if($code -ne 0 -or -not [IO.File]::Exists($env:KTERM_P5_WAIT_PRIVATE_REPORT)){
+            Write-Host ('KTERM_P5_WAIT=FAIL;PRIVATE_LOG_SHA256='+(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
+            throw 'KTERM_P5_WAIT_VISIBILITY_TEST_FAILED'
           }
-          $p=[IO.File]::ReadAllText($env:KTERM_UNKNOWN_MATRIX_OUTPUT)|ConvertFrom-Json
-          if($p.schema -cne 'kterm.synthetic-unknown-outcome-matrix.v1' -or @($p.cases).Count -ne 6){
-            throw 'KTERM_UNKNOWN_NEGATIVE_REPORT_INVALID'
-          }
-          foreach($product in @('BTC-USDC','XRP-USDC')){
-            foreach($failure in @('lost_timeout_after_transport','transient_503','malformed_success_200')){
-              $x=@($p.cases|Where-Object {$_.product -ceq $product -and $_.failure -ceq $failure})
-              if($x.Count -ne 1 -or $x[0].state -cne 'OUTCOME_UNKNOWN' -or
-                 $x[0].posts -ne 1 -or $x[0].replay_posts -ne 0 -or $x[0].durable -ne $true){
-                throw 'KTERM_UNKNOWN_NEGATIVE_MISSING_CASE_OR_GUARD'
-              }
-              Write-Host ('KTERM_UNKNOWN_NEGATIVE_CASE=PASS;PRODUCT='+$product+
-                ';CONDITION='+$failure+';MOCK_POSTS=1;REPLAY_POSTS=0'+
-                ';DURABLE_UNKNOWN_RECEIPT=TRUE;EXACT_MAKER_RESERVATION_RETAINED=TRUE')
-            }
-          }
-          Write-Host ('KTERM_UNKNOWN_NEGATIVE=PASS;SOURCE_SHA='+$env:KTERM_SHA+
-            ';CASES=6;MOCK_POSTS=6;LIVE_POSTS=0;UNKNOWN_STATES_DURABLE=6'+
-            ';DUPLICATE_REPLAY_POSTS=0;TOOLCHAIN_GUARD=PASS;WORKTREE_TEST_ONLY=TRUE'+
-            ';TOTAL_WALL_MS='+$clock.ElapsedMilliseconds+';FIELD_TIMEOUT_CAUSE=UNVERIFIED')
+          $r=[IO.File]::ReadAllText($env:KTERM_P5_WAIT_PRIVATE_REPORT)|ConvertFrom-Json
+          if($r.schema -cne 'kterm.synthetic-p5-native-wait.v1' -or $r.source_sha -cne $env:KTERM_SHA -or
+             $r.accounting_wait_ms -lt 6800 -or $r.accounting_wait_ms -ge 10000 -or
+             $r.first_transport_ready_ms -lt 6800 -or $r.mock_order_response_ms -gt 1000 -or
+             $r.total_ms -lt 7000 -or $r.total_ms -ge 10000 -or $r.mock_posts -ne 1 -or
+             $r.replay_posts -ne 0 -or $r.privacy_pass -ne $true){throw 'KTERM_P5_WAIT_RESULT_CONTRACT_FAILED'}
+          Write-Host ('KTERM_P5_WAIT=PASS;SOURCE_SHA='+$r.source_sha+
+            ';ACCOUNTING_WAIT_MS='+$r.accounting_wait_ms+';FIRST_TRANSPORT_READY_MS='+$r.first_transport_ready_ms+
+            ';MOCK_RESPONSE_MS='+$r.mock_order_response_ms+';FULL_WALL_MS='+$r.total_ms+
+            ';ORIGINAL_ACCOUNTING_WAIT=TRUE;P5_SAFE_PRIVACY=PASS;EXACT_ONE_MOCK_POST=TRUE'+
+            ';DUPLICATE_POSTS=0;REAL_BROKER_IO=0;SOURCE_TREE_UNCHANGED=TRUE;FIELD_CAUSE=UNVERIFIED')
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
