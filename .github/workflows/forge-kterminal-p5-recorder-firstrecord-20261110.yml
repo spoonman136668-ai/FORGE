@@ -1,17 +1,18 @@
-name: K Terminal P5 source-locked PAPER acceptance package
+name: K Terminal P5 source-locked offline PAPER artifact acceptance
 on:
   push:
     branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
     paths: [.github/workflows/forge-kterminal-p5-recorder-firstrecord-20261110.yml]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: kterminal-pr88-full-window-ae11818c
   cancel-in-progress: false
 jobs:
   owner-local-paper-qualification:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 115
+    timeout-minutes: 20
     env:
       KTERM_SHA: 5f56896a1aeefdf5e412d47210026dd6d882229f
       KTERM_BASE: bcebdc1a7a0487f9d6061a8e643c76069335d896
@@ -90,135 +91,124 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Rebuild exact source and create non-installable PAPER acceptance ZIP
+      - name: Download only the previously qualified immutable private PAPER artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: 13846458790
+          run-id: 43003258044
+          repository: spoonman136668-ai/FORGE
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/kterm-p5-firstfile-${{ github.run_id }}/artifact
+      - name: Verify exact ZIP content then execute original relocated offline PAPER acceptance
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_PAPER_GO_VERSION_DRIFT'}
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          $src=Join-Path $root 'source'
-          $pkg=Join-Path $root 'paper-package'
-          if(Test-Path -LiteralPath $pkg){throw 'KTERM_PAPER_PACKAGE_ROOT_NOT_FRESH'}
-          [void][IO.Directory]::CreateDirectory($pkg)
-          # No target installation paths are touched. The original BUILD.ps1
-          # emits binaries into this throwaway, source-pinned checkout only.
-          $buildlog=Join-Path $root 'private-paper-build.log'
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $src 'BUILD.ps1') *> $buildlog
-          if($LASTEXITCODE -ne 0) {
-            Write-Host ('KTERM_PAPER_BUILD=FAIL;LOG_SHA256='+(Get-FileHash -LiteralPath $buildlog -Algorithm SHA256).Hash.ToLowerInvariant())
-            throw 'KTERM_PAPER_BUILD_FAILED'
-          }
-          $bins=@('K-Terminal.exe','K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe',
-            'K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe',
-            'K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe')
-          foreach($name in $bins){
-            $srcFile=Join-Path $src $name
-            if(-not [IO.File]::Exists($srcFile) -or (Get-Item -LiteralPath $srcFile).Length -lt 4096){
-              throw 'KTERM_PAPER_REQUIRED_BINARY_MISSING'
-            }
-            Copy-Item -LiteralPath $srcFile -Destination (Join-Path $pkg $name) -ErrorAction Stop
-          }
-          $meta=(& go version -m (Join-Path $src 'K-Terminal-Engine.exe') | Out-String)
-          if($meta -notmatch ('vcs\.revision='+[regex]::Escape($env:KTERM_SHA)) -or
-             $meta -notmatch 'vcs\.modified=false'){
-            throw 'KTERM_PAPER_BINARY_SOURCE_PROVENANCE_UNVERIFIED'
-          }
-          # Allowlist runtime source files by suffix and exclude admin/build
-          # tools, development tests and anything outside the source root.
-          $runtime=@(Get-ChildItem -LiteralPath $src -File -ErrorAction Stop | Where-Object {
-            (($_.Extension -ceq '.ps1' -or $_.Extension -ceq '.cs') -and
-             $_.Name -cnotin @('BUILD.ps1','HEALTH.ps1','UPDATE-PROGRAM-FILES.ps1') -and
-             $_.Name -cnotmatch '^test-') -or
-            $_.Name -cin @('edition.json','VERSION','LAUNCHER-REVISION','ui-runtime-manifest.json')
-          })
-          if($runtime.Count -lt 38 -or $runtime.Count -gt 85){throw 'KTERM_PAPER_RUNTIME_SOURCE_SET_DRIFT'}
-          foreach($file in $runtime){
-            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $pkg $file.Name) -ErrorAction Stop
-          }
-          $assets=Join-Path $pkg 'assets'
-          [void][IO.Directory]::CreateDirectory($assets)
-          foreach($name in @('kt-logo-source.png','roadmap-2027.png')){
-            Copy-Item -LiteralPath (Join-Path $src ('assets\'+$name)) -Destination (Join-Path $assets $name) -ErrorAction Stop
-          }
-          $diag=Join-Path $pkg 'diagnostics'
-          [void][IO.Directory]::CreateDirectory($diag)
-          Copy-Item -LiteralPath (Join-Path $src 'verification\KTerminal-Live-Session-Recorder-v1.2.ps1') -Destination (Join-Path $diag 'KTerminal-Live-Session-Recorder-v1.2.ps1')
-          Copy-Item -LiteralPath (Join-Path $src 'docs\P5-SAFE-LATENCY-RUNTIME.md') -Destination (Join-Path $diag 'P5-SAFE-LATENCY-RUNTIME.md')
-          $notice=@'
-          K TERMINAL PRIVATE PAPER ACCEPTANCE STAGING -- DO NOT INSTALL OR LAUNCH
-          Frozen source SHA: 5f56896a1aeefdf5e412d47210026dd6d882229f
-          Regression: FORGE run 42941369948, PASS on frozen source.
-          This ZIP contains no config.json, data, broker credentials, order
-          history, or production installation. This separate packaging run
-          rebuilds from unchanged source and checks the generated archive;
-          it does not rerun the previously passing full Windows regression.
-          The binaries are normal program binaries, not technically incapable
-          of being configured LIVE later. This is NOT a qualified LIVE build,
-          deployment package, installer, or authentic field performance receipt.
-          The original 5-minute reconciliation latency is NOT yet resolved.
-          '@
-          [IO.File]::WriteAllText((Join-Path $pkg 'DO_NOT_INSTALL_OR_LAUNCH.txt'),
-            $notice,[Text.UTF8Encoding]::new($false))
-          Write-Host ('KTERM_PAPER_BUILD=PASS;ENGINE_SOURCE=EXACT;BINARIES='+$bins.Count+
-            ';RUNTIME_SOURCE_FILES='+$runtime.Count+';NO_APP_EXECUTION=TRUE;NO_INSTALL=TRUE')
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $list=@(Get-ChildItem -LiteralPath $pkg -File -Recurse -ErrorAction Stop|Sort-Object FullName)
-          if($list.Count -lt 48 -or $list.Count -gt 120){throw 'KTERM_PAPER_FILE_COUNT_UNEXPECTED'}
-          $m=[ordered]@{schema='kterminal.paper.staging.v1';source_sha=$env:KTERM_SHA;
-            source_tree='8996ef668f167215edcbfd306ac819e53b3b4b86';
-            prior_full_regression_run=42941369948;
-            no_config_or_private_state=$true;live_deployment_qualified=$false;files=@()}
-          foreach($f in $list){
-            $rel=$f.FullName.Substring($pkg.Length+1).Replace('\','/')
-            if($rel -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
-               $rel -match '(^/|^\.\.|/\.\./|:)' -or $f.Length -gt 150MB){
-              throw 'KTERM_PAPER_DISALLOWED_ENTRY'
-            }
-            $m.files += [ordered]@{path=$rel;bytes=[long]$f.Length;
-              sha256=(Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
+          $download=Join-Path $root 'artifact'
+          $zip=Join-Path $download 'K-Terminal-PAPER-ACCEPTANCE-5f56896a.zip'
+          if(-not [IO.File]::Exists($zip)){throw 'KTERM_G22_EXPECTED_ARTIFACT_NOT_FOUND'}
+          if(@(Get-ChildItem -LiteralPath $download -File).Count -ne 1){throw 'KTERM_G22_ARTIFACT_SCOPE_DRIFT'}
+          $zipsha=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($zipsha -cne 'ad21bc5b3016b025a26675573bc654126b7d78f609ee37784f74e475a52cf5bc'){
+            throw 'KTERM_G22_PREVIOUSLY_QUALIFIED_ZIP_HASH_DRIFT'
           }
-          [IO.File]::WriteAllText((Join-Path $pkg 'ACCEPTANCE-MANIFEST.json'),
-            ($m|ConvertTo-Json -Depth 7),[Text.UTF8Encoding]::new($false))
-          $zip=Join-Path $root 'K-Terminal-PAPER-ACCEPTANCE-5f56896a.zip'
-          [IO.Compression.ZipFile]::CreateFromDirectory($pkg,$zip,
-            [IO.Compression.CompressionLevel]::Optimal,$false)
-          $reader=[IO.Compression.ZipFile]::OpenRead($zip)
+          $archive=[IO.Compression.ZipFile]::OpenRead($zip)
           try {
-            $entries=@($reader.Entries|Where-Object {$_.Name})
+            $entries=@($archive.Entries|Where-Object {$_.Name})
+            if($entries.Count -ne 70){throw 'KTERM_G22_ARCHIVE_FILE_COUNT_DRIFT'}
             $seen=@{}
-            if($entries.Count -ne $list.Count+1){throw 'KTERM_PAPER_ZIP_COUNT_MISMATCH'}
-            foreach($entry in $entries){
-              if($seen.ContainsKey($entry.FullName) -or
-                $entry.FullName -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
-                $entry.FullName -match '(^/|^\.\.|/\.\./|:)'){
-                throw 'KTERM_PAPER_ZIP_ENTRY_REFUSED'
-              }
-              $seen[$entry.FullName]=$true
+            foreach($e in $entries){
+              $name=$e.FullName
+              if([string]::IsNullOrWhiteSpace($name) -or $seen.ContainsKey($name) -or
+                 $name -match '(?i)(^|/)(\.env|config\.json|data|credentials|pending-program-update\.json|\.git|\.build)(/|$)' -or
+                 $name -match '(^/|^\.\.|/\.\./|:|\\)' -or
+                 $e.Length -gt 150MB){throw 'KTERM_G22_ARCHIVE_ENTRY_REFUSED'}
+              $seen[$name]=$true
             }
-            foreach($item in $m.files){
-              $entry=$reader.GetEntry($item.path)
-              if($null -eq $entry -or $entry.Length -ne $item.bytes){throw 'KTERM_PAPER_ZIP_FILE_MISMATCH'}
-              $stream=$entry.Open()
-              try {
-                $sha=[Security.Cryptography.SHA256]::Create()
-                try{$digest=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}
-                finally{$sha.Dispose()}
-              }finally{$stream.Dispose()}
-              if($digest -cne $item.sha256){throw 'KTERM_PAPER_ZIP_HASH_MISMATCH'}
+            if(-not $seen.ContainsKey('ACCEPTANCE-MANIFEST.json')){throw 'KTERM_G22_MISSING_MANIFEST'}
+            $manifestEntry=$archive.GetEntry('ACCEPTANCE-MANIFEST.json')
+            $sr=New-Object IO.StreamReader($manifestEntry.Open())
+            try{$manifest=($sr.ReadToEnd()|ConvertFrom-Json)}finally{$sr.Dispose()}
+            if($manifest.schema -cne 'kterminal.paper.staging.v1' -or
+               $manifest.source_sha -cne $env:KTERM_SHA -or
+               $manifest.source_tree -cne '8996ef668f167215edcbfd306ac819e53b3b4b86' -or
+               $manifest.live_deployment_qualified -ne $false -or
+               $manifest.no_config_or_private_state -ne $true -or
+               @($manifest.files).Count -ne 69) {throw 'KTERM_G22_MANIFEST_PROVENANCE_DRIFT'}
+            foreach($item in $manifest.files){
+              $e=$archive.GetEntry([string]$item.path)
+              if($null -eq $e -or $e.Length -ne [long]$item.bytes){throw 'KTERM_G22_MANIFEST_MEMBER_DRIFT'}
+              $s=$e.Open()
+              try{
+                $hasher=[Security.Cryptography.SHA256]::Create()
+                try{$digest=([BitConverter]::ToString($hasher.ComputeHash($s))).Replace('-','').ToLowerInvariant()}
+                finally{$hasher.Dispose()}
+              }finally{$s.Dispose()}
+              if($digest -cne [string]$item.sha256){throw 'KTERM_G22_MANIFEST_HASH_DRIFT'}
             }
-          }finally{$reader.Dispose()}
-          if((Get-Item -LiteralPath $zip).Length -gt 100MB){throw 'KTERM_PAPER_ZIP_TOO_LARGE'}
-          Write-Host ('KTERM_PAPER_ZIP=PASS;FILES='+($list.Count+1)+
-            ';ZIP_SHA256='+(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()+
-            ';NO_CONFIG_OR_DATA=TRUE;RELEASE_ACCEPTANCE=UNVERIFIED;NO_INSTALL=TRUE;LIVE_ORDERS=0')
-      - name: Upload private non-installable PAPER staging archive
-        if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: K-Terminal-PAPER-ACCEPTANCE-5f56896a
-          path: ${{ runner.temp }}/kterm-p5-firstfile-${{ github.run_id }}/K-Terminal-PAPER-ACCEPTANCE-5f56896a.zip
-          retention-days: 14
-          if-no-files-found: error
+          }finally{$archive.Dispose()}
+          $pkg=Join-Path $root 'artifact-unpacked'
+          if(Test-Path -LiteralPath $pkg){throw 'KTERM_G22_EXTRACT_ROOT_EXISTS'}
+          [IO.Compression.ZipFile]::ExtractToDirectory($zip,$pkg)
+          $engine=Join-Path $pkg 'K-Terminal-Engine.exe'
+          $launcher=Join-Path $pkg 'K-Terminal.exe'
+          if(-not [IO.File]::Exists($engine) -or -not [IO.File]::Exists($launcher)){
+            throw 'KTERM_G22_MISSING_NORMAL_BINARIES'
+          }
+          $build=( & go version -m $engine | Out-String )
+          if($build -notmatch ('vcs\.revision='+[regex]::Escape($env:KTERM_SHA)) -or
+             $build -notmatch 'vcs\.modified=false'){throw 'KTERM_G22_ENGINE_NOT_EXACT_CLEAN_BUILD'}
+          Write-Host ('KTERM_G22_ARTIFACT_CUSTODY=PASS;SOURCE_SHA='+$env:KTERM_SHA+
+            ';ZIP_SHA256='+$zipsha+';ENTRIES=70;NO_CONFIG=TRUE;NO_DATA=TRUE')
+          # The existing original source G22 harness performs isolated PAPER
+          # startup, refusal of a stale BUY, forced restart and synthetic
+          # localhost WS accepted fill. It explicitly does NOT exercise LIVE.
+          $fixture=Join-Path $root 'paper-runtime'
+          [void][IO.Directory]::CreateDirectory($fixture)
+          $env:RUNNER_TEMP=$fixture
+          $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+          $env:K_TERMINAL_SELECTED_ASSET='BTC-USDC'
+          $env:K_TERMINAL_P5_LATENCY='0'
+          $env:K_TERMINAL_NATIVE_TIMING='0'
+          $env:HTTP_PROXY='http://127.0.0.1:9'
+          $env:HTTPS_PROXY='http://127.0.0.1:9'
+          $env:ALL_PROXY='http://127.0.0.1:9'
+          $env:NO_PROXY=''
+          $env:K_TERMINAL_GITHUB_TOKEN=''
+          $tools=Join-Path $root 'source\tools\graphify'
+          $proof=Join-Path $fixture 'private-g22-proof.json'
+          $privateLog=Join-Path $root 'private-g22-runtime.log'
+          $clock=[Diagnostics.Stopwatch]::StartNew()
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $tools 'g22_relocated_acceptance.ps1') -SourceRoot $pkg -SourceSHA $env:KTERM_SHA -EvidencePath $proof -VerificationToolsRoot $tools *> $privateLog
+          $exit=$LASTEXITCODE
+          $clock.Stop()
+          if($exit -ne 0 -or -not [IO.File]::Exists($proof)){
+            $digest=(Get-FileHash -LiteralPath $privateLog -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host ('KTERM_G22_OFFLINE_RUNTIME=FAIL;PRIVATE_LOG_SHA256='+$digest+';RAW_LOGS_PRIVATE=TRUE')
+            throw 'KTERM_G22_EXACT_PACKAGE_RUNTIME_FAILED'
+          }
+          $p=Get-Content -LiteralPath $proof -Raw|ConvertFrom-Json
+          $expectedEngine=(Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expectedLauncher=(Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($p.schema -cne 'kterminal.ice.g22-relocated-package.v1' -or
+             $p.source_sha -cne $env:KTERM_SHA -or
+             $p.source_engine_sha256 -cne $expectedEngine -or
+             $p.staged_engine_sha256 -cne $expectedEngine -or
+             $p.source_launcher_sha256 -cne $expectedLauncher -or
+             $p.staged_launcher_sha256 -cne $expectedLauncher -or
+             $p.untagged_engine_normal_paper_startup_passed -ne $true -or
+             $p.untagged_engine_positive_local_ws_passed -ne $true -or
+             $p.forced_engine_restart_passed -ne $true -or
+             $p.exact_restart_revision -ne 0 -or
+             $p.zero_real_broker_orders -ne $true -or
+             $p.private_history_accessed -ne $false -or
+             $p.actual_launcher_wpf_interactive_session_run -ne $false -or
+             $p.full_g22_installed_gui_qualified -ne $false){
+            throw 'KTERM_G22_PROOF_BOUNDARY_MISMATCH'
+          }
+          Write-Host ('KTERM_G22_OFFLINE_RUNTIME=PASS;RUN_MS='+$clock.ElapsedMilliseconds+
+            ';NORMAL_ENGINE_PAPER=PASS;LOCAL_WS_SYNTHETIC=PASS;COLD_RESTART=PASS;BROKER_POSTS=0;INTERACTIVE_GUI=UNVERIFIED;FIELD_LATENCY=UNVERIFIED')
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
