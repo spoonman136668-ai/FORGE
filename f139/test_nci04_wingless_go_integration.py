@@ -95,6 +95,14 @@ class FrozenWinglessGoIntegration(unittest.TestCase):
         )
 
     def test_generated_go_builds_and_exercises_real_actions(self):
+        # G137's original Windows Python regression runs two sharded workers
+        # under a strict process-tree Job Object. Do not launch a cold native
+        # Go compiler INSIDE that historical Python test envelope. The
+        # independent unsharded F139 source jobs execute this same test on
+        # both Linux and Windows. Only this new native check is skipped in
+        # G137; all previously qualified original cases remain unchanged.
+        if os.environ.get("FORGE_G137_GO"):
+            self.skipTest("WINGLESS_GO_COMPILER_QUALIFIED_IN_UNSHARDED_SOURCE_CI")
         go = shutil.which("go")
         if not go:
             self.skipTest("GO_NATIVE_COMPILER_NOT_AVAILABLE_UNVERIFIED")
