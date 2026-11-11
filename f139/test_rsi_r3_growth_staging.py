@@ -133,7 +133,7 @@ class StagedGrowthTests(unittest.TestCase):
 
         with patch.object(staging, "git_bytes", side_effect=counterfeit):
             with self.assertRaisesRegex(staging.GrowthStagingDenied,
-                                        "COMMITTED_G1_CHANGED"):
+                                        "STAGED_COMMITTED_BYTES_DRIFT"):
                 self.stage()
         self.assertFalse((self.scratch / "rsi-r3-growth-g2").exists())
         self.assertEqual(git(self.repo, "status", "--porcelain",
