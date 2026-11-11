@@ -13,10 +13,10 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 5c62f8e8fbe662204063f6a4474721d59640b877
+      KTERM_SHA: ce52e88d1ae5a351390698ea0def23193980b27e
       KTERM_BASE: 5f56896a1aeefdf5e412d47210026dd6d882229f
-      KTERM_NATIVE_SNAPSHOT_BLOB: 588d234d550b809af235eaf4334d4a0f3ba5041d
-      KTERM_SNAPSHOT_TEST_BLOB: b4afb4bd9b7605d40d0ba56926dd65bc82350b71
+      KTERM_NATIVE_SNAPSHOT_BLOB: b381089816414485ca9b8f76334aa649d42336a9
+      KTERM_SNAPSHOT_TEST_BLOB: 80a3fad1916d31e24e47f93a54fb3b80dd1d3236
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -69,14 +69,14 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_P5_CHECKOUT_FAILED'}
           $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
           $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
-          $parent=(& git -C $stage rev-parse 'HEAD~2' | Out-String).Trim()
+          $parent=(& git -C $stage rev-parse 'HEAD~4' | Out-String).Trim()
           $rec=(& git -C $stage rev-parse 'HEAD:pkg/native-snapshot.go' | Out-String).Trim()
           $test=(& git -C $stage rev-parse 'HEAD:pkg/native-snapshot-freshness_test.go' | Out-String).Trim()
           if($sha -cne $env:KTERM_SHA -or $parent -cne $env:KTERM_BASE -or
              $rec -cne $env:KTERM_NATIVE_SNAPSHOT_BLOB -or $test -cne $env:KTERM_SNAPSHOT_TEST_BLOB -or
              $tree -cnotmatch '^[0-9a-f]{40}$' -or
              @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_P5_SOURCE_CUSTODY_REFUSED'}
-          $changed=@(& git -C $stage diff --name-only HEAD~2 HEAD)
+          $changed=@(& git -C $stage diff --name-only HEAD~4 HEAD)
           $expected=@('pkg/native-snapshot.go','pkg/native-snapshot-freshness_test.go')
           if($changed.Count -ne 2 -or @($changed | Where-Object {$_ -cnotin $expected}).Count -ne 0){
             throw 'KTERM_SNAPSHOT_TWO_FILE_SCOPE_DRIFT'
@@ -119,7 +119,7 @@ jobs:
               Write-Host ('KTERM_SNAPSHOT_FOCUSED=FAIL;EXIT='+$code+';PRIVATE_LOG_SHA256='+$digest+';PRIVATE_LOG_NOT_UPLOADED=TRUE')
               throw 'KTERM_SNAPSHOT_FOCUSED_UNQUALIFIED'
             }
-            Write-Host ('KTERM_SNAPSHOT_FOCUSED=PASS;MS='+$clock.ElapsedMilliseconds+';CASES=4;BROKER_POST=0')
+            Write-Host ('KTERM_SNAPSHOT_FOCUSED=PASS;MS='+$clock.ElapsedMilliseconds+';CASES=5;BROKER_POST=0')
             $full=Join-Path $root 'private-go-full.jsonl'
             $clock=[Diagnostics.Stopwatch]::StartNew()
             & go test -json -p 1 -count=1 -timeout 60m ./... *> $full
