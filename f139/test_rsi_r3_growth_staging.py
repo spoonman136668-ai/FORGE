@@ -140,7 +140,7 @@ class StagedGrowthTests(unittest.TestCase):
                              "--untracked-files=all"), "")
 
     def test_marker_and_generated_source_injection_fail_closed(self):
-        env = {"__name__": "reviewed"}
+        env = {"__name__": "__main__"}
         exec(compile(self.record.source, TARGET, "exec"), env)
         good = env["source_for"](4)
         module = staging.render(self.record.source, good)
