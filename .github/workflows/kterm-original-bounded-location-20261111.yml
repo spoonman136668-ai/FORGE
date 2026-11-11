@@ -73,4 +73,59 @@ jobs:
               ';CONFIGURED='+$configured+';PENDING_STAGED_UPDATE='+$pending+
               ';MANIFEST_PRESENT='+$manifest+';BINARY_HASH_READABLE='+$hashReadable)
           }
+
+          # Read-only VCS/build provenance for the exact user-supplied
+          # staging tree. No install/config, no checkout, no build, no launch.
+          $sourceSHA='UNAVAILABLE'
+          $gitPresent=[IO.Directory]::Exists((Join-Path $build '.git'))
+          if($gitPresent -and (Get-Command git -ErrorAction SilentlyContinue)){
+            $env:GIT_OPTIONAL_LOCKS='0'
+            $head=@(& git -C $build rev-parse --verify HEAD 2>$null)
+            if($LASTEXITCODE -eq 0 -and $head.Count -eq 1 -and
+               $head[0] -match '^[0-9a-f]{40}
+) {$sourceSHA=$head[0]}
+          }
+          $paperRoot=Join-Path $build 'dist\K-Terminal-PAPER'
+          $goInfo='NO_ENGINE'
+          $engineRev='UNAVAILABLE'
+          $engineModified='UNAVAILABLE'
+          $launcherHash='UNAVAILABLE'
+          $engineHash='UNAVAILABLE'
+          if([IO.Directory]::Exists($paperRoot)){
+            $engine=Join-Path $paperRoot 'K-Terminal-Engine.exe'
+            $launcher=Join-Path $paperRoot 'K-Terminal.exe'
+            if([IO.File]::Exists($launcher)){
+              $info=Get-Item -LiteralPath $launcher -Force -ErrorAction Stop
+              if(($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){
+                $launcherHash=(Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant()
+              }
+            }
+            if([IO.File]::Exists($engine)){
+              $info=Get-Item -LiteralPath $engine -Force -ErrorAction Stop
+              if(($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){
+                $engineHash=(Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash.ToLowerInvariant()
+                $goInfo='UNAVAILABLE'
+                if(Get-Command go -ErrorAction SilentlyContinue){
+                  $env:GOTELEMETRY='off'
+                  $env:GOENV='off'
+                  $metadata=@(& go version -m $engine 2>$null)
+                  if($LASTEXITCODE -eq 0){
+                    $goInfo='AVAILABLE'
+                    foreach($line in $metadata){
+                      if($line -match 'vcs\.revision=([a-f0-9]{40})'){$engineRev=$matches[1]}
+                      if($line -match 'vcs\.modified=(true|false)'){$engineModified=$matches[1]}
+                    }
+                  }
+                }
+              }
+            }
+          }
+          $sameSource=($sourceSHA -ne 'UNAVAILABLE' -and $sourceSHA -ceq $engineRev -and $engineModified -ceq 'false')
+          Write-Host ('KTERM_BUILD_PROVENANCE=PASS;SOURCE_REPO_PRESENT='+$gitPresent+
+            ';SOURCE_SHA='+$sourceSHA+';GO_BUILD_INFO='+$goInfo+
+            ';ENGINE_VCS_REVISION='+$engineRev+';ENGINE_VCS_MODIFIED='+$engineModified+
+            ';ENGINE_VCS_MATCHES_SOURCE='+$sameSource+
+            ';LAUNCHER_SHA256='+$launcherHash+';ENGINE_SHA256='+$engineHash+
+            ';NO_RELEASE_OR_RUNTIME_QUALIFICATION=TRUE')
+
           Write-Host 'KTERM_EXACT_USER_PATH_SAFE=PASS;NO_CREDENTIAL_READ=TRUE;NO_CONFIG_CONTENT_READ=TRUE;NO_LOG_READ=TRUE;NO_APP_LAUNCH=TRUE;NO_FILE_WRITE=TRUE;NO_BROKER_IO=TRUE;NO_SCHEDULE=TRUE'
