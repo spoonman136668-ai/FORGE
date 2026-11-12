@@ -14,6 +14,10 @@ on:
       - 'cmd/forge-required-policy-check/**'
       - 'reference/governance/**'
       - '.github/workflows/forge-ruleset-readiness.yml'
+      - 'reference/governance/f139-owner-release-ref-ruleset-proposal.json'
+      - 'branchpolicy/f139_release_ref_ruleset_test.go'
+      - 'branchpolicy/f139_release_ref_installer_test.go'
+      - 'scripts/Install-F139V18ReleaseRuleset.ps1'
 permissions:
   contents: read
   checks: read
@@ -40,13 +44,41 @@ jobs:
         run: |
           set -euo pipefail
           go test -count=1 ./branchpolicy ./cmd/forge-required-policy-check
+      - name: Parse administrator handoff PowerShell without executing any operation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null
+          $parseErrors=$null
+          $path=Join-Path $env:GITHUB_WORKSPACE 'scripts/Install-F139V18ReleaseRuleset.ps1'
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              $path,[ref]$tokens,[ref]$parseErrors) | Out-Null
+          if(@($parseErrors).Count -ne 0) {
+            $parseErrors | ForEach-Object {Write-Error $_.Message}
+            throw 'F139_V18_ADMIN_SCRIPT_POWERSHELL_PARSE_FAILED'
+          }
+          Write-Host 'F139_V18_ADMIN_SCRIPT_PARSE_ONLY=PASS'
       - name: Verify actual GitHub Actions source and main job contexts
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
           [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_MAIN_SHA/check-runs" > "$RUNNER_TEMP/main-checks.json"
+          # The original main SHA accumulates 100+ unrelated issue-comment
+          # check runs. An unfiltered first page hides the two required jobs.
+          # Query each exact context independently and reject duplicates.
+          gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_MAIN_SHA/check-runs?check_name=linux&per_page=100" > "$RUNNER_TEMP/linux-checks.json"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_MAIN_SHA/check-runs?check_name=windows&per_page=100" > "$RUNNER_TEMP/windows-checks.json"
+          jq -s -e '
+            length == 2 and
+            all(.[]; .total_count == 1 and (.check_runs | length) == 1) and
+            .[0].check_runs[0].name == "linux" and
+            .[1].check_runs[0].name == "windows"
+          ' "$RUNNER_TEMP/linux-checks.json" "$RUNNER_TEMP/windows-checks.json" >/dev/null
+          jq -s '{
+            total_count: 2,
+            check_runs: (.[0].check_runs + .[1].check_runs)
+          }' "$RUNNER_TEMP/linux-checks.json" "$RUNNER_TEMP/windows-checks.json" > "$RUNNER_TEMP/main-checks.json"
           go run ./cmd/forge-required-policy-check \
             --repository "$GITHUB_REPOSITORY" \
             --main-sha "$EXPECTED_MAIN_SHA" \
