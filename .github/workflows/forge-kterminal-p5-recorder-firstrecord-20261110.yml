@@ -14,9 +14,9 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 200fb5fc2bd9b846c28052a76556b026ff3bd953
+      KTERM_SHA: 895950e7b55fabc627f0ab9ddc22f82af34f261d
       KTERM_BASE: cea643af9d5abf3b18e45c5f33cae01694677cc2
-      KTERM_TREE: ba9385a72f972a9a399cf90447eb5c090ef70742
+      KTERM_TREE: 269844c5015b09fbf23a4d060e7d2f6bdeece3cc
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -86,8 +86,8 @@ jobs:
             'application-launch.ps1'='5fbf25b8e3f0d621225c0d9220554466ced085db'
             'pkg/advanced-orders.go'='27bb67895bde1be5d987f369639c4b091cd5e3ad'
             'pkg/dashboard-orders.go'='7ca5dfb7445e43b521d634cca4d9ed856605d72a'
-            'pkg/terminal-dashboard.go'='9f1ded3db36122cb724a8879dfeb2b0a4c53a823'
-            'pkg/dashboard-orders_test.go'='8c3c8a21549710cfd1be451bd3ca4d3426aa34eb'
+            'pkg/terminal-dashboard.go'='5c3da4374e8b00fac7a181305bf57d95b1547b0c'
+            'pkg/dashboard-orders_test.go'='7fc9f8048934e83cf49ebb1c6db9ef75037d6c01'
           }
           foreach($p in $blobs.Keys){
             $actual=(& git -C $src rev-parse ('HEAD:'+$p) | Out-String).Trim()
@@ -141,6 +141,35 @@ jobs:
              $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){
             [void][IO.Directory]::CreateDirectory($dir)
           }
+          # New display-code controls first: an exact-source cheap FAIL stops
+          # this gate before repeating the expensive mandatory full regression.
+          $orderViewLog=Join-Path $root 'order-view-focused.private.jsonl'
+          $orderViewClock=[Diagnostics.Stopwatch]::StartNew()
+          Push-Location $src
+          try{
+            & go test -json -p 1 -count=2 -timeout 7m -run '^(TestDashboardOrderWakeupsCoalesceWithoutResurrectingTerminalOrders|TestDashboardOrderWakeupsReuseLastFinancialObservation|TestDashboardOrderFastWakeRetainsFinancialRefreshError)$' ./pkg *> $orderViewLog
+            $orderViewExit=$LASTEXITCODE
+          }finally{Pop-Location}
+          $orderViewClock.Stop()
+          $orderViewDigest=(Get-FileHash -LiteralPath $orderViewLog -Algorithm SHA256).Hash.ToLowerInvariant()
+          $orderViewFails=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+          $allowed=@('TestDashboardOrderWakeupsCoalesceWithoutResurrectingTerminalOrders',
+            'TestDashboardOrderWakeupsReuseLastFinancialObservation',
+            'TestDashboardOrderFastWakeRetainsFinancialRefreshError')
+          foreach($line in [IO.File]::ReadLines($orderViewLog)){
+            if($line -notlike '*"Action":"fail"*'){continue}
+            try{$event=ConvertFrom-Json -InputObject $line -ErrorAction Stop}catch{continue}
+            if($event.Action -cne 'fail' -or [string]$event.Package -cne 'k-terminal/pkg'){continue}
+            if([string]$event.Test -cin $allowed){[void]$orderViewFails.Add([string]$event.Test)}
+          }
+          foreach($name in @($orderViewFails|Sort-Object)){
+            Write-Host ('KTERM_PR96_ORDER_VIEW_FAILED_TEST='+$name)
+          }
+          Write-Host ('KTERM_PR96_ORDER_VIEW_FOCUSED=EXIT_'+$orderViewExit+
+            ';MS='+$orderViewClock.ElapsedMilliseconds+';REPEATS=2'+
+            ';FAILED_TESTS='+$orderViewFails.Count+';PRIVATE_LOG_SHA256='+$orderViewDigest+
+            ';NO_RAW_TEST_OUTPUT=TRUE')
+          if($orderViewExit-ne0){throw 'KTERM_PR96_ORDER_VIEW_FOCUSED_FAILED_STOP'}
           # Focused synthetic, in-memory GET-only failure triage before expensive
           # mandatory full regression; never disclose raw fixture/test output.
           $focused=Join-Path $root 'native-snapshot-focused.private.jsonl'
