@@ -19,6 +19,24 @@ HYBRID_RELEASE_ANCHOR = "0e122eb8e571ddddee1dea4168cf18cfc7dc019d"
 HYBRID_WORKER_PATH = ".github/workflows/forge-f139-development-worker.yml"
 HYBRID_WORKER_BEFORE = "8eab7972ba1b30eabf1e38477aff60b598cdeb2f"
 HYBRID_WORKER_AFTER = "74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
+V41_PAUSE_BRANCH = "engineering/f139-v41-original-pause-backup-resume-20261112"
+V41_PAUSE_PR = 1735
+V41_PAUSE_BASE = "89f283492fd7ef171b4482b78baae88772880e51"
+V41_PAUSE_WORKFLOW = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+V41_PAUSE_BEFORE = "5858519fbd335445d5a4518bb3c2fcc4d82b4b5e"
+V41_PAUSE_AFTER = "b0dfd96bb86cdb834dd908a7518027d12cc9ad95"
+V41_PAUSE_RESULT = "EXACT_PR1735_OWNER_SAME_TASK_PAUSE_BACKUP_RESUME_ONLY"
+V41_PAUSE_FILES = frozenset({
+    V41_PAUSE_WORKFLOW,
+    "f139/v41_owner_pause_backup_resume.ps1",
+    "f139/nci04_v41_owner_cold_backup.py",
+    "f139/test_nci04_v41_owner_cold_backup.py",
+    "docs/F139-V41-ORIGINAL-HOST-BACKUP-ONLY.md",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
 V41_BACKUP_BRANCH = "dev/f139-v41-original-cold-backup-only-20261112"
 V41_BACKUP_PR = 1734
 V41_BACKUP_BASE = "2ee1d2e3894558a92231e5922980f8c96e731b36"
@@ -200,6 +218,7 @@ def negative_controls() -> None:
     hybrid_release_negative_controls()
     v41_status_negative_controls()
     v41_backup_negative_controls()
+    v41_pause_negative_controls()
 
 
 def admit_hybrid_workflow_release(head_sha: str, base_sha: str,
@@ -281,6 +300,78 @@ def hybrid_release_negative_controls() -> None:
         return
     raise ValueError("G145_HYBRID_RELEASE_PR_NEGATIVE_FAILED")
 
+
+
+def admit_v41_owner_pause(head_sha: str, base_sha: str,
+                          request: dict, git: Callable[..., str]) -> str:
+    """Owner PR#1735 source admission, not maintenance or deployment authority.
+
+    Verify exact original base, owner-authored PR, 8 frozen files and the
+    before/after G54 workflow blobs. No generic workflow or harness edit.
+    """
+    if (not is_sha(head_sha) or base_sha != V41_PAUSE_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != V41_PAUSE_PR
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_V41_PAUSE_EXACT_OWNER_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        before = git("ls-tree", base_sha, "--", V41_PAUSE_WORKFLOW)
+        after = git("ls-tree", head_sha, "--", V41_PAUSE_WORKFLOW)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V41_PAUSE_PINNED_SOURCE_MISSING") from exc
+    if (ancestor != base_sha
+            or len(changed) != len(V41_PAUSE_FILES)
+            or len(set(changed)) != len(changed)
+            or set(changed) != V41_PAUSE_FILES
+            or before != "100644 blob " + V41_PAUSE_BEFORE + "\t" + V41_PAUSE_WORKFLOW
+            or after != "100644 blob " + V41_PAUSE_AFTER + "\t" + V41_PAUSE_WORKFLOW):
+        raise ValueError("G145_V41_PAUSE_EXACT_WORKFLOW_OR_FILES_DRIFT")
+    return V41_PAUSE_RESULT
+
+
+def v41_pause_negative_controls() -> None:
+    base, head = V41_PAUSE_BASE, "a"*40
+    owner = {"number": V41_PAUSE_PR,
+             "user": {"login": "spoonman136668-ai"},
+             "author_association": "OWNER"}
+    def read(*args):
+        if args == ("merge-base", base, head):
+            return base
+        if args == ("diff", "--no-renames", "--name-only", base, head):
+            return "\n".join(sorted(V41_PAUSE_FILES))
+        if args == ("ls-tree", base, "--", V41_PAUSE_WORKFLOW):
+            return "100644 blob " + V41_PAUSE_BEFORE + "\t" + V41_PAUSE_WORKFLOW
+        if args == ("ls-tree", head, "--", V41_PAUSE_WORKFLOW):
+            return "100644 blob " + V41_PAUSE_AFTER + "\t" + V41_PAUSE_WORKFLOW
+        raise AssertionError("unexpected original source lookup")
+    if admit_v41_owner_pause(head, base, owner, read) != V41_PAUSE_RESULT:
+        raise ValueError("G145_V41_PAUSE_POSITIVE_CONTROL_FAILED")
+    def reject(req=owner, candidate_base=base, override=None):
+        def source(*args):
+            return override[1] if override and args == override[0] else read(*args)
+        try:
+            admit_v41_owner_pause(head, candidate_base, req, source)
+        except ValueError:
+            return
+        raise ValueError("G145_V41_PAUSE_NEGATIVE_ADMITTED")
+    reject(dict(owner, number=1734))
+    reject(dict(owner, user={"login": "other"}))
+    reject(dict(owner, author_association="CONTRIBUTOR"))
+    reject(candidate_base="f"*40)
+    reject(override=(("merge-base", base, head), "f"*40))
+    reject(override=(("diff", "--no-renames", "--name-only", base, head),
+                     V41_PAUSE_WORKFLOW))
+    reject(override=(("ls-tree", base, "--", V41_PAUSE_WORKFLOW),
+                     "100644 blob " + "f"*40 + "\t" + V41_PAUSE_WORKFLOW))
+    reject(override=(("ls-tree", head, "--", V41_PAUSE_WORKFLOW),
+                     "100644 blob " + "f"*40 + "\t" + V41_PAUSE_WORKFLOW))
+    reject(override=(("ls-tree", head, "--", V41_PAUSE_WORKFLOW),
+                     "100755 blob " + V41_PAUSE_AFTER + "\t" + V41_PAUSE_WORKFLOW))
 
 
 def admit_v41_owner_backup(head_sha: str, base_sha: str,
@@ -474,6 +565,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == V41_PAUSE_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_v41_owner_pause(head_sha, base_sha, request, git)
     if branch == V41_BACKUP_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]

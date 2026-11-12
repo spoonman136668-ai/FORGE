@@ -11,7 +11,8 @@ import sys
 
 from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negative_controls,
     V41_STATUS_BRANCH, V41_STATUS_RESULT, V41_STATUS_BASE,
-    V41_BACKUP_BRANCH, V41_BACKUP_RESULT, V41_BACKUP_BASE)
+    V41_BACKUP_BRANCH, V41_BACKUP_RESULT, V41_BACKUP_BASE,
+    V41_PAUSE_BRANCH, V41_PAUSE_RESULT, V41_PAUSE_BASE)
 from check_rar_g148_go_cache import CAP, ROOT, git, identity, stable, compiled_graph
 
 BRANCH = "engineering/rar-g156-dynamic-main-cache-release-20261108"
@@ -232,6 +233,13 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == V41_PAUSE_BRANCH:
+        # Exact original owner PR1735 and immutable base tree; no cache bypass.
+        if (admission != V41_PAUSE_RESULT
+                or base != V41_PAUSE_BASE
+                or tree != "c7cc4ace902da2b131e686a2bbc396af3f41c521"):
+            raise ValueError("G156_V41_PAUSE_FROZEN_OWNER_SCOPE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == V41_BACKUP_BRANCH:
         # Exact, owner-only PR1734. No generic runner workflow/harness admission.
         if (admission != V41_BACKUP_RESULT

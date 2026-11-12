@@ -3892,83 +3892,26 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Opt-in one-shot backup-only maintenance on EXISTING G54 controller group.
+  # Operator-approved existing-owner temporary pause, private V41 backup,
+  # detached restore, and same-task resumption. No new owner or scheduler.
   v41-owner-cold-backup-only:
-    if: ${{ github.actor == 'spoonman136668-ai' && github.event_name == 'issue_comment' && github.event.issue.number == 807 && startsWith(github.event.comment.body, 'F139-V41-COLD-BACKUP-ONLY ') }}
+    if: ${{ github.actor == 'spoonman136668-ai' && github.event_name == 'issue_comment' && github.event.issue.number == 807 && startsWith(github.event.comment.body, 'F139-V41-PAUSE-BACKUP-RESUME ') }}
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: read
       issues: read
       actions: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Require already-disabled original V40 task and exact owner SID
+      - name: Exact owner maintenance on existing F139 Windows task
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
-          Set-StrictMode -Version Latest
-          $old='2c7caad5a4502d4b874a11d57207a35cf033eb08'
-          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
-             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
-             $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
-             $env:GITHUB_REF -cne 'refs/heads/main' -or
-             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
-             (& git rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA -or
-             @(& git status --porcelain --untracked-files=all).Count -ne 0) {
-            throw 'F139_V41_BACKUP_WRONG_RUNNER_OR_CHECKOUT'
-          }
-          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-          if($event.action -cne 'created' -or
-             $event.issue.number -ne 807 -or
-             $event.issue.user.login -cne 'spoonman136668-ai' -or
-             $null -ne $event.issue.PSObject.Properties['pull_request'] -or
-             $event.sender.login -cne 'spoonman136668-ai' -or
-             $event.comment.user.login -cne 'spoonman136668-ai' -or
-             $event.comment.author_association -cne 'OWNER' -or
-             [int64]$event.comment.id -le 0 -or
-             [string]$event.comment.body -cne ('F139-V41-COLD-BACKUP-ONLY '+$env:GITHUB_SHA)) {
-            throw 'F139_V41_BACKUP_OWNER_COMMENT_REQUIRED'
-          }
-          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
-          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
-          if([string]$task.State -cne 'Disabled' -or
-             $task.Settings.Enabled -ne $false -or
-             @($task.Actions).Count -ne 1 -or
-             @($task.Triggers).Count -ne 3 -or
-             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {
-            throw 'F139_V41_ORIGINAL_TASK_NOT_QUIESCED'
-          }
-          $principal=[string]$task.Principal.UserId
-          $sid=''
-          try {$sid=(New-Object Security.Principal.NTAccount($principal)).Translate(
-               [Security.Principal.SecurityIdentifier]).Value} catch {}
-          if($principal -ine $who.Name -and $sid -cne $who.User.Value) {
-            throw 'F139_V41_BACKUP_OWNER_SID_DRIFT'
-          }
-          function ExistingArg([string]$key) {
-            $m=[regex]::Match([string]$task.Actions[0].Arguments,
-              '(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
-            if(-not $m.Success) {throw 'F139_V41_BACKUP_TASK_ARG_MISSING'}
-            return $m.Groups[1].Value
-          }
-          $root=ExistingArg 'RepositoryRoot'
-          $database=ExistingArg 'Database'
-          $python=ExistingArg 'PythonExe'
-          if(-not(Test-Path -LiteralPath $database -PathType Leaf) -or
-             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
-             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
-             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0 -or
-             (Resolve-Path -LiteralPath $database).Path -cne
-               (Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) {
-            throw 'F139_V41_BACKUP_ORIGINAL_SOURCE_DRIFT'
-          }
-          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
-          & $python -B -m f139.nci04_v41_owner_cold_backup --db $database --target $env:GITHUB_SHA
-          if($LASTEXITCODE -ne 0) {throw 'F139_V41_BACKUP_AND_DETACHED_RESTORE_FAILED'}
-          Write-Host 'F139_V41_ORIGINAL_COLD_BACKUP_ONLY=PASS'
+          & "$env:GITHUB_WORKSPACE/f139/v41_owner_pause_backup_resume.ps1" -Target $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0) {throw 'F139_V41_PAUSE_BACKUP_RESUME_UNVERIFIED'}

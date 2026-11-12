@@ -88,8 +88,8 @@ class OwnerBackupGateTests(unittest.TestCase):
 
     def test_unmerged_or_incomplete_postmerge_ci_denied(self):
         def remote(route):
-            if route.endswith("/pulls/1734"):
-                return {"number": 1734, "merged": True, "merge_commit_sha": SHA,
+            if route.endswith("/pulls/1735"):
+                return {"number": 1735, "merged": True, "merge_commit_sha": SHA,
                         "user": {"login": gate.OWNER},
                         "base": {"ref": "main"}, "head": {"sha": "a" * 40}}
             if "/actions/runs?" in route:
@@ -132,25 +132,54 @@ class OwnerBackupGateTests(unittest.TestCase):
                                     "QUALIFIED_POSTMERGE_RUN_REQUIRED"):
             gate.verify_qualified_main(duplicate, SHA)
 
-    def test_existing_workflow_quiescence_and_no_task_mutation(self):
-        file = (Path(__file__).resolve().parents[1] /
-                ".github/workflows/f139-g54-v9-owner-cutover.yml")
-        data = file.read_text(encoding="utf-8")
+    def test_exact_existing_job_and_bounded_same_task_maintenance(self):
+        import os
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        wf = (root / ".github/workflows/f139-g54-v9-owner-cutover.yml").read_text()
+        path = root / "f139/v41_owner_pause_backup_resume.ps1"
+        source = path.read_text()
         marker = "\n  v41-owner-cold-backup-only:\n"
-        self.assertEqual(data.count(marker), 1)
-        body = data.split(marker, 1)[1]
-        self.assertIn("forge-codex-isolated", body)
-        self.assertIn("F139-V41-COLD-BACKUP-ONLY ", body)
-        self.assertIn("F139_V41_ORIGINAL_TASK_NOT_QUIESCED", body)
-        self.assertIn("nci04_v41_owner_cold_backup", body)
-        self.assertIn("persist-credentials: false", body)
-        self.assertIn("permissions:\n      contents: read\n      issues: read", body)
-        self.assertIn("forge-f139-g54-v9-owner-cutover", data)
-        for forbidden in ("Disable-ScheduledTask", "Stop-ScheduledTask",
-                          "Start-ScheduledTask", "Set-ScheduledTask",
-                          "Register-ScheduledTask", "Invoke-Expression",
-                          "workflow_dispatch"):
-            self.assertNotIn(forbidden, body)
+        self.assertEqual(wf.count(marker), 1)
+        job = wf.split(marker, 1)[1]
+        self.assertIn("F139-V41-PAUSE-BACKUP-RESUME ", job)
+        self.assertIn("forge-codex-isolated", job)
+        self.assertIn("f139/v41_owner_pause_backup_resume.ps1", job)
+        self.assertIn("persist-credentials: false", job)
+        self.assertIn("forge-f139-g54-v9-owner-cutover", wf)
+        for required in (
+            "F139OriginalOwnerMutex", "Disable-ScheduledTask",
+            "Stop-ScheduledTask", "Enable-ScheduledTask", "Start-ScheduledTask",
+            "--preflight-only", "F139_V41_EXISTING_V40_OWNER_RESUMED=PASS",
+            "F139_V41_OWNER_RECOVERY_HOLD_OR_UNVERIFIED_MANUAL_ATTENTION",
+            "Unchanged", "Installed", "Policy", "F139_V41_BACKUP_ONLY",
+            "WaitForExit(600000)", "Kill($true)", "backupChildCleared",
+        ):
+            self.assertIn(required, source)
+        for forbidden in (
+            "Register-ScheduledTask", "New-ScheduledTask", "Unregister-ScheduledTask",
+            "New-ScheduledJob", "Invoke-Expression", "Set-ScheduledTask",
+            "git checkout", "git fetch", "workflow_dispatch",
+        ):
+            self.assertNotIn(forbidden, source)
+        if os.name == "nt":
+            literal = str(path).replace("'", "''")
+            command = ("$t=$null;$e=$null;[void][Management.Automation.Language.Parser]"
+                       "::ParseFile('" + literal + "',[ref]$t,[ref]$e);"
+                       "if($e.Count -ne 0){$e | ForEach-Object {Write-Error $_.Message};exit 1}")
+            parsed = subprocess.run(["pwsh", "-NoProfile", "-NonInteractive",
+                                     "-Command", command], text=True,
+                                    capture_output=True, timeout=20)
+            self.assertEqual(parsed.returncode, 0, parsed.stderr)
+
+    def test_preflight_remains_read_only_no_original_ledger_writer(self):
+        import inspect
+        source = inspect.getsource(gate.preflight_only)
+        self.assertIn("verify_owner_event", source)
+        self.assertIn("verify_qualified_main", source)
+        for forbidden in ("Database.open_readonly", "db.event(", "UPDATE meta SET",
+                          "Disable-ScheduledTask", "create_native_feed_issue"):
+            self.assertNotIn(forbidden, source)
 
     def test_no_owner_writer_in_backup_module(self):
         text = (Path(__file__).with_name("nci04_v41_owner_cold_backup.py")
