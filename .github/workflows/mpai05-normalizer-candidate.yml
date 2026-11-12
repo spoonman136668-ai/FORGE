@@ -1,0 +1,36 @@
+name: MP-AI05 query normalizer candidate qualification
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['tools/mpai05_query_normalizer.py', '.github/workflows/mpai05-normalizer-candidate.yml']
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate opt-in conservative transformation and abstention
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0,'tools')
+          from mpai05_query_normalizer import normalize_query
+          examples=[
+            ('Can you find the saved memory related to causal evidence and explain the original evidence?','causal evidence',True),
+            ('I am trying to remember something from an earlier conversation about causal evidence. Would you check the context and tell me whether any relevant notes were recorded?','causal evidence',True),
+            ('What is the evidence for causal transfer?','What is the evidence for causal transfer?',False),
+            ('Can you find the saved memory related to \n and explain the original evidence?','Can you find the saved memory related to \n and explain the original evidence?',False),
+            ('Do not strip terms when they occur in the middle of a sentence.','Do not strip terms when they occur in the middle of a sentence.',False),
+          ]
+          for raw,expected,changed in examples:
+              result=normalize_query(raw)
+              assert result.query==expected,(raw,result)
+              assert result.transformed==changed,(raw,result)
+              assert result.original==raw
+          print('MPAI05_NORMALIZER_TESTS=5/5')
+          print('MPAI05_NORMALIZER_SCOPE=OPT_IN_SHADOW_ONLY')
+          print('MPAI05_NORMALIZER_NO_SOURCE_MODIFICATION=True')
+          PY

@@ -1,0 +1,34 @@
+name: MP-AI05 Codex argument parser isolation
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-codex-argument-isolation.yml']
+permissions:
+  contents: read
+jobs:
+  isolate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Identify supported Codex exec options without model calls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          $help=(& codex exec --help 2>&1) -join [Environment]::NewLine
+          if($LASTEXITCODE -ne 0) { throw 'CODEX_HELP_FAILED' }
+          foreach($flag in @('--ephemeral','--skip-git-repo-check','--sandbox','--output-last-message')) {
+            $pattern='(?m)^\s*(?:-[A-Za-z],\s*)?'+[regex]::Escape($flag)+'(?:\s|,|=|$)'
+            $present=[regex]::IsMatch($help,$pattern)
+            Write-Host ('MPAI05_OPTION_'+$flag.TrimStart('-').Replace('-','_').ToUpperInvariant()+'='+$(if($present){'DECLARED'}else{'NOT_DECLARED'}))
+          }
+          $lines=$help -split '\r?\n'
+          foreach($line in $lines) {
+            if($line -match '(?i)^\s*Usage:') {
+              $usage=($line -replace '[^A-Za-z0-9 \[\]<>|_.-]','').Trim()
+              Write-Host ('MPAI05_EXEC_USAGE='+$usage)
+            }
+          }
+          Write-Host 'MPAI05_MODEL_CALLS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'

@@ -1,0 +1,57 @@
+name: MP-AI05 retrieval robustness controls
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-retrieval-robustness.yml']
+permissions:
+  contents: read
+jobs:
+  robustness:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Pinned evidence retrieval under sparse and noisy queries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:MPAI05_ROOT = Join-Path $env:RUNNER_TEMP ('mpai05-robustness-' + $env:GITHUB_RUN_ID)
+          git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $env:MPAI05_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_CLONE_FAILED' }
+          @'
+          import os,sys,json,re,subprocess
+          from pathlib import Path
+          root=Path(os.environ['MPAI05_ROOT'])
+          sha=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+          assert sha=='7ad7230a82e3c748aa5336b7288ad2b45d42630c','SOURCE_DRIFT'
+          sys.path.insert(0,str(root/'tools'))
+          from mindpalace_readonly import MemorySnapshot
+          snap=MemorySnapshot(root,sha,['Mind-Palace'])
+          eligible=sorted((r for r in snap.index if r.get('project')=='Mind-Palace'
+            and r.get('source_refs') and len(str(r.get('statement','')).split())>=12
+            and r['id'] not in ('boundary/authority-order','boundary/no-secrets')),key=lambda r:r['id'])
+          cases=eligible[:12]
+          assert len(cases)==12,'INSUFFICIENT_RECORDS'
+          stop={'the','and','for','with','from','this','that','which','when','into','only','must','shall','have','were','been','each','such','their','are','not'}
+          scores={v:{'top1':0,'top4':0,'zero_overlap':0} for v in ('sparse','noisy')}
+          for index,r in enumerate(cases):
+              words=[w.lower() for w in re.findall(r'[a-zA-Z0-9]+',r['statement']) if len(w)>4 and w.lower() not in stop]
+              unique=list(dict.fromkeys(words))
+              # Sparse dispersed keyword selection, not a human paraphrase.
+              sparse=' '.join(unique[i] for i in (0,len(unique)//2,len(unique)-1) if i<len(unique))
+              assert sparse.strip()
+              queries={'sparse':sparse,'noisy':'Can you find the saved memory related to '+sparse+' and explain the original evidence?'}
+              for variant,q in queries.items():
+                  found=snap.recall(sha,q,['Mind-Palace'],'continuation')
+                  ids=[m['id'] for m in found['matches'][:4]]
+                  rank=(ids.index(r['id'])+1) if r['id'] in ids else None
+                  scores[variant]['top1']+=int(rank==1)
+                  scores[variant]['top4']+=int(rank is not None)
+                  scores[variant]['zero_overlap']+=int(not found['matches'])
+                  print('MPAI05_ROBUST_CASE='+json.dumps({'case':index+1,'variant':variant,'rank':rank,'candidate_count':found['candidate_records']}))
+          print('MPAI05_ROBUST_SCORES='+json.dumps(scores,sort_keys=True))
+          print('MPAI05_ROBUST_METHOD=DETERMINISTIC_KEYWORD_SUBSAMPLING_NOT_SEMANTIC_PARAPHRASE')
+          print('MPAI05_ROBUST_SOURCE='+sha)
+          print('MPAI05_ROBUST_HOLDOUT_ACCESS=0')
+          print('MPAI05_ROBUST_EXECUTION=PASS')
+          '@ | python
+          if ($LASTEXITCODE -ne 0) { throw 'ROBUSTNESS_FAILED' }

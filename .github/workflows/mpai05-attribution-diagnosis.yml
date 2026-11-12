@@ -1,0 +1,91 @@
+name: MP-AI05 attribution failure diagnosis
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-attribution-diagnosis.yml']
+permissions:
+  contents: read
+jobs:
+  ab:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Pinned read-only source and stronger local model A/B
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --quiet --disable-pip-version-check --only-binary=:all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu llama-cpp-python==0.3.18
+          if ($LASTEXITCODE -ne 0) { throw 'RUNTIME_UNAVAILABLE' }
+          $env:MPAI05_ROOT = Join-Path $env:RUNNER_TEMP ('mpai05-ab-' + $env:GITHUB_RUN_ID)
+          git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $env:MPAI05_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_UNAVAILABLE' }
+          @'
+          import os,sys,re,json,time,hashlib,urllib.request,subprocess
+          from pathlib import Path
+          root=Path(os.environ['MPAI05_ROOT'])
+          sha=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+          expected_sha='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          assert sha==expected_sha,'SOURCE_PIN_DRIFT'
+          sys.path.insert(0,str(root/'tools'))
+          from mindpalace_readonly import MemorySnapshot
+          from llama_cpp import Llama
+          snap=MemorySnapshot(root,sha,['Mind-Palace'])
+          # Publicly reproducible, non-holdout deterministic source-attribution tasks.
+          eligible=sorted((r for r in snap.index if r.get('project')=='Mind-Palace'
+            and r.get('source_refs') and len(str(r.get('statement','')).split())>=12
+            and r['id'] not in ('boundary/authority-order','boundary/no-secrets')),key=lambda r:r['id'])
+          assert len(eligible)>=4,'INSUFFICIENT_ELIGIBLE_RECORDS'
+          cases=eligible[:4]
+          model_url='https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf'
+          model_file=root.parent/'mpai05-qwen-1.5b-q4_k_m.gguf'
+          if not model_file.exists():
+              urllib.request.urlretrieve(model_url,str(model_file))
+          model_sha=hashlib.sha256(model_file.read_bytes()).hexdigest()
+          assert model_sha=='6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e','MODEL_HASH_MISMATCH'
+          model=Llama(model_path=str(model_file),n_ctx=4096,n_threads=4,verbose=False)
+          results=[]
+          for idx,record in enumerate(cases):
+              clue=' '.join(record['statement'].split()[:20])
+              q='Identify the exact Mind-Palace record ID associated with this statement excerpt: '+clue+'. If unknown, answer UNKNOWN. Return only the record ID or UNKNOWN.'
+              retrieval=snap.recall(sha,clue,['Mind-Palace'],'continuation')
+              matches=retrieval['matches'][:4]
+              evidence='\n'.join('ID: '+m['id']+'\nStatement: '+m['statement'][:420] for m in matches)
+              arms=[('MEMORY','Verified Mind-Palace source records:\n'+evidence+'\n'+q)]
+              for arm,usertext in arms:
+                  start=time.monotonic()
+                  completion=model.create_chat_completion(
+                     messages=[{'role':'system','content':'Answer concisely using only available evidence. Do not invent record IDs.'},
+                               {'role':'user','content':usertext}],
+                     temperature=0,max_tokens=96)
+                  answer=completion['choices'][0]['message']['content'].strip()
+                  elapsed=time.monotonic()-start
+                  # Exact ID attribution only, not a broad semantic correctness score.
+                  correct=answer==record['id']
+                  usage=completion.get('usage') or {}
+                  predicted_id=next((identifier for identifier in [m['id'] for m in matches] if identifier in answer),None)
+                  normalized_correct=(predicted_id==record['id'])
+                  kind='EXACT' if correct else ('CONTAINS_TARGET_ID' if normalized_correct else ('UNKNOWN' if answer.upper().strip(' .')=='UNKNOWN' else ('EMPTY' if not answer else 'OTHER')))
+                  results.append({'case':idx+1,'arm':arm,'correct_id':correct,'answer_kind':kind,'normalized_correct':normalized_correct,
+                     'direct_top1_correct':bool(matches and matches[0]['id']==record['id']),
+                     'direct_top4_contains':any(m['id']==record['id'] for m in matches),
+                     'retrieval_rank':next((i+1 for i,m in enumerate(matches) if m['id']==record['id']),None),
+                     'source_in_top4':any(m['id']==record['id'] for m in matches),
+                     'prompt_tokens':usage.get('prompt_tokens',0),
+                     'completion_tokens':usage.get('completion_tokens',0),
+                     'seconds':round(elapsed,3),'answer_sha256':hashlib.sha256(answer.encode()).hexdigest()})
+          for entry in results: print('MPAI05_DIAG_RESULT='+json.dumps(entry,sort_keys=True))
+          for arm in ('MEMORY',):
+              subset=[x for x in results if x['arm']==arm]
+              print('MPAI05_DIAG_EXACT='+str(sum(x['correct_id'] for x in subset))+'/4')
+              print('MPAI05_DIAG_NORMALIZED='+str(sum(x['normalized_correct'] for x in subset))+'/4')
+              print('MPAI05_DIAG_DIRECT_TOP1='+str(sum(x['direct_top1_correct'] for x in subset))+'/4')
+              print('MPAI05_DIAG_DIRECT_TOP4='+str(sum(x['direct_top4_contains'] for x in subset))+'/4')
+              print('MPAI05_DIAG_ANSWER_KINDS='+json.dumps([x['answer_kind'] for x in subset]))
+              print('MPAI05_DIAG_TOTAL_SECONDS='+str(round(sum(x['seconds'] for x in subset),3)))
+          print('MPAI05_DIAG_MODEL_SHA256='+model_sha)
+          print('MPAI05_DIAG_SOURCE_PIN='+sha)
+          print('MPAI05_DIAG_HOLDOUT_ACCESS=0')
+          print('MPAI05_DIAG_SCOPE=EXACT_RECORD_ATTRIBUTION_ONLY')
+          print('MPAI05_DIAG_EXECUTION=PASS')
+          '@ | python
+          if ($LASTEXITCODE -ne 0) { throw 'AB_BENCHMARK_FAILED' }

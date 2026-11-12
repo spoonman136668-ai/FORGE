@@ -1,0 +1,50 @@
+name: MP-AI05 Codex auth error signature
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-codex-auth-signature.yml']
+permissions:
+  contents: read
+jobs:
+  signature:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Capture sanitized Codex execution failure signature
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-signature-'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          try {
+            Push-Location $root
+            try {
+              $log=Join-Path $root 'codex.log'
+              $answer=Join-Path $root 'answer.txt'
+              $ErrorActionPreference='Continue'
+              & codex.exe exec --ephemeral --skip-git-repo-check --sandbox read-only --output-last-message $answer 'Return exactly MPAI05_PROBE_OK' *> $log
+              $code=$LASTEXITCODE
+              $ErrorActionPreference='Stop'
+              $data=[string](Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)
+              $patterns=[ordered]@{
+                HTTP_401='(?i)(?:\b401\b|unauthorized)'
+                HTTP_403='(?i)(?:\b403\b|forbidden)'
+                TOKEN_EXPIRED='(?i)(?:token.{0,40}expir|expir.{0,40}token)'
+                LOGIN_REQUIRED='(?i)(?:login required|not logged in|please log in)'
+                REFRESH_FAILURE='(?i)(?:refresh.{0,40}fail|fail.{0,40}refresh)'
+                SERVICE_UNAVAILABLE='(?i)(?:\b50[0234]\b|service unavailable)'
+                NETWORK='(?i)(?:connection refused|connection reset|dns|tls|certificate|timed out)'
+                USAGE_LIMIT='(?i)(?:rate limit|usage limit|quota|too many requests)'
+                SANDBOX='(?i)(?:sandbox denied|permission denied|access denied)'
+                ARGUMENTS='(?i)(?:unexpected argument|unrecognized option|invalid value)'
+              }
+              foreach($k in $patterns.Keys) { Write-Host ('MPAI05_SIGNATURE_'+$k+'='+[bool]($data -match $patterns[$k])) }
+              Write-Host ('MPAI05_CODEX_EXIT='+$code)
+              Write-Host ('MPAI05_MODEL_SUCCESS='+[bool]($code -eq 0 -and (Test-Path $answer) -and ((Get-Content $answer -Raw).Trim() -ceq 'MPAI05_PROBE_OK')))
+            } finally { Pop-Location }
+          } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+          Write-Host 'MPAI05_HOLDOUT_ACCESS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'

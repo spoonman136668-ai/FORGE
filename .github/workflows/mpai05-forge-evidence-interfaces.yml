@@ -1,0 +1,52 @@
+name: MP-AI05 existing FORGE evidence interfaces
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-forge-evidence-interfaces.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Inspect source-pinned FORGE receipt interfaces without reading secrets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/FORGE.git'
+          $branch='refs/heads/main'
+          $rows=@(& git.exe ls-remote --exit-code $remote $branch)
+          if($LASTEXITCODE -ne 0 -or $rows.Count -ne 1) { throw 'FORGE_REF_UNAVAILABLE' }
+          $sha=([string]$rows[0] -split '\s+')[0]
+          if($sha -notmatch '^[a-f0-9]{40}$') { throw 'FORGE_SHA_INVALID' }
+          Write-Host ('MPAI05_FORGE_SOURCE_SHA='+$sha)
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-forge-interfaces-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root) { throw 'SCRATCH_EXISTS' }
+          try {
+            & git.exe clone --quiet --no-checkout --filter=blob:none $remote $root
+            if($LASTEXITCODE -ne 0) { throw 'CLONE_FAILED' }
+            & git.exe -C $root checkout --quiet --detach $sha
+            if($LASTEXITCODE -ne 0) { throw 'CHECKOUT_FAILED' }
+            $patterns=@('receipt','attest','first.use','witness','custody')
+            $paths=@('f139','fsad1','cmd','docs')
+            foreach($p in $paths) {
+              $dir=Join-Path $root $p
+              if(-not(Test-Path -LiteralPath $dir)) { continue }
+              $matches=@(Get-ChildItem -LiteralPath $dir -File -Recurse -ErrorAction Stop | Where-Object {
+                $n=$_.Name
+                @($patterns | Where-Object { $n -match $_ }).Count -gt 0
+              } | Sort-Object FullName | Select-Object -First 25)
+              Write-Host ('MPAI05_FORGE_INTERFACE_FILES_'+$p.ToUpperInvariant()+'='+$matches.Count)
+              foreach($m in $matches) {
+                $rel=[IO.Path]::GetRelativePath($root,$m.FullName).Replace('\','/')
+                Write-Host ('MPAI05_FORGE_INTERFACE_PATH='+$rel)
+              }
+            }
+            Write-Host 'MPAI05_FORGE_EVIDENCE_INTERFACE_AUDIT=SOURCE_ONLY_PASS_NO_LIVE_AUTH_CLAIM'
+          } finally {
+            if(Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+          }

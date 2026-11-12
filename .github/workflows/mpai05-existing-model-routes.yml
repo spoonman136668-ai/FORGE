@@ -1,0 +1,31 @@
+name: MP-AI05 existing model routes inventory
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-existing-model-routes.yml']
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Inventory existing model executables without authentication or calls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          Write-Host 'MPAI05_ROUTE_INVENTORY=START'
+          foreach($name in @('codex','claude','gemini','llama-cli','llama-server','llamafile','python','uv','ollama','lms')) {
+            $cmd=Get-Command $name -ErrorAction SilentlyContinue
+            if($null -ne $cmd) {
+              Write-Host ('MPAI05_COMMAND_'+$name.ToUpperInvariant().Replace('-','_')+'=PRESENT')
+            } else {
+              Write-Host ('MPAI05_COMMAND_'+$name.ToUpperInvariant().Replace('-','_')+'=ABSENT')
+            }
+          }
+          Write-Host 'MPAI05_AUTHENTICATION=NOT_CHECKED'
+          Write-Host 'MPAI05_MODEL_CALLS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'

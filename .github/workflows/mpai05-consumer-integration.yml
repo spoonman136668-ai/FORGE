@@ -1,0 +1,72 @@
+name: MP-AI05 opt-in consumer integration acceptance
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-consumer-integration.yml']
+permissions:
+  contents: read
+jobs:
+  accept:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare live read-only source with opt-in and rollback consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:MPAI05_ROOT = Join-Path $env:RUNNER_TEMP ('mpai05-consumer-' + $env:GITHUB_RUN_ID)
+          git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $env:MPAI05_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_UNAVAILABLE' }
+          @'
+          import os,sys,subprocess,json,re
+          from pathlib import Path
+          root=Path(os.environ['MPAI05_ROOT'])
+          sha=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+          assert sha=='7ad7230a82e3c748aa5336b7288ad2b45d42630c','SOURCE_PIN_DRIFT'
+          sys.path.insert(0,str(root/'tools'))
+          sys.path.insert(0,'tools')
+          from mindpalace_readonly import MemorySnapshot
+          from mpai05_retrieval_consumer import recall_with_normalizer
+          snap=MemorySnapshot(root,sha,['Mind-Palace'])
+          eligible=sorted((r for r in snap.index if r.get('project')=='Mind-Palace' and r.get('source_refs')
+             and len(str(r.get('statement','')).split())>=12
+             and r['id'] not in ('boundary/authority-order','boundary/no-secrets')),key=lambda r:r['id'])
+          assert len(eligible)>=24
+          stop={'the','and','for','with','from','this','that','which','when','into','only','must','shall','have','were','been','each','such','their','are','not'}
+          templates=[
+            ('Can you find the saved memory related to ', ' and explain the original evidence?'),
+            ('I am trying to remember something from an earlier conversation about ', '. Would you check the context and tell me whether any relevant notes were recorded?')]
+          totals={'original_top1':0,'enabled_top1':0,'original_top4':0,'enabled_top4':0,'disabled_equal':0,'unknown_equal':0,'normalized':0}
+          for i,record in enumerate(eligible[:24]):
+              words=[w.lower() for w in re.findall(r'[a-zA-Z0-9]+',record['statement']) if len(w)>4 and w.lower() not in stop]
+              terms=list(dict.fromkeys(words))
+              clue=' '.join(terms[n] for n in (0,len(terms)//2,len(terms)-1) if n<len(terms))
+              prefix,suffix=templates[0 if i<12 else 1]
+              query=prefix+clue+suffix
+              baseline=snap.recall(sha,query,['Mind-Palace'],'continuation')
+              disabled=recall_with_normalizer(snap,sha,query,['Mind-Palace'],enabled=False)
+              enabled=recall_with_normalizer(snap,sha,query,['Mind-Palace'],enabled=True)
+              assert baseline==disabled['result'] and disabled['routing']=='disabled'
+              assert enabled['result']['source_sha']==sha and enabled['routing']=='normalized'
+              totals['disabled_equal']+=1
+              totals['normalized']+=1
+              for label,value in (('original',baseline),('enabled',enabled['result'])):
+                  ids=[m['id'] for m in value['matches'][:4]]
+                  totals[label+'_top1']+=int(bool(ids) and ids[0]==record['id'])
+                  totals[label+'_top4']+=int(record['id'] in ids)
+              ordinary='What do we know about '+clue+'?'
+              unchanged=recall_with_normalizer(snap,sha,ordinary,['Mind-Palace'],enabled=True)
+              assert unchanged['routing']=='unmodified'
+              assert unchanged['result']==snap.recall(sha,ordinary,['Mind-Palace'],'continuation')
+              totals['unknown_equal']+=1
+          assert totals['disabled_equal']==totals['unknown_equal']==totals['normalized']==24
+          assert totals['enabled_top1']>=totals['original_top1']
+          assert totals['enabled_top4']>=totals['original_top4']
+          assert totals['enabled_top1']>=20 and totals['enabled_top4']>=22
+          print('MPAI05_CONSUMER_COUNTS='+json.dumps(totals,sort_keys=True))
+          print('MPAI05_CONSUMER_PIN='+sha)
+          print('MPAI05_CONSUMER_NO_HOLDOUT=True')
+          print('MPAI05_CONSUMER_ACCEPTANCE=PASS')
+          '@ | python
+          if ($LASTEXITCODE -ne 0) { throw 'CONSUMER_ACCEPTANCE_FAILED' }

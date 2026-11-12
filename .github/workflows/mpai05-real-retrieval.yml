@@ -1,0 +1,57 @@
+name: MP-AI05 real pinned memory retrieval
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-real-retrieval.yml']
+permissions:
+  contents: read
+jobs:
+  retrieve:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Read actual Mind-Palace committed memory through existing MCP core
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-real-retrieval-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root) { throw 'SCRATCH_EXISTS' }
+          try {
+            git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $root
+            if($LASTEXITCODE -ne 0) { throw 'SOURCE_CLONE_FAILED' }
+            $sha=(& git -C $root rev-parse HEAD).Trim()
+            $script=@'
+          import sys
+          from pathlib import Path
+          root=Path(sys.argv[1]); sha=sys.argv[2]
+          sys.path.insert(0,str(root/'tools'))
+          from mindpalace_readonly import MemorySnapshot
+          from mindpalace_mcp import handle
+          snapshot=MemorySnapshot(root,sha,['Mind-Palace'])
+          req={'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'mindpalace_recall','arguments':{'source_sha':sha,'query':'Mind-Palace retrieval context memory governance','projects':['Mind-Palace'],'profile':'continuation'}}}
+          result=handle(snapshot,req)
+          if 'error' in result: raise RuntimeError('MCP_RECALL_DENIED')
+          import json
+          payload=json.loads(result['result']['content'][0]['text'])
+          if payload['source_sha']!=sha or payload['scope']!=['Mind-Palace'] or not payload['matches']: raise RuntimeError('NO_SCOPED_RETRIEVAL')
+          if not all(x.get('source_refs') for x in payload['matches']): raise RuntimeError('MISSING_PROVENANCE')
+          print('MPAI05_REAL_RETRIEVAL=PASS')
+          print('MPAI05_MATCH_COUNT='+str(len(payload['matches'])))
+          print('MPAI05_SOURCE_PIN='+sha)
+          print('MPAI05_PROVENANCE=SOURCE_REFS_PRESENT')
+          print('MPAI05_RETRIEVAL_KIND=LEXICAL_READONLY_NOT_SEMANTIC')
+          '@
+            $scriptPath=Join-Path $env:RUNNER_TEMP ('mpai05-retrieve-'+$env:GITHUB_RUN_ID+'.py')
+            Set-Content -LiteralPath $scriptPath -Value $script -Encoding utf8
+            try {
+              & python $scriptPath $root $sha
+              if($LASTEXITCODE -ne 0) { throw 'RETRIEVAL_FAILED' }
+            } finally { Remove-Item -LiteralPath $scriptPath -Force -ErrorAction SilentlyContinue }
+          } finally {
+            if(Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+          }
+          Write-Host 'MPAI05_MODEL_CALLS=0'
+          Write-Host 'MPAI05_HOLDOUT_ACCESS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'

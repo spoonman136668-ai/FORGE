@@ -1,0 +1,36 @@
+name: MP-AI05 Codex no-charge readiness
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-codex-nocharge-readiness.yml']
+permissions:
+  contents: read
+jobs:
+  readiness:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Check Codex executable and local auth status without calls or credentials
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $codex=Get-Command codex -ErrorAction SilentlyContinue
+          if($null -eq $codex) { throw 'CODEX_NOT_INSTALLED' }
+          $version=@(& codex --version 2>&1)
+          if($LASTEXITCODE -ne 0) { throw 'CODEX_VERSION_FAILED' }
+          Write-Host 'MPAI05_CODEX_EXECUTABLE=AVAILABLE'
+          Write-Host ('MPAI05_CODEX_VERSION='+([string]($version | Select-Object -First 1)))
+          $help=@(& codex login --help 2>&1)
+          if($LASTEXITCODE -ne 0) { Write-Host 'MPAI05_LOGIN_STATUS_INTERFACE=UNKNOWN' }
+          elseif(($help -join [Environment]::NewLine) -match '\bstatus\b') {
+            $status=@(& codex login status 2>&1)
+            $ok=($LASTEXITCODE -eq 0)
+            if($ok) { Write-Host 'MPAI05_CODEX_LOGIN=AVAILABLE_REDACTED' }
+            else { Write-Host 'MPAI05_CODEX_LOGIN=NOT_CONFIRMED' }
+          } else { Write-Host 'MPAI05_LOGIN_STATUS_INTERFACE=UNAVAILABLE' }
+          Write-Host 'MPAI05_BILLING_MODE=UNVERIFIED'
+          Write-Host 'MPAI05_MODEL_CALLS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'

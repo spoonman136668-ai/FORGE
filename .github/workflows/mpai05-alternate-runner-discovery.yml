@@ -1,0 +1,38 @@
+name: MP-AI05 alternate runner model availability
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-alternate-runner-discovery.yml']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check alternate Windows runner without secrets or model calls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Host ('MPAI05_ALT_RUNNER='+$env:RUNNER_NAME)
+          foreach($name in @('codex','ollama','llama-cli','llama-server','python','node')) {
+            $found=Get-Command $name -ErrorAction SilentlyContinue
+            Write-Host ('MPAI05_ALT_'+$name.Replace('-','_').ToUpperInvariant()+'_AVAILABLE='+[bool]($null -ne $found))
+          }
+          Write-Host 'MPAI05_ALT_AUTH_NOT_ACCESSED=True'
+          Write-Host 'MPAI05_MODEL_CALLS=0'
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check alternate Linux runner without secrets or model calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "MPAI05_ALT_RUNNER=$RUNNER_NAME"
+          for name in codex ollama llama-cli llama-server python3 node; do
+            if command -v "$name" >/dev/null 2>&1; then found=True; else found=False; fi
+            echo "MPAI05_ALT_${name^^}_AVAILABLE=$found"
+          done
+          echo 'MPAI05_ALT_AUTH_NOT_ACCESSED=True'
+          echo 'MPAI05_MODEL_CALLS=0'
