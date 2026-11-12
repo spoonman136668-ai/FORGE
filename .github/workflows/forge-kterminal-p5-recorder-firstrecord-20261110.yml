@@ -299,7 +299,7 @@ jobs:
           $env:KTERM_PR96_PACKAGE_OUT=$out
           # Catch exact-source failures inside the same Windows PowerShell 5.1
           # process and print only its intrinsic exception class and line number.
-          $cmd='$ErrorActionPreference="Stop";try{if(-not(Test-Path -LiteralPath $env:KTERM_PR96_SCRIPT_PATH -PathType Leaf)){throw "KTERM_PR96_SCRIPT_MISSING"};& $env:KTERM_PR96_SCRIPT_PATH -ExpectedSourceSha $env:KTERM_SHA -ExpectedTreeSha $env:KTERM_TREE -SourceRoot $env:KTERM_PR96_PACKAGE_SOURCE -OutputDirectory $env:KTERM_PR96_PACKAGE_OUT}catch{$n=[string]$_.Exception.CommandName;$k="UNKNOWN";if($n -ceq $env:KTERM_PR96_SCRIPT_PATH){$k="ASSEMBLER_FILE"}elseif($n -cmatch "^[A-Za-z][A-Za-z0-9_.-]{0,48}$" -and $n -cnotmatch "(?i)api|key|secret|token|pass|auth|coinbase|private|account|wallet"){$k=$n};Write-Output ("KTERM_PR96_PRIVATE_EXCEPTION_TYPE="+$_.Exception.GetType().Name);Write-Output ("KTERM_PR96_PRIVATE_EXCEPTION_LINE="+$_.InvocationInfo.ScriptLineNumber);Write-Output ("KTERM_PR96_PRIVATE_EXCEPTION_COMMAND="+$k);exit 1}'
+          $cmd='$ErrorActionPreference="Stop";try{if(-not(Test-Path -LiteralPath $env:KTERM_PR96_SCRIPT_PATH -PathType Leaf)){throw "KTERM_PR96_SCRIPT_MISSING"};& $env:KTERM_PR96_SCRIPT_PATH -ExpectedSourceSha $env:KTERM_SHA -ExpectedTreeSha $env:KTERM_TREE -SourceRoot $env:KTERM_PR96_PACKAGE_SOURCE -OutputDirectory $env:KTERM_PR96_PACKAGE_OUT}catch{$n=[string]$_.Exception.CommandName;$k="UNKNOWN";if($n -ceq $env:KTERM_PR96_SCRIPT_PATH){$k="ASSEMBLER_FILE"}elseif($n -cmatch "^[A-Za-z][A-Za-z0-9_.-]{0,48}$" -and $n -cnotmatch "(?i)api|key|secret|token|pass|auth|coinbase|private|account|wallet"){$k=$n};if($k -ceq "UNKNOWN"){if([string]::IsNullOrEmpty($n)){$k="EMPTY"}elseif($n -match "^[A-Za-z]:[/\\]"){$k="ABSOLUTE_PATH"}elseif($n -match "[/\\]"){$k="RELATIVE_PATH"}elseif($n -match "\s"){$k="MULTI_WORD_COMMAND"}else{$k="OTHER_NAME"}};$stack=[string]$_.ScriptStackTrace;$frame=[regex]::Match($stack,"p5_assemble_source_bound_firstuse\.ps1:\s*line\s+([0-9]{1,3})");Write-Output ("KTERM_PR96_PRIVATE_EXCEPTION_TYPE="+$_.Exception.GetType().Name);Write-Output ("KTERM_PR96_PRIVATE_EXCEPTION_LINE="+$_.InvocationInfo.ScriptLineNumber);Write-Output ("KTERM_PR96_PRIVATE_EXCEPTION_COMMAND="+$k);if($frame.Success){Write-Output ("KTERM_PR96_PRIVATE_EXCEPTION_SOURCE_LINE="+$frame.Groups[1].Value)};exit 1}'
           $clock=[Diagnostics.Stopwatch]::StartNew()
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -Command $cmd *> (Join-Path $root 'package.private.log')
           $exit=$LASTEXITCODE
@@ -317,6 +317,8 @@ jobs:
                 Write-Host ('KTERM_PR96_EXCEPTION_LINE='+$Matches[1])
               }elseif($line -match '^KTERM_PR96_PRIVATE_EXCEPTION_COMMAND=([A-Za-z][A-Za-z0-9._-]{0,48})$'){
                 Write-Host ('KTERM_PR96_EXCEPTION_COMMAND='+$Matches[1])
+              }elseif($line -match '^KTERM_PR96_PRIVATE_EXCEPTION_SOURCE_LINE=([0-9]{1,3})$'){
+                Write-Host ('KTERM_PR96_EXCEPTION_SOURCE_LINE='+$Matches[1])
               }
             }
             $codes=@([regex]::Matches($raw,'P5_PACKAGE_[A-Z0-9_]{4,80}')|
