@@ -14,9 +14,9 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 54f43e4ef4a35f0541545347f6edd88323988ab8
+      KTERM_SHA: 0aaec16c48dd0c34dc69e3c6db9530fd5e77276b
       KTERM_BASE: cea643af9d5abf3b18e45c5f33cae01694677cc2
-      KTERM_TREE: a92ed8a8b41e835269b092bb8ef555a0e552a789
+      KTERM_TREE: 3a7a729be662385c8956ef4990b68a57525540c4
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -82,20 +82,21 @@ jobs:
             'tools/qualification/p5_assemble_source_bound_firstuse.ps1'='ec538e4009cca3db0e341201aa01422560adb582'
             'tools/qualification/p5_verify_firstuse_archive.py'='6809d639ac8191d15210f068ea369c675d09e20a'
             'tools/qualification/test_p5_verify_firstuse_archive.py'='cc00e430e60930b871b50bd9dcf856e1aef655c0'
+            'pkg/native-snapshot-freshness_test.go'='1a1f58fba665c48f530c907fb83cf4d120481ecd'
           }
           foreach($p in $blobs.Keys){
             $actual=(& git -C $src rev-parse ('HEAD:'+$p) | Out-String).Trim()
             if($actual -cne $blobs[$p]){throw 'KTERM_PR96_QUALIFIER_BLOB_DRIFT'}
           }
           $changed=@(& git -C $src diff --name-only $env:KTERM_BASE $env:KTERM_SHA)
-          if($LASTEXITCODE-ne0 -or $changed.Count-ne3 -or
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne4 -or
              @($changed|Where-Object{$_ -cnotin @($blobs.Keys)}).Count-ne0){
-            throw 'KTERM_PR96_THREE_FILE_SCOPE_DRIFT'
+            throw 'KTERM_PR96_FOUR_FILE_SCOPE_DRIFT'
           }
           foreach($private in @('config.json','data','reporting','logs','notifications','.env')){
             if(Test-Path -LiteralPath (Join-Path $src $private)){throw 'KTERM_PR96_PRIVATE_STATE_REFUSED'}
           }
-          Write-Host ('KTERM_PR96_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';APP_CODE_DIFF=0')
+          Write-Host ('KTERM_PR96_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CODE_DIFF=0;TEST_ONLY_GO_CHANGE=1')
       - name: Pinned original Windows Go toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
@@ -116,7 +117,8 @@ jobs:
             throw 'KTERM_PR96_WINDOWS_TOOLCHAIN_DRIFT'
           }
           # Restore the source-qualified test workspace contract that passed
-          # for identical application Go blobs in FORGE run 43135678106.
+          # for the same production application Go blobs in FORGE run 43135678106.
+          # The test-only Go clock-resolution change is separately requalified.
           # This environment applies only within this regression step.
           $env:RUNNER_TEMP=Join-Path $root 'test-temp'
           $env:GOCACHE=Join-Path $root 'go-cache'
