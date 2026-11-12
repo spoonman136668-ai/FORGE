@@ -1,0 +1,99 @@
+name: F139 V19 G29 dual-custody source-only regression experiment
+on:
+  push:
+    branches: [research/f139-v19-g29-dual-custody-experiment-20261029]
+    paths: [.github/workflows/f139-v19-g29-dual-custody-experiment.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-v19-g29-dualcustody-positive-and-negative-20261029
+  cancel-in-progress: false
+jobs:
+  qualify-isolated:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/research/f139-v19-g29-dual-custody-experiment-20261029' &&
+      github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          path: forge
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 021423311027517c9096c76bed7d35ac53c4a229
+          persist-credentials: false
+          fetch-depth: 2
+          path: native-baseline
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 339276862e42a067344990dc20d907f203009b90
+          persist-credentials: false
+          fetch-depth: 2
+          path: native-candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify untouched experimental script and strictly source-pinned checkouts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent=(& git -C forge rev-parse HEAD^ | Out-String).Trim()
+          $changed=@(& git -C forge diff --name-only HEAD^ HEAD)
+          if($LASTEXITCODE -ne 0 -or
+             $parent -cne 'a525106846e07881b8880fab2c082d85363b39af' -or
+             $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/f139-v19-g29-dual-custody-experiment.yml'){
+             throw 'F139_G29_EXPERIMENT_SOURCE_SCOPE_DRIFT'
+          }
+          if((& git -C native-baseline rev-parse HEAD | Out-String).Trim() -cne
+               '021423311027517c9096c76bed7d35ac53c4a229' -or
+             (& git -C native-candidate rev-parse HEAD | Out-String).Trim() -cne
+               '339276862e42a067344990dc20d907f203009b90'){
+             throw 'F139_G29_EXPERIMENT_YGG_SOURCES_NOT_AUTHENTIC'
+          }
+          Write-Output 'F139_G29_TWO_SOURCE_CHECKOUT_PROVENANCE=PASS'
+      - name: Qualify frozen G29 and candidate non-atlas inventory without converting G29 rejection into success
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP ('f139-g29-dual-custody-'+$env:RUNNER_OS+'.json')
+          & python -B forge/f139/nci04_g29_dual_custody_experiment.py  `
+             --baseline native-baseline --candidate native-candidate --output $out
+          if($LASTEXITCODE -ne 0){throw 'F139_G29_SPLIT_REGRESSION_NEGATIVE_OR_FAIL_CLOSED'}
+          $result=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($result.experimental_split_complete -ne $true -or
+             $result.baseline_g29_pass -ne $true -or
+             $result.baseline_full_unmodified_regression_pass -ne $true -or
+             $result.candidate_changed_source_applicable_tests_pass -ne $true -or
+             $result.historical_modified_source_g29_negative -ne $true -or
+             $result.modified_candidate_full_regression_pass -ne $false -or
+             $result.production_v19_worker_unchanged -ne $true -or
+             $result.signed_provider_success -ne $false -or
+             $result.scientific_first_use -ne $false){
+             throw 'F139_G29_EXPERIMENT_RESULT_CLAIM_DRIFT'
+          }
+          Write-Output 'F139_G29_ORIGINAL_FROZEN_SOURCE_ATLAS=PASS'
+          Write-Output 'F139_G29_ORIGINAL_BASELINE_FULL_REGRESSION=PASS'
+          Write-Output 'F139_G29_CANDIDATE_ALL_NONATLAS_REGRESSIONS=PASS'
+          Write-Output 'F139_G29_CHANGED_SOURCE_ATLAS_EXPECTED_NEGATIVE=PASS'
+          Write-Output 'F139_G29_NO_SIGNED_WORKER_PROMOTION=TRUE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f139-g29-dual-custody-experiment-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-g29-dual-custody-${{ runner.os }}.json
+          if-no-files-found: warn
+          retention-days: 90
