@@ -99,7 +99,10 @@ class V40ReadonlyWorkflowScopeTests(unittest.TestCase):
         self.assertNotIn("Disable-ScheduledTask", appended)
         self.assertNotIn("Start-ScheduledTask", appended)
         self.assertNotIn("workflow_dispatch", appended)
-        self.assertEqual(hashlib.sha256(old.encode()).hexdigest(),
+        self.assertEqual(old[-2:], "\n\n")
+        # This insertion consumes the separator newline originally adjacent
+        # to the next job. Hash the exact immutable V40 prefix only.
+        self.assertEqual(hashlib.sha256(old[:-1].encode()).hexdigest(),
                          '679e152e9be86b7399c75d247b31966f972a8d2196538b5729f8cf459d4ba063')
         native = addition.split('\n  v40-owner-readonly:', 1)[1]
         self.assertIn('needs: v40-invocation-qualification', native)
