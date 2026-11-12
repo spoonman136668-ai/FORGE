@@ -830,3 +830,145 @@ jobs:
             }
             Write-Host 'KTERM_CFT_DIGEST_PRIVATE_CLEANUP=PASS;LIVE_ORDERS=0'
           }
+
+  owner-original-runtime-footprint:
+    name: K Terminal original Windows runtime bounded read-only footprint
+    # One-time host check; prior seven-root probe excluded registry and other standard roots.
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      KTERM_CANDIDATE_SHA: cea643af9d5abf3b18e45c5f33cae01694677cc2
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - name: Inspect exact named exe roots, registry install entries and app processes without launching
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+            $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-recorder-firstrecord-20261110' -or
+            $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+            $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+            $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+            $env:RUNNER_OS -cne 'Windows') {throw 'KTERM_FOOTPRINT_OWNER_REFUSED'}
+          if($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+            $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+            $env:K_TERMINAL_NATIVE_TIMING -cne '0'){throw 'KTERM_FOOTPRINT_DISARM_REFUSED'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+            'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+            'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
+            'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_FOOTPRINT_CREDENTIAL_REFUSED'}
+          }
+          $runnerSession=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $interactive=@(Get-Process explorer -ErrorAction SilentlyContinue |
+            Where-Object {$_.SessionId -eq $runnerSession}).Count -gt 0
+          $named=@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue)
+          $pf86=[Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+          $roots=[System.Collections.Generic.List[string]]::new()
+          $exes=[System.Collections.Generic.List[string]]::new()
+          foreach($p in @(
+            $(if($env:PUBLIC){Join-Path $env:PUBLIC 'KTerminal'}),
+            $(if($env:PUBLIC){Join-Path $env:PUBLIC 'K-Terminal'}),
+            $(if($env:ProgramFiles){Join-Path $env:ProgramFiles 'K-Terminal'}),
+            $(if($env:ProgramFiles){Join-Path $env:ProgramFiles 'KTerminal'}),
+            $(if($pf86){Join-Path $pf86 'K-Terminal'}),
+            $(if($pf86){Join-Path $pf86 'KTerminal'}),
+            $(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'Programs\K-Terminal'}),
+            $(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'Programs\KTerminal'}),
+            $(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'K-Terminal'}),
+            $(if($env:USERPROFILE){Join-Path $env:USERPROFILE 'Downloads\K-Terminal'}),
+            $(if($env:USERPROFILE){Join-Path $env:USERPROFILE 'Downloads\KTerminal'}),
+            'C:\K-Terminal','C:\KTerminal','D:\K-Terminal','D:\KTerminal'
+          )){
+            if(-not [string]::IsNullOrWhiteSpace([string]$p)){$roots.Add([string]$p)}
+          }
+          $registryRead=0
+          $registryMatch=0
+          foreach($reg in @(
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+            'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')){
+            if(-not(Test-Path -LiteralPath $reg -PathType Container)){continue}
+            foreach($sub in @(Get-ChildItem -LiteralPath $reg -ErrorAction Stop | Select-Object -First 700)){
+              $registryRead++
+              $x=Get-ItemProperty -LiteralPath $sub.PSPath -ErrorAction SilentlyContinue
+              if($null -eq $x -or [string]$x.DisplayName -notmatch '^(?i:K[ -]?Terminal)(?:\b|$)'){continue}
+              $registryMatch++
+              $location=[string]$x.InstallLocation
+              if($location -match '^[A-Za-z]:\\' -and $location.Length -le 360){$roots.Add($location)}
+              $icon=[string]$x.DisplayIcon
+              if($icon -match '^"?([A-Za-z]:\\[^"]+?K-Terminal(?:-Engine)?[.]exe)'){$exes.Add($Matches[1])}
+            }
+          }
+          foreach($proc in $named){
+            try{
+              $p=[string]$proc.Path
+              if($p -match '^[A-Za-z]:\\' -and $p.Length -le 360){$exes.Add($p)}
+            }catch{}
+          }
+          $rootsChecked=0
+          $rootsFound=0
+          $logRoots=0
+          foreach($p in @($roots | Sort-Object -Unique | Select-Object -First 35)){
+            $rootsChecked++
+            if($p -notmatch '^[A-Za-z]:\\' -or $p.Length -gt 360 -or
+              -not(Test-Path -LiteralPath $p -PathType Container)){continue}
+            $folder=Get-Item -LiteralPath $p -Force
+            if(($folder.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){continue}
+            $rootsFound++
+            foreach($leaf in @('K-Terminal.exe','K-Terminal-Engine.exe',
+              'bin\K-Terminal.exe','Personal\K-Terminal.exe')){$exes.Add((Join-Path $p $leaf))}
+            $hints=0
+            foreach($leaf in @('data\logs\p5-desktop-safe.jsonl',
+              'data\alerts\native-construction-timing.jsonl',
+              'data\alerts\exchange-requests.jsonl')){
+              if(Test-Path -LiteralPath (Join-Path $p $leaf) -PathType Leaf){$hints++}
+            }
+            if($hints -gt 0){$logRoots++}
+          }
+          $fileChecks=0
+          $found=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+          $hashes=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+          foreach($file in @($exes | Sort-Object -Unique | Select-Object -First 125)){
+            if($file -notmatch '^[A-Za-z]:\\' -or $file.Length -gt 460 -or
+              [IO.Path]::GetFileName($file) -notin @('K-Terminal.exe','K-Terminal-Engine.exe')){continue}
+            $fileChecks++
+            if(-not(Test-Path -LiteralPath $file -PathType Leaf)){continue}
+            $info=Get-Item -LiteralPath $file -Force
+            if(($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){continue}
+            [void]$found.Add($file)
+            $hash=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            [void]$hashes.Add($hash)
+            Write-Host ('KTERM_FOOTPRINT_EXE_FOUND=TRUE;SHA256='+$hash+
+              ';SOURCE_PROVEN=FALSE;NOT_EXECUTED=TRUE')
+          }
+          $shortcuts=0
+          foreach($root in @([Environment]::GetFolderPath('CommonPrograms'),
+            [Environment]::GetFolderPath('Programs'),
+            [Environment]::GetFolderPath('CommonDesktopDirectory'),
+            [Environment]::GetFolderPath('Desktop'))){
+            if(-not $root -or -not(Test-Path -LiteralPath $root -PathType Container)){continue}
+            $shortcuts+=@(Get-ChildItem -LiteralPath $root -Filter '*Terminal*.lnk' -File -ErrorAction SilentlyContinue |
+              Select-Object -First 25).Count
+            foreach($sub in @('K-Terminal','KTerminal')){
+              $p=Join-Path $root $sub
+              if(Test-Path -LiteralPath $p -PathType Container){
+                $shortcuts+=@(Get-ChildItem -LiteralPath $p -Filter '*.lnk' -File -ErrorAction SilentlyContinue |
+                  Select-Object -First 25).Count
+              }
+            }
+          }
+          Write-Host ('KTERM_FOOTPRINT_READONLY=PASS;RUNNER_SESSION_NONZERO='+($runnerSession -ne 0)+
+            ';RUNNER_SESSION_EXPLORER='+$interactive+';NAMED_PROCESSES='+$named.Count+
+            ';REGISTRY_KEYS_CHECKED='+$registryRead+';REGISTRY_MATCHES='+$registryMatch+
+            ';ROOTS_CHECKED='+$rootsChecked+';EXISTING_ROOTS='+$rootsFound+
+            ';EXE_PATHS_CHECKED='+$fileChecks+';EXE_CANDIDATES='+$found.Count+
+            ';UNIQUE_EXE_HASHES='+$hashes.Count+';LOG_HINT_ROOTS='+$logRoots+
+            ';SHORTCUT_HINTS='+$shortcuts+';EXE_SOURCE_MATCH=UNVERIFIED;NO_APP_LAUNCH=TRUE'+
+            ';NO_REGISTRY_WRITES=TRUE;NO_BROKER_CALLS=TRUE;PROCESS_TELEMETRY=NOT_COLLECTED')
+          Write-Host 'KTERM_FIELD_PERFORMANCE=UNVERIFIED;NO_INSTALL=TRUE;NO_RAW_LOGS=TRUE'
