@@ -1,0 +1,39 @@
+name: K4X-O2 isolated source-only acceptance
+
+on:
+  pull_request:
+    paths:
+      - "research/optimizer_k4x_o2/**"
+      - ".github/workflows/k4x-o2-sourceonly.yml"
+  push:
+    branches:
+      - "research/k4x-o2-local-control"
+    paths:
+      - "research/optimizer_k4x_o2/**"
+      - ".github/workflows/k4x-o2-sourceonly.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  source-only-acceptance:
+    name: source-only-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout the exact candidate commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run all seven strictly handwritten-only tests
+        run: python -B -m unittest discover -s research/optimizer_k4x_o2 -p "test_*.py" -v
+      - name: Reproduce the source-only descriptive receipt
+        run: python -B research/optimizer_k4x_o2/credit_preflight.py
