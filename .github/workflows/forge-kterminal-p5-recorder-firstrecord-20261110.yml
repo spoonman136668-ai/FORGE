@@ -976,3 +976,93 @@ jobs:
             ';SHORTCUT_HINTS='+$shortcuts+';EXE_SOURCE_MATCH=UNVERIFIED;NO_APP_LAUNCH=TRUE'+
             ';NO_REGISTRY_WRITES=TRUE;NO_BROKER_CALLS=TRUE;PROCESS_TELEMETRY=NOT_COLLECTED')
           Write-Host 'KTERM_FIELD_PERFORMANCE=UNVERIFIED;NO_INSTALL=TRUE;NO_RAW_LOGS=TRUE'
+
+  owner-original-historical-root-check:
+    name: K Terminal historical original installation roots bounded read-only source probe
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - name: Verify owner and read only exactly three historical root paths from source documentation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-recorder-firstrecord-20261110' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted'){throw 'KTERM_HISTORIC_ROOT_OWNER_REFUSED'}
+          if($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0'){throw 'KTERM_HISTORIC_ROOT_DISARM_REFUSED'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
+              'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_HISTORIC_ROOT_BROKER_ENV_REFUSED'}
+          }
+          # Original, literal, non-derived roots pinned in the source-reviewed historical
+          # verifier and original README. No global search, no install, no profile traversal.
+          $candidates=@(
+            @{label='BTC';root='C:\Users\Runner\Desktop\Runner\Personal CKB v1.1.5 - BTC Migrated'},
+            @{label='XRP';root='C:\Users\Runner\Desktop\JaeRunner\Personal CKB v1.1.5'},
+            @{label='R5';root='C:\Users\Runner\Desktop\Codex\v0.1.0-Complete-Release-20261009-r5'}
+          )
+          $roots=0;$bins=0;$configured=0;$runtimes=0
+          foreach($item in $candidates){
+            $root=[string]$item.root
+            $label=[string]$item.label
+            if($root -notmatch '^[A-Za-z]:\\' -or $root.Length -gt 256){
+              throw 'KTERM_HISTORIC_ROOT_UNSAFE_PATH'
+            }
+            $parts=[System.Collections.Generic.List[string]]::new()
+            $dir=$root
+            while($dir -and $dir.Length -gt 3){
+              $parts.Add($dir)
+              $dir=[IO.Path]::GetDirectoryName($dir)
+            }
+            $linked=$false
+            foreach($segment in $parts){
+              if(-not(Test-Path -LiteralPath $segment)){continue}
+              $attr=(Get-Item -LiteralPath $segment -Force -ErrorAction Stop).Attributes
+              if(($attr -band [IO.FileAttributes]::ReparsePoint) -ne 0){$linked=$true;break}
+            }
+            if($linked){Write-Host ('KTERM_HISTORICAL_ROOT_'+$label+'=REFUSED_LINKED_PATH');continue}
+            $exists=Test-Path -LiteralPath $root -PathType Container
+            if($exists){$roots++}
+            $binary=$false;$complete=$false;$sha=''
+            if($exists){
+              $exe=Join-Path $root 'K-Terminal.exe'
+              $binary=Test-Path -LiteralPath $exe -PathType Leaf
+              if($binary){
+                $info=Get-Item -LiteralPath $exe -Force
+                if(($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){
+                  $sha=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+                  $bins++
+                }else{$binary=$false}
+              }
+              # Booleans only: NEVER read original operator config or state.
+              $complete=($binary -and
+                (Test-Path -LiteralPath (Join-Path $root 'config.json') -PathType Leaf) -and
+                (Test-Path -LiteralPath (Join-Path $root 'data') -PathType Container))
+              if($complete){$configured++}
+            }
+            $running=@(Get-Process -Name 'K-Terminal' -ErrorAction SilentlyContinue).Count -gt 0
+            if($running){$runtimes++}
+            Write-Host ('KTERM_HISTORICAL_ROOT_'+$label+'=CHECKED;ROOT_EXISTS='+$exists+
+              ';LAUNCHER_EXE_EXISTS='+$binary+';CONFIG_AND_DATA_EXIST='+$complete+
+              ';EXE_SHA256='+$(if($sha){$sha}else{'NONE'})+
+              ';SOURCE_SHA_MATCH=NOT_ESTABLISHED;RUNTIME_AUTHORITY=NOT_ESTABLISHED')
+          }
+          Write-Host ('KTERM_HISTORICAL_ROOTS=PASS;CANDIDATES='+$candidates.Count+
+            ';ROOTS_PRESENT='+$roots+';EXES_PRESENT='+$bins+
+            ';CONFIGURED_INSTALL_HINTS='+$configured+
+            ';OPERATOR_CONTEXT_MATCH=NOT_ESTABLISHED'+
+            ';INSTALLED_RUNTIME_QUALIFIED=FALSE;NO_APP_EXECUTION=TRUE'+
+            ';NO_CONFIG_OR_STATE_READS=TRUE;NO_NETWORK=TRUE;NO_WRITES=TRUE;NO_BROKER_CALLS=TRUE')
