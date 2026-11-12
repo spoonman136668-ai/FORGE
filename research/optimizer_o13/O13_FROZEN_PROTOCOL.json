@@ -1,0 +1,78 @@
+{
+  "schema": "forge.optimizer.o13.public-predictive-credit-v1",
+  "stage": "PRECOMMITTED_BEFORE_GENERATOR_LEARNER_OR_PUBLIC_DEV_FIRST_USE",
+  "main_ancestor": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "standing_negatives": {
+    "O10": "COMPOSITION_NO_GO_AND_NATIVE_REPRO_FAIL_UNCHANGED",
+    "O11": "NATIVE_PHASE_TRAINING_NUMERIC_DRIFT_DIAGNOSED",
+    "O12": "DECIMAL_EXACT_ARITHMETIC_ENGINEERING_PASS_BUT_GRADIENT_CONDITIONING_MIXED",
+    "O9": "EXTERNAL_CUE_RETRIEVAL_ABLATION_POSITIVE_BUT_PARITY_AND_NULL_FAIL",
+    "Q21": "PROTECTED_FIRST_USE_NOT_ADMITTED"
+  },
+  "research_question": "Does passing delayed loss gradients through an automatically learned binary predictive belief across full observable histories improve next-observation generalization relative to blocked one-step credit, transition learning ablation and strong equally trained conventional predictors?",
+  "claim_scope": "PUBLIC DEVELOPMENT; state is a designed two-latent-state Bayesian filter with parameters learned from public histories, NOT novel discovered architecture or independent held-out scientific transfer.",
+  "source_namespace": "o13-new-public-credit-v1",
+  "roles": [
+    "O13_PUBLIC_TRAIN",
+    "O13_PUBLIC_SELECT",
+    "O13_PUBLIC_DEV"
+  ],
+  "roles_per_family": {
+    "O13_PUBLIC_TRAIN": 48,
+    "O13_PUBLIC_SELECT": 16,
+    "O13_PUBLIC_DEV": 24
+  },
+  "steps_per_episode": 28,
+  "seed_law": "Python Random(int.from_bytes(SHA256(UTF8(namespace+':'+role+':'+family+':'+i)).digest()[:8],'big'))",
+  "families": {
+    "A_SWITCH_AND_RETAIN": "hidden binary latent; initial hidden fair; at t action0 flip probability .04, action1 flip .72; sensor accuracy .83; publicly observed (o_t,a_t,o_t+1), with hidden NEVER sent to learners",
+    "B_LAGGED_CAUSAL_ACTION": "hidden binary latent; hidden flip probability .76 if previous public action1 and current public action0, else .06; sensor accuracy .75; previous action is observable from public history but the candidate filter uses only current action directly; explicit model mismatch tests representational insufficiency",
+    "C_SENSOR_REGIME_DRIFT": "hidden binary latent; flip probability .13 for public action0 and .62 for action1; emission sensor accuracy .93 on even t and .61 on odd t, timestep parity public via sequence position but the candidate assumes stationary emission; tests insufficiency of stationary learned representations",
+    "NULL_IID": "public next observation iid fair bit and public action iid fair; no causal signal"
+  },
+  "learners": {
+    "FULL_CREDIT_BELIEF": "5 learned logits (emission0,emission1,flip_action0,flip_action1,initial_prior). At each public step filter current observation with Bayes, transition by current public action, predict next observation. Episode-mean NLL gradient by central finite difference epsilon .0001 THROUGH the complete 28-step recurrent belief. 24 epochs, minibatch 8, Adam lr .02, clip global norm 2. Starts 17/31, SELECT-only seed choice.",
+    "STOP_CREDIT_BELIEF": "Identical forward-filter, exact same 5 parameters and optimization budget but train gradient for each public next-bit forecast holds its PRE-observation latent prior from the unperturbed model constant (no gradient through earlier observations/transitions). All current-step gradient paths remain. This is explicit truncated one-step credit ablation.",
+    "FROZEN_TRANSITION_BELIEF": "Same FULL gradient and model except both transition logits held fixed at their seed initialization. Fit emissions/initial prior; controls necessity of learning action dynamics.",
+    "O4_BATCH_ACTION_HMM_EM": "Verbatim original O4 model source Git blob 3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c, original 12 EM rounds starts 17/31 chosen on SELECT.",
+    "O4_PUBLIC_LAGGED_COUNTS": "Verbatim original O4 fitted public-history lagged count baseline, same TRAIN, fitted SELECT/DEV roles",
+    "O4_PUBLIC_CURRENT_COUNTS": "Verbatim original O4 fitted public current-only count baseline, same TRAIN",
+    "ERASE_FULL_BELIEF_STATE": "Reuses selected and TRAINED FULL_CREDIT_BELIEF checkpoint but resets predicted prior to 0.5 before EVERY public observation when evaluating DEV, not retrained."
+  },
+  "frozen_training": {
+    "seeds": [
+      17,
+      31
+    ],
+    "epochs": 24,
+    "minibatch_episodes": 8,
+    "adam_rate": 0.02,
+    "adam_beta1": 0.9,
+    "adam_beta2": 0.999,
+    "adam_epsilon": 1e-8,
+    "gradient_clip": 2,
+    "finite_difference_eps": 0.0001,
+    "initialization": "Python Random(seed).uniform(-.20,.20) added to five fixed logits (-1.2,+1.2,-2.0,-1.0,0.0) respectively",
+    "fit_order": "Every epoch, 48 TRAIN episodes ascending index in contiguous minibatches of 8; one Adam update per minibatch",
+    "selection": "Best SELECT next-public-bit mean NLL among starts17/31 only, seed17 wins tie; no DEV selection/tuning",
+    "count_and_hmm": "Fit on identical TRAIN with 12 original HMM EM rounds and fitted count tables, HMM restart selected solely SELECT"
+  },
+  "evaluation": {
+    "metric": "Mean next PUBLIC bit NLL over all O13_PUBLIC_DEV transitions; lower better; report all seven arms and null signed differences",
+    "causal_ablation": "STOP_CREDIT_BELIEF minus FULL_CREDIT_BELIEF; positive supports full recurrent gradient, not automatically learned general intelligence",
+    "transition_ablation": "FROZEN_TRANSITION_BELIEF minus FULL_CREDIT_BELIEF; positive supports learned action-transition update",
+    "state_erasure": "ERASE_FULL_BELIEF_STATE minus FULL_CREDIT_BELIEF; positive supports internal belief memory",
+    "baseline": "Compare against minimum fitted original O4 HMM and current/lagged counts, not just weaker ablations",
+    "cost": "Fit+SELECT CPU including both restarts; DEV inference CPU; all five logits and Adam moments in checkpoint; model state bytes; source generation CPU; whole-process peak RSS and Python memory",
+    "source_repro": "All 4 families×3 role SHA256 public source identities exact Windows/Linux",
+    "numeric_repro": "All 4×7 DEV mean NLL values within 1e-6 Windows/Linux; fail closed with separate comparison job",
+    "positivity": "NO automatic GO from public DEV; require improvement over strongest trained comparator with comparable full resource budgets, independent first-use/unknown family transfer, null robustness and ablations before any integration"
+  },
+  "guardrails": [
+    "No existing O1-O12 role, DEV, protected original/HELD/Q21/Q21N01 episodes used",
+    "No hidden latent features, generator law or family labels passed to any learner; history actions observable to all",
+    "No external controller, FORGE science queue, native Wingless/Yggdrasil, KTRADE, Cloudflare, paid API or broker actions",
+    "Protocol Git blob and O4 original control blob immutable, new branch from protected main, additive source-only draft",
+    "Preserve all negatives including cross-platform qualification failures; never re-run already inspected O13_DEV as new independent science"
+  ]
+}
