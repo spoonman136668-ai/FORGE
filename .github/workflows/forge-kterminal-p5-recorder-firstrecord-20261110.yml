@@ -115,21 +115,63 @@ jobs:
              (python --version | Out-String).Trim() -notmatch '^Python 3\.12\.\d+$'){
             throw 'KTERM_PR96_WINDOWS_TOOLCHAIN_DRIFT'
           }
-          $env:GOCACHE=Join-Path $src '.build/cache'
-          $env:GOMODCACHE=Join-Path $src '.build/modules'
-          $env:GOPATH=Join-Path $src '.build/go'
-          $env:GOTMPDIR=Join-Path $src '.build/temp'
-          foreach($dir in @($env:GOCACHE,$env:GOMODCACHE,$env:GOPATH,$env:GOTMPDIR)){
+          # Restore the source-qualified test workspace contract that passed
+          # for identical application Go blobs in FORGE run 43135678106.
+          # This environment applies only within this regression step.
+          $env:RUNNER_TEMP=Join-Path $root 'test-temp'
+          $env:GOCACHE=Join-Path $root 'go-cache'
+          $env:GOMODCACHE=Join-Path $root 'go-modules'
+          $env:K_TERMINAL_TEST_WORKSPACE=Join-Path $root 'test-workspace'
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'test-workspace/tail'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'test-workspace/post'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'test-workspace/private'
+          foreach($dir in @($env:RUNNER_TEMP,$env:GOCACHE,$env:GOMODCACHE,
+             $env:K_TERMINAL_TEST_WORKSPACE,
+             $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,
+             $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,
+             $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){
             [void][IO.Directory]::CreateDirectory($dir)
           }
           Push-Location $src
           try{
             $sw=[Diagnostics.Stopwatch]::StartNew()
-            & go test -p 1 ./... *> (Join-Path $root 'full-regression.private.log')
+            $full=Join-Path $root 'full-regression.private.jsonl'
+            # Exact tested original regimen: explicit long-package timeout,
+            # deterministic no-cache runs, and structured bounded diagnostics.
+            & go test -json -p 1 -count=1 -timeout 60m ./... *> $full
             $result=$LASTEXITCODE
             $sw.Stop()
             if($result-ne0){
-              $d=(Get-FileHash -LiteralPath (Join-Path $root 'full-regression.private.log') -Algorithm SHA256).Hash.ToLowerInvariant()
+              $d=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+              $pkgs=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+              $tests=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+              $failEvents=0
+              foreach($line in [IO.File]::ReadLines($full)){
+                if($line -notlike '*"Action":"fail"*'){continue}
+                try{$entry=ConvertFrom-Json -InputObject $line -ErrorAction Stop}
+                catch{continue}
+                if($entry.Action -cne 'fail'){continue}
+                $pkg=[string]$entry.Package
+                if($pkg -cnotmatch '^k-terminal(?:/[A-Za-z0-9_.-]+)*$'){continue}
+                $failEvents++
+                [void]$pkgs.Add($pkg)
+                $test=([string]$entry.Test -split '/')[0]
+                if($test -cmatch '^Test[A-Za-z0-9_]{1,110}$'){
+                  [void]$tests.Add(($pkg+':'+$test))
+                }
+              }
+              Write-Host ('KTERM_PR96_REGRESSION_DIAGNOSTIC=CLASSIFIED;FAIL_EVENTS='+$failEvents+
+                 ';FAILED_PACKAGES='+$pkgs.Count+';FAILED_ROOT_TESTS='+$tests.Count+
+                 ';NO_PRIVATE_TEST_OUTPUT=TRUE')
+              foreach($pkg in @($pkgs|Sort-Object|Select-Object -First 8)){
+                Write-Host ('KTERM_PR96_FAILED_PACKAGE='+$pkg)
+              }
+              foreach($testName in @($tests|Sort-Object|Select-Object -First 12)){
+                Write-Host ('KTERM_PR96_FAILED_TEST='+$testName)
+              }
+              if($failEvents-eq0){
+                Write-Host 'KTERM_PR96_REGRESSION_DIAGNOSTIC=NO_ALLOWLISTED_FAIL_EVENTS;CAUSE_UNCLASSIFIED'
+              }
               Write-Host ('KTERM_PR96_FULL_REGRESSION=FAIL;EXIT='+$result+';MS='+$sw.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$d)
               throw 'KTERM_PR96_FULL_REGRESSION_FAILED'
             }
