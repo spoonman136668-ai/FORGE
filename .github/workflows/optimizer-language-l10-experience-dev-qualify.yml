@@ -1,0 +1,99 @@
+name: L10-B4 online experience learning development qualification
+on:
+  push:
+    branches: [research/optimizer-language-l10-semantic-fidelity-20261024]
+    paths:
+      - '.github/workflows/optimizer-language-l10-experience-dev-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l10b4-experience-controls-first-dev-20261024
+  cancel-in-progress: false
+jobs:
+  online-experience-synthetic-only:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 17
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Pin all L10 identity/protocol sources and run original development-only adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'f8bc3f953062bc5276efa183c7b5ed63706ecd22'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l10-experience-dev-qualify.yml'
+          p=research/optimizer_language_l10
+          test "$(git rev-parse HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json)" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          test "$(git rev-parse HEAD:$p/L10_B4_EXPERIENCE_TO_STATE_DEV_CONTRACT.json)" = '6ed10248d68e6cc6ac48a16bab09d1c9ee2805c5'
+          test "$(git rev-parse HEAD:$p/l10_semantic_dev_oracle.py)" = '61cfcabcfd3f5a5d6e28b510e81f889566bbb877'
+          test "$(git rev-parse HEAD:$p/l10_dev_source_custody.py)" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse HEAD:$p/l10_dev_matched_controls.py)" = '10d6c12225d85bd6aaf49032c246c3df11196878'
+          test "$(git rev-parse HEAD:$p/l10_devfit_template_candidate.py)" = '386b2ff0ecf1d831a51a441f8812fe93b1a51a5f'
+          test "$(git rev-parse HEAD:$p/l10_b4_effect_local_learning.py)" = '6804e6cb3777f888b4a05251242148a3a38da27b'
+          test "$(git rev-parse HEAD:$p/test_l10_b4_effect_local_learning.py)" = '3e04f0ec7682cd28ce3da34a613172ae5ae6a47a'
+          python -m py_compile "$p/l10_b4_effect_local_learning.py" "$p/test_l10_b4_effect_local_learning.py"
+          (cd "$p" && python -m unittest -v test_l10_semantic_dev_oracle.py test_l10_dev_source_controls.py test_l10_devfit_template_candidate.py test_l10_b4_effect_local_learning.py)
+          echo L10_B4_LOCAL_EXPERIENCE_AND_MATCHED_COMPARATORS=PASS
+      - name: Numeric-only original invented development experiment, all three effect regimes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP" <<'PY'
+          import pathlib,sys,hashlib
+          folder=pathlib.Path.cwd()/"research/optimizer_language_l10"
+          sys.path.insert(0,str(folder))
+          import l10_dev_source_custody as src
+          import l10_b4_effect_local_learning as trial
+          rows=src.development_collection("WITHHELD_MAPPING")
+          fit=[x for x in rows if x.split=="DEV_FIT"]
+          check=[x for x in rows if x.split=="DEV_CHECK"]
+          result=[]
+          for regime in trial.REGIMES:
+              evidence=trial.benchmark_dev(fit,check,regime)
+              assert evidence["scientific_go"] is False
+              assert evidence["prospective_examples_used"]==0
+              assert evidence["checked_examples"]==12 and len(evidence["methods"])==5
+              assert evidence["restart_state_recovery"]
+              result.append(dict(regime=regime,fit_events=evidence["fit_experience_events"],
+                  event_sha=evidence["event_custody_sha256"],
+                  learned_state_sha=evidence["learned_state_sha256"],
+                  micro_exact=[x["micro_exact"] for x in evidence["methods"]],
+                  micro_abstention=[x["micro_abstention"] for x in evidence["methods"]],
+                  method_state_bytes=[x["state_bytes"] for x in evidence["methods"]],
+                  peak_python_traced_bytes=evidence["peak_python_traced_bytes"]))
+              print("L10_B4_"+regime+"_ONLINE_EXACT="+str(evidence["methods"][0]["micro_exact"]))
+          assert result[0]["micro_exact"][0]==result[0]["micro_exact"][1]==result[0]["micro_exact"][2]
+          assert result[1]["micro_exact"][0]==0 and result[1]["micro_abstention"][0]==1
+          assert result[2]["micro_exact"][0]<result[0]["micro_exact"][0]
+          receipt=dict(schema="forge.optimizer.language.l10.b4-effect-experience-dev-numeric-v1",
+               status="DEVELOPMENT_ONLY_LOCAL_ASSOCIATION_NO_NATIVE_CAUSAL_PROOF",
+               source_role=src.DEV_ROLE,
+               original_source_family_count=3,
+               fit_examples=12,check_examples=12,regimes=result,
+               conventional_equal_information_compared=True,
+               no_prospective_source_generated=True,
+               original_l9_webnlg_untouched=True,
+               energy="NOT_MEASURED",flops="NOT_MEASURED",
+               scientific_go=False)
+          raw=src.canonical_bytes(receipt)
+          out=pathlib.Path(sys.argv[1])/"l10-b4-experience-numeric-only.json"
+          out.write_bytes(raw)
+          print("L10_B4_NUMERIC_ONLY_SHA256="+hashlib.sha256(raw).hexdigest())
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l10").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L10_B4_NO_PROTECTED_FIRST_USE=TRUE
+          echo L10_B4_SCIENTIFIC_GO=FALSE
+      - name: Save numerical state/custody only, never raw experience or DEV outputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l10b4-experience-dev-numeric-${{ matrix.os }}'
+          path: '${{ runner.temp }}/l10-b4-experience-numeric-only.json'
+          if-no-files-found: error
+          retention-days: 30

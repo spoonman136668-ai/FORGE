@@ -1,0 +1,107 @@
+name: L10-B5 delayed active probe learning synthetic qualification
+on:
+  push:
+    branches: [research/optimizer-language-l10-semantic-fidelity-20261024]
+    paths:
+      - '.github/workflows/optimizer-language-l10-delayed-probe-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l10b5-delayed-probe-restart-integrity-v2-20261024
+  cancel-in-progress: false
+jobs:
+  synthetic-active-query:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Require frozen B5 protocol and unchanged L10-A/B3/B4 source identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '212dc126452b3c6bd78d458e2b75f8c6f1d64718'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l10-delayed-probe-qualify.yml'
+          p=research/optimizer_language_l10
+          test "$(git rev-parse HEAD:$p/L10_B5_DELAYED_ACTIVE_PROBE_DEV_CONTRACT.json)" = '49b8c7f16f0c11c1f7bb5bc9aadd544072c0bd5b'
+          test "$(git rev-parse HEAD:$p/l10_b5_delayed_probe_dev.py)" = 'b2a61e9d5cc11f87ba26f1b9ffd18ddaf2bc51c8'
+          test "$(git rev-parse HEAD:$p/test_l10_b5_delayed_probe_dev.py)" = 'cad599aeaab7ec02928c831919f45b093bb8a528'
+          test "$(git rev-parse HEAD:$p/L10_B4_EXPERIENCE_TO_STATE_DEV_CONTRACT.json)" = '6ed10248d68e6cc6ac48a16bab09d1c9ee2805c5'
+          test "$(git rev-parse HEAD:$p/l10_b4_effect_local_learning.py)" = '6804e6cb3777f888b4a05251242148a3a38da27b'
+          test "$(git rev-parse HEAD:$p/l10_dev_source_custody.py)" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse HEAD:$p/l10_semantic_dev_oracle.py)" = '61cfcabcfd3f5a5d6e28b510e81f889566bbb877'
+          test "$(git rev-parse HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json)" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          python -m py_compile "$p/l10_b5_delayed_probe_dev.py" "$p/test_l10_b5_delayed_probe_dev.py"
+          (cd "$p" && python -m unittest -v test_l10_semantic_dev_oracle.py test_l10_dev_source_controls.py test_l10_devfit_template_candidate.py test_l10_b4_effect_local_learning.py test_l10_b5_delayed_probe_dev.py)
+          echo L10_B5_ADVERSARIAL_DELIVERY_CUSTODY=PASS
+      - name: Run only invented development delayed-probe scenarios with all equal-information policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP" <<'PY'
+          import hashlib,sys,pathlib
+          base=pathlib.Path.cwd()/"research/optimizer_language_l10"
+          sys.path.insert(0,str(base))
+          import l10_dev_source_custody as src
+          import l10_b5_delayed_probe_dev as b5
+          items=src.development_collection("WITHHELD_MAPPING")
+          fit=[x for x in items if x.split=="DEV_FIT"]
+          check=[x for x in items if x.split=="DEV_CHECK"]
+          result=b5.benchmark(fit,check)
+          assert len(result["outcomes"])==18
+          assert result["action_budget"]==3 and result["feedback_delay_ticks"]==2
+          assert result["prospective_examples_generated_or_used"]==0
+          assert result["scientific_go"] is False
+          extracted=[]
+          for condition in b5.REGIMES:
+              group=[x for x in result["outcomes"] if x["regime"]==condition]
+              assert len(group)==6
+              assert len({x["source_custody_sha256"] for x in group})==1
+              for outcome in group:
+                  assert outcome["scientific_go"] is False
+                  assert outcome["protected_samples_read"]==0
+                  assert all(t>=3 for t in outcome["actual_delays"])
+              extracted.append(dict(regime=condition,
+                 micro_exact=[x["micro_exact"] for x in group],
+                 micro_abstention=[x["micro_abstention"] for x in group],
+                 actions=[x["actual_probes"] for x in group],
+                 state_hashes=[x["learned_state_sha256"] for x in group],
+                 source_custody_sha256=group[0]["source_custody_sha256"]))
+          assert extracted[0]["micro_exact"]==[1,1,1,1,1,0]
+          assert extracted[1]["micro_exact"]==[0]*6
+          assert extracted[1]["micro_abstention"]==[1]*6
+          assert extracted[2]["micro_exact"]==[0]*6
+          summary=dict(schema="forge.optimizer.language.l10.b5-numeric-control-custody-v1",
+                status="DEVELOPMENT_ONLY_DELAYED_FEEDBACK_ACTIVE_INFORMATION_NO_COMPETITIVE_ADVANTAGE",
+                method_order=list(b5.POLICIES),regimes=extracted,
+                probe_budget=3,delay_ticks_after_dispatch=2,
+                dev_fit_cases=12,dev_check_cases=12,
+                experiment_raw_source_preserved=False,
+                full_model_output_preserved=False,
+                full_energy_flops_measured=False,
+                prospective_first_use_performed=False,scientific_go=False)
+          raw=src.canonical_bytes(summary)
+          out=pathlib.Path(sys.argv[1])/"l10b5-numeric-control-custody.json"
+          out.write_bytes(raw)
+          print("L10_B5_NUMERICAL_CONTROL_RECEIPT_SHA256="+hashlib.sha256(raw).hexdigest())
+          print("L10_B5_CLEAN_EFFECT_EXACT="+str(extracted[0]["micro_exact"]))
+          print("L10_B5_WITHHELD_EFFECT_EXACT="+str(extracted[1]["micro_exact"]))
+          print("L10_B5_PERMUTED_EFFECT_EXACT="+str(extracted[2]["micro_exact"]))
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l10").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L10_B5_PROTECTED_FIRST_USE=NOT_PERFORMED
+          echo L10_B5_SCIENTIFIC_GO=FALSE
+      - name: Preserve numerical/source identities only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l10b5-delayed-probe-dev-${{ matrix.os }}'
+          path: '${{ runner.temp }}/l10b5-numeric-control-custody.json'
+          if-no-files-found: error
+          retention-days: 30

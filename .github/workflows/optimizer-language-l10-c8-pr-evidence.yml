@@ -1,0 +1,42 @@
+name: L10-C8 immutable source-only PR falsification
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/optimizer-language-l10-c8-pr-evidence.yml'
+      - 'research/optimizer_language_l10/test_l10_c8_inprocess_mapping_leak.py'
+permissions:
+  contents: read
+concurrency:
+  group: l10-c8-pr-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  source-only-inprocess-leak:
+    if: github.event.pull_request.number == 862
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Pin original synthetic sources and execute C8 source-only falsification
+        shell: bash
+        run: |
+          set -euo pipefail
+          p=research/optimizer_language_l10
+          test "$(git rev-parse "HEAD:$p/test_l10_c8_inprocess_mapping_leak.py")" = 'ac4fca81a31e8ae75943e6b997c127836377d3ca'
+          test "$(git rev-parse "HEAD:$p/test_l10_dev_source_controls.py")" = '9e5ee810e5ff190544c1fa6086805d7a981f3f5e'
+          test "$(git rev-parse "HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json")" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          test "$(git rev-parse "HEAD:$p/l10_semantic_dev_oracle.py")" = '61cfcabcfd3f5a5d6e28b510e81f889566bbb877'
+          test "$(git rev-parse "HEAD:$p/l10_dev_source_custody.py")" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse "HEAD:$p/l10_dev_matched_controls.py")" = '10d6c12225d85bd6aaf49032c246c3df11196878'
+          (cd "$p" && python -B -m unittest -v test_l10_c8_inprocess_mapping_leak.py test_l10_dev_source_controls.py)
+          echo L10_C8_INPROCESS_LEAK_NEGATIVE_REPRODUCED=TRUE
+          echo L10_C8_PHYSICAL_SECURITY_IS_NOT_PROVED
+          echo L10_C8_PROSPECTIVE_SAMPLES_CONSUMED=0
+          echo L10_C8_SCIENTIFIC_GO=FALSE

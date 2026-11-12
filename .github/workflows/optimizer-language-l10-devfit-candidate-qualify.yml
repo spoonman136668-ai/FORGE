@@ -1,0 +1,99 @@
+name: L10-B3 DEV-fit candidate provenance and matched controls
+on:
+  push:
+    branches: [research/optimizer-language-l10-semantic-fidelity-20261024]
+    paths:
+      - '.github/workflows/optimizer-language-l10-devfit-candidate-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l10b3-candidate-source-isolation-20261024
+  cancel-in-progress: false
+jobs:
+  source-isolated-development-training:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Verify frozen source and adversarial DEV-only training/evaluation suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '6d3aac09c0b6e4a5a212b5f93e8af90a7fd36baf'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l10-devfit-candidate-qualify.yml'
+          p=research/optimizer_language_l10
+          test "$(git rev-parse HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json)" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          test "$(git rev-parse HEAD:$p/l10_semantic_dev_oracle.py)" = '61cfcabcfd3f5a5d6e28b510e81f889566bbb877'
+          test "$(git rev-parse HEAD:$p/l10_dev_source_custody.py)" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse HEAD:$p/l10_dev_matched_controls.py)" = '10d6c12225d85bd6aaf49032c246c3df11196878'
+          test "$(git rev-parse HEAD:$p/l10_devfit_template_candidate.py)" = '386b2ff0ecf1d831a51a441f8812fe93b1a51a5f'
+          test "$(git rev-parse HEAD:$p/test_l10_devfit_template_candidate.py)" = 'b7c8002b89551065a2f89c2f644af51ff705954f'
+          python -m py_compile "$p/l10_devfit_template_candidate.py" "$p/test_l10_devfit_template_candidate.py"
+          (cd "$p" && python -m unittest -v test_l10_semantic_dev_oracle.py test_l10_dev_source_controls.py test_l10_devfit_template_candidate.py)
+          echo L10_B3_TRAIN_ONLY_NO_AUDIT_REPLAY=PASS
+      - name: Freeze DEV-fit state fingerprints and match benchmark comparators on synthetic-only checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP" <<'PY'
+          import hashlib,json,pathlib,sys,dataclasses
+          sys.path.insert(0,str(pathlib.Path.cwd()/"research/optimizer_language_l10"))
+          import l10_dev_source_custody as src
+          import l10_dev_matched_controls as controls
+          import l10_devfit_template_candidate as cand
+          receipts=[]
+          for regime in src.EXPOSURES:
+              rows=src.development_collection(regime)
+              train=[x for x in rows if x.split=="DEV_FIT"]
+              check=[x for x in rows if x.split=="DEV_CHECK"]
+              assert len(train)==12 and len(check)==12
+              fitted=cand.fit_dev_only(train)
+              methods=controls.make_controls(train,lambda inp,m=fitted:cand.infer(m,inp))
+              base=methods[-1]
+              methods[-1]=dataclasses.replace(base,fitted_state_bytes=fitted.state_bytes,
+                   fit_wall_seconds=fitted.fit_wall_seconds,fit_cpu_seconds=fitted.fit_cpu_seconds)
+              scores=controls.benchmark_dev(rows,methods,regime)
+              assert len(scores["methods"])==7 and scores["prospective_source_examples_consumed"]==0
+              assert all(x["evaluation_examples"]==12 for x in scores["methods"])
+              assert scores["methods"][0]["micro_exact_rate"]==(1. if regime=="KNOWN_MAPPING" else 0.)
+              assert scores["methods"][-1]["micro_exact_rate"]<=scores["methods"][0]["micro_exact_rate"]
+              state=cand.state_only_receipt(fitted)
+              assert state["prospective_examples_exposed"]==0 and state["scientific_go"] is False
+              receipts.append(dict(regime=regime,fitted_state_sha256=state["fitted_state_sha256"],
+                  fit_source_sha256=state["fit_source_sha256"],patterns=state["distinct_learned_relation_polarity_patterns"],
+                  fitted_state_bytes=state["state_bytes"],dev_check_exact_micro=scores["methods"][-1]["micro_exact_rate"],
+                  canonical_exact_micro=scores["methods"][0]["micro_exact_rate"],
+                  dev_check_abstentions=sum(row["abstentions"] for row in scores["methods"][-1]["family_metrics"])))
+          out=dict(schema="forge.optimizer.language.l10.b3-fit-state-custody-v1",
+             status="KNOWN_SUPERVISION_SYNTHETIC_DEV_ONLY",
+             fitted_candidates=receipts,
+             known_mapping_baseline_semantic_ceiling=1.0,
+             candidate_supervision="DEV_FIT_RULE_DERIVED_NOT_NATIVE_CAUSAL_LEARNING",
+             input_groups_evaluated=3,fit_count=12,check_count=12,
+             prospective_examples_generated=0,l9_audit_reused=False,
+             full_resource_pareto_not_qualified=True,scientific_go=False)
+          raw=src.canonical_bytes(out)
+          path=pathlib.Path(sys.argv[1])/"l10b3-candidate-numeric-only.json"
+          path.write_bytes(raw)
+          print("L10_B3_FITTED_STATE_KNOWN="+receipts[0]["fitted_state_sha256"])
+          print("L10_B3_FITTED_STATE_WITHHELD="+receipts[1]["fitted_state_sha256"])
+          print("L10_B3_NUMERIC_ONLY_RECEIPT_SHA256="+hashlib.sha256(raw).hexdigest())
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l10").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L10_B3_NO_FUTURE_SOURCE_ACCESS=TRUE
+          echo L10_B3_SCIENTIFIC_GO=FALSE
+      - name: Publish fitted state hashes only; no raw sources or model predictions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l10b3-fit-state-numeric-${{ matrix.os }}'
+          path: '${{ runner.temp }}/l10b3-candidate-numeric-only.json'
+          retention-days: 30
+          if-no-files-found: error
