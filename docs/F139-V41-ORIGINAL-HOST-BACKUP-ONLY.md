@@ -28,3 +28,8 @@ quiesce the original task and explicitly issue the scoped backup-only
 comment after exact-SHA Linux/Windows CI. A successful cold backup does
 not authorize live V41 source transition, model first-use, Hybrid
 admission, or any reissue of pending #1715. Original owner remains V40.
+
+The pre-existing G145/G148/G156 original Go regression guards now bind
+this one owner-authored PR #1734, its exact base, protected original
+workflow before/after blobs, seven-file source scope and negative controls.
+No generic workflow changes or cache/harness bypass are permitted.
