@@ -1,6 +1,7 @@
 """Offline V41 backup/restore development fixtures: never original owner."""
 from contextlib import closing
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -44,19 +45,32 @@ class OfflineColdBundleTests(unittest.TestCase):
 
     @staticmethod
     def custody(kind):
-        relative = ("provider-custody/test/11/manifest.json" if kind == "archive"
-                    else "prior-generation-custody/test/binary.exe")
-        payload = (b"archive" if kind == "archive" else b"binary")
-        expected = hashlib.sha256(payload).hexdigest()
-
+        if kind == "archive":
+            ticket = "f139-nci04-test"
+            run = 11
+            prefix = "provider-custody/" + ticket + "/" + str(run)
+            blob = {"ubuntu-latest.zip": b"ubuntu-payload",
+                    "windows-latest.zip": b"windows-payload"}
+            blob["manifest.json"] = (
+                json.dumps({"ticket": ticket, "run_id": run,
+                            "sha256": {name[:-4]: hashlib.sha256(value).hexdigest()
+                                       for name, value in blob.items()}},
+                           sort_keys=True, separators=(",", ":")).encode("ascii"))
+            files = {prefix + "/" + name: value for name, value in blob.items()}
+        else:
+            files = {"prior-generation-custody/" + cold.FROM +
+                     "/f139-genenv-source.exe": b"binary"}
         def handler(db, folder, *, copy_files):
-            path = folder.joinpath(*relative.split("/"))
-            if copy_files:
-                path.parent.mkdir(parents=True, exist_ok=False)
-                path.write_bytes(payload)
-            if path.read_bytes() != payload:
-                raise ValueError("custody mismatch")
-            return {relative: expected}
+            result = {}
+            for relative, payload in files.items():
+                path = folder.joinpath(*relative.split("/"))
+                if copy_files:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(payload)
+                if path.read_bytes() != payload:
+                    raise ValueError("custody mismatch")
+                result[relative] = hashlib.sha256(payload).hexdigest()
+            return result
         return handler
 
     def attempt(self, *, run_id=None, locked=True, wrong_remote=False,
@@ -154,6 +168,103 @@ class OfflineColdBundleTests(unittest.TestCase):
                            "UPDATE meta SET", "owner_policy_patch("):
             self.assertNotIn(prohibited, source)
 
+
+    def offline(self, receipt, *, target=TARGET, run_id=None, head_seq=None,
+                head_sha=None, manifest_sha=None):
+        return bundle.verify_sealed_bundle_offline(
+            self.folder, expected_manifest_sha256=(
+                receipt["manifest_sha256"] if manifest_sha is None else manifest_sha),
+            target=target,
+            run_id=self.run_id if run_id is None else run_id,
+            expected_head_seq=(
+                receipt["original_head_seq"] if head_seq is None else head_seq),
+            expected_head_sha256=(
+                receipt["original_head_sha256"] if head_sha is None else head_sha))
+
+    def test_detached_offline_restore_does_not_need_original_or_network(self):
+        receipt = self.attempt()
+        self.original.rename(self.original.with_suffix(".offline"))
+        outcome = self.offline(receipt)
+        self.assertTrue(outcome["independent_restore_verified"])
+        self.assertFalse(outcome["original_owner_host_verified"])
+        self.assertFalse(outcome["source_transition_authorized"])
+        self.assertEqual(outcome["manifest_sha256"], receipt["manifest_sha256"])
+        self.assertFalse(list(self.folder.glob("f139-v41-independent-restore-*")))
+
+    def test_manifest_digest_and_external_original_identity_must_match(self):
+        receipt = self.attempt()
+        with self.assertRaises(bundle.V41BundleDenied):
+            self.offline(receipt, manifest_sha="0" * 64)
+        with self.assertRaises(bundle.V41BundleDenied):
+            self.offline(receipt, target="f" * 40)
+        with self.assertRaises(bundle.V41BundleDenied):
+            self.offline(receipt, head_seq=receipt["original_head_seq"] + 1)
+        with self.assertRaises(bundle.V41BundleDenied):
+            self.offline(receipt, head_sha="0" * 64)
+        with self.assertRaises(bundle.V41BundleDenied):
+            self.offline(receipt, run_id=self.run_id + 1)
+
+    def test_offline_tamper_to_sqlite_provider_and_generator_denied(self):
+        for prefix in ("state.sqlite", "provider-custody/",
+                       "prior-generation-custody/"):
+            with self.subTest(prefix=prefix):
+                with tempfile.TemporaryDirectory() as tmp:
+                    receipt = self.attempt(run_id=self.run_id)
+                    relative = next(k for k in receipt["files_sha256"]
+                                    if k.startswith(prefix))
+                    target = self.folder.joinpath(*relative.split("/"))
+                    original = target.read_bytes()
+                    target.write_bytes(original + b"tamper")
+                    with self.assertRaises(bundle.V41BundleDenied):
+                        self.offline(receipt)
+                    target.write_bytes(original)
+                    # Clean up the staged bundle without touching the source.
+                    import shutil
+                    shutil.rmtree(self.folder)
+        self.assertFalse(self.folder.exists())
+
+    def test_unlisted_file_or_sidecar_fails_and_no_issuance(self):
+        receipt = self.attempt()
+        extra = self.folder / "not-in-manifest"
+        extra.write_bytes(b"unlisted")
+        with self.assertRaisesRegex(bundle.V41BundleDenied,
+                                    "UNLISTED_OR_MISSING_BUNDLE_FILE"):
+            self.offline(receipt)
+        extra.unlink()
+        sidecar = self.folder / "state.sqlite-wal"
+        sidecar.write_bytes(b"")
+        with self.assertRaises(bundle.V41BundleDenied):
+            self.offline(receipt)
+
+    def test_unsealed_and_changed_authority_flags_are_denied(self):
+        receipt = self.attempt()
+        sealed = self.folder / "manifest.sha256.json"
+        doc = json.loads(sealed.read_bytes())
+        doc["source_transition_authorized"] = True
+        raw = bundle.canonical(doc)
+        sealed.write_bytes(raw)
+        with self.assertRaisesRegex(bundle.V41BundleDenied,
+                                    "FROZEN_MANIFEST_OR_AUTHORITY_FIELDS_DRIFT"):
+            self.offline(receipt, manifest_sha=hashlib.sha256(raw).hexdigest())
+        sealed.unlink()
+        with self.assertRaisesRegex(bundle.V41BundleDenied,
+                                    "SEALED_MANIFEST_REQUIRED"):
+            self.offline(receipt)
+
+    def test_offline_recovery_rejects_linked_files(self):
+        receipt = self.attempt()
+        archive = next(k for k in receipt["files_sha256"]
+                       if k.startswith("provider-custody/") and k.endswith(".zip"))
+        path = self.folder.joinpath(*archive.split("/"))
+        scratch = self.root / "linked-copy.zip"
+        scratch.write_bytes(path.read_bytes())
+        path.unlink()
+        try:
+            path.symlink_to(scratch)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable on runner")
+        with self.assertRaises(bundle.V41BundleDenied):
+            self.offline(receipt)
 
 if __name__ == "__main__":
     unittest.main()
