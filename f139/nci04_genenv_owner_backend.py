@@ -79,12 +79,20 @@ def executable_custody(db, source_sha):
         "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
     need(bool(rows) and rows[-1].get("schema") in (
          "forge.f139.source-transition.v27", "forge.f139.source-transition.v28",
-         "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33", "forge.f139.source-transition.v34", "forge.f139.source-transition.v35")
+         "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33", "forge.f139.source-transition.v34", "forge.f139.source-transition.v35", "forge.f139.source-transition.v36")
          and rows[-1].get("to_source_sha") == source_sha, "RELEASE_NOT_BOUND")
     if rows[-1].get("schema") == "forge.f139.source-transition.v35":
         from f139.nci04_v40_source_transition import FIELDS, FROM_V39, QUALIFIED_WORKER_BLOB
         need(set(rows[-1]) == FIELDS and rows[-1].get("from_source_sha") == FROM_V39
              and rows[-1].get("qualified_worker_blob") == QUALIFIED_WORKER_BLOB,
+             "RELEASE_NOT_BOUND")
+    if rows[-1].get("schema") == "forge.f139.source-transition.v36":
+        from f139.nci04_v41_source_transition import FIELDS, FROM_V40, QUALIFIED_WORKER_BLOB, REPAIR_MERGE
+        need(set(rows[-1]) == FIELDS and rows[-1].get("from_source_sha") == FROM_V40
+             and rows[-1].get("qualifying_catalog_repair_sha") == REPAIR_MERGE
+             and rows[-1].get("qualified_worker_blob") == QUALIFIED_WORKER_BLOB
+             and rows[-1].get("scientific_first_use") is False
+             and rows[-1].get("hybrid_admission") is False,
              "RELEASE_NOT_BOUND")
     expected = rows[-1].get("genenv_executable_sha256")
     need(type(expected) is str and re.fullmatch(r"[0-9a-f]{64}", expected), "BINARY_PIN")
@@ -116,13 +124,21 @@ def typed_generation_custody(db, source_sha, mechanism_sha256):
     row = db.conn.execute("SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
                           "ORDER BY seq DESC LIMIT 1").fetchone()
     doc = json.loads(row["payload"]) if row else {}
-    need(doc.get("schema") in ("forge.f139.source-transition.v28", "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33", "forge.f139.source-transition.v34", "forge.f139.source-transition.v35")
+    need(doc.get("schema") in ("forge.f139.source-transition.v28", "forge.f139.source-transition.v29", "forge.f139.source-transition.v30", "forge.f139.source-transition.v31", "forge.f139.source-transition.v32", "forge.f139.source-transition.v33", "forge.f139.source-transition.v34", "forge.f139.source-transition.v35", "forge.f139.source-transition.v36")
          and doc.get("to_source_sha") == source_sha, "TYPED_RELEASE_NOT_BOUND")
     need(doc.get("generation_mechanism_sha256") == mechanism_sha256, "TYPED_MECHANISM_DRIFT")
     if doc.get("schema") == "forge.f139.source-transition.v35":
         from f139.nci04_v40_source_transition import FIELDS, FROM_V39, QUALIFIED_WORKER_BLOB
         need(set(doc) == FIELDS and doc.get("from_source_sha") == FROM_V39
              and doc.get("qualified_worker_blob") == QUALIFIED_WORKER_BLOB,
+             "TYPED_RELEASE_NOT_BOUND")
+    if doc.get("schema") == "forge.f139.source-transition.v36":
+        from f139.nci04_v41_source_transition import FIELDS, FROM_V40, QUALIFIED_WORKER_BLOB, REPAIR_MERGE
+        need(set(doc) == FIELDS and doc.get("from_source_sha") == FROM_V40
+             and doc.get("qualifying_catalog_repair_sha") == REPAIR_MERGE
+             and doc.get("qualified_worker_blob") == QUALIFIED_WORKER_BLOB
+             and doc.get("scientific_first_use") is False
+             and doc.get("hybrid_admission") is False,
              "TYPED_RELEASE_NOT_BOUND")
 
 
