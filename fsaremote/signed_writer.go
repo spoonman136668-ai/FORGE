@@ -46,15 +46,21 @@ type SignedCheckpointWriter struct {
  endpoint string
  client *http.Client
  pin Pin
+ witness *Client
  attempted bool
 }
 
-// NewSignedCheckpointWriter requires an externally pinned writer identity,
-// distinct from the reader certificate. Its HTTPS transport pins the authority
-// server public key and does not follow redirects. It creates no credentials.
-func NewSignedCheckpointWriter(server Peer,pin Pin,readerSPKI,writerSPKI string)(*SignedCheckpointWriter,error){
+// NewSignedCheckpointWriter requires an externally pinned writer identity
+// and a separately signed authority+witness observer. The writer's own
+// authenticated HTTP acknowledgement cannot establish witness retention.
+func NewSignedCheckpointWriter(server Peer,pin Pin,readerSPKI,writerSPKI string,
+ observer *Client)(*SignedCheckpointWriter,error){
  if !pin.valid()||!validHex(readerSPKI,64)||!validHex(writerSPKI,64)||
-  readerSPKI==writerSPKI||len(server.Certificate.Certificate)==0{
+  readerSPKI==writerSPKI||len(server.Certificate.Certificate)==0||
+  observer==nil||observer.authority==nil||observer.witness==nil||
+  observer.authorityURL==""||observer.witnessURL==""||
+  observer.authorityURL==observer.witnessURL||
+  !sameCheckpointPin(observer.pin,pin){
   return nil,ErrSignedWriterBlocked
  }
  leaf,err:=x509.ParseCertificate(server.Certificate.Certificate[0])
@@ -63,7 +69,18 @@ func NewSignedCheckpointWriter(server Peer,pin Pin,readerSPKI,writerSPKI string)
  if hex.EncodeToString(sum[:])!=writerSPKI{return nil,ErrSignedWriterBlocked}
  endpoint,client,err:=peerClient(server)
  if err!=nil{return nil,ErrSignedWriterBlocked}
- return &SignedCheckpointWriter{endpoint:endpoint,client:client,pin:pin},nil
+ if endpoint==observer.witnessURL{return nil,ErrSignedWriterBlocked}
+ return &SignedCheckpointWriter{endpoint:endpoint,client:client,pin:pin,witness:observer},nil
+}
+
+// Prevent borrowing a different authority epoch, archive binding, witness
+// signer or minimum trusted high-water revision for a checkpoint writer.
+func sameCheckpointPin(a,b Pin)bool{
+ return a.ArchiveID==b.ArchiveID&&a.KeyID==b.KeyID&&
+  bytes.Equal(a.PublicKey,b.PublicKey)&&a.AuthorityEpoch==b.AuthorityEpoch&&
+  a.BindingSHA256==b.BindingSHA256&&
+  bytes.Equal(a.WitnessPublicKey,b.WitnessPublicKey)&&
+  a.MinimumRevision==b.MinimumRevision
 }
 
 // Submit posts one pre-signed, predecessor-bound checkpoint. A successful
@@ -83,7 +100,8 @@ func (w *SignedCheckpointWriter)Submit(ctx context.Context,current fsahead.Ancho
  defer w.mu.Unlock()
  if w.attempted{return zero,ErrSignedWriterAlreadyAttempted}
  if w.client==nil||w.endpoint==""||!w.pin.valid()||
-  !w.pin.accepts(current){return zero,ErrSignedWriterBlocked}
+  !w.pin.accepts(current)||w.witness==nil||
+  !sameCheckpointPin(w.witness.pin,w.pin){return zero,ErrSignedWriterBlocked}
  if _,err:=fsahead.VerifySignature(current,signed);err!=nil{
   return zero,ErrSignedWriterBlocked
  }
@@ -123,6 +141,23 @@ func (w *SignedCheckpointWriter)Submit(ctx context.Context,current fsahead.Ancho
   receipt.WitnessedSequence!=signed.Payload.Sequence||
   receipt.WitnessedHeadSHA256!=signed.Payload.HeadSHA256||
   receipt.ExecutionAuthorized{
+  return zero,ErrSignedWriterIndeterminate
+ }
+ // An authority server can return plausible JSON without retaining an
+ // independent witness. Require an actual, independently signed, pinned
+ // witness readback and archive binding, twice across the final binding read.
+ // Failure after POST is indeterminate and MUST NOT cause another write.
+ expected:=fsahead.Anchor{ArchiveID:current.ArchiveID,KeyID:current.KeyID,
+  PublicKey:current.PublicKey,AuthorityEpoch:current.AuthorityEpoch,
+  Sequence:signed.Payload.Sequence,HeadSHA256:signed.Payload.HeadSHA256}
+ observed,err:=w.witness.ReadAnchor(ctx)
+ if err!=nil||!sameAnchor(observed,expected){
+  return zero,ErrSignedWriterIndeterminate
+ }
+ bound,err:=w.witness.ConfirmArchiveBinding(ctx,w.pin.ArchiveID)
+ if err!=nil||!bound{return zero,ErrSignedWriterIndeterminate}
+ observed,err=w.witness.ReadAnchor(ctx)
+ if err!=nil||!sameAnchor(observed,expected){
   return zero,ErrSignedWriterIndeterminate
  }
  return receipt,nil

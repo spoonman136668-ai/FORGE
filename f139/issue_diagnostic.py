@@ -351,7 +351,13 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
 
 
 def diagnose(inputs: dict, *, command_runner=None, clock=time.monotonic):
-    admit(inputs)
+    if command_runner is None:
+        # Original signing key stays in a distinct GitHub d2k-admit job.
+        from f139.d2k_job_claim import verify_claim
+        verify_claim(inputs, os.environ)
+    else:
+        # The deterministic test-runner seam still requires full signed admission.
+        admit(inputs)
     demand(inputs["ticket"].startswith("f139-d2k-")
            and inputs["target_package"] in D2K_PACKAGES,
            "D2K_TARGET_NOT_AUTHORIZED")
