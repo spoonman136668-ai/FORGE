@@ -80,3 +80,26 @@ can be audited without sidecar creation, while an actual uncheckpointed
 committed-WAL-only table is rejected. The resulting candidate must pass
 all original Linux and Windows regression gates at its exact SHA before
 source acceptance.
+
+## P2 follow-up — verifier-owned content-addressed snapshot
+
+The independent post-merge Codex review on PR #1722 at the already-qualified
+SHA `8342435e9f432b63e680462bc64a54d37ccdad9d` found a distinct P2
+ABA race: externally changing the backup pathname while it is opened lets
+endpoint hashes match while logical SQLite verifies different bytes.
+
+This fix **copies bytes once and hashes them during that exact same stream**
+into an exclusive, randomly named verifier-owned temporary file. It verifies
+the private file's digest, opens **that private file only** via
+`mode=ro&immutable=1`, verifies the cold event chain and full logical tables,
+rechecks its digest, and destroys the private scratch copy. The external
+backup still must have no WAL/SHM/journal sidecars before or after the
+read; original backup bytes are hashed again before receipt issuance.
+
+This follows existing source-only, original-owner scope. The temporary copy
+is a disposable **verification snapshot**, never a replacement for the
+owner's separately issued cold backup or source handoff. It does not change
+the original Windows task, policy, SQLite or issue #1715, nor grant science.
+The new adversarial fixture performs the exact reviewed ABA swap against
+the external backup and asserts the isolated verified file cannot be changed
+by it. Mandatory full exact-head Linux and Windows regression is required.

@@ -6,11 +6,12 @@ a backup, owner task, source transition, owner policy, ref, or worker action.
 """
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 import hashlib
 from pathlib import Path
 import re
 import sqlite3
+import tempfile
 
 from f139.local_controller import Database, SingleOwner
 from f139.nci04_native_contract import canonical, digest
@@ -72,6 +73,37 @@ def _open_immutable_hashed_backup(backup: Path) -> Database:
         raise
 
 
+@contextmanager
+def _hashed_private_sqlite_snapshot(backup: Path, expected_sha256: str):
+    """Read an owner-independent snapshot whose *own bytes* are hash-bound.
+
+    A main-file pathname can be atomically swapped between two endpoint
+    hashes (ABA). Copy and hash bytes in one stream into a private, exclusive
+    verifier-owned temp file; open ONLY that file with immutable query_only.
+    This scratch copy is not a release backup and is deleted after auditing.
+    """
+    with tempfile.TemporaryDirectory(prefix="f139-v41-cold-snapshot-") as root:
+        private = Path(root) / "state.sqlite"
+        digest_stream = hashlib.sha256()
+        with backup.open("rb") as original_file, private.open("xb") as owned:
+            for chunk in iter(lambda: original_file.read(1024 * 1024), b""):
+                digest_stream.update(chunk)
+                owned.write(chunk)
+            owned.flush()
+        need(digest_stream.hexdigest() == expected_sha256,
+             "ORIGINAL_BACKUP_BYTES_DRIFT")
+        need(_hash_standalone_sqlite(private) == expected_sha256,
+             "PRIVATE_SNAPSHOT_BYTES_DRIFT")
+        _require_standalone_sqlite(private)
+        with closing(_open_immutable_hashed_backup(private)) as cold:
+            yield cold
+        # The attested database is this immutable private snapshot, not the
+        # independently mutable external backup path.
+        _require_standalone_sqlite(private)
+        need(_hash_standalone_sqlite(private) == expected_sha256,
+             "PRIVATE_SNAPSHOT_CHANGED_DURING_VERIFICATION")
+
+
 def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
                      run_id: int, expected_backup_sha256: str) -> dict:
     """Authenticate actual unchanged original/cold-copy state under owner lock.
@@ -124,9 +156,7 @@ def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
          and remote["scientific_first_use"] is False,
          "ORIGINAL_PREFLIGHT_NOT_AUTHENTIC")
     _require_standalone_sqlite(backup)
-    need(_hash_standalone_sqlite(backup) == expected_backup_sha256,
-         "ORIGINAL_BACKUP_BYTES_DRIFT")
-    with closing(_open_immutable_hashed_backup(backup)) as cold:
+    with _hashed_private_sqlite_snapshot(backup, expected_backup_sha256) as cold:
         need(getattr(cold, "_readonly_opened", False) is True
              and cold.conn.execute("PRAGMA query_only").fetchone()[0] == 1,
              "COLD_QUERY_ONLY_REQUIRED")
@@ -157,6 +187,7 @@ def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
         "original_head_seq": before["head_seq"],
         "original_head_sha256": before["head_hash"],
         "backup_sha256": expected_backup_sha256,
+        "verified_isolated_snapshot_sha256": expected_backup_sha256,
         "logical_all_tables_sha256": digest(canonical(original_view)),
         "provider_archives_manifest_sha256": digest(canonical(archives)),
         "generation_binary_manifest_sha256": digest(canonical(generation)),
