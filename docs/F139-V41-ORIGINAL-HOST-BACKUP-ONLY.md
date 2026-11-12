@@ -70,3 +70,9 @@ promise recovery. A successful job requires a genuine Ready/Running owner.
 The old backup-only comment is no longer an executable trigger; the new
 PR #1735 and exact frozen G145/G148/G156 CI admission and postmerge CI must
 pass before the owner maintenance comment is issued.
+
+The private backup subprocess is bounded to 10 minutes with an explicit
+process-tree termination and a separate 30-second exit confirmation. A
+backup-child termination that cannot be proven never triggers owner resume.
+The G54 job has a longer independent timeout; success still requires the
+same original scheduled task to be running again.

@@ -7,6 +7,7 @@ $name='FORGE-F139-UnifiedController'
 $paused=$false
 $startAttempted=$false
 $resumed=$false
+$backupChildCleared=$true
 $lease=$null
 $before=$null
 function Need([bool]$ok,[string]$why){if(-not $ok){throw ('F139_V41_MAINTENANCE_'+$why)}}
@@ -143,9 +144,35 @@ try {
   Unchanged
   $lease.Dispose()
   $lease=$null
-  $out=@(& $python -B -m f139.nci04_v41_owner_cold_backup --db $database --target $Target)
-  Need ($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and
-    $out[0] -cmatch '^F139_V41_BACKUP_ONLY=') 'BACKUP_OR_RESTORE_FAILED'
+  # Bound the private backup subprocess so a hung provider read cannot
+  # outlive the GitHub job timeout and silently strand the disabled owner.
+  $backupProc=[System.Diagnostics.Process]::new()
+  $backupProc.StartInfo.FileName=$python
+  $backupProc.StartInfo.WorkingDirectory=$env:GITHUB_WORKSPACE
+  $backupProc.StartInfo.UseShellExecute=$false
+  $backupProc.StartInfo.RedirectStandardOutput=$true
+  $backupProc.StartInfo.RedirectStandardError=$true
+  foreach($arg in @('-B','-m','f139.nci04_v41_owner_cold_backup',
+                    '--db',$database,'--target',$Target)){
+    [void]$backupProc.StartInfo.ArgumentList.Add([string]$arg)
+  }
+  Need ($backupProc.Start()) 'BACKUP_CHILD_START_FAILED'
+  $backupChildCleared=$false
+  $stdoutTask=$backupProc.StandardOutput.ReadToEndAsync()
+  $stderrTask=$backupProc.StandardError.ReadToEndAsync()
+  if(-not $backupProc.WaitForExit(600000)){
+    $backupProc.Kill($true)
+    Need ($backupProc.WaitForExit(30000)) 'BACKUP_CHILD_NOT_TERMINATED'
+    $backupChildCleared=$true
+    throw 'F139_V41_MAINTENANCE_BACKUP_TIME_LIMIT'
+  }
+  $backupChildCleared=$true
+  $stdout=$stdoutTask.GetAwaiter().GetResult()
+  $stderr=$stderrTask.GetAwaiter().GetResult()
+  Need ($backupProc.ExitCode -eq 0) 'BACKUP_OR_RESTORE_FAILED'
+  $out=@($stdout -split "\r?\n" | Where-Object {$_ -ne ''})
+  Need ($out.Count -eq 1 -and
+    $out[0] -cmatch '^F139_V41_BACKUP_ONLY=') 'BACKUP_RECEIPT_INVALID'
   $receipt=$out[0].Substring('F139_V41_BACKUP_ONLY='.Length)|ConvertFrom-Json
   Need ($receipt.schema -ceq 'forge.f139.v41.original-host-backup-only.v1' -and
     $receipt.target_sha -ceq $Target -and
@@ -175,7 +202,7 @@ try {
   Write-Host 'F139_V41_SCIENTIFIC_FIRST_USE=FALSE'
 } catch {
   $reason=$_.Exception.Message
-  if($paused -and -not $startAttempted){
+  if($paused -and -not $startAttempted -and $backupChildCleared){
     try {
       if($lease){$lease.Dispose();$lease=$null}
       Disabled

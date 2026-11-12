@@ -153,6 +153,7 @@ class OwnerBackupGateTests(unittest.TestCase):
             "--preflight-only", "F139_V41_EXISTING_V40_OWNER_RESUMED=PASS",
             "F139_V41_OWNER_RECOVERY_HOLD_OR_UNVERIFIED_MANUAL_ATTENTION",
             "Unchanged", "Installed", "Policy", "F139_V41_BACKUP_ONLY",
+            "WaitForExit(600000)", "Kill($true)", "backupChildCleared",
         ):
             self.assertIn(required, source)
         for forbidden in (
