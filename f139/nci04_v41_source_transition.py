@@ -11,6 +11,7 @@ from f139.local_controller import Database, SingleOwner
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_owner_ledger import verify_native_activation
 from f139 import nci04_v40_source_transition as v40
+from f139 import nci04_v41_pending_escrow as escrow
 from f139 import nci04_v41_catalog_recovery_preflight as preflight
 from f139 import nci04_partial_publication_custody as partial
 from f139 import nci04_ref_only_publication_custody as ref_only
@@ -34,7 +35,7 @@ FIELDS = frozenset({
     "custodied_negative_tickets", "terminal_tasks_sha256",
     "history_sha256", "v40_transition_sha256", "preserved_counters",
     "negative_1239_sha256", "negative_1462_sha256",
-    "genenv_executable_sha256", "genenv_toolchain",
+    "pending_1715_escrow_sha256", "genenv_executable_sha256", "genenv_toolchain",
     "generation_mechanism_sha256", "qualified_worker_blob",
     "qualifying_catalog_repair_sha", "source_lanes", "purpose",
     "new_dispatches", "scientific_first_use", "v2_receipt_authorized",
@@ -138,7 +139,9 @@ def snapshot(db, row, previous):
          and counters["MODEL_DRAFT_ATTEMPTED"] == len(attempts)
          and counters["MODEL_DRAFT_AUTHENTICATED"] == len(successes),
          "ORIGINAL_SPENT_COUNTER_DRIFT")
+    escrow_sha = escrow.verify_before_transition(db, row["seq"])
     return dict(
+        pending_1715_escrow_sha256=escrow_sha,
         frozen_observed_seq=MIN_HEAD,
         frozen_observed_head_sha256=preflight.OBSERVED_HEAD,
         verified_historical_tasks=len(positive),
@@ -164,6 +167,8 @@ def verify_cold_event(db, row, doc, previous):
          and row["seq"] == doc["original_head_seq"] + 1
          and doc.get("prior_event_head_sha256") == row["prior_sha"]
          and type(doc.get("owner_event_id")) is int and doc["owner_event_id"] > 0
+         and isinstance(doc.get("pending_1715_escrow_sha256"), str)
+         and HEX64.fullmatch(doc["pending_1715_escrow_sha256"])
          and doc.get("qualifying_catalog_repair_sha") == REPAIR_MERGE
          and doc.get("qualified_worker_blob") == QUALIFIED_WORKER_BLOB
          and doc.get("source_lanes") == ["Wingless", "Yggdrasil"]

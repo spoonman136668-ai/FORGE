@@ -512,6 +512,9 @@ class Database:
                     free_reasoner_days.get(doc["utc_day"], 0) + 1)
                 free_reasoner_day_lanes.add((doc["utc_day"], doc["lane"]))
                 last_free_reasoner_day = doc["utc_day"]
+            if row["kind"] == "NATIVE_PENDING_ESCROWED":
+                from f139.nci04_v41_pending_escrow import verify_event_shape
+                verify_event_shape({"seq": row["seq"], "prior_sha": row["prior_sha"]}, doc)
             if row["kind"] == "NATIVE_TWO_SLOT_SCHEMA_ADMITTED":
                 require(isinstance(doc,dict) and set(doc)=={
                     "schema","source_sha","prior_event_head_sha256",

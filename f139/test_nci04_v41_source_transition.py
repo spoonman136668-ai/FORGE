@@ -34,6 +34,7 @@ class V41TransitionContractTests(unittest.TestCase):
                 "FREE_REASONER_ATTEMPTED":8},
             "negative_1239_sha256": route.partial.EVENT,
             "negative_1462_sha256": route.ref_only.EVENT,
+            "pending_1715_escrow_sha256": "6"*64,
             "genenv_executable_sha256": "e"*64,
             "genenv_toolchain": route.TOOLCHAIN,
             "generation_mechanism_sha256": "f"*64,
@@ -52,7 +53,7 @@ class V41TransitionContractTests(unittest.TestCase):
         row = {"seq": route.MIN_HEAD+1, "prior_sha":"a"*64}
         with patch.object(route, "snapshot", return_value={
                 key: doc[key] for key in (
-                    "frozen_observed_seq","frozen_observed_head_sha256",
+                    "pending_1715_escrow_sha256","frozen_observed_seq","frozen_observed_head_sha256",
                     "verified_historical_tasks","custodied_negative_tasks",
                     "custodied_negative_tickets","terminal_tasks_sha256",
                     "history_sha256","v40_transition_sha256",
@@ -74,6 +75,7 @@ class V41TransitionContractTests(unittest.TestCase):
             {"qualifying_catalog_repair_sha":"0"*40},
             {"qualified_worker_blob":"0"*40}, {"source_lanes":["Hybrid"]},
             {"purpose":"enable-training"}, {"genenv_toolchain":"wrong"},
+            {"pending_1715_escrow_sha256":"bad"},
             {"genenv_executable_sha256":"bad"},
             {"generation_mechanism_sha256":"bad"},
             {"new_dispatches":1}, {"new_dispatches":True},
