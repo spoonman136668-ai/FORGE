@@ -1,0 +1,182 @@
+name: FORGE K-Terminal 26 original observer boundaries
+on:
+  push:
+    branches: [qualification/kterminal-p7it-original-26-cases-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: forge-kterminal-p7ir2-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  original-windows-26-cases:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '1'
+      GOFLAGS: '-p=1'
+      GOMEMLIMIT: '1536MiB'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout credential-free FORGE control source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exactly one source addition on integrated FORGE main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kterminal-p7it-original-26-cases-20261019
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 41263bb8aec510b293fc93b81b58df689f089aae HEAD
+          test "$(git diff --name-only 41263bb8aec510b293fc93b81b58df689f089aae HEAD)" = .github/workflows/forge-kterminal-p7ir2-original-all-26.yml
+          test -z "$(git status --porcelain)"
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$K_TERMINAL_NATIVE_TIMING" = 0
+          test "$K_TERMINAL_P5_LATENCY" = 0
+          test "$GOMAXPROCS" = 1
+          echo P7IR2_FORGE_INTEGRATED_BASELINE=PASS
+          echo P7IR2_GITHUB_HOSTED_ONLY=TRUE
+      - name: Checkout immutable K-Terminal private source with FORGE_KTERM_QUAL
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ba11a398586df9fe5233624d9cf115aeec76d11a
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Install pinned Go 1.26.5 Windows toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Execute all 26 original forced-boundary cases with bounded resources
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$(git rev-parse HEAD)" = ba11a398586df9fe5233624d9cf115aeec76d11a
+          test "$(git rev-parse HEAD:pkg/stage3-original-observer-forced-cuts_test.go)" = bee85ee3441b0f66399ab6c42f8b09635ba44c6b
+          test "$(git rev-parse HEAD:pkg/stage3-native-authenticated-sell-post-crash_test.go)" = 8fc5727f722510b2bfff0cfe9d4eb0565c6cb5fc
+          test "$(git rev-parse HEAD:go.mod)" = b3ede0d8444c08b3e7b23f1396374359b54134c6
+          test -z "$(git status --porcelain)"
+          go version | grep 'go1.26.5 windows/amd64' >/dev/null
+          for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            if [[ -n "$(printenv "$key" 2>/dev/null || true)" ]]; then
+              echo P7IR2_BROKER_CREDENTIAL_ENV_PRESENT
+              exit 2
+            fi
+          done
+          export K_TERMINAL_TEST_WORKSPACE="$RUNNER_TEMP/p7ir2-original"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$RUNNER_TEMP/p7ir2-original/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$RUNNER_TEMP/p7ir2-original/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$RUNNER_TEMP/p7ir2-original/private"
+          mkdir -p "$KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT" "$KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT" "$KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT"
+          start=$(date +%s)
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=24m \
+            '-run=^TestStage3OriginalObserverForcedBoundaries$' ./pkg \
+            > "$RUNNER_TEMP/p7ir2-private-go.jsonl" 2> "$RUNNER_TEMP/p7ir2-private-stderr"
+          rc=$?
+          set -e
+          export P7IR2_GO_STATUS="$rc"
+          export P7IR2_SECONDS="$(( $(date +%s) - start ))"
+          python -B - <<'PY'
+          import hashlib,json,os,pathlib,sys
+          cases=["initial_input","initial_summary","initial_summary_second","initial_history",
+                 "initial_history_second","initial_completion","non_due_input",
+                 "non_due_completion","due_summary","due_history","partial_input",
+                 "partial_completion","changed_input_pin"]
+          expected=[f"{product}/{case}" for product in ("BTC-USDC","XRP-USDC") for case in cases]
+          results={case:{"run":0,"pass":0,"fail":0} for case in expected}
+          filename=pathlib.Path(os.environ["RUNNER_TEMP"])/"p7ir2-private-go.jsonl"
+          prefix="TestStage3OriginalObserverForcedBoundaries/"
+          valid=0
+          malformed=0
+          package_failed=False
+          if filename.is_file() and filename.stat().st_size<=50*1024*1024:
+              for line in filename.read_text(encoding="utf-8-sig",errors="replace").splitlines():
+                  try: e=json.loads(line)
+                  except ValueError:
+                      malformed+=1
+                      continue
+                  if not isinstance(e,dict):
+                      malformed+=1
+                      continue
+                  valid+=1
+                  action,name=e.get("Action"),e.get("Test")
+                  if action=="fail" and name is None:
+                      package_failed=True
+                  if isinstance(name,str) and name.startswith(prefix):
+                      case=name[len(prefix):]
+                      if case in results and action in results[case]:
+                          results[case][action]+=1
+          else:
+              malformed+=1
+          complete=(valid>0 and malformed==0 and
+                    all(count["run"]==1 and count["pass"]+count["fail"]==1
+                        for count in results.values()))
+          failed=[c for c,x in results.items() if x["fail"]]
+          go_rc=int(os.environ["P7IR2_GO_STATUS"])
+          disposition=("P7IR2_NOT_ALL_26_COMPLETED" if not complete else
+                       "P7IR2_ORIGINAL_CASE_FAILURE_REPRODUCED" if (failed or go_rc or package_failed) else
+                       "P7IR2_ALL_26_PASS_ORIGINAL_FULL_SUITE_STILL_FAILED")
+          receipt={
+            "schema":"forge.kterminal.p7ir2.all-26-original.v1",
+            "forge_source_sha":os.environ["GITHUB_SHA"],
+            "kterminal_exact_source_sha":"ba11a398586df9fe5233624d9cf115aeec76d11a",
+            "original_observer_blob":"bee85ee3441b0f66399ab6c42f8b09635ba44c6b",
+            "scheduler":"GOMAXPROCS=1; p=1; parallel=1; count=1",
+            "requested_cases":26,
+            "observed_counts":results,
+            "failed_cases":failed,
+            "go_exit":go_rc,
+            "elapsed_seconds":int(os.environ["P7IR2_SECONDS"]),
+            "malformed_json_records":malformed,
+            "package_failed":package_failed,
+            "disposition":disposition,
+            "original_full_suite":"FAILED_NOT_WAIVED",
+            "product_or_test_source_modified":False,
+            "private_source_uploaded":False,
+            "private_logs_uploaded":False,
+            "workstation_or_research_runner_used":False,
+            "broker_orders":0,
+            "real_installed_app_or_latency_measured":False
+          }
+          folder=pathlib.Path(os.environ["RUNNER_TEMP"])/"p7ir2-sanitized"
+          folder.mkdir(exist_ok=False)
+          payload=json.dumps(receipt,sort_keys=True,separators=(",",":")).encode()
+          (folder/"receipt.json").write_bytes(payload)
+          (folder/"receipt.sha256").write_text(hashlib.sha256(payload).hexdigest(),encoding="ascii")
+          for case,c in results.items():
+              print(f"P7IR2_CASE={case};RUN={c['run']};PASS={c['pass']};FAIL={c['fail']}")
+          print("P7IR2_DISPOSITION="+disposition)
+          print("P7IR2_RECEIPT_SHA256="+hashlib.sha256(payload).hexdigest())
+          print("P7IR2_PRIVATE_LOGS_UPLOADED=FALSE")
+          if disposition!="P7IR2_ALL_26_PASS_ORIGINAL_FULL_SUITE_STILL_FAILED":
+              sys.exit(2)
+          PY
+      - name: Preserve only sanitized counts and receipt SHA-256
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-kterminal-p7ir2-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/p7ir2-sanitized/receipt.json
+            ${{ runner.temp }}/p7ir2-sanitized/receipt.sha256
+          retention-days: 30
+          if-no-files-found: warn
