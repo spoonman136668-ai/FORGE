@@ -1,0 +1,186 @@
+name: FORGE direct private Mind-Palace bounded context live read
+on:
+  push:
+    branches: [operate/fsa-cutover-mindpalace-research-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: forge-direct-mp-source-readonly
+  cancel-in-progress: true
+jobs:
+  original-forge-private-read:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Verify bounded private memory index and zero CKB-plane dependency
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MP_FORGE_OWNER_IDENTITY_INVALID'
+          }
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $results=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+          if($LASTEXITCODE -ne 0 -or $results.Count -ne 1){
+            throw 'MP_DIRECT_PRIVATE_SOURCE_NOT_ACCESSIBLE'
+          }
+          $pin=([string]$results[0] -split '\s+')[0]
+          if($pin -cnotmatch '^[0-9a-f]{40}$'){throw 'MP_GIT_COMMIT_IDENTITY_INVALID'}
+          $root=Join-Path $env:RUNNER_TEMP ('mp-direct-live-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'MP_TEMP_SOURCE_ALREADY_PRESENT'}
+          $paths=@('.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+                   '.ice/remote-index.ndjson')
+          try{
+            & git.exe clone --quiet --no-checkout --filter=blob:none --depth=1 --single-branch --branch main $remote $root
+            if($LASTEXITCODE -ne 0){throw 'MP_BLOBLESS_SOURCE_CLONE_FAILED'}
+            $partial=(& git.exe -C $root config --get remote.origin.partialclonefilter | Out-String).Trim()
+            if($partial -cne 'blob:none'){throw 'MP_SOURCE_BLOBLESS_FILTER_NOT_ACTIVE'}
+            $patterns=@($paths | ForEach-Object {'/'+$_})
+            & git.exe -C $root sparse-checkout set --no-cone @patterns
+            if($LASTEXITCODE -ne 0){throw 'MP_EXACT_SOURCE_SPARSE_SETUP_FAILED'}
+            & git.exe -C $root checkout --force $pin
+            if($LASTEXITCODE -ne 0){throw 'MP_SOURCE_CHECKOUT_FAILED'}
+            $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            if($actual -cne $pin){throw 'MP_HEAD_MOVED_DURING_SOURCE_CHECKOUT'}
+            foreach($p in $paths){
+              $absolute=Join-Path $root $p
+              if(!(Test-Path -LiteralPath $absolute -PathType Leaf)){
+                throw 'MP_REQUIRED_DATA_FILE_MISSING'
+              }
+              $rawSize=(Get-Item -LiteralPath $absolute).Length
+              if($rawSize -lt 1 -or $rawSize -gt 1048576){
+                throw 'MP_PRIVATE_SOURCE_OVER_TRANSFER_BUDGET'
+              }
+              $want=(& git.exe -C $root rev-parse ('HEAD:'+$p) | Out-String).Trim()
+              $got=(& git.exe -C $root hash-object -- $absolute | Out-String).Trim()
+              if($want -cne $got){throw 'MP_SOURCE_GIT_BLOB_IDENTITY_DRIFT'}
+            }
+            $bootstrap=Get-Content -LiteralPath (Join-Path $root $paths[0]) -Raw -Encoding UTF8 |
+              ConvertFrom-Json -ErrorAction Stop
+            $catalog=Get-Content -LiteralPath (Join-Path $root $paths[1]) -Raw -Encoding UTF8 |
+              ConvertFrom-Json -ErrorAction Stop
+            if($bootstrap.schema -cne 'mind-palace.remote-bootstrap.v1' -or
+               $catalog.schema -cne 'mind-palace.remote-catalog.v1' -or
+               $bootstrap.retrieval_transport -cne 'direct-repository-read' -or
+               $catalog.retrieval_transport -cne 'direct-repository-read' -or
+               $catalog.control_plane_required -or
+               $bootstrap.remote_catalog -cne $paths[1] -or
+               $bootstrap.remote_index -cne $paths[2] -or
+               $catalog.index -cne $paths[2] -or
+               $bootstrap.source.records_sha256 -cne $catalog.source.records_sha256){
+              throw 'MP_ORIGINAL_PRIVATE_CONTEXT_CONTRACT_INVALID'
+            }
+            $lines=[IO.File]::ReadAllLines((Join-Path $root $paths[2]),
+                   (New-Object Text.UTF8Encoding($false)))
+            if($lines.Count -ne [int]$catalog.active_record_count){
+              throw 'MP_ORIGINAL_PRIVATE_CONTEXT_INDEX_SIZE_DRIFT'
+            }
+            $projects=@('__global__','Wingless','Yggdrasil','Research')
+            $governance=0
+            $taskRelevant=0
+            $all=@{}
+            foreach($key in $projects){$all[$key]=[Collections.ArrayList]::new()}
+            foreach($project in $projects){
+              $range=$catalog.projects.$project
+              if($null -eq $range){throw 'MP_REQUIRED_RESEARCH_CONTEXT_RANGE_MISSING'}
+              $from=[int]$range.start_line
+              $to=[int]$range.end_line
+              if($from -lt 1 -or $to -lt $from -or $to -gt $lines.Count -or
+                 [int]$range.count -ne $to-$from+1){
+                throw 'MP_CONTEXT_RANGE_UNQUALIFIED'
+              }
+              for($i=$from-1;$i -lt $to;$i++){
+                $entry=$lines[$i]|ConvertFrom-Json -ErrorAction Stop
+                $actualProject=if($null -eq $entry.project){'__global__'}else{[string]$entry.project}
+                if($actualProject -cne $project -or
+                   @('current','confirmed','observed') -cnotcontains [string]$entry.status -or
+                   @($entry.source_refs).Count -lt 1){
+                  throw 'MP_RECORD_PROVENANCE_OR_CUSTODY_DRIFT'
+                }
+                # Retain only the fields emitted by mindcontext.Entry.
+                # Extra private source metadata is not needed for retrieval.
+                $bounded=[ordered]@{
+                  id=[string]$entry.id
+                  project=$actualProject
+                  kind=[string]$entry.kind
+                  statement=[string]$entry.statement
+                  source_refs=@($entry.source_refs)
+                }
+                if($bounded.statement.Length -gt 1600 -or
+                   $bounded.id.Length -gt 180){
+                  throw 'MP_ENTRY_PRIVACY_OR_LENGTH_BOUNDS'
+                }
+                $null=$all[$project].Add([pscustomobject]$bounded)
+                if($project -ceq '__global__'){$governance++}else{$taskRelevant++}
+              }
+            }
+            if($governance -lt 1 -or $governance -gt 12 -or $taskRelevant -lt 1){
+              throw 'MP_SELECTED_CONTEXT_COUNT_NOT_BOUNDED'
+            }
+            # Apply the same output limit as FORGE's existing Go mindcontext
+            # reader: all governance first, then round-robin selected projects.
+            $chosen=[Collections.ArrayList]::new()
+            foreach($entry in $all['__global__']){$null=$chosen.Add($entry)}
+            $cursors=@{Wingless=0;Yggdrasil=0;Research=0}
+            for($n=0;$n -lt 24-$governance;$n++){
+              $added=$false
+              foreach($project in @('Wingless','Yggdrasil','Research')){
+                if($chosen.Count -ge 24){break}
+                if($cursors[$project] -lt $all[$project].Count){
+                  $null=$chosen.Add($all[$project][$cursors[$project]])
+                  $cursors[$project]++
+                  $added=$true
+                }
+              }
+              if(-not $added -or $chosen.Count -ge 24){break}
+            }
+            $utf8=New-Object Text.UTF8Encoding($false)
+            $selection=ConvertTo-Json -InputObject @($chosen.ToArray()) -Compress -Depth 32
+            $bytes=$utf8.GetBytes($selection)
+            # Lower the *number* of optional contextual records until the
+            # strict output-byte budget is satisfied; never discard required
+            # governance just to make a failing response look successful.
+            while($bytes.Length -gt 16384 -and $chosen.Count -gt $governance){
+              $chosen.RemoveAt($chosen.Count-1)
+              $selection=ConvertTo-Json -InputObject @($chosen.ToArray()) -Compress -Depth 32
+              $bytes=$utf8.GetBytes($selection)
+            }
+            if($chosen.Count -lt $governance -or $chosen.Count -gt 24 -or
+               $bytes.Length -gt 16384){
+              throw 'MP_CONTEXT_OUTPUT_BUDGET_OR_PRIORITY_INVALID'
+            }
+            $sha=[Security.Cryptography.SHA256]::Create()
+            try{
+              $selectedSha=([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','').ToLowerInvariant()
+            }finally{$sha.Dispose()}
+            $after=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            if($LASTEXITCODE -ne 0 -or $after.Count -ne 1 -or
+               (([string]$after[0] -split '\s+')[0]) -cne $pin){
+              throw 'MP_PRIVATE_MAIN_MOVED_DURING_READ'
+            }
+            Write-Output 'MP_FORGE_DIRECT_PRIVATE_CONTEXT=PASS'
+            Write-Output ('MP_FORGE_CONTEXT_SOURCE_SHA='+$pin)
+            Write-Output ('MP_FORGE_ORIGINAL_GOVERNANCE_RECORDS='+$governance)
+            Write-Output ('MP_FORGE_TASK_CONTEXT_RECORDS='+$taskRelevant)
+            Write-Output ('MP_FORGE_SELECTED_RECORD_LIMIT=24')
+            Write-Output ('MP_FORGE_ACTUALLY_SELECTED_RECORDS='+$chosen.Count)
+            Write-Output ('MP_FORGE_SELECTED_CONTEXT_BYTES='+$bytes.Length)
+            Write-Output ('MP_FORGE_SELECTED_CONTEXT_SHA256='+$selectedSha)
+            Write-Output ('MP_FORGE_CONTEXT_RECORDS_SHA256='+[string]$catalog.source.records_sha256)
+            Write-Output 'MP_FORGE_NO_PRIVATE_STATEMENTS_IN_LOG=TRUE'
+            Write-Output 'MP_FORGE_NO_CKB_CONNECTION=TRUE'
+            Write-Output 'MP_FORGE_READ_ONLY_NO_INGESTION_OR_SCIENCE=TRUE'
+          }finally{
+            if(Test-Path -LiteralPath $root){
+              Remove-Item -LiteralPath $root -Force -Recurse -ErrorAction Stop
+            }
+            if(Test-Path -LiteralPath $root){
+              throw 'MP_PRIVATE_SCRATCH_CLEANUP_FAILED'
+            }
+          }

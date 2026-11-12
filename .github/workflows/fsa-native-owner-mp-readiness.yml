@@ -1,0 +1,86 @@
+name: FORGE FSA handover and Mind-Palace direct-read live inventory
+on:
+  push:
+    branches: [operate/fsa-cutover-mindpalace-research-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: forge-native-fsa-handover-readonly
+  cancel-in-progress: false
+jobs:
+  original-forge-owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - name: Inspect FORGE-only native authority and existing private MP read route
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'FSA_HANDOVER_FOREIGN_OWNER_RUNNER'
+          }
+          $protected=(& gh api repos/spoonman136668-ai/FORGE/branches/main |
+              ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or -not $protected.protected){
+            throw 'FSA_HANDOVER_UNQUALIFIED_PROTECTED_FORGE_SOURCE'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $owner=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($owner -cne $identity.User.Value -or @($task.Actions).Count -ne 1){
+            throw 'FSA_HANDOVER_OWNER_SID_MISMATCH'
+          }
+          $argsText=[string]$task.Actions[0].Arguments
+          $m=[regex]::Match($argsText,'(?i)(?:^|\s)-RepositoryRoot\s+"([^"]+)"')
+          if(-not $m.Success){throw 'FSA_HANDOVER_ORIGINAL_TASK_SOURCE_UNKNOWN'}
+          $root=[IO.Path]::GetFullPath($m.Groups[1].Value)
+          $sha=(& git -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne [string]$protected.commit.sha){
+            throw 'FSA_HANDOVER_ORIGINAL_SOURCE_NOT_CURRENT'
+          }
+          Write-Output ('FSA_HANDOVER_PROTECTED_SOURCE_SHA='+$sha)
+          Write-Output ('FSA_HANDOVER_NATIVE_DEVELOPMENT_TASK='+$task.State)
+          $fsaProcesses=@(Get-CimInstance Win32_Process -ErrorAction Stop |
+            Where-Object {
+              $_.Name -match '(?i)^forge-fsa-(authority|witness)([.]exe)?$'
+            })
+          $services=@(Get-Service -ErrorAction Stop | Where-Object {
+            $_.Name -match '(?i)forge.*(fsa|witness)'
+          })
+          $tasks=@(Get-ScheduledTask -ErrorAction Stop | Where-Object {
+            $_.TaskName -match '(?i)forge.*(fsa|witness)'
+          })
+          Write-Output ('FSA_HANDOVER_VISIBLE_NATIVE_FSA_PROCESSES='+$fsaProcesses.Count)
+          Write-Output ('FSA_HANDOVER_VISIBLE_NATIVE_FSA_SERVICES='+$services.Count)
+          Write-Output ('FSA_HANDOVER_VISIBLE_NATIVE_FSA_TASKS='+$tasks.Count)
+          # This is *only* local FSA inventory: no external witness mTLS,
+          # trusted epoch, signer, global first-use or independent archive
+          # proof is assumed from a process count or a GitHub issue.
+          Write-Output 'FSA_HANDOVER_INDEPENDENT_WITNESS_PROVEN=FALSE'
+          Write-Output 'FSA_HANDOVER_AUTHORITY_TRANSFER_ALLOWED=FALSE'
+          $privateRepo='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $heads=@(& git.exe ls-remote --exit-code $privateRepo refs/heads/main 2>$null)
+          if($LASTEXITCODE -ne 0 -or $heads.Count -ne 1){
+            Write-Output 'MP_DIRECT_PRIVATE_READ=NOT_VERIFIED'
+          }else{
+            $ref=([string]$heads[0] -split '\s+')[0]
+            if($ref -cnotmatch '^[a-f0-9]{40}$'){
+              throw 'MP_DIRECT_READ_REF_INVALID'
+            }
+            Write-Output 'MP_DIRECT_PRIVATE_READ=REF_AUTHENTICATED'
+            Write-Output ('MP_DIRECT_PRIVATE_MAIN_SHA='+$ref)
+          }
+          Write-Output 'MP_AUTHORITY=RETRIEVAL_AND_CANDIDATE_CLASSIFICATION_ONLY'
+          Write-Output 'FSA_HANDOVER_OLD_CKB_CONTROLLER_UNTOUCHED=TRUE'
+          Write-Output 'FSA_HANDOVER_SCIENTIFIC_FIRST_USE=FALSE'
+          Write-Output 'FSA_HANDOVER_NO_ISSUE_OR_WORKER_DISPATCH=TRUE'
