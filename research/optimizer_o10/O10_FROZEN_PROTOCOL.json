@@ -1,0 +1,80 @@
+{
+  "schema": "forge.optimizer.o10.learned-composable-phase-public-dev.v1",
+  "stage": "PROSPECTIVELY_FROZEN_BEFORE_SOURCE_MODEL_OR_DEV_GENERATION",
+  "ancestor": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "prior_evidence": {
+    "O9_PR_791": "Learned episodic retrieval beats frozen routing for public cue recall but fails action parity and null robustness; no protected science",
+    "O8_PR_782": "Gated recurrent struggled delayed recall; explicit public history strongest",
+    "O7_PR_780": "Supervised tree better than randomized but not strongest conventional",
+    "O6_PR_777": "Prediction-error gate negative",
+    "Q20": "DEV_NO_GO",
+    "Q21_Q21N01": "FROZEN_UNTOUCHED"
+  },
+  "question": "Can a compact differentiably learned compositional phase state represent action history across delayed queries and combine it with public cue retrieval, while remaining calibrated on iid null, with honest storage and comparator cost?",
+  "scientific_status": "PUBLIC_DEVELOPMENT_ONLY_NO_INDEPENDENT_HELD_TRANSFER",
+  "namespace": "o10-20261023-public-compose-v1",
+  "roles": [
+    "O10_TRAIN",
+    "O10_SELECT",
+    "O10_DEV"
+  ],
+  "count_per_role": {
+    "O10_TRAIN": 96,
+    "O10_SELECT": 24,
+    "O10_DEV": 32
+  },
+  "episode_steps": 24,
+  "query_timesteps": [
+    10,
+    18
+  ],
+  "source_seed": "Random(int.from_bytes(SHA256(UTF8(namespace:role:family:index))[:8],'big'))",
+  "families": {
+    "A_CUE0_ACTION_COMPOSE": "initial publicly observed bit cue0 and a second independent publicly observed distractor cue4; next bit at query equals cue0 XOR parity of all public prequery a_t==1, flipped with Bernoulli(0.05)",
+    "B_CUE4_ACTION_COMPOSE": "initial publicly observed bit cue0, cue4 inserted into next observation at step3 (public o4); query target equals cue4 XOR public prequery action parity, flipped with Bernoulli(0.05)",
+    "C_SELECTED_CUE_ACTION_COMPOSE": "public cue0 and cue4, selector given by public action at t=q-1 (also participates in parity), query target equals selected cue (cue0 if selector0 else cue4) XOR all prequery action parity, flipped with Bernoulli(0.05)",
+    "NULL_IID_QUERY": "same public query and action/cue timing; query target independently fair Bernoulli; no signal in source history"
+  },
+  "public_contract": "Learner sees only publicly emitted (o_t,a_t) where action 2 marks query and all prior observable bits/actions; at query predicts o_(t+1). Training can use query target after prediction. No hidden source family, source law, role or target before prediction. Family-specific algorithms, if any, are separately disclosed as engineered ability witnesses.",
+  "arms": {
+    "TRAINED_PHASE_MEMORY": "Learned action-specific compositional phase increments phi0,phi1; phase=sum_(t<q)phi_(a_t), representing two scalar public action counts. Retrieve cue0/cue4 via trainable selector-conditional sigmoid weight over their public values; query logit=b+w*(2cue_mix-1)*cos(phase). 8 trainable params (phi0,phi1,4 cue-selector weights, output bias,output gain), Adam 40 epochs online SGD lr=0.03, gradient-norm clipped at 2, starts 17/31, select by SELECT NLL only. Public cue0/o4 and action-count representation are engineering inductive biases, NOT discovered latent representations.",
+    "FROZEN_PHASE_TRAINED_HEAD": "Identical public counts, cue selection and output head fit 40 epochs; phi0 and phi1 held fixed from initialization. 6 trainable params; same starts and selection.",
+    "LINEAR_COUNT_MEMORY": "Fitted logistic on public cue0, cue4, selector, n1/18, n0/18 and selected interaction, 40 epochs, lr=0.03 Adam, 8 trainable params; no periodic phase composition.",
+    "ERASE_PHASE_ABLATION": "Use exact selected TRAINED_PHASE_MEMORY checkpoint, replace accumulated action phase by zero only at query; no further training.",
+    "O9_LEARNED_WRITE_READ_FROZEN_CODE": "Byte identical original O9 routing.py from PR791 commit 298f7924f8036fcd245eb454dfae3f5447fbf7e9, code source Git blob pinned in workflow; fit fresh O10 TRAIN (40 epochs, two starts 17/31 SELECT)",
+    "PUBLIC_ENGINEERED_EPISODIC": "Laplace+1 fitted conventional counts on public (cue0,cue4,selector,observed_parity), episode-specific family-blind uniform tuple (16 states); all receive same observed public histories, extractor is hand-engineered, cost and capacity fully disclose.",
+    "CURRENT_ONLY_COUNTS": "Laplace+1 fitted public (o_q, query_t) count baseline, no retained cue/parity.",
+    "UNIFORM_05_DIAGNOSTIC": "Fixed p=0.5 at query, no fitting."
+  },
+  "frozen_training": {
+    "random_starts": [
+      17,
+      31
+    ],
+    "train_epochs": 40,
+    "adam_lr": 0.03,
+    "adam_beta1": 0.9,
+    "adam_beta2": 0.999,
+    "adam_eps": 1e-8,
+    "gradient_clip": 2,
+    "initializer": "Python random.Random(seed) uniform(-0.5,0.5) for phi0,phi1,selector weights,b,gain; no initialized parity sign",
+    "select": "min O10_SELECT query NLL only; min seed ties",
+    "source_noise": 0.05
+  },
+  "frozen_results": {
+    "primary": "All 4 family × 8 arm query-only DEV NLL; full signed differences, no hidden retuning",
+    "ablation": "ERASE_PHASE_ABLATION - TRAINED_PHASE_MEMORY; positive shows public action history accumulated in the trained periodic model, not independent general learning",
+    "controls": "FROZEN_PHASE_TRAINED_HEAD; LINEAR_COUNT_MEMORY; previously O9 learned routing retrained; conventional explicit parity; current counts; iid null",
+    "cost": "Per-arm model full serialized parameter and optimizer checkpoint, actual public event state count and stored history bytes incl cue & counts, fit+SELECT and DEV CPU and process peak RSS",
+    "cross_os": "All 12 family×role source SHA256 hashes and all 32 family×arm DEV NLL values must match native Windows/Linux <=1e-6",
+    "decision": "No GO unless at least causal A,B,C competitive against strongest properly trained model, meaningful matched compute/memory costs and null robustness. PUBLIC DEV never becomes protected first use regardless of performance."
+  },
+  "guardrails": [
+    "Freeze all protocol before public role generation or learner code",
+    "Do not reuse O9 DEV or protected Q21/Q21N01 originals",
+    "No controller, native Wingless/Yggdrasil, CKB/KTRADE, FORGE science queue or paid API changes",
+    "Do not post-DEV tune fixed family, capacities, hyperparams, controls or evaluate same DEV as novel cohort",
+    "Draft-only PR and full native Linux Windows plus mandatory FORGE-wide regression",
+    "Use source-only strong ability witnesses and record known engineered parities, no synthetic task called genuine unfamiliar transfer"
+  ]
+}
