@@ -1,0 +1,138 @@
+name: FORGE K-Terminal P7-I/Z nested launcher
+on:
+  push:
+    branches: [qualification/kterminal-p7iz-nested-launcher-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: p7iz-nested-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  nested-launcher-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify FORGE-only runner, one workflow delta, no live trading
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kterminal-p7iz-nested-launcher-20261019
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 30a29c80326cc7e39470c90e63af72dc1b9811b5 HEAD
+          test "$(git diff --name-only 30a29c80326cc7e39470c90e63af72dc1b9811b5 HEAD)" = .github/workflows/forge-kterminal-p7iz-nested-launcher.yml
+          test -z "$(git status --porcelain)"
+          echo P7IZ_FORGE_HOSTED_SOURCE_SCOPE=PASS
+      - name: Read-only checkout of frozen corrected private launcher
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 767afaa1ffbfc93bcc78215cb85ac24332e7c89b
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Build managed launcher, qualify owned child in existing Windows job
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows' -or $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER'){throw 'P7IZ_CONTEXT_INVALID'}
+          if((git rev-parse HEAD).Trim() -cne '767afaa1ffbfc93bcc78215cb85ac24332e7c89b'){throw 'P7IZ_SOURCE_COMMIT_DRIFT'}
+          if((git rev-parse 'HEAD:cmd/launcher/desktop-session.cs').Trim() -cne '5ca4dfe0c695c4f7b83dbe19f95e4dfc23679efd'){throw 'P7IZ_SOURCE_BLOB_DRIFT'}
+          if(@(git status --porcelain).Count -ne 0){throw 'P7IZ_SOURCE_DIRTY'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'P7IZ_BROKER_CREDENTIAL_PRESENT'}
+          }
+          $probe=@'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class P7IZJobProbe {
+              [DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
+              [DllImport("kernel32.dll",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)]
+              public static extern bool IsProcessInJob(IntPtr p, IntPtr j, [MarshalAs(UnmanagedType.Bool)] out bool b);
+              public static bool InJob() { bool m; if(!IsProcessInJob(GetCurrentProcess(),IntPtr.Zero,out m))throw new InvalidOperationException("IS_PROCESS_IN_JOB_FAILED"); return m; }
+          }
+          '@
+          Add-Type -TypeDefinition $probe
+          $inJob=[P7IZJobProbe]::InJob()
+          if(-not $inJob){throw 'P7IZ_RUNNER_NO_PARENT_JOB_CANNOT_QUALIFY_NESTING'}
+          $csc=Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+          if(-not(Test-Path $csc)){throw 'P7IZ_CSC_MISSING'}
+          $temp=Join-Path $env:RUNNER_TEMP 'p7iz-disarmed-launch'
+          if(Test-Path $temp){throw 'P7IZ_FIXTURE_REUSE'}
+          [void][IO.Directory]::CreateDirectory($temp)
+          $candidate=Join-Path $temp 'K-Terminal.exe'
+          & $csc /nologo /target:winexe /platform:x64 /optimize+ /r:System.Windows.Forms.dll ('/out:'+ $candidate) 'cmd/launcher/desktop-session.cs' *> $null
+          if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $candidate)){throw 'P7IZ_MANAGED_COMPILE_FAILED'}
+          $script=Join-Path $temp 'launch-kterminal.ps1'
+          $stub=@'
+          Set-Content -LiteralPath (Join-Path $PSScriptRoot 'started.marker') -Value 'P7IZ_DISARMED_STUB' -Encoding ASCII
+          exit 0
+          '@
+          [IO.File]::WriteAllText($script,$stub,[Text.UTF8Encoding]::new($false))
+          $process=Start-Process -FilePath $candidate -WorkingDirectory $temp -PassThru
+          if(-not $process.WaitForExit(25000)){
+             try{$process.Kill()}catch{}
+             throw 'P7IZ_LAUNCHER_STALLED'
+          }
+          if($process.ExitCode -ne 0){throw ('P7IZ_LAUNCHER_EXIT_'+$process.ExitCode)}
+          $marker=Join-Path $temp 'started.marker'
+          if(-not(Test-Path $marker)){throw 'P7IZ_OWNED_CHILD_DID_NOT_START'}
+          if((Get-Content -LiteralPath $marker -Raw).Trim() -cne 'P7IZ_DISARMED_STUB'){throw 'P7IZ_SENTINEL_DRIFT'}
+          $log=Join-Path $temp 'data/logs/launcher.log'
+          if(-not(Test-Path -LiteralPath $log)){throw 'P7IZ_LIFECYCLE_LOG_MISSING'}
+          $lines=@(Get-Content -LiteralPath $log)
+          if(@($lines|Where-Object{$_ -match 'STARTED' -and $_ -match 'nested job-owned desktop session'}).Count -ne 1 -or
+             @($lines|Where-Object{$_ -match 'ENDED' -and $_ -match 'exit=0'}).Count -ne 1){throw 'P7IZ_NESTED_CHILD_LIFECYCLE_BAD'}
+          $binarySHA=(Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+          $result=[ordered]@{
+              schema='forge.kterminal.p7iz.nested-job-smoke.v1'
+              private_source_commit='767afaa1ffbfc93bcc78215cb85ac24332e7c89b'
+              managed_launcher_blob='5ca4dfe0c695c4f7b83dbe19f95e4dfc23679efd'
+              hosted_windows_runner_in_job=$inJob
+              candidate_sha256=$binarySHA
+              disarmed_child_marker_verified=$true
+              nested_owned_start_and_exit_verified=$true
+              local_or_research_runner_used=$false
+              private_source_or_binary_uploaded=$false
+              field_data_accessed=$false
+              broker_orders=0
+              original_full_regression='FAILED_NOT_WAIVED'
+              installed_user_desktop='NOT_QUALIFIED'
+              disposition='P7IZ_NESTED_OWNED_LAUNCHER_PASS'
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'p7iz-sanitized'
+          [void][IO.Directory]::CreateDirectory($out)
+          $body=Join-Path $out 'receipt.json'
+          [IO.File]::WriteAllText($body,($result|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+          $seal=(Get-FileHash $body -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $out 'receipt.sha256'),$seal,[Text.UTF8Encoding]::new($false))
+          Write-Host 'P7IZ_MANAGED_COMPILER=PASS'
+          Write-Host 'P7IZ_NESTED_WINDOWS_JOB=PASS'
+          Write-Host 'P7IZ_DISARMED_CHILD_LIFECYCLE=PASS'
+          Write-Host ('P7IZ_COMPILED_BINARY_SHA256='+$binarySHA)
+          Write-Host ('P7IZ_RECEIPT_SHA256='+$seal)
+          Write-Host 'P7IZ_PRIVATE_EXE_UPLOAD=FALSE'
+      - name: Retain synthetic qualification receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-kterminal-p7iz-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/p7iz-sanitized/receipt.json
+            ${{ runner.temp }}/p7iz-sanitized/receipt.sha256
+          retention-days: 30
+          if-no-files-found: warn
