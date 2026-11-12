@@ -1,0 +1,92 @@
+{
+  "schema": "forge.optimizer.o10.learned-causal-memory-operators.public-dev.v1",
+  "stage": "FROZEN_BEFORE_ANY_O10_SOURCE_OR_MODEL_IMPLEMENTATION",
+  "base_forge_main": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "original_o9": {
+    "draft_pr": 783,
+    "head": "309f32eb7cf71a4f3598bc9727a29b181b745adf",
+    "conclusion": "SOURCE_ONLY_TWO_SLOT_RETAINS_ECHO_SLIGHTLY_BUT_NOT_PARITY_WORSE_THAN_EXPLICIT_HISTORY"
+  },
+  "preserve": [
+    "Q20 negative",
+    "Q21 and Q21N01 first-use sealed",
+    "O2 O3 O5 O6 negatives",
+    "O4 HMM mixed",
+    "O7 supervised partitions mixed",
+    "O8 delayed memory no-go",
+    "O9 explicit memory advantage; GRU/slot negatives"
+  ],
+  "research_question": "Does a learned, observation-and-action-conditioned two-state transition operator form reusable causal memory across long action compositions, versus an equally trained action-ablated operator, GRU, public fitted history models and a labeled hand-engineered public-information witness?",
+  "public_roles": [
+    "O10_PUBLIC_TRAIN",
+    "O10_PUBLIC_SELECT",
+    "O10_PUBLIC_DEV"
+  ],
+  "source_seed_prefix": "o10-public-ops-v1",
+  "source_seed_sha256": "SHA256 of UTF8 source_seed_prefix:role:family:index, take first 8 big-endian bytes -> Python Random",
+  "episodes_by_role": {
+    "O10_PUBLIC_TRAIN": 96,
+    "O10_PUBLIC_SELECT": 24,
+    "O10_PUBLIC_DEV": 32
+  },
+  "episode_length": 30,
+  "query_indices": [
+    12,
+    24
+  ],
+  "families": {
+    "A_PARITY_COMPOSITION": "At time0 public observation is random cue. All pre-query actions uniformly 0/1 and observations iid public distractors. Query action=2; next public target = initial cue XOR parity of observed prior action1 with independent .05 flip.",
+    "B_OBSERVATION_WRITE_TOGGLE": "At time0 public observation random cue and memory starts equal cue. At each pre-query timestep action0 writes current PUBLIC observation to memory, action1 toggles current memory. Query action2: target memory with independent .05 flip. All nonquery next public observations iid fair distractors.",
+    "NULL_IID": "Same public cue, actions, query positions, observation schedule; query next bit independent uniform Bernoulli."
+  },
+  "public_input": "At t learner observes o_t∈{0,1}, a_t∈{0,1,2}, first-event flag. Must predict query response before observing it. No family identity, hidden memory, future bit or target as model input. Only query result supervises training.",
+  "arms": {
+    "LEARNED_MARKOV_OPERATOR": "Two-state differentiable belief, initial sigmoid(b+w*cue), four independently learnable public (action,observation) conditional transition matrices with 2 Bernoulli logits each, sigmoid query decoder. Exactly 12 trainable parameters, query-only analytic BPTT, Adam 24 epochs, seed17/31, choose only by PUBLIC_SELECT.",
+    "ACTION_TIED_OPERATOR": "Same belief and decoder but contexts tied over actions; two observation-conditional transition matrices with 2 Bernoulli logits each, 8 trainable parameters, identical training budgets and inputs. Critical action-dependence ablation.",
+    "ERASED_MARKOV_OPERATOR": "Same selected fitted LEARNED_MARKOV_OPERATOR, belief reset to 0.5 directly before query prediction, no retraining. Diagnostic state-erasure.",
+    "O9_GRU_2": "Exact copied prior O9 trainable memory source; 2-cell GRU, 57 parameters, 12 epochs Adam 0.01, seed17/31 select only fresh O10_PUBLIC_SELECT.",
+    "FITTED_PUBLIC_HISTORY_COUNTS": "Laplace+1 counts over cue, parity of PUBLIC action1, current public observation, most-recent nonquery action; 16 contexts; fitted same PUBLIC_TRAIN.",
+    "PUBLIC_HISTORY_LOGISTIC": "Logistic fitted PUBLIC_TRAIN only: cue, parity of public action1, last public observation, last action, cue*parity, query delay bucket plus bias. Full batch gradient 50 epochs lr0.3, L2=0.001.",
+    "CURRENT_QUERY_COUNTS": "Laplace+1 fitted counts over public current observation and query delay bucket; 4 contexts.",
+    "ENGINEERED_PUBLIC_PROGRAM_WITNESS": "Public program follows source-family mathematical rule using only public action/observation history, fits Laplace+1 Bernoulli count on its computed memory state, and is explicitly labeled privileged *mechanism-engineered information sufficiency diagnostic*, never equal-architecture conventional comparison.",
+    "UNIFORM_05_DIAGNOSTIC": "Constant probability 0.5 no training."
+  },
+  "train": {
+    "seeds": [
+      17,
+      31
+    ],
+    "operator_epochs": 24,
+    "operator_adam_rate": 0.015,
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "epsilon": 1e-8,
+    "gradient_clip": 2,
+    "gru_epochs": 12,
+    "gru_adam_rate": 0.01,
+    "selection": "minimum PUBLIC_SELECT query NLL within each arm, no family cross selection on PUBLIC_DEV; no post-DEV tuning",
+    "model_parameters": "learned 12; action-tied 8; independent O9 GRU 57; other sizes emitted"
+  },
+  "initialization": "Each operator Bernoulli transition logit uniformly in [-1.8,1.8], initial and decoder weights uniform [-0.6,0.6]; no rule-seeded initial parameters.",
+  "metrics": [
+    "query-only NLL per family/arm",
+    "signed gain vs strongest FULLY TRAINED non-oracle arm",
+    "signed gain vs action-tied ablation and state-erasure",
+    "finite-difference analytic gradient check on PUBLIC_TRAIN episode only",
+    "full per-arm trained checkpoint hash, parameters and serialized bytes",
+    "per-arm training+selection CPU and DEV inference CPU",
+    "role/family SHA256",
+    "overall CPU and process memory RSS/tracemalloc",
+    "exact Linux/Windows cross-OS source and score reconciliation"
+  ],
+  "negative_stopping": "If action-conditioned operator does not beat trained GRU and conventional public-history models on BOTH composition families or ablation does not support learned state, retain no-go. Do not optimize O10 after inspecting DEV.",
+  "controls": "All arms see same public history. Program witness is deliberately hand-engineered and may use known source-family transition semantics; NOT an equally learned competitor. Trained public-history controls have hand-engineered features; disclose differences. No proven nontransformer cognition from toy families.",
+  "cross_os": "9 family/role SHA256 source hashes exactly match and 3x9 arm query NLL values match <=1e-6.",
+  "guardrails": [
+    "No protected Q20/Q21/Q21N01 roles, HELD originals, FSA admission or CKB-plane dispatch.",
+    "No mutations of O2-O9 research artifacts or previous DEV outcomes.",
+    "No controller, new scheduler, KTRADE, broker, Cloudflare write or paid API.",
+    "GitHub-hosted source-only runners, draft unmerged until full regression.",
+    "No claim of unfamiliar independent-source transfer."
+  ]
+}
