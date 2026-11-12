@@ -2,12 +2,16 @@ package fsaservice
 
 import (
  "bytes"
+ "context"
  "crypto/tls"
  "encoding/json"
+ "errors"
  "io"
  "net/http"
  "strings"
  "testing"
+
+ "github.com/spoonman136668-ai/forge/fsaremote"
 )
 
 func testSignedWriterClient(t *testing.T,f *gateFixture,cert tls.Certificate)*http.Client{
@@ -115,4 +119,51 @@ func TestSignedCheckpointHTTPRejectsMalformedForgedAndUnwitnessedWrites(t *testi
    t.Fatal("uncertain CAS replayed",status,err)
   }
  })
+}
+
+func TestSignedCheckpointWriterRealMTLSHandlerIntegration(t *testing.T){
+ // Both sides are the production transport/handler implementations on
+ // disposable local TLS services. Keys and the checkpoint archive are
+ // fixtures; this does not prove independently deployed FSA authority.
+ for _,tc:=range []struct{
+  name string
+  witnessOnCommit bool
+ }{{"witnessed",true},{"unwitnessed",false}}{
+  t.Run(tc.name,func(t *testing.T){
+   f:=newGateFixture(t,tc.witnessOnCommit)
+   writerCert,writerSPKI:=certFor(t,f.ca,f.caPrivate,true)
+   serverCert,serverSPKI:=certFor(t,f.ca,f.caPrivate,false)
+   handler,err:=SignedCheckpointHandler(f.pin,f.readerSPKI,writerSPKI,f.gate)
+   if err!=nil{t.Fatal(err)}
+   service:=testService(t,handler,serverCert,f.roots)
+   writer,err:=fsaremote.NewSignedCheckpointWriter(
+    fsaremote.Peer{BaseURL:service.URL,Roots:f.roots,
+     Certificate:writerCert,ServerSPKISHA256:serverSPKI},
+    f.pin,f.readerSPKI,writerSPKI)
+   if err!=nil{t.Fatal(err)}
+   receipt,err:=writer.Submit(context.Background(),f.anchor,f.signed)
+   if tc.witnessOnCommit{
+    if err!=nil||receipt.Schema!=SignedCheckpointSchema||
+     receipt.WitnessedSequence!=f.signed.Payload.Sequence||
+     receipt.WitnessedHeadSHA256!=f.signed.Payload.HeadSHA256||
+     receipt.ExecutionAuthorized||f.gate.Indeterminate(){
+     t.Fatalf("real mTLS signed checkpoint not witnessed: %+v %v",receipt,err)
+    }
+   }else{
+    if !errors.Is(err,fsaremote.ErrSignedWriterIndeterminate)||
+     receipt!=(fsaremote.SignedCheckpointReceipt{})||
+     !f.gate.Indeterminate(){
+     t.Fatalf("unwitnessed checkpoint wrongly acknowledged: %+v %v",receipt,err)
+    }
+   }
+   if f.checkpoint.commits!=1{
+    t.Fatalf("expected exactly one synthetic durable CAS, got %d",f.checkpoint.commits)
+   }
+   if _,err:=writer.Submit(context.Background(),f.anchor,f.signed);
+    !errors.Is(err,fsaremote.ErrSignedWriterAlreadyAttempted)||
+    f.checkpoint.commits!=1{
+    t.Fatalf("mTLS writer repeated a possible checkpoint commit: %v",err)
+   }
+  })
+ }
 }
