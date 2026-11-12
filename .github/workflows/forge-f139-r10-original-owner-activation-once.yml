@@ -1,0 +1,150 @@
+name: FORGE F139 R10 original-owner activation once
+on:
+  push:
+    branches: [proposal/f139-r10-original-owner-activate-20261022]
+permissions: {}
+concurrency:
+  group: forge-f139-original-owner-mutations
+  cancel-in-progress: false
+jobs:
+  r10-original-owner:
+    # Existing owner-SID/administrator path was witnessed in run 39749636497.
+    # This job does not checkout or execute code from this proposal branch.
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Admit development-only event 58 from original protected source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $source = '536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $head57 = '1884ef003b9612bb8e124a5424b9f46277e5e018148c34ae44948aca4d127882'
+          $taskName = 'FORGE-F139-UnifiedController'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/proposal/f139-r10-original-owner-activate-20261022' -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'R10_RUNNER_ROUTE_OR_ACTOR_UNQUALIFIED'
+          }
+          if ($env:OPENAI_API_KEY) { throw 'R10_PAID_API_UNEXPECTED' }
+          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if ([string]$task.State -ne 'Disabled' -or @($task.Actions).Count -ne 1) {
+            throw 'R10_OWNER_TASK_NOT_DISABLED_OR_UNIQUE'
+          }
+          $who = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = [string]$task.Principal.UserId
+          $taskSid = if ($principal -match '^S-1-') {
+            $principal
+          } else {
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($taskSid -ne $who.User.Value) { throw 'R10_OWNER_SID_MISMATCH' }
+          $elevated = (New-Object Security.Principal.WindowsPrincipal($who)).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+          if (-not $elevated) { throw 'R10_RUNNER_NOT_ELEVATED' }
+          $a = $task.Actions[0]
+          if ([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe') {
+            throw 'R10_TASK_HOST_IDENTITY_DRIFT'
+          }
+          $opts = @{}
+          foreach ($name in @('File','PythonExe','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $match = [regex]::Match([string]$a.Arguments,
+              '(?i)(?:^|\s)-' + $name + '\s+"([^"]+)"')
+            if (-not $match.Success) {
+              throw ('R10_TASK_ARGUMENT_MISSING_' + $name)
+            }
+            $opts[$name] = $match.Groups[1].Value
+          }
+          $root = $opts['RepositoryRoot']
+          $python = $opts['PythonExe']
+          $db = $opts['Database']
+          $expectedDb = Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $expectedKey = Join-Path $env:LOCALAPPDATA 'FORGE-F139\worker-hmac.dpapi.xml'
+          if ([IO.Path]::GetFileName($opts['File']) -cne 'Run-FORGE-F139.ps1' -or
+              [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+              [IO.Path]::GetFullPath($opts['EncryptedKeyFile']) -ine
+                [IO.Path]::GetFullPath($expectedKey) -or
+              -not (Test-Path -LiteralPath $python -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $expectedKey -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $db -PathType Leaf)) {
+            throw 'R10_ORIGINAL_OWNER_PROFILE_OR_TASK_ROUTE_DRIFT'
+          }
+          $active = @(Get-CimInstance Win32_Process -ErrorAction Stop |
+            Where-Object {
+              $_.Name -in @('python.exe','pythonw.exe') -and $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db)
+            })
+          if ($active.Count -ne 0) { throw 'R10_OTHER_CONTROLLER_PROCESS_ACTIVE' }
+          Push-Location -LiteralPath $root
+          try {
+            $checkout = (& git rev-parse HEAD | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $checkout -cne $source) {
+              throw 'R10_PROTECTED_SOURCE_CHECKOUT_DRIFT'
+            }
+            $dirty = (& git status --porcelain --untracked-files=all | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $dirty.Length -ne 0) {
+              throw 'R10_QUALIFIED_SOURCE_NOT_CLEAN'
+            }
+            $remote = (& gh api repos/spoonman136668-ai/FORGE/branches/main --jq '.commit.sha' |
+              Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $remote -cne $source) {
+              throw 'R10_GITHUB_PROTECTED_MAIN_DRIFT'
+            }
+            $raw = & $python -B -m f139.local_controller --db $db status
+            if ($LASTEXITCODE -ne 0) { throw 'R10_EVENT57_COLD_READ_FAILED' }
+            $before = ($raw | Out-String | ConvertFrom-Json).status
+            $neg = @($before.tasks | Where-Object { $_.stage -ceq 'QUARANTINED' })
+            $negNames = @($neg | ForEach-Object { $_.ticket } | Sort-Object)
+            if ($before.meta.head_seq -ne 57 -or
+                $before.meta.head_hash -cne $head57 -or
+                $before.meta.source_sha -cne $source -or
+                $before.meta.enabled -ne 1 -or
+                $before.meta.legacy_suspended -ne 1 -or
+                @($before.tasks).Count -ne 9 -or
+                @($before.tasks | Where-Object { $_.stage -ceq 'VERIFIED' }).Count -ne 7 -or
+                $neg.Count -ne 2 -or
+                $negNames[0] -cne 'f139-nci04-i696-5662e3586bc9-7bb8f27f' -or
+                $negNames[1] -cne 'f139-nci04-i706-09f3d7447900-09dc99f4') {
+              throw 'R10_FROZEN_ORIGINAL_EVENT57_OR_NEGATIVE_DRIFT'
+            }
+            Write-Output 'R10_RUNNER_ORIGINAL_OWNER=PASS'
+            Write-Output 'R10_EVENT57_NATIVE_COLD_VERIFICATION=PASS'
+            $approvalPath = Join-Path $env:LOCALAPPDATA 'FORGE-F139\R10-owner-native-approval.json'
+            if (Test-Path -LiteralPath $approvalPath) {
+              throw 'R10_PRIOR_APPROVAL_EXISTS_INSPECT_NO_RETRY'
+            }
+            $approval = [ordered]@{
+              schema='forge.f139.nci04.owner-native-approval.v1'
+              source_sha=$source
+              expected_event_head_sha256=$head57
+              native_development_approved=$true
+              scientific_first_use=$false
+              create_controller=$false
+              paid_api_calls=0
+            }
+            [IO.File]::WriteAllText($approvalPath,
+              ($approval | ConvertTo-Json -Compress),
+              (New-Object System.Text.UTF8Encoding($false)))
+            & $python -B -m f139.local_controller --db $db activate-native --approval $approvalPath
+            if ($LASTEXITCODE -ne 0) { throw 'R10_ACTIVATION_FAILED_STOP_NO_RETRY' }
+            $afterRaw = & $python -B -m f139.local_controller --db $db status
+            if ($LASTEXITCODE -ne 0) { throw 'R10_EVENT58_COLD_READ_FAILED' }
+            $after = ($afterRaw | Out-String | ConvertFrom-Json).status
+            if ($after.meta.head_seq -ne 58 -or $after.meta.source_sha -cne $source -or
+                @($after.tasks).Count -ne 9 -or
+                @($after.tasks | Where-Object { $_.stage -ceq 'QUARANTINED' }).Count -ne 2 -or
+                [string](Get-ScheduledTask -TaskName $taskName).State -ne 'Disabled') {
+              throw 'R10_EVENT58_AFTER_STATE_DRIFT'
+            }
+            Write-Output 'R10_EVENT58_NATIVE_ACTIVATION=PASS'
+            Write-Output ('R10_EVENT58_HEAD=' + [string]$after.meta.head_hash)
+            Write-Output 'R10_ORIGINAL_NEGATIVES=PRESERVED'
+            Write-Output 'R10_SCHEDULED_CONTROLLER=DISABLED'
+            Write-Output 'R10_SCIENTIFIC_FIRST_USE=BLOCKED'
+            Write-Output 'R10_NEW_CONTROLLER=NONE'
+          } finally {
+            Pop-Location
+          }
