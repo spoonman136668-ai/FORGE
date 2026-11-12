@@ -59,3 +59,14 @@ is introduced by this patch.
 The implementation has no CLI, GitHub POST, workflow dispatcher, new
 controller, queue, scheduler, paid API, Hybrid admission or scientific
 first-use capability.
+
+## Cold-reopen orphan rejection
+
+`Database.verify()` also calls the V41 escrow completion auditor. When a
+source-bound escrow exists without the immediately following v36 transition,
+the database is rejected on every post-commit or cold read. Only a provisional
+escrow at the exact live head, within the *same writable SQLite transaction*
+under the copied-file owner mutex, is allowed while the existing source proof
+is constructed. An unrelated intervening event, wrong source/comment/escrow
+SHA, or a second escrow fails closed. This changes no live writer or owner
+transition route; the old source without an escrow is unaffected.

@@ -120,6 +120,75 @@ class V41EscrowTests(unittest.TestCase):
             with self.assertRaisesRegex(escrow.EscrowDenied, "TASK_ALREADY_PRESENT"):
                 escrow.verify_before_transition(db,escrow.OBSERVED_SEQ+2)
 
+
+    def test_orphan_must_not_survive_cold_reopen(self):
+        """Committed orphan, unrelated successor and fake V41 pairing all fail."""
+        from unittest.mock import patch
+        from f139.local_controller import SingleOwner
+
+        class Synthetic:
+            def __init__(self, conn):
+                self.conn = conn
+                self.filename = Path("synthetic-copy.sqlite")
+                self._readonly_opened = False
+            def meta(self):
+                latest = self.conn.execute(
+                    "SELECT seq,sha,kind,payload FROM events ORDER BY seq DESC LIMIT 1"
+                ).fetchone()
+                source_sha = escrow.OWNER_SOURCE
+                if latest["kind"] == "SOURCE_TRANSITION_ADMITTED":
+                    source_sha = __import__("json").loads(
+                        latest["payload"])["to_source_sha"]
+                return {"source_sha": source_sha,
+                        "head_seq": latest["seq"], "head_hash": latest["sha"]}
+
+        with closing(self.synthetic_cold_events()) as conn:
+            db = Synthetic(conn)
+            with self.assertRaisesRegex(escrow.EscrowDenied,
+                                        "COMMITTED_OR_UNOWNED_ORPHAN"):
+                escrow.audit_committed_escrow(db)
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                with self.assertRaisesRegex(escrow.EscrowDenied,
+                                            "COMMITTED_OR_UNOWNED_ORPHAN"):
+                    escrow.audit_committed_escrow(db)
+                with patch.object(SingleOwner,"held",return_value=True):
+                    self.assertEqual(escrow.audit_committed_escrow(db),
+                                     "PROVISIONAL_OWNER_TRANSACTION")
+                    conn.execute("INSERT INTO events VALUES(?,?,?,?,?)",
+                        (escrow.OBSERVED_SEQ+2, "OTHER_EVENT",
+                         "2"*64, "1"*64, "{}"))
+                    with self.assertRaisesRegex(escrow.EscrowDenied,
+                                                "NONADJACENT_OR_WRONG_SUCCESSOR"):
+                        escrow.audit_committed_escrow(db)
+            finally:
+                conn.execute("ROLLBACK")
+            valid = dict(schema="forge.f139.source-transition.v36",
+                from_source_sha=escrow.OWNER_SOURCE,
+                to_source_sha="9"*40,
+                original_head_seq=escrow.OBSERVED_SEQ+1,
+                prior_event_head_sha256="1"*64,
+                pending_1715_escrow_sha256="1"*64,
+                owner_event_id=777)
+            conn.execute("INSERT INTO events VALUES(?,?,?,?,?)",
+                (escrow.OBSERVED_SEQ+2,"SOURCE_TRANSITION_ADMITTED",
+                 "2"*64, "1"*64,canonical(valid).decode("ascii")))
+            self.assertEqual(escrow.audit_committed_escrow(db),
+                             "PAIRED_V41_TRANSITION")
+            wrong={**valid, "owner_event_id":778}
+            conn.execute("UPDATE events SET payload=? WHERE seq=?",
+                (canonical(wrong).decode("ascii"),escrow.OBSERVED_SEQ+2))
+            with self.assertRaisesRegex(escrow.EscrowDenied,
+                                        "SOURCE_PAIR_IDENTITY_DRIFT"):
+                escrow.audit_committed_escrow(db)
+            conn.execute("UPDATE events SET payload=? WHERE seq=?",
+                (canonical(valid).decode("ascii"),escrow.OBSERVED_SEQ+2))
+            conn.execute("INSERT INTO events VALUES(?,?,?,?,?)",
+                (escrow.OBSERVED_SEQ+3,escrow.KIND,
+                 "3"*64,"2"*64,canonical(self.document()).decode("ascii")))
+            with self.assertRaisesRegex(escrow.EscrowDenied,"MULTIPLE_ESCROWS"):
+                escrow.audit_committed_escrow(db)
+
     def test_empty_original_denied_without_sqlite_mutation(self):
         with tempfile.TemporaryDirectory() as folder:
             dbpath=Path(folder)/"state.sqlite"
