@@ -1,7 +1,7 @@
 name: K Terminal native snapshot freshness exact-source Windows qualification
 on:
   push:
-    branches: [qualification/kterminal-p5-recorder-firstrecord-20261110]
+    branches: [qualification/kterminal-p5-firstuse-artifact-20261112]
     paths: [.github/workflows/forge-kterminal-p5-recorder-firstrecord-20261110.yml]
 permissions:
   contents: read
@@ -9,17 +9,14 @@ concurrency:
   group: kterminal-pr88-full-window-ae11818c
   cancel-in-progress: false
 jobs:
-  owner-local-paper-qualification:
-    # Exact candidate regression/vet PASS in 43135678106 and original build PASS in 43182495002; no duplicate job.
-    if: ${{ false }}
+  o  owner-p5-firstuse:
+    name: K Terminal PR96 exact-source disarmed first-use archive qualification
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: cea643af9d5abf3b18e45c5f33cae01694677cc2
-      KTERM_BASE: 879bd65f75e1544d2125aa184596a2a8f8b972d3
-      KTERM_TREE: 232401f8f76e78d22e5c26ff3582acbf1bd4b94d
-      KTERM_NATIVE_SNAPSHOT_BLOB: b381089816414485ca9b8f76334aa649d42336a9
-      KTERM_SNAPSHOT_TEST_BLOB: 91311e52d0f0f99b14caad0f227996583ef03d75
+      KTERM_SHA: 54f43e4ef4a35f0541545347f6edd88323988ab8
+      KTERM_BASE: cea643af9d5abf3b18e45c5f33cae01694677cc2
+      KTERM_TREE: a92ed8a8b41e835269b092bb8ef555a0e552a789
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -27,145 +24,181 @@ jobs:
       GOTELEMETRY: 'off'
       GOENV: 'off'
       CGO_ENABLED: '0'
-      GOMAXPROCS: '2'
       GOFLAGS: '-p=1'
+      GOMAXPROCS: '2'
       GIT_TERMINAL_PROMPT: '0'
       GCM_INTERACTIVE: never
     steps:
-      - name: Admit previously approved Windows owner and disarmed environment
+      - name: Authorize only existing Windows owner and isolated disarmed scope
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-recorder-firstrecord-20261110' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-firstuse-artifact-20261112' -or
              $env:GITHUB_EVENT_NAME -cne 'push' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
-             $env:RUNNER_OS -cne 'Windows') { throw 'KTERM_P5_OWNER_IDENTITY_REFUSED' }
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0'){
+            throw 'KTERM_P5_FIRSTUSE_OWNER_SCOPE_REFUSED'
+          }
           foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
-              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
-              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
-              'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')) {
-            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_P5_OWNER_BROKER_ENV_REFUSED'}
+            'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+            'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
+            'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_P5_FIRSTUSE_BROKER_ENV_REFUSED'}
           }
-          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){
-            throw 'KTERM_P5_EXISTING_APP_PRESERVED_REFUSED'
+          if(@(Get-Process -Name 'K-Terminal*' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_P5_FIRSTUSE_EXISTING_SESSION_REFUSED'
           }
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          if(Test-Path -LiteralPath $root){throw 'KTERM_P5_WORKSPACE_NOT_FRESH'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr96-firstuse-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_P5_FIRSTUSE_REUSED_ROOT_REFUSED'}
           [void][IO.Directory]::CreateDirectory($root)
-          Write-Host 'KTERM_P5_OWNER_ISOLATED_DISARMED=PASS;NO_BROKER_WRITES=TRUE'
-      - name: Stage pinned private K Terminal candidate and verify two-file patch
+          Write-Host 'KTERM_P5_FIRSTUSE_OWNER_ADMISSION=PASS;BROKER_SECRETS=0;NO_INSTALL=TRUE'
+      - name: Retrieve private exact-SHA source and verify three file/blob identities
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          $stage=Join-Path $root 'source'
-          [void][IO.Directory]::CreateDirectory($stage)
-          & git -C $stage init -q *> (Join-Path $root 'private-git-init.log')
-          if($LASTEXITCODE -ne 0){throw 'KTERM_P5_GIT_INIT_FAILED'}
-          $source='https://github.com/Kboomllc/K-Terminal.git'
-          & git -C $stage fetch -q --no-tags --depth=9 $source $env:KTERM_SHA *> (Join-Path $root 'private-git-fetch.log')
-          if($LASTEXITCODE -ne 0){throw 'KTERM_P5_PRIVATE_SOURCE_UNAVAILABLE'}
-          & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'private-git-checkout.log')
-          if($LASTEXITCODE -ne 0){throw 'KTERM_P5_CHECKOUT_FAILED'}
-          $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
-          $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
-          $parent=(& git -C $stage rev-parse 'HEAD~2' | Out-String).Trim()
-          $rec=(& git -C $stage rev-parse 'HEAD:pkg/native-snapshot.go' | Out-String).Trim()
-          $test=(& git -C $stage rev-parse 'HEAD:pkg/native-snapshot-freshness_test.go' | Out-String).Trim()
-          if($sha -cne $env:KTERM_SHA -or $parent -cne $env:KTERM_BASE -or
-             $rec -cne $env:KTERM_NATIVE_SNAPSHOT_BLOB -or $test -cne $env:KTERM_SNAPSHOT_TEST_BLOB -or
-             $tree -cnotmatch '^[0-9a-f]{40}$' -or
-             @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_P5_SOURCE_CUSTODY_REFUSED'}
-          $changed=@(& git -C $stage diff --name-only HEAD~2 HEAD)
-          $expected=@('.ice/source-file-descriptions.ice','.ice/file-descriptions.json')
-          if($changed.Count -ne 2 -or @($changed | Where-Object {$_ -cnotin $expected}).Count -ne 0){
-            throw 'KTERM_SNAPSHOT_TWO_FILE_SCOPE_DRIFT'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr96-firstuse-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          [void][IO.Directory]::CreateDirectory($src)
+          & git -C $src init -q *> (Join-Path $root 'git-init.private.log')
+          if($LASTEXITCODE-ne0){throw 'KTERM_PR96_GIT_INIT_FAILED'}
+          $remote='https://github.com/Kboomllc/K-Terminal.git'
+          & git -C $src fetch -q --no-tags --depth=60 $remote $env:KTERM_SHA $env:KTERM_BASE *> (Join-Path $root 'git-fetch.private.log')
+          if($LASTEXITCODE-ne0){throw 'KTERM_PR96_PRIVATE_SOURCE_UNAVAILABLE'}
+          & git -C $src checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'git-checkout.private.log')
+          if($LASTEXITCODE-ne0){throw 'KTERM_PR96_CHECKOUT_FAILED'}
+          $head=(& git -C $src rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $src rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          if($head -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
+             @(& git -C $src status --porcelain --untracked-files=no).Count-ne0){
+            throw 'KTERM_PR96_IMMUTABLE_SOURCE_DRIFT'
           }
-          foreach($private in @('.env','config.json','data')){
-            if(Test-Path -LiteralPath (Join-Path $stage $private)){throw 'KTERM_P5_PRIVATE_STATE_REFUSED'}
+          $blobs=@{
+            'tools/qualification/p5_assemble_source_bound_firstuse.ps1'='ec538e4009cca3db0e341201aa01422560adb582'
+            'tools/qualification/p5_verify_firstuse_archive.py'='6809d639ac8191d15210f068ea369c675d09e20a'
+            'tools/qualification/test_p5_verify_firstuse_archive.py'='cc00e430e60930b871b50bd9dcf856e1aef655c0'
           }
-          if($tree -cne $env:KTERM_TREE){throw 'KTERM_DOCS_ONLY_TREE_DRIFT'}
-          Write-Host ('KTERM_CATALOG_FINAL_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';TWO_METADATA_FILES=PASS;PARENT_879BD=VERIFIED;GO_SOURCE_BLOBS=UNCHANGED')
-      - name: Pinned Windows Go toolchain
+          foreach($p in $blobs.Keys){
+            $actual=(& git -C $src rev-parse ('HEAD:'+$p) | Out-String).Trim()
+            if($actual -cne $blobs[$p]){throw 'KTERM_PR96_QUALIFIER_BLOB_DRIFT'}
+          }
+          $changed=@(& git -C $src diff --name-only $env:KTERM_BASE $env:KTERM_SHA)
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne3 -or
+             @($changed|Where-Object{$_ -cnotin @($blobs.Keys)}).Count-ne0){
+            throw 'KTERM_PR96_THREE_FILE_SCOPE_DRIFT'
+          }
+          foreach($private in @('config.json','data','reporting','logs','notifications','.env')){
+            if(Test-Path -LiteralPath (Join-Path $src $private)){throw 'KTERM_PR96_PRIVATE_STATE_REFUSED'}
+          }
+          Write-Host ('KTERM_PR96_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';APP_CODE_DIFF=0')
+      - name: Pinned original Windows Go toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Original Windows build-only after qualified candidate regression
+      - name: Pinned original Python for independent ZIP verifier
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Mandatory full exact-candidate Windows Go regression and vet
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_BUILD_GO_TOOLCHAIN_DRIFT'}
-          $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          $stage=Join-Path $root 'source'
-          $actual=(& git -C $stage rev-parse HEAD | Out-String).Trim()
-          if($actual -cne $env:KTERM_SHA){throw 'KTERM_BUILD_SOURCE_DRIFT'}
-          Write-Host ('KTERM_FULL_WINDOWS_REGRESSION=PASS_REUSED;SOURCE_SHA='+$actual+';RUN=43135678106;FULL_GO_TESTS=PASS;GO_VET=PASS;EXACT_GO_BLOBS=VERIFIED;NO_DUPLICATE_TEST=TRUE')
-          $buildLog=Join-Path $root 'private-build.log'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr96-firstuse-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          if((go version | Out-String).Trim() -notmatch 'go1\.26\.5 windows/amd64' -or
+             (python --version | Out-String).Trim() -notmatch '^Python 3\.12\.\d+$'){
+            throw 'KTERM_PR96_WINDOWS_TOOLCHAIN_DRIFT'
+          }
+          $env:GOCACHE=Join-Path $src '.build/cache'
+          $env:GOMODCACHE=Join-Path $src '.build/modules'
+          $env:GOPATH=Join-Path $src '.build/go'
+          $env:GOTMPDIR=Join-Path $src '.build/temp'
+          foreach($dir in @($env:GOCACHE,$env:GOMODCACHE,$env:GOPATH,$env:GOTMPDIR)){
+            [void][IO.Directory]::CreateDirectory($dir)
+          }
+          Push-Location $src
+          try{
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go test -p 1 ./... *> (Join-Path $root 'full-regression.private.log')
+            $result=$LASTEXITCODE
+            $sw.Stop()
+            if($result-ne0){
+              $d=(Get-FileHash -LiteralPath (Join-Path $root 'full-regression.private.log') -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ('KTERM_PR96_FULL_REGRESSION=FAIL;EXIT='+$result+';MS='+$sw.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$d)
+              throw 'KTERM_PR96_FULL_REGRESSION_FAILED'
+            }
+            Write-Host ('KTERM_PR96_FULL_REGRESSION=PASS;MS='+$sw.ElapsedMilliseconds+';SOURCE='+$env:KTERM_SHA)
+            $sw.Restart()
+            & go vet ./... *> (Join-Path $root 'go-vet.private.log')
+            $result=$LASTEXITCODE
+            $sw.Stop()
+            if($result-ne0){
+              $d=(Get-FileHash -LiteralPath (Join-Path $root 'go-vet.private.log') -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ('KTERM_PR96_GO_VET=FAIL;EXIT='+$result+';MS='+$sw.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$d)
+              throw 'KTERM_PR96_GO_VET_FAILED'
+            }
+            Write-Host ('KTERM_PR96_GO_VET=PASS;MS='+$sw.ElapsedMilliseconds)
+          }finally{Pop-Location}
+          if((& git -C $src rev-parse HEAD | Out-String).Trim() -cne $env:KTERM_SHA -or
+             @(& git -C $src status --porcelain --untracked-files=no).Count-ne0){
+            throw 'KTERM_PR96_POST_TEST_SOURCE_DRIFT'
+          }
+      - name: Assemble original eight binaries and independently verify first-use ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr96-firstuse-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          $out=Join-Path $root 'artifact-only'
+          $script=Join-Path $src 'tools/qualification/p5_assemble_source_bound_firstuse.ps1'
           $clock=[Diagnostics.Stopwatch]::StartNew()
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> $buildLog
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File $script -ExpectedSourceSha $env:KTERM_SHA -ExpectedTreeSha $env:KTERM_TREE -SourceRoot $src -OutputDirectory $out *> (Join-Path $root 'package.private.log')
           $exit=$LASTEXITCODE
           $clock.Stop()
-          if($exit -ne 0){
-            $digest=(Get-FileHash -LiteralPath $buildLog -Algorithm SHA256).Hash.ToLowerInvariant()
-            $raw=Get-Content -LiteralPath $buildLog -Raw -ErrorAction SilentlyContinue
-            $failStage='UNKNOWN'
-            foreach($exe in @('K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe',
-              'K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe',
-              'K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe','K-Terminal.exe')){
-              if($raw -like ('*Build failed: '+$exe+'*')){$failStage=$exe;break}
-            }
-            $failureClass='UNCLASSIFIED'
-            if($raw -like '*The Windows .NET Framework compiler is required*'){$failureClass='DOTNET_FRAMEWORK_COMPILER_MISSING'}
-            elseif($raw -like '*not recognized as the name of a cmdlet*'){$failureClass='EXECUTABLE_NOT_FOUND'}
-            elseif($raw -like '*There is not enough space on the disk*' -or $raw -like '*no space left on device*'){$failureClass='DISK_SPACE'}
-            elseif($raw -like '*Access is denied*' -or $raw -like '*permission denied*'){$failureClass='ACCESS_DENIED'}
-            elseif($failStage -ne 'UNKNOWN'){$failureClass='ORIGINAL_BUILD_COMMAND_FAILED'}
-            Write-Host ('KTERM_BUILD_ONLY=FAIL;EXIT='+$exit+';MS='+$clock.ElapsedMilliseconds+
-              ';STAGE='+$failStage+';CLASS='+$failureClass+
-              ';PRIVATE_LOG_SHA256='+$digest+';RAW_LOG_NOT_PUBLISHED=TRUE')
-            throw 'KTERM_QUALIFIED_SOURCE_ORIGINAL_BUILD_FAILED'
+          if($exit-ne0){
+            $digest=(Get-FileHash -LiteralPath (Join-Path $root 'package.private.log') -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=FAIL;EXIT='+$exit+';MS='+$clock.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$digest)
+            throw 'KTERM_PR96_FIRSTUSE_PACKAGE_FAILED'
           }
-          $files=@('K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe',
-              'K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe',
-              'K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe','K-Terminal.exe')
-          $receipt=@()
-          foreach($name in $files){
-            $out=Join-Path $stage $name
-            if(-not(Test-Path -LiteralPath $out -PathType Leaf) -or
-               (Get-Item -LiteralPath $out).Length -le 0){throw 'KTERM_ORIGINAL_BUILD_OUTPUT_MISSING'}
-            $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
-            $receipt+=($name+':'+$hash)
+          $proof=Get-Content -LiteralPath (Join-Path $out 'FIRST-USE-RECEIPT.json') -Raw|ConvertFrom-Json
+          $zip=Join-Path $out $proof.archive
+          if($proof.source_sha -cne $env:KTERM_SHA -or $proof.source_tree -cne $env:KTERM_TREE -or
+             $proof.binaries -ne 8 -or $proof.roundtrip -cne 'PASS' -or
+             $proof.deployment -cne 'NOT_AUTHORIZED' -or
+             $proof.field_performance -cne 'UNVERIFIED' -or
+             $proof.original_desktop_smoke -cne 'NOT_RUN' -or
+             (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $proof.archive_sha256){
+            throw 'KTERM_PR96_PACKAGE_RECEIPT_INVALID'
           }
-          $joined=[string]::Join([char]10,$receipt)
-          $sum=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($joined))).ToLowerInvariant()
-          $changed=(& git -C $stage diff --name-only HEAD -- | Out-String).Trim()
-          if($changed){throw 'KTERM_ORIGINAL_BUILD_TRACKED_SOURCE_CHANGED'}
-          Write-Host ('KTERM_ORIGINAL_BUILD=PASS;SOURCE_SHA='+$env:KTERM_SHA+
-            ';BINARIES='+$files.Count+';BINARY_MANIFEST_SHA256='+$sum+
-            ';MS='+$clock.ElapsedMilliseconds+';NO_INSTALL=TRUE;LIVE_ORDERS=0')
-      - name: Remove private source and local test fixtures
+          Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=PASS;ZIP_SHA256='+$proof.archive_sha256+
+            ';BINARIES='+$proof.binaries+';FILES='+$proof.files+
+            ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION=PASS'+
+            ';NEGATIVE_CONTROLS=PASS;WPF_SMOKE=NOT_RUN'+
+            ';LIVE_ORDERS=0;NO_INSTALL=TRUE;FIELD=UNVERIFIED'+
+            ';PRIVATE_BINARIES_NOT_UPLOADED=TRUE')
+      - name: Erase only this disposable private source and package stage
         if: always()
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $base=$env:RUNNER_TEMP
-          $root=Join-Path $base ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
-          if(Test-Path -LiteralPath $root) {
-            $path=[IO.Path]::GetFullPath($root)
-            $scope=[IO.Path]::GetFullPath($base).TrimEnd('\')+'\'
-            if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
-               [IO.Path]::GetFileName($path) -cne ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)){
-              throw 'KTERM_P5_PRIVATE_CLEANUP_REFUSED'
-            }
-            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+          $base=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+          $leaf='kterm-pr96-firstuse-'+$env:GITHUB_RUN_ID
+          $root=[IO.Path]::GetFullPath((Join-Path $env:RUNNER_TEMP $leaf))
+          if(-not $root.StartsWith($base,[StringComparison]::OrdinalIgnoreCase) -or
+             [IO.Path]::GetFileName($root) -cne $leaf){
+            throw 'KTERM_PR96_CLEANUP_SCOPE_REFUSED'
           }
-          Write-Host 'KTERM_P5_PRIVATE_CLEANUP=PASS;PUBLIC_PRIVATE_FILES=0;LIVE_ORDERS=0'
-
-  owner-readonly-eligibility:
+          if(Test-Path -LiteralPath $root){
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_PR96_PRIVATE_CLEANUP=PASS;ORIGINAL_INSTALL_UNCHANGED=TRUE;NO_BINARY_PUBLICATION=TRUE'
+wner-readonly-eligibility:
     name: K Terminal existing owner read-only runtime and Graphify host eligibility
     # Previous exact-source read-only preflight PASS: run 43126758468. Do not repeat.
     if: ${{ false }}
