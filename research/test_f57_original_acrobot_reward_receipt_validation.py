@@ -9,6 +9,7 @@ import f57_original_acrobot_reward_admission as a
 import f57_original_acrobot_reward_receipt_validation as s
 
 OBS=[1.,0.,1.,0.,0.,0.1]
+GOAL_OBS=[-1.,0.,1.,0.,0.,0.1]
 SNAP="a"*64
 
 
@@ -19,7 +20,7 @@ def episode(seed,mode,steps,action=2):
         term=done and steps<a.MAX_STEPS
         trunc=done and steps==a.MAX_STEPS
         trace.append([list(OBS),action,0. if term else -1.,
-                      list(OBS),term,trunc])
+                      list(GOAL_OBS if term else OBS),term,trunc])
     return {"seed":seed,"mode":mode,"trace":trace,
             "model_snapshot_sha256":SNAP,"decision_ns":steps*15,
             "episode_wall_seconds":max(.01,steps*.01)}
@@ -90,6 +91,37 @@ class PureF57ReceiptGate(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"COLD_REPLAY_MISMATCH"):
             s.assess_untrusted_evidence(m)
 
+    def test_terminal_physics_and_velocity_limits_reject_fabricated_traces(self):
+        # Validate source-known physics without mistaking fixtures for originals.
+        fake_success=copy.deepcopy(self.synthetic_positive)
+        bad=fake_success["arms"]["momentum-rule"]["transfer"][0]
+        bad["trace"][-1][3]=list(OBS)  # reports success below the height threshold
+        with self.assertRaisesRegex(ValueError,"TERMINAL_PUBLIC_HEIGHT_CONTRADICTION"):
+            s.assess_untrusted_evidence(fake_success)
+
+        false_nonterminal=copy.deepcopy(self.synthetic_negative)
+        for cohort in ("transfer","cold_transfer"):
+            ep=episode(a.PROPOSED_TRANSFER[0],"nips",a.MAX_STEPS)
+            ep["trace"][-1][3]=list(GOAL_OBS)  # exceeds threshold, term=False
+            false_nonterminal["arms"]["momentum-rule"][cohort][0]=ep
+        with self.assertRaisesRegex(ValueError,"TERMINAL_PUBLIC_HEIGHT_CONTRADICTION"):
+            s.assess_untrusted_evidence(false_nonterminal)
+
+        over_velocity=copy.deepcopy(self.synthetic_positive)
+        over_velocity["arms"]["momentum-rule"]["transfer"][0]["trace"][0][0][4]=100.0
+        with self.assertRaisesRegex(ValueError,"VELOCITY_BOUND_INVALID"):
+            s.assess_untrusted_evidence(over_velocity)
+
+    def test_float32_threshold_boundary_is_not_overclaimed(self):
+        # Hidden original-state double precision can straddle exactly 1.0.
+        near=[-0.5,math.sqrt(3)/2,1.,0.,0.,0.1]
+        ambiguous=copy.deepcopy(self.synthetic_positive)
+        for cohort in ("transfer","cold_transfer"):
+            ambiguous["arms"]["momentum-rule"][cohort][0]["trace"][-1][3]=list(near)
+        outcome=s.assess_untrusted_evidence(ambiguous)
+        self.assertEqual(outcome["disposition"],s.UNVERIFIED)
+        self.assertFalse(outcome["external_original_physics_authenticated"])
+
     def test_missing_duplicate_reordered_and_forbidden_episode_seeds(self):
         for mutant in ("missing","duplicate","reorder","consumed"):
             m=copy.deepcopy(self.synthetic_positive)
@@ -147,6 +179,7 @@ class PureF57ReceiptGate(unittest.TestCase):
             step=both["arms"]["momentum-rule"][key][0]["trace"][-1]
             step[4]=True
             step[2]=0.
+            step[3]=list(GOAL_OBS)
         self.assertEqual(
             s.assess_untrusted_evidence(both)["nominal_cold_episodes_checked"],168)
         for fault,expected in (

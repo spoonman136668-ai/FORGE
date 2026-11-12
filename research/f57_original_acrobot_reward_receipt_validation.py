@@ -36,6 +36,11 @@ def _observation(obs):
     if (abs(c1*c1+s1*s1-1.)>1e-4 or
         abs(c2*c2+s2*s2-1.)>1e-4):
         raise ValueError("F57_NONPHYSICAL_TRIG_OBSERVATION")
+    # The pinned Farama Acrobot state integrator clips angular velocities.
+    # The source emits float32 observations; tolerate its rounding only.
+    if (abs(float(obs[4])) > 4*math.pi+1e-4 or
+        abs(float(obs[5])) > 9*math.pi+1e-4):
+        raise ValueError("F57_ORIGINAL_ACROBOT_VELOCITY_BOUND_INVALID")
     return tuple(float(v) for v in obs)
 
 
@@ -77,6 +82,15 @@ def _episode(raw, seed, mode):
             raise ValueError("F57_ORIGINAL_REWARD_DOMAIN_INVALID")
         if type(term) is not bool or type(trunc) is not bool:
             raise ValueError("F57_TERMINATION_FLAGS_INVALID")
+        # Exact original AcrobotEnv._terminal uses
+        # -cos(theta1)-cos(theta1+theta2) > 1.0, evaluated in float64
+        # state space; public cos/sin observations are float32. Allow only
+        # 1e-5 around the decision boundary for representation rounding.
+        c1,s1,c2,s2 = new[:4]
+        tip_height = -c1-(c1*c2-s1*s2)
+        if ((term and tip_height < 1.0-1e-5) or
+            (not term and tip_height > 1.0+1e-5)):
+            raise ValueError("F57_TERMINAL_PUBLIC_HEIGHT_CONTRADICTION")
         # Original Farama Acrobot-v1: 0 only on terminal success, -1
         # otherwise. TimeLimit sets truncation at step 500 regardless of
         # termination, so both flags can legitimately be true at that step.
