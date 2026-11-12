@@ -1,0 +1,80 @@
+---
+source_file: ""
+type: "code"
+community: "Community 74"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_74
+---
+
+# crypto/ed25519.PrivateKey
+
+## Connections
+- [[ExecuteOnce()]] - `references` [EXTRACTED]
+- [[RunOnce()]] - `references` [EXTRACTED]
+- [[advanceSynthetic()]] - `references` [EXTRACTED]
+- [[certFor()]] - `references` [EXTRACTED]
+- [[epochSigner]] - `references` [EXTRACTED]
+- [[externalBinding()]] - `references` [EXTRACTED]
+- [[externalWitness()]] - `references` [EXTRACTED]
+- [[fixture_2]] - `references` [EXTRACTED]
+- [[fixture]] - `references` [EXTRACTED]
+- [[fixture_1]] - `references` [EXTRACTED]
+- [[fixture()_29]] - `references` [EXTRACTED]
+- [[fixture()_22]] - `references` [EXTRACTED]
+- [[fixture()_28]] - `references` [EXTRACTED]
+- [[fixture()_24]] - `references` [EXTRACTED]
+- [[fixture()_14]] - `references` [EXTRACTED]
+- [[fixture()_21]] - `references` [EXTRACTED]
+- [[fmtSign()]] - `references` [EXTRACTED]
+- [[gateFixture]] - `references` [EXTRACTED]
+- [[genesis()]] - `references` [EXTRACTED]
+- [[key()_2]] - `references` [EXTRACTED]
+- [[keys()]] - `references` [EXTRACTED]
+- [[kp()]] - `references` [EXTRACTED]
+- [[kpair()]] - `references` [EXTRACTED]
+- [[linkedCheckpoint]] - `references` [EXTRACTED]
+- [[newFixture()_2]] - `references` [EXTRACTED]
+- [[newFixtureWithRoot()]] - `references` [EXTRACTED]
+- [[newStore()_1]] - `references` [EXTRACTED]
+- [[pki_1]] - `references` [EXTRACTED]
+- [[pki]] - `references` [EXTRACTED]
+- [[processKeys()]] - `references` [EXTRACTED]
+- [[receipt()_2]] - `references` [EXTRACTED]
+- [[setup()_2]] - `references` [EXTRACTED]
+- [[setup()_4]] - `references` [EXTRACTED]
+- [[setup()_1]] - `references` [EXTRACTED]
+- [[sign()_3]] - `references` [EXTRACTED]
+- [[sign()]] - `references` [EXTRACTED]
+- [[sign()_2]] - `references` [EXTRACTED]
+- [[sign()_1]] - `references` [EXTRACTED]
+- [[signClaim()]] - `references` [EXTRACTED]
+- [[signCustody()]] - `references` [EXTRACTED]
+- [[signFinding()]] - `references` [EXTRACTED]
+- [[signFixture()]] - `references` [EXTRACTED]
+- [[signHead()]] - `references` [EXTRACTED]
+- [[signJoin()]] - `references` [EXTRACTED]
+- [[signObservation()]] - `references` [EXTRACTED]
+- [[signReview()]] - `references` [EXTRACTED]
+- [[signSynthetic()]] - `references` [EXTRACTED]
+- [[signTransfer()]] - `references` [EXTRACTED]
+- [[signWitness()]] - `references` [EXTRACTED]
+- [[signed()_1]] - `references` [EXTRACTED]
+- [[signed()_5]] - `references` [EXTRACTED]
+- [[signed()_4]] - `references` [EXTRACTED]
+- [[signed()_3]] - `references` [EXTRACTED]
+- [[signed()_2]] - `references` [EXTRACTED]
+- [[signed()]] - `references` [EXTRACTED]
+- [[signedArchiveHead()]] - `references` [EXTRACTED]
+- [[signedHighwater()]] - `references` [EXTRACTED]
+- [[signer]] - `references` [EXTRACTED]
+- [[sim]] - `references` [EXTRACTED]
+- [[stepHTTPFixture]] - `references` [EXTRACTED]
+- [[syntheticStepLedger]] - `references` [EXTRACTED]
+- [[syntheticTask()]] - `references` [EXTRACTED]
+- [[testCA()]] - `references` [EXTRACTED]
+- [[testKey()_1]] - `references` [EXTRACTED]
+- [[testKey()]] - `references` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_74

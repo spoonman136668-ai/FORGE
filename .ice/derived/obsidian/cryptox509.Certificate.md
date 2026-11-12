@@ -1,0 +1,20 @@
+---
+source_file: ""
+type: "code"
+community: "Community 18"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_18
+---
+
+# crypto/x509.Certificate
+
+## Connections
+- [[certFor()]] - `references` [EXTRACTED]
+- [[gateFixture]] - `references` [EXTRACTED]
+- [[pki_1]] - `references` [EXTRACTED]
+- [[pki]] - `references` [EXTRACTED]
+- [[testCA()]] - `references` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_18

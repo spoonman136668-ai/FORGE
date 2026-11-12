@@ -1,0 +1,23 @@
+---
+source_file: "thetaadapt/adapter_test.go"
+type: "code"
+community: "Community 132"
+location: "L18"
+tags:
+  - graphify/code
+  - graphify/INFERRED
+  - community/Community_132
+---
+
+# TestPinnedTrainOnlyReplayKeepsNegativesAndInvalids()
+
+## Connections
+- [[Adapt()]] - `calls` [INFERRED]
+- [[FrozenDigest()]] - `calls` [INFERRED]
+- [[TrainingDigest()]] - `calls` [INFERRED]
+- [[adapter_test.go]] - `contains` [EXTRACTED]
+- [[fixture()_11]] - `calls` [EXTRACTED]
+- [[hexLower()_1]] - `calls` [INFERRED]
+- [[testing.T]] - `references` [EXTRACTED]
+
+#graphify/code #graphify/INFERRED #community/Community_132

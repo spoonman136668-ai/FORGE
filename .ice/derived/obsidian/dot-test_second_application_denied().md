@@ -1,0 +1,18 @@
+---
+source_file: "research/lcrm01/test_k4b_repair_sourceonly.py"
+type: "code"
+community: "Community 160"
+location: "L27"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_160
+---
+
+# .test_second_application_denied()
+
+## Connections
+- [[ReplayCandidateSafety]] - `method` [EXTRACTED]
+- [[source_replace()]] - `calls` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_160
