@@ -440,9 +440,8 @@ jobs:
           Write-Host 'KTERM_GRAPHIFY_STATIC_CLEANUP=PASS;PUBLIC_PRIVATE_ARTIFACTS=0;LIVE_ORDERS=0'
 
   owner-graphify-atlas:
-    name: K Terminal full offline Graphify source atlas G35/G44 qualification
-    # Previous verified full static atlas run 43184027755. Browser refused unsigned CfT in 43185835465.
-    if: ${{ false }}
+    name: K Terminal full offline Graphify and G24/G35 real-source browser qualification
+    # Original exact-source Go regressions/build, original static Graphify and pinned Chrome SHA preflight all PASS.
     # Independent static atlas only; original Go regression/vet and eight-exe build already qualified at this exact product SHA.
     # Separate from historical full Go regression and interactive/browser acceptance.
     runs-on: [self-hosted, Windows, forge-codex-isolated]
@@ -679,6 +678,9 @@ jobs:
             $zipSize=(Get-Item -LiteralPath $chromeZip).Length
             if($zipSize -lt 50000000 -or $zipSize -gt 350000000){throw 'KTERM_CHROME_ZIP_SIZE_REFUSED'}
             $zipHash=(Get-FileHash -LiteralPath $chromeZip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($zipHash -cne '5f6ec40206407112702e163bf694d07f9fdc8ccbd346c70ce61fa62f716493f9'){
+              throw 'KTERM_CHROME_PINNED_OFFICIAL_ARCHIVE_HASH_REFUSED'
+            }
             Expand-Archive -LiteralPath $chromeZip -DestinationPath $chromeExtract -Force
             [void][IO.Directory]::CreateDirectory($chromeParent)
             $extracted=Join-Path $chromeExtract 'chrome-win64'
@@ -688,16 +690,16 @@ jobs:
             Move-Item -LiteralPath $extracted -Destination $chromeApplication -ErrorAction Stop
             $chromeExe=Join-Path $chromeApplication 'chrome.exe'
             $signature=Get-AuthenticodeSignature -LiteralPath $chromeExe
-            $signer=[string]$signature.SignerCertificate.Subject
             $version=[string](Get-Item -LiteralPath $chromeExe).VersionInfo.FileVersion
-            if($signature.Status -ne 'Valid' -or $signer -notmatch 'Google LLC' -or
-                $version -notmatch '^157[.]0[.]8103[.]78([.]|$)'){
-              throw 'KTERM_CHROME_SIGNER_OR_VERSION_REFUSED'
-            }
             $chromeHash=(Get-FileHash -LiteralPath $chromeExe -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($signature.Status -ne 'NotSigned' -or
+                $version -notmatch '^157[.]0[.]8103[.]78([.]|$)' -or
+                $chromeHash -cne '9196f87743c5a0baae3589c226ad72941bf6f0eb7669cec548ae1c80b4461c33'){
+              throw 'KTERM_CHROME_PINNED_EXE_OR_VERSION_REFUSED'
+            }
             Write-Host ('KTERM_CHROME_OFFICIAL_PORTABLE=PASS;VERSION='+$chromeVersion+
-              ';ZIP_SHA256='+$zipHash+';SIGNED_EXE_SHA256='+$chromeHash+
-              ';GOOGLE_AUTHENTICODE_VALID=TRUE;MACHINE_INSTALL=FALSE')
+              ';ZIP_SHA256='+$zipHash+';EXE_SHA256='+$chromeHash+
+              ';UNSIGNED_UPSTREAM_ACKNOWLEDGED=TRUE;SHA256_PINNED=TRUE;MACHINE_INSTALL=FALSE')
             Invoke-Private 'PLAYWRIGHT_PINNED_INSTALL' $py @('-m','pip','install','--only-binary=:all:','--retries','1','--timeout','25','playwright==1.56.0')
             & $py -c "from importlib.metadata import version;assert version('playwright')=='1.56.0'" *> (Join-Path $private 'playwright-version-private.log')
             if($LASTEXITCODE -ne 0){throw 'KTERM_PLAYWRIGHT_PIN_DRIFT'}
@@ -773,6 +775,8 @@ jobs:
 
   owner-chrome-digest:
     name: K Terminal official Chrome for Testing pinned digest-only preflight
+    # Completed in 43186501037; exact ZIP/EXE pinned for browser acceptance; skip duplicate.
+    if: ${{ false }}
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 10
     permissions:
