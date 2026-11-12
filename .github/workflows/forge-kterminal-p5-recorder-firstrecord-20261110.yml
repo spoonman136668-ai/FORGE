@@ -245,6 +245,8 @@ jobs:
 
   owner-graphify-static:
     name: K Terminal exact-SHA offline compiler/Graphify-source qualification
+    # Original compiler matrix passed exact source in run 43128733486; no duplicate.
+    if: ${{ false }}
     # Separate from historical full Go regression and interactive/browser acceptance.
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 60
@@ -412,6 +414,224 @@ jobs:
               ';G30_CROSS_FILE='+$g30.additional_cross_file_calls+
               ';G31_INTERPACKAGE='+$g31.compiler_resolved_interpackage_calls+
               ';RUNTIME_CALLS=0;NO_BROKER_WRITES=TRUE;BROWSER_ACCEPTANCE=NOT_RUN;FULL_GO_REGRESSION=REUSED')
+          } finally { Pop-Location }
+      - name: Erase original private Graphify source and generated evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-graphify-static-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){
+            $path=[IO.Path]::GetFullPath($root)
+            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+            if(-not $path.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -or
+               [IO.Path]::GetFileName($path) -cne ('kterm-graphify-static-'+$env:GITHUB_RUN_ID)){
+              throw 'KTERM_GRAPHIFY_PRIVATE_CLEANUP_REFUSED'
+            }
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host 'KTERM_GRAPHIFY_STATIC_CLEANUP=PASS;PUBLIC_PRIVATE_ARTIFACTS=0;LIVE_ORDERS=0'
+
+  owner-graphify-atlas:
+    name: K Terminal full offline Graphify source atlas G35/G44 qualification
+    # Separate from historical full Go regression and interactive/browser acceptance.
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      KTERM_SHA: 879bd65f75e1544d2125aa184596a2a8f8b972d3
+      KTERM_TREE: 468a49fbd2c2457290cf2464074934e205f62ced
+      KTERM_GO_MOD_BLOB: b3ede0d8444c08b3e7b23f1396374359b54134c6
+      KTERM_MAIN_BLOB: 7cd4591c4ed7e2d668602d8964efa65beeb0fad4
+      KTERM_G27_BLOB: 12ad7e7fecdd1e3688518e6cd651fd2dd6600075
+      KTERM_G30_BLOB: bdcc2310bf64f45769eae48b276c224b7b0b1114
+      KTERM_G31_BLOB: 551bcc4ac886f6b8aa70c91df8290714f970d7c6
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOENV: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Admit same disarmed owner and stage source-verified private static checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-recorder-firstrecord-20261110' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows') { throw 'KTERM_GRAPHIFY_OWNER_IDENTITY_REFUSED' }
+          if($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0') { throw 'KTERM_GRAPHIFY_DISARM_REFUSED' }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
+              'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')) {
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_GRAPHIFY_BROKER_ENV_REFUSED'}
+          }
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_GRAPHIFY_EXISTING_APP_PRESERVED_REFUSED'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-graphify-static-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_GRAPHIFY_STALE_WORKSPACE'}
+          [void][IO.Directory]::CreateDirectory($root)
+          $stage=Join-Path $root 'source'
+          [void][IO.Directory]::CreateDirectory($stage)
+          & git -C $stage init -q *> (Join-Path $root 'git-init-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GRAPHIFY_GIT_INIT_FAILED'}
+          & git -C $stage fetch -q --no-tags --depth=20 https://github.com/Kboomllc/K-Terminal.git $env:KTERM_SHA *> (Join-Path $root 'git-fetch-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GRAPHIFY_PRIVATE_FETCH_UNAVAILABLE'}
+          & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'git-checkout-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GRAPHIFY_CHECKOUT_FAILED'}
+          $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          if($sha -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
+             @(& git -C $stage status --porcelain).Count -ne 0){throw 'KTERM_GRAPHIFY_SHA_TREE_OR_CLEAN_DRIFT'}
+          foreach($pair in @(
+            @('go.mod',$env:KTERM_GO_MOD_BLOB),
+            @('main.go',$env:KTERM_MAIN_BLOB),
+            @('tools/graphify/g27_qualify_type_calls.py',$env:KTERM_G27_BLOB),
+            @('tools/graphify/g30_qualify_type_calls.py',$env:KTERM_G30_BLOB),
+            @('tools/graphify/g31_verify_interpackage.py',$env:KTERM_G31_BLOB)
+          )){
+            $got=(& git -C $stage rev-parse ('HEAD:'+$pair[0]) | Out-String).Trim()
+            if($got -cne $pair[1]){throw 'KTERM_GRAPHIFY_SOURCE_BLOB_DRIFT'}
+          }
+          foreach($private in @('.env','config.json','data')){
+            if(Test-Path -LiteralPath (Join-Path $stage $private)){throw 'KTERM_GRAPHIFY_PRIVATE_STATE_REFUSED'}
+          }
+          Write-Host ('KTERM_GRAPHIFY_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';DISARMED=TRUE;NO_BROKER_WRITES=TRUE')
+      - name: Prepare pinned original Windows Go 1.26.5 for standalone compiler witnesses
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Prepare pinned original Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        # Process-local policy only; do not modify registry, user or machine policy.
+        env:
+          PSExecutionPolicyPreference: Bypass
+        with:
+          python-version: '3.12'
+      - name: Generate full offline source atlas with pinned Graphify wheel and type-checked overlay
+        shell: pwsh
+        env:
+          PIP_NO_INPUT: '1'
+          PIP_DISABLE_PIP_VERSION_CHECK: '1'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-graphify-static-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $root 'source'
+          $private=Join-Path $root 'private-results'
+          [void][IO.Directory]::CreateDirectory($private)
+          function Invoke-Private([string]$name,[string]$exe,[string[]]$arguments){
+            $log=Join-Path $private ($name+'.log')
+            & $exe @arguments *> $log
+            if($LASTEXITCODE -ne 0){
+              $digest=(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ('KTERM_ATLAS_'+$name+'=FAIL;EXIT='+$LASTEXITCODE+';PRIVATE_LOG_SHA256='+$digest+';RAW_NOT_UPLOADED=TRUE')
+              throw ('KTERM_ATLAS_'+$name+'_FAILED')
+            }
+            Write-Host ('KTERM_ATLAS_'+$name+'=PASS')
+          }
+          Push-Location $stage
+          try {
+            if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_ATLAS_GO_VERSION_DRIFT'}
+            & python -c "import sys;assert sys.version_info[:2]==(3,12)" *> (Join-Path $private 'python-version.log')
+            if($LASTEXITCODE -ne 0){throw 'KTERM_ATLAS_PYTHON_VERSION_DRIFT'}
+            $venv=Join-Path $root 'isolated-python'
+            Invoke-Private 'VENVDIR' python @('-m','venv',$venv)
+            $py=Join-Path $venv 'Scripts\python.exe'
+            $graphify=Join-Path $venv 'Scripts\graphify.exe'
+            $wheels=Join-Path $root 'wheels'
+            [void][IO.Directory]::CreateDirectory($wheels)
+            Invoke-Private 'WHEEL_DOWNLOAD' $py @('-m','pip','download','--no-deps','--only-binary=:all:','--retries','1','--timeout','25','--dest',$wheels,'graphifyy==0.9.92')
+            $wheel=Join-Path $wheels 'graphifyy-0.9.92-py3-none-any.whl'
+            if(-not(Test-Path -LiteralPath $wheel -PathType Leaf)){throw 'KTERM_ATLAS_WHEEL_MISSING'}
+            $wheelHash=(Get-FileHash -LiteralPath $wheel -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($wheelHash -cne '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c'){
+              throw 'KTERM_ATLAS_WHEEL_HASH_DRIFT'
+            }
+            Write-Host 'KTERM_ATLAS_WHEEL_CUSTODY=PASS;PIN=graphifyy_0.9.92'
+            Invoke-Private 'WHEEL_INSTALL' $py @('-m','pip','install','--retries','1','--timeout','25',$wheel)
+            if(-not(Test-Path -LiteralPath $graphify -PathType Leaf)){throw 'KTERM_ATLAS_GRAPHIFY_CLI_MISSING'}
+            Invoke-Private 'CODE_ONLY_EXTRACT' $graphify @('extract','.','--code-only','--max-workers','4')
+            Invoke-Private 'NO_AI_LABELS' $graphify @('cluster-only','.')
+            $atlas=Join-Path $stage 'graphify-out'
+            foreach($f in @('graph.json','graph.html','GRAPH_REPORT.md')){
+              if(-not(Test-Path -LiteralPath (Join-Path $atlas $f) -PathType Leaf)){
+                throw 'KTERM_ATLAS_GRAPH_FILE_MISSING'
+              }
+            }
+            $graph=Get-Content -LiteralPath (Join-Path $atlas 'graph.json') -Raw|ConvertFrom-Json
+            $all=@($graph.nodes|Where-Object {$null -ne $_.community}|ForEach-Object {$_.community}|Select-Object -Unique)
+            $described=@($graph.nodes|Where-Object {
+              $null -ne $_.community -and -not [string]::IsNullOrWhiteSpace([string]$_.community_name) -and
+              [string]$_.community_name -cnotmatch '^Community\s+\d+$'
+            }|ForEach-Object {$_.community}|Select-Object -Unique)
+            if($described.Count -lt [Math]::Max(8,[int][Math]::Floor($all.Count/2))){
+              throw 'KTERM_ATLAS_COMMUNITY_LABEL_BUDGET'
+            }
+            [IO.File]::WriteAllLines((Join-Path $atlas 'source-manifest.txt'), @(
+               'repository=Kboomllc/K-Terminal',
+               ('source_sha='+$env:KTERM_SHA),
+               'graphify_version=0.9.92',
+               'graphify_wheel_sha256=9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c',
+               'extraction=code-only','labeling=no-llm'
+            ),[Text.UTF8Encoding]::new($false))
+            Invoke-Private 'GUIDE' $py @('tools/graphify/generate_readable_guide.py',$atlas)
+            Invoke-Private 'CATALOG' $py @('tools/graphify/build_file_catalog.py',$atlas)
+            Invoke-Private 'SYMBOL_REAL' $py @('tools/graphify/build_symbol_map.py',$atlas)
+            $sym=Get-Content -LiteralPath (Join-Path $atlas 'SYMBOL_MAP.json') -Raw|ConvertFrom-Json
+            if($sym.summary.source_sha -cne $env:KTERM_SHA -or
+               $sym.summary.source_linked_symbols -lt 1000 -or
+               $sym.summary.cross_file_edges -lt 100 -or
+               $sym.summary.verified_state_transitions -ne 0 -or
+               $sym.summary.observed_runtime_calls -ne 0){throw 'KTERM_ATLAS_SYMBOL_SCOPE_INVALID'}
+            $raw27=Join-Path $private 'g27-raw.json'
+            Invoke-Private 'G27_GENERATE' go @('run','tools/graphify/g27_type_calls.go','--root','.','--sha',$env:KTERM_SHA,'--out',$raw27)
+            Invoke-Private 'G27_QUALIFY' $py @('tools/graphify/g27_qualify_type_calls.py','--raw',$raw27,'--out',$atlas,'--sha',$env:KTERM_SHA)
+            $raw30=Join-Path $private 'g30-raw'
+            [void][IO.Directory]::CreateDirectory($raw30)
+            foreach($pkg in @('internal/consumedwire','internal/reportstore','cmd/chart-history')){
+              $name=$pkg.Replace('/','_')
+              Invoke-Private ('G30_'+$name) go @('run','tools/graphify/g30_type_calls.go','--root','.','--sha',$env:KTERM_SHA,'--package',('./'+$pkg),'--out',(Join-Path $raw30 ($name+'.json')))
+            }
+            $raw31=Join-Path $private 'g31-raw.json'
+            Invoke-Private 'G31_GENERATE' go @('run','tools/graphify/g31_interpackage_calls.go','--root','.','--sha',$env:KTERM_SHA,'--out',$raw31)
+            Invoke-Private 'G35_SOURCE_OVERLAY' $py @('tools/graphify/g35_unify.py','--g30-raw',$raw30,'--g31-raw',$raw31,'--atlas',$atlas,'--source-sha',$env:KTERM_SHA)
+            $overlay=Get-Content -LiteralPath (Join-Path $atlas 'G35_TYPED_OVERLAY.json') -Raw|ConvertFrom-Json
+            if($overlay.source_sha -cne $env:KTERM_SHA -or
+               $overlay.summary.qualified_g31 -lt 2 -or
+               $overlay.summary.unresolved_target_promotions -ne 0 -or
+               $overlay.summary.runtime_calls_observed -ne 0){throw 'KTERM_ATLAS_G35_SCOPE_INVALID'}
+            Invoke-Private 'G44_AST_WITNESS' go @('run','tools/graphify/g44_ast_call_witness.go','--root','.','--sha',$env:KTERM_SHA,'--input',(Join-Path $atlas 'SYMBOL_MAP.json'),'--out',(Join-Path $atlas 'G44_AST_SOURCE_WITNESS.json'))
+            $w=Get-Content -LiteralPath (Join-Path $atlas 'G44_AST_SOURCE_WITNESS.json') -Raw|ConvertFrom-Json
+            if($w.source_sha -cne $env:KTERM_SHA -or
+               $w.verified_unresolved -ne $overlay.summary.unresolved -or
+               $w.verified_resolved -lt $overlay.summary.qualified_g31 -or
+               $w.invented_target_edges -ne 0 -or
+               $w.runtime_calls_observed -ne 0){throw 'KTERM_ATLAS_G44_SCOPE_INVALID'}
+            $changed=(& git -C $stage diff --name-only HEAD -- | Out-String).Trim()
+            if($changed){throw 'KTERM_ATLAS_TRACKED_SOURCE_MODIFIED'}
+            Write-Host ('KTERM_ATLAS_STATIC_MATRIX=PASS;SHA='+$env:KTERM_SHA+
+              ';SOURCE_LINKED_SYMBOLS='+$sym.summary.source_linked_symbols+
+              ';CROSS_FILE_EDGES='+$sym.summary.cross_file_edges+
+              ';G35_QUALIFIED_G31='+$overlay.summary.qualified_g31+
+              ';G44_RESOLVED='+$w.verified_resolved+';G44_UNRESOLVED='+$w.verified_unresolved+
+              ';AI_API_CALLS=0;BROKER_CALLS=0;NO_RUNTIME=TRUE;CHROME_BROWSER=NOT_RUN')
           } finally { Pop-Location }
       - name: Erase original private Graphify source and generated evidence
         if: always()
