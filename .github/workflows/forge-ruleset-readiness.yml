@@ -46,7 +46,21 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
           [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_MAIN_SHA/check-runs" > "$RUNNER_TEMP/main-checks.json"
+          # The original main SHA accumulates 100+ unrelated issue-comment
+          # check runs. An unfiltered first page hides the two required jobs.
+          # Query each exact context independently and reject duplicates.
+          gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_MAIN_SHA/check-runs?check_name=linux&per_page=100" > "$RUNNER_TEMP/linux-checks.json"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_MAIN_SHA/check-runs?check_name=windows&per_page=100" > "$RUNNER_TEMP/windows-checks.json"
+          jq -s -e '
+            length == 2 and
+            all(.[]; .total_count == 1 and (.check_runs | length) == 1) and
+            .[0].check_runs[0].name == "linux" and
+            .[1].check_runs[0].name == "windows"
+          ' "$RUNNER_TEMP/linux-checks.json" "$RUNNER_TEMP/windows-checks.json" >/dev/null
+          jq -s '{
+            total_count: 2,
+            check_runs: (.[0].check_runs + .[1].check_runs)
+          }' "$RUNNER_TEMP/linux-checks.json" "$RUNNER_TEMP/windows-checks.json" > "$RUNNER_TEMP/main-checks.json"
           go run ./cmd/forge-required-policy-check \
             --repository "$GITHUB_REPOSITORY" \
             --main-sha "$EXPECTED_MAIN_SHA" \
