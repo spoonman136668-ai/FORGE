@@ -14,9 +14,9 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 0aaec16c48dd0c34dc69e3c6db9530fd5e77276b
+      KTERM_SHA: e183d85e6f8da112b67e84163a3e1e06e58e1c1b
       KTERM_BASE: cea643af9d5abf3b18e45c5f33cae01694677cc2
-      KTERM_TREE: 3a7a729be662385c8956ef4990b68a57525540c4
+      KTERM_TREE: 3083431d2745c234f2dfdead51f21a0016c1dab8
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -79,7 +79,7 @@ jobs:
             throw 'KTERM_PR96_IMMUTABLE_SOURCE_DRIFT'
           }
           $blobs=@{
-            'tools/qualification/p5_assemble_source_bound_firstuse.ps1'='ec538e4009cca3db0e341201aa01422560adb582'
+            'tools/qualification/p5_assemble_source_bound_firstuse.ps1'='2fd41455fbebae1b46b2b5e75dce52f92c6b7c5e'
             'tools/qualification/p5_verify_firstuse_archive.py'='6809d639ac8191d15210f068ea369c675d09e20a'
             'tools/qualification/test_p5_verify_firstuse_archive.py'='cc00e430e60930b871b50bd9dcf856e1aef655c0'
             'pkg/native-snapshot-freshness_test.go'='1a1f58fba665c48f530c907fb83cf4d120481ecd'
@@ -107,9 +107,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Mandatory full exact-candidate Windows Go regression and vet
-        # Exact source/tree already qualified in 43217575136: focused 3x PASS,
-        # full Windows go test PASS (1607704 ms), go vet PASS (9992 ms).
-        # Reuse proof only while candidate SHA/tree and owner contract stay frozen.
+        # This is a bounded package-only DEV preflight for the modified script.
+        # Full final Windows regression on e183d85e... is still REQUIRED
+        # before any merge, release or original desktop first-use acceptance.
         if: ${{ false }}
         shell: pwsh
         run: |
@@ -366,7 +366,7 @@ jobs:
             }
             Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=FAIL;EXIT='+$exit+
                ';MS='+$clock.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$digest+
-               ';REGRESSION=PASS_REUSED_43217575136')
+               ';REGRESSION=NOT_RUN_CANDIDATE')
             throw 'KTERM_PR96_FIRSTUSE_PACKAGE_FAILED'
           }
           $proof=Get-Content -LiteralPath (Join-Path $out 'FIRST-USE-RECEIPT.json') -Raw|ConvertFrom-Json
@@ -381,7 +381,7 @@ jobs:
           }
           Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=PASS;ZIP_SHA256='+$proof.archive_sha256+
             ';BINARIES='+$proof.binaries+';FILES='+$proof.files+
-            ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION=PASS_REUSED_43217575136'+
+            ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION=NOT_RUN_CANDIDATE'+
             ';NEGATIVE_CONTROLS=PASS;WPF_SMOKE=NOT_RUN'+
             ';LIVE_ORDERS=0;NO_INSTALL=TRUE;FIELD=UNVERIFIED'+
             ';PRIVATE_BINARIES_NOT_UPLOADED=TRUE')
