@@ -262,6 +262,10 @@ jobs:
           $src=Join-Path $root 'source'
           $out=Join-Path $root 'artifact-only'
           $script=Join-Path $src 'tools/qualification/p5_assemble_source_bound_firstuse.ps1'
+          foreach($name in @('git.exe','go.exe','python.exe','powershell.exe')){
+            $present=$null-ne(Get-Command $name -CommandType Application -ErrorAction SilentlyContinue)
+            Write-Host ('KTERM_PR96_PACKAGE_TOOL_PRESENT_'+$name.ToUpperInvariant()+'='+$present)
+          }
           $clock=[Diagnostics.Stopwatch]::StartNew()
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File $script -ExpectedSourceSha $env:KTERM_SHA -ExpectedTreeSha $env:KTERM_TREE -SourceRoot $src -OutputDirectory $out *> (Join-Path $root 'package.private.log')
           $exit=$LASTEXITCODE
@@ -278,6 +282,20 @@ jobs:
               Write-Host ('KTERM_PR96_PACKAGING_FAILURE_CODE='+$code)
             }
             if($codes.Count-eq0){
+              $allowed=@('go','go.exe','git','git.exe','python','python.exe',
+                'powershell','powershell.exe','Get-Item','Get-FileHash','Get-Command',
+                'Get-Process','Get-Content','ConvertFrom-Json','Join-Path','Split-Path',
+                'Sort-Object','Test-Path','Assert-Plain','Hash','Get-ChildItem')
+              $term=[regex]::Match($raw,"The term '([^'\r\n]{1,80})' is not recognized")
+              if($term.Success -and $term.Groups[1].Value -cin $allowed){
+                Write-Host ('KTERM_PR96_UNAVAILABLE_COMMAND='+$term.Groups[1].Value)
+              }else{
+                Write-Host 'KTERM_PR96_UNAVAILABLE_COMMAND=UNCLASSIFIED'
+              }
+              $line=[regex]::Match($raw,'p5_assemble_source_bound_firstuse\.ps1:(\d{1,3})')
+              if($line.Success){
+                Write-Host ('KTERM_PR96_ASSEMBLER_FAIL_LINE='+$line.Groups[1].Value)
+              }
               $kind='UNCLASSIFIED'
               if($raw -match 'ParserError|Unexpected token|Missing closing'){
                 $kind='POWERSHELL_PARSER_ERROR'
