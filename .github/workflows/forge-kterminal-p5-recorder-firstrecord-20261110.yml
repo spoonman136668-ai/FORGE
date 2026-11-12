@@ -656,6 +656,93 @@ jobs:
                $w.verified_resolved -lt $overlay.summary.qualified_g31 -or
                $w.invented_target_edges -ne 0 -or
                $w.runtime_calls_observed -ne 0){throw 'KTERM_ATLAS_G44_SCOPE_INVALID'}
+            # G24/G35 genuine browser acceptance; no machine-global Chrome installation.
+            # The browser is an isolated signed Chrome for Testing copy, removed by always-cleanup.
+            $chromeVersion='157.0.8103.78'
+            $chromeUri='https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.78/win64/chrome-win64.zip'
+            $chromeZip=Join-Path $root 'chrome-for-testing-official.zip'
+            $chromeExtract=Join-Path $root 'chrome-extracted'
+            $brandRoot=Join-Path $root 'private-google-chrome'
+            $chromeParent=Join-Path $brandRoot 'Google\Chrome'
+            $chromeApplication=Join-Path $chromeParent 'Application'
+            $chromeLog=Join-Path $private 'chrome-download-private.log'
+            $volume=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($root))
+            if($volume.AvailableFreeSpace -lt 2147483648){throw 'KTERM_CHROME_PRIVATE_DISK_BUDGET_REFUSED'}
+            try {
+              Invoke-WebRequest -Uri $chromeUri -OutFile $chromeZip -UseBasicParsing -TimeoutSec 180 -MaximumRedirection 2 *> $chromeLog
+            } catch {
+              Write-Host 'KTERM_CHROME_FOR_TESTING_DOWNLOAD=UNAVAILABLE;OFFICIAL_ONLY=TRUE;NO_FALLBACK=TRUE'
+              throw 'KTERM_CHROME_OFFICIAL_DOWNLOAD_FAILED'
+            }
+            $zipSize=(Get-Item -LiteralPath $chromeZip).Length
+            if($zipSize -lt 50000000 -or $zipSize -gt 350000000){throw 'KTERM_CHROME_ZIP_SIZE_REFUSED'}
+            $zipHash=(Get-FileHash -LiteralPath $chromeZip -Algorithm SHA256).Hash.ToLowerInvariant()
+            Expand-Archive -LiteralPath $chromeZip -DestinationPath $chromeExtract -Force
+            [void][IO.Directory]::CreateDirectory($chromeParent)
+            $extracted=Join-Path $chromeExtract 'chrome-win64'
+            if(-not(Test-Path -LiteralPath (Join-Path $extracted 'chrome.exe') -PathType Leaf)){
+              throw 'KTERM_CHROME_PORTABLE_ARCHIVE_LAYOUT_REFUSED'
+            }
+            Move-Item -LiteralPath $extracted -Destination $chromeApplication -ErrorAction Stop
+            $chromeExe=Join-Path $chromeApplication 'chrome.exe'
+            $signature=Get-AuthenticodeSignature -LiteralPath $chromeExe
+            $signer=[string]$signature.SignerCertificate.Subject
+            $version=[string](Get-Item -LiteralPath $chromeExe).VersionInfo.FileVersion
+            if($signature.Status -ne 'Valid' -or $signer -notmatch 'Google LLC' -or
+                $version -notmatch '^157[.]0[.]8103[.]78([.]|$)'){
+              throw 'KTERM_CHROME_SIGNER_OR_VERSION_REFUSED'
+            }
+            $chromeHash=(Get-FileHash -LiteralPath $chromeExe -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host ('KTERM_CHROME_OFFICIAL_PORTABLE=PASS;VERSION='+$chromeVersion+
+              ';ZIP_SHA256='+$zipHash+';SIGNED_EXE_SHA256='+$chromeHash+
+              ';GOOGLE_AUTHENTICODE_VALID=TRUE;MACHINE_INSTALL=FALSE')
+            Invoke-Private 'PLAYWRIGHT_PINNED_INSTALL' $py @('-m','pip','install','--only-binary=:all:','--retries','1','--timeout','25','playwright==1.56.0')
+            & $py -c "from importlib.metadata import version;assert version('playwright')=='1.56.0'" *> (Join-Path $private 'playwright-version-private.log')
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PLAYWRIGHT_PIN_DRIFT'}
+            # Playwright chrome-channel on Windows resolves LOCALAPPDATA/PROGRAMFILES.
+            # Override only in this process to the private Google-signed Chrome for Testing tree.
+            $env:PROGRAMFILES=$brandRoot
+            $env:LOCALAPPDATA=$brandRoot
+            $env:TEMP=Join-Path $root 'browser-temp'
+            $env:TMP=$env:TEMP
+            [void][IO.Directory]::CreateDirectory($env:TEMP)
+            $g24Evidence=Join-Path $root 'browser-g24-private'
+            Invoke-Private 'G24_REAL_CHROME' $py @('tools/graphify/g24_browser_acceptance.py',
+              '--atlas',(Join-Path $atlas 'KTERMINAL_SYMBOLS.html'),
+              '--source-sha',$env:KTERM_SHA,'--evidence',$g24Evidence)
+            $g24=Get-Content -LiteralPath (Join-Path $g24Evidence 'g24-receipt.json') -Raw | ConvertFrom-Json
+            if($g24.source_sha -cne $env:KTERM_SHA -or $g24.data_scope -cne 'real-source' -or
+              $g24.chrome_real_browser -ne $true -or $g24.offline_context -ne $true -or
+              $g24.external_requests -ne 0 -or $g24.browser_page_errors -ne 0 -or
+              $g24.trading_runtime_executed -ne $false -or
+              $g24.desktop_application_release_qualified -ne $false){
+              throw 'KTERM_G24_BROWSER_RECEIPT_BOUNDARY_REFUSED'
+            }
+            $g35Evidence=Join-Path $root 'browser-g35-private'
+            Invoke-Private 'G35_REAL_CHROME' $py @('tools/graphify/g35_browser_check.py',
+              '--atlas',(Join-Path $atlas 'KTERMINAL_SYMBOLS.html'),
+              '--sha',$env:KTERM_SHA,'--evidence',$g35Evidence)
+            $g35=Get-Content -LiteralPath (Join-Path $g35Evidence 'G35_BROWSER_RECEIPT.json') -Raw | ConvertFrom-Json
+            if($g35.source_sha -cne $env:KTERM_SHA -or $g35.external_requests -ne 0 -or
+              $g35.page_errors -ne 0 -or $g35.trading_execution -ne $false -or
+              $g35.desktop_release_qualified -ne $false -or
+              $g35.g40_real_source_lines_verified -ne $true -or
+              $g35.g42_complete_unresolved_browser_inventory -ne $g35.g40_unresolved_site_count -or
+              $g35.g42_complete_unresolved_browser_inventory -le 75 -or
+              $g35.g42_no_invented_links -ne $true -or
+              $g35.g46_exact_file_drilldown_verified -ne $true -or
+              $g35.g47_exact_incoming_source_declaration_verified -ne $true -or
+              $g35.g49_exact_incoming_caller_file_traversal_verified -ne $true -or
+              $g35.g51_exact_compiler_declaration_return -ne $true -or
+              $g35.g53_no_unknown_target_promotion -ne $true -or
+              $g35.g55_pinned_source_confidence_preserved -ne $true){
+              throw 'KTERM_G35_BROWSER_RECEIPT_BOUNDARY_REFUSED'
+            }
+            Write-Host ('KTERM_BROWSER_REAL_SOURCE=PASS;SHA='+$env:KTERM_SHA+
+              ';CHROME_VERSION='+$chromeVersion+';G24=PASS;G35=PASS'+
+              ';G40_G42_SITES='+$g35.g40_unresolved_site_count+
+              ';OFFLINE=TRUE;EXTERNAL_REQUESTS=0;BROKER_CALLS=0;INSTALL=FALSE'+
+              ';DESKTOP_RUNTIME_ACCEPTANCE=NOT_RUN;RAW_SCREENSHOTS_PRIVATE=TRUE')
             $changed=(& git -C $stage diff --name-only HEAD -- | Out-String).Trim()
             if($changed){throw 'KTERM_ATLAS_TRACKED_SOURCE_MODIFIED'}
             Write-Host ('KTERM_ATLAS_STATIC_MATRIX=PASS;SHA='+$env:KTERM_SHA+
