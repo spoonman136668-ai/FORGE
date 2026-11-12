@@ -17,9 +17,9 @@ import (
  "time"
 )
 
-func testWriter(t *testing.T)(*SignedCheckpointWriter,*Client){
+func testWriter(t *testing.T)(*SignedCheckpointWriter,*Client,*sim){
  t.Helper()
- observer,_,_:=fixture(t)
+ observer,simulated,_:=fixture(t)
  pub,key:=kpair("signed-checkpoint-writer-fixture")
  certTemplate:=&x509.Certificate{
   SerialNumber:big.NewInt(17),
@@ -41,23 +41,23 @@ func testWriter(t *testing.T)(*SignedCheckpointWriter,*Client){
   Certificate:tls.Certificate{Certificate:[][]byte{der},PrivateKey:key},
   ServerSPKISHA256:hx("f",64),
  }
- if _,err:=NewSignedCheckpointWriter(server,observer.pin,writerID,writerID);err==nil{
+ if _,err:=NewSignedCheckpointWriter(server,observer.pin,writerID,writerID,observer);err==nil{
   t.Fatal("reader identity reused for writer")
  }
- if _,err:=NewSignedCheckpointWriter(server,observer.pin,hx("e",64),hx("1",64));err==nil{
+ if _,err:=NewSignedCheckpointWriter(server,observer.pin,hx("e",64),hx("1",64),observer);err==nil{
   t.Fatal("unmatched writer certificate SPKI accepted")
  }
  unsafe:=server;unsafe.BaseURL="http://authority.forge.test"
- if _,err:=NewSignedCheckpointWriter(unsafe,observer.pin,hx("e",64),writerID);err==nil{
+ if _,err:=NewSignedCheckpointWriter(unsafe,observer.pin,hx("e",64),writerID,observer);err==nil{
   t.Fatal("plaintext FSA checkpoint transport accepted")
  }
  unsafe=server;unsafe.Roots=nil
- if _,err:=NewSignedCheckpointWriter(unsafe,observer.pin,hx("e",64),writerID);err==nil{
+ if _,err:=NewSignedCheckpointWriter(unsafe,observer.pin,hx("e",64),writerID,observer);err==nil{
   t.Fatal("missing authority TLS roots accepted")
  }
- w,err:=NewSignedCheckpointWriter(server,observer.pin,hx("e",64),writerID)
+ w,err:=NewSignedCheckpointWriter(server,observer.pin,hx("e",64),writerID,observer)
  if err!=nil{t.Fatal(err)}
- return w,observer
+ return w,observer,simulated
 }
 
 func testSignedWriteInput(t *testing.T,c *Client)(context.Context,func() (SignedCheckpointReceipt,error),SignedCheckpointReceipt){
@@ -73,13 +73,13 @@ func testSignedWriteInput(t *testing.T,c *Client)(context.Context,func() (Signed
   ExecutionAuthorized:false}
  ctx:=context.Background()
  return ctx,func()(SignedCheckpointReceipt,error){
-  w,_:=testWriter(t)
+  w,_,_:=testWriter(t)
   return w.Submit(ctx,anchor,signed)
  },expected
 }
 
 func TestSignedCheckpointWriterUsesExactlyOneAuthenticatedSignedRequest(t *testing.T){
- w,observer:=testWriter(t)
+ w,observer,simulated:=testWriter(t)
  anchor,err:=observer.ReadAnchor(context.Background())
  if err!=nil{t.Fatal(err)}
  _,_,signer:=fixture(t)
@@ -100,6 +100,11 @@ func TestSignedCheckpointWriterUsesExactlyOneAuthenticatedSignedRequest(t *testi
    received.SignedCheckpoint.SignatureHex!=signed.SignatureHex{
    t.Fatal("unsigned or modified request")
   }
+  simulated.Lock()
+  simulated.current.Sequence=signed.Payload.Sequence
+  simulated.current.HeadSHA256=signed.Payload.HeadSHA256
+  simulated.revision++
+  simulated.Unlock()
   response:=jsonResponse(http.StatusOK,expected)
   response.Header.Set("Content-Type","application/json")
   return response,nil
@@ -115,7 +120,7 @@ func TestSignedCheckpointWriterIndeterminateTransportAndReplyNeverReplay(t *test
  for _,kind:=range []string{"transport","conflict","unwitnessed","wrong_seq","wrong_head",
   "authorization_claim","wrong_schema","unknown_field","duplicate_field","redirect"}{
   t.Run(kind,func(t *testing.T){
-   w,observer:=testWriter(t)
+   w,observer,_:=testWriter(t)
    anchor,err:=observer.ReadAnchor(context.Background());if err!=nil{t.Fatal(err)}
    _,_,signer:=fixture(t)
    signed:=signHead(t,anchor,signer,1,hx("d",64))
@@ -157,7 +162,7 @@ func TestSignedCheckpointWriterIndeterminateTransportAndReplyNeverReplay(t *test
 }
 
 func TestSignedCheckpointWriterRejectsForgedPayloadWithoutRequest(t *testing.T){
- w,observer:=testWriter(t)
+ w,observer,_:=testWriter(t)
  anchor,err:=observer.ReadAnchor(context.Background());if err!=nil{t.Fatal(err)}
  _,_,signer:=fixture(t)
  signed:=signHead(t,anchor,signer,1,hx("d",64))
@@ -168,5 +173,49 @@ func TestSignedCheckpointWriterRejectsForgedPayloadWithoutRequest(t *testing.T){
  })
  if _,err:=w.Submit(context.Background(),anchor,signed);!errors.Is(err,ErrSignedWriterBlocked)||calls!=0{
   t.Fatal("forged signed checkpoint was transmitted",err,calls)
+ }
+}
+
+func TestSignedWriterRejectsAuthorityAckWithoutIndependentWitness(t *testing.T){
+ for _,kind:=range []string{"no_advance","forged_witness","lost_witness","unbound_archive"}{
+  t.Run(kind,func(t *testing.T){
+   w,observer,simulated:=testWriter(t)
+   anchor,err:=observer.ReadAnchor(context.Background())
+   if err!=nil{t.Fatal(err)}
+   _,_,signer:=fixture(t)
+   signed:=signHead(t,anchor,signer,1,hx("d",64))
+   if kind!="no_advance"{
+    simulated.Lock()
+    simulated.current.Sequence=signed.Payload.Sequence
+    simulated.current.HeadSHA256=signed.Payload.HeadSHA256
+    simulated.revision++
+    switch kind{
+    case "forged_witness":simulated.badSignature=true
+    case "lost_witness":simulated.outage=true
+    case "unbound_archive":simulated.binding=false
+    }
+    simulated.Unlock()
+   }
+   calls:=0
+   w.client.Transport=roundTripFunc(func(*http.Request)(*http.Response,error){
+    calls++
+    response:=jsonResponse(http.StatusOK,SignedCheckpointReceipt{
+     Schema:SignedCheckpointRequestSchema,
+     WitnessedSequence:signed.Payload.Sequence,
+     WitnessedHeadSHA256:signed.Payload.HeadSHA256,
+     ExecutionAuthorized:false,
+    })
+    response.Header.Set("Content-Type","application/json")
+    return response,nil
+   })
+   if _,err:=w.Submit(context.Background(),anchor,signed);
+    !errors.Is(err,ErrSignedWriterIndeterminate)||calls!=1{
+    t.Fatalf("authority-only success accepted: %v calls=%d",err,calls)
+   }
+   if _,err:=w.Submit(context.Background(),anchor,signed);
+    !errors.Is(err,ErrSignedWriterAlreadyAttempted)||calls!=1{
+    t.Fatalf("uncertain authority response retried: %v calls=%d",err,calls)
+   }
+  })
  }
 }
