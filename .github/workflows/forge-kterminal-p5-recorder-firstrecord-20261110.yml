@@ -269,11 +269,8 @@ jobs:
           # Verify the same tools resolve inside the Windows PowerShell 5.1 child.
           # This is GET-only and prints only booleans.
           $probe=Join-Path $root 'winps-command-probe.private.log'
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @'
-foreach($name in @('git.exe','go.exe','python.exe','powershell.exe')){
-  Write-Output ($name+':'+[bool](Get-Command $name -CommandType Application -ErrorAction SilentlyContinue))
-}
-'@ *> $probe
+          $cmd='foreach($name in @("git.exe","go.exe","python.exe","powershell.exe")){Write-Output ($name+":"+[bool](Get-Command $name -CommandType Application -ErrorAction SilentlyContinue))}'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command $cmd *> $probe
           $probeSuccess=$LASTEXITCODE-eq0
           Write-Host ('KTERM_PR96_WINDOWS_POWERSHELL_TOOL_PROBE=EXIT_'+$LASTEXITCODE)
           if($probeSuccess){
