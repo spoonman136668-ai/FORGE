@@ -1,0 +1,104 @@
+name: FORGE ACC G60 real RTX CUDA authenticated GPT-2 baseline
+on:
+  push:
+    branches: [research/acc-g60-cuda-gpt2-20261030]
+    paths:
+      - 'research/acc_g60/**'
+      - '.github/workflows/forge-acc-g60-cuda-gpt2.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-acc-g60-readonly-rtx
+  cancel-in-progress: false
+jobs:
+  g60-cuda-model:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen prereg and standard-library tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'G60_SOURCE_SHA_MISMATCH' }
+          if (-not (Test-Path 'docs/research/ACC-G60-PREEXEC-20261030.md')) { throw 'G60_PREREG_MISSING' }
+          $python = Get-Command 'python' -ErrorAction Stop
+          & $python.Source -m py_compile research/acc_g60/g60_gpu_baseline.py research/acc_g60/test_g60_source.py
+          if ($LASTEXITCODE -ne 0) { throw 'G60_COMPILE_FAIL' }
+          & $python.Source -m unittest discover -s research/acc_g60 -p test_g60_source.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'G60_UNIT_TEST_FAIL' }
+          Write-Output 'G60_PINNED_SOURCE_TESTS=PASS'
+      - name: Create disposable isolated GPU runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $drive = (Get-Item $env:RUNNER_TEMP).PSDrive
+          if ($drive.Free -lt 9000000000) { throw 'G60_TEMP_DISK_CAPACITY_BELOW_9_GB' }
+          $venv = Join-Path $env:RUNNER_TEMP 'acc-g60-venv'
+          $model = Join-Path $env:RUNNER_TEMP 'acc-g60-model'
+          $hf = Join-Path $env:RUNNER_TEMP 'acc-g60-hf'
+          foreach ($p in @($venv,$model,$hf)) {
+            if (Test-Path -LiteralPath $p) { throw "G60_TEMP_PATH_COLLISION: $p" }
+          }
+          $python = Get-Command 'python' -ErrorAction Stop
+          & $python.Source -c 'import sys; assert (3,10)<=sys.version_info[:2]<=(3,13), sys.version'
+          if ($LASTEXITCODE -ne 0) { throw 'G60_PYTHON_WHEEL_COMPATIBILITY_FAIL' }
+          & $python.Source -m venv $venv
+          if ($LASTEXITCODE -ne 0) { throw 'G60_ISOLATED_VENV_FAILED' }
+          Write-Output 'G60_ISOLATED_VENV=PASS'
+      - name: Install pinned CUDA 12.8 compatible PyTorch and local-only inference dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = Join-Path $env:RUNNER_TEMP 'acc-g60-venv\Scripts\python.exe'
+          $env:PYTHONNOUSERSITE = '1'
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+          if ($LASTEXITCODE -ne 0) { throw 'G60_PINNED_CUDA_TORCH_INSTALL_FAILED' }
+          & $py -m pip install --disable-pip-version-check --no-cache-dir 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1'
+          if ($LASTEXITCODE -ne 0) { throw 'G60_PINNED_TRANSFORMER_INSTALL_FAILED' }
+          & $py -m pip freeze | Out-File -LiteralPath 'g60_pip_freeze.txt' -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'G60_ENVIRONMENT_IDENTITY_FAILED' }
+          Write-Output 'G60_CUDA_RUNTIME_INSTALLED_IN_DISPOSABLE_VENV=PASS'
+      - name: Execute real CUDA matmul and SHA-pinned GPT-2 prefill/incremental decode
+        shell: pwsh
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          HF_HUB_DISABLE_XET: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          PYTHONNOUSERSITE: '1'
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = Join-Path $env:RUNNER_TEMP 'acc-g60-venv\Scripts\python.exe'
+          $env:HF_HOME = Join-Path $env:RUNNER_TEMP 'acc-g60-hf'
+          $env:G60_MODEL_ROOT = Join-Path $env:RUNNER_TEMP 'acc-g60-model'
+          $env:G60_OUTPUT_PATH = Join-Path (Get-Location).Path 'g60_result.json'
+          & $py -u research/acc_g60/g60_gpu_baseline.py
+          if ($LASTEXITCODE -ne 0) { throw 'G60_CUDA_AUTHENTIC_LM_BENCH_FAILED_OR_BLOCKED' }
+          & $py -c 'import json; r=json.load(open("g60_result.json",encoding="utf-8")); assert r["status"]=="PASS_REAL_CUDA_AUTHENTIC_MODEL"; assert len(r["results"])==2; assert all(len(x["gpu_runs"])==5 and x["greedy_output_match_cpu"] for x in r["results"]); assert r["scientific_acceptance"]=="NOT_GRANTED"; assert not r["novel_acceleration_established"]; print("G60_AUTHENTIC_GPU_BENCH=PASS")'
+          if ($LASTEXITCODE -ne 0) { throw 'G60_ACCEPTANCE_INVARIANT_FAILED' }
+      - name: Upload immutable real GPU run receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc-g60-rtx-gpt2-real-gpu
+          path: |
+            g60_result.json
+            g60_pip_freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Delete disposable runtime and model copies
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('acc-g60-venv','acc-g60-model','acc-g60-hf')) {
+            $path = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Output 'G60_ISOLATED_RUNTIME_CLEANUP=PASS'
