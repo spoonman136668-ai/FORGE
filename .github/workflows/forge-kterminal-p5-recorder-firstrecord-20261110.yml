@@ -14,9 +14,9 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: e183d85e6f8da112b67e84163a3e1e06e58e1c1b
+      KTERM_SHA: b71fabf0f24e0020a4feb8f48bac48f5acf38598
       KTERM_BASE: cea643af9d5abf3b18e45c5f33cae01694677cc2
-      KTERM_TREE: 3083431d2745c234f2dfdead51f21a0016c1dab8
+      KTERM_TREE: ee649187911229a91eb72896a189096ac4cd2720
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -80,23 +80,24 @@ jobs:
           }
           $blobs=@{
             'tools/qualification/p5_assemble_source_bound_firstuse.ps1'='2fd41455fbebae1b46b2b5e75dce52f92c6b7c5e'
-            'tools/qualification/p5_verify_firstuse_archive.py'='6809d639ac8191d15210f068ea369c675d09e20a'
-            'tools/qualification/test_p5_verify_firstuse_archive.py'='cc00e430e60930b871b50bd9dcf856e1aef655c0'
+            'tools/qualification/p5_verify_firstuse_archive.py'='05bdd14bb158829a1b51e6279469707cf8c5c118'
+            'tools/qualification/test_p5_verify_firstuse_archive.py'='c6c2fcf0ec0edd6fa8ed45a776e3afb5dbcbb239'
             'pkg/native-snapshot-freshness_test.go'='1a1f58fba665c48f530c907fb83cf4d120481ecd'
+            'application-launch.ps1'='5fbf25b8e3f0d621225c0d9220554466ced085db'
           }
           foreach($p in $blobs.Keys){
             $actual=(& git -C $src rev-parse ('HEAD:'+$p) | Out-String).Trim()
             if($actual -cne $blobs[$p]){throw 'KTERM_PR96_QUALIFIER_BLOB_DRIFT'}
           }
           $changed=@(& git -C $src diff --name-only $env:KTERM_BASE $env:KTERM_SHA)
-          if($LASTEXITCODE-ne0 -or $changed.Count-ne4 -or
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne5 -or
              @($changed|Where-Object{$_ -cnotin @($blobs.Keys)}).Count-ne0){
-            throw 'KTERM_PR96_FOUR_FILE_SCOPE_DRIFT'
+            throw 'KTERM_PR96_FIVE_FILE_SCOPE_DRIFT'
           }
           foreach($private in @('config.json','data','reporting','logs','notifications','.env')){
             if(Test-Path -LiteralPath (Join-Path $src $private)){throw 'KTERM_PR96_PRIVATE_STATE_REFUSED'}
           }
-          Write-Host ('KTERM_PR96_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CODE_DIFF=0;TEST_ONLY_GO_CHANGE=1')
+          Write-Host ('KTERM_PR96_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=FIRSTUSE_PAPER_DEFAULT_ONLY;NATIVE_GO_BLOBS_UNCHANGED=TRUE')
       - name: Pinned original Windows Go toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
@@ -107,10 +108,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Mandatory full exact-candidate Windows Go regression and vet
-        # This is a bounded package-only DEV preflight for the modified script.
-        # Full final Windows regression on e183d85e... is still REQUIRED
-        # before any merge, release or original desktop first-use acceptance.
-        if: ${{ false }}
+        # Mandatory full exact candidate regression since launcher code changed.
+        # Previous qualified Go blob receipts alone are not acceptance.
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -381,7 +380,7 @@ jobs:
           }
           Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=PASS;ZIP_SHA256='+$proof.archive_sha256+
             ';BINARIES='+$proof.binaries+';FILES='+$proof.files+
-            ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION=NOT_RUN_CANDIDATE'+
+            ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION=PASS_CURRENT_CANDIDATE'+
             ';NEGATIVE_CONTROLS=PASS;WPF_SMOKE=NOT_RUN'+
             ';LIVE_ORDERS=0;NO_INSTALL=TRUE;FIELD=UNVERIFIED'+
             ';PRIVATE_BINARIES_NOT_UPLOADED=TRUE')
@@ -540,11 +539,11 @@ jobs:
           }
           $data=Join-Path $sandbox 'data'
           [void][IO.Directory]::CreateDirectory($data)
-          # An isolated *smoke-only* preference is required: the real default UI
-          # is LIVE. No real saved profile, credentials, or installed paths exist.
-          $prefs=[ordered]@{schema_version=3;asset='BTC-USDC';mode='PAPER';layout='STACKED'}
-          [IO.File]::WriteAllText((Join-Path $data 'ui-preferences-smoke.json'),
-             ($prefs|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+          # Cold first-use: do not preseed PAPER preferences. Product must
+          # select PAPER on its own, without config or broker credentials.
+          if(Test-Path -LiteralPath (Join-Path $data 'ui-preferences-smoke.json')){
+            throw 'KTERM_PR96_SMOKE_PREFERENCES_NOT_FRESH'
+          }
           $script=Join-Path $sandbox 'application-launch.ps1'
           $psi=[Diagnostics.ProcessStartInfo]::new()
           $psi.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
@@ -609,7 +608,7 @@ jobs:
           }
           Write-Host ('KTERM_PR96_FIRSTUSE_PAPER_PRELAUNCH=PASS;EXIT=0;MS='+$clock.ElapsedMilliseconds+
             ';SOURCE='+$env:KTERM_SHA+';ZIP_SHA256='+$receipt.archive_sha256+
-            ';SMOKE_SESSION=DISARMED_PAPER;CONFIG_CREATED=FALSE;LIVE_ORDERS=0'+
+            ';SMOKE_SESSION=DISARMED_PAPER;COLD_DEFAULT=PAPER;CONFIG_CREATED=FALSE;LIVE_ORDERS=0'+
             ';ENGINE_LAUNCHED=FALSE;DASHBOARD_LAUNCHED=FALSE;REAL_EXE_FIRST_USE=NOT_RUN'+
             ';CLEAN_EXIT=TRUE;PRIVATE_LOG_SHA256='+$digest)
       - name: Erase only this disposable private source and package stage
