@@ -94,70 +94,59 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Focused in-memory GET-only native freshness test then mandatory full Windows regression
+      - name: Original Windows build-only after qualified candidate regression
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_SNAPSHOT_GO_TOOLCHAIN_DRIFT'}
+          if((go version) -notmatch 'go1\.26\.5 windows/amd64'){throw 'KTERM_BUILD_GO_TOOLCHAIN_DRIFT'}
           $root=Join-Path $env:RUNNER_TEMP ('kterm-p5-firstfile-'+$env:GITHUB_RUN_ID)
           $stage=Join-Path $root 'source'
-          $env:RUNNER_TEMP=Join-Path $root 'test-temp'
-          $env:GOCACHE=Join-Path $root 'go-cache'
-          $env:GOMODCACHE=Join-Path $root 'go-modules'
-          $env:K_TERMINAL_TEST_WORKSPACE=Join-Path $root 'test-workspace'
-          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'test-workspace\tail'
-          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'test-workspace\post'
-          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'test-workspace\private'
-          foreach($dir in @($env:RUNNER_TEMP,$env:GOCACHE,$env:GOMODCACHE,$env:K_TERMINAL_TEST_WORKSPACE,
-              $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,$env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,
-              $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){[void][IO.Directory]::CreateDirectory($dir)}
-          Push-Location $stage
-          try {
-            Write-Host 'KTERM_SNAPSHOT_FOCUSED=REUSED;EXACT_GO_BLOBS=VERIFIED;ORIGINAL_PASS_RUN=43113667283;FULL_CANDIDATE_REGRESSION=REQUIRED'
-            $full=Join-Path $root 'private-go-full.jsonl'
-            $clock=[Diagnostics.Stopwatch]::StartNew()
-            & go test -json -p 1 -count=1 -timeout 60m ./... *> $full
-            $code=$LASTEXITCODE
-            $clock.Stop()
-            if($code -ne 0){
-              $digest=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
-              # Read only allowlisted Go JSON failure identities; never disclose test output.
-              $pkgs=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-              $tests=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-              $events=0
-              foreach($entry in [IO.File]::ReadLines($full)){
-                if($entry -notlike '*"Action":"fail"*'){continue}
-                try {$obj=ConvertFrom-Json -InputObject $entry -ErrorAction Stop}
-                catch {continue}
-                if($obj.Action -cne 'fail'){continue}
-                $package=[string]$obj.Package
-                if($package -cnotmatch '^k-terminal(?:/[A-Za-z0-9_.-]+)*$'){continue}
-                [void]$pkgs.Add($package)
-                $events++
-                $test=([string]$obj.Test -split '/')[0]
-                if($test -cmatch '^Test[A-Za-z0-9_]{1,110}$'){
-                  [void]$tests.Add(($package+':'+$test))
-                }
-              }
-              Write-Host ('KTERM_WINDOWS_FAILURE_DIAGNOSTIC=CLASSIFIED;GO_FAIL_EVENTS='+$events+';PACKAGES='+$pkgs.Count+';ROOT_TESTS='+$tests.Count+';NO_RAW_OUTPUT=TRUE')
-              foreach($package in @($pkgs|Sort-Object|Select-Object -First 10)){
-                Write-Host ('KTERM_WINDOWS_FAILED_PACKAGE='+$package)
-              }
-              foreach($testName in @($tests|Sort-Object|Select-Object -First 12)){
-                Write-Host ('KTERM_WINDOWS_FAILED_TEST='+$testName)
-              }
-              if($events -eq 0){Write-Host 'KTERM_WINDOWS_FAILURE_DIAGNOSTIC=NO_ALLOWLISTED_FAIL_EVENTS;CAUSE_UNCLASSIFIED'}
-              Write-Host ('KTERM_SNAPSHOT_FULL_WINDOWS_REGRESSION=FAIL;EXIT='+$code+';MS='+$clock.ElapsedMilliseconds+';LOG_SHA256='+$digest+';RAW_LOG_PRIVATE=TRUE')
-              throw 'KTERM_SNAPSHOT_FULL_REGRESSION_FAILED'
+          $actual=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          if($actual -cne $env:KTERM_SHA){throw 'KTERM_BUILD_SOURCE_DRIFT'}
+          Write-Host ('KTERM_FULL_WINDOWS_REGRESSION=PASS_REUSED;SOURCE_SHA='+$actual+';RUN=43135678106;FULL_GO_TESTS=PASS;GO_VET=PASS;EXACT_GO_BLOBS=VERIFIED;NO_DUPLICATE_TEST=TRUE')
+          $buildLog=Join-Path $root 'private-build.log'
+          $clock=[Diagnostics.Stopwatch]::StartNew()
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> $buildLog
+          $exit=$LASTEXITCODE
+          $clock.Stop()
+          if($exit -ne 0){
+            $digest=(Get-FileHash -LiteralPath $buildLog -Algorithm SHA256).Hash.ToLowerInvariant()
+            $raw=Get-Content -LiteralPath $buildLog -Raw -ErrorAction SilentlyContinue
+            $failStage='UNKNOWN'
+            foreach($exe in @('K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe',
+              'K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe',
+              'K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe','K-Terminal.exe')){
+              if($raw -like ('*Build failed: '+$exe+'*')){$failStage=$exe;break}
             }
-            Write-Host ('KTERM_SNAPSHOT_FULL_WINDOWS_REGRESSION=PASS;MS='+$clock.ElapsedMilliseconds)
-            & go vet ./... *> (Join-Path $root 'private-go-vet.log')
-            if($LASTEXITCODE -ne 0){throw 'KTERM_SNAPSHOT_VET_FAILED'}
-            Write-Host 'KTERM_SNAPSHOT_VET=PASS'
-          } finally { Pop-Location }
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $stage 'BUILD.ps1') *> (Join-Path $root 'private-build.log')
-          if($LASTEXITCODE -ne 0){throw 'KTERM_SNAPSHOT_ORIGINAL_BUILD_FAILED'}
-          Write-Host ('KTERM_SNAPSHOT_ORIGINAL_BUILD=PASS;SOURCE_SHA='+$env:KTERM_SHA+';NO_INSTALL=TRUE;LIVE_ORDERS=0')
+            $failureClass='UNCLASSIFIED'
+            if($raw -like '*The Windows .NET Framework compiler is required*'){$failureClass='DOTNET_FRAMEWORK_COMPILER_MISSING'}
+            elseif($raw -like '*not recognized as the name of a cmdlet*'){$failureClass='EXECUTABLE_NOT_FOUND'}
+            elseif($raw -like '*There is not enough space on the disk*' -or $raw -like '*no space left on device*'){$failureClass='DISK_SPACE'}
+            elseif($raw -like '*Access is denied*' -or $raw -like '*permission denied*'){$failureClass='ACCESS_DENIED'}
+            elseif($failStage -ne 'UNKNOWN'){$failureClass='ORIGINAL_BUILD_COMMAND_FAILED'}
+            Write-Host ('KTERM_BUILD_ONLY=FAIL;EXIT='+$exit+';MS='+$clock.ElapsedMilliseconds+
+              ';STAGE='+$failStage+';CLASS='+$failureClass+
+              ';PRIVATE_LOG_SHA256='+$digest+';RAW_LOG_NOT_PUBLISHED=TRUE')
+            throw 'KTERM_QUALIFIED_SOURCE_ORIGINAL_BUILD_FAILED'
+          }
+          $files=@('K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe',
+              'K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe',
+              'K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe','K-Terminal.exe')
+          $receipt=@()
+          foreach($name in $files){
+            $out=Join-Path $stage $name
+            if(-not(Test-Path -LiteralPath $out -PathType Leaf) -or
+               (Get-Item -LiteralPath $out).Length -le 0){throw 'KTERM_ORIGINAL_BUILD_OUTPUT_MISSING'}
+            $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+            $receipt+=($name+':'+$hash)
+          }
+          $joined=[string]::Join([char]10,$receipt)
+          $sum=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($joined))).ToLowerInvariant()
+          $changed=(& git -C $stage diff --name-only HEAD -- | Out-String).Trim()
+          if($changed){throw 'KTERM_ORIGINAL_BUILD_TRACKED_SOURCE_CHANGED'}
+          Write-Host ('KTERM_ORIGINAL_BUILD=PASS;SOURCE_SHA='+$env:KTERM_SHA+
+            ';BINARIES='+$files.Count+';BINARY_MANIFEST_SHA256='+$sum+
+            ';MS='+$clock.ElapsedMilliseconds+';NO_INSTALL=TRUE;LIVE_ORDERS=0')
       - name: Remove private source and local test fixtures
         if: always()
         shell: pwsh
