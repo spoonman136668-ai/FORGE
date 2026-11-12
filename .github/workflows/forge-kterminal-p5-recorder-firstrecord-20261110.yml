@@ -10,6 +10,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   owner-local-paper-qualification:
+    # Exact candidate regression/vet PASS in 43135678106 and original build PASS in 43182495002.
+    if: ${{ false }}
     # Qualified unchanged PR94 product SHA already passed in run 43113667283; no duplicate 27-minute regression.
     if: ${{ true }}
     runs-on: [self-hosted, Windows, forge-codex-isolated]
@@ -441,7 +443,7 @@ jobs:
 
   owner-graphify-atlas:
     name: K Terminal full offline Graphify source atlas G35/G44 qualification
-    needs: owner-local-paper-qualification
+    # Independent static atlas only; original Go regression/vet and eight-exe build already qualified at this exact product SHA.
     # Separate from historical full Go regression and interactive/browser acceptance.
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 60
@@ -550,6 +552,18 @@ jobs:
             if($LASTEXITCODE -ne 0){
               $digest=(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()
               Write-Host ('KTERM_ATLAS_'+$name+'=FAIL;EXIT='+$LASTEXITCODE+';PRIVATE_LOG_SHA256='+$digest+';RAW_NOT_UPLOADED=TRUE')
+              # Only print fail-closed source-verifier reason codes, not private stderr or traceback.
+              if($name -eq 'G35_SOURCE_OVERLAY'){
+                $codes=@()
+                foreach($line in (Get-Content -LiteralPath $log -Tail 80)){
+                  if($line -match '\b(?:G35|G38|G29|G30|G31|FRESH_G27|FAIL_CLOSED)_[A-Z0-9_]{3,100}\b'){
+                    $codes+=$Matches[0]
+                  }
+                }
+                $codes=@($codes|Sort-Object -Unique|Select-Object -First 5)
+                if($codes.Count -eq 0){Write-Host 'KTERM_ATLAS_G35_SAFE_REASON=UNCLASSIFIED'}
+                else{foreach($code in $codes){Write-Host ('KTERM_ATLAS_G35_SAFE_REASON='+$code)}}
+              }
               throw ('KTERM_ATLAS_'+$name+'_FAILED')
             }
             Write-Host ('KTERM_ATLAS_'+$name+'=PASS')
