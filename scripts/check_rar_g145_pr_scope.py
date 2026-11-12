@@ -34,6 +34,7 @@ V41_STATUS_FILES = frozenset({
     "docs/F139-V41-ORIGINAL-LOCKED-READONLY-STATUS.md",
     "scripts/check_rar_g145_pr_scope.py",
     "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
 })
 
 FROZEN_SCOPES = {
