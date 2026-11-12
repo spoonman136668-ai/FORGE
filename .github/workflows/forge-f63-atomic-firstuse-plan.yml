@@ -1,0 +1,48 @@
+name: FORGE F63 isolated atomic first-use reservation plan qualification
+on:
+  push:
+    branches: [engineering/f63-local-d1-atomic-firstuse-reservation-20261016-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-f63-atomic-plan
+  cancel-in-progress: false
+jobs:
+  local-firstuse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact head atomic SQL plan and SQLite adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --test d1retention/f61_worker_preuse.test.mjs d1retention/f63_reservation_plan.test.mjs
+          python3 -B -m unittest d1retention/test_f63_atomic_plan.py -v
+          python3 -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          python3 -B d1retention/test_r38_monotonic_preuse.py -v
+          echo 'F63_REAL_SQLITE_CONCURRENT_ONE_SHOT=PASS'
+          echo 'F63_CLOUDFLARE_SCHEMA_WRITE=ZERO'
+          echo 'F63_WORKER_RELEASE_ISSUED=FALSE'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Focused R41 first-use Go and one full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./originalclaim ./preusebinding ./cmd/forge-owner-preuse
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F63_SCIENTIFIC_ORIGINAL_EXECUTED=FALSE'
+          echo 'F63_EXTERNAL_OWNER_AUTHORITY_VERIFIED=FALSE'
+          echo 'F63_D1_LIVE_WRITE=FALSE'
