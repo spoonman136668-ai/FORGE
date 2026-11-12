@@ -10,6 +10,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   owner-local-paper-qualification:
+    # Qualified unchanged PR94 product SHA already passed in run 43113667283; no duplicate 27-minute regression.
+    if: ${{ false }}
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
@@ -155,3 +157,85 @@ jobs:
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
           }
           Write-Host 'KTERM_P5_PRIVATE_CLEANUP=PASS;PUBLIC_PRIVATE_FILES=0;LIVE_ORDERS=0'
+
+  owner-readonly-eligibility:
+    name: K Terminal existing owner read-only runtime and Graphify host eligibility
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - name: Verify approved owner and inspect bounded executable/Graphify prerequisites READ ONLY
+        shell: pwsh
+        env:
+          K_TERMINAL_EXECUTION_MODE: PAPER
+          K_TERMINAL_P5_LATENCY: '0'
+          K_TERMINAL_NATIVE_TIMING: '0'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-recorder-firstrecord-20261110' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows') { throw 'KTERM_READONLY_OWNER_IDENTITY_REFUSED' }
+          if($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0') { throw 'KTERM_READONLY_DISARM_REFUSED' }
+          foreach($name in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET')) {
+            if([Environment]::GetEnvironmentVariable($name)) { throw 'KTERM_READONLY_BROKER_ENV_PRESENT_REFUSED' }
+          }
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $interactive=($session -ne 0 -and
+            @(Get-Process explorer -ErrorAction SilentlyContinue |
+               Where-Object { $_.SessionId -eq $session }).Count -gt 0)
+          $running=@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue)
+          Write-Host ('KTERM_READONLY_OWNER=PASS;APP_PROCESS_PRESENT='+($running.Count -gt 0)+';INTERACTIVE_SESSION='+$interactive)
+          $roots=@()
+          if($env:PUBLIC) {
+            $roots+=@( (Join-Path $env:PUBLIC 'KTerminal'),
+                       (Join-Path $env:PUBLIC 'K-Terminal') )
+          }
+          if($env:ProgramFiles) {
+            $roots+=@( (Join-Path $env:ProgramFiles 'K-Terminal'),
+                       (Join-Path $env:ProgramFiles 'KTerminal') )
+          }
+          if($env:LOCALAPPDATA) {
+            $roots+=@( (Join-Path $env:LOCALAPPDATA 'Programs\K-Terminal') )
+          }
+          if($env:USERPROFILE) {
+            $roots+=@( (Join-Path $env:USERPROFILE 'Downloads\KTerminal'),
+                       (Join-Path $env:USERPROFILE 'Downloads\K-Terminal') )
+          }
+          $names=@('K-Terminal.exe','K-Terminal-Engine.exe','Personal\K-Terminal.exe','bin\K-Terminal.exe')
+          $found=0
+          foreach($root in @($roots | Select-Object -Unique)) {
+            if(-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+            $folder=Get-Item -LiteralPath $root -Force -ErrorAction Stop
+            if(($folder.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+            foreach($leaf in $names) {
+              $target=Join-Path $root $leaf
+              if(-not (Test-Path -LiteralPath $target -PathType Leaf)) { continue }
+              $file=Get-Item -LiteralPath $target -Force -ErrorAction Stop
+              if(($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+              $digest=(Get-FileHash -LiteralPath $target -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+              if($digest -cnotmatch '^[0-9a-f]{64}$') { throw 'KTERM_READONLY_EXE_HASH_INVALID' }
+              $found++
+              Write-Host ('KTERM_READONLY_EXE_CANDIDATE=FOUND;SHA256='+$digest)
+            }
+          }
+          Write-Host ('KTERM_READONLY_BOUNDED_ROOTS='+$roots.Count+';EXECUTABLE_CANDIDATES='+$found+';SOURCE_MATCH=NOT_ESTABLISHED;INSTALLATION_PROVEN=FALSE')
+          $go=Get-Command -Name go.exe -CommandType Application -ErrorAction SilentlyContinue
+          $python=Get-Command -Name python.exe -CommandType Application -ErrorAction SilentlyContinue
+          $pwsh=Get-Command -Name pwsh.exe -CommandType Application -ErrorAction SilentlyContinue
+          $chromiumPresent=$false
+          foreach($b in @(
+              (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
+              (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'))) {
+            if(Test-Path -LiteralPath $b -PathType Leaf) { $chromiumPresent=$true }
+          }
+          Write-Host ('KTERM_GRAPHIFY_OWNER_HOST_PREFLIGHT=PASS;GO_PRESENT='+($null -ne $go)+';PYTHON_PRESENT='+($null -ne $python)+';PWSH_PRESENT='+($null -ne $pwsh)+';CHROMIUM_BROWSER_PRESENT='+$chromiumPresent+';GRAPHIFY_FULL_ACCEPTANCE=NOT_RUN')
+          Write-Host 'KTERM_FIELD_ACCEPTANCE=UNVERIFIED;LIVE_ORDERS=0;NO_APP_EXECUTION=TRUE;NO_WRITES=TRUE'
