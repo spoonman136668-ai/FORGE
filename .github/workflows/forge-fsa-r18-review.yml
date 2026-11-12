@@ -1,0 +1,52 @@
+name: FORGE R18 live read-only source review
+on:
+  push:
+    branches: [engineering/fsa-r18-live-review-gate-20261015]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/fsa_native_review.py'
+      - 'scripts/test_fsa_native_review.py'
+      - 'cmd/forge-fsa-review/**'
+      - 'fsamergeattest/**'
+      - '.github/workflows/forge-fsa-r18-review.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  verify-github-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Focused collector and verifier tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_fsa_native_review.py'
+          go test -count=1 ./fsamergeattest ./cmd/forge-fsa-review
+      - name: Native read-only GitHub evidence proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          number="${TARGET_PR:-241}"
+          python3 scripts/fsa_native_review.py --pr "$number" --output "$RUNNER_TEMP/r18-pr-snapshot.json"
+          go run ./cmd/forge-fsa-review --snapshot "$RUNNER_TEMP/r18-pr-snapshot.json" > "$RUNNER_TEMP/r18-result.json"
+          python3 - "$RUNNER_TEMP/r18-result.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert r['MergeAuthorized'] is False and r['Reason']
+          print('R18_AUTHENTIC_GITHUB_SOURCE=READ_ONLY')
+          print('R18_SOURCE_QUALIFIED='+str(r['SourceQualified']).upper())
+          print('R18_MERGE_AUTHORIZED=FALSE')
+          print('R18_DECISION='+r['Reason'])
+          PY
