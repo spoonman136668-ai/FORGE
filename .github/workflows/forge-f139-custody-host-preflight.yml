@@ -1,0 +1,74 @@
+name: FORGE F139-D2K custody host identity preflight (manual only)
+# This is NOT a local custody audit or an alternative controller.
+on:
+  workflow_dispatch:
+    inputs:
+      main_sha:
+        description: Qualified current FORGE main SHA; must match independently pinned repo variable
+        type: string
+        required: true
+      sealed_event_head_sha256:
+        description: Externally authenticated 23-event head; must match separately pinned repo variable
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-custody-host-preflight
+  cancel-in-progress: false
+jobs:
+  source-admission:
+    if: ${{ github.repository == 'spoonman136668-ai/FORGE' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require independently provisioned pins and isolation declaration
+        shell: bash
+        env:
+          F139_REQUEST_SOURCE: ${{ inputs.main_sha }}
+          F139_REQUEST_HEAD: ${{ inputs.sealed_event_head_sha256 }}
+          F139_PINNED_SOURCE: ${{ vars.F139_CUSTODY_EXPECTED_MAIN_SHA }}
+          F139_PINNED_HEAD: ${{ vars.F139_CUSTODY_INDEPENDENT_HEAD_SHA256 }}
+          F139_PINNED_MACHINE: ${{ vars.F139_CUSTODY_RUNNER_MACHINE_SHA256 }}
+          F139_ISOLATION_DECLARED: ${{ vars.F139_CUSTODY_DEDICATED_RUNNER_QUALIFIED }}
+        run: |
+          set -euo pipefail
+          python3 -B -m f139.custody_host_probe source
+          echo 'F139_CUSTODY_SOURCE_ADMISSION=DECLARATION_ONLY_NO_HOST'
+  observe-runner:
+    needs: source-admission
+    # This job is never queued unless a separate repository custodian explicitly
+    # declares the existing runner dedicated and provides independent pins.
+    if: ${{ needs.source-admission.result == 'success' && vars.F139_CUSTODY_DEDICATED_RUNNER_QUALIFIED == 'true' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One-shot runner identity only; no protected user data
+        shell: pwsh
+        env:
+          F139_REQUEST_SOURCE: ${{ inputs.main_sha }}
+          F139_REQUEST_HEAD: ${{ inputs.sealed_event_head_sha256 }}
+          F139_PINNED_SOURCE: ${{ vars.F139_CUSTODY_EXPECTED_MAIN_SHA }}
+          F139_PINNED_HEAD: ${{ vars.F139_CUSTODY_INDEPENDENT_HEAD_SHA256 }}
+          F139_PINNED_MACHINE: ${{ vars.F139_CUSTODY_RUNNER_MACHINE_SHA256 }}
+          F139_ISOLATION_DECLARED: ${{ vars.F139_CUSTODY_DEDICATED_RUNNER_QUALIFIED }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -ne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -ne 'Windows') {
+            throw 'F139_CUSTODY_UNQUALIFIED_RUNNER'
+          }
+          # Affect this disposable job step only, not the runner service or research.
+          $step = [System.Diagnostics.Process]::GetCurrentProcess()
+          $step.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
+          python -B -m f139.custody_host_probe host
+          if ($LASTEXITCODE -ne 0) { throw 'F139_CUSTODY_RUNNER_PREFLIGHT_BLOCKED' }
+          Write-Host 'F139_CUSTODY_RUNNER_IDENTITY_OBSERVATION_ONLY=PASS'
+          Write-Host 'F139_CUSTODY_WORKSTATION_DATABASE_OPENED=FALSE'
+          Write-Host 'F139_CUSTODY_WORKSTATION_MEMORY_WRITES=ZERO'
+          Write-Host 'F139_CUSTODY_SCIENCE_AUTHORITY=FALSE'
