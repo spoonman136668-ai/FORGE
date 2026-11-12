@@ -765,3 +765,48 @@ jobs:
           test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
+
+  itd02_w1l_linux_preflight:
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/eureka-itd02-online-consequence-memory-20261112' && github.event.pull_request.number == 1730 && github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: W1L source-pinned focused structural smoke, NO FROZEN SCORED WORLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD:docs/EUREKA-ITD02-W1L-CLOSED-LOOP-DEV.md)" = "2b635962e1b415ba8276a15b42701d8c3e35d48e"
+          test "$(git rev-parse HEAD:research/itd02_w1l_closed_loop_dev.py)" = "49fc586855e4e1d15895d428ea495b0c96342687"
+          test "$(git rev-parse HEAD:research/test_itd02_w1l_closed_loop_dev.py)" = "7d50eb1fa387a5b7b909e9edad99a39ed36ebb34"
+          python3 -B -m unittest discover -s research -p 'test_itd02_w1l_closed_loop_dev.py' -v
+          echo 'ITD02_W1L_SOURCE_ONLY_LINUX_FOCUSED=PASS; SCORED_WORLD=ZERO'
+
+  itd02_w1l_windows_preflight:
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/eureka-itd02-online-consequence-memory-20261112' && github.event.pull_request.number == 1730 && github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' }}
+    runs-on: windows-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: W1L source-pinned focused structural smoke, NO FROZEN SCORED WORLD
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if((git rev-parse HEAD).Trim() -ne '${{ github.event.pull_request.head.sha }}'){throw 'W1L_HEAD_DRIFT'}
+          if((git rev-parse HEAD:docs/EUREKA-ITD02-W1L-CLOSED-LOOP-DEV.md).Trim() -ne '2b635962e1b415ba8276a15b42701d8c3e35d48e'){throw 'W1L_PROTOCOL_DRIFT'}
+          if((git rev-parse HEAD:research/itd02_w1l_closed_loop_dev.py).Trim() -ne '49fc586855e4e1d15895d428ea495b0c96342687'){throw 'W1L_SOURCE_DRIFT'}
+          if((git rev-parse HEAD:research/test_itd02_w1l_closed_loop_dev.py).Trim() -ne '7d50eb1fa387a5b7b909e9edad99a39ed36ebb34'){throw 'W1L_TEST_DRIFT'}
+          python -B -m unittest discover -s research -p 'test_itd02_w1l_closed_loop_dev.py' -v
+          if($LASTEXITCODE -ne 0){throw 'W1L_FOCUSED_WINDOWS_FAILED'}
+          Write-Output 'ITD02_W1L_SOURCE_ONLY_WINDOWS_FOCUSED=PASS; SCORED_WORLD=ZERO'
