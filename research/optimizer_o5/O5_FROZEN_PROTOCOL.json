@@ -1,0 +1,123 @@
+{
+  "schema": "forge.optimizer.o5.online-local-belief.public-development.v1",
+  "identity": "O5_NEW_PROSPECTIVE_PUBLIC_DEVELOPMENT",
+  "source_main_sha": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "predecessor_O4": {
+    "pull_request": 775,
+    "head_sha": "292fb1d58b4da0579a9510e6c0bbdc1028df2dd4",
+    "model_blob": "3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c",
+    "disposition": "PUBLIC_DEV_HMM_BETTER_BY_SMALL_NLL_MARGIN_COST_UNMATCHED_NO_SCIENTIFIC_GO"
+  },
+  "purpose": "Test whether single-pass locally learned, publicly filtered two-state predictive memory captures useful history more economically than batch EM while preserving independent controls.",
+  "hypotheses": {
+    "H1": "The online local belief learner improves next-bit NLL over its frozen-dynamics ablation in both causal families.",
+    "H2": "Online local belief learner's NLL is competitive with batch-EM HMM and fitted counts while using strictly less CPU for fit+selection than the batch-EM comparator; resource advantage requires both metrics and no hidden memory omission.",
+    "null": "No spurious causal-state advantage is claimed from iid-null."
+  },
+  "status": "FROZEN_BEFORE_PUBLIC_ROLE_BIRTH_OR_LEARNER_EXECUTION",
+  "new_seed_namespace": "o5-public-v1",
+  "roles": [
+    "O5_PUBLIC_TRAIN",
+    "O5_PUBLIC_SELECT",
+    "O5_PUBLIC_DEV"
+  ],
+  "episodes_per_family": {
+    "O5_PUBLIC_TRAIN": 64,
+    "O5_PUBLIC_SELECT": 16,
+    "O5_PUBLIC_DEV": 24
+  },
+  "episode_steps": 24,
+  "families": {
+    "A_FRESH_PERSISTENT": {
+      "initial_hidden": "Bernoulli(1/2)",
+      "p_flip_action0": 0.05,
+      "p_flip_action1": 0.62,
+      "sensor_accuracy": 0.82,
+      "action_policy": "iid Bernoulli(1/2)"
+    },
+    "B_FRESH_DELAYED": {
+      "initial_hidden": "Bernoulli(1/2)",
+      "p_flip_previous_current_11": 0.73,
+      "p_flip_otherwise": 0.11,
+      "sensor_accuracy": 0.82,
+      "initial_previous_action": 0,
+      "action_policy": "iid Bernoulli(1/2)"
+    },
+    "NULL_FRESH_IID": {
+      "next_sensor": "iid Bernoulli(1/2)",
+      "action": "iid Bernoulli(1/2)",
+      "private_hidden_state": "NONE"
+    }
+  },
+  "seed_rule": "int.from_bytes(sha256(utf8('o5-public-v1:'+role+':'+family+':'+index)).digest()[:8],'big'); python random.Random",
+  "allowed_public_history": "Sequential current observation, current action, prior public observations/actions for predicting next public observation; no hidden state, future signal, privileged family label.",
+  "arms": {
+    "ONLINE_LOCAL_BELIEF": {
+      "latent_states": 2,
+      "train_passes": 1,
+      "local_em_rate": 0.045,
+      "local_flip_rate": 0.045,
+      "initialization_seeds": [
+        17,
+        31
+      ],
+      "select": "minimum PUBLIC_SELECT NLL",
+      "teacher_signal": "next public observation only",
+      "state_memory": "two-state Bayesian posterior updated on public next observation",
+      "learning": "local soft-state emission and action-conditioned transition updates; no hidden label"
+    },
+    "ONLINE_FROZEN_TRANSITION_ABLATION": {
+      "same_parameterization": "same online learner, same emitted input, training steps and initializations",
+      "train_flip": false,
+      "train_emission": true
+    },
+    "BATCH_HMM_EM_O4": {
+      "source_blob": "3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c",
+      "iterations": 12,
+      "initialization_seeds": [
+        17,
+        31
+      ],
+      "select": "minimum PUBLIC_SELECT NLL",
+      "fitted_to_same_public_data": true
+    },
+    "PUBLIC_CURRENT_COUNTS": {
+      "fitted": true,
+      "trained_on_identical_public_episodes": true
+    },
+    "PUBLIC_LAG_COUNTS": {
+      "fitted": true,
+      "trained_on_identical_public_episodes": true
+    }
+  },
+  "development_decision": {
+    "metric": "next-public-bit mean Bernoulli negative log likelihood nats/bit",
+    "primary_comparison": "online versus the strongest fitted conventional among BATCH_HMM_EM_O4, PUBLIC_CURRENT_COUNTS, PUBLIC_LAG_COUNTS on A and B separately",
+    "ablation_comparison": "online versus frozen-transition on A and B separately",
+    "cpu_comparison": "online vs batch HMM using full fit+model-selection CPU, shared native OS; separately report source generation and inference",
+    "resource_accounting": [
+      "generator CPU",
+      "fit and selection CPU each arm",
+      "DEV inference CPU each arm",
+      "whole process CPU",
+      "peak process RSS",
+      "tracemalloc peak",
+      "serialized model bytes",
+      "source role digests",
+      "exact model checkpoint hashes"
+    ],
+    "no_positive_claim_without": "predeclared gain and cost comparisons corroborated on both OS; source-only public result cannot constitute SCIENTIFIC_GO",
+    "if_negative": "retain all signed loss and no integration",
+    "cross_os_require": "exact matching TRAIN/SELECT/DEV digests by family, all NLLs absolute difference <=1e-6"
+  },
+  "constraints": [
+    "O4 results never used for O5 model selection, parameter tuning or reanalysis.",
+    "No Q20/Q21/Q21N01 roles, protected original/HELD or FSA dispatch.",
+    "Original O4 fixed model source copied byte-exact, not modified.",
+    "Adversarial source-only tests, no hidden source generator inside learner.",
+    "A synthetic source does not establish independent unusual-task transfer.",
+    "No paid API, new controller, extra queue, live D1 mutation, KTRADE or private CKB dependency.",
+    "Do not merge draft until independent full regression and source qualification."
+  ],
+  "future": "If useful, prospectively contrast independent new source-family physics, stronger fully FIT-trained predictive/recurrent comparators, input-intervention ablations, long-term retention and matched full cost, before Wingless/Yggdrasil candidate integration."
+}
