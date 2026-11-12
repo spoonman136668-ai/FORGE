@@ -15,7 +15,8 @@ import sys
 
 from check_rar_g145_pr_scope import (admit_original_pr, negative_controls,
     V41_STATUS_BRANCH, V41_STATUS_RESULT,
-    V41_BACKUP_BRANCH, V41_BACKUP_RESULT)
+    V41_BACKUP_BRANCH, V41_BACKUP_RESULT,
+    V41_PAUSE_BRANCH, V41_PAUSE_RESULT)
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "spoonman136668-ai/FORGE"
@@ -154,6 +155,10 @@ def event_mode(head):
     if branch == "engineering/rar-g161-verified-pr-ancestry-20261109":
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G161_FROZEN_ANCESTRY_SCOPE_REQUIRED")
+        return "pr"
+    if branch == V41_PAUSE_BRANCH:
+        if admiss != V41_PAUSE_RESULT:
+            raise ValueError("G148_V41_PAUSE_EXACT_OWNER_SCOPE_REQUIRED")
         return "pr"
     if branch == V41_BACKUP_BRANCH:
         if admiss != V41_BACKUP_RESULT:
