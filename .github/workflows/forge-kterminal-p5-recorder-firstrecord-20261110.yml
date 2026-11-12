@@ -14,10 +14,10 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 895950e7b55fabc627f0ab9ddc22f82af34f261d
+      KTERM_SHA: 40199f51b25598668392a39c8d754a50a12fea9f
       KTERM_BASE: cea643af9d5abf3b18e45c5f33cae01694677cc2
-      KTERM_TREE: 269844c5015b09fbf23a4d060e7d2f6bdeece3cc
-      KTERM_REISSUE_ONLY: ${{ startsWith(github.event.head_commit.message, 'artifact(reissue):') }}
+      KTERM_TREE: 1cf51826e4b563fb887cb6257c430a4fc528b38c
+      KTERM_REISSUE_ONLY: 'false'
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -80,29 +80,34 @@ jobs:
             throw 'KTERM_PR96_IMMUTABLE_SOURCE_DRIFT'
           }
           $blobs=@{
-            'tools/qualification/p5_assemble_source_bound_firstuse.ps1'='2fd41455fbebae1b46b2b5e75dce52f92c6b7c5e'
-            'tools/qualification/p5_verify_firstuse_archive.py'='05bdd14bb158829a1b51e6279469707cf8c5c118'
-            'tools/qualification/test_p5_verify_firstuse_archive.py'='c6c2fcf0ec0edd6fa8ed45a776e3afb5dbcbb239'
+            'tools/qualification/p5_assemble_source_bound_firstuse.ps1'='74c89b757105af10aef4aa637ce58c944f0b6e68'
+            'tools/qualification/p5_verify_firstuse_archive.py'='49b7e369bc15c204a97607480a939e7038d7995a'
+            'tools/qualification/test_p5_verify_firstuse_archive.py'='e013cfa5946f234c45809b54c6f3ef023a13038e'
             'pkg/native-snapshot-freshness_test.go'='1a1f58fba665c48f530c907fb83cf4d120481ecd'
             'application-launch.ps1'='5fbf25b8e3f0d621225c0d9220554466ced085db'
             'pkg/advanced-orders.go'='27bb67895bde1be5d987f369639c4b091cd5e3ad'
             'pkg/dashboard-orders.go'='7ca5dfb7445e43b521d634cca4d9ed856605d72a'
             'pkg/terminal-dashboard.go'='5c3da4374e8b00fac7a181305bf57d95b1547b0c'
             'pkg/dashboard-orders_test.go'='7fc9f8048934e83cf49ebb1c6db9ef75037d6c01'
+            'BUILD.ps1'='8eb3fbf5121c8b307c71ddc1895e0489ff431a89'
+            'cmd/launcher/desktop-session.cs'='527b0fe353b65514eaacb4b09745a3f1d101d2f6'
+            'desktop-session.ps1'='d1f263aaba3894bd54d6368b3d60354a0dd6e4fa'
+            'ui-runtime-loader.ps1'='e4565b2e1db5bc132bb57e3f5b5cd7cab420041e'
+            'verification/test-launch-lifecycle.ps1'='55aa0fd96b1a0b5a7d8ee1bb05ef78d9cac21294'
           }
           foreach($p in $blobs.Keys){
             $actual=(& git -C $src rev-parse ('HEAD:'+$p) | Out-String).Trim()
             if($actual -cne $blobs[$p]){throw 'KTERM_PR96_QUALIFIER_BLOB_DRIFT'}
           }
           $changed=@(& git -C $src diff --name-only $env:KTERM_BASE $env:KTERM_SHA)
-          if($LASTEXITCODE-ne0 -or $changed.Count-ne9 -or
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne14 -or
              @($changed|Where-Object{$_ -cnotin @($blobs.Keys)}).Count-ne0){
-            throw 'KTERM_PR96_NINE_FILE_SCOPE_DRIFT'
+            throw 'KTERM_PR96_FOURTEEN_FILE_SCOPE_DRIFT'
           }
           foreach($private in @('config.json','data','reporting','logs','notifications','.env')){
             if(Test-Path -LiteralPath (Join-Path $src $private)){throw 'KTERM_PR96_PRIVATE_STATE_REFUSED'}
           }
-          Write-Host ('KTERM_PR96_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=ORDER_DISPLAY_WAKE_AND_PAPER_DEFAULT;FULL_GO_REQUALIFICATION=REQUIRED')
+          Write-Host ('KTERM_PR96_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=ORDER_DISPLAY_WAKE_PAPER_DEFAULT_AND_PR78_NESTED_CHILD_OWNERSHIP;FULL_GO_REQUALIFICATION=REQUIRED')
       - name: Pinned original Windows Go toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
@@ -113,8 +118,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Mandatory full exact-candidate Windows Go regression and vet
-        # Reissue skips only an existing exact-SHA PASS: run 43315499121.
-        if: ${{ !startsWith(github.event.head_commit.message, 'artifact(reissue):') }}
+        # Mandatory full exact-source regression after the child-job fix.
         # Mandatory full exact candidate regression since launcher code changed.
         # Previous qualified Go blob receipts alone are not acceptance.
         shell: pwsh
@@ -475,9 +479,7 @@ jobs:
              (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $proof.archive_sha256){
             throw 'KTERM_PR96_PACKAGE_RECEIPT_INVALID'
           }
-          $regressionProof=if($env:KTERM_REISSUE_ONLY -ceq 'true'){
-            'REUSED_EXACT_SOURCE_PASS_RUN_43315499121'
-          }else{'PASS_CURRENT_CANDIDATE'}
+          $regressionProof='PASS_CURRENT_CANDIDATE'
           Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=PASS;ZIP_SHA256='+$proof.archive_sha256+
             ';BINARIES='+$proof.binaries+';FILES='+$proof.files+
             ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION='+$regressionProof+
@@ -591,6 +593,45 @@ jobs:
             ';ZIP_SHA256='+$proof.archive_sha256+
             ';NO_APP_EXECUTION=TRUE;NO_LIVE_TRADING=TRUE;FIRST_USE_LAUNCH=NOT_RUN'+
             ';PRIVATE_LOG_SHA256='+$digest)
+      - name: Test packaged compiled UI and bounded early startup failures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0'){
+            throw 'KTERM_PR96_UI_LIFECYCLE_DISARM_REFUSED'
+          }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){
+              throw 'KTERM_PR96_UI_LIFECYCLE_BROKER_ENV_REFUSED'
+            }
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr96-firstuse-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $root 'source'
+          $sandbox=Join-Path $root 'wpf-hidden-package'
+          $fixtureTemp=Join-Path $root 'ui-fixture-temp'
+          [void][IO.Directory]::CreateDirectory($fixtureTemp)
+          $env:TEMP=$fixtureTemp;$env:TMP=$fixtureTemp
+          foreach($mode in @('ui','lifecycle')){
+            $log=Join-Path $root ($mode+'.private.log')
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            if($mode -ceq 'ui'){
+              & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $src 'verification/test-ui-runtime.ps1') -Root $sandbox -OutputDirectory (Join-Path $root 'ui-verifier-results') *> $log
+            }else{
+              & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File (Join-Path $src 'verification/test-launch-lifecycle.ps1') -Root $sandbox *> $log
+            }
+            $rc=$LASTEXITCODE;$clock.Stop()
+            $digest=(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($rc-ne0){
+              Write-Host ('KTERM_PR96_UI_LIFECYCLE_'+$mode.ToUpperInvariant()+'=FAIL;EXIT='+$rc+
+                ';MS='+$clock.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$digest)
+              throw 'KTERM_PR96_UI_LIFECYCLE_FAILED'
+            }
+            Write-Host ('KTERM_PR96_UI_LIFECYCLE_'+$mode.ToUpperInvariant()+'=PASS;MS='+
+              $clock.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$digest)
+          }
       - name: Fresh portable package first-use PAPER prelaunch smoke with bounded lifetime
         shell: pwsh
         run: |
@@ -712,14 +753,14 @@ jobs:
             ';ENGINE_LAUNCHED=FALSE;DASHBOARD_LAUNCHED=FALSE;REAL_EXE_FIRST_USE=NOT_RUN'+
             ';CLEAN_EXIT=TRUE;PRIVATE_LOG_SHA256='+$digest)
       - name: Admit reissue artifact only after current-package verification and PAPER smoke
-        if: ${{ success() && startsWith(github.event.head_commit.message, 'artifact(reissue):') }}
+        if: ${{ success() }}
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
              $env:RUNNER_OS -cne 'Windows' -or
-             $env:KTERM_REISSUE_ONLY -cne 'true' -or
+             $env:KTERM_REISSUE_ONLY -cne 'false' -or
              $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
              $env:K_TERMINAL_P5_LATENCY -cne '0' -or
              $env:K_TERMINAL_NATIVE_TIMING -cne '0'){
@@ -740,8 +781,8 @@ jobs:
              $proof.deployment -cne 'NOT_AUTHORIZED' -or
              $proof.original_desktop_smoke -cne 'NOT_RUN' -or
              $proof.field_performance -cne 'UNVERIFIED' -or
-             $proof.binaries -ne 8 -or $proof.files -ne 69 -or
-             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-895950e7b55f.zip'){
+             $proof.binaries -ne 8 -or $proof.files -ne 71 -or
+             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-40199f51b255.zip'){
             throw 'KTERM_FIRSTUSE_REISSUE_RECEIPT_INVALID'
           }
           $zip=Join-Path $out $proof.archive
@@ -758,16 +799,16 @@ jobs:
           }
           Write-Host ('KTERM_FIRSTUSE_REISSUE_READY=PASS;SOURCE='+$env:KTERM_SHA+
             ';ZIP_SHA256='+$proof.archive_sha256+
-            ';BINARIES=8;FILES=69;PRIOR_FULL_REGRESSION=PASS_43315499121'+
+            ';BINARIES=8;FILES=71;FULL_REGRESSION=PASS_CURRENT_RUN'+
             ';PACKAGE_WPF_PAPER_PRELAUNCH=PASS_CURRENT_RUN'+
             ';FIELD=UNVERIFIED;NO_INSTALL=TRUE;LIVE_ORDERS=0')
       - name: Upload private disarmed first-use portable acceptance package
-        if: ${{ success() && startsWith(github.event.head_commit.message, 'artifact(reissue):') }}
+        if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: K-Terminal-Disarmed-FirstUse-895950e7b55f-${{ github.run_id }}
+          name: K-Terminal-Disarmed-FirstUse-40199f51b255-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-895950e7b55f.zip
+            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-40199f51b255.zip
             ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/FIRST-USE-RECEIPT.json
           if-no-files-found: error
           retention-days: 14
