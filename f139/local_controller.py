@@ -1715,6 +1715,8 @@ class Database:
                     verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
+        from f139.nci04_v41_pending_escrow import audit_committed_escrow
+        audit_committed_escrow(self)
         from f139.nci04_prospective_journal import audit_assignment_events
         audit_assignment_events(self)
         historical_sources = set()
