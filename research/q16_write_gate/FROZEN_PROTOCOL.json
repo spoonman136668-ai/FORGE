@@ -1,0 +1,105 @@
+{
+  "schema": "forge.nci04.q16.gated-predictive-write.v1",
+  "status": "FROZEN_SOURCE_FREE_DEVELOPMENT_ONLY",
+  "parent_sha": "536b91a392b7bbc50200a6e8842d152f2e23d8bb",
+  "hypothesis": "An online, locally trained surprise/reliability-dependent write gate may form a more useful predictive summary than a fully trained conventional single-state recurrent predictor at equal storage under observed sensor-regime changes.",
+  "hypothesis_discriminator": "The candidate must beat all fully informed, fully fitted controls under equal one-scalar online-state accounting; observed sensor cue is provided to EVERY algorithm.",
+  "negative_custody": "Q15 failed against trained Bayesian filter; F_A/F_B DEV exposed; original source global reset custody Q14 NO-GO. Neither reused.",
+  "generator": {
+    "seed_rule": "SHA256('q16:v1:'+role+':'+family+':'+decimal_index) first 64 bits big endian",
+    "mode": "binary latent z_t with hazard, public observed cue c_t in {-1,+1}, public binary observation x_t in {-1,+1}; z only training/validation label",
+    "family_algorithms": [
+      {
+        "name": "E_regime",
+        "algorithm": "a Markov sensor-reliability regime switches at probability 0.11 each step; public c exposes the regime with 0.09 independent observation error; observation x flips z with probability 0.06 if reliable and 0.42 otherwise; z flips with hazard 0.08",
+        "train_episodes": 48,
+        "validation_episodes": 24,
+        "steps": 16
+      },
+      {
+        "name": "F_burst",
+        "algorithm": "sensor reliability follows burst runs: after a randomly drawn countdown expires initiate distraction burst of 2-5 samples; c reports whether currently in distraction exactly, x flips z with probability 0.41 inside bursts and 0.14 outside; z flips with hazard 0.13",
+        "train_episodes": 48,
+        "validation_episodes": 24,
+        "steps": 20
+      }
+    ],
+    "validation_roles": [
+      "train",
+      "dev"
+    ],
+    "held_unfamiliar_family_names_reserved_not_generated": [
+      "G_reversed",
+      "H_delayed"
+    ],
+    "family_name_hidden_at_prediction": true,
+    "public_cue_shared_by_all_models": true,
+    "train_labels_given_to_all_fitted_models": true,
+    "no_model_weights_updated_on_dev": true,
+    "cross_episode_state_reset": true
+  },
+  "models": {
+    "candidate": {
+      "name": "SURPRISE_RELIABILITY_WRITE",
+      "equation": "h_t=(1-g_t)h_prev+g_t*x_t, g_t=sigmoid(theta0+theta1*c_t+theta2*abs(x_t-h_prev)); prediction p_t=sigmoid(v*h_t+b)",
+      "trainable_params": 5,
+      "online_state_scalars": 1,
+      "trained": "finite-difference Adam of full train binary log-loss"
+    },
+    "recurrent": {
+      "name": "TRAINED_TANH_RNN",
+      "equation": "h_t=tanh(a*h_prev+b*x_t+d*c_t+e); prediction p_t=sigmoid(v*h_t+f)",
+      "trainable_params": 6,
+      "online_state_scalars": 1,
+      "trained": "same finite-difference Adam of full train binary log-loss"
+    },
+    "bayes": {
+      "name": "TRAINED_CUE_BAYES",
+      "equation": "fit transition hazard and P(x mismatch z | c=+1/-1) by training-label MLE, online 1-scalar exact binary posterior with observed cue",
+      "trainable_params": 3,
+      "online_state_scalars": 1,
+      "trained": "complete train cohort MLE; no true hidden generator probabilities provided"
+    },
+    "symbolic": {
+      "name": "TRAINED_DECAYED_CUE_COUNT",
+      "equation": "s_t=0.8*s_prev+x_t; logit=theta0*s_t+theta1*c_t*x_t+theta2",
+      "trainable_params": 3,
+      "online_state_scalars": 1,
+      "trained": "finite-difference Adam of full train binary log-loss"
+    },
+    "current": {
+      "name": "TRAINED_CURRENT_CUE",
+      "equation": "logit=theta0*x_t+theta1*(c_t*x_t)+theta2",
+      "trainable_params": 3,
+      "online_state_scalars": 0,
+      "trained": "finite-difference Adam of full train binary log-loss"
+    }
+  },
+  "optimizer": {
+    "epochs": 18,
+    "restarts": [
+      0,
+      1
+    ],
+    "train_minibatch_episodes": 24,
+    "lr": 0.07,
+    "grad_clip": 4,
+    "fd_delta": 0.0001,
+    "parameter_init_seed": "SHA256('q16:init:'+model+':'+restart) first 64 bits",
+    "validation_checkpoint": "epoch 18 only, choose lowest DEV across exactly two restarts; never retune on DEV",
+    "nll": "per-step Bernoulli log-loss in nats, numerically stable",
+    "measured_cost": "per-model training process-time incl all restarts, validation inference process-time, tracemalloc peak; report parameter and memory state counts; CPU comparisons only on same OS"
+  },
+  "decision": {
+    "candidate_must_gain_nats_vs_best_conventional": 0.008,
+    "candidate_must_gain_on_each_dev_family": true,
+    "candidate_train_infer_cpu_leq_rnn_ratio": 1.1,
+    "candidate_online_state_scalars_leq_rnn": true,
+    "advance_if_all": "DEV_ONLY_ADVANCE_SEPARATE_UNFAMILIAR_SOURCE_FREE_FIRST_USE_CUSTODY",
+    "otherwise": "DEV_NO_GO_STOP_BEFORE_HELD",
+    "original_source_experiment": "PROHIBITED",
+    "unfamiliar_G_H": "PROHIBITED_IN_Q16",
+    "scientific_transfer_acceptance": "NOT_AUTHORIZED",
+    "preserve_all_negatives": true
+  }
+}
