@@ -12,7 +12,7 @@ The authentic original-owner diagnostic [run 43182527036](https://github.com/spo
 
 The source transition event is schema `forge.f139.source-transition.v36`, strictly seals every snapshot field, previous V40 event SHA, original event head, toolchain/binary and generator-mechanism hashes, source lineage/candidate repair anchor, and Wingless+Yggdrasil-only development policy. It rejects replay, nonexact fields, forged future attempts, Hybrid, automatic dispatch and scientific first-use.
 
-`Database.verify` now recognizes v36 and verifies the full source event before accepting its head. The existing V2 signer and GenEnv typed execution guards now recognize exact v36 fields with a cold original SQLite replay, maintaining original one-owner guards. No live entrypoint, mutation writer, new worker, workflow, scheduler or queue was created.
+`Database.verify` now recognizes v36 and verifies the full source event before accepting its head. The existing V2 signer and GenEnv typed execution guards now recognize exact v36 fields with a cold original SQLite replay, maintaining original one-owner guards. The existing native owner ledger also recognizes v36 as a historical source successor while retaining the exact G54 and event1464 quarantine identities. Native activation for the **new** source still requires its own separate original-owner `NATIVE_DEVELOPMENT_ACTIVATED` event; the v36 transition cannot implicitly reactivate or dispatch work. No live entrypoint, mutation writer, new worker, workflow, scheduler or queue was created.
 
 ## Boundaries not yet qualified
 
