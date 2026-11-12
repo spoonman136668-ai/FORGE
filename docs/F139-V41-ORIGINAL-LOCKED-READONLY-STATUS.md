@@ -33,3 +33,13 @@ Actual recovery still requires original cold backup and ZIP/generator restore,
 exact owner-approved release/comment, immutable successor ref, one-time #1715
 escrow/source transition, same-task binary/source replacement and separate
 first-use authorization.
+
+## Exact source scope for protected Go CI
+
+The original Go qualification harness deliberately denies generic workflow
+changes. This PR adds an **only-PR-#1731** engineering admission: current
+protected base, authenticated owner-authored PR, exactly six scoped files,
+and both the old and new immutable workflow blob SHAs must match. Negative
+tests reject wrong PR/owner, any extra file, wrong base, changed workflow
+blob or mode. The normal generic workflow/harness prohibition remains.
+This grants no release, original-host task or scientific execution authority.
