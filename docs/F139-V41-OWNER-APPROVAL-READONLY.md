@@ -40,3 +40,13 @@ authenticate signed receipt and release ref, implement a crash-safe once-only
 disposition for unadmitted #1715, and require fresh explicit owner approval
 before any same-task source transition. No new controllers, schedulers, queues,
 paid models, external science first-use or accepted model ref changes.
+
+## Original #1715 mutable-provider guard
+
+The approval comparison independently re-GETs original GitHub issue #1715
+on both passes. It requires owner identity, exact issue ID/number, native
+label, original V40 source, unchanged canonical body digest, and stable
+`updated_at`. This prevents an issue body/label change after the cold
+original read from being mistaken for preserved once-only custody. The
+original pending source PR/blob is separately authenticated by the existing
+pending verifier under the original lock.

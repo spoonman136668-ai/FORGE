@@ -10,6 +10,7 @@ import json
 import re
 
 from f139.nci04_native_contract import canonical, digest
+from f139.nci04_owner_issue import decode_unique, BODY_KEYS, SCHEMA as ISSUE_SCHEMA, KIND as ISSUE_KIND, LABEL as ISSUE_LABEL
 from f139 import nci04_v41_catalog_recovery_preflight as source
 from f139 import nci04_v41_cold_copy_verifier as coldcopy
 from f139 import nci04_v41_pending_custody as pending
@@ -96,7 +97,7 @@ def _receipts(cold, pending_receipt, target):
          and type(pending_receipt["issue_id"]) is int
          and pending_receipt["issue_id"] > 0
          and type(pending_receipt["ticket"]) is str
-         and pending_receipt["ticket"].startswith("f139-nci04-")
+         and re.fullmatch("f139-nci04-i1715-" + source.OWNER_SOURCE[:12] + "-[a-f0-9]{8}", pending_receipt["ticket"]) is not None
          and all(_sha(pending_receipt[k], 64) for k in (
              "issue_body_sha256", "native_intent_sha256",
              "semantic_identity_sha256"))
@@ -185,6 +186,7 @@ def verify_owner_comment(get, *, target, cold, pending_receipt, comment_id):
         policy = read(prefix + "issues/807")
         commit = read(prefix + "git/commits/" + target)
         comment = read(prefix + "issues/comments/" + str(comment_id))
+        issue = read(prefix + "issues/" + str(pending.PENDING_NUMBER))
         need(main.get("protected") is True and
              main.get("commit", {}).get("sha") == target,
              "PROTECTED_MAIN_DRIFT")
@@ -213,10 +215,34 @@ def verify_owner_comment(get, *, target, cold, pending_receipt, comment_id):
                  "spoonman136668-ai"
              and comment.get("author_association") == "OWNER",
              "OWNER_COMMENT_IDENTITY_DRIFT")
+        need(issue.get("state") == "open" and not issue.get("pull_request")
+             and issue.get("number") == pending.PENDING_NUMBER
+             and issue.get("id") == pending_receipt["issue_id"]
+             and issue.get("user", {}).get("login") == "spoonman136668-ai"
+             and issue.get("author_association") == "OWNER"
+             and isinstance(issue.get("labels"), list)
+             and ISSUE_LABEL in [
+                 label.get("name") for label in issue["labels"]
+                 if isinstance(label, dict)],
+             "PENDING_1715_REMOTE_IDENTITY_DRIFT")
+        try:
+            body = json.loads(issue.get("body"), object_pairs_hook=decode_unique)
+        except (TypeError, ValueError, UnicodeError) as exc:
+            raise V41ApprovalDenied("F139_V41_APPROVAL_PENDING_1715_JSON") from exc
+        need(type(body) is dict and set(body) == BODY_KEYS
+             and body.get("schema") == ISSUE_SCHEMA
+             and body.get("kind") == ISSUE_KIND
+             and body.get("source_sha") == source.OWNER_SOURCE
+             and body.get("lane") == "Yggdrasil"
+             and body.get("scientific_first_use") is False
+             and body.get("paid_model_calls") == 0
+             and digest(canonical(body)) == pending_receipt["issue_body_sha256"],
+             "PENDING_1715_BODY_CHANGED")
         doc = _decode(comment.get("body"), comment_id, cold, pending_receipt,
                       target, commit["tree"]["sha"])
         return (main["commit"]["sha"], policy["body"], comment["body"],
-                comment.get("updated_at"), commit["tree"]["sha"]), doc
+                comment.get("updated_at"), commit["tree"]["sha"],
+                digest(canonical(body)), issue.get("updated_at")), doc
 
     first, doc = evidence()
     second, again = evidence()

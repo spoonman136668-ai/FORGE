@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from f139.nci04_native_contract import canonical
+from f139.nci04_native_contract import canonical, digest
 from f139 import nci04_v41_owner_approval as v41
 
 ORIGINAL = v41.source.OWNER_SOURCE
@@ -12,6 +12,16 @@ TARGET = "51389291ac77e5caaa0e3a20eacaef80261d49f8"
 TREE = "7b52324e0d841c4c04c825ab262479fab9f409e1"
 HEAD = v41.source.OBSERVED_HEAD
 COMMENT_ID = 6822229999
+
+
+def owner_issue_body():
+    return {
+        "schema": "forge.f139.nci04.owner-native-development.v1",
+        "source_sha": ORIGINAL, "lane": "Yggdrasil",
+        "kind": "native-cognitive-candidate",
+        "intent_base64": "YQ==",
+        "scientific_first_use": False, "paid_model_calls": 0,
+    }
 
 
 def cold_receipt():
@@ -36,8 +46,8 @@ def pending_receipt():
         "schema": v41.pending.SCHEMA, "source_sha": ORIGINAL,
         "original_head_seq": 1826, "original_head_sha256": HEAD,
         "issue_number": 1715, "issue_id": 6333201763,
-        "ticket": "f139-nci04-yggdrasil-1715",
-        "issue_body_sha256": "e"*64, "native_intent_sha256": "f"*64,
+        "ticket": "f139-nci04-i1715-" + ORIGINAL[:12] + "-ffffffff",
+        "issue_body_sha256": digest(canonical(owner_issue_body())), "native_intent_sha256": "f"*64,
         "target_commit": "1"*40, "target_tree_sha": "2"*40,
         "semantic_identity_sha256": "3"*64,
         "disposition": "UNADMITTED_RETAINED_NO_DISPATCH",
@@ -108,6 +118,15 @@ class SourceOnlyApprovalTests(unittest.TestCase):
                     "scientific_first_use": False, "paid_model_calls": 0,
                 }),
             }
+        if route == prefix + "issues/1715":
+            return {
+                "id": 6333201763, "number": 1715, "state": "open",
+                "user": {"login": "spoonman136668-ai"},
+                "author_association": "OWNER",
+                "labels": [{"name": "f139-native-development-eligible"}],
+                "updated_at": "2026-11-12T10:11:00Z",
+                "body": json.dumps(owner_issue_body()),
+            }
         if route == prefix + "issues/comments/" + str(COMMENT_ID):
             return {
                 "id": COMMENT_ID,
@@ -127,7 +146,7 @@ class SourceOnlyApprovalTests(unittest.TestCase):
 
     def test_canonical_owner_comment_is_read_only_not_authority(self):
         result = self.verify()
-        self.assertEqual(self.counter, 8)
+        self.assertEqual(self.counter, 10)
         self.assertTrue(result["owner_comment_identity_verified"])
         self.assertFalse(result["source_transition_authorized"])
         self.assertFalse(result["reissue_authorized"])
@@ -227,6 +246,41 @@ class SourceOnlyApprovalTests(unittest.TestCase):
         with self.assertRaisesRegex(v41.V41ApprovalDenied,
                                     "PROTECTED_MAIN_DRIFT"):
             self.verify(unprotected)
+
+    def test_pending_issue_mutation_or_relabel_denied(self):
+        original = self.provider
+        def mutated(route):
+            doc = original(route)
+            if route.endswith("/issues/1715"):
+                value = json.loads(doc["body"])
+                value["source_sha"] = TARGET
+                doc["body"] = json.dumps(value)
+            return doc
+        with self.assertRaisesRegex(v41.V41ApprovalDenied,
+                                    "PENDING_1715_BODY_CHANGED"):
+            self.verify(mutated)
+        def relabeled(route):
+            doc = original(route)
+            if route.endswith("/issues/1715"):
+                doc["labels"] = []
+            return doc
+        with self.assertRaisesRegex(v41.V41ApprovalDenied,
+                                    "PENDING_1715_REMOTE_IDENTITY_DRIFT"):
+            self.verify(relabeled)
+
+    def test_get_only_double_read_detects_pending_edit(self):
+        original = self.provider
+        state = {"n": 0}
+        def changed(route):
+            doc = original(route)
+            if route.endswith("/issues/1715"):
+                state["n"] += 1
+                if state["n"] == 2:
+                    doc["updated_at"] = "2026-11-12T10:12:00Z"
+            return doc
+        with self.assertRaisesRegex(v41.V41ApprovalDenied,
+                                    "CHANGED_DURING_DOUBLE_READ"):
+            self.verify(changed)
 
     def test_get_only_double_read_detects_comment_edit(self):
         original = self.provider
