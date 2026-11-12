@@ -6,6 +6,7 @@ package nativediscovery
 import (
  "errors"
  "reflect"
+ "sync"
 )
 
 const (
@@ -310,6 +311,17 @@ func F11Development()(F11Report,error){
  return out,nil
 }
 
+var f11ValidationCanonical struct{
+ once sync.Once
+ report F11Report
+ err error
+}
+func f11CanonicalEqual(x F11Report)bool{
+ f11ValidationCanonical.once.Do(func(){
+  f11ValidationCanonical.report, f11ValidationCanonical.err=F11Development()
+ })
+ return f11ValidationCanonical.err==nil && reflect.DeepEqual(x,f11ValidationCanonical.report)
+}
 func F11Validate(x F11Report)error{
  if x.Schema!=F11Schema||x.DigestSHA256!=f11Digest(x)||
   !x.DevelopmentOnly||!x.F10NegativePreserved||!x.SameSyntheticTrainingOnly||
@@ -318,7 +330,6 @@ func F11Validate(x F11Report)error{
   x.ScientificAccepted||x.OwnerEligible||x.DispatchAuthorized||
   x.ExistingF139LaneAltered||x.ExperimentIssued||
   x.AgentCalls!=0||x.PaidAPICalls!=0{return errF11}
- exact,err:=F11Development()
- if err!=nil||!reflect.DeepEqual(x,exact){return errF11}
+ if !f11CanonicalEqual(x){return errF11}
  return nil
 }

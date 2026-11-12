@@ -9,6 +9,7 @@ import (
  "errors"
  "io"
  "reflect"
+ "sync"
 )
 
 const (
@@ -439,13 +440,23 @@ func F12Development()(F12Report,error){
  out.DigestSHA256=f12Digest(out)
  return out,nil
 }
+var f12ValidationCanonical struct{
+ once sync.Once
+ report F12Report
+ err error
+}
+func f12CanonicalEqual(v F12Report)bool{
+ f12ValidationCanonical.once.Do(func(){
+  f12ValidationCanonical.report, f12ValidationCanonical.err=F12Development()
+ })
+ return f12ValidationCanonical.err==nil && reflect.DeepEqual(v,f12ValidationCanonical.report)
+}
 func F12Validate(v F12Report)error{
  if v.Schema!=F12Schema||v.DigestSHA256!=f12Digest(v)||
   !v.DevelopmentOnly||!v.F10AndF11NegativePreserved||
   v.IndependentScienceSeedsConsumed||v.ScientificAccepted||
   v.FullProcessEfficiencyProven||v.OwnerEligible||v.DispatchAuthorized||
   v.LiveFORGEResearchChanged||v.AgentCalls!=0||v.PaidAPICalls!=0{return errF12}
- expected,err:=F12Development()
- if err!=nil||!reflect.DeepEqual(v,expected){return errF12}
+ if !f12CanonicalEqual(v){return errF12}
  return nil
 }
