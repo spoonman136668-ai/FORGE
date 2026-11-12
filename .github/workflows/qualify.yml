@@ -15,6 +15,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  f57_receipt_focused_source_only:
+    if: github.event_name == 'pull_request' && github.head_ref == 'research/eureka-f51-original-acrobot-20261110'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Exact-source F57 receipt physics, adversarial negatives, no original science
+        shell: bash
+        env:
+          PYTHONPATH: research
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          python3 -B -m unittest discover -s research -p 'test_f57_original_acrobot_reward_*.py' -v
+          echo 'F57_PHYSICS_RECEIPT_FOCUSED_TESTS=PASS'
+          echo 'F57_FRESH_SCIENTIFIC_ORIGINALS=ZERO'
   linux_f139:
     runs-on: ubuntu-latest
     timeout-minutes: 20
