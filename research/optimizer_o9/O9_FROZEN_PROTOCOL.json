@@ -1,0 +1,90 @@
+{
+  "schema": "forge.optimizer.o9.learned-write-read.public-development.v1",
+  "state": "PROSPECTIVELY_FROZEN_BEFORE_ANY_O9_GENERATOR_MODEL_OR_DEV_RUN",
+  "baseline_main": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "preserve": [
+    "O8 PR782 engineering PASS scientific NO_GO",
+    "O7 PR780 learned split ablation helps but baseline dominates",
+    "O2/O3/O5/O6 negative tests",
+    "O4 learned HMM mixed development",
+    "Q20 scientific negatives",
+    "Q21/Q21N01 immutable first-use sources"
+  ],
+  "question": "Do fully learned external memory write/read decisions retain a useful cue across long distractors and composition of public action parity, measured against actually trained matched-input GRUs and explicit conventional memory?",
+  "fresh_public_source": {
+    "namespace": "o9-public-v1",
+    "roles": [
+      "O9_PUBLIC_TRAIN",
+      "O9_PUBLIC_SELECT",
+      "O9_PUBLIC_DEV"
+    ],
+    "counts": {
+      "O9_PUBLIC_TRAIN": 96,
+      "O9_PUBLIC_SELECT": 24,
+      "O9_PUBLIC_DEV": 32
+    },
+    "length": 36,
+    "query_positions": [
+      14,
+      26
+    ],
+    "families": {
+      "ECHO_DELAY": "At time zero o0 is public random binary cue. One query action 2 at t=14 or t=26. All nonquery actions iid in {0,1}; next public observations iid fair distractors. At query next bit cue flipped with 0.05 independent noise.",
+      "PARITY_DELAY": "Same cue and query location but query next bit cue XOR all publicly observed action=1 events before query, flipped with 0.05 noise.",
+      "NULL_IID": "Same role, cue/action/query timing; query target is iid fair binary."
+    },
+    "seeds": "SHA256 UTF8 'o9-public-v1:'+role+':'+family+':'+index, first eight big-endian bytes -> Python random.Random",
+    "learner_interface": "At time t read only public o_t, a_t, event-is-first flag, and internally learned preceding state. Predict public next bit before reading it. Only the delayed query next-bit is used for training and evaluation. No hidden latent variable, future event, source role, or family labels as learner features."
+  },
+  "models": {
+    "LEARNED_EXTERNAL_WRITE_READ_1": "One trainable slot. Per-step learned sigmoid write gate and tanh content, differentiable slot carry; at query a learned read gate and trained logistic output. Full query-only BPTT and Adam.",
+    "LEARNED_EXTERNAL_WRITE_READ_2": "Identical model two slots, prospectively declared capacity, no DEV-based capacity selection.",
+    "ERASED_EXTERNAL_WRITE_READ_2": "Same selected trained 2-slot checkpoint with memory cleared before query; evaluates source dependence without retraining or looking at DEV.",
+    "GRU_2": "Fully trained standard reset/update gated recurrent network with two learned hidden cells, same public input and optimizer.",
+    "GRU_4": "Same fully trained GRU with four hidden cells; prospectively declared capacity variant.",
+    "O8_GATED_4": "Verbatim O8 trained gated recurrence implementation copied from Git blob 6f0e9d58718efdae0e448e9387d325cf653a81fc; same public input and training schedule as frozen original except number of train epochs remains 12.",
+    "PUBLIC_EXPLICIT_EPISODIC": "Verbatim O8 fitted public episodic cue/action-parity count control copied from Git blob aa8557641972b863876f882fab41a50d64bac735. Hand-engineered public cue/parity features, not capacity-matched.",
+    "PUBLIC_MEMORY_LOGISTIC": "Verbatim O8 trained public cue/parity logistic model copied from Git blob aa8557641972b863876f882fab41a50d64bac735, same fixed 50-epoch training.",
+    "CURRENT_QUERY_COUNTS": "Verbatim O8 trained current-query-only counts, does not retain earlier cue.",
+    "UNIFORM_05_DIAGNOSTIC": "No trained parameters; fixed 0.5 query response."
+  },
+  "training": {
+    "recurrent_all": [
+      "LEARNED_EXTERNAL_WRITE_READ_1",
+      "LEARNED_EXTERNAL_WRITE_READ_2",
+      "GRU_2",
+      "GRU_4",
+      "O8_GATED_4"
+    ],
+    "initialization_seeds": [
+      17,
+      31
+    ],
+    "epochs": 12,
+    "adam_learning_rate": 0.01,
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "epsilon": 1e-8,
+    "gradient_clip": 2,
+    "parameter_selection": "only min O9_PUBLIC_SELECT query NLL per model over seeds 17 and 31, no DEV tuning. Model capacities fixed as separate arms.",
+    "public_controls": "Exact same TRAIN data; fully trained conventional episodic table/logistic/current counts."
+  },
+  "predeclared_decision": {
+    "primary": "Each causal family's mean query-only NLL (nats/bit). Positive advantage requires beating minimum of all fitted conventional: GRU_2, GRU_4, O8_GATED_4, PUBLIC_EXPLICIT_EPISODIC, PUBLIC_MEMORY_LOGISTIC, CURRENT_QUERY_COUNTS.",
+    "memory_ablation": "ERASED_EXTERNAL_WRITE_READ_2 query NLL minus LEARNED_EXTERNAL_WRITE_READ_2 query NLL, positive supports use of retained state, but only if meaningful and not NULL.",
+    "capacity": "LEARNED_EXTERNAL_WRITE_READ_2 versus LEARNED_EXTERNAL_WRITE_READ_1, with exact learned parameter and checkpoint size disclosed.",
+    "equally_informed": "Input public history identical for all; explicit episodic and logistic controls use hand-engineered history features, so they are information-equivalent but not learned-feature or memory-capacity matched.",
+    "resource_proof": "per-arm complete fit + selection CPU, DEV evaluation CPU, checkpoint bytes/parameter counts; whole process CPU, peak tracemalloc allocation and process RSS; do not claim resource dominance unless compared in same OS and accuracy noninferior.",
+    "cross_os": "all 9 source SHA256 family x role digests byte equal Windows/Linux, all 3 x 10 query NLL values match within 1e-6.",
+    "null": "Retain all sign violations, negative accuracy results, and null overfit. Do not use PUBLIC_DEV for redesign or threshold selection.",
+    "acceptance": "No protected science promotion or architecture integration on public DEV alone; next independent scientific boundary requires authenticated first-use and unfamiliar sources."
+  },
+  "limits": [
+    "Do not reuse O8 public DEV data for new fitting or selection.",
+    "Do not edit predecessor O2-O8 code, negatives or frozen budgets.",
+    "Do not modify controller, science first-use, FSA, Cloudflare D1, FORGE research queue, KTRADE or live brokerage.",
+    "No paid API.",
+    "No claim non-transformer general intelligence from synthetic 1-bit cue families.",
+    "One branch, additive-only paths, native Windows/Linux focused + full FORGE regression, draft PR."
+  ]
+}
