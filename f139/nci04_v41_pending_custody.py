@@ -7,6 +7,7 @@ a separately owner-approved, crash-safe transition is implemented.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 
@@ -213,3 +214,82 @@ def compare_source_bound_reissue(frozen, old, proposed, *, target_source):
         "owner_mutations": 0,
         "scientific_first_use": False,
     }
+
+
+def _authenticated_remote_issue(api, number, source):
+    """GET-only exact provider binding of one original or successor issue.
+
+    Issue-supplied target SHA is a locator only. Trust is established by an
+    independent target commit/tree read and the full owner/label/intent/source
+    contract. This function does not use a model-supplied candidate or open a
+    branch by name.
+    """
+    from f139.nci04_native_contract import REPOS
+    from f139.nci04_owner_issue import inspect_owner_issue
+    need(type(api) is GitHub and type(number) is int and number > 0
+         and isinstance(source, str) and SHA40.fullmatch(source) is not None,
+         "REMOTE_LOOKUP_ARGUMENTS_INVALID")
+    raw = api.native_repo_get(
+        "repos/spoonman136668-ai/FORGE/issues/" + str(number))
+    need(type(raw) is dict and type(raw.get("number")) is int
+         and raw["number"] == number
+         and type(raw.get("body")) is str
+         and 0 < len(raw["body"].encode("utf-8")) <= 65000,
+         "REMOTE_ISSUE_SHAPE_DRIFT")
+    try:
+        envelope = json.loads(raw["body"])
+        encoded = envelope["intent_base64"]
+        need(type(encoded) is str and len(encoded) <= 80000,
+             "REMOTE_INTENT_OVERSIZE")
+        identity = json.loads(base64.b64decode(encoded, validate=True))
+        lane, sha = identity["lane"], identity["target_commit"]
+    except (KeyError, ValueError, UnicodeError, TypeError) as exc:
+        raise V41PendingDenied("F139_V41_REMOTE_INTENT_INVALID") from exc
+    need(lane == "Yggdrasil" and lane in REPOS
+         and type(sha) is str and SHA40.fullmatch(sha) is not None,
+         "REMOTE_LANE_OR_TARGET_INVALID")
+    target = api.native_repo_get(
+        "repos/" + REPOS[lane][0] + "/git/commits/" + sha)
+    need(type(target) is dict and target.get("sha") == sha
+         and type(target.get("tree")) is dict
+         and isinstance(target["tree"].get("sha"), str)
+         and SHA40.fullmatch(target["tree"]["sha"]) is not None,
+         "REMOTE_PROVIDER_COMMIT_DRIFT")
+    return inspect_owner_issue(
+        raw, protected_main=source, authenticated_target_commit=sha,
+        authenticated_target_tree=target["tree"]["sha"])
+
+
+def verify_remote_source_bound_reissue(api, frozen, new_number, *, target_source):
+    """Authenticate both issues twice and freeze an inert comparison receipt.
+
+    Read-only. No creation, update, label change, claim, escrow, transfer, or
+    release. After any new issue is actually created under separate authority,
+    this enforces the original #1715's content/target and source-bound identity.
+    The caller must still supply a trustworthy original-lock frozen receipt.
+    """
+    need(type(api) is GitHub and type(new_number) is int
+         and new_number > PENDING_NUMBER
+         and isinstance(target_source, str)
+         and SHA40.fullmatch(target_source) is not None
+         and target_source != FROM_V40,
+         "REMOTE_REISSUE_ARGUMENTS_INVALID")
+    need(api.protected_main() == target_source,
+         "SUCCESSOR_PROTECTED_MAIN_DRIFT")
+    old = _authenticated_remote_issue(api, PENDING_NUMBER, FROM_V40)
+    new = _authenticated_remote_issue(api, new_number, target_source)
+    receipt = compare_source_bound_reissue(
+        frozen, old, new, target_source=target_source)
+    # Re-check the mutable GitHub issue objects and moving main after all
+    # target tree checks. A changed identity during the GET sequence must
+    # never produce a trustworthy proof, even for non-executing DEV.
+    old2 = _authenticated_remote_issue(api, PENDING_NUMBER, FROM_V40)
+    new2 = _authenticated_remote_issue(api, new_number, target_source)
+    again = compare_source_bound_reissue(
+        frozen, old2, new2, target_source=target_source)
+    need(receipt == again and api.protected_main() == target_source,
+         "REMOTE_SOURCE_OR_ISSUE_CHANGED_DURING_READ")
+    return {**receipt, "provider_readback": "TWO_MATCHED_GET_PASSES",
+            "source_transition_authorized": False,
+            "reissue_authorized": False, "new_dispatches": 0,
+            "owner_mutations": 0, "scientific_first_use": False}
