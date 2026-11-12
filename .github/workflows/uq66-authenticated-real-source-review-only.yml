@@ -1,0 +1,138 @@
+name: UQ66 authenticated real-source review only
+on:
+  push:
+    branches:
+      - qualification/uq66-authenticated-real-source-review-only
+permissions:
+  contents: read
+concurrency:
+  group: uq66-authenticated-real-source-review
+  cancel-in-progress: false
+jobs:
+  review:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Authenticate actual Git source, inspect without admission, verify protected state
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference='Stop'
+          function Assert([bool]$ok,[string]$reason) { if (-not $ok) { throw ('UQ66_STOP_'+$reason) } }
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'UQ66_RUNNER_IDENTITY_MISMATCH' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          Assert (Test-Path $native -PathType Container) 'NATIVE_PS_MODULES_MISSING'
+          $env:PSModulePath = $native + [IO.Path]::PathSeparator + $env:PSModulePath
+          $mpRepo='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $mpSha='7ae81a209fa77e5381a669eb3cc0d736ef60ecd9'
+          $forgeRepo='https://github.com/spoonman136668-ai/FORGE.git'
+          $sourceBranch='qualification/uq65-readonly-future-source-boundary'
+          $sourceSha='6847f71ce4a6d14ac65aa772411332f0ef377bd8'
+          $sourceUrl='https://github.com/spoonman136668-ai/FORGE/commit/'+$sourceSha
+          $knownSha='e3f73d1827a17d9d8be88db50a8620e781f1d82a'
+          $knownUrl='https://github.com/spoonman136668-ai/FORGE/commit/'+$knownSha
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq66-authenticated-review-'+$env:GITHUB_RUN_ID)
+          $mp=Join-Path $scratch 'mind'
+          $forge=Join-Path $scratch 'forge-source'
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          Assert (-not (Test-Path $scratch)) 'SCRATCH_ALREADY_PRESENT'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            $mpRef=@(& git.exe ls-remote --exit-code $mpRepo refs/heads/main)
+            Assert ($LASTEXITCODE -eq 0 -and $mpRef.Count -eq 1 -and ([string]$mpRef[0] -split '\s+')[0] -ceq $mpSha) 'MIND_MAIN_IDENTITY_DRIFT'
+            $srcRef=@(& git.exe ls-remote --exit-code $forgeRepo ('refs/heads/'+$sourceBranch))
+            Assert ($LASTEXITCODE -eq 0 -and $srcRef.Count -eq 1 -and ([string]$srcRef[0] -split '\s+')[0] -ceq $sourceSha) 'SOURCE_BRANCH_IDENTITY_DRIFT'
+            & git.exe clone --quiet --filter=blob:none --depth 1 --single-branch --branch $sourceBranch --no-checkout $forgeRepo $forge
+            Assert ($LASTEXITCODE -eq 0) 'SOURCE_AUTHENTICATED_FETCH_FAILED'
+            $actualSource=(& git.exe -C $forge rev-parse HEAD | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $actualSource -ceq $sourceSha) 'SOURCE_COMMIT_DRIFT'
+            $subject=(& git.exe -C $forge log -1 --format=%s HEAD | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $subject -ceq 'ci: UQ65 fixture emit actual newline, not PowerShell literal backslash-n') 'SOURCE_SUBJECT_DRIFT'
+            $sourceBlob=(& git.exe -C $forge rev-parse 'HEAD:.github/workflows/uq65-future-source-review-only.yml' | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $sourceBlob -ceq '56cae970c50f29cc73f4b12701e65abf432b5259') 'SOURCE_WORKFLOW_BLOB_DRIFT'
+            Write-Host 'UQ66_REAL_GITHUB_COMMIT_SOURCE_AUTHENTICATED=PASS'
+
+            & git.exe clone --quiet --depth 1 --single-branch --branch main $mpRepo $mp
+            Assert ($LASTEXITCODE -eq 0) 'MIND_CLONE_FAILED'
+            $actualMp=(& git.exe -C $mp rev-parse HEAD | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $actualMp -ceq $mpSha) 'MIND_CHECKOUT_IDENTITY_DRIFT'
+            $before=@{}
+            foreach($path in $protected) {
+              $p=Join-Path $mp $path
+              Assert (Test-Path $p -PathType Leaf) ('PROTECTED_FILE_MISSING_'+$path)
+              $before[$path]=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $ledger=[IO.File]::ReadAllText((Join-Path $mp '.ice/source-ledger.json')) | ConvertFrom-Json
+            $records=@([IO.File]::ReadAllText((Join-Path $mp '.ice/records.json')) | ConvertFrom-Json)
+            $queue=[IO.File]::ReadAllText((Join-Path $mp 'policies/guarded-chat-source-queue.json')) | ConvertFrom-Json
+            Assert ($records.Count -eq 263 -and @($ledger.entries).Count -eq 104) 'BASELINE_COUNTS_DRIFT'
+            Assert (@($queue.sources).Count -eq 0 -and -not [bool]$queue.allow_production_memory_writes -and -not [bool]$queue.allow_unbounded_discovery) 'PRODUCTION_ALLOWLIST_NOT_DEFAULT_DENY'
+            $previous=@($ledger.entries | Where-Object { [string]$_.source_ref -ceq $knownUrl -and [string]$_.source_version -ceq $knownSha })
+            $novel=@($ledger.entries | Where-Object { [string]$_.source_ref -ceq $sourceUrl -or [string]$_.source_version -ceq $sourceSha })
+            Assert ($previous.Count -eq 1 -and $novel.Count -eq 0) 'DUPLICATE_OR_NEW_SOURCE_LEDGER_DRIFT'
+
+            $probe=Join-Path $mp 'tools/source-probe.ps1'
+            $newText=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probe probe -Type commit -Ref $sourceUrl -Version $sourceSha | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0) 'NEW_SOURCE_PROBE_FAILED'
+            $new=$newText | ConvertFrom-Json
+            Assert ([string]$new.schema -ceq 'mind-palace.source-probe-result.v1' -and -not [bool]$new.processed -and [string]$new.action -ceq 'process' -and [string]$new.reason -ceq 'unseen-fingerprint') 'NEW_SOURCE_NOT_UNSEEN'
+            $knownText=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probe probe -Type commit -Ref $knownUrl -Version $knownSha | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0) 'KNOWN_SOURCE_PROBE_FAILED'
+            $known=$knownText | ConvertFrom-Json
+            Assert ([string]$known.schema -ceq 'mind-palace.source-probe-result.v1' -and [bool]$known.processed -and [string]$known.action -ceq 'skip' -and [string]$known.reason -ceq 'exact-fingerprint-known') 'KNOWN_SOURCE_DUPLICATE_NOT_SKIPPED'
+            Write-Host 'UQ66_NEW_SOURCE_UNSEEN_AND_KNOWN_DUPLICATE_SKIPPED=PASS'
+
+            # A real immutable Git commit, not a fabricated chat or operator decision.
+            # Keep the candidate in disposable scratch; its existence grants no preparation authority.
+            $batch=[ordered]@{
+              schema='mind-palace.collector-batch.v1'
+              collector=[ordered]@{name='uq66-authenticated-github-review-only';version='1';source_kind='repo';observed_at='2026-10-19T09:23:47Z'}
+              sources=@([ordered]@{type='commit';ref=$sourceUrl;name='FORGE UQ65 qualified workflow fixture correction';version=$sourceSha;content_sha256=$null;authority='authoritative';role='primary';note='Git-authenticated exact commit and single changed workflow file; not a ChatGPT transcript'})
+              candidates=@([ordered]@{
+                schema_version=1;kind='project_state';key='forge-uq65-review-fixture-newline-repair-20261019'
+                project='FORGE';importance='warm'
+                statement='FORGE commit 6847f71ce4a6d14ac65aa772411332f0ef377bd8 corrects newline serialization in the isolated UQ65 future-source review fixture. This repository commit alone does not establish authentic user-chat ingestion or durable memory acceptance.'
+                tags=@('forge','mind-palace','uq65','fixture','review-only','provenance')
+                details=[ordered]@{claim_class='repository_implementation_state';source_commit=$sourceSha;operator_authorization_claimed=$false;durable_memory_admission_claimed=$false}
+                supersedes=@()
+                source_refs=@([ordered]@{type='commit';ref=$sourceUrl;note='Exact authenticated commit, single workflow path'})
+                disposition_hint='auto'
+              })
+            }
+            $batchPath=Join-Path $scratch 'real-source-candidate.json'
+            [IO.File]::WriteAllText($batchPath,((ConvertTo-Json -InputObject $batch -Depth 32)+[Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
+            $collector=Join-Path $mp 'tools/collect.ps1'
+            $validatedText=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $collector validate -InputPath $batchPath | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0) 'CANONICAL_COLLECTOR_VALIDATE_FAILED'
+            $validated=$validatedText | ConvertFrom-Json
+            Assert ([string]$validated.schema -ceq 'mind-palace.collector-result.v1' -and [int]$validated.primary_source_count -eq 1 -and [int]$validated.candidate_count -eq 1) 'CANONICAL_COLLECTOR_SCHEMA_OR_BOUNDS'
+            $classifiedText=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $collector classify -InputPath $batchPath | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0) 'CANONICAL_COLLECTOR_CLASSIFY_FAILED'
+            $classified=$classifiedText | ConvertFrom-Json
+            Assert ([string]$classified.schema -ceq 'mind-palace.collector-result.v1' -and [int]$classified.primary_source_count -eq 1 -and [int]$classified.candidate_count -eq 1) 'CANONICAL_COLLECTOR_CLASSIFY_BOUNDS'
+            Write-Host 'UQ66_REAL_SOURCE_CANONICAL_READONLY_CLASSIFICATION=PASS'
+            Write-Host 'UQ66_DISPOSITION=PENDING_OPERATOR_REVIEW_NOT_PREPARED'
+
+            $newAgainText=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probe probe -Type commit -Ref $sourceUrl -Version $sourceSha | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0) 'REPLAY_PROBE_FAILED'
+            $newAgain=$newAgainText | ConvertFrom-Json
+            Assert (-not [bool]$newAgain.processed -and [string]$newAgain.source_id -ceq [string]$new.source_id) 'INSPECT_REPLAY_MUTATED_LEDGER'
+            foreach($path in $protected) {
+              $after=(Get-FileHash -LiteralPath (Join-Path $mp $path) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Assert ($after -ceq $before[$path]) ('PROTECTED_HASH_CHANGED_'+$path)
+            }
+            $queueAfter=[IO.File]::ReadAllText((Join-Path $mp 'policies/guarded-chat-source-queue.json')) | ConvertFrom-Json
+            Assert (@($queueAfter.sources).Count -eq 0) 'SOURCE_ADDED_TO_PRODUCTION_QUEUE'
+            $tracked=@(& git.exe -C $mp status --porcelain)
+            Assert ($LASTEXITCODE -eq 0 -and $tracked.Count -eq 0) 'TRACKED_OR_UNTRACKED_REPO_DRIFT'
+            Write-Host 'UQ66_ALL_NINE_PROTECTED_HASHES_AND_QUEUE_STABLE=PASS'
+            Write-Host 'UQ66_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ66_SOURCE_LEDGER_WRITES=0'
+            Write-Host 'UQ66_PAID_INFERENCE_AND_CODEX=0'
+            Write-Host 'UQ66_NO_GIT_PUSH_NO_APPLY_NO_PREPARE=PASS'
+          } finally {
+            if (Test-Path $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop }
+            Assert (-not (Test-Path $scratch)) 'PRIVATE_SCRATCH_RETAINED'
+            Write-Host 'UQ66_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
