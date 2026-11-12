@@ -1,0 +1,80 @@
+{
+  "schema": "forge.optimizer.language.l6.hierarchical-public-realtext.v1",
+  "stage": "PREREG_PROTOCOL_ONLY_FIRST_COMMIT_BEFORE_SOURCE_MODEL_OR_DEV",
+  "parent": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "governance": {
+    "mode": "ADDITIVE_BOUNDED_PUBLIC_LANGUAGE_EXPLORATION_ONLY",
+    "retain": [
+      "Q21 successor",
+      "NCI-04",
+      "ITD-01",
+      "BIO",
+      "Mass Research",
+      "Optimizer native O1-O14",
+      "FORGE controller/custody",
+      "Wingless and Yggdrasil distinct architectures"
+    ],
+    "disallow": [
+      "Any Q21 FSA HELD first-use",
+      "Prior L1–L5 exposed DEV reuse",
+      "Native Wingless/Yggdrasil integration",
+      "New control queue or schedulers",
+      "Paid APIs",
+      "Trading or protected production changes",
+      "Scientific candidate promotion from this screen"
+    ]
+  },
+  "research_question": "Does a learned hierarchical stem-affix representation reconstruct actual unfamiliar words from partial word+side context better per cost than independent lexical, flat suffix, character ngram and trained recurrent character models?",
+  "source": {
+    "kind": "New externally sourced PUBLIC unblinded classic English novel; NOT independently blinded science",
+    "repo": "GITenberg/Pride-and-Prejudice_1342",
+    "commit": "81db45c9c48c592f0b77f01fc59e677ad0a5634e",
+    "filename": "1342-0.txt",
+    "git_blob_sha1": "20c3737a33af2501e4c0597285ad630ef42e8e46",
+    "raw_bytes": 724725,
+    "url": "https://raw.githubusercontent.com/GITenberg/Pride-and-Prejudice_1342/81db45c9c48c592f0b77f01fc59e677ad0a5634e/1342-0.txt",
+    "identity": "Require Git blob sha1 on RAW exact bytes before parse; source full text never checked into FORGE or emitted in artifacts",
+    "namespace": "l6-20261023-pride-stem-affix-v1",
+    "physical_line_split": "Original physical UTF8 lines first 70% TRAIN, next15% SELECT, last15% DEV, independent from Shakespeare/Alice L1–L5",
+    "tokenizer": "lowercase ASCII regex [a-z]+(?:'[a-z]+)?; valid lines 9..65 tokens, target 5..18 ASCII letters",
+    "target": "one interior eligible word physical line chosen by SHA256(namespace+':'+line ordinal) first8 modulo eligible candidates; expose word[:3], 3 preceding and 3 following words; target only for TRAIN fitting and post-freeze SELECT/DEV scoring",
+    "roles": {
+      "L6_TRAIN": 900,
+      "L6_SELECT": 200,
+      "L6_DEV": 240
+    },
+    "role_policy": "Take first distinct eligible examples per chronological physical block and refuse duplicate context/target triples; source ordinal only custody, not model input",
+    "independent_dev_policy": "DEV (240) is novel but PUBLIC, never model-select/tune, do not use DEV for external first-use scientific promotion"
+  },
+  "arms": {
+    "CLOSED_PREFIX": "Fit full TRAIN target word frequency; choose prefix match (favor context word associations with fixed training-only weight 0.2), or output raw three-letter prefix as abstention",
+    "FLAT_SUFFIX": "Fit suffix frequencies length1..5 conditioned observed first-three-character prefix, else global suffix; no stem abstraction; same gold words",
+    "CHAR_TRIGRAM_BEAM": "Original L5 learned trigram architecture byte-identical Git blob REQUIRED, with fixed beam12, max word18, length penalty .04, smoothing .5; copy directly from L5 source and expose learned character trigram arm (only 900 TRAIN)",
+    "HIERARCHICAL_STEM_AFFIX": "Discover TRAIN suffix morphemes of length1..5 by frequency, limit to top32 with count>=3; parse each training word into one stem length>=3 and one suffix in frozen library maximizing (suffix_count+0.5)/(number_of_train_words+0.5*32) weighted by known-stem support; estimate prefix-conditioned stem distributions and stem-conditioned suffix distributions with add0.5; inference generate candidate stems consistent with visible first3, rank stem+suffix and context learned from TRAIN. No oracle morphology or hand-coded English affixes. Limit 40 stems per prefix and top16 suffixes per stem, no beam/DEV tuning. Unknown-word generation permitted.",
+    "HIERARCHICAL_NO_AFFIX_ABLATION": "Same fitted discovered stem inventory and context but allow only unchanged full memorized TRAIN target words; tests contribution of recombination.",
+    "RNN_CHAR_H20": "Train 20-hidden unit true tanh recurrent character language predictor with full BPTT on exact same TRAIN target words; seeds17/31, 8 epochs, batch32, LR.025, Adam(.9,.999,1e-8), gradient clip 2, choose start solely SELECT mean next-char NLL. At inference provided prefix only; beam4, max word18, never gold, no external pretrained resources."
+  },
+  "controls": "Equal supervised TRAIN words, visibility of prefix and left/right, but learning algorithms/parameters/compute budgets differ. No matched trained transformer/state-space neural language model, no general Pareto GO.",
+  "metrics": {
+    "language": [
+      "DEV full-word exact",
+      "held DEV TRAIN OOV count and exact numerator",
+      "mean character accuracy",
+      "normalized edit distance",
+      "new output words and invalid prefix/abstention"
+    ],
+    "cost": [
+      "All-fit/SELECT CPU including all RNN seeds and model selection",
+      "inference process CPU and serial wall per word",
+      "full serialized checkpoint including optimizer and hierarchy dictionary",
+      "train-source storage",
+      "peak Python/RSS memory",
+      "operation proxy separate for count tables vs recurrent matmul, NOT actual hardware FLOPs",
+      "measured energy or NOT_MEASURED"
+    ],
+    "ablation": "Report hierarchical stem+affix vs same-stem inventory without allowed recombination; no post-hoc promotion from one/two OOV coincidences",
+    "native": "Windows/Linux immutable source identities 3/3 exact; model checkpoints native selection and all 6x3 role output hashes EXACT for count arms, RNN metric comparisons within .01 to accommodate numeric BLAS differences; fail closed on larger differences; 12 adversarial tests each OS, full Linux Go test/vet/build plus separate entire FORGE PR regression"
+  },
+  "advancement": "Engineering PASS only if native cross-OS and full regression; potential small developmental signal if hierarchy >0 unseen target reconstructions with ablation below hierarchy and no huge cost penalty; cannot qualify language Pareto, coding/reasoning/multilingual fidelity nor native integration from this open public source.",
+  "source_scope": "Only research/optimizer_language_l6/** and .github/workflows/optimizer-language-l6.yml changed, draft PR UNMERGED."
+}
