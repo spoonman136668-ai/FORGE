@@ -1,0 +1,109 @@
+name: O21-S12 original Wingless R3 bridge source-only (not science)
+on:
+  push:
+    branches: [research/o21-s12-r3-go-native-bridge-20261025]
+  pull_request:
+    paths:
+      - 'research/optimizer_o21_s12/**'
+      - '.github/workflows/optimizer-o21-r3-bridge-sourceonly.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-go-r3-transport-no-external-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout only FORGE candidate interface
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout original immutable Wingless R3 (no code rewrite)
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: 3b11363b93e61311a8e96de2546b1a7f7f62d5db
+          path: wingless-original
+          persist-credentials: false
+      - name: Fail closed on original owner source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C wingless-original rev-parse HEAD)" = 3b11363b93e61311a8e96de2546b1a7f7f62d5db
+          test "$(git -C wingless-original hash-object research/native/itd02/r1/policy.go)" = 8d1845d82dd8578a709b00e8841bdc5edc8dbc10
+          test "$(git -C wingless-original hash-object research/native/itd02/r2/affordance.go)" = e1564172079359ca4c450dcc87487a4733210584
+          test "$(git -C wingless-original hash-object research/native/itd02/r3/transitions.go)" = 3c8a60a5037e6c0f04648ae53175ed1187b5f8ac
+          test -f research/optimizer_o21_s12/PREREG.md
+          echo ORIGINAL_SOURCE_SAME_AUTHENTICATED_COMMIT=PASS
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wingless-original/go.mod
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile unchanged native Go R3 and stand-alone JSONL transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd wingless-original
+            go test -count=1 ./research/native/itd02/r1 ./research/native/itd02/r2 ./research/native/itd02/r3
+            go vet ./research/native/itd02/r1 ./research/native/itd02/r2 ./research/native/itd02/r3
+            go build -trimpath -o "$RUNNER_TEMP/wingless-r3-bridge" "$GITHUB_WORKSPACE/research/optimizer_o21_s12/r3_bridge.go"
+          )
+          echo ORIGINAL_R3_GO_COMPILED_WITHOUT_SOURCE_MODIFICATION=PASS
+      - name: Source-only native IPC, selected action, forged state and cold OS process
+        shell: bash
+        env:
+          R3_BRIDGE_BINARY: ${{ runner.temp }}/wingless-r3-bridge
+        run: |
+          set -euo pipefail
+          python -B -m unittest -v research/optimizer_o21_s12/test_bridge.py
+          test -z "$(git status --porcelain --untracked-files=all -- . ':!wingless-original')"
+          test -z "$(git -C wingless-original status --porcelain --untracked-files=all)"
+          echo R3_SOURCE_ONLY_COLD_RESTORE_TWO_OS=PASS
+          echo ACTUAL_MINIGRID_RESET_STEP=ZERO
+          echo ORIGINAL_PROTECTED_FIRST_USE=ZERO
+          echo SCIENTIFIC_GO=FALSE
+      - name: FIT-role parser tests with deliberately malformed historical DEV suffix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest -v research/optimizer_o21_s12/test_replay_original_fit.py
+          echo FIT_ONLY_ROLE_NO_DEV_DESERIALIZATION=PASS
+      - name: Download exact original-owner completed public FIT archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12581696633/zip" \
+            --output "$RUNNER_TEMP/o21-s13-original-owner.zip"
+          test -s "$RUNNER_TEMP/o21-s13-original-owner.zip"
+      - name: Train actual unchanged Go R3 on authentic historical FIT selected actions only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o21_s12/replay_original_fit.py \
+            --original-provider-zip "$RUNNER_TEMP/o21-s13-original-owner.zip" \
+            --original-go-bridge "$RUNNER_TEMP/wingless-r3-bridge" \
+            --output "$RUNNER_TEMP/o21-s13-native-original-public-fit.json"
+          echo ORIGINAL_GENUINE_FIT_ACTIONS_REPLAYED_REAL_GO=12000
+          echo ORIGINAL_MINIGRID_NEW_RESET_STEP=ZERO
+          echo ORIGINAL_CHECK_DEV_OPENED=ZERO
+          echo SCIENTIFIC_FIRST_USE=FALSE
+      - name: Preserve original-native historical FIT-only evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: o21-s13-original-native-r3-FIT-only-${{ matrix.os }}
+          path: ${{ runner.temp }}/o21-s13-native-original-public-fit.json
+          if-no-files-found: error
+          retention-days: 90
