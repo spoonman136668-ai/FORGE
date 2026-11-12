@@ -120,5 +120,28 @@ class V41SourcePreflightTests(unittest.TestCase):
             route.original_ledger_preflight(None)
 
 
+    def test_future_target_descended_from_repair_does_not_require_frozen_runtime_blob(self):
+        """V41 release may add source guards; its negative tests must still run."""
+        candidate = "f"*40
+        base = "repos/" + route.REPO + "/"
+        data, _, _ = self.provider()
+        data[base+"branches/main"]["commit"]["sha"] = candidate
+        previous = data.pop(base+"compare/"+route.OWNER_SOURCE+"..."+
+                            route.MERGED_REPAIR+"?per_page=1")
+        data[base+"compare/"+route.OWNER_SOURCE+"..."+candidate+"?per_page=1"] = {
+            **previous, "ahead_by": 40}
+        data[base+"compare/"+route.MERGED_REPAIR+"..."+candidate+"?per_page=1"] = dict(
+            status="ahead", behind_by=0,
+            merge_base_commit=dict(sha=route.MERGED_REPAIR))
+        reads = []
+        def get(path):
+            reads.append(path)
+            return data[path]
+        proof = route.source_preflight(get, candidate)
+        self.assertEqual(proof["target_source_sha"], candidate)
+        self.assertFalse(any(path.startswith(base+"contents/") and
+                             path.endswith("?ref="+candidate) for path in reads))
+
+
 if __name__ == "__main__":
     unittest.main()

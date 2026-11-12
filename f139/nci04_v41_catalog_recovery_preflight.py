@@ -73,11 +73,13 @@ def source_preflight(get, target):
          repair_ancestry.get("behind_by") == 0 and
          repair_ancestry.get("merge_base_commit", {}).get("sha") == MERGED_REPAIR,
          "REPAIR_NOT_IN_PROTECTED_TARGET")
+    # Fix blobs are anchored at their immutable merge, not at a later
+    # successor that must update runtime source-transition guards itself.
     for path, expected in (
         ("f139/local_controller.py", REPAIR_CONTROLLER_BLOB),
         ("f139/test_nci04_native_successor_catalog.py", REPAIR_NEGATIVE_TEST_BLOB),
     ):
-        item = read(prefix + "contents/" + path + "?ref=" + target)
+        item = read(prefix + "contents/" + path + "?ref=" + MERGED_REPAIR)
         need(item.get("type") == "file" and item.get("sha") == expected,
              "REPAIR_SOURCE_BLOB_DRIFT")
 
