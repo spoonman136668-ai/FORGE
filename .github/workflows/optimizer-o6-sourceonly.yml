@@ -1,0 +1,106 @@
+name: Optimizer O6 gated-local public development qualification
+
+on:
+  push:
+    branches: [research/optimizer-o6-innovation-gated-local-20261023]
+    paths:
+      - '.github/workflows/optimizer-o6-sourceonly.yml'
+      - 'research/optimizer_o6/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-o6-sourceonly
+  cancel-in-progress: false
+
+jobs:
+  native-public-development:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Verify immutable main and frozen O6 and original controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parent = 'fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $ancestor = (& git merge-base $parent HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $parent) {
+            throw 'O6_PARENT_DRIFT'
+          }
+          $expected = @(
+            '.github/workflows/optimizer-o6-sourceonly.yml',
+            'research/optimizer_o6/O6_FROZEN_PROTOCOL.json',
+            'research/optimizer_o6/o4_frozen_controls.py',
+            'research/optimizer_o6/o5_frozen_online.py',
+            'research/optimizer_o6/public_source.py',
+            'research/optimizer_o6/innovation_gated.py',
+            'research/optimizer_o6/runner.py',
+            'research/optimizer_o6/test_mechanism.py'
+          )
+          $actual = @(& git diff --name-only $parent HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) { throw 'O6_DELTA_SCOPE_DRIFT' }
+          $expectedBlobs = @{
+            'research/optimizer_o6/O6_FROZEN_PROTOCOL.json' = '8cee5a8a2c89f568ffa6b4320afb2fedc43d00a2'
+            'research/optimizer_o6/o4_frozen_controls.py' = '3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c'
+            'research/optimizer_o6/o5_frozen_online.py' = '26b3077b9b7f0fec30fa2bc4cfa55cd7b142f6f0'
+          }
+          foreach ($file in $expectedBlobs.Keys) {
+            $headBlob = (& git rev-parse ('HEAD:'+$file)).Trim()
+            $diskBlob = (& git hash-object --no-filters -- $file).Trim()
+            if ($LASTEXITCODE -ne 0 -or $headBlob -cne $expectedBlobs[$file] -or
+                $diskBlob -cne $expectedBlobs[$file]) {
+              throw ('O6_FROZEN_BLOB_DRIFT_' + $file)
+            }
+          }
+          Write-Host 'O6_EXACT_FROZEN_IDENTITY=PASS'
+      - name: Nine adverse source and learner tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s research/optimizer_o6 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'O6_FOCUSED_TEST_FAILURE' }
+          Write-Host 'O6_FOCUSED_TESTS=PASS'
+      - name: Fresh public fit-select-DEV all six arms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B research/optimizer_o6/runner.py
+          if ($LASTEXITCODE -ne 0) { throw 'O6_PUBLIC_FIT_DEV_FAILURE' }
+          Write-Host 'O6_SIX_ARM_PUBLIC_DEV_RECEIPT=EMITTED'
+          Write-Host 'O6_PROTECTED_ROLE_CONSUMPTION=ZERO'
+          Write-Host 'O6_SCIENTIFIC_GO=NOT_EVALUATED'
+      - name: One complete FORGE Go test vet build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo O6_FULL_GO_REGRESSION=PASS
+      - name: Verify clean source checkout
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dirty = @(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'O6_DIRTY_SOURCE_CHECKOUT' }
+          Write-Host 'O6_NO_EXECUTION_AUTHORITY_CHANGE=PASS'

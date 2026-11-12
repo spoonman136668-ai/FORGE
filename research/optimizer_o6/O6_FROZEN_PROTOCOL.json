@@ -1,0 +1,125 @@
+{
+  "schema": "forge.optimizer.o6.innovation-gated-local.public-development.v1",
+  "source_parent_sha": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "design_state": "FROZEN_BEFORE_IMPLEMENTATION_AND_ANY_ROLE_GENERATION",
+  "question": "Can a public prediction-error-gated, single-pass local state update improve predictive accuracy over identical fixed-rate local learning while retaining its cost advantage over full batch HMM EM?",
+  "old_negative_custody": {
+    "O5_PR_776": "SINGLE_PASS_LOCAL_NO_ACCURACY_ADVANTAGE_VS_BATCH_HMM_AND_PUBLIC_COUNTS",
+    "O5_online_model_blob": "26b3077b9b7f0fec30fa2bc4cfa55cd7b142f6f0",
+    "O4_original_batch_hmm_blob": "3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c",
+    "O4_PR_775": "DEVELOPMENT_HMM_MARGINAL_NLL_IMPROVEMENT_CPU_COST_UNMATCHED",
+    "O3_PR_773": "RECURRENT_PREDICTIVE_STATE_NO_ADVANTAGE",
+    "O2_PR_772": "SURPRISE_REPLAY_NEGATIVE",
+    "Q20": "DEV_NO_GO",
+    "Q21N01": "SOURCE_FROZEN_PROTECTED_ROLES_NOT_CONSUMED"
+  },
+  "roles": [
+    "O6_PUBLIC_TRAIN",
+    "O6_PUBLIC_SELECT",
+    "O6_PUBLIC_DEV"
+  ],
+  "seed_namespace": "o6-public-v1",
+  "seeds": "SHA256 UTF8 namespace:role:family:index first 8 bytes to Python random.Random",
+  "episodes_per_family": {
+    "O6_PUBLIC_TRAIN": 64,
+    "O6_PUBLIC_SELECT": 16,
+    "O6_PUBLIC_DEV": 24
+  },
+  "steps_per_episode": 24,
+  "families": {
+    "A_XOR_ACTION_HISTORY": {
+      "latent": "unobserved binary",
+      "flip": "0.70 when previous_action XOR action == 1, otherwise 0.06",
+      "sensor_accuracy": 0.85,
+      "public_action": "iid binary",
+      "initial_previous_action": 0
+    },
+    "B_FALLING_EDGE": {
+      "latent": "unobserved binary",
+      "flip": "0.80 when previous_action == 1 and current_action == 0, otherwise 0.08",
+      "sensor_accuracy": 0.75,
+      "public_action": "iid binary",
+      "initial_previous_action": 0
+    },
+    "NULL_IID": {
+      "latent": "none",
+      "public_next_observation": "iid binary 0.5",
+      "public_action": "iid binary"
+    }
+  },
+  "public_interface": "At timestep t only o_t,a_t and public prior history can predict o_(t+1). The generator's latent binary state, role, and family are NEVER learner features. Target o_(t+1) is used solely for training update after predictive output.",
+  "arms": {
+    "INNOVATION_GATED_ONLINE": {
+      "model": "O5 two-latent-state public Bayesian filter with prescribed structure",
+      "train_passes": 1,
+      "initializations": [
+        17,
+        31
+      ],
+      "base_local_rate": 0.045,
+      "gating": "g = clamp(0.5 + 2*abs(y_t+1 - p_t+1_preobs), 0.5, 1.5); both emission and transition local updates multiplied by g; p from model prediction before target reveal",
+      "epoch_selection": "minimum PUBLIC_SELECT NLL only"
+    },
+    "GATED_FIXED_TRANSITION_ABLATION": {
+      "model": "identical innovation gated model without transition parameter training",
+      "train_passes": 1,
+      "initializations": [
+        17,
+        31
+      ]
+    },
+    "O5_UNGATED_LOCAL": {
+      "source_blob": "26b3077b9b7f0fec30fa2bc4cfa55cd7b142f6f0",
+      "train_passes": 1,
+      "initializations": [
+        17,
+        31
+      ]
+    },
+    "O4_BATCH_HMM": {
+      "source_blob": "3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c",
+      "em_iterations": 12,
+      "initializations": [
+        17,
+        31
+      ]
+    },
+    "CURRENT_ONLY_FITTED_COUNTS": {
+      "source_blob": "3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c"
+    },
+    "LAGGED_FITTED_COUNTS": {
+      "source_blob": "3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c"
+    }
+  },
+  "frozen_decision": {
+    "primary": "Report signed mean next-public-bit NLL for every arm, A,B,NULL. Positive comparative gain = benchmark NLL minus candidate NLL.",
+    "ablation": "GATED_FIXED_TRANSITION_ABLATION NLL minus INNOVATION_GATED_ONLINE NLL",
+    "unchanged_baseline": "O5_UNGATED_LOCAL NLL minus INNOVATION_GATED_ONLINE NLL",
+    "full_benchmark": "min(O4_BATCH_HMM, CURRENT_ONLY_FITTED_COUNTS, LAGGED_FITTED_COUNTS)",
+    "cpu": "Fit+SELECT CPU including two starts for locally trained arms and batch HMM; CPU comparison apples-to-apples within same native OS; state bytes per candidate, training and DEV inference separately.",
+    "selection": "All initialization selection on O6_PUBLIC_SELECT only. Never fit or select on O6_PUBLIC_DEV.",
+    "avoid_spurious_null": "Report NULL per-arm signed differences without posthoc positive claim.",
+    "cross_os": "All 9 role/family SHA256 source digests exactly identical and 18 family/arm NLL outputs within 1e-6 Windows vs Linux.",
+    "success_boundary": "Promote no candidate based only on O6 PUBLIC_DEV. A candidate should show both causal family accuracy and resource competitive results against strongest conventional and ablation before integration consideration; scientific first-use remains independently blocked.",
+    "negatives": "Record all signed gains, null results, violations, failures and budgets; never retune this frozen identity after reviewing DEV."
+  },
+  "resources": [
+    "TRAIN/SELECT/DEV role digests",
+    "per arm model state SHA256 and serialized bytes",
+    "fit+SELECT CPU per arm",
+    "inference CPU per arm",
+    "total process CPU",
+    "peak RSS whole process",
+    "peak traced Python allocations",
+    "source generation CPU",
+    "cross-OS identity and NLL"
+  ],
+  "guardrails": [
+    "No protected scientific original, HELD cohort, Q21/Q21N01 role, or existing FSA admission.",
+    "No source mutation to O4 or O5; old controls vendored byte-for-byte, not modified.",
+    "No live Cloudflare D1/broker/KTRADE/CKB-private runner, paid API, controller/queue, or scientific dispatch.",
+    "No retained-old DEV use in O6 train, validation, selection or evaluation.",
+    "No scientifically valid unfamiliar-task transfer claim based on synthetic structural variants.",
+    "Draft only, no automatic merge; qualify exact Linux/Windows and final FORGE regression."
+  ]
+}
