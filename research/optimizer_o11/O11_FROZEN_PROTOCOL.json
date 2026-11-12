@@ -1,0 +1,84 @@
+{
+  "schema": "forge.optimizer.o11.train-only-numeric-forensics.v1",
+  "frozen_stage": "BEFORE_ANY_PROBE_SOURCE_AND_EXECUTION",
+  "main_parent": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "purpose": "Isolate Windows/Linux phase-learning numerical drift responsible for O10 FAIL without reusing or modifying any O10 SELECT, O10 DEV, protected scientific source, or O10 frozen experimental result.",
+  "prior_receipts": {
+    "o10_pr": 792,
+    "o10_cross_os_failing_run": 39991061169,
+    "o10_exact_failed_model_source_blob": "56203c6aa60b29c4a5e8fb4bcd250bc212582209",
+    "o10_final_disposition": "PUBLIC_DEV_COMPOSITION_NO_GO_CROSS_OS_FAIL"
+  },
+  "role_namespace": "o11-determinism-training-probe-v1",
+  "roles": [
+    "O11_DIAG_TRAIN"
+  ],
+  "episodes_per_family": 96,
+  "steps": 24,
+  "families": {
+    "A_CUE0_COMPOSE": "public cue0; public cue4 observed at t4; observed actions iid0/1 (except query2); query at t10 or t18, target cue0 XOR parity of public prequery action1 with 0.05 label noise",
+    "B_CUE4_COMPOSE": "same public process but query target cue4 XOR parity with 0.05 label noise",
+    "C_SELECTOR_COMPOSE": "same public process but query target selected cue0 or cue4 from public last prequery action XOR public prequery action parity with 0.05 noise",
+    "NULL_IID": "same public process but query target iid fair bit"
+  },
+  "episode_seed": "Python random.Random(int.from_bytes(SHA256(UTF8('o11-determinism-training-probe-v1:'+role+':'+family+':'+index)).digest()[:8],'big'))",
+  "independent_source_disjointness": "No O10 role token or O10 episodes; O11 synthetic TRAIN-only role. This is not an independent scientifically held-out task family.",
+  "models": {
+    "O10_NATIVE_TRAINED_PHASE": "Exact copied unmodified O10 PublicPhaseComposer('TRAINED_PHASE_MEMORY') blob 56203c6aa60b29c4a5e8fb4bcd250bc212582209",
+    "O10_NATIVE_FROZEN_PHASE": "Exact copied unmodified O10 PublicPhaseComposer('FROZEN_PHASE_TRAINED_HEAD')",
+    "O10_NATIVE_LINEAR": "Exact copied unmodified O10 PublicPhaseComposer('LINEAR_COUNT_MEMORY')"
+  },
+  "training": {
+    "starts": [
+      17,
+      31
+    ],
+    "epochs": 40,
+    "learning_rate": 0.03,
+    "sample_order": "Frozen order 0..95 every epoch; update after each public TRAIN query target",
+    "total_updates_per_model": 3840,
+    "trace_after_updates": [
+      0,
+      1,
+      2,
+      3,
+      8,
+      16,
+      32,
+      96,
+      192,
+      384,
+      768,
+      1536,
+      3072,
+      3840
+    ]
+  },
+  "observations": [
+    "For each sample, public episode and training-only next-bit target must be source-matched cross-OS by SHA256",
+    "Initial parameter floats .hex and initial gradient components to isolate math differences",
+    "Per trace point log native float.hex and decimal of 8 weights, 8 Adam first moments, 8 Adam second moments",
+    "Per trace point record train-only fixed probe input loss and projected phase, phase sine and cosine; never call public SELECT/DEV",
+    "Native Python executable version/platform and fixed math.sin/cos/exp probes for OS library provenance",
+    "Report exact first hex mismatch, first max weight difference >1e-12 and >1e-6, worst final absolute parameter and gradient drift, selected train-only loss without selection, no scientific advancement claims"
+  ],
+  "comparison": {
+    "windows_linux_hashes": "All four O11_DIAG_TRAIN source SHA256 digests must agree exactly.",
+    "per_model_coverage": "24 model runs: four families x two seeds x three variants, each all 14 frozen checkpoints",
+    "diagnostic_thresholds": [
+      0,
+      1e-12,
+      1e-8,
+      0.000001
+    ],
+    "result": "Always report drift or no-drift, first differing step and math probe; do NOT weaken O10 frozen 1e-6 threshold or backfill O10 DEV. Diagnostic correctness, not numeric equality, is acceptance."
+  },
+  "guardrails": [
+    "No O10 data access: no imports from research/optimizer_o10/public_source.py or runner.py; only vendored byte-identical O10 model code.",
+    "No old O10 SELECT/DEV or original/HELD/Q21/Q21N01 first use.",
+    "No new model candidate or hyperparameter tuning on O10 DEV; if a numerical-stability mitigation is later tested, preregister a separate identity and fresh sources.",
+    "No scheduler, controller, FORGE scientific queue, native Wingless/Yggdrasil, KTRADE, paid API or other infrastructure changes.",
+    "Draft additive PR only, GitHub-hosted Linux/Windows, one complete final Go regression and full public PR CI. Preserve old O10 failure."
+  ],
+  "advance_if": "A trace isolates earliest divergence and a reproducible causal explanation can be tested independently; no synthetic positive learning claim."
+}
