@@ -40,3 +40,33 @@ families (full Linux/Windows regression and F73 cryptographic origin) have
 succeeded on that same immutable main SHA. Actions permission is read-only.
 It rechecks those identities after staging. CI receipts are never owner or
 scientific authority.
+
+
+## 2026-11-12 operator-authorized temporary same-task maintenance
+
+The operator explicitly approved a temporary pause and resume of the
+EXISTING F139 original Windows controller for private V41 backup and detached
+restore ONLY. No source transition, new controller/scheduler/queue, policy
+edit, scientific first-use, model call or Yggdrasil #1715 replay.
+
+The same G54 job/runner now accepts an exact OWNER comment
+F139-V41-PAUSE-BACKUP-RESUME <qualified protected main SHA>.
+A new Windows wrapper verifies owner SID and administrator rights, clean
+original V40 worktree, original two-lane policy, exact approved comment,
+protected main and exact successful postmerge regression and origin checks
+BEFORE disabling the one original task. It first acquires the existing
+kernel mutex and waits for an idle tick. It then disables and stops ONLY
+that task, verifies no original controller process remains, releases the
+mutex to the existing V41 private backup and independent restore CLI, then
+checks the original ledger head and policy are unchanged and starts the
+SAME task exactly once.
+
+If backup fails while the original ledger, source, policy and disabled task
+are independently intact, the wrapper attempts a single safe resume. On
+uncertain effects or a failed resume, it holds for manual verification; no
+start is blindly retried. An Actions runner failure while paused cannot
+promise recovery. A successful job requires a genuine Ready/Running owner.
+
+The old backup-only comment is no longer an executable trigger; the new
+PR #1735 and exact frozen G145/G148/G156 CI admission and postmerge CI must
+pass before the owner maintenance comment is issued.

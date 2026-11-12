@@ -16,7 +16,7 @@ from f139 import nci04_v41_pending_custody as pending
 
 REPO = "spoonman136668-ai/FORGE"
 OWNER = "spoonman136668-ai"
-PREFIX = "F139-V41-COLD-BACKUP-ONLY "
+PREFIX = "F139-V41-PAUSE-BACKUP-RESUME "
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 
 
@@ -70,14 +70,14 @@ def verify_owner_event(env, event, get, *, target):
 def verify_qualified_main(get, target):
     """Require already successful signed-main source and original full CI.
 
-    Exact owner-bound PR #1734, first-attempt protected push checks, and
+    Exact owner-bound PR #1735, first-attempt protected push checks, and
     current main identity. This is read-only evidence, never maintenance
     permission or source-transition approval.
     """
     need(callable(get) and type(target) is str and SHA.fullmatch(target),
          "QUALIFICATION_ARGUMENTS")
-    pr = get("repos/" + REPO + "/pulls/1734")
-    need(type(pr) is dict and pr.get("number") == 1734
+    pr = get("repos/" + REPO + "/pulls/1735")
+    need(type(pr) is dict and pr.get("number") == 1735
          and pr.get("merged") is True and pr.get("merge_commit_sha") == target
          and pr.get("user", {}).get("login") == OWNER
          and pr.get("base", {}).get("ref") == "main"
@@ -107,6 +107,41 @@ def verify_qualified_main(get, target):
              and selected[0].get("actor", {}).get("login") == OWNER,
              "QUALIFIED_POSTMERGE_RUN_REQUIRED")
     return True
+
+
+def preflight_only(path, env, event, api, *, target):
+    """Read-only exact owner and postmerge CI authorization before task pause."""
+    need(type(api) is GitHub and type(path) is Path and path.is_absolute()
+         and path.name == "state.sqlite" and path.is_file()
+         and not path.is_symlink() and type(env.get("LOCALAPPDATA")) is str
+         and Path(env["LOCALAPPDATA"]).is_absolute()
+         and path.resolve() ==
+             (Path(env["LOCALAPPDATA"]) / "FORGE-F139" / "state.sqlite").resolve(),
+         "MAINTENANCE_PROFILE_DRIFT")
+    run_id = verify_owner_event(env, event, api.native_repo_get, target=target)
+    verify_qualified_main(api.native_repo_get, target)
+    need(api.protected_main() == target, "MAINTENANCE_MAIN_DRIFT")
+    policy = api.native_repo_get("repos/" + REPO + "/issues/807")
+    try:
+        p = json.loads(policy["body"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OwnerBackupDenied("F139_V41_OWNER_BACKUP_POLICY_UNAVAILABLE") from exc
+    need(type(p) is dict
+         and p.get("schema") == "forge.f139.native-autonomy-feed-owner-policy.v1"
+         and p.get("enabled") is True
+         and p.get("source_sha") == preflight.OWNER_SOURCE
+         and p.get("lanes") == ["Wingless", "Yggdrasil"]
+         and p.get("scientific_first_use") is False
+         and p.get("paid_model_calls") == 0
+         and p.get("new_controller") is False
+         and p.get("new_scheduler") is False
+         and p.get("new_queue") is False, "MAINTENANCE_OWNER_POLICY_DRIFT")
+    return dict(schema="forge.f139.v41.owner-maintenance-preflight.v1",
+                run_id=run_id, original_source_sha=preflight.OWNER_SOURCE,
+                target_sha=target, same_task_pause_resume_only=True,
+                source_transition_authorized=False, owner_mutations=0,
+                scientific_first_use=False, hybrid_admission=False,
+                new_dispatches=0)
 
 
 def backup_only(path, env, event, api, *, target):
@@ -173,6 +208,7 @@ def main(argv=None, *, env=None, event=None):
     p = argparse.ArgumentParser()
     p.add_argument("--db", required=True, type=Path)
     p.add_argument("--target", required=True)
+    p.add_argument('--preflight-only', action='store_true')
     args = p.parse_args(argv)
     values = dict(os.environ if env is None else env)
     need(os.name == "nt", "WINDOWS_ONLY")
@@ -180,8 +216,12 @@ def main(argv=None, *, env=None, event=None):
         file = values.get("GITHUB_EVENT_PATH")
         need(type(file) is str and Path(file).is_file(), "EVENT_FILE_REQUIRED")
         event = json.loads(Path(file).read_text(encoding="utf-8"))
-    result = backup_only(args.db, values, event, GitHub(), target=args.target)
-    print("F139_V41_BACKUP_ONLY=" + canonical(result).decode("ascii"))
+    if args.preflight_only:
+        result = preflight_only(args.db, values, event, GitHub(), target=args.target)
+        print("F139_V41_MAINTENANCE_PREFLIGHT=" + canonical(result).decode("ascii"))
+    else:
+        result = backup_only(args.db, values, event, GitHub(), target=args.target)
+        print("F139_V41_BACKUP_ONLY=" + canonical(result).decode("ascii"))
     return 0
 
 
