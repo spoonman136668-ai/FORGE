@@ -82,15 +82,16 @@ def _escrow_doc(original_meta, preserved, owner):
          "prior_sha": original_meta["head_hash"]}, doc)
     return doc
 
-def _atomic_on_copy(db, *, original_path, original_meta, target, binary_sha,
+def _atomic_on_copy(db, *, original, original_meta, target, binary_sha,
                     toolchain, cold_receipt, pending_receipt, owner_intent,
                     inject_failure=None):
     """Internal single-transaction *copy-only* test path; never use on owner."""
-    need(type(db) is Database
+    need(type(db) is Database and type(original) is Database
          and not getattr(db, "_readonly_opened", False)
-         and type(original_path) is Path
-         and db.filename.resolve() != original_path.resolve()
-         and SingleOwner.held(original_path.with_suffix(".lock"))
+         and getattr(original, "_readonly_opened", False) is True
+         and original.conn.execute("PRAGMA query_only").fetchone()[0] == 1
+         and db.filename.resolve() != original.filename.resolve()
+         and SingleOwner.held(original.filename.with_suffix(".lock"))
          and SingleOwner.held(db.filename.with_suffix(".lock"))
          and inject_failure in (None, "after_escrow", "after_source_event",
                                 "after_verify"),
@@ -100,7 +101,9 @@ def _atomic_on_copy(db, *, original_path, original_meta, target, binary_sha,
          and toolchain == source.TOOLCHAIN, "SOURCE_OR_BINARY_INVALID")
     _approval_bound(original_meta, cold_receipt, pending_receipt,
                     owner_intent, target)
-    need(db.meta() == original_meta, "COPY_PREIMAGE_MOVED")
+    need(db.meta() == original_meta
+         and original.meta() == original_meta, "COPY_OR_ORIGINAL_PREIMAGE_MOVED")
+    original_changes = original.conn.total_changes
     db.verify()
     before_changes = db.conn.total_changes
     with db.transaction():
@@ -135,6 +138,10 @@ def _atomic_on_copy(db, *, original_path, original_meta, target, binary_sha,
         if inject_failure == "after_verify":
             raise V41AtomicDenied("F139_V41_ATOMIC_INJECTED_AFTER_VERIFY")
     db.verify()
+    original.verify()
+    need(original.meta() == original_meta
+         and original.conn.total_changes == original_changes,
+         "ORIGINAL_MOVED_DURING_COPY_TRANSACTION")
     return {
         "schema": "forge.f139.v41.atomic-copy-rehearsal.v1",
         "original_source_sha": source.FROM_V40,
@@ -198,7 +205,7 @@ def rehearse_locked_original(original, backup, get, api, *, target,
         with SingleOwner(copy_path.with_suffix(".lock")):
             need(working.meta() == before, "COLD_COPY_HEAD_DRIFT")
             outcome = _atomic_on_copy(
-                working, original_path=original.filename, original_meta=before,
+                working, original=original, original_meta=before,
                 target=target, binary_sha=binary_sha, toolchain=toolchain,
                 cold_receipt=cold_receipt, pending_receipt=preserved,
                 owner_intent=owner_intent, inject_failure=inject_failure)
