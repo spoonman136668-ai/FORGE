@@ -17,6 +17,7 @@ jobs:
       KTERM_SHA: 895950e7b55fabc627f0ab9ddc22f82af34f261d
       KTERM_BASE: cea643af9d5abf3b18e45c5f33cae01694677cc2
       KTERM_TREE: 269844c5015b09fbf23a4d060e7d2f6bdeece3cc
+      KTERM_REISSUE_ONLY: ${{ startsWith(github.event.head_commit.message, 'artifact(reissue):') }}
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -112,6 +113,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Mandatory full exact-candidate Windows Go regression and vet
+        # Reissue skips only an existing exact-SHA PASS: run 43315499121.
+        if: ${{ !startsWith(github.event.head_commit.message, 'artifact(reissue):') }}
         # Mandatory full exact candidate regression since launcher code changed.
         # Previous qualified Go blob receipts alone are not acceptance.
         shell: pwsh
@@ -472,9 +475,12 @@ jobs:
              (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $proof.archive_sha256){
             throw 'KTERM_PR96_PACKAGE_RECEIPT_INVALID'
           }
+          $regressionProof=if($env:KTERM_REISSUE_ONLY -ceq 'true'){
+            'REUSED_EXACT_SOURCE_PASS_RUN_43315499121'
+          }else{'PASS_CURRENT_CANDIDATE'}
           Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=PASS;ZIP_SHA256='+$proof.archive_sha256+
             ';BINARIES='+$proof.binaries+';FILES='+$proof.files+
-            ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION=PASS_CURRENT_CANDIDATE'+
+            ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION='+$regressionProof+
             ';NEGATIVE_CONTROLS=PASS;WPF_SMOKE=NOT_RUN'+
             ';LIVE_ORDERS=0;NO_INSTALL=TRUE;FIELD=UNVERIFIED'+
             ';PRIVATE_BINARIES_NOT_UPLOADED=TRUE')
@@ -705,6 +711,67 @@ jobs:
             ';SMOKE_SESSION=DISARMED_PAPER;COLD_DEFAULT=PAPER;CONFIG_CREATED=FALSE;LIVE_ORDERS=0'+
             ';ENGINE_LAUNCHED=FALSE;DASHBOARD_LAUNCHED=FALSE;REAL_EXE_FIRST_USE=NOT_RUN'+
             ';CLEAN_EXIT=TRUE;PRIVATE_LOG_SHA256='+$digest)
+      - name: Admit reissue artifact only after current-package verification and PAPER smoke
+        if: ${{ success() && startsWith(github.event.head_commit.message, 'artifact(reissue):') }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:KTERM_REISSUE_ONLY -cne 'true' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0'){
+            throw 'KTERM_FIRSTUSE_REISSUE_OWNER_REFUSED'
+          }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_FIRSTUSE_REISSUE_CREDENTIAL_REFUSED'}
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr96-firstuse-'+$env:GITHUB_RUN_ID)
+          $out=Join-Path $root 'artifact-only'
+          $receipt=Join-Path $out 'FIRST-USE-RECEIPT.json'
+          if(-not(Test-Path -LiteralPath $receipt -PathType Leaf)){throw 'KTERM_FIRSTUSE_REISSUE_RECEIPT_MISSING'}
+          $proof=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if($proof.source_sha -cne $env:KTERM_SHA -or
+             $proof.source_tree -cne $env:KTERM_TREE -or
+             $proof.roundtrip -cne 'PASS' -or
+             $proof.deployment -cne 'NOT_AUTHORIZED' -or
+             $proof.original_desktop_smoke -cne 'NOT_RUN' -or
+             $proof.field_performance -cne 'UNVERIFIED' -or
+             $proof.binaries -ne 8 -or $proof.files -ne 69 -or
+             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-895950e7b55f.zip'){
+            throw 'KTERM_FIRSTUSE_REISSUE_RECEIPT_INVALID'
+          }
+          $zip=Join-Path $out $proof.archive
+          if(-not(Test-Path -LiteralPath $zip -PathType Leaf) -or
+             (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $proof.archive_sha256){
+            throw 'KTERM_FIRSTUSE_REISSUE_ZIP_HASH_REFUSED'
+          }
+          $files=@(Get-ChildItem -LiteralPath $out -File)
+          if(@($files|Where-Object{$_.Name -notin @($proof.archive,'FIRST-USE-RECEIPT.json')}).Count -ne 0){
+            throw 'KTERM_FIRSTUSE_REISSUE_UNEXPECTED_FILE'
+          }
+          if(@(Get-Process -Name 'K-Terminal*' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_FIRSTUSE_REISSUE_APP_RUNNING_REFUSED'
+          }
+          Write-Host ('KTERM_FIRSTUSE_REISSUE_READY=PASS;SOURCE='+$env:KTERM_SHA+
+            ';ZIP_SHA256='+$proof.archive_sha256+
+            ';BINARIES=8;FILES=69;PRIOR_FULL_REGRESSION=PASS_43315499121'+
+            ';PACKAGE_WPF_PAPER_PRELAUNCH=PASS_CURRENT_RUN'+
+            ';FIELD=UNVERIFIED;NO_INSTALL=TRUE;LIVE_ORDERS=0')
+      - name: Upload private disarmed first-use portable acceptance package
+        if: ${{ success() && startsWith(github.event.head_commit.message, 'artifact(reissue):') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: K-Terminal-Disarmed-FirstUse-895950e7b55f-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-895950e7b55f.zip
+            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/FIRST-USE-RECEIPT.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
       - name: Erase only this disposable private source and package stage
         if: always()
         shell: pwsh
