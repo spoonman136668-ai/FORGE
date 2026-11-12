@@ -15,6 +15,56 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  f58_historical_fit_only:
+    if: github.event_name == 'pull_request' && github.head_ref == 'research/eureka-f51-original-acrobot-20261110'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify exact original F58 preregistration and source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD:docs/NATIVE-DISCOVERY-F58-HISTORICAL-ACROBOT-TORQUE-RULE.md)" = 'a8396cab6180e0aaefbbc799d1f7b8b770d3a372'
+          test "$(git rev-parse HEAD:research/f51_original_acrobot_transfer_dev.py)" = 'd3114ac66589e6b9f623318da721449090cfd54a'
+          echo 'F58_PROTOCOL_BEFORE_CODE_AND_REAL_DATA=PASS'
+      - name: Clone immutable original Farama Acrobot (read only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c core.askPass=true clone --quiet --depth 1 --branch v1.2.3 https://github.com/Farama-Foundation/Gymnasium.git "$RUNNER_TEMP/farama-original-gymnasium"
+          cd "$RUNNER_TEMP/farama-original-gymnasium"
+          test "$(git rev-parse HEAD)" = '365080941ea3a815ac09e57a7d4ee263a142651d'
+          test "$(git rev-parse HEAD:gymnasium/envs/classic_control/acrobot.py)" = '28c440af281858c30e95fb6023f19923065d64fe'
+          test "$(git hash-object --no-filters gymnasium/envs/classic_control/acrobot.py)" = '28c440af281858c30e95fb6023f19923065d64fe'
+          echo 'F58_EXTERNAL_ORIGINAL_FARAMA_PIN=PASS'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Qualify F58 focused controls and run six historical FIT-only folds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet 'numpy==2.0.2' 'gymnasium==1.2.3'
+          export F51_ORIGINAL_GYMNASIUM_ROOT="$RUNNER_TEMP/farama-original-gymnasium"
+          export PYTHONPATH="$RUNNER_TEMP/farama-original-gymnasium:$GITHUB_WORKSPACE/research"
+          python -B -m unittest discover -s research -p 'test_f58_original_acrobot_fit_torque_rule.py' -v
+          python -B research/f58_original_acrobot_fit_torque_rule.py "$RUNNER_TEMP/f58-historical-fit-only.json"
+          echo 'F58_PROTECTED_FIRSTUSE_CONSUMED=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: eureka-f58-original-historical-fit-action-rule
+          path: ${{ runner.temp }}/f58-historical-fit-only.json
+          retention-days: 45
+          if-no-files-found: error
   linux_f139:
     runs-on: ubuntu-latest
     timeout-minutes: 20
