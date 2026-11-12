@@ -22,6 +22,13 @@ MAX_ROWS = len(FIT_ROOTS) * EPISODES_PER_ROOT * MAX_PER_EPISODE
 MAX_ARCHIVE_BYTES = 18_000_000
 GENESIS = hashlib.sha256(b"forge.f59.original-public-fit-log.dev.v1").hexdigest()
 DIGEST = re.compile(r"[a-f0-9]{64}\Z")
+# Immutable values independently read from original source-backed F51 artifact
+# #13822517528, canonical report b51b8921d3abc6618f44f172eb3eea3b50c96ec98c4d88aa5012698059dbf0ac.
+F51_EXPECTED_RECORDS = 8974
+F51_EXPECTED_ACTION_COUNTS = (3604, 1824, 3546)
+F51_EXPECTED_TRAINING_SHA256 = "63d31930006ec2f465e4becd989c1a0b922e15a0842ef991fe424074d436a31a"
+F51_EXPECTED_EPISODES_SHA256 = "4616a94182e962d70171d0fe80604a83042343c3797456b0494e7dbc1983b5d3"
+F51_VERIFIED_REPORT_SHA256 = "b51b8921d3abc6618f44f172eb3eea3b50c96ec98c4d88aa5012698059dbf0ac"
 
 
 def canonical(obj):
@@ -104,12 +111,14 @@ class FITEvidenceArchive:
             raise ValueError("F59_ACTION_NOT_SELECTED_PUBLIC_TORQUE")
         if type(reward) not in (int, float) or not math.isfinite(reward):
             raise ValueError("F59_REWARD_NONFINITE")
-        if float(reward) not in (-1.0, 0.0):
-            raise ValueError("F59_REWARD_NOT_ORIGINAL_ACROBOT_API")
         if type(terminated) is not bool or type(truncated) is not bool:
             raise ValueError("F59_NOT_EXPLICIT_TERMINAL_FLAGS")
-        if terminated and truncated:
-            raise ValueError("F59_CONFLICTING_TERMINAL_FLAGS")
+        # Farama Acrobot v1.2.3 returns 0 precisely on physical success,
+        # and -1 otherwise. TimeLimit can set truncated *also* true at t=500.
+        if float(reward) != (0.0 if terminated else -1.0):
+            raise ValueError("F59_REWARD_OR_TERMINATION_DISAGREES_WITH_ACROBOT")
+        if terminated and truncated and active["steps"] + 1 != MAX_PER_EPISODE:
+            raise ValueError("F59_PREMATURE_DUAL_TERMINAL_FLAGS")
         if active["steps"] + 1 == MAX_PER_EPISODE and not (terminated or truncated):
             raise ValueError("F59_MISSING_TIMELIMIT_TERMINAL")
         # Truncation under original TimeLimit is exactly 500 actions.
@@ -224,3 +233,64 @@ class FITEvidenceArchive:
         if scratch.snapshot()[0] != raw:
             raise ValueError("F59_EPISODE_SEQUENCE_CHAIN_OR_RAW_DRIFT")
         return scratch
+
+    def f51_legacy_digests(self):
+        """Reconstruct *original* F51 record/episode hashes; no source execution.
+
+        F59's own event/episode hash chains are deliberately a DIFFERENT
+        schema from F51's historical training SHA. Never conflate them.
+        """
+        if self.active is not None or len(self.episodes) != len(FIT_ROOTS)*EPISODES_PER_ROOT:
+            raise ValueError("F59_F51_ARCHIVE_NOT_FULLY_SEALED")
+        rows = []
+        summaries = []
+        counts = [0, 0, 0]
+        offset = 0
+        for slot, ep in enumerate(self.episodes):
+            root = FIT_ROOTS[slot // EPISODES_PER_ROOT]
+            index = slot % EPISODES_PER_ROOT
+            if (ep["root"] != root or ep["episode"] != index or
+                    ep["start"] != offset or ep["steps"] < 1 or
+                    ep["steps"] > MAX_PER_EPISODE):
+                raise ValueError("F59_F51_EPISODE_ORDER_OR_LENGTH_DRIFT")
+            events = self.records[offset:offset+ep["steps"]]
+            if len(events) != ep["steps"] or not (events[-1]["terminated"] or events[-1]["truncated"]):
+                raise ValueError("F59_F51_TERMINAL_OR_SLICE_DRIFT")
+            f51_rows = []
+            for event in events:
+                counts[event["action"]] += 1
+                f51_rows.append([event["obs"], event["action"], event["reward"],
+                                 event["next_obs"], event["terminated"], event["truncated"]])
+            rows.extend(f51_rows)
+            summaries.append({"seed": root, "episode": index,
+                              "steps": ep["steps"],
+                              "terminated": events[-1]["terminated"],
+                              "trace_sha256": sha(f51_rows)})
+            offset += ep["steps"]
+        if offset != len(self.records) or sum(counts) != offset:
+            raise ValueError("F59_F51_EPISODE_TOTAL_DRIFT")
+        return {"train_transition_count": offset,
+                "train_action_counts": counts,
+                "train_episode_count": len(summaries),
+                "training_sha256": sha(rows),
+                "training_episodes_sha256": sha(summaries)}
+
+    def verify_historical_f51(self):
+        """Fail closed unless delivered complete raw rows match ORIGINAL F51.
+
+        Source authentication, original first-use and scientific acceptance
+        remain false even after a digest match: those are separate authorities.
+        """
+        observed = self.f51_legacy_digests()
+        if (observed["train_transition_count"] != F51_EXPECTED_RECORDS or
+            tuple(observed["train_action_counts"]) != F51_EXPECTED_ACTION_COUNTS or
+            observed["train_episode_count"] != len(FIT_ROOTS)*EPISODES_PER_ROOT or
+            observed["training_sha256"] != F51_EXPECTED_TRAINING_SHA256 or
+            observed["training_episodes_sha256"] != F51_EXPECTED_EPISODES_SHA256):
+            raise ValueError("F59_F51_HISTORICAL_TRANSCRIPT_MISMATCH")
+        return {"historical_f51_training_hashes_match": True,
+                "f51_original_report_sha256": F51_VERIFIED_REPORT_SHA256,
+                "source_authenticated": False,
+                "original_first_use_permitted": False,
+                "scientific_accepted": False,
+                **observed}

@@ -25,7 +25,7 @@ def full_receipt():
     for i, root in enumerate(f.FIT_ROOTS):
         for episode in range(f.EPISODES_PER_ROOT):
             a.open_episode(root, episode, root*100+episode)
-            a.append(POS, (i*8+episode)%3, -1., POS, True, False)
+            a.append(POS, (i*8+episode)%3, 0., POS, True, False)
     return a
 
 
@@ -81,7 +81,7 @@ class F59Tests(unittest.TestCase):
         b=f.FITEvidenceArchive.restore(raw,h,minimum_rows=1)
         self.assertEqual(b.snapshot(),(raw,h))
         for obj in (a,b):
-            obj.append(LOW_NEG,1,-1.,LOW_POS,True,False)
+            obj.append(LOW_NEG,1,0.,LOW_POS,True,False)
             obj.open_episode(f.FIT_ROOTS[0],1,f.FIT_ROOTS[0]*100+1)
             obj.append(HIGH_POS,2,0.,POS,True,False)
         self.assertEqual(a.snapshot(),b.snapshot())
@@ -95,8 +95,8 @@ class F59Tests(unittest.TestCase):
         with self.assertRaises(ValueError):a.open_episode(f.FIT_ROOTS[0],1,f.FIT_ROOTS[0]*100+1)
         a.open_episode(f.FIT_ROOTS[0],0,f.FIT_ROOTS[0]*100)
         with self.assertRaises(ValueError):a.open_episode(f.FIT_ROOTS[0],0,f.FIT_ROOTS[0]*100)
-        a.append(POS,0,-1.,POS,True,False)
-        with self.assertRaises(ValueError):a.append(POS,0,-1.,POS,True,False)
+        a.append(POS,0,0.,POS,True,False)
+        with self.assertRaises(ValueError):a.append(POS,0,0.,POS,True,False)
         b=full_receipt()
         with self.assertRaises(ValueError):b.open_episode(f.FIT_ROOTS[-1],7,f.FIT_ROOTS[-1]*100+7)
 
@@ -128,7 +128,7 @@ class F59Tests(unittest.TestCase):
         with self.assertRaises(ValueError):a.append(POS,0,-1.,POS,False,False)
         a.append(POS,0,-1.,POS,False,True)
         self.assertEqual(a.episodes[0]['steps'],500)
-        with self.assertRaises(ValueError):a.append(POS,0,-1.,POS,True,False)
+        with self.assertRaises(ValueError):a.append(POS,0,0.,POS,True,False)
         data,d=a.snapshot()
         self.assertEqual(f.FITEvidenceArchive.restore(data,d,500).snapshot(),(data,d))
 
@@ -139,7 +139,7 @@ class F59Tests(unittest.TestCase):
         with self.assertRaises(ValueError):a.seal_complete()
         raw,d=a.snapshot()
         self.assertEqual(f.FITEvidenceArchive.restore(raw,d,0).snapshot(),(raw,d))
-        a.append(POS,0,-1.,POS,True,False)
+        a.append(POS,0,0.,POS,True,False)
         with self.assertRaises(ValueError):a.seal_complete()
 
     def test_tamper_rollback_and_forged_conditional_propensity(self):
@@ -165,6 +165,92 @@ class F59Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             f.FITEvidenceArchive.restore(malformed,external_hash(malformed),0)
         self.assertTrue(d)
+
+    def test_independent_f51_original_canonical_record_and_episode_digests(self):
+        a=full_receipt()
+        historical=a.f51_legacy_digests()
+        raw=[]
+        episodes=[]
+        for slot, ep in enumerate(a.episodes):
+            event=a.records[slot]
+            row=[event["obs"],event["action"],event["reward"],
+                 event["next_obs"],event["terminated"],event["truncated"]]
+            raw.append(row)
+            trace=hashlib.sha256(json.dumps([row],sort_keys=True,
+                separators=(",", ":"),allow_nan=False).encode()).hexdigest()
+            episodes.append({"seed":ep["root"],"episode":ep["episode"],
+                "steps":1,"terminated":True,"trace_sha256":trace})
+        expected_records=external_hash(json.dumps(raw,sort_keys=True,
+            separators=(",", ":"),allow_nan=False).encode())
+        expected_episodes=external_hash(json.dumps(episodes,sort_keys=True,
+            separators=(",", ":"),allow_nan=False).encode())
+        self.assertEqual(historical["training_sha256"],expected_records)
+        self.assertEqual(historical["training_episodes_sha256"],expected_episodes)
+        self.assertEqual(historical["train_transition_count"],48)
+        self.assertEqual(sum(historical["train_action_counts"]),48)
+        self.assertNotEqual(historical["training_sha256"],f.F51_EXPECTED_TRAINING_SHA256)
+        with self.assertRaisesRegex(ValueError,"HISTORICAL_TRANSCRIPT_MISMATCH"):
+            a.verify_historical_f51()
+
+    def test_original_success_reward_and_time_limit_dual_terminal_accepted(self):
+        a=f.FITEvidenceArchive()
+        a.open_episode(f.FIT_ROOTS[0],0,f.FIT_ROOTS[0]*100)
+        for t in range(499):
+            a.append(POS,t%3,-1.,POS,False,False)
+        a.append(POS,0,0.,POS,True,True)
+        self.assertEqual(a.records[-1]["reward"],0.0)
+        self.assertTrue(a.records[-1]["terminated"] and a.records[-1]["truncated"])
+        self.assertEqual(a.episodes[0]["steps"],500)
+        raw,d=a.snapshot()
+        restored=f.FITEvidenceArchive.restore(raw,d,minimum_rows=500)
+        self.assertEqual(restored.snapshot(),(raw,d))
+        with self.assertRaisesRegex(ValueError,"NOT_FULLY_SEALED"):
+            a.f51_legacy_digests()
+
+    def test_physically_inconsistent_termination_reward_rejected(self):
+        a=f.FITEvidenceArchive();a.open_episode(f.FIT_ROOTS[0],0,f.FIT_ROOTS[0]*100)
+        for reward,terminal,truncated in ((-1.,True,False),(0.,False,False),
+                                          (0.,False,True),(-1.,True,True),
+                                          (0.,True,True)):
+            with self.assertRaises(ValueError):
+                a.append(POS,0,reward,POS,terminal,truncated)
+        self.assertEqual(a.records,[])
+
+    def test_full_48_episode_synthetic_receipt_never_proves_real_f51(self):
+        a=full_receipt()
+        raw,d=a.seal_complete()
+        b=f.FITEvidenceArchive.restore(raw,d,minimum_rows=48)
+        self.assertEqual(b.f51_legacy_digests(),a.f51_legacy_digests())
+        with self.assertRaisesRegex(ValueError,"HISTORICAL_TRANSCRIPT_MISMATCH"):
+            b.verify_historical_f51()
+        self.assertFalse(b._payload()["source"]["source_authenticated"])
+        self.assertFalse(b._payload()["source"]["original_first_use_permitted"])
+
+    def test_fake_same_8974_count_and_action_margins_cannot_claim_historical(self):
+        # Same top-level counts are insufficient; the *raw* source digest
+        # and episode metadata digest must match the genuine F51 artifact.
+        a=f.FITEvidenceArchive()
+        remaining=[3604,1824,3546]
+        lengths=[187]*46+[186]*2
+        self.assertEqual(sum(lengths),f.F51_EXPECTED_RECORDS)
+        for slot,n in enumerate(lengths):
+            root=f.FIT_ROOTS[slot//8];ep=slot%8
+            a.open_episode(root,ep,root*100+ep)
+            for t in range(n):
+                choice=next(k for k in (0,1,2) if remaining[k]>0)
+                remaining[choice]-=1
+                terminal=(t==n-1)
+                a.append(POS,choice,0. if terminal else -1.,POS,terminal,False)
+        self.assertEqual(remaining,[0,0,0])
+        actual=a.f51_legacy_digests()
+        self.assertEqual(actual['train_transition_count'],8974)
+        self.assertEqual(actual['train_action_counts'],[3604,1824,3546])
+        self.assertNotEqual(actual['training_sha256'],f.F51_EXPECTED_TRAINING_SHA256)
+        self.assertNotEqual(actual['training_episodes_sha256'],f.F51_EXPECTED_EPISODES_SHA256)
+        with self.assertRaisesRegex(ValueError,'HISTORICAL_TRANSCRIPT_MISMATCH'):
+            a.verify_historical_f51()
+        # The full, internally consistent fake remains plainly unauthenticated.
+        self.assertFalse(a._payload()['source']['source_authenticated'])
 
     def test_inert_source_no_environment_or_dispatch(self):
         source=inspect.getsource(f)
