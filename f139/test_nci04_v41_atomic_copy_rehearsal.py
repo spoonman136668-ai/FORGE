@@ -159,14 +159,15 @@ class AtomicCopiedLedgerTests(unittest.TestCase):
                 self.assertEqual(self.state(self.copy),original)
 
     def test_original_must_be_query_only_and_no_live_commands(self):
-        with closing(Database(self.original)) as db:
-            with self.assertRaises(atomic.V41AtomicDenied):
-                atomic.rehearse_locked_original(
-                    db,self.copy,None,None,target=TARGET,
-                    qualification_run_id=1,backup_sha256="0"*64,
-                    owner_comment_id=1,copy_path=self.copy.with_name(
-                        "third.sqlite"),binary_sha="7"*64,
-                    toolchain=source.TOOLCHAIN)
+        with patch.object(Database,"verify",return_value=None):
+            with closing(Database(self.original)) as db:
+                with self.assertRaises(atomic.V41AtomicDenied):
+                    atomic.rehearse_locked_original(
+                        db,self.copy,None,None,target=TARGET,
+                        qualification_run_id=1,backup_sha256="0"*64,
+                        owner_comment_id=1,copy_path=self.copy.with_name(
+                            "third.sqlite"),binary_sha="7"*64,
+                        toolchain=source.TOOLCHAIN)
         import inspect
         code=inspect.getsource(atomic)
         for forbidden in ("workflow_dispatch(", "Start-ScheduledTask",
