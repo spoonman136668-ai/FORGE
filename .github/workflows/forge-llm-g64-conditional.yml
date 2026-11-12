@@ -1,0 +1,82 @@
+name: FORGE research G64 conditional GPT-2 CPU resource router
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g64/**'
+      - 'docs/research/G64-CONDITIONAL-RESOURCE-ROUTER-PREREG.md'
+      - '.github/workflows/forge-llm-g64-conditional.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g64-source-only
+  cancel-in-progress: false
+jobs:
+  frozen-authentic-cpu-router:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify G64 frozen protocol and original scientific benchmarks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 05be378a4db483cb1fc6763369f807d71b93dcad HEAD
+          test "$(git rev-parse 05be378a4db483cb1fc6763369f807d71b93dcad:docs/research/G64-CONDITIONAL-RESOURCE-ROUTER-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G64-CONDITIONAL-RESOURCE-ROUTER-PREREG.md)"
+          git diff --exit-code 04d9a148bfbe007451853b2159a15ec6db8eb44d HEAD -- research/llm_g54 research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59 research/llm_g60 research/llm_g61 research/llm_g62 research/llm_g63
+          python -m py_compile research/llm_g64/g64_conditional.py research/llm_g64/test_g64.py
+          python -m unittest discover -s research/llm_g64 -p test_g64.py -v
+          echo G64_FROZEN_CONTRACT_AND_PURE_ROUTING_TESTS=PASS
+      - name: Install public original GPT-2 CPU inference environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g64_environment_pip_freeze.txt
+      - name: Run real pretrained GPT-2 resource routing benchmark
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g64/g64_conditional.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g64_result.json'))
+          assert r['correctness']=='PASS'
+          assert r['scientific_acceptance']=='NOT_GRANTED' and r['promotion_allowed'] is False
+          assert set(r['cohorts'])=={'high_locality','unique_only','thrash'}
+          for cohort in r['cohorts'].values():
+              assert set(cohort)=={'budget_2','budget_3'}
+              for budget,row in cohort.items():
+                  assert len(row['trials'])==2
+                  for trial in row['trials']:
+                      for arm in r['arms']:
+                          data=trial['arms'][arm]
+                          assert data['total_worker_budget']==data['maximum_forward_workers']
+                          assert data['max_kv_bytes']<=42000000
+          print('G64_AUTHENTIC_OUTPUT_PARITY_AND_CAUSAL_ROUTING=PASS')
+          print('G64_FROZEN_PERFORMANCE_SCREEN='+r['performance_screen'])
+          print('G64_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Preserve source-pinned complete research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g64-authentic-gpt2-causal-resource-router
+          if-no-files-found: warn
+          path: |
+            g64_result.json
+            g64_environment_pip_freeze.txt
+          retention-days: 30

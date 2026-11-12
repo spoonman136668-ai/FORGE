@@ -1,0 +1,76 @@
+name: FORGE research G60 two-worker GPT-2 prefix-cache screen
+on:
+  push:
+    branches: [research/llm-g54-gpt2-pinned-20261030]
+    paths:
+      - 'research/llm_g60/**'
+      - 'docs/research/G60-GPT2-CONCURRENT-PREFIX-PREREG.md'
+      - '.github/workflows/forge-llm-g60-concurrent.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g60-research-readonly
+  cancel-in-progress: false
+jobs:
+  original-gpt2-concurrent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate preregistration and frozen earlier source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 3b9707887e73a2e38486c65bcc0da37af2ac9dd3 HEAD
+          test "$(git rev-parse 3b9707887e73a2e38486c65bcc0da37af2ac9dd3:docs/research/G60-GPT2-CONCURRENT-PREFIX-PREREG.md)" = "$(git rev-parse HEAD:docs/research/G60-GPT2-CONCURRENT-PREFIX-PREREG.md)"
+          git diff --exit-code 2eed8ff0deb781da55250a897132051dd36c1b91 HEAD -- research/llm_g55 research/llm_g56 research/llm_g57 research/llm_g58 research/llm_g59
+          python -m py_compile research/llm_g60/g60_concurrent.py research/llm_g60/test_g60.py
+          python -m unittest discover -s research/llm_g60 -p test_g60.py -v
+          echo 'G60_FROZEN_PREREG_AND_PURE_CONTROLS=PASS'
+      - name: Install exact previously qualified CPU inference dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip install --disable-pip-version-check 'transformers==4.48.3' 'huggingface_hub==0.30.2' 'safetensors==0.5.3' 'tokenizers==0.21.1' 'psutil==7.1.3'
+          python -m pip freeze > g60_pip_freeze.txt
+      - name: Execute authentic GPT-2 two-worker and RSS screening
+        shell: bash
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python research/llm_g60/g60_concurrent.py
+          python - <<'PY'
+          import json
+          r=json.load(open('g60_result.json'))
+          assert r['correctness']=='PASS'
+          assert r['scientific_acceptance']=='NOT_GRANTED' and r['promotion_allowed'] is False
+          assert len(r['scenarios'])==3
+          assert all(len(x['trials'])==3 for x in r['scenarios'].values())
+          assert all(all(row['arms'][arm]['rss_sample_count']>2 for arm in r['arms'])
+                     for row in [trial for sc in r['scenarios'].values() for trial in sc['trials']])
+          print('G60_AUTHENTIC_TWO_WORKER_TOKEN_PARITY=PASS')
+          print('G60_SPEEDUP_SCREEN='+r['performance_screen'])
+          print('G60_SCIENTIFIC_ACCEPTANCE=NOT_GRANTED')
+          PY
+      - name: Preserve unfiltered gate results and pinned dependencies
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g60-gpt2-two-worker-rss-research
+          if-no-files-found: warn
+          path: |
+            g60_result.json
+            g60_pip_freeze.txt
+          retention-days: 30
