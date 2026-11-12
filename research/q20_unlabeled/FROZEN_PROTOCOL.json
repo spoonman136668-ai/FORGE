@@ -1,0 +1,132 @@
+{
+  "schema": "forge.nci04.q20.unlabeled_action_predictive_state.v1",
+  "state": "FROZEN_BEFORE_IMPLEMENTATION_AND_ANY_EPISODE_GENERATION",
+  "parent": "ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f",
+  "scientific_question": "Can an exchangeable, learned two-scalar predictive state infer action-dependent hidden dynamics from public observation/action sequences, without receiving latent graph, identity, world state or future outcomes other than ordinary next-observation self-supervision?",
+  "why_distinct": "Q19B trained on SIX supervised true ancestral-relationship labels. Q20 instead trains using ONLY next public observations, with latent state and causal sensor identity never labeled; candidate learns a two-state symmetry/equivariance constraint and counterfactual-action-conditioned updates.",
+  "synthetic_source": {
+    "public": "At each step two anonymous binary sensor observations and chosen binary action that modulates latent transition; the learner predicts both next sensor bits. No latent state, sensor-role or graph identity available in training, development or inference.",
+    "hidden": "One latent bit z initially Ber(0.5), with P(z_next flips|a=0)=flip0 and P(flip|a=1)=flip1. One of two sensor slots is causally responsive and emits z XOR Ber(noise); the other is independent Ber(0.5). Responsive slot randomly exchanged per episode, never observed by models.",
+    "action": "a_t~Ber(0.5) independent of z, visible, enforced before z_next; this is a public intervention setting a transition regime, not a do(X) on a visible sensor.",
+    "episode": "13 observation pairs and 12 actions; scored on 12 next-step predictions for both bits (24 scored Bernoulli outcomes/episode). No access to later observations when predicting a step.",
+    "cohorts_fit": [
+      {
+        "name": "FIT_L1",
+        "noise": "1/8",
+        "flip0": "1/12",
+        "flip1": "3/4",
+        "episodes": 96
+      },
+      {
+        "name": "FIT_L2",
+        "noise": "1/4",
+        "flip0": "1/8",
+        "flip1": "2/3",
+        "episodes": 96
+      }
+    ],
+    "cohorts_dev": [
+      {
+        "name": "DEV_L3",
+        "noise": "1/6",
+        "flip0": "1/10",
+        "flip1": "7/10",
+        "episodes": 32
+      },
+      {
+        "name": "DEV_L4",
+        "noise": "2/7",
+        "flip0": "1/7",
+        "flip1": "5/8",
+        "episodes": 32
+      }
+    ],
+    "reserved_held_uninstantiated": [
+      "HELD_NEW_SENSOR_FAMILY",
+      "HELD_LONG_HORIZON_TRANSFER"
+    ],
+    "seed_rule": "random.Random(first_64_bits_sha256('q20:v1:'+role+':'+family+':'+episode_index))",
+    "original_scientific_sources": 0
+  },
+  "models": {
+    "candidate": {
+      "id": "EXCHANGEABLE_ACTION_PREDICTIVE_STATE",
+      "params": 9,
+      "state_scalars": 2,
+      "form": "h_i'=tanh(a*h_i+b*h_other+c*s_i+d*s_other+e*action_sign+f*action_sign*h_i+g), p(next_bit_i)=sigmoid(v*h_i'+r), shared weights across sensor exchange",
+      "objective": "FIT-only next observed bit crossentropy; no latent state labels"
+    },
+    "recurrent": {
+      "id": "TRAINED_TWO_CELL_ACTION_RNN",
+      "params": 16,
+      "state_scalars": 2,
+      "form": "two unrestricted tanh recurrent cells (4 recurrent +4 observed +2 action +2 biases), each next-bit readout 1 weight and 1 bias",
+      "objective": "same fully trained FIT-only next observed bit BCE"
+    },
+    "flat": {
+      "id": "TRAINED_ACTION_FLAT_LOGISTIC",
+      "params": 12,
+      "state_scalars": 0,
+      "form": "two separately fitted six-feature action-aware logistic models on public current sensor bits, action and sensor/action interaction",
+      "objective": "same fully trained FIT-only next observed bit BCE"
+    },
+    "symbolic": {
+      "id": "TRAINED_ACTION_BIGRAM",
+      "state_scalars": 0,
+      "form": "FIT-trained Laplace-smoothed counts of joint next observation conditioned on public current joint observation and action, 2 actions x 4 observations x 4 outcomes; derive per-bit marginal probabilities"
+    },
+    "bayes": {
+      "id": "TRAINED_UNSUPERVISED_TWO_STATE_HMM",
+      "state_scalars": 2,
+      "form": "Fully FIT-trained action-conditioned binary hidden Markov filter, joint binary sensor emissions, unsupervised Baum-Welch EM, 3 deterministic restarts, 12 fit epochs, select min DEV Bernoulli prediction loss; latent states and sensor assignment NOT provided."
+    },
+    "oracle": {
+      "id": "TRUE_LAW_ORACLE_FILTER",
+      "form": "Privileged synthetic world with latent responsive sensor slot and exact flip/noise parameters; theoretical reference NOT eligible as equally informed empirical control",
+      "privileged": true
+    }
+  },
+  "training": {
+    "candidate_recurrent_flat": "full FIT next-observation BCE, central difference Adam, 14 fixed epochs, 2 deterministic restarts, full FIT batches, final-epoch dev restart selection; never update weights on DEV",
+    "lr": 0.06,
+    "epochs": 14,
+    "restarts": [
+      0,
+      1
+    ],
+    "grad_delta": 0.0001,
+    "clip_norm": 4,
+    "hmm_em_epochs": 12,
+    "hmm_restarts": [
+      0,
+      1,
+      2
+    ],
+    "hmm_emission_and_transition_pseudocount": 0.5,
+    "checkpoint_select": "lowest end-of-training DEV BCE across frozen restarts, no hyperparameter modification",
+    "metric": "mean next-sensor Bernoulli negative log loss (nats/bit), matched per-family loss, wrong-probability and hard false positive counts",
+    "resources": "CPU process_time for training and DEV inference, Python tracemalloc training peak, model state scalars, checkpoint byte counts; comparison within one operating system",
+    "fairness": "All fitted models get identical public FIT and DEV action/observations; only oracle gets true underlying noise/transition laws and per-episode sensor slot. HMM has known 2-state generic architecture (prior knowledge explicitly reported), not exact privileged noise parameters."
+  },
+  "frozen_decision": {
+    "candidate_gain_vs_best_fitted_control_nats_min": 0.015,
+    "candidate_gain_positive_in_each_dev_family": true,
+    "candidate_cpu_fit_plus_eval_leq_rnn_ratio": 1.1,
+    "candidate_max_state_scalars": 2,
+    "no_finite_hard_false_positive_assertion": true,
+    "advance": "DEV_ONLY_UNLABELED_PREDICTIVE_STATE_CANDIDATE_NOT_TRANSFER",
+    "fail": "DEV_NO_GO_RETAIN_NEGATIVE_NO_HELD",
+    "failure_stops_unfamiliar_first_use": true,
+    "no_post_dev_tuning": true
+  },
+  "boundaries": {
+    "sourcefree_synthetic_only": true,
+    "no_Q15_Q19_observed_dev_or_reserved_holdout_reuse": true,
+    "no_minigrid_pycolab_or_original_first_use": true,
+    "no_CKB_controller_dispatch_or_unpause": true,
+    "no_main_merge_or_live_broker": true,
+    "full_F0RGE_G61_custody_admission_not_claimed": true,
+    "retains_all_positive_negative_results": true,
+    "not_scientific_transfer_acceptance": true
+  }
+}
