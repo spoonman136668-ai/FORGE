@@ -170,6 +170,67 @@ jobs:
             ';FAILED_TESTS='+$orderViewFails.Count+';PRIVATE_LOG_SHA256='+$orderViewDigest+
             ';NO_RAW_TEST_OUTPUT=TRUE')
           if($orderViewExit-ne0){throw 'KTERM_PR96_ORDER_VIEW_FOCUSED_FAILED_STOP'}
+          # The prior full Windows regression failed only this historical
+          # report-root test. Diagnose exactly this test before spending another
+          # full-regression run; do not publish the raw fixture or auth logs.
+          $aliasLog=Join-Path $root 'report-alias-focused.private.jsonl'
+          $aliasClock=[Diagnostics.Stopwatch]::StartNew()
+          Push-Location $src
+          try{
+            & go test -json -p 1 -count=3 -timeout 15m -run '^TestStage3ReportFullRootPublicAliasFallback$' ./pkg *> $aliasLog
+            $aliasExit=$LASTEXITCODE
+          }finally{Pop-Location}
+          $aliasClock.Stop()
+          $aliasDigest=(Get-FileHash -LiteralPath $aliasLog -Algorithm SHA256).Hash.ToLowerInvariant()
+          $aliasFailCases=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+          $aliasReasonCodes=[ordered]@{
+            'fresh alias case did not retain its original uninitialized settlement premise'='INITIAL_SETTLEMENT_PREMISE'
+            'actual native read-only configuration/scope missing'='SCOPED_CONFIG_PREMISE'
+            'original new read-only service constructor lost its exact scope/context'='CONTEXT_PREMISE'
+            'original fresh scoped dashboard accounts'='ACCOUNT_READ'
+            'original shared read-only HTTP client missing'='HTTP_CLIENT_MISSING'
+            'alias-only wrapper did not retain original scoped context/metrics'='SCOPED_TRANSPORT'
+            'original exact-product GET-only fresh quote premise'='FRESH_BOOK_CLOCK'
+            'actual flat verified PM/scoped dashboard account premise changed'='PM_SCOPE'
+            'original internal dashboard observer did not establish the exact owned settlement baseline'='SETTLEMENT_BASELINE'
+            'original producer did not create the intended public alias premise'='ALIAS_PRODUCER'
+            'original public alias was detached or requalified'='PUBLIC_ALIAS'
+            'escaped full fallback lost original financial payload or rehabilitated ownership'='FULL_FALLBACK'
+            'unqualified full persistence discarded a historical referenced object'='REFERENCE_PRESERVATION'
+          }
+          $aliasFound=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+          $aliasBookStages=0
+          $aliasBaselineStages=0
+          foreach($line in [IO.File]::ReadLines($aliasLog)){
+            if($line -notmatch '"Action":"(?:fail|output)"'){continue}
+            try{$event=ConvertFrom-Json -InputObject $line -ErrorAction Stop}catch{continue}
+            if([string]$event.Package -cne 'k-terminal/pkg'){continue}
+            $testName=[string]$event.Test
+            if(-not $testName.StartsWith('TestStage3ReportFullRootPublicAliasFallback',[StringComparison]::Ordinal)){continue}
+            if($event.Action -ceq 'fail' -and $testName -cmatch '^TestStage3ReportFullRootPublicAliasFallback/(BTC-USDC|XRP-USDC)$'){
+              [void]$aliasFailCases.Add($Matches[1])
+            }
+            if($event.Action -ceq 'output'){
+              $out=[string]$event.Output
+              if($out.Contains('ORIGINAL_REPORT_ALIAS_FRESH_BOOK_STAGE')){$aliasBookStages++}
+              if($out.Contains('ORIGINAL_REPORT_ALIAS_BASELINE_STAGE')){$aliasBaselineStages++}
+              foreach($phrase in $aliasReasonCodes.Keys){
+                if($out.Contains([string]$phrase)){[void]$aliasFound.Add([string]$aliasReasonCodes[$phrase])}
+              }
+            }
+          }
+          foreach($case in @($aliasFailCases|Sort-Object)){
+            Write-Host ('KTERM_PR96_REPORT_ALIAS_FAILED_PRODUCT='+$case)
+          }
+          foreach($reason in @($aliasFound|Sort-Object)){
+            Write-Host ('KTERM_PR96_REPORT_ALIAS_REASON='+$reason)
+          }
+          Write-Host ('KTERM_PR96_REPORT_ALIAS_FOCUSED=EXIT_'+$aliasExit+
+            ';MS='+$aliasClock.ElapsedMilliseconds+';REPEATS=3;FAILED_PRODUCTS='+$aliasFailCases.Count+
+            ';BOOK_STAGES='+$aliasBookStages+';BASELINE_STAGES='+$aliasBaselineStages+
+            ';REASON_CODES='+$aliasFound.Count+';PRIVATE_LOG_SHA256='+$aliasDigest+
+            ';NO_RAW_TEST_OUTPUT=TRUE')
+          if($aliasExit-ne0){throw 'KTERM_PR96_REPORT_ALIAS_FOCUSED_FAILED_STOP'}
           # Focused synthetic, in-memory GET-only failure triage before expensive
           # mandatory full regression; never disclose raw fixture/test output.
           $focused=Join-Path $root 'native-snapshot-focused.private.jsonl'
