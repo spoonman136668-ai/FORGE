@@ -93,7 +93,8 @@ class AtomicCopiedLedgerTests(unittest.TestCase):
         from contextlib import ExitStack
         with patch.object(Database,"verify",return_value=None), \
                 patch.object(source,"build_proof",side_effect=synthetic_proof):
-            with closing(Database(self.copy)) as db:
+            with closing(Database.open_readonly(self.original)) as authentic, \
+                    closing(Database(self.copy)) as db:
                 with ExitStack() as stack:
                     stack.enter_context(SingleOwner(self.original.with_suffix(".lock")))
                     if lock_copy:
@@ -102,7 +103,7 @@ class AtomicCopiedLedgerTests(unittest.TestCase):
                     if mutate:
                         mutate(cold, pending_receipt, owner)
                     return atomic._atomic_on_copy(
-                        db, original_path=self.copy if same else self.original,
+                        db, original=db if same else authentic,
                         original_meta=self.start, target=TARGET,
                         binary_sha="7"*64, toolchain=source.TOOLCHAIN,
                         cold_receipt=cold, pending_receipt=pending_receipt,
@@ -128,7 +129,7 @@ class AtomicCopiedLedgerTests(unittest.TestCase):
                          [escrow.KIND,"SOURCE_TRANSITION_ADMITTED"])
         self.assertEqual(result["escrow_event_sha256"],events[0][2])
         with self.assertRaisesRegex(atomic.V41AtomicDenied,
-                                    "COPY_PREIMAGE_MOVED"):
+                                    "COPY_OR_ORIGINAL_PREIMAGE_MOVED"):
             self.execute()
 
     def test_faults_rollback_both_events_and_source(self):
