@@ -24,6 +24,26 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 MAX_BACKUP_BYTES = 1_000_000_000
 
 
+def _require_standalone_sqlite(backup: Path) -> None:
+    """The main file digest cannot attest to WAL/journal sidecar contents.
+
+    Deny even an empty or dangling symlink sidecar: restore must succeed
+    using ONLY the separately hashed main SQLite file.
+    """
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = Path(str(backup) + suffix)
+        need(not sidecar.exists() and not sidecar.is_symlink(),
+             "COLD_BACKUP_SQLITE_SIDECAR_PRESENT")
+
+
+def _hash_standalone_sqlite(backup: Path) -> str:
+    value = hashlib.sha256()
+    with backup.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
 def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
                      run_id: int, expected_backup_sha256: str) -> dict:
     """Authenticate actual unchanged original/cold-copy state under owner lock.
@@ -75,11 +95,8 @@ def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
          and remote["source_transition_authorized"] is False
          and remote["scientific_first_use"] is False,
          "ORIGINAL_PREFLIGHT_NOT_AUTHENTIC")
-    sha = hashlib.sha256()
-    with backup.open("rb") as data:
-        for chunk in iter(lambda: data.read(1024 * 1024), b""):
-            sha.update(chunk)
-    need(sha.hexdigest() == expected_backup_sha256,
+    _require_standalone_sqlite(backup)
+    need(_hash_standalone_sqlite(backup) == expected_backup_sha256,
          "ORIGINAL_BACKUP_BYTES_DRIFT")
     with closing(Database.open_readonly(backup)) as cold:
         need(getattr(cold, "_readonly_opened", False) is True
@@ -98,6 +115,11 @@ def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
     need(type(archives) is dict and type(generation) is dict
          and len(archives) > 0 and len(generation) > 0,
          "ORIGINAL_ARCHIVE_OR_BINARY_MISSING")
+    # A sidecar or new main-file bytes appearing DURING the read invalidate
+    # the receipt, even if cold.query_only and logical table parity passed.
+    _require_standalone_sqlite(backup)
+    need(_hash_standalone_sqlite(backup) == expected_backup_sha256,
+         "COLD_BACKUP_CHANGED_DURING_VERIFICATION")
     need(original.meta() == before and original.conn.total_changes == before_changes
          and before_changes == 0, "ORIGINAL_CHANGED_DURING_BACKUP_READ")
     return {

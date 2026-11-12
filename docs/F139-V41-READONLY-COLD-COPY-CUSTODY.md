@@ -39,3 +39,21 @@ must reconcile #1715 without replay or silent dropping before deployment.
 This module has no owner approval parser, commit_transition, workflow path,
 release ref, or signed first-use issuer. Original owner/task/policy/SQLite
 remain unchanged; FSA and Hybrid admission remain denied.
+
+## P1 standalone SQLite backup integrity — blocked until proof
+
+Automated Codex review at PR #1722 HEAD 4a3102df identified that a
+state.sqlite-wal file can contain committed state absent from the SHA-256
+of state.sqlite; a prior verifier could compare the WAL-augmented logical
+view and wrongly attest to the main file alone. This is a source integrity
+failure, not a cosmetic or infrastructure-only finding.
+
+The corrected verifier must reject ALL SQLite backup sidecars
+(state.sqlite-wal, state.sqlite-shm, state.sqlite-journal), including
+dangling symlinks, before reading or hashing the backup and after all
+logical archive/custody checks. It must hash the standalone main file
+again at the end. Adversarial regressions cover an actual committed
+WAL-only table, empty sidecars and main-file alteration after reads.
+No source-transition, backup creation, live owner action or science is
+authorized by this change. Cold-restore still needs original Windows
+acceptance and independently signed owner approval.

@@ -96,6 +96,38 @@ class OriginalCopyTests(unittest.TestCase):
                                     "COLD_ALL_TABLE_LOGICAL_DRIFT"):
             self.attempt()
 
+    def test_committed_wal_only_data_cannot_pass_main_file_sha(self):
+        # This is the actual reviewed P1: a committed WAL contains a table
+        # absent from the hashed main SQLite file. Keep the writer open to
+        # prevent connection-close checkpoint from hiding the failure.
+        with closing(sqlite3.connect(str(self.backup), isolation_level=None)) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA wal_autocheckpoint=0")
+            conn.execute("CREATE TABLE wal_only_verified (value TEXT)")
+            self.assertTrue(Path(str(self.backup) + "-wal").exists())
+            with self.assertRaisesRegex(RecoveryPreflightDenied,
+                                        "COLD_BACKUP_SQLITE_SIDECAR_PRESENT"):
+                self.attempt()
+
+    def test_empty_or_dangling_backup_sidecars_are_denied(self):
+        for suffix in ("-wal", "-shm", "-journal"):
+            sidecar = Path(str(self.backup) + suffix)
+            sidecar.write_bytes(b"")
+            with self.subTest(suffix=suffix), self.assertRaisesRegex(
+                    RecoveryPreflightDenied, "COLD_BACKUP_SQLITE_SIDECAR_PRESENT"):
+                self.attempt()
+            sidecar.unlink()
+
+    def test_backup_changed_after_logical_verification_is_denied(self):
+        def change_backup(*args, **kwargs):
+            # Test-side mutation of disposable backup only; original is ro.
+            with self.backup.open("ab") as stream:
+                stream.write(b"postcopy-tamper")
+            return {"provider": "1"*64}
+        with self.assertRaisesRegex(RecoveryPreflightDenied,
+                                    "COLD_BACKUP_CHANGED_DURING_VERIFICATION"):
+            self.attempt(archives=change_backup)
+
     def test_cold_copy_head_drift_is_not_hidden_by_matching_bytes(self):
         with closing(sqlite3.connect(str(self.backup))) as con:
             con.execute("UPDATE meta SET source_sha=? WHERE id=1", ("3"*40,))
