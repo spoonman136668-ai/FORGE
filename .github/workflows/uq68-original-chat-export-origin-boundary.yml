@@ -1,0 +1,149 @@
+name: UQ68 independent original-chat origin fail-closed boundary
+on:
+  push:
+    branches:
+      - qualification/uq68-original-export-origin-boundary
+permissions:
+  contents: read
+concurrency:
+  group: uq68-original-chat-origin-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Inspect authentic existing custody and prove export witness is missing
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference='Stop'
+          function Assert([bool]$ok,[string]$why) { if (-not $ok) { throw ('UQ68_STOP_'+$why) } }
+          function ShaText([string]$s) {
+            $b=[Text.Encoding]::UTF8.GetBytes($s)
+            $h=[Security.Cryptography.SHA256]::Create()
+            try {return ([BitConverter]::ToString($h.ComputeHash($b))).Replace('-','').ToLowerInvariant()}
+            finally {$h.Dispose()}
+          }
+          Assert ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          Assert (Test-Path $native -PathType Container) 'NATIVE_PS_MODULES_MISSING'
+          $env:PSModulePath=$native+[IO.Path]::PathSeparator+$env:PSModulePath
+          $mpRepo='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $sha='7ae81a209fa77e5381a669eb3cc0d736ef60ecd9'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq68-export-origin-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $selected=@(
+            [ordered]@{path='pilots/chat-history/2026-10-15-webclient-only-ingestion.extraction.json';blob='d3b1d73c7c7551e01c053fda58a0eaeae5d3d613'},
+            [ordered]@{path='pilots/chat-history/2026-10-17-pr58-authorization.extraction.json';blob='3bbb92ba9b6a154726ded6710dc9a4f26e785b47'}
+          )
+          Assert (-not (Test-Path $scratch)) 'SCRATCH_ALREADY_PRESENT'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            $remote=@(& git.exe ls-remote --exit-code $mpRepo refs/heads/main)
+            Assert ($LASTEXITCODE -eq 0 -and $remote.Count -eq 1 -and ([string]$remote[0] -split '\s+')[0] -ceq $sha) 'MIND_MAIN_DRIFT'
+            & git.exe clone --quiet --depth 1 --single-branch --branch main $mpRepo $root
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
+            Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $sha) 'MIND_HEAD_DRIFT'
+            $before=@{}
+            foreach($p in $protected) {
+              $full=Join-Path $root $p
+              Assert (Test-Path $full -PathType Leaf) ('PROTECTED_MISSING_'+$p)
+              $before[$p]=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $queuePath=Join-Path $root 'policies/guarded-chat-source-queue.json'
+            $queueBefore=(Get-FileHash -LiteralPath $queuePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $queue=[IO.File]::ReadAllText($queuePath) | ConvertFrom-Json
+            Assert (@($queue.sources).Count -eq 0 -and -not [bool]$queue.allow_production_memory_writes -and -not [bool]$queue.allow_unbounded_discovery) 'PRODUCTION_QUEUE_AUTHORITY_WIDENED'
+            $records=@([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json)
+            $ledger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            Assert ($records.Count -eq 263 -and @($ledger.entries).Count -eq 104) 'BASELINE_COUNTS'
+            $b=[IO.File]::ReadAllText((Join-Path $root '.ice/remote-bootstrap.json')) | ConvertFrom-Json
+            $c=[IO.File]::ReadAllText((Join-Path $root '.ice/remote-catalog.json')) | ConvertFrom-Json
+            Assert ([string]$b.schema -ceq 'mind-palace.remote-bootstrap.v1' -and [string]$c.schema -ceq 'mind-palace.remote-catalog.v1' -and [string]$b.source.records_sha256 -ceq [string]$c.source.records_sha256) 'REMOTE_CONTRACT_DRIFT'
+            Write-Host 'UQ68_PINNED_BASE_AND_RETRIEVAL_PROVENANCE=PASS'
+            foreach($item in $selected) {
+              $gitBlob=(& git.exe -C $root rev-parse ('HEAD:'+[string]$item.path) | Out-String).Trim()
+              Assert ($LASTEXITCODE -eq 0 -and $gitBlob -ceq [string]$item.blob) 'HISTORICAL_SOURCE_GIT_BLOB_DRIFT'
+              $s=[IO.File]::ReadAllText((Join-Path $root ([string]$item.path))) | ConvertFrom-Json
+              Assert ([string]$s.schema -ceq 'mind-palace.chat-extraction.v1' -and @($s.candidates).Count -eq 1) 'SELECTED_SOURCE_SCHEMA'
+              Assert ([string]::IsNullOrWhiteSpace([string]$s.conversation.content_sha256)) 'EXTRACTION_HAS_UNEXPECTED_ORIGINAL_HASH'
+              Assert ($null -eq $s.conversation.PSObject.Properties['immutable_provider_conversation_id']) 'EXTRACTION_HAS_UNEXPECTED_PROVIDER_ID'
+              $existing=@($ledger.entries | Where-Object { [string]$_.source_ref -ceq [string]$s.conversation.ref -and [string]$_.source_version -ceq [string]$s.conversation.version })
+              Assert ($existing.Count -eq 1) 'HISTORICAL_LEDGER_IDENTITY'
+              $probe=(& (Join-Path $root 'tools/source-probe.ps1') probe -Type chat -Ref ([string]$s.conversation.ref) -Version ([string]$s.conversation.version) | Out-String).Trim() | ConvertFrom-Json
+              Assert ([bool]$probe.processed -and [string]$probe.reason -ceq 'exact-fingerprint-known') 'HISTORICAL_SOURCE_DUPLICATE_NOT_RECOGNIZED'
+              # A historically admitted selected-turn extract is NOT an independently verified original provider export.
+              Assert (-not ([string]$s.conversation.ref).StartsWith('chatgpt-export:',[StringComparison]::Ordinal)) 'HISTORICAL_SOURCE_MISLABELED_AS_EXPORT'
+            }
+            Write-Host 'UQ68_EXISTING_SELECTED_CHAT_CUSTODY_NOT_PROVIDER_ATTESTATION=PASS'
+
+            # Qualify the existing export-parser/fingerprint machinery with a synthetic fixture.
+            # This fixture is NOT a provider export and must never become admissible source evidence.
+            $fixture=[ordered]@{
+              id='uq68-synthetic-conversation-never-admit'
+              title='Synthetic export format qualification only'
+              create_time=1710000000
+              update_time=1710000600
+              mapping=[ordered]@{
+                'synthetic-message'=[ordered]@{
+                  message=[ordered]@{
+                    author=[ordered]@{role='user'}
+                    content=[ordered]@{content_type='text';parts=@('synthetic-not-a-real-chat')}
+                  }
+                }
+              }
+            }
+            $jsonPath=Join-Path $scratch 'conversations.json'
+            [IO.File]::WriteAllText($jsonPath,((ConvertTo-Json -InputObject ([ordered]@{conversations=@($fixture)}) -Depth 100)+[Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
+            $inspectText=(& (Join-Path $root 'tools/chat-download-archive-runner.ps1') inspect -ArchivePath $jsonPath -MaxConversations 1 | Out-String).Trim()
+            $inspect=$inspectText | ConvertFrom-Json
+            Assert ([string]$inspect.schema -ceq 'mind-palace.chat-download-archive-runner.v1' -and [string]$inspect.command -ceq 'inspect' -and [int]$inspect.conversation_count -eq 1 -and [string]$inspect.conversations[0].id -ceq [string]$fixture.id) 'SYNTHETIC_EXPORT_INSPECT'
+            Assert ([string]$inspect.source.conversations_sha256 -ceq (Get-FileHash -LiteralPath $jsonPath -Algorithm SHA256).Hash.ToLowerInvariant()) 'SYNTHETIC_EXPORT_HASH'
+            Assert (-not [bool]$inspect.policy.writes_tracked_raw_transcripts -and -not [bool]$inspect.policy.writes_active_ice -and $null -eq $inspect.output) 'EXPORT_INSPECT_WROTE'
+            $originalHash=ShaText (ConvertTo-Json -InputObject $fixture -Depth 100 -Compress)
+            $ref='chatgpt-export:'+[string]$fixture.id
+            $ver=[string]$fixture.update_time
+            $sourceId='source/'+(ShaText ('chat|'+$ref+'|'+$ver+'|'+$originalHash))
+            $probeText=(& (Join-Path $root 'tools/source-probe.ps1') probe -Type chat -Ref $ref -Version $ver -ContentSha256 $originalHash | Out-String).Trim()
+            $probe=$probeText | ConvertFrom-Json
+            Assert (-not [bool]$probe.processed -and [string]$probe.source_id -ceq $sourceId) 'SYNTHETIC_EXACT_FINGERPRINT_CONTRACT'
+            $fixture.mapping['synthetic-message'].message.content.parts[0]='tampered-synthetic-content'
+            $changedHash=ShaText (ConvertTo-Json -InputObject $fixture -Depth 100 -Compress)
+            Assert ($changedHash -cne $originalHash -and (ShaText ('chat|'+$ref+'|'+$ver+'|'+$changedHash)) -cne (ShaText ('chat|'+$ref+'|'+$ver+'|'+$originalHash))) 'EDIT_NOT_SEPARATE_FINGERPRINT'
+            $fixture.id=$null
+            Assert ([string]::IsNullOrWhiteSpace([string]$fixture.id)) 'MISSING_ID_NOT_REJECTED'
+            # The runner may label missing IDs with a positional fallback for display;
+            # corpus queue considers this identity UNSTABLE. Never promote fallback ID.
+            Write-Host 'UQ68_SYNTHETIC_EXPORT_READONLY_FINGERPRINT_AND_TAMPER_CONTROL=PASS'
+            Write-Host 'UQ68_MISSING_CONVERSATION_ID=REVIEW_ONLY'
+
+            # No independent original ChatGPT export bytes, verified source chain, or
+            # independently attested provider conversation ID are present in these inputs.
+            # A self-authored JSON or Git blob cannot satisfy provider-origin authentication.
+            $providerEvidencePresent=$false
+            Assert (-not $providerEvidencePresent -and @($queue.sources).Count -eq 0) 'UNAUTHORIZED_PROVENANCE_UPGRADE'
+            Write-Host 'UQ68_REAL_PROVIDER_ORIGIN_AUTHENTICATION=BLOCKED_MISSING_AUTHORITATIVE_SOURCE'
+            Write-Host 'UQ68_SYNTHETIC_FIXTURE_PROVIDER_ATTESTED=FALSE'
+            Write-Host 'UQ68_PRODUCTION_ADMISSION=DENIED'
+
+            foreach($p in $protected) {
+              $after=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Assert ($after -ceq $before[$p]) ('PROTECTED_STATE_DRIFT_'+$p)
+            }
+            Assert ((Get-FileHash -LiteralPath $queuePath -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $queueBefore) 'SOURCE_QUEUE_MUTATED'
+            $dirty=@(& git.exe -C $root status --porcelain)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'PRIVATE_REPOSITORY_DIRTY'
+            Write-Host 'UQ68_ALL_NINE_PROTECTED_HASHES_AND_QUEUE_UNCHANGED=PASS'
+            Write-Host 'UQ68_DURABLE_RECORDS=263'
+            Write-Host 'UQ68_SOURCE_LEDGER_ENTRIES=104'
+            Write-Host 'UQ68_MEMORY_WRITES=0'
+            Write-Host 'UQ68_SOURCE_LEDGER_WRITES=0'
+            Write-Host 'UQ68_NO_PAID_INFERENCE_NO_CODEX_NO_APPLY_NO_PUSH=PASS'
+          } finally {
+            if(Test-Path $scratch) {Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Assert (-not (Test-Path $scratch)) 'PRIVATE_SCRATCH_NOT_CLEAN'
+            Write-Host 'UQ68_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
