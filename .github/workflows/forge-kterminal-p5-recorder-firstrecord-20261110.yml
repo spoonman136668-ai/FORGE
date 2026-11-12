@@ -441,6 +441,8 @@ jobs:
 
   owner-graphify-atlas:
     name: K Terminal full offline Graphify source atlas G35/G44 qualification
+    # Previous verified full static atlas run 43184027755. Browser refused unsigned CfT in 43185835465.
+    if: ${{ false }}
     # Independent static atlas only; original Go regression/vet and eight-exe build already qualified at this exact product SHA.
     # Separate from historical full Go regression and interactive/browser acceptance.
     runs-on: [self-hosted, Windows, forge-codex-isolated]
@@ -768,3 +770,59 @@ jobs:
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
           }
           Write-Host 'KTERM_GRAPHIFY_STATIC_CLEANUP=PASS;PUBLIC_PRIVATE_ARTIFACTS=0;LIVE_ORDERS=0'
+
+  owner-chrome-digest:
+    name: K Terminal official Chrome for Testing pinned digest-only preflight
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Read original owner identity and hash Google's pinned browser archive without execution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-recorder-firstrecord-20261110' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted'){throw 'KTERM_CFT_DIGEST_OWNER_REFUSED'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-cft-digest-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_CFT_DIGEST_STALE_DIRECTORY_REFUSED'}
+          [void][IO.Directory]::CreateDirectory($root)
+          try {
+            $url='https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.78/win64/chrome-win64.zip'
+            $zip=Join-Path $root 'browser.zip'
+            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 180 -MaximumRedirection 2 *> (Join-Path $root 'private-download.log')
+            $size=(Get-Item -LiteralPath $zip).Length
+            if($size -lt 50000000 -or $size -gt 350000000){throw 'KTERM_CFT_DIGEST_ARCHIVE_BUDGET'}
+            $zipHash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $archive=[IO.Compression.ZipFile]::OpenRead($zip)
+            try {
+              $entry=@($archive.Entries|Where-Object {$_.FullName -ceq 'chrome-win64/chrome.exe'})
+              if($entry.Count -ne 1){throw 'KTERM_CFT_DIGEST_CHROME_ENTRY_NOT_EXACT'}
+              $exe=Join-Path $root 'chrome.exe'
+              [IO.Compression.ZipFileExtensions]::ExtractToFile($entry[0],$exe)
+            } finally {$archive.Dispose()}
+            $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sig=Get-AuthenticodeSignature -LiteralPath $exe
+            $version=[string](Get-Item -LiteralPath $exe).VersionInfo.FileVersion
+            if($version -notmatch '^157[.]0[.]8103[.]78([.]|$)'){throw 'KTERM_CFT_DIGEST_VERSION_MISMATCH'}
+            if($sig.Status -notin @('NotSigned','Valid')){throw 'KTERM_CFT_DIGEST_UNEXPECTED_SIGNATURE_STATUS'}
+            Write-Host ('KTERM_CFT_OFFICIAL_SHA_RECEIPT=PASS;VERSION='+$version+
+              ';ZIP_SHA256='+$zipHash+';EXE_SHA256='+$exeHash+
+              ';AUTHENTICODE_STATUS='+$sig.Status+
+              ';SIGNED_AUTHORITY_CLAIM=FALSE;BROWSER_EXECUTED=FALSE;NO_MACHINE_INSTALL=TRUE')
+          } finally {
+            if(Test-Path -LiteralPath $root){
+              $fixed=[IO.Path]::GetFullPath($root)
+              $parent=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+              if(-not $fixed.StartsWith($parent,[StringComparison]::OrdinalIgnoreCase) -or
+                 [IO.Path]::GetFileName($fixed) -cne ('kterm-cft-digest-'+$env:GITHUB_RUN_ID)){
+                throw 'KTERM_CFT_DIGEST_CLEANUP_REFUSED'
+              }
+              Remove-Item -LiteralPath $fixed -Recurse -Force -ErrorAction Stop
+            }
+            Write-Host 'KTERM_CFT_DIGEST_PRIVATE_CLEANUP=PASS;LIVE_ORDERS=0'
+          }
