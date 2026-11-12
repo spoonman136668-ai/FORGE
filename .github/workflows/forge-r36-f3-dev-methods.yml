@@ -1,0 +1,183 @@
+name: FORGE R36 F3 development-method qualification
+on:
+  push:
+    branches: [engineering/r36-f3-ygg-dev-methods-r1]
+    paths:
+      - 'research/r36_f3_screen/**'
+      - '.github/workflows/forge-r36-f3-dev-methods.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/r36_f3_screen/**'
+      - '.github/workflows/forge-r36-f3-dev-methods.yml'
+permissions:
+  contents: read
+jobs:
+  development-only:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test development-only methods and frozen admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:research/r36_f3_screen/frozen_portfolio.json)" = 4140cf897c05d27dd6dac01cea796f383fa2ef44
+          python -B -m unittest discover -s research/r36_f3_screen -p 'test_*.py' -v
+          python -B -m py_compile research/r36_f3_screen/ygg_methods.py
+          echo R36_F3_YGG_METHOD_UNIT_QUALIFICATION=PASS
+          echo R36_F3_SCIENTIFIC_ORIGINALS_EXECUTED=ZERO
+  real-wingless-development:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: wingless-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Generate source-pinned development-only measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C wingless-source rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          test "$(git rev-parse HEAD:research/r36_f3_screen/frozen_portfolio.json)" = 4140cf897c05d27dd6dac01cea796f383fa2ef44
+          python -B research/r36_f3_screen/run_wingless_development.py --wingless-root wingless-source --out "$RUNNER_TEMP/wingless-development.json"
+      - name: Independently replay actual development measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/r36_f3_screen/verify_wingless_development.py --record "$RUNNER_TEMP/wingless-development.json" --wingless-root wingless-source --out "$RUNNER_TEMP/wingless-development-witness.json"
+          python -B - "$RUNNER_TEMP/wingless-development-witness.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["status"]=="REAL_DEVELOPMENT_METRICS_VERIFIED_NO_SCIENTIFIC_SELECTION"
+          assert x["recomputed_candidate_count"]==4
+          assert x["scientific_winners_selected"]==0
+          assert x["scientific_originals_executed"]==0
+          assert x["sealed_first_use_consumed"]==0
+          print("R36_SOURCE_PINNED_REAL_DEVELOPMENT=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r36-wingless-development-replay
+          path: |
+            ${{ runner.temp }}/wingless-development.json
+            ${{ runner.temp }}/wingless-development-witness.json
+          if-no-files-found: error
+          retention-days: 90
+  real-yggdrasil-development:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: yggdrasil-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compute pinned Yggdrasil development-only baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C yggdrasil-source rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git rev-parse HEAD:research/r36_f3_screen/frozen_portfolio.json)" = 4140cf897c05d27dd6dac01cea796f383fa2ef44
+          python -B research/r36_f3_screen/verify_ygg_public_transport.py --yggdrasil-root yggdrasil-source
+          python -B research/r36_f3_screen/run_ygg_policy_development.py --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-policy-development.json"
+          python -B research/r36_f3_screen/verify_ygg_policy_development.py --record "$RUNNER_TEMP/yggdrasil-policy-development.json" --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-policy-witness.json"
+          python -B research/r36_f3_screen/independent_dev_closeout.py --record "$RUNNER_TEMP/yggdrasil-policy-development.json" --witness "$RUNNER_TEMP/yggdrasil-policy-witness.json" --out "$RUNNER_TEMP/f3-dev-only-closeout.json"
+          python -B - "$RUNNER_TEMP/f3-dev-only-closeout.json" <<'PY'
+          import json,sys
+          review=json.load(open(sys.argv[1]))
+          assert review["status"]=="DEVELOPMENT_REVIEW_PASS_SCIENCE_METHOD_FIDELITY_PENDING"
+          assert review["provisional_leader_development_only"]=="YF3-C1"
+          assert review["scientific_admission"] is False
+          assert review["first_use_consumed"]==0
+          assert review["promotion_authorized"] is False
+          print("F3_INDEPENDENT_DEVELOPMENT_CLOSEOUT=PASS")
+          PY
+          python -B - "$RUNNER_TEMP/yggdrasil-policy-development.json" "$RUNNER_TEMP/yggdrasil-policy-witness.json" <<'PY'
+          import json,sys,copy
+          sys.path.insert(0,"research/r36_f3_screen")
+          from independent_dev_closeout import adjudicate
+          record=json.load(open(sys.argv[1]))
+          witness=json.load(open(sys.argv[2]))
+          adversarial=copy.deepcopy(record)
+          adversarial["records"][1]["public_addresses"]=[[0,1],[0,1],[0,1],[2,4],[2,4]]
+          try:adjudicate(adversarial,witness)
+          except ValueError:pass
+          else:raise AssertionError("F3_PUBLIC_SENSOR_TAMPER_WAS_ACCEPTED")
+          altered=copy.deepcopy(witness)
+          altered["aggregates"]["YF3-C1"]["pre"]+=1
+          try:adjudicate(record,altered)
+          except ValueError:pass
+          else:raise AssertionError("F3_INDEPENDENT_SCORE_TAMPER_WAS_ACCEPTED")
+          print("F3_NEGATIVE_ENFORCEMENT=PASS")
+          PY
+          python -B research/r36_f3_screen/c1_independent_fidelity.py --record "$RUNNER_TEMP/yggdrasil-policy-development.json" --witness "$RUNNER_TEMP/yggdrasil-policy-witness.json" --dev-closeout "$RUNNER_TEMP/f3-dev-only-closeout.json" --out "$RUNNER_TEMP/f3-c1-frozen-method-fidelity.json"
+          python -B - "$RUNNER_TEMP/f3-c1-frozen-method-fidelity.json" <<'PY'
+          import json,sys
+          audit=json.load(open(sys.argv[1]))
+          assert audit["status"]=="REJECTED_NONPERMUTATION_SENSOR_CHANGE"
+          assert audit["nonpermutation_trials"]==192
+          assert audit["new_physical_sensor_addresses"]==[8,11]
+          assert audit["scientific_candidate_accepted"] is False
+          assert audit["sealed_original_authorized"] is False
+          assert audit["first_use_claims_consumed"]==0
+          print("F3_C1_FROZEN_METHOD_FIDELITY_NEGATIVE=QUALIFIED")
+          PY
+          python -B research/r36_f3_screen/run_yggdrasil_development.py --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-development.json"
+      - name: Independently replay Yggdrasil development baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/r36_f3_screen/verify_yggdrasil_development.py --record "$RUNNER_TEMP/yggdrasil-development.json" --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-development-witness.json"
+          python -B - "$RUNNER_TEMP/yggdrasil-development-witness.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["status"]=="PINNED_DEV_BASELINE_REPLAY_VERIFIED_NO_CANDIDATE_ADMISSION"
+          assert x["replayed_trials"]==384
+          assert x["sealed_first_uses_consumed"]==0
+          assert x["scientific_winners_selected"]==0
+          print("F3_PINNED_REAL_DEVELOPMENT_BASELINE=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f3-yggdrasil-real-development-baseline
+          path: |
+            ${{ runner.temp }}/yggdrasil-development.json
+            ${{ runner.temp }}/yggdrasil-development-witness.json
+            ${{ runner.temp }}/yggdrasil-policy-development.json
+            ${{ runner.temp }}/yggdrasil-policy-witness.json
+            ${{ runner.temp }}/f3-dev-only-closeout.json
+            ${{ runner.temp }}/f3-c1-frozen-method-fidelity.json
+          retention-days: 90
+          if-no-files-found: error
