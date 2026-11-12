@@ -70,14 +70,14 @@ def verify_owner_event(env, event, get, *, target):
 def verify_qualified_main(get, target):
     """Require already successful signed-main source and original full CI.
 
-    Exact owner-bound PR #1735, first-attempt protected push checks, and
+    Exact owner-bound PR #1736, first-attempt protected push checks, and
     current main identity. This is read-only evidence, never maintenance
     permission or source-transition approval.
     """
     need(callable(get) and type(target) is str and SHA.fullmatch(target),
          "QUALIFICATION_ARGUMENTS")
-    pr = get("repos/" + REPO + "/pulls/1735")
-    need(type(pr) is dict and pr.get("number") == 1735
+    pr = get("repos/" + REPO + "/pulls/1736")
+    need(type(pr) is dict and pr.get("number") == 1736
          and pr.get("merged") is True and pr.get("merge_commit_sha") == target
          and pr.get("user", {}).get("login") == OWNER
          and pr.get("base", {}).get("ref") == "main"
@@ -111,7 +111,7 @@ def verify_qualified_main(get, target):
 
 def preflight_only(path, env, event, api, *, target):
     """Read-only exact owner and postmerge CI authorization before task pause."""
-    need(type(api) is GitHub and type(path) is Path and path.is_absolute()
+    need(type(api) is GitHub and isinstance(path, Path) and path.is_absolute()
          and path.name == "state.sqlite" and path.is_file()
          and not path.is_symlink() and type(env.get("LOCALAPPDATA")) is str
          and Path(env["LOCALAPPDATA"]).is_absolute()
@@ -146,7 +146,7 @@ def preflight_only(path, env, event, api, *, target):
 
 def backup_only(path, env, event, api, *, target):
     """Runs only after existing G54 workflow proves task disabled and SID."""
-    need(type(api) is GitHub and type(path) is Path and path.is_absolute()
+    need(type(api) is GitHub and isinstance(path, Path) and path.is_absolute()
          and path.name == "state.sqlite" and path.is_file()
          and not path.is_symlink()
          and type(env.get("LOCALAPPDATA")) is str

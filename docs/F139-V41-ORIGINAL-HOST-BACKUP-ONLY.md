@@ -76,3 +76,16 @@ process-tree termination and a separate 30-second exit confirmation. A
 backup-child termination that cannot be proven never triggers owner resume.
 The G54 job has a longer independent timeout; success still requires the
 same original scheduled task to be running again.
+
+## Pre-mutation original-Windows negative preserved and repaired
+
+The first genuine original-runner maintenance job #43331020104 failed on
+2026-11-12 before disabling the task: Python `pathlib.Path` is a factory,
+while the runtime concrete WindowsPath is a subclass, so strict
+`type(path) is Path` rejected the real canonical original database path.
+PR #1736 replaces those two guards with `isinstance(path, Path)` without
+relaxing canonical profile identity checks. A real OS-path fixture on both
+platforms exercises the full authenticated preflight, verifies zero bytes
+changed and keeps the earlier negative in provenance. The backup job is
+NOT replayed on the failed run; only a separate exact qualified merge and
+new owner comment can invoke a new one-shot maintenance attempt.
