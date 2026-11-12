@@ -184,6 +184,25 @@ class TwoBankTests(unittest.TestCase):
             with self.assertRaises(ValueError):TwoBankMemory.restore(payload,expected,floor)
         with self.assertRaises(ValueError):learner.observe(0,PUBLIC,0,1.)
 
+    def test_third_regime_fails_closed_without_overwriting_prior_banks(self):
+        learner=TwoBankMemory(max_events=256)
+        for rounds,values in ((40,(1.,-1.)),(16,(-1.,1.))):
+            for _ in range(rounds):
+                for a in (0,1): learner.observe(learner.completed,PUBLIC,a,values[a])
+        self.assertEqual(learner.active,1)
+        old=[b.checkpoint() for b in learner.banks]
+        # Neither mature bank predicts these distinct third-mode consequences.
+        for _ in range(2):
+            for a,y in ((0,3.),(1,-3.)):
+                learner.observe(learner.completed,PUBLIC,a,y)
+        self.assertEqual(learner.active,1)
+        self.assertEqual(learner.unresolved,4)
+        self.assertEqual([b.checkpoint() for b in learner.banks],old)
+        raw,digest=learner.checkpoint()
+        restored=TwoBankMemory.restore(raw,digest,minimum_completed=116)
+        self.assertEqual(restored.checkpoint(),learner.checkpoint())
+        self.assertFalse(restored.propose(PUBLIC)['can_dispatch_original'])
+
     def test_independent_bank_tamper_and_event_chain_negative(self):
         learner=TwoBankMemory(max_events=12)
         learner.observe(0,PUBLIC,0,1.)

@@ -77,9 +77,13 @@ class TwoBankMemory:
             self._update(self.active,e)
         else:
             inactive_mature=alternate.counts[action]>=3
-            alt_win=(inactive_mature and
-                abs(alternate.predict(e['obs'],action)-e['consequence'])+THRESHOLD<=
-                abs(active.predict(e['obs'],action)-e['consequence']))
+            alt_error=(abs(alternate.predict(e['obs'],action)-e['consequence'])
+                       if inactive_mature else math.inf)
+            active_error=abs(active.predict(e['obs'],action)-e['consequence'])
+            # A third never-seen regime must not be mistaken for a known one
+            # merely because the known alternative is *less wrong*.
+            alt_win=(inactive_mature and alt_error<THRESHOLD and
+                     alt_error+THRESHOLD<=active_error)
             empty_alternate=alternate.completed==0
             kind=('return' if alt_win else 'new' if empty_alternate else 'uncertain')
             if self.pending and self.pending[0]['kind']!=kind:
