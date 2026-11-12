@@ -1,0 +1,154 @@
+{
+  "schema": "forge.optimizer.o4.training-vs-latent-prereg.v1",
+  "identity": "O4_PROSPECTIVE_PUBLIC_DEV",
+  "parent_forge_main": "fd8474235d2197533189f35b002f5602268a497b",
+  "predecessors": {
+    "O3": "DEV_NO_ADVANTAGE_RETAINED_DRAFT_PR_773",
+    "O2": "HANDWRITTEN_SURPRISE_REPLAY_NO_ADVANTAGE_DRAFT_PR_772",
+    "Q20": "DEV_NO_GO_RETAIN",
+    "Q21N01": "FROZEN_AND_UNADMITTED"
+  },
+  "scientific_question": "Does optimization of a fixed recurrent predictor or training an explicit latent state explain O3's failure to exploit informative public histories, compared to fully trained public-history controls?",
+  "development_only": true,
+  "role_namespace": "o4-public-20261023-v1",
+  "role_names": [
+    "O4_TRAIN",
+    "O4_SELECT",
+    "O4_DEV"
+  ],
+  "seeds": "SHA256 UTF-8 of 'o4-public-20261023-v1:'+role+':'+family+':'+index, first 8 bytes as unsigned big-endian Random seed",
+  "family_rules": {
+    "A_ACTION_SWITCH": {
+      "latent_initial": "Bernoulli(1/2)",
+      "p_flip_action0": 0.1,
+      "p_flip_action1": 0.7,
+      "sensor_accuracy": 0.86,
+      "actions": "iid Bernoulli(1/2)"
+    },
+    "B_DELAYED_ACTION_SWITCH": {
+      "latent_initial": "Bernoulli(1/2)",
+      "p_flip_previous_and_current_action1": 0.85,
+      "p_flip_otherwise": 0.07,
+      "sensor_accuracy": 0.86,
+      "actions": "iid Bernoulli(1/2)",
+      "first_previous_action": 0
+    },
+    "NULL_IID": {
+      "sensor": "iid Bernoulli(1/2)",
+      "actions": "iid Bernoulli(1/2)",
+      "latent": "none"
+    }
+  },
+  "role_episodes_per_family": {
+    "O4_TRAIN": 48,
+    "O4_SELECT": 16,
+    "O4_DEV": 24
+  },
+  "transitions_per_episode": 24,
+  "public_fields": "Only ordered (o_t,a_t,o_(t+1)) tuples; learner may use past public actions/observations, never future observations, hidden states, source role, or family labels as features.",
+  "hypotheses": {
+    "H_OPTIMIZATION": "Same two-state tanh architecture under 16-epoch Adam outperforms its same-epoch SGD version on both causal families using identical train and SELECT data.",
+    "H_LATENT_STATE": "Two-state action-conditioned HMM fitted with unsupervised EM exceeds fully trained public-history counts under the same episodes on both causal families.",
+    "H_NULL": "NULL must not show spurious claimed improvement versus strongest public-history control."
+  },
+  "arms": {
+    "RNN_TANH_SGD_5E": {
+      "hidden_units": 2,
+      "epochs": 5,
+      "learning_rate": 0.035,
+      "optimizer": "episode full BPTT SGD",
+      "starts": [
+        17,
+        31
+      ]
+    },
+    "RNN_TANH_SGD_16E": {
+      "hidden_units": 2,
+      "epochs": 16,
+      "learning_rate": 0.035,
+      "optimizer": "episode full BPTT SGD",
+      "starts": [
+        17,
+        31
+      ]
+    },
+    "RNN_TANH_ADAM_16E": {
+      "hidden_units": 2,
+      "epochs": 16,
+      "learning_rate": 0.012,
+      "optimizer": "episode full BPTT Adam beta1=0.9 beta2=0.999 epsilon=1e-8",
+      "starts": [
+        17,
+        31
+      ]
+    },
+    "HMM_2STATE_ACTION_EM": {
+      "latent_states": 2,
+      "unsupervised_fit": true,
+      "transition_contexts": [
+        "prev_action",
+        "current_action"
+      ],
+      "em_iterations": 12,
+      "starts": [
+        17,
+        31
+      ],
+      "smoothing": 0.5
+    },
+    "PUBLIC_LAG_COUNTS": {
+      "fitted_public_context": [
+        "observation_t",
+        "action_t",
+        "previous_action"
+      ]
+    },
+    "PUBLIC_CURRENT_COUNTS": {
+      "fitted_public_context": [
+        "observation_t",
+        "action_t"
+      ]
+    }
+  },
+  "selection": "For each model family select only on 16 O4_SELECT episodes. Never consult O4_DEV for optimizer or selected initialization.",
+  "evaluation": {
+    "metric": "next-public-observation Bernoulli mean NLL nats/bit",
+    "sign": "matched comparator minus candidate, positive gain indicates improvement",
+    "no_cross_family_or_null_posthoc_winner_selection": true,
+    "resource_policy": "All arms share exact public training examples. Record total generator/train/selection/inference CPU, process RSS, serialized state bytes. Do not claim compute/memory-matched advantage unless costs are equal or lower (with separately preregistered tolerance).",
+    "cross_os": "equal public source SHA256 episode digests and mean NLL within 1e-6 across Linux/Windows"
+  },
+  "engineering_tests": [
+    "frozen protocol exact blob and base SHA",
+    "role split and reserved role refusal",
+    "actual weight/EM parameter changes on public train only",
+    "control receipt correctness and no future/hidden inputs",
+    "DEV evaluation produces no state mutation",
+    "all trials deterministic",
+    "full native Windows/Linux regression"
+  ],
+  "prior_to_protected_science": "Original independent Wingless/Yggdrasil FSA custody and admission remain separate; source-only public O4 does not qualify scientific original or native architecture integration",
+  "no_go_conditions": [
+    "inconsistent cross-OS NLL",
+    "source/role collision, dirty unexpected state",
+    "leaked latent/future data",
+    "DEV trained or selected",
+    "frozen protocol changed",
+    "missing resource receipts",
+    "first-use/production dispatch"
+  ],
+  "retain": [
+    "all positive and negative candidates",
+    "O2 and O3 unfavorable results",
+    "Q20 and original Q21 evidence",
+    "O4 invalid/outcome status"
+  ],
+  "forbidden": [
+    "new control plane or scheduler",
+    "live Cloudflare/D1 mutation",
+    "KTRADE / broker access",
+    "unqualified scientific first use",
+    "cross-private-repository runtime dependency",
+    "paid model API"
+  ]
+}
