@@ -1,0 +1,157 @@
+name: K Terminal Coinbase testing API profile (manual GET only)
+on:
+  workflow_dispatch:
+    inputs:
+      api_profile:
+        description: "Select offline guard testing or the protected Coinbase test API"
+        type: choice
+        required: true
+        default: offline
+        options:
+          - offline
+          - coinbase_test
+  push:
+    branches: [engineering/kterminal-coinbase-test-selector-20261105]
+    paths: [.github/workflows/forge-kterminal-coinbase-test-selector.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-coinbase-test-one-get-manual
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/engineering/kterminal-coinbase-test-selector-20261105') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'spoonman136668-ai' && inputs.api_profile == 'offline') }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      KTERM_SOURCE_SHA: ab7e4dd9ba8c5c03c61c563e45573c074e400616
+      KTERM_SOURCE_TREE: dd5ea5eae1e2d7f40a4caa9813e13789605664cc
+    steps:
+      - name: Checkout exact private K Terminal test source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ab7e4dd9ba8c5c03c61c563e45573c074e400616
+          persist-credentials: false
+          path: kterminal
+          fetch-depth: 1
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Use qualified Windows Go compiler
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Admit exact source and credential-free offline profile
+        shell: bash
+        working-directory: kterminal
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$(git rev-parse HEAD)" = "$KTERM_SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_SOURCE_TREE"
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard.go)" = ef92940f4e699f0871777fe80fe36981c2d97e5a
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard_test.go)" = b0e229e2ace153deead952fac37879f921f80a18
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_test_api_one_get_test.go)" = cab2725ac2bcc34059e5569b4d2a8e4ab3d150ee
+          test "$(git rev-parse HEAD:pkg/countdown-activation_test.go)" = aeff5060f47e4359439a4397d2dcf357c647e26f
+          test "$(git rev-parse HEAD:pkg/stage3-report-full-root-v2_test.go)" = faad284741466f8efd2f58055bbf25039d8ad42c
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          test ! -e config.json
+          for key in KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
+            if [[ -n "${!key:-}" ]]; then exit 2; fi
+          done
+          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
+          echo KTERM_COINBASE_TEST_OFFLINE_SOURCE=PASS
+      - name: Compile manual test-tag source, run only synthetic negative controls
+        shell: bash
+        working-directory: kterminal
+        run: |
+          set -euo pipefail
+          go test -mod=readonly -p 1 -count=1 -timeout 5m -tags kterminal_coinbase_test_api '-run=^TestV2AccountsProbe' ./pkg
+          go vet -tags kterminal_coinbase_test_api ./pkg
+          echo KTERM_COINBASE_TEST_OFFLINE_COMPILE_AND_GUARD=PASS
+
+  coinbase-test:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'spoonman136668-ai' && inputs.api_profile == 'coinbase_test' }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    environment: kterminal-coinbase-test
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      KTERM_SOURCE_SHA: ab7e4dd9ba8c5c03c61c563e45573c074e400616
+      KTERM_SOURCE_TREE: dd5ea5eae1e2d7f40a4caa9813e13789605664cc
+      KTERM_COINBASE_TEST_ONLY: '1'
+      APPROVED_SOURCE_SHA: ${{ vars.KTERM_COINBASE_TEST_APPROVED_SOURCE_SHA }}
+    steps:
+      - name: Fail closed unless protected test environment admits this source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:APPROVED_SOURCE_SHA -cne $env:KTERM_SOURCE_SHA -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or
+             $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+             $env:RUNNER_OS -cne 'Windows'){
+             throw 'KTERM_TEST_API_PROTECTED_ENV_OR_SOURCE_NOT_ADMITTED'
+          }
+          Write-Host 'KTERM_TEST_API_PROTECTED_ENV_AND_SOURCE_ADMITTED=PASS'
+      - name: Checkout exact private K Terminal source with existing read-only access
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ab7e4dd9ba8c5c03c61c563e45573c074e400616
+          persist-credentials: false
+          path: kterminal
+          fetch-depth: 1
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Use qualified Windows Go compiler
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Check exact immutable K Terminal identity before key access
+        shell: bash
+        working-directory: kterminal
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KTERM_SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_SOURCE_TREE"
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard.go)" = ef92940f4e699f0871777fe80fe36981c2d97e5a
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_accounts_probe_guard_test.go)" = b0e229e2ace153deead952fac37879f921f80a18
+          test "$(git rev-parse HEAD:pkg/coinbase_v2_test_api_one_get_test.go)" = cab2725ac2bcc34059e5569b4d2a8e4ab3d150ee
+          test "$(git rev-parse HEAD:pkg/countdown-activation_test.go)" = aeff5060f47e4359439a4397d2dcf357c647e26f
+          test "$(git rev-parse HEAD:pkg/stage3-report-full-root-v2_test.go)" = faad284741466f8efd2f58055bbf25039d8ad42c
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          test ! -e config.json
+          go version | grep -F 'go1.26.5 windows/amd64' >/dev/null
+          go test -mod=readonly -count=1 -timeout 5m -tags kterminal_coinbase_test_api '-run=^TestV2AccountsProbe' ./pkg
+          echo KTERM_TEST_API_SOURCE_GUARD_AND_NEGATIVE_CONTROLS=PASS
+      - name: One original GET-only v2 account envelope check with testing key
+        shell: bash
+        working-directory: kterminal
+        env:
+          KTERM_COINBASE_TEST_KEY_NAME: ${{ secrets.KTERM_COINBASE_TEST_KEY_NAME }}
+          KTERM_COINBASE_TEST_KEY_SECRET: ${{ secrets.KTERM_COINBASE_TEST_KEY_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$KTERM_COINBASE_TEST_KEY_NAME"
+          test -n "$KTERM_COINBASE_TEST_KEY_SECRET"
+          go test -mod=readonly -p 1 -parallel=1 -count=1 -timeout 2m -tags kterminal_coinbase_test_api '-run=^TestCoinbaseTestAPIExactlyOneV2AccountsGET$' ./pkg
+          echo KTERM_TEST_API_ONE_GET_COMPLETED_NO_ORDER_PERMISSION_GRANT=TRUE
