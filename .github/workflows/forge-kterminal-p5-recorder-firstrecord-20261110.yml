@@ -281,6 +281,20 @@ jobs:
               }
             }
           }
+          # Parse exactly the Git blob in Windows PowerShell 5.1 before attempting
+          # any build. Emit only error IDs/line numbers, never raw private output.
+          $env:KTERM_PR96_SCRIPT_PATH=$script
+          $parseCmd='$t=$null;$e=$null;[System.Management.Automation.Language.Parser]::ParseFile($env:KTERM_PR96_SCRIPT_PATH,[ref]$t,[ref]$e)|Out-Null;if($e.Count){foreach($v in $e|Select-Object -First 3){Write-Output ("PARSE_ID="+$v.ErrorId+";LINE="+$v.Extent.StartLineNumber)};exit 1}else{Write-Output "PASS"}'
+          $parseLog=Join-Path $root 'assembler-parse.private.log'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command $parseCmd *> $parseLog
+          $parseExit=$LASTEXITCODE
+          $valid=@([IO.File]::ReadAllLines($parseLog)|Where-Object{$_ -eq 'PASS' -or $_ -match '^PARSE_ID=[A-Za-z0-9_]+;LINE=[0-9]{1,3}$'})
+          foreach($line in $valid|Select-Object -First 3){
+            Write-Host ('KTERM_PR96_ASSEMBLER_PARSE='+$line)
+          }
+          if($parseExit-ne0 -or $valid -cnotcontains 'PASS'){
+            throw 'KTERM_PR96_ASSEMBLER_PARSER_REFUSED'
+          }
           $clock=[Diagnostics.Stopwatch]::StartNew()
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File $script -ExpectedSourceSha $env:KTERM_SHA -ExpectedTreeSha $env:KTERM_TREE -SourceRoot $src -OutputDirectory $out *> (Join-Path $root 'package.private.log')
           $exit=$LASTEXITCODE
@@ -301,11 +315,11 @@ jobs:
                 'powershell','powershell.exe','Get-Item','Get-FileHash','Get-Command',
                 'Get-Process','Get-Content','ConvertFrom-Json','Join-Path','Split-Path',
                 'Sort-Object','Test-Path','Assert-Plain','Hash','Get-ChildItem')
-              $term=[regex]::Match($raw,"The term '([^'\r\n]{1,80})' is not recognized")
-              if($term.Success -and $term.Groups[1].Value -cin $allowed){
-                Write-Host ('KTERM_PR96_UNAVAILABLE_COMMAND='+$term.Groups[1].Value)
+              $term=[regex]::Match($raw,"(?i)(?:the\s+)?term\s+['\u2018\u2019]?(?<identifier>[^'\r\n\u2018\u2019]{1,80}?)['\u2018\u2019]?\s+is not recognized")
+              if($term.Success -and $term.Groups["identifier"].Value -cin $allowed){
+                Write-Host ('KTERM_PR96_UNAVAILABLE_COMMAND='+$term.Groups["identifier"].Value)
               }elseif($term.Success){
-                $name=$term.Groups[1].Value
+                $name=$term.Groups["identifier"].Value
                 if($name -cmatch '^[A-Za-z][A-Za-z0-9._-]{0,48}$' -and
                    $name -cnotmatch '(?i)api|key|secret|token|pass|auth|coinbase|private|account|wallet'){
                   Write-Host ('KTERM_PR96_UNKNOWN_IDENTIFIER='+$name)
