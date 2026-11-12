@@ -1,0 +1,42 @@
+name: FORGE F77 authentic research artifact custody probe
+on:
+  push:
+    branches: [research/forge-f77-authentic-artifact-custody-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  independent-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check exact Wingless receipt metadata and Yggdrasil artifact absence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          gh api repos/spoonman136668-ai/Wingless/actions/runs/38878579349/artifacts > "$RUNNER_TEMP/w.json"
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/runs/38882071893/artifacts > "$RUNNER_TEMP/y.json"
+          python3 -B - "$RUNNER_TEMP/w.json" "$RUNNER_TEMP/y.json" <<'PY'
+          import json,sys
+          with open(sys.argv[1]) as f:w=json.load(f)
+          with open(sys.argv[2]) as f:y=json.load(f)
+          assert w["total_count"]==1 and len(w["artifacts"])==1
+          a=w["artifacts"][0]
+          assert a["id"]==12037005113
+          assert a["workflow_run"]["id"]==38878579349
+          assert a["workflow_run"]["head_sha"]=="c6abcf0eac723ab44e3fd20563e51b7fab355105"
+          assert a["name"]=="wingless-f61b-once-fit-receipts"
+          assert a["digest"]=="sha256:e904bb9e7674ee80a34ebca5b629728a4baaa93de3db0c22e9b4a15f7d8b507e"
+          assert a["expired"] is False
+          assert y["total_count"]==0 and not y["artifacts"]
+          print("F77_WINGLESS_ARTIFACT_METADATA_AND_SOURCE_ID=PASS")
+          print("F77_YGGDRASIL_SELECTED_RUN_ARTIFACTS=ZERO")
+          print("F77_RECEIPT_CONTENT_SCIENTIFIC_ACCEPTANCE=UNVERIFIED")
+          print("F77_GENUINE_FIRST_USE_AUTHORITY=DENIED")
+          print("F77_ORIGINAL_SCIENCE_DISPATCH=ZERO")
+          PY
