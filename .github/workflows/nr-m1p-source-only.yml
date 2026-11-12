@@ -1,0 +1,32 @@
+name: NR-M1P Source-Only Audit Tests
+
+on:
+  pull_request:
+    paths:
+      - "research/nr-m1p/**"
+      - ".github/workflows/nr-m1p-source-only.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-only:
+    name: source-only (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile inert audit code
+        run: python -m py_compile research/nr-m1p/audit.py research/nr-m1p/test_audit.py
+      - name: Verify source-free native effect tests
+        run: python -m unittest discover -s research/nr-m1p -p "test_*.py" -v
+
+# This workflow does not fetch original-world data or run any simulator.
+# A successful unit test is not scientific validation or first-use authorization.
