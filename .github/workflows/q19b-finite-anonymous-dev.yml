@@ -1,0 +1,111 @@
+name: Q19B frozen anonymous finite-intervention learning Windows Linux
+on:
+  push:
+    branches: [research/q19b-finite-anonymous-causal-learning-20261022]
+    paths: [.github/workflows/q19b-finite-anonymous-dev.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q19b-frozen-train-dev-20261022
+  cancel-in-progress: false
+jobs:
+  train-dev:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: hosted-windows
+            runner: '["windows-2022"]'
+          - label: hosted-linux
+            runner: '["ubuntu-24.04"]'
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Exact frozen first-protocol identity and four additive paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          $parent='f5ecac5448e4d11582bab208865616c58c4b7da1'
+          $actual=(& git rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $actual-cne$parent){throw 'Q19B_FROZEN_PARENT_CHANGED'}
+          $ancestor=(& git merge-base $base HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $ancestor-cne$base){throw 'Q19B_MAIN_SOURCE_NOT_FROZEN_ANCESTOR'}
+          $expected=@(
+            '.github/workflows/q19b-finite-anonymous-dev.yml',
+            'research/q19b_finite_anonymous/FROZEN_PROTOCOL.json',
+            'research/q19b_finite_anonymous/experiment.py',
+            'research/q19b_finite_anonymous/test_experiment.py'
+          )
+          $changed=@(& git diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or (Compare-Object $changed $expected)){
+            throw 'Q19B_SOURCE_SCOPE_NOT_EXACT_FOUR_ADDITIONS'
+          }
+          foreach($entry in @(
+            @('research/q19b_finite_anonymous/FROZEN_PROTOCOL.json','b6d4bd82e96355fba92be48b2b5d6425141b2195'),
+            @('research/q19b_finite_anonymous/experiment.py','c2764994dcc1fb5896060d45c7985be0547dfd28'),
+            @('research/q19b_finite_anonymous/test_experiment.py','14cd5c4e3502e3e7c744970d7af9b46cc78f369e')
+          )){
+            $a=(& git rev-parse ('HEAD:'+$entry[0])).Trim()
+            $b=(& git hash-object --no-filters -- $entry[0]).Trim()
+            if($LASTEXITCODE-ne0 -or $a-cne$entry[1] -or $b-cne$entry[1]){
+              throw ('Q19B_GIT_AND_DISK_BYTE_DRIFT_'+$entry[0])
+            }
+          }
+          Write-Host 'Q19B_FROZEN_SCIENCE_SOURCE_PREEXECUTION=PASS'
+      - name: Test anonymous source-free finite samples, controls, and no held
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s research/q19b_finite_anonymous -p test_experiment.py -v
+          if($LASTEXITCODE-ne0){throw 'Q19B_FOCUSED_SCIENCE_GUARDS_FAILED'}
+          & python -B research/q19b_finite_anonymous/experiment.py --mode selftest
+          if($LASTEXITCODE-ne0){throw 'Q19B_SELFTEST_FAILED'}
+          Write-Host 'Q19B_FOCUSED_PUBLIC_EVIDENCE_AND_HELD_GUARDS=PASS'
+      - name: Fully fit candidate and four conventional controls plus privileged oracle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP ('q19b-'+$env:RUNNER_OS+'-'+$env:GITHUB_RUN_ID+'.log')
+          if(Test-Path -LiteralPath $log){throw 'Q19B_PRIOR_RUN_LOG_PRESENT'}
+          & python -B research/q19b_finite_anonymous/experiment.py --mode train-dev 2>&1 |
+            Tee-Object -FilePath $log
+          if($LASTEXITCODE-ne0){throw 'Q19B_FROZEN_TRAIN_DEV_FAILED'}
+          $lines=@(Get-Content -LiteralPath $log |
+            Where-Object {$_ -like 'Q19B_RESULT_JSON=*'})
+          if($lines.Count-ne1){throw 'Q19B_RESULT_MISSING_OR_DUPLICATED'}
+          $receipt=$lines[0].Substring(17)|ConvertFrom-Json
+          if($receipt.fit_count-ne480 -or $receipt.dev_count-ne288 -or
+             $receipt.unfamiliar_held_generated-ne$false -or
+             $receipt.original_source_episodes-ne0 -or
+             $receipt.scientific_first_use-ne$false -or
+             $receipt.oracle_privileged_known_scm-ne$true -or
+             $receipt.supervised_ancestry_labels_in_fit-ne$true){
+            throw 'Q19B_COHORT_OR_SCIENTIFIC_RECEIPT_FALSE'
+          }
+          Write-Host ('Q19B_NATIVE_LOG_SHA256='+((Get-FileHash $log -Algorithm SHA256).Hash.ToLowerInvariant()))
+          Write-Host 'Q19B_FIVE_EMPIRICAL_AND_ORACLE_EVALUATED=PASS'
+          Write-Host 'Q19B_ORIGINAL_OR_HELD_FIRST_USE=NONE'
+      - name: Verify clean source and no hidden release
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q19B_SOURCE_WORKTREE_DIRTY'}
+          Write-Host 'Q19B_WORKTREE_CLEAN=PASS'
+          Write-Host 'Q19B_FULL_G61_REGRESSION_AND_ORIGINAL_SCIENTIFIC_ADMISSION=NOT_CLAIMED'
+          Write-Host 'Q19B_UNKNOWN_FOUR_NODE_HOLDOUT=NOT_GENERATED'
