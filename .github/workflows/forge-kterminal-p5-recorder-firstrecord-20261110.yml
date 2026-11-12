@@ -14,9 +14,9 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: b71fabf0f24e0020a4feb8f48bac48f5acf38598
+      KTERM_SHA: 200fb5fc2bd9b846c28052a76556b026ff3bd953
       KTERM_BASE: cea643af9d5abf3b18e45c5f33cae01694677cc2
-      KTERM_TREE: ee649187911229a91eb72896a189096ac4cd2720
+      KTERM_TREE: ba9385a72f972a9a399cf90447eb5c090ef70742
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
       K_TERMINAL_NATIVE_TIMING: '0'
@@ -84,20 +84,24 @@ jobs:
             'tools/qualification/test_p5_verify_firstuse_archive.py'='c6c2fcf0ec0edd6fa8ed45a776e3afb5dbcbb239'
             'pkg/native-snapshot-freshness_test.go'='1a1f58fba665c48f530c907fb83cf4d120481ecd'
             'application-launch.ps1'='5fbf25b8e3f0d621225c0d9220554466ced085db'
+            'pkg/advanced-orders.go'='27bb67895bde1be5d987f369639c4b091cd5e3ad'
+            'pkg/dashboard-orders.go'='7ca5dfb7445e43b521d634cca4d9ed856605d72a'
+            'pkg/terminal-dashboard.go'='9f1ded3db36122cb724a8879dfeb2b0a4c53a823'
+            'pkg/dashboard-orders_test.go'='8c3c8a21549710cfd1be451bd3ca4d3426aa34eb'
           }
           foreach($p in $blobs.Keys){
             $actual=(& git -C $src rev-parse ('HEAD:'+$p) | Out-String).Trim()
             if($actual -cne $blobs[$p]){throw 'KTERM_PR96_QUALIFIER_BLOB_DRIFT'}
           }
           $changed=@(& git -C $src diff --name-only $env:KTERM_BASE $env:KTERM_SHA)
-          if($LASTEXITCODE-ne0 -or $changed.Count-ne5 -or
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne9 -or
              @($changed|Where-Object{$_ -cnotin @($blobs.Keys)}).Count-ne0){
-            throw 'KTERM_PR96_FIVE_FILE_SCOPE_DRIFT'
+            throw 'KTERM_PR96_NINE_FILE_SCOPE_DRIFT'
           }
           foreach($private in @('config.json','data','reporting','logs','notifications','.env')){
             if(Test-Path -LiteralPath (Join-Path $src $private)){throw 'KTERM_PR96_PRIVATE_STATE_REFUSED'}
           }
-          Write-Host ('KTERM_PR96_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=FIRSTUSE_PAPER_DEFAULT_ONLY;NATIVE_GO_BLOBS_UNCHANGED=TRUE')
+          Write-Host ('KTERM_PR96_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=ORDER_DISPLAY_WAKE_AND_PAPER_DEFAULT;FULL_GO_REQUALIFICATION=REQUIRED')
       - name: Pinned original Windows Go toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
