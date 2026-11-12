@@ -19,6 +19,24 @@ HYBRID_RELEASE_ANCHOR = "0e122eb8e571ddddee1dea4168cf18cfc7dc019d"
 HYBRID_WORKER_PATH = ".github/workflows/forge-f139-development-worker.yml"
 HYBRID_WORKER_BEFORE = "8eab7972ba1b30eabf1e38477aff60b598cdeb2f"
 HYBRID_WORKER_AFTER = "74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
+V41_STATUS_BRANCH = "dev/f139-v41-original-locked-readonly-acceptance-20261112"
+V41_STATUS_PR = 1731
+V41_STATUS_BASE = "3edc2f930d915fddf040effda68b1a4770a4bb32"
+V41_STATUS_WORKFLOW = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+V41_STATUS_BEFORE = "c8e6616d8203d27caccdb06084862bf8cfdbbd4c"
+V41_STATUS_AFTER = "fd5de64d7a8b44b6e8ac28a98c0c4fc33afbd9f3"
+V41_STATUS_RESULT = "EXACT_PR1731_V41_READONLY_OWNER_SCOPE_ONLY"
+V41_STATUS_FILES = frozenset({
+    V41_STATUS_WORKFLOW,
+    "f139/nci04_v41_original_owner_status.py",
+    "f139/test_nci04_v41_original_owner_status.py",
+    "f139/test_v40_readonly_workflow_scope.py",
+    "docs/F139-V41-ORIGINAL-LOCKED-READONLY-STATUS.md",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
 FROZEN_SCOPES = {
     # Exact owner-approved V40 handoff engineering source; no live approval inferred.
     'engineering/f139-v40-explicit-owner-handoff-20261109': (
@@ -163,6 +181,7 @@ def negative_controls() -> None:
     if not generic_paths_safe(valid) or any(generic_paths_safe(x) for x in invalid):
         raise ValueError("G145_ADMISSION_NEGATIVE_CONTROL_FAILED")
     hybrid_release_negative_controls()
+    v41_status_negative_controls()
 
 
 def admit_hybrid_workflow_release(head_sha: str, base_sha: str,
@@ -245,6 +264,83 @@ def hybrid_release_negative_controls() -> None:
     raise ValueError("G145_HYBRID_RELEASE_PR_NEGATIVE_FAILED")
 
 
+
+def admit_v41_status(head_sha: str, base_sha: str,
+                     request: dict, git: Callable[..., str]) -> str:
+    """One original-owner-authored #1731 PR; no general workflow admission.
+
+    Pin both the old and candidate workflow blob. The one inserted step is
+    GET/query-only original owner evidence, never a task controller or release.
+    This is ENGINEERING CI permission only, not execution or owner approval.
+    """
+    if (not is_sha(head_sha) or base_sha != V41_STATUS_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != V41_STATUS_PR
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_V41_EXACT_OWNER_PR_AND_BASE_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        before = git("ls-tree", base_sha, "--", V41_STATUS_WORKFLOW)
+        after = git("ls-tree", head_sha, "--", V41_STATUS_WORKFLOW)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V41_PINNED_SOURCE_UNREADABLE") from exc
+    if (ancestor != base_sha
+            or len(changed) != len(V41_STATUS_FILES)
+            or len(set(changed)) != len(changed)
+            or set(changed) != V41_STATUS_FILES
+            or before != "100644 blob " + V41_STATUS_BEFORE + "\t" + V41_STATUS_WORKFLOW
+            or after != "100644 blob " + V41_STATUS_AFTER + "\t" + V41_STATUS_WORKFLOW):
+        raise ValueError("G145_V41_EXACT_WORKFLOW_BLOB_OR_FILES_DRIFT")
+    return V41_STATUS_RESULT
+
+
+def v41_status_negative_controls() -> None:
+    base, head = V41_STATUS_BASE, "a"*40
+    owner = {"number": V41_STATUS_PR,
+             "user": {"login": "spoonman136668-ai"},
+             "author_association": "OWNER"}
+    def git(*args):
+        if args == ("merge-base", base, head):
+            return base
+        if args == ("diff", "--no-renames", "--name-only", base, head):
+            return "\n".join(sorted(V41_STATUS_FILES))
+        if args == ("ls-tree", base, "--", V41_STATUS_WORKFLOW):
+            return "100644 blob " + V41_STATUS_BEFORE + "\t" + V41_STATUS_WORKFLOW
+        if args == ("ls-tree", head, "--", V41_STATUS_WORKFLOW):
+            return "100644 blob " + V41_STATUS_AFTER + "\t" + V41_STATUS_WORKFLOW
+        raise AssertionError("unexpected frozen source lookup")
+    if admit_v41_status(head, base, owner, git) != V41_STATUS_RESULT:
+        raise ValueError("G145_V41_STATUS_POSITIVE_CONTROL_FAILED")
+    bad = (
+        (dict(owner, number=1732), None, None),
+        (dict(owner, author_association="CONTRIBUTOR"), None, None),
+        (dict(owner, user={"login":"other"}), None, None),
+        (owner, "f"*40, None),
+        (owner, None, (("merge-base", base, head), "f"*40)),
+        (owner, None, (("diff", "--no-renames", "--name-only", base, head),
+                        "scripts/check_rar_g145_pr_scope.py")),
+        (owner, None, (("ls-tree", base, "--", V41_STATUS_WORKFLOW),
+                        "100644 blob " + "f"*40 + "\t" + V41_STATUS_WORKFLOW)),
+        (owner, None, (("ls-tree", head, "--", V41_STATUS_WORKFLOW),
+                        "100644 blob " + "f"*40 + "\t" + V41_STATUS_WORKFLOW)),
+        (owner, None, (("ls-tree", head, "--", V41_STATUS_WORKFLOW),
+                        "100755 blob " + V41_STATUS_AFTER + "\t" + V41_STATUS_WORKFLOW)),
+    )
+    for request, new_base, replacement in bad:
+        def altered(*args):
+            return replacement[1] if replacement and args == replacement[0] else git(*args)
+        try:
+            admit_v41_status(head, base if new_base is None else new_base,
+                             request, altered)
+        except ValueError:
+            continue
+        raise ValueError("G145_V41_STATUS_NEGATIVE_ACCEPTED")
+
+
 def github_event_base(head_sha: str) -> str:
     """Read exact GitHub-hosted pull request event identity. No remote fetch."""
     event_path = os.environ.get("GITHUB_EVENT_PATH", "")
@@ -281,6 +377,9 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == V41_STATUS_BRANCH:
+        payload = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        return admit_v41_status(head_sha, base_sha, payload["pull_request"], git)
     if branch == HYBRID_RELEASE_BRANCH:
         payload = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
         request = payload["pull_request"]

@@ -86,7 +86,24 @@ class V40ReadonlyWorkflowScopeTests(unittest.TestCase):
     def test_existing_jobs_preserved_and_native_invocation_has_no_write_route(self):
         text = (ROOT/WORKFLOW).read_text(encoding='utf-8')
         original, addition = text.split('\n  v40-invocation-qualification:', 1)
-        self.assertEqual(hashlib.sha256(original.encode()).hexdigest(), '679e152e9be86b7399c75d247b31966f972a8d2196538b5729f8cf459d4ba063')
+        # Preserve the exact frozen V40 job byte-for-byte, subtracting ONLY
+        # the uniquely pinned, separately PR1731-scope-qualified V41 step.
+        step = '      - name: V41 original-owner locked issue/ledger read-only preflight\n'
+        self.assertEqual(original.count(step), 1)
+        old, appended = original.split(step, 1)
+        self.assertIn("F139_V41_ORIGINAL_HOST_READONLY_CUSTODY=PASS", appended)
+        self.assertIn("github.event_name == 'issue_comment'", appended)
+        self.assertIn("F139-V9-STATUS ", appended)
+        self.assertIn("original_owner_status", appended)
+        self.assertNotIn("Stop-ScheduledTask", appended)
+        self.assertNotIn("Disable-ScheduledTask", appended)
+        self.assertNotIn("Start-ScheduledTask", appended)
+        self.assertNotIn("workflow_dispatch", appended)
+        self.assertEqual(old[-2:], "\n\n")
+        # This insertion consumes the separator newline originally adjacent
+        # to the next job. Hash the exact immutable V40 prefix only.
+        self.assertEqual(hashlib.sha256(old[:-1].encode()).hexdigest(),
+                         '679e152e9be86b7399c75d247b31966f972a8d2196538b5729f8cf459d4ba063')
         native = addition.split('\n  v40-owner-readonly:', 1)[1]
         self.assertIn('needs: v40-invocation-qualification', native)
         self.assertIn('permissions:\n      contents: read\n      issues: read\n      actions: read', native)
