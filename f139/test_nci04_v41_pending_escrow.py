@@ -2,7 +2,9 @@
 from contextlib import closing
 from pathlib import Path
 import tempfile
+import sqlite3
 import unittest
+from f139.nci04_native_contract import canonical
 from f139 import nci04_v41_pending_escrow as escrow
 from f139.local_controller import Database
 
@@ -60,6 +62,63 @@ class V41EscrowTests(unittest.TestCase):
         with self.assertRaises(escrow.EscrowDenied):
             escrow.verify_event_shape(
                 {"seq":escrow.OBSERVED_SEQ,"prior_sha":"f"*64},self.document())
+
+    def synthetic_cold_events(self):
+        # Minimal synthetic SQL table proves escrow replay predicates only.
+        # It is NOT a substitute for the authentic original SHA-chain.
+        conn=sqlite3.connect(":memory:", isolation_level=None)
+        conn.row_factory=sqlite3.Row
+        conn.executescript(
+            "CREATE TABLE events(seq INTEGER PRIMARY KEY, kind TEXT, sha TEXT, "
+            "prior_sha TEXT, payload TEXT);"
+            "CREATE TABLE tasks(ticket TEXT);"
+        )
+        conn.execute(
+            "INSERT INTO events VALUES(?,?,?,?,?)",
+            (escrow.OBSERVED_SEQ,"OTHER_EVENT",escrow.OBSERVED_HEAD,"0"*64,"{}"))
+        conn.execute(
+            "INSERT INTO events VALUES(?,?,?,?,?)",
+            (escrow.OBSERVED_SEQ+1,escrow.KIND,"1"*64,"f"*64,
+             canonical(self.document()).decode("ascii")))
+        return conn
+
+    def test_synthetic_adjacent_escrow_and_replay_guards(self):
+        class Cold:
+            def __init__(self, conn):
+                self.conn=conn
+        with closing(self.synthetic_cold_events()) as conn:
+            db=Cold(conn)
+            self.assertEqual(
+                escrow.verify_before_transition(db,escrow.OBSERVED_SEQ+2),
+                "1"*64)
+            with self.assertRaisesRegex(escrow.EscrowDenied, "NONADJACENT"):
+                escrow.verify_before_transition(db,escrow.OBSERVED_SEQ+3)
+            conn.execute(
+                "INSERT INTO events VALUES(?,?,?,?,?)",
+                (escrow.OBSERVED_SEQ+2,escrow.KIND,"2"*64,"1"*64,
+                 canonical(self.document()).decode("ascii")))
+            with self.assertRaisesRegex(escrow.EscrowDenied, "DUPLICATE"):
+                escrow.verify_before_transition(db,escrow.OBSERVED_SEQ+2)
+            conn.execute("DELETE FROM events WHERE seq=?",
+                         (escrow.OBSERVED_SEQ+2,))
+            conn.execute("UPDATE events SET sha=? WHERE seq=?",
+                         ("9"*64,escrow.OBSERVED_SEQ))
+            with self.assertRaisesRegex(escrow.EscrowDenied, "FROZEN_PREFIX"):
+                escrow.verify_before_transition(db,escrow.OBSERVED_SEQ+2)
+            conn.execute("UPDATE events SET sha=? WHERE seq=?",
+                         (escrow.OBSERVED_HEAD,escrow.OBSERVED_SEQ))
+            conn.execute(
+                "INSERT INTO events VALUES(?,?,?,?,?)",
+                (escrow.OBSERVED_SEQ-1,"NATIVE_DEVELOPMENT_ADMITTED",
+                 "e"*64,"d"*64,'{"issue_number":1715}'))
+            with self.assertRaisesRegex(escrow.EscrowDenied, "ALREADY_ADMITTED"):
+                escrow.verify_before_transition(db,escrow.OBSERVED_SEQ+2)
+            conn.execute("DELETE FROM events WHERE seq=?",
+                         (escrow.OBSERVED_SEQ-1,))
+            conn.execute("INSERT INTO tasks VALUES(?)",
+                         (self.document()["ticket"],))
+            with self.assertRaisesRegex(escrow.EscrowDenied, "TASK_ALREADY_PRESENT"):
+                escrow.verify_before_transition(db,escrow.OBSERVED_SEQ+2)
 
     def test_empty_original_denied_without_sqlite_mutation(self):
         with tempfile.TemporaryDirectory() as folder:
