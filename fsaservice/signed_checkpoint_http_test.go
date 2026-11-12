@@ -139,7 +139,7 @@ func TestSignedCheckpointWriterRealMTLSHandlerIntegration(t *testing.T){
    writer,err:=fsaremote.NewSignedCheckpointWriter(
     fsaremote.Peer{BaseURL:service.URL,Roots:f.roots,
      Certificate:writerCert,ServerSPKISHA256:serverSPKI},
-    f.pin,f.readerSPKI,writerSPKI)
+    f.pin,f.readerSPKI,writerSPKI,f.remote)
    if err!=nil{t.Fatal(err)}
    receipt,err:=writer.Submit(context.Background(),f.anchor,f.signed)
    if tc.witnessOnCommit{
