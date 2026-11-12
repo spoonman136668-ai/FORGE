@@ -1,0 +1,72 @@
+name: F139 Yggdrasil native test-count integrity qualification
+on:
+  push:
+    branches: [fix/f139-ygg-zero-test-fail-closed-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-ygg-test-count-qualification
+  cancel-in-progress: true
+jobs:
+  fail-closed-test-custody:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - name: Preserve original Git line endings
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact two-file worker fix on protected owner source
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          expected="$(printf '%s\n' '.github/workflows/f139-ygg-nonzero-test-qualification.yml' 'f139/nci04_native_worker.py' 'f139/test_nci04_native_worker.py')"
+          test "$(git diff --name-only "$base" HEAD)" = "$expected"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo F139_YGG_NATIVE_SOURCE_DELTA_EXACT=PASS
+      - name: Adversarial zero/ambiguous/missing native test-count regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p test_nci04_native_worker.py -v
+          echo F139_YGG_ZERO_DISCOVERY_FAIL_CLOSED=PASS
+      - name: One full F139 and Go regression build with original source isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo F139_YGG_NATIVE_FULL_REGRESSION=PASS
+      - name: Preserve existing authority and original ledger
+        shell: bash
+        run: |
+          echo F139_LIVE_ORIGINAL_CONTROLLER_SOURCE_UNCHANGED=TRUE
+          echo F139_HISTORICAL_NATIVE_PROVIDER_RECEIPTS_UNCHANGED=TRUE
+          echo F139_PROTECTED_HOLDOUTS_ACCESSED=FALSE
+          echo F139_SCIENTIFIC_FIRST_USE=FALSE
+          echo F139_NEW_DISPATCH=FALSE
