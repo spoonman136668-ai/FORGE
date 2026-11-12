@@ -11,6 +11,31 @@ The Windows workstation is the **only** scheduler/dispatcher. `f139/local_contro
 5. Run `scripts/Install-FORGE-F139.ps1` with no switches for a **dry-run**. The optional `-Apply` installs a hidden, logged-on-user Task Scheduler process; it does not activate the controller or disable existing F136/F137 tasks. Verify automatic startup and log creation. A workstation powered off simply pauses FORGE; startup at logon resumes reconciliation, never a blind retry.
 6. Only after **native Windows real GitHub-hosted worker acceptance** and independent evidence of disabling **both** FORGE GitHub legacy dispatch workflows and the **FORGE F137 Windows scheduled recovery task**, create a qualified `forge.f139.local-cutover-evidence.v1` attestation and run the CLI `activate --legacy-suspended-evidence <path>`. The controller will then begin assigning from its frozen development-only queue. Never activate F139 alongside the legacy dispatch owners. Do not touch the independent CKB-plane controller.
 
+## Development-first use (operator decision 2026-10-20)
+
+The F139 controller and its fixed worker are **development-only**. Routine
+private Wingless/Yggdrasil mechanism implementation, development-seed training,
+regression diagnosis and ablations **do not require FSA's independent witness**.
+The existing FSA first-use requirements apply only when an operation would
+consume protected scientific originals, access sealed holdouts, or make an
+independently accepted scientific claim. Those operations remain prohibited here.
+
+**Current capability limit:** the F139 normal worker invokes
+`forge-model-free-loop --synthetic-only`; D2K tickets run allowlisted FORGE
+Go-package diagnostics. Neither is a trained-cognition developer, produces
+Wingless/Yggdrasil implementation diffs, nor advances a learned mechanism by
+itself. Do not describe a successful synthetic job as autonomous science.
+
+Next eligible engineering work: attach an explicitly development-only,
+source-bound **real mechanism code/training/test adapter** to the existing F139
+queue, with independently verified source/diff and negative-result receipts;
+perform qualification before enabling that adapter. Keep the existing source,
+epoch, one-shot start-risk and no-retry controls. Never enable the existing
+scientific worker path via this development decision. No separate scheduler,
+new infrastructure, API bill, or witness-provisioning task is authorized.
+
+See `docs/F139-DEVELOPMENT-FIRST-DECISION.md`.
+
 ## Guarantees and limitations
 
 - A logged-on Windows user and running workstation are required for this Task Scheduler startup strategy. No machine-off research continuity or Windows startup *before login* is claimed.
