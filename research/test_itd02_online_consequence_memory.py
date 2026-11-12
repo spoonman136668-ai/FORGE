@@ -9,10 +9,10 @@ import unittest
 import itd02_online_consequence_memory as mod
 
 
-def fixture():
+def fixture(start=0, stop=120):
     """Only this test fixture contains the hidden action -> outcome map."""
     rows = []
-    for k in range(120):
+    for k in range(start, stop):
         a = k % 3
         obs = (math.sin(k * 0.23) * 0.8, math.cos(k * 0.17) * 0.7)
         y = (-1. + a) * 2. + (a + 1) * obs[0] - (2 - a) * obs[1]
@@ -44,7 +44,7 @@ class OnlineConsequenceMemoryTests(unittest.TestCase):
             m.observe(i, obs, a, y)
         self.assertEqual(m.completed, 120)
         self.assertEqual(m.counts, [40, 40, 40])
-        self.assertLess(assess(m, data), 0.01)
+        self.assertLess(assess(m, fixture(120, 180)), 0.01)
         self.assertGreater(m.predict((0., 0.), 2),
                            m.predict((0., 0.), 1))
 
@@ -57,10 +57,11 @@ class OnlineConsequenceMemoryTests(unittest.TestCase):
             m.observe(i, obs, a, y)
             blind.observe(i, obs, 0, y)
             rotated.observe(i, obs, (a + 1) % 3, y)
-        candidate = assess(m, data)
+        heldout = fixture(120, 180)  # Never supplied to any fitted model.
+        candidate = assess(m, heldout)
         blind_mse = sum((blind.predict(obs, 0) - y) ** 2
-                        for obs, a, y in data) / len(data)
-        rotated_mse = assess(rotated, data)
+                        for obs, a, y in heldout) / len(heldout)
+        rotated_mse = assess(rotated, heldout)
         self.assertLess(candidate, 0.01)
         self.assertGreater(blind_mse, 2 * candidate)
         self.assertGreater(rotated_mse, 2 * candidate)
@@ -69,7 +70,7 @@ class OnlineConsequenceMemoryTests(unittest.TestCase):
         fitted = mod.OnlineConsequenceMemory()
         for i, (obs, a, y) in enumerate(data):
             fitted.observe(i, obs, a, y)
-        self.assertAlmostEqual(assess(fitted, data), candidate, places=14)
+        self.assertAlmostEqual(assess(fitted, heldout), candidate, places=14)
 
     def test_proposal_is_read_only_and_exploration_is_value_of_information_proxy(self):
         m = mod.OnlineConsequenceMemory()
