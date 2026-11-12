@@ -492,6 +492,126 @@ jobs:
             ';ZIP_SHA256='+$proof.archive_sha256+
             ';NO_APP_EXECUTION=TRUE;NO_LIVE_TRADING=TRUE;FIRST_USE_LAUNCH=NOT_RUN'+
             ';PRIVATE_LOG_SHA256='+$digest)
+      - name: Fresh portable package first-use PAPER prelaunch smoke with bounded lifetime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'KTERM_PR96_FIRSTUSE_OWNER_OR_DISARM_REFUSED'
+          }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+              'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){
+              throw 'KTERM_PR96_FIRSTUSE_CREDENTIAL_ENV_REFUSED'
+            }
+          }
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          if($session -eq 0 -or
+             @((Get-Process explorer -ErrorAction SilentlyContinue)|
+               Where-Object{$_.SessionId -eq $session}).Count -eq 0){
+            throw 'KTERM_PR96_FIRSTUSE_INTERACTIVE_SESSION_UNQUALIFIED'
+          }
+          if(@(Get-Process -Name 'K-Terminal*' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_PR96_FIRSTUSE_EXISTING_APPLICATION_PROCESS_REFUSED'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr96-firstuse-'+$env:GITHUB_RUN_ID)
+          $sandbox=Join-Path $root 'wpf-hidden-package'
+          $out=Join-Path $root 'artifact-only'
+          $receipt=Get-Content -LiteralPath (Join-Path $out 'FIRST-USE-RECEIPT.json') -Raw|ConvertFrom-Json
+          $zip=Join-Path $out ([string]$receipt.archive)
+          if($receipt.source_sha -cne $env:KTERM_SHA -or
+             $receipt.source_tree -cne $env:KTERM_TREE -or
+             $receipt.roundtrip -cne 'PASS' -or
+             $receipt.default_authority -ceq 'LIVE' -or
+             (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $receipt.archive_sha256){
+            throw 'KTERM_PR96_FIRSTUSE_PACKAGE_IDENTITY_REFUSED'
+          }
+          if(-not (Test-Path -LiteralPath (Join-Path $sandbox 'application-launch.ps1') -PathType Leaf) -or
+              (Test-Path -LiteralPath (Join-Path $sandbox 'config.json')) -or
+              (Test-Path -LiteralPath (Join-Path $sandbox 'data'))){
+            throw 'KTERM_PR96_FIRSTUSE_PACKAGE_STATE_REFUSED'
+          }
+          $data=Join-Path $sandbox 'data'
+          [void][IO.Directory]::CreateDirectory($data)
+          # An isolated *smoke-only* preference is required: the real default UI
+          # is LIVE. No real saved profile, credentials, or installed paths exist.
+          $prefs=[ordered]@{schema_version=3;asset='BTC-USDC';mode='PAPER';layout='STACKED'}
+          [IO.File]::WriteAllText((Join-Path $data 'ui-preferences-smoke.json'),
+             ($prefs|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+          $script=Join-Path $sandbox 'application-launch.ps1'
+          $psi=[Diagnostics.ProcessStartInfo]::new()
+          $psi.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $psi.Arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File "'+$script+
+              '" -SmokeTest -SmokeTestDelayMs 500'
+          $psi.WorkingDirectory=$sandbox
+          $psi.UseShellExecute=$false
+          $psi.CreateNoWindow=$true
+          $psi.RedirectStandardOutput=$true
+          $psi.RedirectStandardError=$true
+          $log=Join-Path $root 'firstuse-paper-smoke.private.log'
+          $clock=[Diagnostics.Stopwatch]::StartNew()
+          $proc=$null;$timedOut=$false;$exit=-1
+          try{
+            $proc=[Diagnostics.Process]::Start($psi)
+            if($null-eq$proc){throw 'KTERM_PR96_SMOKE_PROCESS_NOT_STARTED'}
+            $stdout=$proc.StandardOutput.ReadToEndAsync()
+            $stderr=$proc.StandardError.ReadToEndAsync()
+            $timedOut=-not $proc.WaitForExit(30000)
+            if($timedOut){
+              $proc.Kill()
+              [void]$proc.WaitForExit(5000)
+            }else{$exit=$proc.ExitCode}
+            [IO.File]::WriteAllText($log,$stdout.GetAwaiter().GetResult()+
+                $stderr.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
+          }finally{
+            if($null-ne$proc){
+              if(-not $proc.HasExited){$proc.Kill();[void]$proc.WaitForExit(5000)}
+              $proc.Dispose()
+            }
+            $clock.Stop()
+          }
+          if($timedOut){throw 'KTERM_PR96_FIRSTUSE_SMOKE_TIMEOUT_30S'}
+          $digest=(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($exit-ne0){
+            Write-Host ('KTERM_PR96_FIRSTUSE_PRELAUNCH=FAIL;EXIT='+$exit+
+              ';MS='+$clock.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$digest)
+            throw 'KTERM_PR96_FIRSTUSE_PRELAUNCH_PROCESS_FAILED'
+          }
+          $launchPath=Join-Path $data '.application-launch-smoke.json'
+          $strategyPath=Join-Path $data '.strategy-launch-smoke.json'
+          if(-not(Test-Path -LiteralPath $launchPath -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $strategyPath -PathType Leaf)){
+            throw 'KTERM_PR96_FIRSTUSE_PAPER_SESSION_NOT_PUBLISHED'
+          }
+          $sessionData=Get-Content -LiteralPath $launchPath -Raw|ConvertFrom-Json
+          $strategy=Get-Content -LiteralPath $strategyPath -Raw|ConvertFrom-Json
+          if($sessionData.schema_version -ne 2 -or
+             $sessionData.execution_state -cne 'DISARMED' -or
+             $sessionData.mode -cne 'PAPER' -or
+             $sessionData.credential_source -cne 'NONE' -or
+             [bool]$sessionData.native_signals_enabled -or
+             $sessionData.PSObject.Properties['preflight'] -or
+             $strategy.schema_version -ne 1 -or
+             (Test-Path -LiteralPath (Join-Path $sandbox 'config.json')) -or
+             (Test-Path -LiteralPath (Join-Path $data '.application-launch-session.json')) -or
+             (Test-Path -LiteralPath (Join-Path $data '.strategy-launch-session.json'))){
+            throw 'KTERM_PR96_FIRSTUSE_PAPER_SESSION_SAFETY_REFUSED'
+          }
+          if(@(Get-Process -Name 'K-Terminal*' -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTERM_PR96_FIRSTUSE_PROCESS_LEFT_RUNNING_REFUSED'
+          }
+          Write-Host ('KTERM_PR96_FIRSTUSE_PAPER_PRELAUNCH=PASS;EXIT=0;MS='+$clock.ElapsedMilliseconds+
+            ';SOURCE='+$env:KTERM_SHA+';ZIP_SHA256='+$receipt.archive_sha256+
+            ';SMOKE_SESSION=DISARMED_PAPER;CONFIG_CREATED=FALSE;LIVE_ORDERS=0'+
+            ';ENGINE_LAUNCHED=FALSE;DASHBOARD_LAUNCHED=FALSE;REAL_EXE_FIRST_USE=NOT_RUN'+
+            ';CLEAN_EXIT=TRUE;PRIVATE_LOG_SHA256='+$digest)
       - name: Erase only this disposable private source and package stage
         if: always()
         shell: pwsh
