@@ -253,16 +253,20 @@ def verify_sealed_bundle_offline(folder: Path, *, expected_manifest_sha256: str,
              doc["generation_binary_manifest_sha256"],
          "CUSTODY_MANIFEST_DIGEST_OR_SCOPE")
     # Reject unlisted files, junctions and symlinks (including file/dir aliases).
-    discovered = set()
-    for parent, dirs, names in os.walk(folder, followlinks=False):
-        for name in (*dirs, *names):
-            entry = Path(parent) / name
-            need(not entry.is_symlink()
-                 and not getattr(entry, "is_junction", lambda: False)(),
-                 "UNTRUSTED_BUNDLE_LINK")
-            if name in names:
-                need(entry.is_file(), "UNEXPECTED_FILE_TYPE")
-                discovered.add(entry.relative_to(folder).as_posix())
+    def actual_file_set():
+        observed = set()
+        for parent, dirs, names in os.walk(folder, followlinks=False):
+            for name in (*dirs, *names):
+                entry = Path(parent) / name
+                need(not entry.is_symlink()
+                     and not getattr(entry, "is_junction", lambda: False)(),
+                     "UNTRUSTED_BUNDLE_LINK")
+                if name in names:
+                    need(entry.is_file(), "UNEXPECTED_FILE_TYPE")
+                    observed.add(entry.relative_to(folder).as_posix())
+        return observed
+
+    discovered = actual_file_set()
     need(discovered == set(files) | {"manifest.sha256.json"},
          "UNLISTED_OR_MISSING_BUNDLE_FILE")
     for relative, expected in files.items():
@@ -340,7 +344,7 @@ def verify_sealed_bundle_offline(folder: Path, *, expected_manifest_sha256: str,
         _manifest_entry(folder, relative, expected)
     cold._require_standalone_sqlite(backup)
     need(digest(sealed.read_bytes()) == expected_manifest_sha256
-         and set(files) | {"manifest.sha256.json"} == discovered,
+         and actual_file_set() == set(files) | {"manifest.sha256.json"},
          "BUNDLE_CHANGED_DURING_OFFLINE_AUDIT")
     return {
         "schema": "forge.f139.v41.independent-offline-restore-readonly.v1",

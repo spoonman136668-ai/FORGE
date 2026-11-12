@@ -200,7 +200,7 @@ class OfflineColdBundleTests(unittest.TestCase):
         with self.assertRaises(bundle.V41BundleDenied):
             self.offline(receipt, head_seq=receipt["original_head_seq"] + 1)
         with self.assertRaises(bundle.V41BundleDenied):
-            self.offline(receipt, head_sha="0" * 64)
+            self.offline(receipt, head_sha=("f" * 64 if receipt["original_head_sha256"] == "0" * 64 else "0" * 64))
         with self.assertRaises(bundle.V41BundleDenied):
             self.offline(receipt, run_id=self.run_id + 1)
 
@@ -265,6 +265,22 @@ class OfflineColdBundleTests(unittest.TestCase):
             self.skipTest("symlinks unavailable on runner")
         with self.assertRaises(bundle.V41BundleDenied):
             self.offline(receipt)
+
+    def test_late_added_file_during_restore_is_denied(self):
+        receipt = self.attempt()
+        open_original = cold._open_immutable_hashed_backup
+
+        def inject_after_inventory(path):
+            if Path(path).name == "restored.sqlite":
+                (self.folder / "late-inserted.txt").write_bytes(b"unlisted")
+            return open_original(path)
+
+        with patch.object(cold, "_open_immutable_hashed_backup",
+                          side_effect=inject_after_inventory):
+            with self.assertRaisesRegex(bundle.V41BundleDenied,
+                                        "BUNDLE_CHANGED_DURING_OFFLINE_AUDIT"):
+                self.offline(receipt)
+
 
 if __name__ == "__main__":
     unittest.main()
