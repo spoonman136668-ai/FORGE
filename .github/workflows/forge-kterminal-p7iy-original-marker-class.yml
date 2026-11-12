@@ -1,0 +1,103 @@
+name: FORGE K-Terminal P7-I/Y original observer failure classification
+on:
+  push:
+    branches: [qualification/kterminal-p7iy-original-marker-attribution-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-kterminal-p7iy-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  private-original-windows-marker:
+    runs-on: windows-2022
+    timeout-minutes: 34
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '4'
+      GOFLAGS: '-p=1'
+      GOMEMLIMIT: '1536MiB'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Fetch public FORGE qualification source without persisting credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact hosted-only controls and scoped two-file changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kterminal-p7iy-original-marker-attribution-20261019
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 8b7bf1d42cb0b72c74f1221410a648edf8138870 HEAD
+          git diff --name-only 8b7bf1d42cb0b72c74f1221410a648edf8138870 HEAD | sort > "$RUNNER_TEMP/p7iy-actual"
+          printf '%s\n' '.github/workflows/forge-kterminal-p7iy-original-marker-class.yml' 'tools/qualification/kterminal_p7iy_marker_failure_classes.py' | sort > "$RUNNER_TEMP/p7iy-allowed"
+          diff -u "$RUNNER_TEMP/p7iy-allowed" "$RUNNER_TEMP/p7iy-actual"
+          test -z "$(git status --porcelain)"
+          test "$GOMAXPROCS" = 4
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$K_TERMINAL_P5_LATENCY" = 0
+          test "$K_TERMINAL_NATIVE_TIMING" = 0
+          echo P7IY_FORGE_HOSTED_WINDOWS=PASS
+      - name: Read exact K-Terminal original source via FORGE_KTERM_QUAL
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ba11a398586df9fe5233624d9cf115aeec76d11a
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Read prior observer-alone failure proof from original control run
+        uses: actions/download-artifact@v4
+        with:
+          name: forge-kterminal-p7ix-39319456699
+          run-id: 39319456699
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/p7ix-original
+      - name: Read prior paired and later observer-alone failure proof
+        uses: actions/download-artifact@v4
+        with:
+          name: forge-kterminal-p7ix-39319523486
+          run-id: 39319523486
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/p7ix-corrected
+      - name: Install original Go 1.26.5 Windows compiler
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Run two bounded original observer-only trials and classify failure stages
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$(git rev-parse HEAD)" = ba11a398586df9fe5233624d9cf115aeec76d11a
+          test "$(git rev-parse HEAD:pkg/stage3-original-observer-forced-cuts_test.go)" = bee85ee3441b0f66399ab6c42f8b09635ba44c6b
+          test "$(git rev-parse HEAD:pkg/stage3-native-authenticated-sell-post-crash_test.go)" = 8fc5727f722510b2bfff0cfe9d4eb0565c6cb5fc
+          test "$(git rev-parse HEAD:go.mod)" = b3ede0d8444c08b3e7b23f1396374359b54134c6
+          test -z "$(git status --porcelain)"
+          go version | grep 'go1.26.5 windows/amd64' > /dev/null
+          python -B ../tools/qualification/kterminal_p7iy_marker_failure_classes.py
+      - name: Upload sanitized classification only, never private test logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-kterminal-p7iy-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/p7iy-sanitized/receipt.json
+            ${{ runner.temp }}/p7iy-sanitized/receipt.sha256
+          retention-days: 30
+          if-no-files-found: warn
