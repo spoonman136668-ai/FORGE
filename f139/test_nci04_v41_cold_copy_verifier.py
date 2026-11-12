@@ -131,6 +131,39 @@ class OriginalCopyTests(unittest.TestCase):
                                     "COLD_BACKUP_CHANGED_DURING_VERIFICATION"):
             self.attempt(archives=change_backup)
 
+    def test_aba_swap_of_backup_path_cannot_change_hashed_query_snapshot(self):
+        # Reproduce reviewed P2: the external file has stale bytes at both
+        # checks, but is replaced by the correct original during SQL open.
+        # The verifier-owned isolated snapshot MUST remain stale and fail
+        # full logical parity instead of trusting the mutable pathname.
+        with closing(sqlite3.connect(str(self.origin))) as conn:
+            conn.execute("CREATE TABLE original_only_for_aba (value TEXT)")
+            conn.commit()
+        old_bytes = self.backup.read_bytes()
+        current_bytes = self.origin.read_bytes()
+        real_open = v41._open_immutable_hashed_backup
+        seen_private = []
+        def swap_backing_file(private):
+            self.assertNotEqual(private.resolve(), self.backup.resolve())
+            seen_private.append(private)
+            self.backup.write_bytes(current_bytes)
+            try:
+                return real_open(private)
+            finally:
+                self.backup.write_bytes(old_bytes)
+        with patch.object(v41, "_open_immutable_hashed_backup",
+                          side_effect=swap_backing_file):
+            with self.assertRaisesRegex(RecoveryPreflightDenied,
+                                        "COLD_ALL_TABLE_LOGICAL_DRIFT"):
+                self.attempt()
+        self.assertEqual(len(seen_private), 1)
+        self.assertEqual(self.backup.read_bytes(), old_bytes)
+        self.assertFalse(seen_private[0].exists())
+
+    def test_private_snapshot_is_proven_to_match_supplied_backup_hash(self):
+        receipt = self.attempt()
+        self.assertEqual(receipt["verified_isolated_snapshot_sha256"], self.hash())
+
     def test_cold_copy_head_drift_is_not_hidden_by_matching_bytes(self):
         with closing(sqlite3.connect(str(self.backup))) as con:
             con.execute("UPDATE meta SET source_sha=? WHERE id=1", ("3"*40,))
