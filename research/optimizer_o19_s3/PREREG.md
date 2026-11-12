@@ -1,0 +1,21 @@
+# Optimizer O19-S3 — public occupancy-change belief preflight (source-only)
+
+Status: ENGINEERING / SOURCE-ONLY. Original science = NOT STARTED; scientific GO = FALSE.
+
+## Frozen question and source custody
+
+Before any new source execution, test whether a candidate can hold separate slow/fast beliefs about *observed public front-cell occupancy*, promptly update after genuine observed 0→1 and 1→0 changes, and protect against false claims that repeated blockage proves a permanent wall. The target interface is the **existing** Mass K5F public observation, not the full-grid image. Original external MiniGrid source: `Farama-Foundation/Minigrid@7f5853792ea7f04f75614661006d87fcf949f26d`, DynamicObstacles blob `68436cecc35116c23c2f196c22fa3a19c6410b95`; original source-owned Mass K5F head `e5dc5a21c889dd7638cf8678a1b834c4793f7da2`, experiment blob `3cf8b2f67bb471e2139b355e1ff86f57c3b39f08`. K5F CHECK/DEV already consumed. **No original source import, reset, step, action, replay or role regeneration in O19-S3.**
+
+## Public-only input / learning claim
+
+Input is (monotonic integer public tick, public current front-cell coordinate, observed Boolean FrontBlocked), plus optional own chosen action and publicly observed terminal collision after it. No direct access to environment-specific hidden wall/ball class, global grid, RNG, future occupancy or K5F heldout labels. Observed flipping of a *given* front cell proves changing occupancy under the observed trace; lack of flipping does **not** identify a permanent wall. Store two distinct adaptive quantities per cell: slow signed occupancy association, and a faster decaying hazard association; retain timestamps and actual observed transitions. Do not call these learned **physical walls**. An immediate public-front safety veto remains a shared conventional rule and **is not novel**.
+
+## Frozen controls and validations
+
+Candidate: two-timescale online bounded memory with fixed public-only surprise-sensitive updates, no source-known hazard schedule. Equally informed controls: last-observed memory, full-capacity Laplace-empirical occupancy memory, transition-count Markov predictor with Laplace posterior, and constant 1/2 (no learned memory). Score ONLY pre-observation predictions on deterministic, explicitly HANDWRITTEN source-free streams with stable, flipping, irregular and interrupted cell observations. No native superiority may be inferred from this fabricated fixture; retain all control outcomes whether candidate wins or loses. Report mean Brier loss, state/checkpoint bytes and predictor/update work counts. No tuning on scoring stream.
+
+Required engineering tests: public-only input schema/no extra private fields; chronological prediction before update; first-observation uncertainty; occupancy-flip evidence; never classify static hidden geometry from repeated snapshots; monotonic bounded storage; action/consequence guard does not invent source labels; checkpoint cold restore/tamper detection; direct guard parity with conventional; deterministic benchmark; strong baseline eligibility. Fail closed for invalid inputs, duplicated/reversed same-cell ticks or unrecognized events.
+
+## Research advancement rule
+
+This is an *advisory mechanism interface* only. Even positive source-free test results do not satisfy causal learning, unfamiliar physical transfer, or native architectural performance. Original scientific owners must first prospectively freeze independently sourced unfamiliar dynamic **FIT/CHECK/DEV**, and match fully capable conventional Bayesian filtering, fitted recency, dynamic mapping, recurrent/replay and safety-guard controls with identical observations, experience, computation and memory accounting. A candidate must make a new, falsifiable decision improvement beyond K5F's 15/16 guard/control tie, or establish an independently reproducible quality-resource Pareto gain; a tie is scientific NO-GO. Never alter original O18 NO-GO, K5F consumed DEV, FORGE F139, CKB-plane, FSA or protected main. No paid APIs, new controller/queue, automatic protected merge or native Yggdrasil code edits.
