@@ -502,6 +502,18 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'KTERM_GRAPHIFY_PRIVATE_FETCH_UNAVAILABLE'}
           & git -C $stage checkout -q --detach $env:KTERM_SHA *> (Join-Path $root 'git-checkout-private.log')
           if($LASTEXITCODE -ne 0){throw 'KTERM_GRAPHIFY_CHECKOUT_FAILED'}
+          # G35 source-custody comparator uses a historical base 151 commits behind.
+          # Fetch that exact commit/tree only; the 20-deep candidate clone cannot resolve it.
+          $g35Base='b55453ffeefe97ce847940eeb17fa85e0ab395a4'
+          & git -C $stage fetch -q --no-tags --depth=1 https://github.com/Kboomllc/K-Terminal.git $g35Base *> (Join-Path $root 'git-g35-base-private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_G35_BASELINE_PRIVATE_FETCH_FAILED'}
+          $verifiedBase=(& git -C $stage rev-parse FETCH_HEAD | Out-String).Trim()
+          if($verifiedBase -cne $g35Base){throw 'KTERM_G35_BASELINE_SHA_MISMATCH'}
+          foreach($scope in @('pkg','tools/graphify/g27_type_calls.go','tools/graphify/g27_qualify_type_calls.py')){
+            & git -C $stage diff --quiet $g35Base $env:KTERM_SHA -- $scope *> (Join-Path $root 'git-g35-diff-private.log')
+            if($LASTEXITCODE -notin @(0,1)){throw 'KTERM_G35_BASELINE_DIFF_UNAVAILABLE'}
+          }
+          Write-Host 'KTERM_G35_PINNED_BASELINE=PASS;BASE=b55453ffeefe97ce847940eeb17fa85e0ab395a4;SOURCE_COMPARE_AVAILABLE=TRUE;FETCH_DEPTH=1'
           $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
           $tree=(& git -C $stage rev-parse 'HEAD^{tree}' | Out-String).Trim()
           if($sha -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
