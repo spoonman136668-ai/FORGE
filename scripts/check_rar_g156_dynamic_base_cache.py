@@ -10,7 +10,8 @@ from pathlib import Path
 import sys
 
 from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negative_controls,
-    V41_STATUS_BRANCH, V41_STATUS_RESULT, V41_STATUS_BASE)
+    V41_STATUS_BRANCH, V41_STATUS_RESULT, V41_STATUS_BASE,
+    V41_BACKUP_BRANCH, V41_BACKUP_RESULT, V41_BACKUP_BASE)
 from check_rar_g148_go_cache import CAP, ROOT, git, identity, stable, compiled_graph
 
 BRANCH = "engineering/rar-g156-dynamic-main-cache-release-20261108"
@@ -231,6 +232,13 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == V41_BACKUP_BRANCH:
+        # Exact, owner-only PR1734. No generic runner workflow/harness admission.
+        if (admission != V41_BACKUP_RESULT
+                or base != V41_BACKUP_BASE
+                or tree != "1fb6187444af8a979ee00549e9d2115947daff37"):
+            raise ValueError("G156_V41_BACKUP_FROZEN_SCOPE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == V41_STATUS_BRANCH:
         # Exact PR1731 owner-authored, pinned workflow blob permission only.
         # This does not grant cache/test reuse, live owner or release authority.
