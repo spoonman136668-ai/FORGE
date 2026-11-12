@@ -153,7 +153,7 @@ def execute(native_root: Path, scratch: Path, output: Path):
             and not any(output.iterdir()),
             "OUTPUT_NOT_EMPTY_OR_ROOT_MISSING")
     stage = stage_candidate(candidate, root, scratch)
-    report = verify_fixed_commands(candidate, stage)
+    report = verify_fixed_commands(candidate, stage, baseline_checkout=root)
     receipt = receipt_from_report(admission, report)
     body = canonical(receipt)
     report_body = read_only_report_bytes(report)

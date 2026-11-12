@@ -27,7 +27,8 @@ def run_git(root: pathlib.Path, *args: str) -> str:
                           text=True, encoding="utf-8", errors="strict",
                           check=False, timeout=30)
     if proc.returncode:
-        raise GateError("GIT_NOT_QUALIFIED")
+        operation = " ".join(args)
+        raise GateError("GIT_NOT_QUALIFIED:" + operation)
     return proc.stdout
 
 def is_active(path: str) -> bool:
