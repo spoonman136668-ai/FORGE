@@ -32,3 +32,17 @@ Absolute per-fixture wall time on GitHub-hosted Linux for **the entire multi-mod
 ## Engineering disposition
 
 Temporary `.github/workflows/qualify.yml` job is removed in final source-only restore to original Git blob `8b6710df902710d088fe9658da718d22244e5151`. Mandatory **final exact-SHA original Linux/Windows full 8/8 regression** must be independently observed; it is not proven by the temporary-job execution. Keep PR draft/unmerged, no new controller/runner, owner, release, scheduler, paid API, project-lane changes, model promotion, scientific original execution or deployment.
+
+---
+
+## P1 third-mode fail-closed correction — independently validated after initial scored fixture
+
+A distinct **safety/negative-control flaw was found after the four original synthetic fixture results**, not concealed or reclassified. Before correction, when a genuinely **third** effect regime made both retained banks wrong, the algorithm could pick the alternative merely because it was *less wrong*. This violated the prospective requirement to preserve old banks and abstain under uncertain third-state evidence. The original 4-noise results above remain the immutable first fixture scores.
+
+The scoped correction adds a second gate to alternative-bank recall: its absolute observed-consequence error must be **less than the existing 0.9 threshold**, not merely at least 0.9 better than the current bank. This introduces **no retuning of the original success thresholds, no changed original fixture/noise values, no novel original data, no F57 seed consumption, and no new controller or FSA permit**. New adversarial test: after authentic source-free A/B learning, an unlabeled third consequence C(+3,−3) for two action pairs leaves both old bank checkpoints byte-unchanged, keeps active B, marks exactly four observed events `unresolved`, preserves all observed history and allows exact SHA-bound cold restoration. No third-world science claim.
+
+**Final scoped source:** `research/itd02_two_bank_reversal_dev.py` Git blob `f231b57237f1276a02d7ca239e3887fea53c4bea`; focused tests Git blob `da3d008ee0ab170a3fd1e85471d7cdd4d5c6ea89`. Actual two-OS focused temporary-job execution: [run #43279464074](https://github.com/spoonman136668-ai/FORGE/actions/runs/43279464074), Linux job `131396564711` **7/7 PASS**, Windows job `131396565212` **7/7 PASS**, including third-mode negative, no FSA use. Crucially, all previously reported 4 fixture payoffs and 48-event cold continuations **remained exactly the same** on both operating systems. The temporary whole workflow is expected to have unrelated G145 altered-harness-scope failures; its aggregate success is **NOT** claimed.
+
+Original byte-exact workflow restoration is mandatory and performed in the separate final commit. Qualification on that separate final exact source **must be verified again** with original native full Linux/Windows regression; the previous [8/8 PASS #43278829023](https://github.com/spoonman136668-ai/FORGE/actions/runs/43278829023) belongs to the prior pre-correction SHA `7028842d6f278665685e3ae845e743a9cbf70abf` and cannot substitute for final post-correction qualification.
+
+**Final scientific classification unchanged:** two-bank candidate tied the strong Bayesian comparator at 72/72 on deliberately simple familiar synthetic effect-reversal grammar. No independent scientific gain, novel-family transfer, intervention-selected physical consequence, cognitive generality, RSI or deployment.
