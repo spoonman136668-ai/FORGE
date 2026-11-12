@@ -1,0 +1,42 @@
+name: FORGE F74 existing D1 recovery and genuine owner readiness read-only
+on:
+  push:
+    branches:
+      - research/forge-f74-time-travel-science-readiness-20261016-r1
+permissions:
+  contents: read
+jobs:
+  existing-d1-no-write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify pinned source and read only existing D1 database listing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$CF_TOKEN" && test -n "$CF_ACCOUNT"
+          [[ "$CF_ACCOUNT" =~ ^[0-9a-f]{32}$ ]]
+          status="$(curl --silent --show-error --max-time 25 -o "$RUNNER_TEMP/f74.json" -w '%{http_code}' -H "Authorization: Bearer $CF_TOKEN" -H 'Accept: application/json' "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/d1/database?per_page=100")"
+          if [ "$status" != 200 ]; then echo "F74_D1_READONLY_HTTP=$status"; exit 1; fi
+          python3 -B - "$RUNNER_TEMP/f74.json" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf8") as f:v=json.load(f)
+          assert isinstance(v,dict) and v.get("success") is True
+          assert isinstance(v.get("result"),list)
+          n=len(v["result"])
+          assert n>0
+          print("F74_EXISTING_D1_READONLY=PASS")
+          print("F74_D1_DATABASE_COUNT_BOUNDED="+str(n))
+          print("F74_D1_TIME_TRAVEL_RESTORE=NOT_TESTED")
+          print("F74_INDEPENDENT_SCIENCE_OWNER=NOT_PROVEN")
+          print("F74_SCIENTIFIC_FIRST_USE=DENIED")
+          PY
+          echo F74_D1_DATABASE_WRITES=ZERO
+          echo F74_RESEARCH_DISPATCH=ZERO
