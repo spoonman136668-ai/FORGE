@@ -63,15 +63,28 @@ class PendingCustodyTests(unittest.TestCase):
             with closing(Database.open_readonly(self.path)) as db:
                 previous = db.meta().copy()
                 changes = db.conn.total_changes
-                if patch_history is None:
-                    result = v41.inspect_never_admitted(db, self.api())
-                else:
-                    with patch.object(v41, "native_events", return_value=patch_history):
+                # Disposable fixture has no spent original history. The live
+                # source path uses the UNMOCKED event and task floors.
+                with patch.multiple(v41, MIN_ORIGINAL_HEAD=0,
+                                    MIN_VERIFIED=0, MIN_QUARANTINED=0):
+                    if patch_history is None:
                         result = v41.inspect_never_admitted(db, self.api())
+                    else:
+                        with patch.object(v41, "native_events", return_value=patch_history):
+                            result = v41.inspect_never_admitted(db, self.api())
                 self.assertEqual(db.meta(), previous)
                 self.assertEqual(db.conn.total_changes, changes)
                 self.assertEqual(db.conn.execute("PRAGMA query_only").fetchone()[0], 1)
         return result
+
+    def test_newly_initialized_source_spoof_is_not_genuine_original(self):
+        # Even a matching source string and SQLite quick_check are insufficient
+        # without the independently observed original history high-water.
+        with SingleOwner(self.path.with_suffix(".lock")):
+            with closing(Database.open_readonly(self.path)) as db:
+                with self.assertRaisesRegex(v41.V41PendingDenied,
+                                            "ORIGINAL_SOURCE_OR_IDLE_DRIFT"):
+                    v41.inspect_never_admitted(db, self.api())
 
     def test_original_pending_identity_freezes_without_dispatch_or_mutation(self):
         receipt = self.frozen()
@@ -227,6 +240,9 @@ class PendingCustodyTests(unittest.TestCase):
             ("scientific_first_use", True),
             ("issue_body_sha256", "0"*64),
             ("semantic_identity_sha256", "0"*64),
+            ("original_head_seq", "0"),
+            ("original_head_sha256", "x"*64),
+            ("extra_key", True),
         ):
             modified = {**frozen, key:val}
             with self.subTest(key=key):
