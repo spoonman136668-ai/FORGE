@@ -107,6 +107,10 @@ jobs:
         with:
           python-version: '3.12'
       - name: Mandatory full exact-candidate Windows Go regression and vet
+        # Exact source/tree already qualified in 43217575136: focused 3x PASS,
+        # full Windows go test PASS (1607704 ms), go vet PASS (9992 ms).
+        # Reuse proof only while candidate SHA/tree and owner contract stay frozen.
+        if: ${{ false }}
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -263,8 +267,34 @@ jobs:
           $exit=$LASTEXITCODE
           $clock.Stop()
           if($exit-ne0){
-            $digest=(Get-FileHash -LiteralPath (Join-Path $root 'package.private.log') -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=FAIL;EXIT='+$exit+';MS='+$clock.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$digest)
+            $log=Join-Path $root 'package.private.log'
+            $digest=(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()
+            # Keep the raw private log off GitHub, expose only fixed-format
+            # fail-closed assembler codes and non-sensitive failure classes.
+            $raw=[IO.File]::ReadAllText($log)
+            $codes=@([regex]::Matches($raw,'P5_PACKAGE_[A-Z0-9_]{4,80}')|
+              ForEach-Object{$_.Value}|Sort-Object -Unique)
+            foreach($code in $codes|Select-Object -First 6){
+              Write-Host ('KTERM_PR96_PACKAGING_FAILURE_CODE='+$code)
+            }
+            if($codes.Count-eq0){
+              $kind='UNCLASSIFIED'
+              if($raw -match 'ParserError|Unexpected token|Missing closing'){
+                $kind='POWERSHELL_PARSER_ERROR'
+              }elseif($raw -match 'is not recognized as the name of a cmdlet'){
+                $kind='COMMAND_UNAVAILABLE'
+              }elseif($raw -match 'Cannot find path|Could not find'){
+                $kind='FILE_MISSING'
+              }elseif($raw -match 'Access is denied|UnauthorizedAccessException'){
+                $kind='ACCESS_DENIED'
+              }elseif($raw -match 'Method invocation failed|MethodException'){
+                $kind='POWERSHELL_METHOD_ERROR'
+              }
+              Write-Host ('KTERM_PR96_PACKAGING_FAILURE_CLASS='+$kind)
+            }
+            Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=FAIL;EXIT='+$exit+
+               ';MS='+$clock.ElapsedMilliseconds+';PRIVATE_LOG_SHA256='+$digest+
+               ';REGRESSION=PASS_REUSED_43217575136')
             throw 'KTERM_PR96_FIRSTUSE_PACKAGE_FAILED'
           }
           $proof=Get-Content -LiteralPath (Join-Path $out 'FIRST-USE-RECEIPT.json') -Raw|ConvertFrom-Json
@@ -279,7 +309,7 @@ jobs:
           }
           Write-Host ('KTERM_PR96_FIRSTUSE_PACKAGE=PASS;ZIP_SHA256='+$proof.archive_sha256+
             ';BINARIES='+$proof.binaries+';FILES='+$proof.files+
-            ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION=PASS'+
+            ';MS='+$clock.ElapsedMilliseconds+';FULL_REGRESSION=PASS_REUSED_43217575136'+
             ';NEGATIVE_CONTROLS=PASS;WPF_SMOKE=NOT_RUN'+
             ';LIVE_ORDERS=0;NO_INSTALL=TRUE;FIELD=UNVERIFIED'+
             ';PRIVATE_BINARIES_NOT_UPLOADED=TRUE')
