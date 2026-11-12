@@ -75,7 +75,7 @@ class F58ActionConditionedRuleTests(unittest.TestCase):
         x=f58.design(phi,actions,"factorized-torque")
         w=f58.ridge_fit(x,y)
         self.assertEqual(w.shape,(30,2))
-        self.assertGreater(np.linalg.norm(w[15:]),.1)
+        self.assertGreater(np.linalg.norm(w[15:]),.09)  # ridge shrinks the true .1 torque coefficient
         self.assertLess(float(np.mean((x@w-y)**2)),1e-5)
         self.assertEqual(f58.f51.digest(w.tolist()),
                          f58.f51.digest(f58.ridge_fit(x,y).tolist()))
