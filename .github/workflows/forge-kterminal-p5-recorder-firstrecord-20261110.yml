@@ -14,9 +14,9 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 40199f51b25598668392a39c8d754a50a12fea9f
+      KTERM_SHA: d253b257fac5c508f2a333828497f3c0f0c9eb51
       KTERM_BASE: cea643af9d5abf3b18e45c5f33cae01694677cc2
-      KTERM_TREE: 1cf51826e4b563fb887cb6257c430a4fc528b38c
+      KTERM_TREE: a9d7934a24bf7dd1bbbde3e9ed980e23f1bc313b
       KTERM_REISSUE_ONLY: 'false'
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
@@ -94,15 +94,16 @@ jobs:
             'desktop-session.ps1'='d1f263aaba3894bd54d6368b3d60354a0dd6e4fa'
             'ui-runtime-loader.ps1'='e4565b2e1db5bc132bb57e3f5b5cd7cab420041e'
             'verification/test-launch-lifecycle.ps1'='55aa0fd96b1a0b5a7d8ee1bb05ef78d9cac21294'
+            'pkg/stage3-report-full-root-v2_test.go'='4c9ad176d434e59553b066df5c4b48d92cd7a2b2'
           }
           foreach($p in $blobs.Keys){
             $actual=(& git -C $src rev-parse ('HEAD:'+$p) | Out-String).Trim()
             if($actual -cne $blobs[$p]){throw 'KTERM_PR96_QUALIFIER_BLOB_DRIFT'}
           }
           $changed=@(& git -C $src diff --name-only $env:KTERM_BASE $env:KTERM_SHA)
-          if($LASTEXITCODE-ne0 -or $changed.Count-ne14 -or
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne15 -or
              @($changed|Where-Object{$_ -cnotin @($blobs.Keys)}).Count-ne0){
-            throw 'KTERM_PR96_FOURTEEN_FILE_SCOPE_DRIFT'
+            throw 'KTERM_PR96_FIFTEEN_FILE_SCOPE_DRIFT'
           }
           foreach($private in @('config.json','data','reporting','logs','notifications','.env')){
             if(Test-Path -LiteralPath (Join-Path $src $private)){throw 'KTERM_PR96_PRIVATE_STATE_REFUSED'}
@@ -782,7 +783,7 @@ jobs:
              $proof.original_desktop_smoke -cne 'NOT_RUN' -or
              $proof.field_performance -cne 'UNVERIFIED' -or
              $proof.binaries -ne 8 -or $proof.files -ne 71 -or
-             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-40199f51b255.zip'){
+             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-d253b257fac5.zip'){
             throw 'KTERM_FIRSTUSE_REISSUE_RECEIPT_INVALID'
           }
           $zip=Join-Path $out $proof.archive
@@ -806,9 +807,9 @@ jobs:
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: K-Terminal-Disarmed-FirstUse-40199f51b255-${{ github.run_id }}
+          name: K-Terminal-Disarmed-FirstUse-d253b257fac5-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-40199f51b255.zip
+            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-d253b257fac5.zip
             ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/FIRST-USE-RECEIPT.json
           if-no-files-found: error
           retention-days: 14
