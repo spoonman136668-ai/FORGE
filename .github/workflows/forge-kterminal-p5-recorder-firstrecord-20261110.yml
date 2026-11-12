@@ -266,6 +266,24 @@ jobs:
             $present=$null-ne(Get-Command $name -CommandType Application -ErrorAction SilentlyContinue)
             Write-Host ('KTERM_PR96_PACKAGE_TOOL_PRESENT_'+$name.ToUpperInvariant()+'='+$present)
           }
+          # Verify the same tools resolve inside the Windows PowerShell 5.1 child.
+          # This is GET-only and prints only booleans.
+          $probe=Join-Path $root 'winps-command-probe.private.log'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command @'
+foreach($name in @('git.exe','go.exe','python.exe','powershell.exe')){
+  Write-Output ($name+':'+[bool](Get-Command $name -CommandType Application -ErrorAction SilentlyContinue))
+}
+'@ *> $probe
+          $probeSuccess=$LASTEXITCODE-eq0
+          Write-Host ('KTERM_PR96_WINDOWS_POWERSHELL_TOOL_PROBE=EXIT_'+$LASTEXITCODE)
+          if($probeSuccess){
+            $safe=@([IO.File]::ReadAllLines($probe))
+            foreach($row in $safe){
+              if($row -match '^(git|go|python|powershell)\.exe:(True|False)$'){
+                Write-Host ('KTERM_PR96_WINPS_'+$Matches[1].ToUpperInvariant()+'='+$Matches[2])
+              }
+            }
+          }
           $clock=[Diagnostics.Stopwatch]::StartNew()
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File $script -ExpectedSourceSha $env:KTERM_SHA -ExpectedTreeSha $env:KTERM_TREE -SourceRoot $src -OutputDirectory $out *> (Join-Path $root 'package.private.log')
           $exit=$LASTEXITCODE
@@ -289,8 +307,17 @@ jobs:
               $term=[regex]::Match($raw,"The term '([^'\r\n]{1,80})' is not recognized")
               if($term.Success -and $term.Groups[1].Value -cin $allowed){
                 Write-Host ('KTERM_PR96_UNAVAILABLE_COMMAND='+$term.Groups[1].Value)
+              }elseif($term.Success){
+                $name=$term.Groups[1].Value
+                if($name -cmatch '^[A-Za-z][A-Za-z0-9._-]{0,48}$' -and
+                   $name -cnotmatch '(?i)api|key|secret|token|pass|auth|coinbase|private|account|wallet'){
+                  Write-Host ('KTERM_PR96_UNKNOWN_IDENTIFIER='+$name)
+                }else{
+                  Write-Host ('KTERM_PR96_UNKNOWN_IDENTIFIER_SHA256='+
+                    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($name))).ToLowerInvariant())
+                }
               }else{
-                Write-Host 'KTERM_PR96_UNAVAILABLE_COMMAND=UNCLASSIFIED'
+                Write-Host 'KTERM_PR96_UNAVAILABLE_COMMAND=NO_LITERAL_IDENTIFIER'
               }
               $line=[regex]::Match($raw,'p5_assemble_source_bound_firstuse\.ps1:(\d{1,3})')
               if($line.Success){
