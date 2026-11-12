@@ -43,11 +43,19 @@ def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
     origin = Path(original.filename)
     backup = Path(backup)
     canonical_backup = origin.parent / ("f139-v41-before-" + str(run_id)) / "state.sqlite"
+    # Database.open_readonly resolves the original path. Windows temp roots
+    # can have different but equivalent lexical spellings; compare resolved
+    # identity, while still requiring the exact run folder/name and refusing
+    # filesystem links/junctions before reading any backup bytes.
     need(origin.is_absolute() and origin.is_file() and not origin.is_symlink()
-         and backup.is_absolute() and backup == canonical_backup
+         and backup.is_absolute() and backup.name == "state.sqlite"
+         and backup.parent.name == "f139-v41-before-" + str(run_id)
+         and backup.parent.parent.resolve() == origin.parent.resolve()
+         and backup.resolve() == canonical_backup.resolve()
          and backup.resolve() != origin.resolve()
          and backup.is_file() and not backup.is_symlink()
          and backup.parent.is_dir() and not backup.parent.is_symlink()
+         and not getattr(backup.parent, "is_junction", lambda: False)()
          and not origin.parent.is_symlink()
          and 0 < backup.stat().st_size <= MAX_BACKUP_BYTES,
          "CANONICAL_COLD_BACKUP_REQUIRED")
