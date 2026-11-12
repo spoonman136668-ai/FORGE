@@ -1,0 +1,68 @@
+name: FORGE research G57 authentic from-scratch LM training cost
+on:
+  push:
+    branches: [research/llm-g57-training-cost-20261030]
+    paths:
+      - 'research/llm_g57/**'
+      - '.github/workflows/forge-llm-g57-traincost.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-llm-g57-readonly
+  cancel-in-progress: false
+jobs:
+  g57-traincost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install frozen CPU training dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1+cpu'
+          python -m pip freeze > g57_pip_freeze.txt
+      - name: Verify frozen prereg exists and source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -s docs/research/ACC-G57-PREREG-20261030.md
+          python -m py_compile research/llm_g57/g57_train.py research/llm_g57/test_g57.py
+          python -m unittest discover -s research/llm_g57 -p test_g57.py -v
+          echo G57_PREREG_SOURCE_TESTS=PASS
+      - name: Train authentic Tiny Shakespeare corpus across 3x4 preregistered arms
+        shell: bash
+        env:
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          set -euo pipefail
+          python -u research/llm_g57/g57_train.py
+          python - <<'PY'
+          import json
+          r=json.load(open("g57_result.json"))
+          assert r["dataset_sha256"]=="86c4e6aa9db7c042ec79f339dcb96d42b0075e16b8fc2e86bf0ca57e2dc565ed"
+          assert len(r["results"])==12 and len(r["paired"])==3
+          assert {x["arm"] for x in r["results"]}=={"baseline","layerdrop","progressive","combined"}
+          assert {x["seed"] for x in r["results"]}=={1901,1903,1907}
+          assert r["scientific_acceptance"]=="NOT_GRANTED"
+          assert r["general_acceleration_proven"] is False
+          print("G57_AUTHENTIC_COMPLETE_12_OF_12=PASS")
+          print("G57_QUALIFIED="+json.dumps(r["qualified"],sort_keys=True))
+          PY
+      - name: Upload immutable raw training outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g57-tinyshakespeare-3seed-4arm
+          if-no-files-found: warn
+          path: |
+            g57_result.json
+            g57_pip_freeze.txt
+          retention-days: 30
