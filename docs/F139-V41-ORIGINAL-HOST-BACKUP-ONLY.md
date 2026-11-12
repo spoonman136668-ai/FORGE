@@ -33,3 +33,10 @@ The pre-existing G145/G148/G156 original Go regression guards now bind
 this one owner-authored PR #1734, its exact base, protected original
 workflow before/after blobs, seven-file source scope and negative controls.
 No generic workflow changes or cache/harness bypass are permitted.
+
+The maintenance entrypoint additionally denies staging unless this exact
+PR #1734 is protected-merged and both first-attempt protected-main CI
+families (full Linux/Windows regression and F73 cryptographic origin) have
+succeeded on that same immutable main SHA. Actions permission is read-only.
+It rechecks those identities after staging. CI receipts are never owner or
+scientific authority.

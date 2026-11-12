@@ -85,6 +85,53 @@ class OwnerBackupGateTests(unittest.TestCase):
                                     "OWNER_COMMENT_READBACK_DRIFT"):
             self.attempt(reader=drift)
 
+
+    def test_unmerged_or_incomplete_postmerge_ci_denied(self):
+        def remote(route):
+            if route.endswith("/pulls/1734"):
+                return {"number": 1734, "merged": True, "merge_commit_sha": SHA,
+                        "user": {"login": gate.OWNER},
+                        "base": {"ref": "main"}, "head": {"sha": "a" * 40}}
+            if "/actions/runs?" in route:
+                return {"workflow_runs": [
+                    {"name": name, "head_sha": SHA, "event": "push",
+                     "head_branch": "main", "status": "completed",
+                     "conclusion": "success", "run_attempt": 1,
+                     "actor": {"login": gate.OWNER}}
+                    for name in (
+                        "FORGE public Linux and Windows qualification",
+                        "FORGE F73 protected-main cryptographic origin (no science permission)")
+                ]}
+            raise AssertionError("unexpected read")
+        self.assertTrue(gate.verify_qualified_main(remote, SHA))
+
+        def wrong(route):
+            obj = remote(route)
+            if "/pulls/" in route:
+                obj["merged"] = False
+            return obj
+        with self.assertRaisesRegex(gate.OwnerBackupDenied,
+                                    "EXACT_PROTECTED_MERGED_PR_REQUIRED"):
+            gate.verify_qualified_main(wrong, SHA)
+
+        def failed(route):
+            obj = remote(route)
+            if "/actions/runs?" in route:
+                obj["workflow_runs"][0]["conclusion"] = "failure"
+            return obj
+        with self.assertRaisesRegex(gate.OwnerBackupDenied,
+                                    "QUALIFIED_POSTMERGE_RUN_REQUIRED"):
+            gate.verify_qualified_main(failed, SHA)
+
+        def duplicate(route):
+            obj = remote(route)
+            if "/actions/runs?" in route:
+                obj["workflow_runs"].append(dict(obj["workflow_runs"][0]))
+            return obj
+        with self.assertRaisesRegex(gate.OwnerBackupDenied,
+                                    "QUALIFIED_POSTMERGE_RUN_REQUIRED"):
+            gate.verify_qualified_main(duplicate, SHA)
+
     def test_existing_workflow_quiescence_and_no_task_mutation(self):
         file = (Path(__file__).resolve().parents[1] /
                 ".github/workflows/f139-g54-v9-owner-cutover.yml")

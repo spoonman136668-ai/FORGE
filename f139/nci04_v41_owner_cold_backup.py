@@ -67,6 +67,48 @@ def verify_owner_event(env, event, get, *, target):
     return int(env["GITHUB_RUN_ID"])
 
 
+def verify_qualified_main(get, target):
+    """Require already successful signed-main source and original full CI.
+
+    Exact owner-bound PR #1734, first-attempt protected push checks, and
+    current main identity. This is read-only evidence, never maintenance
+    permission or source-transition approval.
+    """
+    need(callable(get) and type(target) is str and SHA.fullmatch(target),
+         "QUALIFICATION_ARGUMENTS")
+    pr = get("repos/" + REPO + "/pulls/1734")
+    need(type(pr) is dict and pr.get("number") == 1734
+         and pr.get("merged") is True and pr.get("merge_commit_sha") == target
+         and pr.get("user", {}).get("login") == OWNER
+         and pr.get("base", {}).get("ref") == "main"
+         and type(pr.get("head", {}).get("sha")) is str
+         and SHA.fullmatch(pr["head"]["sha"]),
+         "EXACT_PROTECTED_MERGED_PR_REQUIRED")
+    report = get("repos/" + REPO + "/actions/runs?head_sha=" +
+                 target + "&event=push&branch=main&per_page=30")
+    need(type(report) is dict
+         and type(report.get("workflow_runs")) is list
+         and len(report["workflow_runs"]) <= 30,
+         "POSTMERGE_RUN_CATALOG_INVALID")
+    wanted = (
+        "FORGE public Linux and Windows qualification",
+        "FORGE F73 protected-main cryptographic origin (no science permission)",
+    )
+    for name in wanted:
+        selected = [row for row in report["workflow_runs"]
+                    if type(row) is dict and row.get("name") == name
+                    and row.get("head_sha") == target
+                    and row.get("event") == "push"
+                    and row.get("head_branch") == "main"]
+        need(len(selected) == 1
+             and selected[0].get("status") == "completed"
+             and selected[0].get("conclusion") == "success"
+             and selected[0].get("run_attempt") == 1
+             and selected[0].get("actor", {}).get("login") == OWNER,
+             "QUALIFIED_POSTMERGE_RUN_REQUIRED")
+    return True
+
+
 def backup_only(path, env, event, api, *, target):
     """Runs only after existing G54 workflow proves task disabled and SID."""
     need(type(api) is GitHub and type(path) is Path and path.is_absolute()
@@ -78,6 +120,7 @@ def backup_only(path, env, event, api, *, target):
              (Path(env["LOCALAPPDATA"]) / "FORGE-F139" / "state.sqlite").resolve(),
          "ORIGINAL_PROFILE_SCOPE")
     run_id = verify_owner_event(env, event, api.native_repo_get, target=target)
+    verify_qualified_main(api.native_repo_get, target)
     with SingleOwner(path.with_suffix(".lock")):
         with closing(Database.open_readonly(path)) as db:
             original = db.meta().copy()
@@ -103,6 +146,7 @@ def backup_only(path, env, event, api, *, target):
                  and db.meta() == original and db.conn.total_changes == changes == 0,
                  "RESTORE_OR_ORIGINAL_DRIFT")
     verify_owner_event(env, event, api.native_repo_get, target=target)
+    verify_qualified_main(api.native_repo_get, target)
     need(api.protected_main() == target, "MAIN_MOVED")
     policy = api.native_repo_get("repos/" + REPO + "/issues/807")
     try:
