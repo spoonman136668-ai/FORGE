@@ -57,3 +57,26 @@ WAL-only table, empty sidecars and main-file alteration after reads.
 No source-transition, backup creation, live owner action or science is
 authorized by this change. Cold-restore still needs original Windows
 acceptance and independently signed owner approval.
+
+## P1 follow-up — immutable main-file verification
+
+The initial strict-sidecar patch at `5c66a3b9...` exposed a valid
+SQLite behavior: opening a **standalone** WAL-mode main file with the ordinary
+`mode=ro` helper may create a `-shm` sidecar even if no WAL contents were
+present at the initial checksum. Its original Linux regression failed
+(3 errors/failures in new backup fixture checks), correctly retaining
+`ENGINEERING=FAIL` for that SHA. This is not a release candidate.
+
+The successor uses `mode=ro&immutable=1` ONLY for the already-frozen backup,
+with query-only mode and the original cold-chain `Database.verify` checks.
+That connection never consults or generates WAL/SHM sidecar state, while
+the verifier still rejects any pre-existing/new sidecars and rehashes the
+main file after parity checks. The **live original** continues using the
+existing canonical `Database.open_readonly` under the real kernel mutex;
+its behavior and safety are unchanged.
+
+Fixture coverage now also proves a valid standalone WAL-format main file
+can be audited without sidecar creation, while an actual uncheckpointed
+committed-WAL-only table is rejected. The resulting candidate must pass
+all original Linux and Windows regression gates at its exact SHA before
+source acceptance.

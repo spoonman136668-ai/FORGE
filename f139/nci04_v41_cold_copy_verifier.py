@@ -10,6 +10,7 @@ from contextlib import closing
 import hashlib
 from pathlib import Path
 import re
+import sqlite3
 
 from f139.local_controller import Database, SingleOwner
 from f139.nci04_native_contract import canonical, digest
@@ -42,6 +43,33 @@ def _hash_standalone_sqlite(backup: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             value.update(chunk)
     return value.hexdigest()
+
+
+def _open_immutable_hashed_backup(backup: Path) -> Database:
+    """Open ONLY main-file bytes; never create or read WAL/SHM sidecars.
+
+    The original Database.open_readonly uses mode=ro, which on WAL-format
+    standalone SQLite may create a -shm sidecar. immutable=1 guarantees the
+    audited cold copy is exactly the independently SHA-256-hashed main file.
+    This is for an ALREADY frozen backup, never for the live original owner.
+    """
+    path = backup.resolve()
+    conn = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1",
+                           uri=True, isolation_level=None, timeout=10)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA query_only=ON")
+        conn.execute("PRAGMA busy_timeout=10000")
+        need(conn.execute("PRAGMA query_only").fetchone()[0] == 1,
+             "IMMUTABLE_BACKUP_NOT_QUERY_ONLY")
+        db = object.__new__(Database)
+        db.filename = path
+        db.conn = conn
+        db._readonly_opened = True
+        return db
+    except BaseException:
+        conn.close()
+        raise
 
 
 def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
@@ -98,7 +126,7 @@ def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
     _require_standalone_sqlite(backup)
     need(_hash_standalone_sqlite(backup) == expected_backup_sha256,
          "ORIGINAL_BACKUP_BYTES_DRIFT")
-    with closing(Database.open_readonly(backup)) as cold:
+    with closing(_open_immutable_hashed_backup(backup)) as cold:
         need(getattr(cold, "_readonly_opened", False) is True
              and cold.conn.execute("PRAGMA query_only").fetchone()[0] == 1,
              "COLD_QUERY_ONLY_REQUIRED")

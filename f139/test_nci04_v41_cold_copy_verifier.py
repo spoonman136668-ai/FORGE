@@ -73,6 +73,9 @@ class OriginalCopyTests(unittest.TestCase):
         self.assertEqual(proof["schema"],
                          "forge.f139.v41.original-owner-cold-copy-readonly.v1")
         self.assertEqual(proof["backup_sha256"], self.hash())
+        # Reading a valid WAL-format standalone DB must not generate SHM/WAL.
+        for suffix in ("-wal", "-shm", "-journal"):
+            self.assertFalse(Path(str(self.backup) + suffix).exists())
         self.assertEqual(proof["preserved_quarantined_tasks"], 56)
         self.assertFalse(proof["source_transition_authorized"])
         self.assertFalse(proof["scientific_first_use"])
