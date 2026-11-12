@@ -1,0 +1,60 @@
+name: ITD-01 external transfer-evidence contract cross-OS qualification
+on:
+  push:
+    branches: [research/itd01-shared-development-evidence-20261022]
+permissions:
+  contents: read
+jobs:
+  shared-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact candidate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo ITD01_EXACT_SOURCE=PASS
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Focused cross-lane evidence and adversarial boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest itd01.test_evidence -v
+          echo ITD01_FOCUSED_EVIDENCE=PASS
+      - name: One final full regression (F139 Python and all FORGE Go)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          echo ITD01_FINAL_FULL_REGRESSION=PASS
+      - name: Build and authority audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m compileall -q itd01
+          go build ./...
+          echo ITD01_BUILD=PASS
+          echo ITD01_NEW_CONTROLLER=FALSE
+          echo ITD01_NEW_DISPATCH=FALSE
+          echo ITD01_NO_SCIENTIFIC_FIRST_USE=PASS
+          echo ITD01_NO_PAID_API=PASS
