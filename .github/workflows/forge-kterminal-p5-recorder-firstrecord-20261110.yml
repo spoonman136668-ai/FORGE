@@ -295,8 +295,13 @@ jobs:
           if($parseExit-ne0 -or $valid -cnotcontains 'PASS'){
             throw 'KTERM_PR96_ASSEMBLER_PARSER_REFUSED'
           }
+          $env:KTERM_PR96_PACKAGE_SOURCE=$src
+          $env:KTERM_PR96_PACKAGE_OUT=$out
+          # Catch exact-source failures inside the same Windows PowerShell 5.1
+          # process and print only its intrinsic exception class and line number.
+          $cmd='$ErrorActionPreference="Stop";try{& $env:KTERM_PR96_SCRIPT_PATH -ExpectedSourceSha $env:KTERM_SHA -ExpectedTreeSha $env:KTERM_TREE -SourceRoot $env:KTERM_PR96_PACKAGE_SOURCE -OutputDirectory $env:KTERM_PR96_PACKAGE_OUT}catch{Write-Output ("KTERM_PR96_PRIVATE_EXCEPTION_TYPE="+$_.Exception.GetType().Name);Write-Output ("KTERM_PR96_PRIVATE_EXCEPTION_LINE="+$_.InvocationInfo.ScriptLineNumber);exit 1}'
           $clock=[Diagnostics.Stopwatch]::StartNew()
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File $script -ExpectedSourceSha $env:KTERM_SHA -ExpectedTreeSha $env:KTERM_TREE -SourceRoot $src -OutputDirectory $out *> (Join-Path $root 'package.private.log')
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -Command $cmd *> (Join-Path $root 'package.private.log')
           $exit=$LASTEXITCODE
           $clock.Stop()
           if($exit-ne0){
@@ -305,6 +310,13 @@ jobs:
             # Keep the raw private log off GitHub, expose only fixed-format
             # fail-closed assembler codes and non-sensitive failure classes.
             $raw=[IO.File]::ReadAllText($log)
+            foreach($line in [IO.File]::ReadLines($log)){
+              if($line -match '^KTERM_PR96_PRIVATE_EXCEPTION_TYPE=([A-Za-z]{2,50}(Exception|Error))$'){
+                Write-Host ('KTERM_PR96_EXCEPTION_TYPE='+$Matches[1])
+              }elseif($line -match '^KTERM_PR96_PRIVATE_EXCEPTION_LINE=([0-9]{1,3})$'){
+                Write-Host ('KTERM_PR96_EXCEPTION_LINE='+$Matches[1])
+              }
+            }
             $codes=@([regex]::Matches($raw,'P5_PACKAGE_[A-Z0-9_]{4,80}')|
               ForEach-Object{$_.Value}|Sort-Object -Unique)
             foreach($code in $codes|Select-Object -First 6){
