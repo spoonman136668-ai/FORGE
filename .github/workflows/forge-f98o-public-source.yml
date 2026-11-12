@@ -1,0 +1,102 @@
+name: FORGE F98-O external public KGQA corpus source qualification
+on:
+  push:
+    branches: [engineering/f98o-public-external-source-audit-20261016-r1]
+    paths:
+      - 'noveltyeval/f98o_*'
+      - 'noveltyeval/test_f98o_*'
+      - '.github/workflows/forge-f98o-public-source.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'noveltyeval/f98o_*'
+      - 'noveltyeval/test_f98o_*'
+      - '.github/workflows/forge-f98o-public-source.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f98o-public-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  authenticate-independent-public-dataset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: public-metaqa
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify public source commit and all three original file blob IDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C public-metaqa rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/2-hop/qa_test.txt)" = 'c60e27a75140cfc2792469181caca05b79b017ad'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/3-hop/qa_test.txt)" = '09756f302c4100897c64144e7af8c73763cee4a2'
+          echo 'F98O_EXISTING_PUBLIC_EXTERNAL_GIT_SOURCE_AUTHENTIC=PASS'
+      - name: Verify bounded complete external test corpus and honest F95 incompatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s noveltyeval -p 'test_f98o_*.py' -v
+          python3 -B noveltyeval/f98o_public_corpus_audit.py             --upstream public-metaqa --output "$RUNNER_TEMP/f98o-source.json"
+          python3 - "$RUNNER_TEMP/f98o-source.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert r["schema"]=="forge.optimizer.f98o.external-preexisting-public-corpus-source-audit.v1"
+          assert r["source_commit"]=="826ee617e4da5b087584b0e03c70fe76642c6188"
+          assert r["real_git_object_readback_performed"] is True
+          assert r["two_hop_denominator"]==14872
+          assert r["three_hop_denominator"]==14274
+          assert r["source_triple_denominator"]>128
+          assert r["f95_current_128_relation_limit_blocks_full_kb"] is True
+          assert r["question_to_roles_frozen_adapter_exists"] is False
+          for field in ("all_external_test_items_runnable_without_label_based_selection",
+             "f95_test_accuracy_computed","independent_blinded_holdout_verified",
+             "independent_pre_outcome_witness_verified","authentic_scientific_original_firstuse",
+             "causal_scientific_superiority_established","dream_pareto_promotion_authorized",
+             "thetaevolve_accepted_training_allowed","science_dispatch_authorized",
+             "accepted_ref_mutation","independent_science_custody_verified"):
+            assert r[field] is False,field
+          print("F98O_REAL_PUBLIC_2HOP_TEST_ROWS=14872")
+          print("F98O_REAL_PUBLIC_3HOP_TEST_ROWS=14274")
+          print("F98O_REAL_SCIENTIFIC_EVALUATION=ZERO")
+          print("F98O_F95_SCHEMA_ADAPTER_NEEDED=TRUE")
+          PY
+          (cd "$RUNNER_TEMP"; sha256sum f98o-source.json > f98o-source.sha256; sha256sum -c f98o-source.sha256)
+      - name: Source-only optimizer compatibility tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./noveltyeval ./noveltymechanisms ./optimizerstages ./promptlineage ./genenv ./dreamrsi ./evoportfolio ./thetaadapt
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F98O_NEW_SCIENTIFIC_ORIGINALS=ZERO'
+          echo 'F98O_CKB_ACCESS=ZERO'
+          echo 'F98O_CLOUDFLARE_WRITES=ZERO'
+          echo 'F98O_CODEX_CALLS=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f98o-real-external-public-source-only
+          path: |
+            ${{ runner.temp }}/f98o-source.json
+            ${{ runner.temp }}/f98o-source.sha256
+          retention-days: 45
+          if-no-files-found: error
