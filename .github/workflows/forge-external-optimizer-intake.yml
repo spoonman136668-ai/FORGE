@@ -1,0 +1,99 @@
+name: FORGE F42-F47 real GitHub external research optimizer intake (advisory only)
+on:
+  push:
+    branches:
+      - research/optimizer-f42-f45-external-intake-20261015-r1
+      - research/optimizer-f46-f47-evidence-delta-20261015-r1
+  pull_request:
+    paths:
+      - 'optimizerbridge/external_training*'
+      - 'cmd/forge-optimizer-external-intake/**'
+      - 'research/optimizer-external/**'
+      - 'scripts/verify_external_optimizer_github.py'
+      - '.github/workflows/forge-external-optimizer-intake.yml'
+permissions:
+  contents: read
+jobs:
+  pin-verify-ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOFLAGS: -p=2
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1536MiB
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Pin exact upstream bridge and source-index file identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor b904a2d39783c413aafe148d6803eb6f815e3f52 HEAD
+          test "$(git hash-object research/optimizer-external/f42-f45-observations.json)" = 69c1be19418f7fa8508f2b18b0694fd36aed78c5
+          test "$(git hash-object optimizerbridge/external_training.go)" = b26c5ca45190904efe9b3c4084ef80d9eba1555d
+          test "$(git hash-object scripts/verify_external_optimizer_github.py)" = 737e4e9b9ead0cc986d4e6723df439c277cb194b
+          python3 -m json.tool research/optimizer-external/f42-f45-observations.json >/dev/null
+          python3 -m py_compile scripts/verify_external_optimizer_github.py
+      - name: Focused train-only intake and fail-closed tampering qualifications
+        run: go test -count=1 ./optimizerbridge ./cmd/forge-optimizer-external-intake
+      - name: Verify eight original Github Actions runs and archive metadata (GET only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_external_optimizer_github.py research/optimizer-external/f42-f45-observations.json
+      - name: Generate bounded read-only dual-lane optimizer advisory evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/forge-optimizer-external-intake             --manifest "$GITHUB_WORKSPACE/research/optimizer-external/f42-f45-observations.json"             > /tmp/forge-external-F42-F47-advisory.json
+          python3 - <<'PY'
+          import json
+          report=json.load(open('/tmp/forge-external-F42-F47-advisory.json'))
+          assert report['schema']=='forge.optimizer.external-training-advisory.v1'
+          assert report['wingless_count']==6 and report['yggdrasil_count']==6
+          assert report['negative_gate_count']==12 and report['positive_accuracy_signal_count']==4
+          assert len(report['observations'])==12
+          for field in ('signed_policy_history_available','dream_rsi_prospective_use_qualified',
+            'pareto_promotion_authorized','theta_accepted_outcome_update_allowed',
+            'prompt_genenv_live_dispatch_authorized','scientific_improvement_established',
+            'scientific_accepted','first_use_consumed','dispatch_authorized',
+            'accepted_ref_mutation','experiment_result_bytes_independently_verified',
+            'source_run_artifact_metadata_rechecked'):
+            assert report[field] is False, field
+          print("FORGE_EXTERNAL_TRAIN_ONLY_ADVISORY_READY=TRUE")
+          print("FORGE_EXTERNAL_NEGATIVE_GATES_PRESERVED=12")
+          print("FORGE_EXTERNAL_PARTIAL_SIGNALS_PRESERVED=4")
+          print("FORGE_DREAM_RSI_RANDOMIZED_OWNER_EVIDENCE=NOT_QUALIFIED")
+          PY
+          sha256sum /tmp/forge-external-F42-F47-advisory.json             > /tmp/forge-external-F42-F47-advisory.sha256
+          git rev-parse HEAD > /tmp/forge-external-F42-F47-source-head.txt
+      - name: One full FORGE Go regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FORGE-F42-F47-twelve-genuine-training-observations-advisory
+          path: |
+            /tmp/forge-external-F42-F47-advisory.json
+            /tmp/forge-external-F42-F47-advisory.sha256
+            /tmp/forge-external-F42-F47-source-head.txt
+          retention-days: 90
+          if-no-files-found: error
+      - name: No science permission or additional infrastructure
+        run: |
+          echo 'EXTERNAL_RESEARCH_HISTORY=AVAILABLE_TO_OPTIMIZERBRIDGE_OBSERVATIONAL_INTAKE'
+          echo 'SCIENTIFIC_ORIGINALS_EXECUTED=0'
+          echo 'RANDOMIZED_DREAM_POLICY_ASSIGNMENTS=NONE_IN_F42_F45'
+          echo 'CLOUDFLARE_REQUESTS_OR_WRITES=0'
+          echo 'CONTROLLERS_OR_ACCEPTED_REFS_MUTATED=FALSE'
