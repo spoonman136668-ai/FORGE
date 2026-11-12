@@ -16,8 +16,9 @@ from f139.nci04_native_contract import canonical, digest
 from f139.nci04_v38_original_owner_transition_cli import rollback_view
 from f139.nci04_v32_original_owner_transition_cli import (
     copy_provider_archives, copy_generation_executable)
-from f139.nci04_v41_recovery_preflight import (
-    RecoveryPreflightDenied, FROM, inspect_original, need)
+from f139.nci04_v41_catalog_recovery_preflight import (
+    V41ReadOnlyDenied as RecoveryPreflightDenied,
+    OWNER_SOURCE as FROM, original_ledger_preflight, source_preflight, need)
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 MAX_BACKUP_BYTES = 1_000_000_000
@@ -60,14 +61,19 @@ def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
          and 0 < backup.stat().st_size <= MAX_BACKUP_BYTES,
          "CANONICAL_COLD_BACKUP_REQUIRED")
     before_changes = original.conn.total_changes
-    historical = inspect_original(original, get, target=target)
+    historical = original_ledger_preflight(original)
+    remote = source_preflight(get, target)
     before = original.meta()
-    need(historical["installed_source_sha"] == FROM
-         and historical["head_seq"] == before["head_seq"]
-         and historical["head_sha256"] == before["head_hash"]
-         and historical["protected_target_sha"] == target
+    need(historical["source_sha"] == FROM
+         and historical["original_head_seq"] == before["head_seq"]
+         and historical["original_head_sha256"] == before["head_hash"]
          and historical["source_transition_authorized"] is False
-         and historical["scientific_first_use"] is False,
+         and historical["scientific_first_use"] is False
+         and remote["original_source_sha"] == FROM
+         and remote["target_source_sha"] == target
+         and remote["unique_eligible_issues"] == 200
+         and remote["source_transition_authorized"] is False
+         and remote["scientific_first_use"] is False,
          "ORIGINAL_PREFLIGHT_NOT_AUTHENTIC")
     sha = hashlib.sha256()
     with backup.open("rb") as data:
@@ -104,8 +110,8 @@ def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
         "logical_all_tables_sha256": digest(canonical(original_view)),
         "provider_archives_manifest_sha256": digest(canonical(archives)),
         "generation_binary_manifest_sha256": digest(canonical(generation)),
-        "preserved_verified_tasks": historical["terminal_verified"],
-        "preserved_quarantined_tasks": historical["terminal_quarantined"],
+        "preserved_verified_tasks": historical["verified_historical_tasks"],
+        "preserved_quarantined_tasks": historical["quarantined_historical_tasks"],
         "original_owner_mutations": 0,
         "source_transition_authorized": False,
         "new_dispatches": 0,

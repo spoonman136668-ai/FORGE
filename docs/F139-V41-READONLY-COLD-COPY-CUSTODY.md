@@ -23,10 +23,14 @@ run identity, altered source metadata, symlink, absent original mutex, writeable
 original handle, and lost provider/generator custody. These tests are NOT
 original-Windows acceptance.
 
-IMPORTANT: PR #1723 independently implements overlapping original-source
-and exact-200 catalog preflights; PR #1724 independently qualifies unadmitted
-Yggdrasil #1715. Do not declare either merged/admitted or duplicate its
-remote issue. Existing nci04_v32_original_owner_transition_cli explicitly
+INTEGRATION: this candidate incorporates the exact source-transition/schema,
+original-source/200-item catalog preflight from PR #1723 and the read-only
+unadmitted Yggdrasil #1715 custody/comparator from PR #1724 at their
+pinned qualified heads. The only canonical source preflight in this tree is
+f139/nci04_v41_catalog_recovery_preflight.py; the older overlapping
+nci04_v41_recovery_preflight.py and its tests are deleted. Do not declare
+either source PR merged, admit/reissue the pending issue or mutate its remote
+identity. Existing nci04_v32_original_owner_transition_cli explicitly
 rejects unadmitted native issues, so an operator cannot yet cut over safely.
 The V40 release approval is frozen to the wrong predecessor 42c70d74 and
 cannot authorize V41. A separate owner-approved, source-qualified transition

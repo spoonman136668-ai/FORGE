@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 from f139.local_controller import Database, SingleOwner
 from f139 import nci04_v41_cold_copy_verifier as v41
-from f139.nci04_v41_recovery_preflight import FROM, RecoveryPreflightDenied
+from f139.nci04_v41_catalog_recovery_preflight import (
+    OWNER_SOURCE as FROM, V41ReadOnlyDenied as RecoveryPreflightDenied)
 
 TARGET = "7fb1bb9e0fe9439a6a7da8b66c6b0ef7acdc7595"
 
@@ -35,9 +36,11 @@ class OriginalCopyTests(unittest.TestCase):
     def proof(self, original):
         meta = original.meta()
         return {
-            "installed_source_sha": FROM, "protected_target_sha": TARGET,
-            "head_seq": meta["head_seq"], "head_sha256": meta["head_hash"],
-            "terminal_verified": 153, "terminal_quarantined": 56,
+            "source_sha": FROM,
+            "original_head_seq": meta["head_seq"],
+            "original_head_sha256": meta["head_hash"],
+            "verified_historical_tasks": 153,
+            "quarantined_historical_tasks": 56,
             "source_transition_authorized": False, "scientific_first_use": False,
         }
 
@@ -46,9 +49,15 @@ class OriginalCopyTests(unittest.TestCase):
         with SingleOwner(self.origin.with_suffix(".lock")):
             with closing(Database.open_readonly(self.origin)) as db:
                 with patch.object(v41.SingleOwner, "held", return_value=locked), \
-                     patch.object(v41, "inspect_original",
-                                  side_effect=(fake if fake is not None else
-                                               (lambda db, get, *, target: self.proof(db)))), \
+                     patch.object(v41, "original_ledger_preflight",
+                                  side_effect=(fake if fake is not None else self.proof)), \
+                     patch.object(v41, "source_preflight",
+                                  side_effect=lambda get, target: {
+                                      "original_source_sha": FROM,
+                                      "target_source_sha": TARGET,
+                                      "unique_eligible_issues": 200,
+                                      "source_transition_authorized": False,
+                                      "scientific_first_use": False}), \
                      patch.object(v41, "copy_provider_archives",
                                   side_effect=archives or (lambda *a, **k: {"provider": "1"*64})), \
                      patch.object(v41, "copy_generation_executable",
@@ -121,14 +130,14 @@ class OriginalCopyTests(unittest.TestCase):
             self.attempt(archives=missing)
 
     def test_preflight_must_pin_exact_original_head_and_never_authorize(self):
-        def incorrect(db, get, target):
+        def incorrect(db):
             state = self.proof(db)
             state["source_transition_authorized"] = True
             return state
         with self.assertRaisesRegex(RecoveryPreflightDenied,
                                     "ORIGINAL_PREFLIGHT_NOT_AUTHENTIC"):
             self.attempt(fake=incorrect)
-        def wrong(db, get, target):
+        def wrong(db):
             state = self.proof(db)
             state["head_seq"] += 1
             return state
