@@ -1,0 +1,156 @@
+name: Optimizer L8 E2E fallback attribution and no-fallback audit
+
+on:
+  push:
+    branches: [research/optimizer-language-l8-attribution-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l8-attribution.yml'
+      - 'research/optimizer_language_l8/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-language-l8-frozen-fallback
+  cancel-in-progress: false
+
+jobs:
+  native-attribution:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      L8_RAW_CORPUS_DIRECTORY: ${{ github.workspace }}/../l8-original-E2E
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Enforce frozen protocol, byte-identical original L7 learner, current main and nine additive source files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $protected='9047b840b1e33f15a8a9da9670a8ca0bcf7169d7'
+          $base=(& git merge-base $protected HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $base -cne $protected) {
+            throw 'L8_EXISTING_NATIVE_AND_FORGE_CONTROLLER_ANCESTRY_DRIFT'
+          }
+          $allowed=@(
+            '.github/workflows/optimizer-language-l8-attribution.yml',
+            'research/optimizer_language_l8/L8_FROZEN_PROTOCOL.json',
+            'research/optimizer_language_l8/l7_source_original.py',
+            'research/optimizer_language_l8/l7_models_original.py',
+            'research/optimizer_language_l8/source.py',
+            'research/optimizer_language_l8/models.py',
+            'research/optimizer_language_l8/runner.py',
+            'research/optimizer_language_l8/test_attribution.py',
+            'research/optimizer_language_l8/compare.py'
+          )
+          $actual=@(& git diff --name-only $protected HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $allowed.Count -or
+              (Compare-Object $actual $allowed)) {
+            throw 'L8_UNAUTHORIZED_NONADDITIVE_NATIVE_RESEARCH_CHANGE'
+          }
+          $blobs=@{
+            'research/optimizer_language_l8/L8_FROZEN_PROTOCOL.json'='ac9a7232f925c55257e2c37f0d8e0176f705b665'
+            'research/optimizer_language_l8/l7_source_original.py'='c1ed4175fd123ed45389de78893c6546869a5502'
+            'research/optimizer_language_l8/l7_models_original.py'='d44fb74066639bbb64c05802014c28883e0882a3'
+          }
+          foreach ($path in $blobs.Keys) {
+            $treeBlob=(& git rev-parse ('HEAD:'+$path)).Trim()
+            $diskBlob=(& git hash-object --no-filters -- $path).Trim()
+            if ($LASTEXITCODE -ne 0 -or $treeBlob -cne $blobs[$path] -or
+                $diskBlob -cne $blobs[$path]) {
+              throw ('L8_FROZEN_PROTOCOL_OR_UNMODIFIED_L7_BASELINE_DRIFT_'+$path)
+            }
+          }
+          Write-Host 'L8_ORIGINAL_L7_SCIENCE_PROTOCOL_BASELINE_AND_PROTECTED_MAIN=PASS'
+      - name: Acquire two original E2E Git files into external workspace only and verify raw Git blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -c "import sys;sys.path.insert(0,'research/optimizer_language_l8');from source import acquire;print('L8_ORIGINAL_E2E_TRAIN_DEV_RAW_SHA256='+str(acquire(sys.argv[1])))" $env:L8_RAW_CORPUS_DIRECTORY
+          if ($LASTEXITCODE -ne 0) { throw 'L8_PINNED_ORIGINAL_EXTERNAL_E2E_SOURCE_FAIL' }
+      - name: Fifteen prospective source-spent-DEV-exclusion, baseline parity and abstention tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/optimizer_language_l8 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'L8_PRIOR_L7_NO_REUSE_OR_ROUTE_ATTRIBUTION_FAILURE' }
+          Write-Host 'L8_FOCUSED_SOURCE_AND_FALLBACK_TESTS=PASS'
+      - name: Exact baseline and learned-only attribution over NEW E2E public MR roles
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $result=Join-Path $env:RUNNER_TEMP 'l8-native-fallback-attribution.json'
+          python -B research/optimizer_language_l8/runner.py $env:L8_RAW_CORPUS_DIRECTORY | Tee-Object -FilePath $result
+          if ($LASTEXITCODE -ne 0) { throw 'L8_FROZEN_PUBLIC_MEANING_FALLBACK_AUDIT_FAIL' }
+          Write-Host 'L8_FIVE_REALIZER_ROUTES_THREE_SOURCE_ROLES=EMITTED'
+          Write-Host 'L8_OLD_L7_PUBLIC_DEV_AND_OFFICIAL_E2E_TEST_USED=ZERO'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l8-native-audit-${{ matrix.os }}
+          path: ${{ runner.temp }}/l8-native-fallback-attribution.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: One unchanged final FORGE Go test vet build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo L8_FINAL_GO_REGRESSION=PASS
+      - name: Verify pinned E2E raw files outside checkout and no native/controller/queue mutation
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'L8_SOURCE_OR_ORCHESTRATION_MUTATION' }
+          Write-Host 'L8_Q21_NCI_ITD_BIO_NATIVE_OPTIMIZER_FORGE_ALL_UNCHANGED=PASS'
+
+  independent-cross-native-audit:
+    needs: native-attribution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l8-native-audit-ubuntu-24.04
+          path: native/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l8-native-audit-windows-2022
+          path: native/windows
+      - name: Exact source identities, all 15 generated routes, learned fallback abstention and quality numeric receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_language_l8/compare.py \
+            native/linux/l8-native-fallback-attribution.json \
+            native/windows/l8-native-fallback-attribution.json \
+            native/l8-independent-fallback-reconciliation.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l8-fresh-e2e-fallback-attribution-reconciliation
+          path: native/l8-independent-fallback-reconciliation.json
+          if-no-files-found: error
+          retention-days: 30
