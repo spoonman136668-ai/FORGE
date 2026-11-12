@@ -1,0 +1,92 @@
+{
+  "schema": "forge.optimizer.language.l9.transformer-encoder-reuse-synthetic-diagnostic-v1",
+  "status": "SYNTHETIC_ONLY_PROSPECTIVE_OPTIMIZATION_NOT_QUALIFIED_FOR_SELECT",
+  "created_utc": "2026-10-24",
+  "study": "Check whether computing frozen Transformer encoder memory once per graph leaves generated token IDs invariant relative to frozen nn.Transformer.forward called every greedy decoding step.",
+  "model_suite_git_blob": "710ce648a30ffc55647f689c5f4aa3ac13b07066",
+  "training_artifacts": {
+    "seed1701": {
+      "id": 12540689608,
+      "zip_sha256": "17a90a22f1659a572f6987b73ff7e36bdf92d9f14b87a839f5d50a0cadc3adbc"
+    },
+    "seed1702": {
+      "id": 12540798385,
+      "zip_sha256": "24bb0277b30fc90d69372ab25542379897a4c543a8b0010a2c9d8230972b733d"
+    }
+  },
+  "implementation_description": "Independent diagnostic reconstruction of frozen 424387-parameter architecture. Original: at each output step, recompute full src+tgt transformer. Probe: compute frozen net.transformer.encoder(net._embed(src)) once, then use net.transformer.decoder(net._embed(tgt), memory) and the same output head with the same masks and greedy argmax. Frozen model suite file NOT altered.",
+  "environment": {
+    "pytorch": "2.10.0+cpu",
+    "cpu_threads": 2,
+    "hardware": "Local diagnostic CPU, not matched to GitHub hosted runner",
+    "dropout_eval_mode": true,
+    "inference_mode": true
+  },
+  "synthetic_short_horizon": {
+    "input_families": 3,
+    "model_seeds": [
+      1701,
+      1702
+    ],
+    "checkpoint_epochs": [
+      4,
+      8,
+      12
+    ],
+    "total_cases": 18,
+    "max_steps": 64,
+    "all_generated_token_id_sequences_exact_equal": true,
+    "observed_baseline_wall_s_range_approx": [
+      0.136,
+      0.454
+    ],
+    "observed_encoder_reuse_wall_s_range_approx": [
+      0.088,
+      0.113
+    ],
+    "notes": "Per-synthetic-case timing includes variable warmup and source lengths; not host-equivalent production benchmarks."
+  },
+  "synthetic_full_horizon": {
+    "forced_steps": 513,
+    "input": "Two invented JSON triples, no real WebNLG data",
+    "checkpoint_epoch": 12,
+    "cases": [
+      {
+        "seed": 1701,
+        "baseline_seconds": 2.805,
+        "encoder_reuse_seconds": 2.071,
+        "full_token_sequence_sha256": "4e63e2c089e1bb1cc0b395f9207e7590cb39c000974a4402656d22a620f86f1b"
+      },
+      {
+        "seed": 1702,
+        "baseline_seconds": 2.658,
+        "encoder_reuse_seconds": 2.075,
+        "full_token_sequence_sha256": "c04e52442594f15b32b51df54297c30f3beb1a041223a8d63b6fe4c64f1a6a2e"
+      }
+    ],
+    "all_513_generated_token_ids_identical": true,
+    "forced_decode_ignores_eos_to_test_full_horizon": true
+  },
+  "scientific_custody": {
+    "source_release_sha": "a7ea49b5ffa5011edf81e8530c59b3552a965023",
+    "role_identity_sha256": "b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726",
+    "webnlg_train_select_audit_references_used_in_diagnostic": false,
+    "official_test_used": false,
+    "weights_changed": false,
+    "checkpoint_replaced": false,
+    "frozen_model_implementation_changed": false,
+    "original_transformer_select_runs_changed": false
+  },
+  "qualification_required_before_use": [
+    "Original hosted Transformer SELECT runs must first reach terminal success or bounded failure; do not preempt.",
+    "Validate on pinned training PyTorch 2.5.1+cpu and hosted Linux+Windows before treating an optimized decoder as compatible.",
+    "Prospectively freeze versioned evaluator source/receipt and verify deterministic byte-for-byte output equivalence on synthetic and allowed development fixtures, with exact model/role hashes.",
+    "Retain all original failure and resource evidence; do not change training hyperparameters, seed grid, frozen epoch grid, source roles, scoring, or official TEST prohibition.",
+    "Only then permit a new bounded evaluator revision. No final four-case seal or audit without qualified receipts."
+  ],
+  "scientific_go": false,
+  "active_unchanged_runs": [
+    "https://github.com/spoonman136668-ai/FORGE/actions/runs/40045716995",
+    "https://github.com/spoonman136668-ai/FORGE/actions/runs/40046319723"
+  ]
+}

@@ -1,0 +1,125 @@
+name: L9 Transformer encoder-reuse synthetic prefit
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-encoder-reuse-prefit.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-encoder-reuse-prefit-frozen-triple-20261024
+  cancel-in-progress: false
+jobs:
+  synthetic-equivalence:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            seed: 1701
+            artifact_id: 12540689608
+            zip_sha256: 17a90a22f1659a572f6987b73ff7e36bdf92d9f14b87a839f5d50a0cadc3adbc
+          - os: ubuntu-24.04
+            seed: 1702
+            artifact_id: 12540798385
+            zip_sha256: 24bb0277b30fc90d69372ab25542379897a4c543a8b0010a2c9d8230972b733d
+          - os: windows-2025
+            seed: 1701
+            artifact_id: 12540689608
+            zip_sha256: 17a90a22f1659a572f6987b73ff7e36bdf92d9f14b87a839f5d50a0cadc3adbc
+          - os: windows-2025
+            seed: 1702
+            artifact_id: 12540798385
+            zip_sha256: 24bb0277b30fc90d69372ab25542379897a4c543a8b0010a2c9d8230972b733d
+    runs-on: '${{ matrix.os }}'
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: '${{ github.token }}'
+      L9_SEED: '${{ matrix.seed }}'
+      L9_TRAIN_ARTIFACT: '${{ matrix.artifact_id }}'
+      L9_TRAIN_ZIP_SHA: '${{ matrix.zip_sha256 }}'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Verify synthetic-only prefit source and frozen model boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '551205b94fcabbc814c4538ec7e1f31567a545ae'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-encoder-reuse-prefit.yml'
+          p='research/optimizer_language_l9'
+          test "$(git rev-parse HEAD:$p/l9_encoder_reuse_prefit.py)" = '73836d7fa8dbd141fb535212e5322240072c018d'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/l9_neural_select_only.py)" = '91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e'
+          test "$(git rev-parse HEAD:$p/L9_MODEL_CONTRACT.json)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
+          test "$(git rev-parse HEAD:$p/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          python -m py_compile "$p/l9_encoder_reuse_prefit.py"
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_SYNTHEX_SOURCE_IDENTITY=PASS
+      - name: Install exact CPU torch runtime used for frozen training
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -c 'import torch;assert torch.__version__.split("+")[0]=="2.5.1"' >/dev/null 2>&1; then
+            python -m pip install --disable-pip-version-check --no-cache-dir \
+              --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1'
+          fi
+          python - <<'PY'
+          import torch
+          assert torch.__version__.split('+')[0]=='2.5.1'
+          assert not torch.cuda.is_available()
+          torch.set_num_threads(2)
+          print('L9_SYNTHEX_TORCH='+torch.__version__)
+          PY
+      - name: Download original frozen Transformer training artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest="$RUNNER_TEMP/l9-transformer-original.zip"
+          curl -fLSs --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/$L9_TRAIN_ARTIFACT/zip" \
+            -o "$dest"
+          python - "$dest" "$L9_TRAIN_ZIP_SHA" <<'PY'
+          import hashlib,sys
+          a=open(sys.argv[1],'rb').read()
+          assert hashlib.sha256(a).hexdigest()==sys.argv[2],"L9_SOURCE_ARCHIVE_DRIFT"
+          print("L9_SYNTHEX_TRAIN_ARCHIVE_SHA256=PASS")
+          PY
+      - name: Compare frozen outputs against encoder-reuse prefit with synthetic data only
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/l9-encoder-reuse-synthetic-$L9_SEED.json"
+          python research/optimizer_language_l9/l9_encoder_reuse_prefit.py \
+            --artifact-zip "$RUNNER_TEMP/l9-transformer-original.zip" \
+            --seed "$L9_SEED" --out "$out"
+          python - "$out" "$L9_SEED" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding='utf-8'));seed=int(sys.argv[2])
+          assert r['schema']=='forge.optimizer.language.l9.encoder-reuse-synthetic-prefit-v1'
+          assert r['seed']==seed and len(r['cases'])==9
+          assert {x['epoch'] for x in r['cases']}=={4,8,12}
+          assert all(x['exact_token_equivalence'] for x in r['cases'])
+          assert r['long_case']['forced_steps']==513 and r['long_case']['token_equivalence']
+          assert r['no_webnlg_records_loaded'] and not r['audit_reference_consumed']
+          assert not r['official_test_consumed'] and not r['scientific_go']
+          assert r['not_qualified_for_frozen_select_substitution']
+          print("L9_SYNTHEX_9_SHORT_AND_513_STEP_LONG=PASS")
+          print("L9_SYNTHEX_NOT_QUALIFIED_FOR_SELECT=TRUE")
+          PY
+      - name: Store synthetic numerical diagnostic, never model or corpus
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l9-syn-${{ matrix.os }}-${{ matrix.seed }}'
+          path: '${{ runner.temp }}/l9-encoder-reuse-synthetic-${{ matrix.seed }}.json'
+          if-no-files-found: error
+          retention-days: 30

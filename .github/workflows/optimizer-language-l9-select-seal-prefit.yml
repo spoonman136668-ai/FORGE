@@ -1,0 +1,43 @@
+name: L9 complete SELECT decision seal prefit
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-select-seal-prefit.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l9-select-seal-prefit
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Source and controls (zero model fits)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'a811b2c8e07a85328b3a0bda4c4de52b475e91f2'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-select-seal-prefit.yml'
+          p='research/optimizer_language_l9'
+          test "$(git rev-parse HEAD:$p/l9_seal_select.py)" = 'af06d6671954b9e8c5cf23c720e5efa89d919528'
+          test "$(git rev-parse HEAD:$p/test_l9_seal_select.py)" = 'f3922f500d92f219f08dd13cd481149d1287b4e9'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/L9_MODEL_CONTRACT.json)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
+          python -m py_compile "$p/l9_seal_select.py" "$p/test_l9_seal_select.py"
+          (cd "$p" && python -m unittest -v test_l9_seal_select.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_SELECT_SEAL_FOCUSED=PASS
+          echo L9_SELECT_SEAL_FULL_FOUR_CASES_REQUIRED=TRUE
+          echo L9_AUDIT_DEV_REFERENCE_CONSUMPTION=FALSE
+          echo L9_OFFICIAL_TEST_CONSUMED=FALSE
