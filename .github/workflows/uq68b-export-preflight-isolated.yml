@@ -1,0 +1,91 @@
+name: UQ68B original export digest preflight isolated qualification
+on:
+  push:
+    branches:
+      - qualification/uq68b-export-preflight-runner
+permissions:
+  contents: read
+concurrency:
+  group: uq68b-export-preflight-test-only
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Qualify source-pinned Mind-Palace export witness preflight without admission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Assert([bool]$ok,[string]$why){if(-not $ok){throw ('UQ68B_RUNNER_STOP_'+$why)}}
+          Assert ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $mpRepo='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $mpBranch='qualification/uq68b-export-witness-readonly'
+          $base='7ae81a209fa77e5381a669eb3cc0d736ef60ecd9'
+          $head='00bfe2845a68da2217590db1f95ed30da5ebecc4'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq68b-preflight-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'mind'
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          Assert (-not (Test-Path $scratch)) 'SCRATCH_ALREADY_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            $remoteHead=@(& git.exe ls-remote --exit-code $mpRepo ('refs/heads/'+$mpBranch))
+            $remoteMain=@(& git.exe ls-remote --exit-code $mpRepo refs/heads/main)
+            Assert ($LASTEXITCODE -eq 0 -and $remoteHead.Count -eq 1 -and ([string]$remoteHead[0] -split '\s+')[0] -ceq $head) 'EXACT_QUALIFICATION_BRANCH_DRIFT'
+            Assert ($remoteMain.Count -eq 1 -and ([string]$remoteMain[0] -split '\s+')[0] -ceq $base) 'FROZEN_MAIN_DRIFT'
+            & git.exe clone --quiet --depth 4 --single-branch --branch $mpBranch $mpRepo $root
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILURE'
+            Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $head) 'SOURCE_HEAD_MISMATCH'
+            $toolBlob=(& git.exe -C $root rev-parse 'HEAD:tools/chat-export-origin-preflight.ps1' | Out-String).Trim()
+            $testBlob=(& git.exe -C $root rev-parse 'HEAD:tests/Test-UQ68BExportOriginPreflight.ps1' | Out-String).Trim()
+            Assert ($toolBlob -ceq 'ff9b63fdcb033935356b7ee747d386891877ccda' -and $testBlob -ceq '299a0c8f3e6fc809e8f5c4e45d92e3f16dd8d063') 'EXACT_BLOB_MISMATCH'
+            $names=@(& git.exe -C $root diff --name-only ($base+'..'+$head))
+            $allowed=@('tests/Test-UQ68BExportOriginPreflight.ps1','tools/chat-export-origin-preflight.ps1')
+            Assert ($LASTEXITCODE -eq 0 -and $names.Count -eq 2 -and
+                    $names[0] -ceq $allowed[0] -and $names[1] -ceq $allowed[1]) 'OUT_OF_SCOPE_DELTA'
+            Write-Host 'UQ68B_SOURCE_EXACT_BASE_HEAD_AND_TWO_FILE_DELTA=PASS'
+            $before=@{}
+            foreach($p in $protected){
+              $full=Join-Path $root $p
+              Assert (Test-Path $full -PathType Leaf) ('MISSING_PROTECTED_'+$p)
+              $before[$p]=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $queuePath=Join-Path $root 'policies/guarded-chat-source-queue.json'
+            $queueBefore=(Get-FileHash -LiteralPath $queuePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $queue=[IO.File]::ReadAllText($queuePath) | ConvertFrom-Json
+            Assert (@($queue.sources).Count -eq 0 -and -not [bool]$queue.allow_unbounded_discovery -and -not [bool]$queue.allow_production_memory_writes) 'SOURCE_QUEUE_AUTHORITY_DRIFT'
+            $records=[IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json
+            $ledger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            Assert (@($records).Count -eq 263 -and @($ledger.entries).Count -eq 104) 'FROZEN_RECORD_LEDGER_COUNT_DRIFT'
+            $test=Join-Path $root 'tests/Test-UQ68BExportOriginPreflight.ps1'
+            $out5=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $out5.Contains('UQ68B_TAMPER_DUPLICATE_MISSING_ID_AND_SIZE_REJECTION=PASS') -and $out5.Contains('UQ68B_TEST_SCRATCH_CLEAN=PASS')) 'WINDOWS_PS51_REGRESSION'
+            Write-Host 'UQ68B_WINDOWS_POWERSHELL_51_FOCUSED_TEST=PASS'
+            $out7=(& pwsh.exe -NoProfile -NonInteractive -File $test | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $out7.Contains('UQ68B_TAMPER_DUPLICATE_MISSING_ID_AND_SIZE_REJECTION=PASS') -and $out7.Contains('UQ68B_TEST_SCRATCH_CLEAN=PASS')) 'POWERSHELL_7_REGRESSION'
+            Write-Host 'UQ68B_POWERSHELL_7_FOCUSED_TEST=PASS'
+            $existing=Join-Path $root 'tests/Test-ChatDownloadArchiveRunner.ps1'
+            $existingOut=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $existing | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $existingOut.Contains('Chat download archive runner regression passed')) 'EXISTING_EXPORT_PARSER_REGRESSION'
+            Write-Host 'UQ68B_EXISTING_EXPORT_PARSER_FOCUSED_REGRESSION=PASS'
+            foreach($p in $protected){
+              $after=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Assert ($after -ceq $before[$p]) ('PROTECTED_HASH_CHANGED_'+$p)
+            }
+            Assert ((Get-FileHash -LiteralPath $queuePath -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $queueBefore) 'SOURCE_QUEUE_CHANGED'
+            $dirty=@(& git.exe -C $root status --porcelain)
+            Assert ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) 'SOURCE_WORKTREE_DIRTY'
+            Write-Host 'UQ68B_NINE_PROTECTED_HASHES_AND_DEFAULT_DENY_QUEUE_STABLE=PASS'
+            Write-Host 'UQ68B_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ68B_SOURCE_LEDGER_WRITES=0'
+            Write-Host 'UQ68B_PAID_INFERENCE_AND_CODEX=0'
+            Write-Host 'UQ68B_PROVIDER_ORIGIN_VERIFIED=FALSE'
+            Write-Host 'UQ68B_ACTUAL_EXPORT_PROVIDED=FALSE'
+            Write-Host 'UQ68B_NO_ADMISSION_NO_PREPARATION_NO_PUSH=PASS'
+          } finally {
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Assert (-not (Test-Path $scratch)) 'PRIVATE_SCRATCH_NOT_CLEAN'
+            Write-Host 'UQ68B_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
