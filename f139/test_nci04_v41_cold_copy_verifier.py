@@ -139,7 +139,7 @@ class OriginalCopyTests(unittest.TestCase):
             self.attempt(fake=incorrect)
         def wrong(db):
             state = self.proof(db)
-            state["head_seq"] += 1
+            state["original_head_seq"] += 1
             return state
         with self.assertRaisesRegex(RecoveryPreflightDenied,
                                     "ORIGINAL_PREFLIGHT_NOT_AUTHENTIC"):
