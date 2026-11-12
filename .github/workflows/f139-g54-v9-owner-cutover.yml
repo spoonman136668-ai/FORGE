@@ -3636,6 +3636,58 @@ jobs:
           Write-Host ('F139_G54_DEPLOYED_SOURCE_SHA=' + $deployedSource)
           Write-Host 'F139_G54_STATUS_READ_ONLY=PASS'
 
+      - name: V41 original-owner locked issue/ledger read-only preflight
+        if: ${{ github.event_name == 'issue_comment' && startsWith(github.event.comment.body, 'F139-V9-STATUS ') }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1') {
+            throw 'F139_V41_WRONG_READONLY_RUNNER'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3) {
+            throw 'F139_V41_OWNER_TASK_TOPOLOGY_DRIFT'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=''
+          try {
+            $sid=(New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          if($principal -ine $who.Name -and $sid -cne $who.User.Value) {
+            throw 'F139_V41_OWNER_SID_DRIFT'
+          }
+          function ExistingArg([string]$name) {
+            $match=[regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $match.Success) { throw 'F139_V41_TASK_ARG_MISSING' }
+            return $match.Groups[1].Value
+          }
+          $database=ExistingArg 'Database'
+          $python=ExistingArg 'PythonExe'
+          $root=ExistingArg 'RepositoryRoot'
+          $old='2c7caad5a4502d4b874a11d57207a35cf033eb08'
+          if(-not(Test-Path -LiteralPath $database -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0 -or
+             (& git rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F139_V41_ORIGINAL_INSTALL_OR_SOURCE_DRIFT'
+          }
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          & $python -B -m f139.nci04_v41_original_owner_status --db $database --target $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0){throw 'F139_V41_OWNER_READONLY_CUSTODY_FAILED'}
+          Write-Host 'F139_V41_ORIGINAL_HOST_READONLY_CUSTODY=PASS'
+
   v40-invocation-qualification:
     if: ${{ github.actor == 'spoonman136668-ai' && github.event_name == 'issue_comment' && github.event.issue.number == 807 && (startsWith(github.event.comment.body, 'F139-V40-READONLY ') || startsWith(github.event.comment.body, 'F139-V40-QUALIFY-COPY ')) }}
     runs-on: windows-latest
