@@ -215,6 +215,8 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
     env = _go_child_environment(env)
     job = _WindowsDiagnosticJob() if os.name == "nt" else None
     process = None
+    cleanup_gate = threading.Lock()
+    finalized = [False]
     try:
         process = subprocess.Popen(
             command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -236,25 +238,28 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
         cleanup_errors = []
 
         def stop_tree():
-            try:
-                if job is not None:
-                    job.close()
-                else:
-                    # Session/process-group identity remains valid after the
-                    # direct parent exits while descendants retain the pipe.
+            # The reader may still run after a failing waitid/exception.
+            # Once final cleanup starts, it must never send another signal:
+            # the leader may be reaped and its PGID recycled shortly after.
+            with cleanup_gate:
+                if finalized[0]:
+                    return
+                try:
+                    if job is not None:
+                        job.close()
+                    else:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                except (OSError, ValueError) as exc:
+                    cleanup_errors.append(type(exc).__name__)
+                # Never poll/reap POSIX before final cleanup.
+                if job is not None and process.poll() is None:
                     try:
-                        os.killpg(process.pid, signal.SIGKILL)
+                        process.kill()
                     except ProcessLookupError:
                         pass
-            except (OSError, ValueError) as exc:
-                cleanup_errors.append(type(exc).__name__)
-            # Never Popen.poll()/wait() on POSIX before the final group
-            # signal: those calls reap the leader and permit PGID reuse.
-            if job is not None and process.poll() is None:
-                try:
-                    process.kill()
-                except ProcessLookupError:
-                    pass
 
         def collect():
             try:
@@ -311,17 +316,18 @@ def bounded_run(command, *, env, timeout=TIMEOUT_SEC):
     finally:
         if process is not None:
             try:
-                # Always close the owned tree even if the direct child has
-                # exited and no descendant holds our stdout pipe open.
-                # POSIX groups may survive the group leader's exit; Windows
-                # Job members likewise survive until KILL_ON_JOB_CLOSE.
-                if job is not None:
-                    job.close()
-                else:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+                # Atomically fence late reader stop_tree calls before the last
+                # owned-group signal. POSIX child remains unreaped until after
+                # this signal; no thread can signal after identity release.
+                with cleanup_gate:
+                    finalized[0] = True
+                    if job is not None:
+                        job.close()
+                    else:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
             finally:
                 if job is None:
                     # Reap only AFTER all possible process-group signals:

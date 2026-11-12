@@ -252,6 +252,46 @@ class D2KPackageDiagnosticTests(unittest.TestCase):
         self.assertEqual(completed.stdout, b"done\n")
         self.assertEqual(len(observed), 1)
 
+    @unittest.skipIf(sys.platform == "win32", "POSIX waitid failure fence")
+    def test_posix_waitid_error_reaps_and_blocks_late_reader_signals(self):
+        """Unexpected waitid errors must not release PID before late cleanup."""
+        import errno
+        import time
+        from f139 import issue_diagnostic
+        real_spawn = subprocess.Popen
+        real_killpg = os.killpg
+        launched = []
+        late = []
+        def record_spawn(*args, **kwargs):
+            child = real_spawn(*args, **kwargs)
+            launched.append(child)
+            return child
+        def denied_waitid(*args, **kwargs):
+            raise PermissionError(errno.EPERM, "injected waitid denial")
+        def guarded_killpg(pgid, signo):
+            if launched and launched[0].returncode is not None:
+                late.append(pgid)
+            return real_killpg(pgid, signo)
+        with mock.patch.object(issue_diagnostic.subprocess, "Popen",
+                               side_effect=record_spawn):
+            with mock.patch.object(issue_diagnostic.os, "waitid",
+                                   side_effect=denied_waitid):
+                with mock.patch.object(issue_diagnostic.os, "killpg",
+                                       side_effect=guarded_killpg):
+                    with self.assertRaises(PermissionError):
+                        bounded_run([sys.executable, "-c",
+                                     "import sys,time;"
+                                     "sys.stdout.write('Y'*200000);"
+                                     "sys.stdout.flush();time.sleep(30)"],
+                                    env=os.environ.copy(), timeout=5)
+                    time.sleep(0.1)
+        self.assertEqual(len(launched), 1)
+        self.assertIsNotNone(launched[0].returncode,
+                             "aborted child was not reaped")
+        self.assertFalse(self._descendant_alive(launched[0].pid))
+        self.assertEqual(late, [],
+                         "reader signalled process group after PID was reaped")
+
     def test_direct_bounded_runner_also_sanitizes_credentials(self):
         from f139.issue_diagnostic import _go_child_environment
         raw = {"PATH": os.environ.get("PATH", ""),
