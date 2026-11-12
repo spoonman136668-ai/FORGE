@@ -1,0 +1,146 @@
+{
+  "schema": "forge.nci04.q15.source-free-state-train-development.v1",
+  "status": "PREREGISTERED_SOURCE_FREE_DEV_ONLY_NOT_SCIENTIFIC_ACCEPTANCE",
+  "context": {
+    "north_star": "NCI-04 transferable self-organizing predictive state",
+    "qualifier": "Engineering train/dev sanity test only; neither native Yggdrasil nor real original MiniGrid/Pycolab cognition",
+    "frozen_parent": "536b91a392b7bbc50200a6e8842d152f2e23d8bb",
+    "hard_stops": [
+      "No original sources or original-source API imports",
+      "No production database, controller, queue, protected research seeds or signed ledger writes",
+      "No unrelated learner/optimizer source modifications",
+      "No activation or paid API"
+    ],
+    "known_negatives": [
+      "S4C1 exact checkpoint first-use NO-GO remains",
+      "Q14 global original reset custody NO-GO remains"
+    ]
+  },
+  "generator": {
+    "type": "synthetic_observed_noisy_switching_binary_latent",
+    "latent": "z[t] Bernoulli(0.5) initially; for t>0 independently flips with training-family hazard h",
+    "observation": "x[t] in {-1,+1}, equals 2*z[t]-1 with probability 1-noise",
+    "prediction": "p(z[t]=1 | x[0:t]) after receiving x[t]; no z[t] or family ID at inference",
+    "supervision": "z[t] labels available to all algorithms for fully supervised TRAIN fitting only",
+    "training_families": [
+      {
+        "name": "F_A",
+        "noise": 0.12,
+        "hazard": 0.05,
+        "steps": 12,
+        "episodes": 256
+      },
+      {
+        "name": "F_B",
+        "noise": 0.25,
+        "hazard": 0.12,
+        "steps": 20,
+        "episodes": 256
+      }
+    ],
+    "validation_families": [
+      {
+        "name": "F_A",
+        "noise": 0.12,
+        "hazard": 0.05,
+        "steps": 12,
+        "episodes": 64
+      },
+      {
+        "name": "F_B",
+        "noise": 0.25,
+        "hazard": 0.12,
+        "steps": 20,
+        "episodes": 64
+      }
+    ],
+    "protected_future_source_free_holdout_not_executed_in_Q15": [
+      {
+        "name": "F_C",
+        "noise": 0.33,
+        "hazard": 0.22,
+        "steps": 24,
+        "episodes": 128
+      },
+      {
+        "name": "F_D",
+        "noise": 0.4,
+        "hazard": 0.06,
+        "steps": 32,
+        "episodes": 128
+      }
+    ],
+    "seed_derivation": "int.from_bytes(SHA256(UTF8('q15-v1:'+cohort+':'+family+':'+decimal_episode_index)).digest()[:8], 'big')",
+    "only_allowed_cohorts_in_Q15": [
+      "train",
+      "validation"
+    ],
+    "no_model_updates_from_validation": true,
+    "no_cross_episode_memory": true
+  },
+  "models": {
+    "candidate": {
+      "name": "LINEAR_PREDICTIVE_STATE",
+      "architecture": "one scalar h[t]=a*h[t-1]+w*x[t], p[t]=sigmoid(v*h[t]+c); a=0.99*tanh(a_raw)",
+      "trained_params": 4,
+      "online_state_floats": 1,
+      "train": "fully supervised BPTT, Adam",
+      "train_restarts": 3
+    },
+    "ordinary_recurrent": {
+      "name": "TANH_RNN",
+      "architecture": "one scalar h[t]=tanh(a*h[t-1]+w*x[t]+d), p[t]=sigmoid(v*h[t]+c); a=0.99*tanh(a_raw)",
+      "trained_params": 5,
+      "online_state_floats": 1,
+      "train": "same fully supervised BPTT and Adam",
+      "train_restarts": 3
+    },
+    "bayesian": {
+      "name": "TRAINED_BAYES_FILTER",
+      "architecture": "exact binary posterior filter with pooled train-fit noise/hazard ML estimates, no family access at inference",
+      "online_state_floats": 1,
+      "train": "one complete closed-form likelihood fit using same labeled train sequences"
+    },
+    "symbolic": {
+      "name": "TRAINED_SYMBOLIC_MAJORITY",
+      "architecture": "running integer cue sum and Bernoulli calibration fitted from complete train cohort",
+      "online_state_floats": 1,
+      "train": "2-parameter logistic fit by Adam on exact same train labels"
+    },
+    "current": {
+      "name": "TRAINED_CURRENT_ONLY_LOGISTIC",
+      "architecture": "logistic fitted with just x[t], no history",
+      "online_state_floats": 0,
+      "train": "2-parameter logistic fit by Adam on exact same train labels"
+    }
+  },
+  "optimizer": {
+    "recurrent_epochs": 80,
+    "recurrent_minibatch_episodes": 32,
+    "adam_lr": 0.02,
+    "adam_betas": [
+      0.9,
+      0.999
+    ],
+    "adam_eps": 1e-8,
+    "restarts": [
+      0,
+      1,
+      2
+    ],
+    "init_seed_formula": "sha256('q15-init:'+model+':'+restart)",
+    "checkpoint_selection": "lowest equal-episode mean validation cross-entropy at epoch 80 only, tie to earliest restart; no held selection",
+    "scalar_logistic_epochs": 80,
+    "scalar_logistic_minibatch_episodes": 32,
+    "grad_clip_l2": 3,
+    "loss": "binary log loss nats, clipped predictive probability [1e-9,1-1e-9]",
+    "cost": "Per-model train process_time, inference process_time, tracemalloc Python peak, 1-scalar inference state, trained parameters and serialized checkpoint bytes; do not interpret platform timing as inherent theoretical compute."
+  },
+  "gate": {
+    "train": "Train all five predeclared models on EXACT same source-free train observations+labels; validation used for checkpoint selection only",
+    "decision": "DEV_ADVANCE_ONLY if candidate validation NLL improves >=0.010 nats/step vs best of ordinary-recurrent, Bayesian, symbolic and current; improves on both dev families; matches one-scalar state budget; and recorded candidate fit + infer CPU <= 1.05 times tanh RNN on same OS. Otherwise DEV_NO_GO_STOP_BEFORE_FUTURE_HOLDOUT",
+    "preheld_future_holdout": "No F_C or F_D generation, loss, source or tuning in Q15 under ANY outcome",
+    "independent_held_acceptance": "NOT AUTHORIZED_IN_Q15",
+    "retention": "Log all model NLLs, mean per-family results, all positive and negative criteria, checksum source/tool identity, deterministic role-separated train/dev hashes."
+  }
+}

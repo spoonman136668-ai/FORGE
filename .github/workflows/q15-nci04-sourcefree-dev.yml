@@ -1,0 +1,87 @@
+name: Q15 NCI04 source-free predictive state train+DEV gate (no held)
+on:
+  push:
+    branches: [research/q15-nci04-sourcefree-state-20261022]
+    paths: [.github/workflows/q15-nci04-sourcefree-dev.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-q15-sourcefree-train-dev-once
+  cancel-in-progress: false
+jobs:
+  windows-sourcefree-dev:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          clean: true
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Pin exact preregistration source and no original science paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $main='536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $codeParent='382610adff6ed87abdd3061e4d806cf38f016d9b'
+          $actualParent=(& git.exe rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $actualParent-cne$codeParent){
+            throw 'Q15_QUALIFIER_PARENT_SOURCE_DRIFT'
+          }
+          $ancestor=(& git.exe merge-base $main HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $ancestor-cne$main){
+            throw 'Q15_MAIN_ANCESTRY_DRIFT'
+          }
+          $files=@(& git.exe diff --name-only $main HEAD)
+          $expected=@(
+            '.github/workflows/q15-nci04-sourcefree-dev.yml',
+            'research/q15_sourcefree_state/FROZEN_PROTOCOL.json',
+            'research/q15_sourcefree_state/experiment.py'
+          )
+          if($LASTEXITCODE-ne0 -or (Compare-Object $files $expected).Count-ne0){
+            throw 'Q15_ADDITIVE_THREE_FILE_SOURCE_ONLY_SCOPE_DRIFT'
+          }
+          $oldProtocol=(& git.exe rev-parse 'b3ee79aae482468e6c59288e5b5d28f6b000affb:research/q15_sourcefree_state/FROZEN_PROTOCOL.json').Trim()
+          $nowProtocol=(& git.exe rev-parse 'HEAD:research/q15_sourcefree_state/FROZEN_PROTOCOL.json').Trim()
+          if($LASTEXITCODE-ne0 -or $oldProtocol-cne'3dfe97f158bcb8939d1d40d0a95c3cf3b0f9bb05' -or
+             $nowProtocol-cne$oldProtocol){
+            throw 'Q15_PREEXECUTION_PREREGISTRATION_MUTATED'
+          }
+          $code=(& git.exe rev-parse 'HEAD:research/q15_sourcefree_state/experiment.py').Trim()
+          if($LASTEXITCODE-ne0 -or $code-cne'cf7a579344642b7dc9be9864c2ece224fbf47238'){
+            throw 'Q15_IMPLEMENTATION_BLOB_DRIFT'
+          }
+          Write-Host 'Q15_FROZEN_PROTOCOL_PREEXISTED_SOURCE_CODE_AND_IS_UNCHANGED=PASS'
+          Write-Host 'Q15_THREE_ADDITIVE_SOURCE_FREE_FILES=PASS'
+          Write-Host 'Q15_SCIENTIFIC_HOLDOUT_AND_ORIGINAL_SOURCE=NEVER_CALLED'
+      - name: Source-free safety selftest; no held generation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B research/q15_sourcefree_state/experiment.py --mode selftest
+          if($LASTEXITCODE-ne0){throw 'Q15_SOURCE_FREE_SELFTEST_FAILED'}
+          Write-Host 'Q15_SELFTEST=PASS'
+      - name: Exactly one fully trained five-arm preregistered TRAIN/DEV evaluation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B research/q15_sourcefree_state/experiment.py --mode train-dev
+          if($LASTEXITCODE-ne0){throw 'Q15_TRAIN_DEV_EXPERIMENT_FAILED'}
+          Write-Host 'Q15_DEV_EXECUTED_WITH_FROZEN_CRITERIA=PASS'
+      - name: Stop-before-held and no repository mutation
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git.exe status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q15_SOURCE_WORKTREE_MUTATION'}
+          Write-Host 'Q15_REPO_SOURCE_UNCHANGED=PASS'
+          Write-Host 'Q15_ORIGINAL_MINIGRID_PYCOLAB_EPISODES=0'
+          Write-Host 'Q15_PROTECTED_ORIGINAL_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Host 'Q15_CKB_CONTROLLER_OR_QUEUE_CHANGE=NONE'
