@@ -765,3 +765,48 @@ jobs:
           test "$GENENV_RESULT" = 'success'
           test -n "$EXACT_HEAD"
           echo "FORGE_WINDOWS_ORIGINAL_F139_AND_NATIVE_GATES=PASS"
+
+  f59_archive_fixture_linux:
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/eureka-f51-original-acrobot-20261110' && github.event.pull_request.number == 1692 && github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: F59 inert source-fixture 12 tests Linux, NO original physics
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD:docs/NATIVE-DISCOVERY-F59-ORIGINAL-FIT-ACTION-ARCHIVE.md)" = "b034d27ae22a5f1c3f866e0df1e80f2d64aae4e8"
+          test "$(git rev-parse HEAD:research/f59_original_fit_transition_archive.py)" = "f08ed3891df2eff97effd81a009b965f00544b4a"
+          test "$(git rev-parse HEAD:research/test_f59_original_fit_transition_archive.py)" = "83574ffc48e05b11c1c8418b14b6e1c9b695b672"
+          python3 -B -m unittest discover -s research -p 'test_f59_original_fit_transition_archive.py' -v
+          echo 'F59_LINUX_SOURCE_FIXTURE=PASS ORIGINAL_ACROBOT_STEPS=ZERO SCIENTIFIC_PASS=FALSE'
+
+  f59_archive_fixture_windows:
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/eureka-f51-original-acrobot-20261110' && github.event.pull_request.number == 1692 && github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' }}
+    runs-on: windows-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: F59 inert source-fixture 12 tests Windows, NO original physics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -ne '${{ github.event.pull_request.head.sha }}'){throw 'F59_HEAD_DRIFT'}
+          if((git rev-parse HEAD:docs/NATIVE-DISCOVERY-F59-ORIGINAL-FIT-ACTION-ARCHIVE.md).Trim() -ne 'b034d27ae22a5f1c3f866e0df1e80f2d64aae4e8'){throw 'F59_PROTOCOL_DRIFT'}
+          if((git rev-parse HEAD:research/f59_original_fit_transition_archive.py).Trim() -ne 'f08ed3891df2eff97effd81a009b965f00544b4a'){throw 'F59_SOURCE_DRIFT'}
+          if((git rev-parse HEAD:research/test_f59_original_fit_transition_archive.py).Trim() -ne '83574ffc48e05b11c1c8418b14b6e1c9b695b672'){throw 'F59_TEST_DRIFT'}
+          python -B -m unittest discover -s research -p 'test_f59_original_fit_transition_archive.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F59_HOSTED_WINDOWS_SOURCE_TESTS_FAILED'}
+          Write-Output 'F59_WINDOWS_SOURCE_FIXTURE=PASS ORIGINAL_ACROBOT_STEPS=ZERO SCIENTIFIC_PASS=FALSE'
