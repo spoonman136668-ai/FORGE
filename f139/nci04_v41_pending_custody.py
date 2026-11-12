@@ -17,9 +17,23 @@ from f139.nci04_owner_ledger import native_events
 
 FROM_V40 = "2c7caad5a4502d4b874a11d57207a35cf033eb08"
 PENDING_NUMBER = 1715
+# Authenticated live original readback at 2026-11-12 08:24 UTC.
+# Never accept a newly initialized or counter-reset database as genuine V40.
+MIN_ORIGINAL_HEAD = 1826
+MIN_VERIFIED = 153
+MIN_QUARANTINED = 56
 SCHEMA = "forge.f139.v41.unadmitted-proposal-custody.v1"
 REISSUE_SCHEMA = "forge.f139.v41.reissue-comparison.v1"
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
+SHA64 = re.compile(r"[a-f0-9]{64}\Z")
+FROZEN_KEYS = frozenset({
+    "schema", "source_sha", "original_head_seq", "original_head_sha256",
+    "issue_number", "issue_id", "ticket", "issue_body_sha256",
+    "native_intent_sha256", "target_commit", "target_tree_sha",
+    "semantic_identity_sha256", "disposition", "source_transition_authorized",
+    "reissue_authorized", "new_dispatches", "owner_mutations",
+    "scientific_first_use",
+})
 
 
 class V41PendingDenied(ValueError):
@@ -88,8 +102,14 @@ def inspect_never_admitted(db, api, *, expected_number=PENDING_NUMBER):
     changes = db.conn.total_changes
     need(before["source_sha"] == FROM_V40
          and before["enabled"] == 1 and before["legacy_suspended"] == 1
+         and before["head_seq"] >= MIN_ORIGINAL_HEAD
          and db.ready() is None and not db.actives(),
          "ORIGINAL_SOURCE_OR_IDLE_DRIFT")
+    counts = {row["stage"]: row["n"] for row in db.conn.execute(
+        "SELECT stage,COUNT(*) AS n FROM tasks GROUP BY stage")}
+    need(counts.get("VERIFIED", 0) >= MIN_VERIFIED
+         and counts.get("QUARANTINED", 0) >= MIN_QUARANTINED,
+         "ORIGINAL_HISTORICAL_TASK_FLOOR")
     historic = _historical_native_issues(db)
     need(expected_number not in historic, "ALREADY_ADMITTED_NO_REISSUE")
     # The existing API verifies each issue's provider-authenticated owner,
@@ -136,8 +156,16 @@ def compare_source_bound_reissue(frozen, old, proposed, *, target_source):
     immutable target/tree checks for each NativeIssue. This comparator never
     turns a matching proposal into a dispatch or a transition authorization.
     """
-    need(type(frozen) is dict and frozen.get("schema") == SCHEMA
+    need(type(frozen) is dict and set(frozen) == FROZEN_KEYS
+         and frozen.get("schema") == SCHEMA
          and frozen.get("source_sha") == FROM_V40
+         and type(frozen.get("original_head_seq")) is int
+         and frozen["original_head_seq"] >= 0
+         and isinstance(frozen.get("original_head_sha256"), str)
+         and SHA64.fullmatch(frozen["original_head_sha256"]) is not None
+         and frozen.get("issue_number") == PENDING_NUMBER
+         and type(frozen.get("issue_id")) is int
+         and frozen["issue_id"] > 0
          and frozen.get("disposition") == "UNADMITTED_RETAINED_NO_DISPATCH"
          and frozen.get("source_transition_authorized") is False
          and frozen.get("reissue_authorized") is False
