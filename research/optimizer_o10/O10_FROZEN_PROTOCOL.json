@@ -1,0 +1,86 @@
+{
+  "schema": "forge.optimizer.o10.encoding-vs-readout.public-dev.v1",
+  "status": "FROZEN_BEFORE_ANY_O10_DATA_OR_MODEL_SOURCE",
+  "parent_main_sha": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "predecessor_custody": {
+    "O9_pr": 783,
+    "O9_exact_head": "309f32eb7cf71a4f3598bc9727a29b181b745adf",
+    "O9_original_memory_blob": "007f22006211439e625c1c317d32254acf902d74",
+    "O9_result": "SOURCE_ONLY_NO_GO: weak echo retention, parity failure, explicit memory better; both OS and full CI passed",
+    "O8": "GATED_RECURRENT_LONG_DELAY_NO_GO",
+    "O7": "SPLIT_LEARNER_WEAKER_THAN_CONVENTIONAL",
+    "O2_O6": "RETAIN_NEGATIVES",
+    "Q20": "RETAIN_DEV_NEGATIVES",
+    "Q21_Q21N01": "PROTECTED_CUSTODY_UNTOUCHED"
+  },
+  "scientific_question": "For identically trained public-experience recurrent mechanisms, distinguish state-encoding insufficiency from failure of the learned output readout or nonlinear composition of retained public cue and action parity.",
+  "public_source": {
+    "namespace": "o10-fresh-public-v1",
+    "roles": [
+      "O10_PUBLIC_TRAIN",
+      "O10_PUBLIC_SELECT",
+      "O10_PUBLIC_DEV"
+    ],
+    "role_episodes": {
+      "O10_PUBLIC_TRAIN": 96,
+      "O10_PUBLIC_SELECT": 24,
+      "O10_PUBLIC_DEV": 32
+    },
+    "transitions_per_episode": 36,
+    "query_at": [
+      14,
+      26
+    ],
+    "families": {
+      "ECHO": "initial public observation random cue; actions iid binary until single a_t=2 at 14 or 26; intervening next observations iid fair; query response cue XOR independent Bernoulli(0.05); no other predictive targets scored",
+      "PARITY": "same visible public cue and actions; target cue XOR publicly derivable parity of action=1 events before query, flipped with independent Bernoulli(0.05)",
+      "NULL": "same visible query timing and action structure; query target iid fair unrelated to cue/action history"
+    },
+    "seeding": "Python Random(seed first 8 big-endian bytes SHA256 UTF8 'o10-fresh-public-v1:'+role+':'+family+':'+index)",
+    "data_interface": "At t model receives public bit o_t, action a_t and whether t is first; exact same observable history provided to every trained learner. Query next-bit is never an input before prediction, hidden simulator variables never features. Cue and parity probe labels are derived from public history, not private labels. Train on query response only."
+  },
+  "frozen_fit": {
+    "models": [
+      "EXTERNAL2_O9",
+      "GRU2_O9"
+    ],
+    "architecture": "Byte-identical O9 TrainedMemory implementation Git blob 007f22006211439e625c1c317d32254acf902d74, candidate kind LEARNED_EXTERNAL_WRITE_READ_2, control GRU_2, both 57 trainable weights.",
+    "seeds": [
+      17,
+      31
+    ],
+    "epochs": 12,
+    "adam_rate": 0.01,
+    "selection": "Select minimum public SELECT query NLL among frozen starts, independent for each arm. Never select on DEV.",
+    "posttrain_probes": "Freeze selected checkpoint including recurrent weights and original trained output head. Train separate logistic probes on extracted 2-cell query recurrent state on O10_PUBLIC_TRAIN ONLY for cue, action parity, and query outcome; separately fit a nonlinear quadratic state readout for query outcome. No recurrent update for any probe.",
+    "probe_architecture": "Full-batch logistic regression 100 fixed epochs lr 0.5 L2 0.001 zero start, 1 bias plus all features. Quadratic readout features: recurrent h0,h1,h0*h0,h0*h1,h1*h1. No hyperparameter selection.",
+    "comparators": [
+      "CURRENT_QUERY_PROBE: logistic on query current observation and query time flag",
+      "PUBLIC_EXPLICIT_EPISODIC_COUNTS: Laplace+1 fitted on (public cue, public action parity) and query bit",
+      "PUBLIC_ENGINEERED_LOGISTIC: fit on cue, parity, cue XOR parity, query time and query current observation with identical probe budget",
+      "UNIFORM_DIAGNOSTIC: fixed 0.5"
+    ],
+    "probe_cue_parity": "Train hidden-state cue probe and hidden-state parity probe and matching query-current-only probes using identical budget. Report NLL for each label, all on independent O10_PUBLIC_DEV.",
+    "readout_probe": "Report original end-to-end query head, posthoc re-fitted linear hidden-state query head and posthoc quadratic hidden-state query head; compare same frozen representation and TRAIN-only probe supervision.",
+    "ablation": "Evaluate original end-to-end model with memory cleared before query, no retraining, and report query NLL delta; retained-state probe evidence alone does not establish transfer."
+  },
+  "evaluation": {
+    "query_loss": "mean binary Bernoulli query-only negative log likelihood nats per public episode",
+    "encoding": "If state cue/parity probe improves on matched current-query-only probe on DEV, evidence the frozen state retained that public variable, not proof of general cognition.",
+    "readout": "If TRAIN-fitted readout significantly improves original query NLL on DEV using identical frozen state, a readout-optimization limitation is possible. If no cue/parity information decodes, state encoding insufficiency is plausible. No posthoc tests/claims from unfrozen thresholds.",
+    "baseline": "Compare against fully trained same-input 57-parameter GRU and hand-engineered explicit episodic conventional control, disclose engineered-feature advantage.",
+    "null": "Report all null-family decoded advantages/losses; no false positive claim.",
+    "cost": "per model FIT+SELECT CPU, per probe training CPU, all DEV inference CPU, checkpoint bytes, probe bytes, process CPU, process peak memory, Python tracemalloc peak.",
+    "repro": "all 3 x 3 source-family-role SHA256 identities exact Windows/Linux, all reported losses agree to 1e-6 across systems; final focused tests + one full Go test/vet/build and full public PR regression.",
+    "decision": "Do not promote from public DEV regardless of result. No retrospective changes to protocol, model, source, seed or budget after DEV observation; retain all negative evidence."
+  },
+  "limits": [
+    "O10 uses new source role namespace only, no O9/O8 DEV reuse",
+    "No change to original O9 model/checkpoint implementation; vendor exact source blob",
+    "No new controller/scheduler/queue and no CKB-plane authority modification",
+    "No protected FSA/Q21/Q21N01 scientific first use or science promotion",
+    "No live KTRADE/trading, paid API, or D1/Cloudflare mutations",
+    "Only additive eight-file draft and read-only native Windows/Linux CI",
+    "No claim of independent unfamiliar source transfer or non-transformer AGI from this synthetic design"
+  ]
+}
