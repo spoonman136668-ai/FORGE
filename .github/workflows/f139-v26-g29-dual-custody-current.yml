@@ -1,0 +1,109 @@
+name: FORGE F139 V26 G29 current-source dual-custody qualification
+on:
+  push:
+    branches:
+      - research/f139-v26-g29-dual-custody-current-20261031
+    paths:
+      - .github/workflows/f139-v26-g29-dual-custody-current.yml
+permissions:
+  contents: read
+concurrency:
+  group: f139-v26-g29-dual-custody-current-20261031
+  cancel-in-progress: false
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          path: forge
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5e74f8db85b2f5839c42148c0dfba69a88b1a2c9
+          persist-credentials: false
+          fetch-depth: 0
+          path: native-baseline
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: be6f9a32dc7bc8bf541d11313179846e79e78c93
+          persist-credentials: false
+          fetch-depth: 0
+          path: native-candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact experiment and Yggdrasil source custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent=(& git -C forge rev-parse HEAD^ | Out-String).Trim()
+          $changed=@(& git -C forge diff --name-only HEAD^ HEAD)
+          $script=(& git -C forge rev-parse 'HEAD:f139/nci04_g29_v26_dual_custody_experiment.py' | Out-String).Trim()
+          $base=(& git -C native-baseline rev-parse HEAD | Out-String).Trim()
+          $baseTree=(& git -C native-baseline rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          $candidate=(& git -C native-candidate rev-parse HEAD | Out-String).Trim()
+          $candidateTree=(& git -C native-candidate rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          $parentHex=($parent -replace '[0-9a-f]','')
+          if($parent.Length -ne 40 -or $parentHex.Length -ne 0 -or
+             $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/f139-v26-g29-dual-custody-current.yml' -or
+             $script -cne '651133063f307800e500480b1bcb0f2f6460821b' -or
+             $base -cne '5e74f8db85b2f5839c42148c0dfba69a88b1a2c9' -or
+             $baseTree -cne '180008502f6bdfe5a06c3d0d6f47f941dd01f20b' -or
+             $candidate -cne 'be6f9a32dc7bc8bf541d11313179846e79e78c93' -or
+             $candidateTree -cne 'f77c2410dfa6a44d9a95f21cae9bc225f04fc9ef') {
+            throw 'F139_V26_G29_EXPERIMENT_SOURCE_CUSTODY_DRIFT'
+          }
+          Write-Output 'F139_V26_G29_TWO_SOURCE_PROVENANCE=PASS'
+      - name: Run full clean-baseline and changed-candidate split with exact G29 negative
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP ('f139-v26-g29-'+$env:RUNNER_OS+'.json')
+          & python -B forge/f139/nci04_g29_v26_dual_custody_experiment.py --baseline native-baseline --candidate native-candidate --output $out
+          if($LASTEXITCODE -ne 0){throw 'F139_V26_G29_DUAL_CUSTODY_EXPERIMENT_FAILED'}
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($r.baseline_g29_pass -ne $true -or
+             $r.baseline_full_unmodified_regression_pass -ne $true -or
+             $r.candidate_changed_source_applicable_tests_pass -ne $true -or
+             $r.candidate_g29_expected_fail -ne $true -or
+             $r.historical_modified_source_g29_negative -ne $true -or
+             $r.modified_candidate_full_regression_pass -ne $false -or
+             $r.original_full_regression_qualified -ne $true -or
+             $r.cross_platform_worker_qualified -ne $false -or
+             $r.signed_provider_success -ne $false -or
+             $r.production_v26_worker_unchanged -ne $true -or
+             $r.scientific_first_use -ne $false -or
+             $r.paid_api_calls -ne 0 -or
+             $r.github_writes -ne 0 -or
+             $r.worker_replay -ne $false -or
+             $r.inherited_platform_negatives.Count -ne 0 -or
+             $r.negative_controls.second_source_delta_rejected -ne $true -or
+             $r.negative_controls.bad_candidate_digest_rejected -ne $true -or
+             $r.results.candidate_g29_negative.status -cne 'EXPECTED_FROZEN_ATLAS_REJECTION' -or
+             $r.results.candidate_g29_negative.output_tail -notmatch 'working source mismatch: yggdrasil/public_causal_cells.py') {
+            throw 'F139_V26_G29_DUAL_CUSTODY_RESULT_CONTRACT_DRIFT'
+          }
+          Write-Output 'F139_V26_G29_BASELINE_G29=PASS'
+          Write-Output 'F139_V26_G29_BASELINE_FULL=PASS'
+          Write-Output 'F139_V26_G29_CANDIDATE_APPLICABLE_TESTS=PASS'
+          Write-Output 'F139_V26_G29_CANDIDATE_ATLAS_NEGATIVE=EXPECTED_AND_RETAINED'
+          Write-Output 'F139_V26_SIGNED_WORKER_QUALIFICATION=NOT_GRANTED'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f139-v26-g29-dual-custody-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-v26-g29-${{ runner.os }}.json
+          if-no-files-found: warn
+          retention-days: 90
