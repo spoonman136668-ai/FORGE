@@ -132,6 +132,63 @@ jobs:
              $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){
             [void][IO.Directory]::CreateDirectory($dir)
           }
+          # Focused synthetic, in-memory GET-only failure triage before expensive
+          # mandatory full regression; never disclose raw fixture/test output.
+          $focused=Join-Path $root 'native-snapshot-focused.private.jsonl'
+          $focusClock=[Diagnostics.Stopwatch]::StartNew()
+          Push-Location $src
+          try{
+            & go test -json -p 1 -count=3 -timeout 5m -run '^TestNativeSnapshotAccountTimestampAndFeePublicationAreAtomic$' ./pkg *> $focused
+            $focusExit=$LASTEXITCODE
+          }finally{Pop-Location}
+          $focusClock.Stop()
+          $focusDigest=(Get-FileHash -LiteralPath $focused -Algorithm SHA256).Hash.ToLowerInvariant()
+          $reasonCodes=[ordered]@{
+            'ancillary book read published partial account or fee evidence'='PARTIAL_PUBLICATION'
+            'account revision published before required book evidence'='PREMATURE_REVISION'
+            'bounded synthetic book stage was not reached'='BOOK_STAGE_DEADLINE'
+            'synthetic snapshot refresh exceeded its deadline'='REFRESH_DEADLINE'
+            'failure-path request budget mismatch'='GET_BUDGET_MISMATCH'
+            'failed scoped refresh mutated composite account or fee state'='FAILURE_MUTATED_STATE'
+            'failed refresh emitted account revision'='FAILURE_REVISION'
+            'failed refresh notified an account change'='FAILURE_NOTIFICATION'
+            'complete scoped snapshot and fee did not publish together'='ATOMIC_PUBLICATION_MISMATCH'
+            'account timestamp postdated account-page request or was renewed by ancillary reads'='ACCOUNT_OBSERVATION_CLOCK'
+            'successful complete snapshot did not advance account revision'='SUCCESS_REVISION_MISSING'
+            'successful complete snapshot did not notify waiters'='SUCCESS_NOTIFICATION_MISSING'
+          }
+          $failedSubtests=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+          $reasons=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+          $testRoot='TestNativeSnapshotAccountTimestampAndFeePublicationAreAtomic'
+          foreach($line in [IO.File]::ReadLines($focused)){
+            if($line -notmatch '"Action":"(?:fail|output)"'){continue}
+            try{$obj=ConvertFrom-Json -InputObject $line -ErrorAction Stop}
+            catch{continue}
+            if([string]$obj.Package -cne 'k-terminal/pkg'){continue}
+            $name=[string]$obj.Test
+            if($obj.Action -ceq 'fail' -and
+               $name -cmatch '^TestNativeSnapshotAccountTimestampAndFeePublicationAreAtomic/(complete|two_page_account_scope|fee_503|book_503|wrong_portfolio)$'){
+              [void]$failedSubtests.Add($Matches[1])
+            }
+            if($obj.Action -ceq 'output' -and $name.StartsWith($testRoot,[StringComparison]::Ordinal)){
+              foreach($phrase in $reasonCodes.Keys){
+                if(([string]$obj.Output).Contains([string]$phrase)){
+                  [void]$reasons.Add([string]$reasonCodes[$phrase])
+                }
+              }
+            }
+          }
+          foreach($label in @($failedSubtests|Sort-Object)){
+            Write-Host ('KTERM_PR96_FOCUSED_FAILED_SUBTEST='+$label)
+          }
+          foreach($code in @($reasons|Sort-Object)){
+            Write-Host ('KTERM_PR96_FOCUSED_REASON_CODE='+$code)
+          }
+          Write-Host ('KTERM_PR96_FOCUSED_ATOMIC=EXIT_'+$focusExit+
+            ';MS='+$focusClock.ElapsedMilliseconds+';REPEATS=3'+
+            ';SUBTESTS_FAILED='+$failedSubtests.Count+';REASONS='+$reasons.Count+
+            ';PRIVATE_LOG_SHA256='+$focusDigest+';NO_RAW_OUTPUT=TRUE')
+          if($focusExit-ne0){throw 'KTERM_PR96_FOCUSED_ATOMIC_FAILURE_STOP'}
           Push-Location $src
           try{
             $sw=[Diagnostics.Stopwatch]::StartNew()
