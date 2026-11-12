@@ -251,5 +251,100 @@ class PendingCustodyTests(unittest.TestCase):
                                                      target_source=NEXT)
 
 
+    def remote_api(self, new_raw, *, protected=NEXT, mutate_second=None):
+        """Synthetic GET-only readback with immutable independent Git tree."""
+        old_raw = original()
+        counts = {"old": 0, "new": 0}
+        calls = []
+        def runner(args):
+            self.assertEqual(len(args), 1)
+            route = args[0]
+            calls.append(route)
+            if route == "repos/spoonman136668-ai/FORGE/branches/main":
+                return canonical({"protected": True, "commit": {"sha": protected}})
+            if route == "repos/spoonman136668-ai/FORGE/issues/1715":
+                counts["old"] += 1
+                return canonical(old_raw)
+            if route == "repos/spoonman136668-ai/FORGE/issues/1720":
+                counts["new"] += 1
+                if new_raw is None:
+                    return canonical({"message": "Not Found"})
+                if counts["new"] == 2 and mutate_second is not None:
+                    return canonical(mutate_second)
+                return canonical(new_raw)
+            if route == "repos/spoonman136668-ai/Yggdrasil/git/commits/" + TARGET:
+                return canonical({"sha": TARGET, "tree": {"sha": TREE}})
+            raise AssertionError("UNAUTHORIZED_API_ROUTE " + route)
+        return GitHub(runner=runner), counts, calls
+
+    def test_provider_bound_double_get_accepts_only_inert_identical_candidate(self):
+        frozen = self.frozen()
+        api, counts, calls = self.remote_api(original(1720, NEXT, OLD_ID+1))
+        result = v41.verify_remote_source_bound_reissue(
+            api, frozen, 1720, target_source=NEXT)
+        self.assertEqual(result["provider_readback"], "TWO_MATCHED_GET_PASSES")
+        self.assertEqual(result["old_issue_number"], 1715)
+        self.assertEqual(result["new_issue_number"], 1720)
+        self.assertEqual(counts, {"old": 2, "new": 2})
+        self.assertEqual(sum("/branches/main" in x for x in calls), 2)
+        self.assertEqual(sum("/git/commits/" in x for x in calls), 4)
+        self.assertTrue(all("POST" not in x and "PATCH" not in x for x in calls))
+        self.assertFalse(result["reissue_authorized"])
+        self.assertFalse(result["source_transition_authorized"])
+        self.assertEqual(result["new_dispatches"], 0)
+
+    def test_provider_rejects_missing_reissue_and_unmerged_target_main(self):
+        frozen = self.frozen()
+        api, _, _ = self.remote_api(None)
+        with self.assertRaisesRegex(v41.V41PendingDenied,
+                                    "REMOTE_ISSUE_SHAPE_DRIFT"):
+            v41.verify_remote_source_bound_reissue(
+                api, frozen, 1720, target_source=NEXT)
+        api, _, _ = self.remote_api(original(1720, NEXT, OLD_ID+1),
+                                    protected="8"*40)
+        with self.assertRaisesRegex(v41.V41PendingDenied,
+                                    "SUCCESSOR_PROTECTED_MAIN_DRIFT"):
+            v41.verify_remote_source_bound_reissue(
+                api, frozen, 1720, target_source=NEXT)
+
+    def test_provider_rejects_second_read_issue_mutation_or_owner_change(self):
+        frozen = self.frozen()
+        changed = original(1720, NEXT, OLD_ID+1)
+        body = json.loads(changed["body"])
+        intent = json.loads(base64.b64decode(body["intent_base64"], validate=True))
+        intent["training_config_sha256"] = "a"*64
+        body["intent_base64"] = base64.b64encode(canonical(intent)).decode()
+        changed["body"] = json.dumps(body, sort_keys=True)
+        api, counts, _ = self.remote_api(
+            original(1720, NEXT, OLD_ID+1), mutate_second=changed)
+        with self.assertRaisesRegex(v41.V41PendingDenied,
+                                    "REISSUE_IDENTITY_OR_CANDIDATE_DRIFT"):
+            v41.verify_remote_source_bound_reissue(
+                api, frozen, 1720, target_source=NEXT)
+        self.assertEqual(counts, {"old": 2, "new": 2})
+        attacker = original(1720, NEXT, OLD_ID+1)
+        attacker["user"]["login"] = "attacker"
+        api, _, _ = self.remote_api(attacker)
+        with self.assertRaises(Exception):
+            v41.verify_remote_source_bound_reissue(
+                api, frozen, 1720, target_source=NEXT)
+
+    def test_provider_rejects_modified_source_or_unexpected_id(self):
+        frozen = self.frozen()
+        raw = original(1720, NEXT, OLD_ID+1)
+        body = json.loads(raw["body"])
+        body["source_sha"] = "8"*40
+        raw["body"] = json.dumps(body, sort_keys=True)
+        api, _, _ = self.remote_api(raw)
+        with self.assertRaises(Exception):
+            v41.verify_remote_source_bound_reissue(
+                api, frozen, 1720, target_source=NEXT)
+        api, _, _ = self.remote_api(original(1720, NEXT, OLD_ID+1))
+        with self.assertRaisesRegex(v41.V41PendingDenied,
+                                    "REMOTE_REISSUE_ARGUMENTS_INVALID"):
+            v41.verify_remote_source_bound_reissue(
+                api, frozen, 1715, target_source=NEXT)
+
+
 if __name__ == "__main__":
     unittest.main()
