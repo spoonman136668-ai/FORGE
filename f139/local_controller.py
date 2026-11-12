@@ -40,6 +40,8 @@ D2K_ALLOWED_PACKAGES = ("./planner", "./dreamrsi", "./optimizerstages")
 D2K_MAX_DAILY = 4
 D2K_MAX_TOTAL = 80
 D2K_OWNER = "spoonman136668-ai"
+# Bound the native issue catalog without treating an exact full page as overflow.
+NATIVE_ISSUE_CATALOG_MAX_PAGES = 32
 
 
 # D2J is a single bounded, source-bound development-only succession tranche.
@@ -3528,12 +3530,17 @@ class GitHub:
         # validated repository+commit tree identities within this one read;
         # every issue still passes its complete body/history checks below.
         target_trees = {}
-        for page in (1, 2):
+        # Probe one page beyond the authenticated bounded catalog. A full
+        # final data page is complete when this sentinel page is empty.
+        for page in range(1, NATIVE_ISSUE_CATALOG_MAX_PAGES + 2):
             docs = self.get(
                 "repos/" + REPO + "/issues?state=open&labels=" + LABEL +
                 "&per_page=100&page=" + str(page))
             require(isinstance(docs,list) and len(docs)<=100,
                     "NATIVE_ISSUE_CATALOG_INVALID")
+            if page > NATIVE_ISSUE_CATALOG_MAX_PAGES:
+                require(not docs, "NATIVE_CATALOG_TRUNCATED")
+                break
             for raw in docs:
                 # A previously admitted issue remains a frozen, failed or
                 # completed historical record after a qualified transition.
@@ -3588,8 +3595,6 @@ class GitHub:
                 items.append(doc)
             if len(docs)<100:
                 break
-        else:
-            raise F139Error("F139_NATIVE_CATALOG_TRUNCATED")
         require(len({x.number for x in items})==len(items)
                 and len({x.issue_id for x in items})==len(items),
                 "NATIVE_DUPLICATE_ISSUES")
