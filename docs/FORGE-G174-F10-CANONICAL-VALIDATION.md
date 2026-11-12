@@ -1,0 +1,20 @@
+# RAR G174 — F10 canonical-validation performance experiment (DEV only)
+
+**Preregistered engineering hypothesis.** The exact F30 Go-source Linux one-shot G173 `go test -race -count=1 -json ./nativediscovery` profile (run 42712999952, source abcaf381d5836934b3ac9bab41f8a94de9a7da69) recorded 506 passing events and 0 failures. The test `TestF10NoOwnerAdmissionByTamperedOrRehashedDevelopmentEvidence` was the top remaining source-level race-test hotspot at 7.76s. Historical timings are not a matched baseline for this experiment. F10Validate currently reconstructs the full deterministic F10Development() on *every rehashed invalid report*, while the already-qualified F11/F12 validators use a thread-safe immutable canonical reference.
+
+**Current research parent:** Eureka F31 `0fc0f9a3cfbd95c64051704fa20a8ae5df06bae7`, tree `cb4c4f475b6ec73e1de8316904e1939eeca4d657`; F31 adds only three science files and retains original F10 blob `a3405aca6fa6c119f3687970453849179843c191`. Isolated engineering draft #1643 inherits F11/F12 source acceleration, no active research ref or protected main edit.
+
+## Frozen smallest change and negative controls
+
+Modify ONLY `nativediscovery/f10_benefit.go` to use `sync.Once` for an independently developed immutable process-local F10 canonical report in `F10Validate`; keep all initial field/digest/source/authority/first-use denials and the original `reflect.DeepEqual` unchanged. `F10Development()` remains a fully cold, independently regenerating, read-only value generator, and the cached reference never escapes through an exported API. Add ONLY one new focused test `nativediscovery/f10_canonical_validation_test.go` verifying independent cold original report equality, original canonical F10 validation, self-rehashed tamper rejection (including source/science/owner), valid-after-forgery, repeated independent cold acceptance and eight concurrent read-only validations under Go race detection.
+
+Do not change F10 report schema, digests, F7/F8 provenance, frozen seeds, worlds, thresholds, selection, report scores, negative/held-out outcomes, experiments, rule-work cost, owner/first-use, scheduler/worker/runner/CI or other research paths. A legal failure or discrepancy is recorded as failure, not retuned.
+
+## Frozen falsifiable DEV acceptance
+
+1. Source pin original F31+F11/F12 baseline commit/tree and new F31+F11/F12+F10 candidate commit/tree separately. Record exact F10 blob before and after; only F10 source and focused new test differ.
+2. On **both** Linux and Windows using the same qualified Go1.23.12 harness, run **paired original and optimized** `go test -race -count=1 -json -run '^TestF10NoOwnerAdmissionByTamperedOrRehashedDevelopmentEvidence$' ./nativediscovery` under identical GOFLAGS/GOMAXPROCS/GOMEMLIMIT, original-before-candidate, with exact original pass/fail/skip subtest identities (all 23 original forge cases), and require a **>=1.50x** *per OS* elapsed speedup for the named original test. A failed first result is NO_GO; no retry/timing cherry-pick. Capture profile artifacts with exact source and environment.
+3. On candidate source run original all-package `go test -count=1 ./...`, `go test -race -count=1 ./...`, `go vet ./...`, `go build ./...`, original unchanged negative controls/isolations/Go package inventory, Linux original G141 180-second/4GiB and Windows original G144. Require first-attempt full **8/8** original Linux/Windows CI jobs on qualified source. A main-guard CI proof with altered historical RAR/worker blobs counts as **same-Go-source DEV** only, NOT exact whole F31 source-tree qualification.
+4. No scientific learning, owner admission, first-use, deployment or merge authority is inferred from an engineering speedup. Measure whole-pipeline cost separately before claiming aggregate 2x.
+
+Research owner and live Eureka branch remain untouched. This document is authored **before** the F10 optimized source and before any matched A/B measurement; hold it frozen after results, including failures.
