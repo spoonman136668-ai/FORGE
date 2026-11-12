@@ -88,8 +88,8 @@ class OwnerBackupGateTests(unittest.TestCase):
 
     def test_unmerged_or_incomplete_postmerge_ci_denied(self):
         def remote(route):
-            if route.endswith("/pulls/1735"):
-                return {"number": 1735, "merged": True, "merge_commit_sha": SHA,
+            if route.endswith("/pulls/1736"):
+                return {"number": 1736, "merged": True, "merge_commit_sha": SHA,
                         "user": {"login": gate.OWNER},
                         "base": {"ref": "main"}, "head": {"sha": "a" * 40}}
             if "/actions/runs?" in route:
@@ -131,6 +131,65 @@ class OwnerBackupGateTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.OwnerBackupDenied,
                                     "QUALIFIED_POSTMERGE_RUN_REQUIRED"):
             gate.verify_qualified_main(duplicate, SHA)
+
+    def test_windows_concrete_path_subtype_not_rejected_before_authority(self):
+        import json
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        import inspect
+        from pathlib import Path
+
+        self.assertIn("isinstance(path, Path)", inspect.getsource(gate.preflight_only))
+        self.assertIn("isinstance(path, Path)", inspect.getsource(gate.backup_only))
+        self.assertNotIn("type(path) is Path", inspect.getsource(gate.preflight_only))
+        self.assertNotIn("type(path) is Path", inspect.getsource(gate.backup_only))
+        with TemporaryDirectory() as temp:
+            file = Path(temp) / "FORGE-F139" / "state.sqlite"
+            file.parent.mkdir()
+            file.write_bytes(b"synthetic preflight only; never opened")
+            routes = []
+            def get_route(route):
+                routes.append(route)
+                if route.endswith("/issues/comments/77"):
+                    return get(route)
+                if route.endswith("/pulls/1736"):
+                    return {
+                        "number": 1736, "merged": True,
+                        "merge_commit_sha": SHA,
+                        "user": {"login": gate.OWNER},
+                        "base": {"ref": "main"},
+                        "head": {"sha": "a" * 40},
+                    }
+                if "/actions/runs?" in route:
+                    return {"workflow_runs": [
+                        {"name": name, "head_sha": SHA, "event": "push",
+                         "head_branch": "main", "status": "completed",
+                         "conclusion": "success", "run_attempt": 1,
+                         "actor": {"login": gate.OWNER}}
+                        for name in (
+                            "FORGE public Linux and Windows qualification",
+                            "FORGE F73 protected-main cryptographic origin (no science permission)")
+                    ]}
+                if route.endswith("/issues/807"):
+                    return {"body": json.dumps({
+                        "schema": "forge.f139.native-autonomy-feed-owner-policy.v1",
+                        "enabled": True, "source_sha": gate.preflight.OWNER_SOURCE,
+                        "lanes": ["Wingless", "Yggdrasil"], "scientific_first_use": False,
+                        "paid_model_calls": 0, "new_controller": False,
+                        "new_scheduler": False, "new_queue": False,
+                    })}
+                raise AssertionError("noncanonical read")
+            api = object.__new__(gate.GitHub)
+            with patch.object(gate.GitHub, "native_repo_get",
+                              lambda self, path: get_route(path)):
+                with patch.object(gate.GitHub, "protected_main", return_value=SHA):
+                    result = gate.preflight_only(
+                        file, {**ENV, "LOCALAPPDATA": temp}, event(), api, target=SHA)
+            self.assertTrue(result["same_task_pause_resume_only"])
+            self.assertFalse(result["source_transition_authorized"])
+            self.assertFalse(result["scientific_first_use"])
+            self.assertEqual(routes.count("repos/" + gate.REPO + "/issues/comments/77"), 2)
+            self.assertEqual(file.read_bytes(), b"synthetic preflight only; never opened")
 
     def test_exact_existing_job_and_bounded_same_task_maintenance(self):
         import os
