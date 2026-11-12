@@ -1,0 +1,86 @@
+name: FORGE R29 archived scientific successor qualification
+on:
+  push:
+    branches: [engineering/r29-verified-successor-r1]
+    paths:
+      - 'research/r29-wingless/**'
+      - '.github/workflows/forge-r29-archived-qualification.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  archived-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Focused guard qualification
+        run: python3 -B -m unittest discover -s research/r29-wingless -p 'test_*.py' -v
+      - name: Obtain exact archived original, review, claim and manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r29/original" "$RUNNER_TEMP/r29/review"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/38484042414" > "$RUNNER_TEMP/r29/run.json"
+          python3 - <<'PY'
+          import json,os
+          r=json.load(open(os.environ["RUNNER_TEMP"]+"/r29/run.json"))
+          assert r["id"]==38484042414 and r["run_attempt"]==1
+          assert r["status"]=="completed" and r["conclusion"]=="success"
+          assert r["head_sha"]=="de53150c0fed7cef37a36ac521a296568b8d78e1"
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/11857983340/zip" > "$RUNNER_TEMP/r29/original.zip"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/11858558661/zip" > "$RUNNER_TEMP/r29/review.zip"
+          python3 - <<'PY'
+          import os,zipfile,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"r29"
+          for name in ("original","review"):
+              with zipfile.ZipFile(root/(name+".zip")) as z:
+                  for member in z.namelist():
+                      if "/" in member or ".." in member or member.startswith("."):raise SystemExit("ARCHIVE_PATH_REJECTED")
+                  z.extractall(root/name)
+          PY
+          (cd "$RUNNER_TEMP/r29/original" && sha256sum -c original.sha256)
+          gh api "repos/${GITHUB_REPOSITORY}/contents/W-FORGE-R28-SOURCE-ROBUST-OBJECTIVE-01.json?ref=research/forge-first-use-claims-r28" --jq .content | base64 -d > "$RUNNER_TEMP/r29/claim.json"
+      - name: Verify real R28 negative and deterministic, non-authorizing R29 proposal twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:research/r28-wingless/prereg.json)" = 0f51aedd38a726347780990027129c6881736b5d
+          for n in 1 2; do
+            python3 -B research/r29-wingless/successor.py \
+              --manifest research/r28-wingless/prereg.json \
+              --original "$RUNNER_TEMP/r29/original/original.json" \
+              --review "$RUNNER_TEMP/r29/review/independent-review.json" \
+              --claim "$RUNNER_TEMP/r29/claim.json" \
+              --run 38484042414 \
+              --output "$RUNNER_TEMP/r29/successor-${n}.json"
+          done
+          cmp "$RUNNER_TEMP/r29/successor-1.json" "$RUNNER_TEMP/r29/successor-2.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"r29"/"successor-1.json"
+          x=json.loads(p.read_text())
+          assert x["parent_replay_allowed"] is False
+          assert x["new_original_dispatch_authorized"] is False
+          assert x["new_scientific_originals_executed"]==0
+          assert x["ckb_execution_authority_unchanged"] is True
+          print("R29_ARCHIVED_REAL_NEGATIVE_VERIFIED=PASS")
+          print("R29_REPEATED_DETERMINISM=PASS")
+          print("R29_NO_DISPATCH=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r29-archived-qualification
+          path: ${{ runner.temp }}/r29/successor-1.json
+          retention-days: 90
+          if-no-files-found: warn
