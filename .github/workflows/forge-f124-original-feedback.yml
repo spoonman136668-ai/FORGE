@@ -1,0 +1,91 @@
+name: FORGE original-negative evidence to development advisory (no new scheduler)
+on:
+  push:
+    branches: [engineering/f124-negative-feedback-bridge-20261018]
+    paths:
+      - 'researchfeedback/**'
+      - 'reference/research-intake/f124-negative-feedback-bridge.json'
+      - '.github/workflows/forge-f124-original-feedback.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124-original-feedback-source-audit
+  cancel-in-progress: false
+jobs:
+  existing-research-evidence-readonly-advisory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Test feedback classification and fail-closed negative cases
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s researchfeedback -p 'test_f124_negative_intake.py' -v
+          python3 -B isolationguard/check.py
+      - name: Authenticate FORGE original runs and complete Git-archived science independently
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f124-feedback"
+          mkdir -p "$root"
+          cp reference/research-intake/f124-negative-feedback-bridge.json "$root/manifest.json"
+          python3 -B - "$root/manifest.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d['schema']=='forge.research-feedback.f124-authenticated-negative-intake.v1'
+          assert d['base_main_sha']=='26a113c38141439a9ed46532ba27ee1d16134b5d'
+          assert [x['id'] for x in d['examples']]==['F124-BD','F124-BE']
+          assert all(not x for x in d['authority'].values())
+          print('F124_FEEDBACK_ORIGINAL_SCOPE=FROZEN')
+          PY
+          for tag in BD BE; do
+            data=$(python3 -B - "$root/manifest.json" "$tag" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          x=next(x for x in d['examples'] if x['id']=='F124-'+sys.argv[2])
+          print(x['run'],x['archival_commit'],x['path'],x['blob_sha'],x['sha256'])
+          PY
+          )
+            read -r run commit path blob hash <<<"$data"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "$root/$tag-run.json"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" > "$root/$tag-artifacts.json"
+            gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$commit" \
+              --jq '.content' | tr -d '\n' | base64 --decode > "$root/$tag-original.json"
+            test "$(git hash-object "$root/$tag-original.json")" = "$blob" || { echo "F124_$tag_GIT_ARCHIVE_BLOB_INVALID"; exit 1; }
+            test "$(sha256sum "$root/$tag-original.json" | cut -d' ' -f1)" = "$hash" || { echo "F124_$tag_ORIGINAL_SHA_INVALID"; exit 1; }
+          done
+          python3 -B researchfeedback/f124_negative_intake.py \
+            --manifest "$root/manifest.json" \
+            --bd "$root/BD-original.json" --be "$root/BE-original.json" \
+            --run-bd "$root/BD-run.json" --run-be "$root/BE-run.json" \
+            --artifacts-bd "$root/BD-artifacts.json" --artifacts-be "$root/BE-artifacts.json" \
+            --output "$root/negative-research-advisory.json"
+          python3 -B - "$root/negative-research-advisory.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x['negative_cohorts']==2
+          assert x['failure_modes']==[
+            'CORRECT_HARD_FALSE_POSITIVES_BUT_LOSE_TRUE_POSITIVES',
+            'UNINFORMATIVE_ZERO_FALSE_POSITIVE_BASELINE']
+          assert x['training_examples_admitted']==x['optimizer_training_labels']==0
+          assert x['accepted_scientific_originals']==x['policy_promotions']==0
+          assert x['live_controller_consumption_proven'] is False
+          assert x['next_research_gate']=='F124-BF'
+          print('F124_AUTHENTIC_NEGATIVES_IN_ADVISORY=PASS')
+          print('F124_NO_SCIENCE_PROMOTION_NO_TRAINING_CONTAMINATION=PASS')
+          PY
+          sha256sum "$root/"*.json > "$root/manifest-sha256.txt"
+          (cd "$root" && sha256sum --check manifest-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124-negative-research-advisory-not-science
+          path: ${{ runner.temp }}/f124-feedback
+          retention-days: 30
+          if-no-files-found: error
