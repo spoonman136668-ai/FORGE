@@ -95,3 +95,90 @@ jobs:
             scheduled_tasks_created=$false;services_changed=$false
             application_launched=$false
           }|ConvertTo-Json -Compress -Depth 6))
+      - name: Classify owner session and Windows screen saver control restriction read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 1 -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+            throw 'KTRADE_PR253_SESSION_DIAGNOSTIC_SCOPE_REFUSED'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class KtradePr253SessionOnly {
+            [StructLayout(LayoutKind.Sequential)] public struct P { public int X;public int Y; }
+            [DllImport("kernel32.dll")] public static extern uint WTSGetActiveConsoleSessionId();
+            [DllImport("wtsapi32.dll",CharSet=CharSet.Unicode,SetLastError=true,EntryPoint="WTSQuerySessionInformationW")]
+            public static extern bool WTSQuerySessionInformation(IntPtr server,uint session,int kind,out IntPtr buffer,out uint bytes);
+            [DllImport("wtsapi32.dll")] public static extern void WTSFreeMemory(IntPtr pointer);
+            [DllImport("user32.dll",SetLastError=true,EntryPoint="SystemParametersInfoW")]
+            public static extern bool SystemParametersInfo(uint action,uint arg,ref uint output,uint flags);
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int index,StringBuilder name,uint size,out uint needed);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool GetCursorPos(out P pos);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            public static string SessionState(uint session){
+              IntPtr buffer;uint bytes;
+              if(!WTSQuerySessionInformation(IntPtr.Zero,session,8,out buffer,out bytes))
+                return "READ_FAILED_"+Marshal.GetLastWin32Error();
+              try{
+                if(buffer==IntPtr.Zero || bytes<4)return "INVALID";
+                int v=Marshal.ReadInt32(buffer);
+                string[] values={"Active","Connected","ConnectQuery","Shadow","Disconnected","Idle","Listen","Reset","Down","Init"};
+                return v>=0 && v<values.Length?values[v]:"UNKNOWN_"+v;
+              }finally{WTSFreeMemory(buffer);}
+            }
+            public static string SpiRead(uint action){
+              uint value=0;bool success=SystemParametersInfo(action,0,ref value,0);
+              return success?value.ToString():"READ_FAILED_"+Marshal.GetLastWin32Error();
+            }
+            public static string InputDesktop(){
+              var h=OpenInputDesktop(0,false,1);
+              if(h==IntPtr.Zero)return "UNAVAILABLE_"+Marshal.GetLastWin32Error();
+              try{
+                var b=new StringBuilder(128);uint size;
+                return GetUserObjectInformation(h,2,b,(uint)(b.Capacity*2),out size)
+                  ?b.ToString():"NAME_READ_FAILED_"+Marshal.GetLastWin32Error();
+              }finally{CloseDesktop(h);}
+            }
+            public static string Cursor(){
+              P p;bool result=GetCursorPos(out p);
+              return result?"AVAILABLE":"UNAVAILABLE_"+Marshal.GetLastWin32Error();
+            }
+          }
+          '@
+          $state=[KtradePr253SessionOnly]::InputDesktop()
+          $stateInfo=[KtradePr253SessionOnly]::SessionState(1)
+          $pol=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ErrorAction SilentlyContinue
+          $policyProp=if($pol){$pol.PSObject.Properties['InactivityTimeoutSecs']}else{$null}
+          $console=[KtradePr253SessionOnly]::WTSGetActiveConsoleSessionId()
+          Write-Host ('KTRADE_PR253_SESSION_DIAGNOSTIC='+([ordered]@{
+            schema='ktrade.pr253.session-screen-saver-readonly.v1'
+            runner=$env:RUNNER_NAME
+            host=$env:COMPUTERNAME
+            owner_session=1
+            active_console_session=[int64]$console
+            session1_connect_state=$stateInfo
+            current_input_desktop=$state
+            spi_screensaver_running=[KtradePr253SessionOnly]::SpiRead(0x72)
+            spi_screensaver_secure=[KtradePr253SessionOnly]::SpiRead(0x76)
+            spi_screensaver_timeout_seconds=[KtradePr253SessionOnly]::SpiRead(0xE)
+            cursor_status=[KtradePr253SessionOnly]::Cursor()
+            foreground_available=([KtradePr253SessionOnly]::GetForegroundWindow() -ne [IntPtr]::Zero)
+            machine_inactivity_policy_seconds=if($policyProp){[string]$policyProp.Value}else{'UNSET'}
+            spi_set_attempted=$false
+            setting_changed=$false
+            screen_saver_dismissed=$false
+            controller_or_service_touched=$false
+            scheduled_task_created=$false
+            original_app_launched=$false
+          }|ConvertTo-Json -Compress -Depth 4))
