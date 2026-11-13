@@ -97,14 +97,16 @@ def verify_pair_readonly(db, receipt):
         raise V41PostcommitDenied(
             "F139_V41_POSTCOMMIT_NONCANONICAL_EVENT_JSON") from exc
     need(canonical(pending).decode("ascii") == rows[0]["payload"]
-         and canonical(transition).decode("ascii") == rows[1]["payload"]
-         and pending.get("issue_number") == 1715
+         and canonical(transition).decode("ascii") == rows[1]["payload"],
+         "EVENT_CANONICAL_DRIFT")
+    need(pending.get("issue_number") == 1715
          and pending.get("issue_id") == 6333201763
          and pending.get("owner_comment_id") ==
              receipt["source_event_owner_approval_id"]
          and pending.get("reissue_authorized") is False
-         and pending.get("scientific_first_use") is False
-         and transition.get("owner_event_id") ==
+         and pending.get("scientific_first_use") is False,
+         "PENDING_ESCROW_IDENTITY_DRIFT")
+    need(transition.get("owner_event_id") ==
              receipt["source_event_owner_approval_id"]
          and transition.get("to_source_sha") ==
              receipt["target_source_sha"]
@@ -112,14 +114,15 @@ def verify_pair_readonly(db, receipt):
              receipt["escrow_event_sha256"]
          and transition.get("new_dispatches") == 0
          and transition.get("scientific_first_use") is False
-         and transition.get("hybrid_admission") is False
-         and db.conn.execute(
+         and transition.get("hybrid_admission") is False,
+         "SOURCE_EVENT_AUTHORITY_DRIFT")
+    need(db.conn.execute(
              "SELECT COUNT(*) FROM events WHERE kind=?",
              (escrow.KIND,)).fetchone()[0] == 1
          and db.conn.execute(
              "SELECT COUNT(*) FROM tasks WHERE ticket=?",
              (pending["ticket"],)).fetchone()[0] == 0,
-         "ESCROW_1715_OR_TRANSITION_AUTHORITY_DRIFT")
+         "ESCROW_REPLAY_OR_ADMISSION")
     return {
         "schema": SCHEMA,
         "source_sha": receipt["target_source_sha"],
