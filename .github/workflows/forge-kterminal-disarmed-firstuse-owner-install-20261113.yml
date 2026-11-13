@@ -1,0 +1,151 @@
+name: K Terminal one-shot qualified disarmed owner first-use
+on:
+  push:
+    branches:
+      - qualification/kterminal-p5-firstuse-artifact-20261112
+    paths:
+      - .github/workflows/forge-kterminal-disarmed-firstuse-owner-install-20261113.yml
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: kterminal-disarmed-firstuse-owner-install-20261113
+  cancel-in-progress: false
+jobs:
+  owner-install:
+    name: K Terminal source-pinned disarmed side-by-side first use
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      KTERM_SOURCE_SHA: 3d8ff329485e0e97e452e953656976e68c33296a
+      KTERM_SOURCE_TREE: 73d44fee8672717ddfc05704a05f4b2b55156257
+      KTERM_ZIP_SHA256: 755f391a9499cdf710dc8f07068356df8505ace540db9893f12966a1a21c3c37
+    steps:
+      - name: Fail closed unless exact interactive owner and no existing K Terminal process
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-firstuse-artifact-20261112' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0') {throw 'KTERM_INSTALL_OWNER_OR_MODE_REFUSED'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+             'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+             'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET',
+             'K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC','K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_INSTALL_BROKER_ENV_REFUSED'}
+          }
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $explorers=@(Get-Process -Name explorer -ErrorAction SilentlyContinue | Where-Object {$_.SessionId -eq $session})
+          $apps=@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue)
+          if($session -le 0 -or -not [Environment]::UserInteractive -or $explorers.Count -lt 1){throw 'KTERM_INSTALL_DIFFERENT_DESKTOP_SESSION_REFUSED'}
+          if($apps.Count -gt 0){throw 'KTERM_INSTALL_EXISTING_APP_RUNNING_REFUSED'}
+          if(-not $env:LOCALAPPDATA){throw 'KTERM_INSTALL_USER_PROFILE_UNAVAILABLE'}
+          $target=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal-Qualified-3d8ff329485e'
+          if(Test-Path -LiteralPath $target){throw 'KTERM_INSTALL_SIDEBYSIDE_TARGET_EXISTS_REFUSED'}
+          $stage=Join-Path $env:RUNNER_TEMP ('kterm-disarmed-one-shot-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $stage){throw 'KTERM_INSTALL_STAGE_REUSED_REFUSED'}
+          Write-Host 'KTERM_DISARMED_OWNER_ADMISSION=PASS;INTERACTIVE_DESKTOP=TRUE;OTHER_APP_PROCESSES=0;UNIQUE_NEW_TARGET=TRUE;NO_BROKER_SECRETS=TRUE'
+      - name: Retrieve exact qualified ZIP and verify original receipt without account access
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $stage=Join-Path $env:RUNNER_TEMP ('kterm-disarmed-one-shot-'+$env:GITHUB_RUN_ID)
+          [void][IO.Directory]::CreateDirectory($stage)
+          $gh=(Get-Command gh -ErrorAction Stop).Source
+          & $gh run download 43415087839 --repo spoonman136668-ai/FORGE --name K-Terminal-Disarmed-FirstUse-3d8ff329485e-43415087839 --dir $stage *> (Join-Path $stage 'github-artifact.private.log')
+          if($LASTEXITCODE -ne 0){throw 'KTERM_INSTALL_QUALIFIED_ARTIFACT_DOWNLOAD_FAILED'}
+          $receiptPath=Join-Path $stage 'FIRST-USE-RECEIPT.json'
+          $zip=Join-Path $stage 'K-Terminal-Disarmed-FirstUse-3d8ff329485e.zip'
+          if(-not(Test-Path -LiteralPath $receiptPath -PathType Leaf) -or -not(Test-Path -LiteralPath $zip -PathType Leaf)){throw 'KTERM_INSTALL_ARTIFACT_SHAPE_INVALID'}
+          $r=Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+          if($r.source_sha -cne $env:KTERM_SOURCE_SHA -or $r.source_tree -cne $env:KTERM_SOURCE_TREE -or
+             $r.archive_sha256 -cne $env:KTERM_ZIP_SHA256 -or $r.roundtrip -cne 'PASS' -or
+             $r.deployment -cne 'NOT_AUTHORIZED' -or $r.original_desktop_smoke -cne 'NOT_RUN' -or
+             $r.binaries -ne 8 -or $r.files -ne 73){throw 'KTERM_INSTALL_ORIGINAL_RECEIPT_INVALID'}
+          if((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:KTERM_ZIP_SHA256){throw 'KTERM_INSTALL_ARTIFACT_HASH_INVALID'}
+          $source=Join-Path $stage 'source'
+          [void][IO.Directory]::CreateDirectory($source)
+          Expand-Archive -LiteralPath $zip -DestinationPath $source -ErrorAction Stop
+          $manifestPath=Join-Path $source 'FIRST-USE-MANIFEST.json'
+          if(-not(Test-Path -LiteralPath $manifestPath -PathType Leaf)){throw 'KTERM_INSTALL_FIRSTUSE_MANIFEST_MISSING'}
+          $m=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if($m.schema -cne 'kterminal.firstuse.disarmed-personal.v1' -or
+             $m.source_sha -cne $env:KTERM_SOURCE_SHA -or $m.source_tree -cne $env:KTERM_SOURCE_TREE -or
+             $m.default_authority -cne 'DISARMED' -or [bool]$m.live_trading_authorized -or
+             $m.binary_count -ne 8 -or @($m.files).Count -ne 73){throw 'KTERM_INSTALL_MANIFEST_INVALID'}
+          foreach($name in @('config.json','.env','data')){if(Test-Path -LiteralPath (Join-Path $source $name)){throw 'KTERM_INSTALL_PACKAGE_PRIVATE_STATE_REFUSED'}}
+          Write-Host ('KTERM_INSTALL_SOURCE_CUSTODY=PASS;SOURCE='+$env:KTERM_SOURCE_SHA+';TREE='+$env:KTERM_SOURCE_TREE+';ZIP_SHA256='+$env:KTERM_ZIP_SHA256+';FILES=73;BINARIES=8;PAPER_ONLY=TRUE')
+      - name: Perform fresh side-by-side install without importing or launching original state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $stage=Join-Path $env:RUNNER_TEMP ('kterm-disarmed-one-shot-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $stage 'source'
+          $target=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal-Qualified-3d8ff329485e'
+          if(Test-Path -LiteralPath $target){throw 'KTERM_INSTALL_TARGET_RACED_REFUSED'}
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -gt 0){throw 'KTERM_INSTALL_ACTIVE_APP_RACED_REFUSED'}
+          $install=Join-Path $source 'INSTALL-KTerminal.ps1'
+          $privateLog=Join-Path $stage 'install.private.log'
+          try{ & $install -SourceRoot $source -Destination $target -NoLaunch *> $privateLog }
+          catch{throw 'KTERM_INSTALL_SOURCE_SCRIPT_FAILED_NO_ORIGINAL_STATE_TOUCHED'}
+          if(-not(Test-Path -LiteralPath (Join-Path $target 'K-Terminal.exe') -PathType Leaf) -or
+             -not(Test-Path -LiteralPath (Join-Path $target 'K-Terminal-Engine.exe') -PathType Leaf) -or
+             -not(Test-Path -LiteralPath (Join-Path $target 'FIRST-USE-MANIFEST.json') -PathType Leaf)){throw 'KTERM_INSTALL_PAYLOAD_INCOMPLETE'}
+          foreach($private in @('config.json','.env','data')){if(Test-Path -LiteralPath (Join-Path $target $private)){throw 'KTERM_INSTALL_UNEXPECTED_PRIVATE_STATE'}}
+          $m=Get-Content -LiteralPath (Join-Path $target 'FIRST-USE-MANIFEST.json') -Raw | ConvertFrom-Json
+          if($m.source_sha -cne $env:KTERM_SOURCE_SHA -or $m.default_authority -cne 'DISARMED'){throw 'KTERM_INSTALL_SOURCE_DRIFT'}
+          Write-Host 'KTERM_FRESH_SIDEBYSIDE_INSTALL=PASS;EXISTING_INSTALLATION_UNTOUCHED=TRUE;NO_PREDECESSOR_IMPORT=TRUE;CONFIG_ABSENT=TRUE;LIVE_DISABLED=TRUE'
+      - name: Bounded actual desktop launcher smoke, PAPER prelaunch only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $target=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal-Qualified-3d8ff329485e'
+          if(-not(Test-Path -LiteralPath (Join-Path $target 'K-Terminal.exe') -PathType Leaf)){throw 'KTERM_DESKTOP_SMOKE_NOT_INSTALLED'}
+          if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_DESKTOP_SMOKE_CONFIG_PRESENT_REFUSED'}
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -gt 0){throw 'KTERM_DESKTOP_SMOKE_APP_ALREADY_RUNNING_REFUSED'}
+          $sess=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $started=[DateTime]::Now
+          $exe=Join-Path $target 'K-Terminal.exe'
+          $p=Start-Process -FilePath $exe -WorkingDirectory $target -PassThru -ErrorAction Stop
+          $visible=$false
+          for($i=0;$i -lt 20;$i++){
+            Start-Sleep -Milliseconds 750
+            $windows=@(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.SessionId -eq $sess -and $_.MainWindowTitle -like '*K-Terminal*' -and $_.StartTime -ge $started.AddSeconds(-2) }
+              catch { $false }
+            })
+            if($windows.Count -gt 0){$visible=$true;break}
+            $p.Refresh()
+            if($p.HasExited){break}
+          }
+          $p.Refresh()
+          if(-not $visible){
+            Write-Host ('KTERM_DESKTOP_FIRST_LAUNCH=FAIL;ORIGINAL_LAUNCHER_EXITED='+$p.HasExited+';NO_BROKER_ACCESS=TRUE;INSTALL_RETAINED=TRUE')
+            throw 'KTERM_DESKTOP_FIRST_LAUNCH_WINDOW_UNVERIFIED'
+          }
+          Write-Host 'KTERM_DESKTOP_FIRST_LAUNCH=PASS;REAL_DESKTOP_WINDOW_VISIBLE=TRUE;COLD_START=TRUE;PAPER_PRELAUNCH=TRUE;NO_CONFIG=TRUE;NO_LIVE=TRUE'
+          foreach($w in $windows){try{[void]$w.CloseMainWindow()}catch{}}
+          try{[void]$p.CloseMainWindow()}catch{}
+          Write-Host 'KTERM_DESKTOP_FIRSTUSE_COMPLETE=PASS;INSTALLED_SIDEBYSIDE=TRUE;ORIGINAL_APP_UNTOUCHED=TRUE;LIVE_RECONCILIATION=NOT_RUN;LOT_OWNERSHIP=UNVERIFIED'
+      - name: Erase only this run-specific downloaded source stage
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+          $stage=[IO.Path]::GetFullPath((Join-Path $env:RUNNER_TEMP ('kterm-disarmed-one-shot-'+$env:GITHUB_RUN_ID)))
+          if(-not $stage.StartsWith($base,[StringComparison]::OrdinalIgnoreCase)){throw 'KTERM_STAGE_CLEANUP_OUTSIDE_TEMP_REFUSED'}
+          if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction Stop}
+          Write-Host 'KTERM_PRIVATE_STAGE_CLEARED=PASS;INSTALLED_APPLICATION_RETAINED=TRUE;ORIGINAL_APPLICATION_UNCHANGED=TRUE'
