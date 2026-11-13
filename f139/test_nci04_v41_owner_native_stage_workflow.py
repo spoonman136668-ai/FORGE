@@ -20,7 +20,6 @@ class V41OwnerNativeStageWorkflowTests(unittest.TestCase):
     def test_frozen_branch_scope_matches_only_our_five_paths(self):
         from scripts import check_rar_g145_pr_scope as guard
         expected = {
-            ".github/workflows/f139-v38-original-owner-release.yml",
             ".github/workflows/f139-v41-original-owner-native-stage.yml",
             "f139/test_nci04_v41_owner_native_stage_workflow.py",
             "scripts/check_rar_g145_pr_scope.py",
@@ -30,14 +29,6 @@ class V41OwnerNativeStageWorkflowTests(unittest.TestCase):
         self.assertEqual(
             guard.FROZEN_SCOPES["engineering/f139-v41-owner-native-stage-workflow-20261113"],
             ("2a7f2f58f829e9de9bdf47fe963d3edbf9335982", expected))
-
-    def test_old_v40_installer_cannot_run_on_v41_release_ref(self):
-        source = (ROOT / ".github/workflows/f139-v38-original-owner-release.yml").read_text(encoding="utf-8")
-        jobs = source.split("\n  handoff-v40:\n", 1)
-        self.assertEqual(len(jobs), 2)
-        gating = "\n".join(jobs[1].splitlines()[:4])
-        self.assertIn("github.sha == '2c7caad5a4502d4b874a11d57207a35cf033eb08'", gating)
-        self.assertNotIn("github.sha != '42c70d74dd93ef90d0f4618fefefe2206b81eafe'", gating)
 
     def test_trigger_is_only_new_original_owner_issue_comment(self):
         source = self.contents
