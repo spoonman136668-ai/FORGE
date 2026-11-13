@@ -246,18 +246,21 @@ class AtomicCopiedLedgerTests(unittest.TestCase):
         self._rehearse_detached_negatives(tamper=True)
 
     def test_rehearsal_must_not_stage_custody_in_original_owner_root(self):
-        with closing(Database.open_readonly(self.original)) as readonly:
-            with SingleOwner(self.original.with_suffix(".lock")):
-                with self.assertRaisesRegex(
-                        atomic.V41AtomicDenied,
-                        "ISOLATED_CUSTODY_ROOT_REQUIRED"):
-                    atomic.rehearse_locked_original(
-                        readonly, self.original.with_name("old.sqlite"),
-                        None, None, target=TARGET,
-                        qualification_run_id=1, backup_sha256="a"*64,
-                        owner_comment_id=11,
-                        copy_path=self.original.with_name("unsafe.sqlite"),
-                        binary_sha="7"*64, toolchain=source.TOOLCHAIN)
+        # setUp deliberately uses a synthetic 1,826-event head; disable full
+        # history replay ONLY for this interface isolation negative control.
+        with patch.object(Database, "verify", return_value=None):
+            with closing(Database.open_readonly(self.original)) as readonly:
+                with SingleOwner(self.original.with_suffix(".lock")):
+                    with self.assertRaisesRegex(
+                            atomic.V41AtomicDenied,
+                            "ISOLATED_CUSTODY_ROOT_REQUIRED"):
+                        atomic.rehearse_locked_original(
+                            readonly, self.original.with_name("old.sqlite"),
+                            None, None, target=TARGET,
+                            qualification_run_id=1, backup_sha256="a"*64,
+                            owner_comment_id=11,
+                            copy_path=self.original.with_name("unsafe.sqlite"),
+                            binary_sha="7"*64, toolchain=source.TOOLCHAIN)
         self.assertFalse(self.original.with_name("unsafe.sqlite").exists())
 
     def test_original_must_be_query_only_and_no_live_commands(self):
