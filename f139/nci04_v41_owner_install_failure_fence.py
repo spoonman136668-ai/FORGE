@@ -174,6 +174,7 @@ def interrupted_cutover_response(plan, *, stage, observation):
              "source_sha", "head_seq", "head_sha256",
              "task_disabled", "policy_source_sha", "installed_source_sha",
              "escrow_count", "source_transition_count",
+             "paired_escrow_sha256", "sqlite_transaction_closed",
              "new_dispatches", "scientific_first_use", "hybrid_admission",
          }, "INTERRUPTION_SHAPE_INVALID")
     need(_sha(observation["source_sha"], 40)
@@ -181,6 +182,7 @@ def interrupted_cutover_response(plan, *, stage, observation):
          and _sha(observation["policy_source_sha"], 40)
          and _sha(observation["installed_source_sha"], 40)
          and type(observation["task_disabled"]) is bool
+         and observation["sqlite_transaction_closed"] is True
          and type(observation["head_seq"]) is int
          and all(type(observation[k]) is int for k in
                  ("escrow_count", "source_transition_count",
@@ -197,6 +199,7 @@ def interrupted_cutover_response(plan, *, stage, observation):
              and observation["head_sha256"] == plan["original_head_sha256"]
              and observation["escrow_count"] == 0
              and observation["source_transition_count"] == 0
+             and observation["paired_escrow_sha256"] is None
              and observation["policy_source_sha"] == original
              and observation["installed_source_sha"] == original
              and (stage == "OWNER_READONLY" or
@@ -209,7 +212,9 @@ def interrupted_cutover_response(plan, *, stage, observation):
              and observation["head_seq"] == plan["expected_copy_head_seq"]
              and observation["head_sha256"] == plan["expected_copy_head_sha256"]
              and observation["escrow_count"] == 1
-             and observation["source_transition_count"] == 1,
+             and observation["source_transition_count"] == 1
+             and observation["paired_escrow_sha256"] ==
+                 plan["expected_escrow_sha256"],
              "COMMITTED_EVENT_PAIR_NOT_VERIFIED")
         if stage != "TARGET_TASK_RESUMED":
             need(observation["task_disabled"] is True,
