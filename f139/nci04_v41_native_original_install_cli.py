@@ -99,7 +99,12 @@ def original_atomic_commit_and_hold(target: str, *,
     # The already-qualified copy routine strictly forbids a rehearsal in
     # the original data or sealed backup directory. Make a fresh isolated
     # create-only directory; never overwrite or retry a partial rehearsal.
-    need(not copy_root.exists() and not copy_root.is_symlink(),
+    need(not copy_root.exists() and not copy_root.is_symlink()
+         and (not copy_root.parent.exists() or
+              (copy_root.parent.is_dir()
+               and not copy_root.parent.is_symlink()
+               and not getattr(copy_root.parent, "is_junction",
+                               lambda: False)())),
          "ISOLATED_REHEARSAL_ALREADY_EXISTS")
     copy_root.mkdir(parents=True, exist_ok=False)
     committed = atomic.original_commit_after_independent_rehearsal(
