@@ -89,13 +89,19 @@ def original_atomic_commit_and_hold(target: str, *,
          and data.is_dir() and not data.is_symlink(),
          "STAGED_EXACT_SOURCE_NOT_RUNNING")
     original_db = data / "state.sqlite"
-    disposable_copy = data / (
-        "f139-v41-live-install-copy-" + env["GITHUB_RUN_ID"] + ".sqlite")
+    copy_root = data / "isolated-v41-install-rehearsals" / env["GITHUB_RUN_ID"]
+    disposable_copy = copy_root / "rehearsal.sqlite"
     need(original_db.is_file() and not original_db.is_symlink()
          and binary.is_file() and not binary.is_symlink()
          and not disposable_copy.exists()
          and not disposable_copy.is_symlink(),
          "CREATE_ONLY_ORIGINAL_AND_COPY_REQUIRED")
+    # The already-qualified copy routine strictly forbids a rehearsal in
+    # the original data or sealed backup directory. Make a fresh isolated
+    # create-only directory; never overwrite or retry a partial rehearsal.
+    need(not copy_root.exists() and not copy_root.is_symlink(),
+         "ISOLATED_REHEARSAL_ALREADY_EXISTS")
+    copy_root.mkdir(parents=True, exist_ok=False)
     committed = atomic.original_commit_after_independent_rehearsal(
         original_db, root, binary, disposable_copy,
         env=env, event=event, api=api)
