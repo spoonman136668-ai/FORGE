@@ -84,44 +84,44 @@ jobs:
           $log=Join-Path $env:RUNNER_TEMP ('kterminal-getonly-'+$env:GITHUB_RUN_ID+'.private.log')
           if(Test-Path -LiteralPath $test){throw 'KTERM_GET_ONLY_TEST_ALREADY_EXISTS'}
           $source=@'
-package pkg
-
-import (
-  "context"
-  "fmt"
-  "net/http"
-  "os"
-  "strings"
-  "sync/atomic"
-  "testing"
-)
-
-type kterminalGETOnlyGuard struct { base http.RoundTripper; calls atomic.Int64 }
-func (g *kterminalGETOnlyGuard) RoundTrip(r *http.Request) (*http.Response,error) {
-  if r.Method != http.MethodGet || r.URL.Scheme != "https" || !strings.EqualFold(r.URL.Hostname(),"api.coinbase.com") || r.URL.Port() != "" {
-    return nil, fmt.Errorf("GET_ONLY_SCOPE_REFUSED")
-  }
-  if g.calls.Add(1)>80 {return nil,fmt.Errorf("GET_ONLY_REQUEST_BUDGET_EXCEEDED")}
-  return g.base.RoundTrip(r)
-}
-func TestKTerminalOriginalBrokerHistoryGETOnly20261113(t *testing.T) {
-  b,e:=os.ReadFile(os.Getenv("KTERM_ORIGINAL_CONFIG_PATH")); if e!=nil {t.Fatal("ORIGINAL_CONFIG_READ_REFUSED")}
-  cfg,e:=ParseNativeConfiguration(b); if e!=nil {t.Fatal("ORIGINAL_CONFIG_PARSE_REFUSED")}
-  if cfg.SyntheticTP.ProductID!="BTC-USDC" || cfg.AccountID=="" || cfg.APIKey.KeyName=="" || cfg.APIKey.KeySecret=="" {t.Fatal("ORIGINAL_ACCOUNT_BTC_SCOPE_REFUSED")}
-  g:=&kterminalGETOnlyGuard{base:http.DefaultTransport}
-  http.DefaultTransport=g
-  defer func(){http.DefaultTransport=g.base}()
-  out:=auditCoinbaseHistoryWithoutLocalLedger(context.Background(),cfg)
-  if out==nil || out.BotOwnedLotsVerified || out.ExecutionAuthorized {t.Fatal("GET_ONLY_EVIDENCE_AUTHORITY_VIOLATION")}
-  if out.State!="SOURCE_VERIFIED" && out.State!="INCOMPLETE" && out.State!="UNAVAILABLE" {t.Fatal("GET_ONLY_HISTORY_INVALID_STATE")}
-  fmt.Printf("KTERM_COINBASE_HISTORY_GET_ONLY=COMPLETE;STATE=%s;HTTPS_GET_REQUESTS=%d;PORTFOLIO_SCOPED=%t;FULL_HISTORY_VERIFIED=%t;TRANSACTIONS=%d;ACQUISITION_GROUPS=%d;AMBIGUOUS_OPEN_GROUPS=%d;EXTERNAL_GROUPS=%d;V3_FILL_COVERAGE=%t;V3_FILL_COUNT=%d;V3_BUY_GROUPS=%d;V3_SELL_GROUPS=%d;OPEN_SELL_COVERAGE=%t;OPEN_SELL_COUNT=%d;TP_CANDIDATE_COVERAGE=%t;TP_CANDIDATE_COUNT=%d;LOT_OWNERSHIP_VERIFIED=%t;EXECUTION_AUTHORIZED=%t;NO_LOCAL_LEDGER_WRITES=TRUE\n",
-    out.State,g.calls.Load(),out.PortfolioScoped,out.FullHistoryVerified,out.Transactions,
-    out.AcquisitionGroups,out.AmbiguousOpenGroups,out.ExternalGroups,
-    out.V3FillCoverageVerified,out.V3FillCount,out.V3BuyOrderGroups,out.V3SellOrderGroups,
-    out.OpenSellOrderCoverageVerified,out.OpenSellOrdersObserved,out.TPPatternCountAvailable,
-    out.TPPatternCandidates,out.BotOwnedLotsVerified,out.ExecutionAuthorized)
-}
-'@
+          package pkg
+          
+          import (
+            "context"
+            "fmt"
+            "net/http"
+            "os"
+            "strings"
+            "sync/atomic"
+            "testing"
+          )
+          
+          type kterminalGETOnlyGuard struct { base http.RoundTripper; calls atomic.Int64 }
+          func (g *kterminalGETOnlyGuard) RoundTrip(r *http.Request) (*http.Response,error) {
+            if r.Method != http.MethodGet || r.URL.Scheme != "https" || !strings.EqualFold(r.URL.Hostname(),"api.coinbase.com") || r.URL.Port() != "" {
+              return nil, fmt.Errorf("GET_ONLY_SCOPE_REFUSED")
+            }
+            if g.calls.Add(1)>80 {return nil,fmt.Errorf("GET_ONLY_REQUEST_BUDGET_EXCEEDED")}
+            return g.base.RoundTrip(r)
+          }
+          func TestKTerminalOriginalBrokerHistoryGETOnly20261113(t *testing.T) {
+            b,e:=os.ReadFile(os.Getenv("KTERM_ORIGINAL_CONFIG_PATH")); if e!=nil {t.Fatal("ORIGINAL_CONFIG_READ_REFUSED")}
+            cfg,e:=ParseNativeConfiguration(b); if e!=nil {t.Fatal("ORIGINAL_CONFIG_PARSE_REFUSED")}
+            if cfg.SyntheticTP.ProductID!="BTC-USDC" || cfg.AccountID=="" || cfg.APIKey.KeyName=="" || cfg.APIKey.KeySecret=="" {t.Fatal("ORIGINAL_ACCOUNT_BTC_SCOPE_REFUSED")}
+            g:=&kterminalGETOnlyGuard{base:http.DefaultTransport}
+            http.DefaultTransport=g
+            defer func(){http.DefaultTransport=g.base}()
+            out:=auditCoinbaseHistoryWithoutLocalLedger(context.Background(),cfg)
+            if out==nil || out.BotOwnedLotsVerified || out.ExecutionAuthorized {t.Fatal("GET_ONLY_EVIDENCE_AUTHORITY_VIOLATION")}
+            if out.State!="SOURCE_VERIFIED" && out.State!="INCOMPLETE" && out.State!="UNAVAILABLE" {t.Fatal("GET_ONLY_HISTORY_INVALID_STATE")}
+            fmt.Printf("KTERM_COINBASE_HISTORY_GET_ONLY=COMPLETE;STATE=%s;HTTPS_GET_REQUESTS=%d;PORTFOLIO_SCOPED=%t;FULL_HISTORY_VERIFIED=%t;TRANSACTIONS=%d;ACQUISITION_GROUPS=%d;AMBIGUOUS_OPEN_GROUPS=%d;EXTERNAL_GROUPS=%d;V3_FILL_COVERAGE=%t;V3_FILL_COUNT=%d;V3_BUY_GROUPS=%d;V3_SELL_GROUPS=%d;OPEN_SELL_COVERAGE=%t;OPEN_SELL_COUNT=%d;TP_CANDIDATE_COVERAGE=%t;TP_CANDIDATE_COUNT=%d;LOT_OWNERSHIP_VERIFIED=%t;EXECUTION_AUTHORIZED=%t;NO_LOCAL_LEDGER_WRITES=TRUE\n",
+              out.State,g.calls.Load(),out.PortfolioScoped,out.FullHistoryVerified,out.Transactions,
+              out.AcquisitionGroups,out.AmbiguousOpenGroups,out.ExternalGroups,
+              out.V3FillCoverageVerified,out.V3FillCount,out.V3BuyOrderGroups,out.V3SellOrderGroups,
+              out.OpenSellOrderCoverageVerified,out.OpenSellOrdersObserved,out.TPPatternCountAvailable,
+              out.TPPatternCandidates,out.BotOwnedLotsVerified,out.ExecutionAuthorized)
+          }
+          '@
           [IO.File]::WriteAllText($test,$source,[Text.UTF8Encoding]::new($false))
           $env:KTERM_ORIGINAL_CONFIG_PATH=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal\config.json'
           Push-Location $checkout
