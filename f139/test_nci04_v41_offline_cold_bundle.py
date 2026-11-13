@@ -123,6 +123,77 @@ class OfflineColdBundleTests(unittest.TestCase):
         for suffix in ("-wal", "-shm", "-journal"):
             self.assertFalse(Path(str(self.folder/"state.sqlite") + suffix).exists())
 
+
+    def test_historical_negative_zip_adjunct_survives_cold_detached_restore(self):
+        # Synthetic payloads exercise authentic filesystem semantics; this is
+        # engineering qualification, not a real owner or scientific receipt.
+        payloads = {
+            "native-negative/f139-nci04-first/11/ubuntu-latest.zip":
+                b"negative-failed-provider-1",
+            "native-negative/f139-nci04-second/22/ubuntu-latest.zip":
+                b"negative-failed-provider-2",
+        }
+        expected = {path: hashlib.sha256(data).hexdigest()
+                    for path, data in payloads.items()}
+        definitions = tuple(("NATIVE_NEGATIVE_CUSTODIED" if i == 0
+                             else "NATIVE_SPLIT_NEGATIVE_CUSTODIED",
+                             path, expected[path])
+                            for i, path in enumerate(payloads))
+        for relative, data in payloads.items():
+            source = self.root.joinpath(*relative.split("/"))
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(data)
+        before = hashlib.sha256(self.original.read_bytes()).hexdigest()
+        with patch.object(cold, "_negative_definitions",
+                          return_value=definitions), \
+             patch.object(cold, "required_negative_custody",
+                          return_value=expected):
+            receipt = self.attempt()
+            self.assertEqual(receipt["negative_custody_manifest_sha256"],
+                             bundle.digest(bundle.canonical(expected)))
+            self.assertEqual({k: v for k, v in receipt["files_sha256"].items()
+                              if k.startswith("native-negative/")}, expected)
+            self.original.rename(self.original.with_suffix(".offline"))
+            restored = self.offline(receipt)
+            self.assertTrue(restored["independent_restore_verified"])
+            self.assertFalse(restored["source_transition_authorized"])
+        self.assertEqual(
+            hashlib.sha256(self.original.with_suffix(".offline").read_bytes()).hexdigest(),
+            before)
+        self.assertFalse(list(self.folder.glob("f139-v41-independent-restore-*")))
+
+    def test_historical_negative_missing_or_tampered_fails_closed(self):
+        payload = b"custodied-negative"
+        relative = "native-negative/f139-nci04-first/11/ubuntu-latest.zip"
+        wanted = hashlib.sha256(payload).hexdigest()
+        definitions = (("NATIVE_NEGATIVE_CUSTODIED", relative, wanted),)
+        original = self.root.joinpath(*relative.split("/"))
+        original.parent.mkdir(parents=True)
+        original.write_bytes(payload)
+        target = self.root / "detached"
+        target.mkdir()
+        with patch.object(cold, "_negative_definitions",
+                          return_value=definitions):
+            expected = {relative: wanted}
+            self.assertEqual(cold.copy_negative_custody(
+                self.root, target, expected, copy_files=True), expected)
+            self.assertEqual(cold.copy_negative_custody(
+                self.root, target, expected, copy_files=False), expected)
+            copied = target.joinpath(*relative.split("/"))
+            copied.write_bytes(b"tampered")
+            with self.assertRaisesRegex(Exception, "NEGATIVE_CUSTODY_COPIED_BYTES_CHANGED"):
+                cold.copy_negative_custody(self.root, target, expected,
+                                           copy_files=False)
+            copied.write_bytes(payload)
+            original.unlink()
+            with self.assertRaisesRegex(Exception, "NEGATIVE_CUSTODY_ORIGINAL_FILE_INVALID"):
+                cold.copy_negative_custody(self.root, target, expected,
+                                           copy_files=False)
+            with self.assertRaisesRegex(Exception, "NEGATIVE_CUSTODY_SCOPE"):
+                cold.copy_negative_custody(
+                    self.root, target, {"native-negative/unlisted.zip": wanted},
+                    copy_files=False)
+
     def test_run_id_is_create_only_with_no_replay(self):
         self.attempt()
         with self.assertRaisesRegex(bundle.V41BundleDenied, "RUN_ALREADY_STAGED"):

@@ -70,14 +70,14 @@ def verify_owner_event(env, event, get, *, target):
 def verify_qualified_main(get, target):
     """Require already successful signed-main source and original full CI.
 
-    Exact owner-bound PR #1736, first-attempt protected push checks, and
+    Exact audited V41 negative-custody PR #1740, first-attempt protected push checks, and
     current main identity. This is read-only evidence, never maintenance
     permission or source-transition approval.
     """
     need(callable(get) and type(target) is str and SHA.fullmatch(target),
          "QUALIFICATION_ARGUMENTS")
-    pr = get("repos/" + REPO + "/pulls/1736")
-    need(type(pr) is dict and pr.get("number") == 1736
+    pr = get("repos/" + REPO + "/pulls/1740")
+    need(type(pr) is dict and pr.get("number") == 1740
          and pr.get("merged") is True and pr.get("merge_commit_sha") == target
          and pr.get("user", {}).get("login") == OWNER
          and pr.get("base", {}).get("ref") == "main"

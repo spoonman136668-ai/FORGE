@@ -88,8 +88,8 @@ class OwnerBackupGateTests(unittest.TestCase):
 
     def test_unmerged_or_incomplete_postmerge_ci_denied(self):
         def remote(route):
-            if route.endswith("/pulls/1736"):
-                return {"number": 1736, "merged": True, "merge_commit_sha": SHA,
+            if route.endswith("/pulls/1740"):
+                return {"number": 1740, "merged": True, "merge_commit_sha": SHA,
                         "user": {"login": gate.OWNER},
                         "base": {"ref": "main"}, "head": {"sha": "a" * 40}}
             if "/actions/runs?" in route:
@@ -152,9 +152,9 @@ class OwnerBackupGateTests(unittest.TestCase):
                 routes.append(route)
                 if route.endswith("/issues/comments/77"):
                     return get(route)
-                if route.endswith("/pulls/1736"):
+                if route.endswith("/pulls/1740"):
                     return {
-                        "number": 1736, "merged": True,
+                        "number": 1740, "merged": True,
                         "merge_commit_sha": SHA,
                         "user": {"login": gate.OWNER},
                         "base": {"ref": "main"},
