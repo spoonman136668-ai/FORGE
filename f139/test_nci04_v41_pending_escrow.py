@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import sqlite3
 import unittest
-from f139.nci04_native_contract import canonical
+from f139.local_controller import canonical as event_canonical
 from f139 import nci04_v41_pending_escrow as escrow
 from f139.local_controller import Database
 
@@ -79,7 +79,7 @@ class V41EscrowTests(unittest.TestCase):
         conn.execute(
             "INSERT INTO events VALUES(?,?,?,?,?)",
             (escrow.OBSERVED_SEQ+1,escrow.KIND,"1"*64,"f"*64,
-             canonical(self.document()).decode("ascii")))
+             event_canonical(self.document()).decode("ascii")))
         return conn
 
     def test_synthetic_adjacent_escrow_and_replay_guards(self):
@@ -96,7 +96,7 @@ class V41EscrowTests(unittest.TestCase):
             conn.execute(
                 "INSERT INTO events VALUES(?,?,?,?,?)",
                 (escrow.OBSERVED_SEQ+2,escrow.KIND,"2"*64,"1"*64,
-                 canonical(self.document()).decode("ascii")))
+                 event_canonical(self.document()).decode("ascii")))
             with self.assertRaisesRegex(escrow.EscrowDenied, "DUPLICATE"):
                 escrow.verify_before_transition(db,escrow.OBSERVED_SEQ+2)
             conn.execute("DELETE FROM events WHERE seq=?",
@@ -120,6 +120,60 @@ class V41EscrowTests(unittest.TestCase):
             with self.assertRaisesRegex(escrow.EscrowDenied, "TASK_ALREADY_PRESENT"):
                 escrow.verify_before_transition(db,escrow.OBSERVED_SEQ+2)
 
+
+    def test_owner_event_writer_bytes_and_noncanonical_negatives(self):
+        # The genuine Database.event writer appends a newline to every payload.
+        # The escrow-specific verifier must use that exact grammar, not the
+        # distinct newline-free native intent hashing canonicalization.
+        import json
+        with closing(self.synthetic_cold_events()) as conn:
+            payload = conn.execute(
+                "SELECT payload FROM events WHERE kind=?", (escrow.KIND,)
+            ).fetchone()["payload"]
+            self.assertEqual(payload, event_canonical(self.document()).decode("ascii"))
+            self.assertTrue(payload.endswith("\\n"))
+            class Cold:
+                def __init__(self, db):
+                    self.conn = db
+            db = Cold(conn)
+            self.assertEqual(escrow.verify_before_transition(
+                db, escrow.OBSERVED_SEQ + 2), "1" * 64)
+            for bad in (payload[:-1],
+                        json.dumps(self.document(), indent=2) + "\\n",
+                        payload + "\\n"):
+                with self.subTest(bad_length=len(bad)):
+                    conn.execute("UPDATE events SET payload=? WHERE kind=?",
+                                 (bad, escrow.KIND))
+                    with self.assertRaisesRegex(
+                            escrow.EscrowDenied, "ESCROW_NONCANONICAL"):
+                        escrow.verify_before_transition(
+                            db, escrow.OBSERVED_SEQ + 2)
+            conn.execute("UPDATE events SET payload=? WHERE kind=?",
+                         (payload, escrow.KIND))
+            self.assertEqual(escrow.verify_before_transition(
+                db, escrow.OBSERVED_SEQ + 2), "1" * 64)
+
+    def test_actual_database_event_uses_accepted_escrow_bytes(self):
+        # Synthetic high-water mark tests the REAL Database.event serializer,
+        # not authenticity of the historical original SHA-chain.
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "copy.sqlite"
+            with closing(Database.initialize(path, escrow.OWNER_SOURCE)) as db:
+                db.conn.execute(
+                    "UPDATE meta SET head_seq=?,head_hash=? WHERE id=1",
+                    (escrow.OBSERVED_SEQ, "f" * 64))
+                db.event(escrow.KIND, self.document())
+                row = db.conn.execute(
+                    "SELECT payload FROM events WHERE kind=?", (escrow.KIND,)
+                ).fetchone()
+                self.assertEqual(row["payload"],
+                                 event_canonical(self.document()).decode("ascii"))
+                # Missing synthetic frozen history must still be denied, but
+                # the event's canonical encoding is valid.
+                with self.assertRaisesRegex(
+                        escrow.EscrowDenied, "FROZEN_PREFIX_DRIFT"):
+                    escrow.verify_before_transition(
+                        db, escrow.OBSERVED_SEQ + 2)
 
     def test_orphan_must_not_survive_cold_reopen(self):
         """Committed orphan, unrelated successor and fake V41 pairing all fail."""
@@ -172,20 +226,20 @@ class V41EscrowTests(unittest.TestCase):
                 owner_event_id=777)
             conn.execute("INSERT INTO events VALUES(?,?,?,?,?)",
                 (escrow.OBSERVED_SEQ+2,"SOURCE_TRANSITION_ADMITTED",
-                 "2"*64, "1"*64,canonical(valid).decode("ascii")))
+                 "2"*64, "1"*64,event_canonical(valid).decode("ascii")))
             self.assertEqual(escrow.audit_committed_escrow(db),
                              "PAIRED_V41_TRANSITION")
             wrong={**valid, "owner_event_id":778}
             conn.execute("UPDATE events SET payload=? WHERE seq=?",
-                (canonical(wrong).decode("ascii"),escrow.OBSERVED_SEQ+2))
+                (event_canonical(wrong).decode("ascii"),escrow.OBSERVED_SEQ+2))
             with self.assertRaisesRegex(escrow.EscrowDenied,
                                         "SOURCE_PAIR_IDENTITY_DRIFT"):
                 escrow.audit_committed_escrow(db)
             conn.execute("UPDATE events SET payload=? WHERE seq=?",
-                (canonical(valid).decode("ascii"),escrow.OBSERVED_SEQ+2))
+                (event_canonical(valid).decode("ascii"),escrow.OBSERVED_SEQ+2))
             conn.execute("INSERT INTO events VALUES(?,?,?,?,?)",
                 (escrow.OBSERVED_SEQ+3,escrow.KIND,
-                 "3"*64,"2"*64,canonical(self.document()).decode("ascii")))
+                 "3"*64,"2"*64,event_canonical(self.document()).decode("ascii")))
             with self.assertRaisesRegex(escrow.EscrowDenied,"MULTIPLE_ESCROWS"):
                 escrow.audit_committed_escrow(db)
 
