@@ -27,8 +27,8 @@ class NativeOriginalInstallEntryTests(unittest.TestCase):
     def test_missing_or_unqualified_wrapper_refuses_before_event(self):
         # Real Windows qualification will enforce this too; no fake live
         # GitHub comment or original-owner file is opened in these tests.
-        with mock.patch.object(entry.sys, "platform", "win32"), \\
-             mock.patch.object(entry.os, "name", "nt"):
+        with (mock.patch.object(entry.sys, "platform", "win32"),
+              mock.patch.object(entry.os, "name", "nt")):
             for marker in (None, "true", "dev", "preflight"):
                 env = {
                     "F139_V41_INSTALL_WRAPPER": marker,
