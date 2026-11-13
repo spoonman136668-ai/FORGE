@@ -98,7 +98,210 @@ jobs:
           $request=([string]$event.comment.body).Substring($prefix.Length)|ConvertFrom-Json
           Need ($request.schema -ceq 'forge.f139.v41.owner-readiness-request.v1' -and
             $request.target_source_sha -ceq $env:GITHUB_SHA -and
-            $request.release_pr_number -is [int] -and $request.release_pr_number -gt 0 -and
+            [string]$request.release_pr_number -cmatch '^[1-9][0-9]* -and
+            [string]$request.backup_run_id -cmatch '^[1-9][0-9]*) 'REQUEST_SCOPE'
+          $data=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $target=[string]$request.target_source_sha
+          $bundle=Join-Path $data ('f139-v41-before-'+[string]$request.backup_run_id)
+          $manifestPath=Join-Path $bundle 'manifest.sha256.json'
+          $binary=Join-Path $data ('genenv-source\'+$target+'\f139-genenv-source.exe')
+          $candidate=Join-Path $data ('release-candidates\'+$target)
+          Need ((Test-Path -LiteralPath $manifestPath -PathType Leaf) -and
+            (Test-Path -LiteralPath $binary -PathType Leaf) -and
+            (Test-Path -LiteralPath $candidate -PathType Container)) 'ORIGINAL_STAGED_INPUTS'
+          $manifest=(Get-Content -LiteralPath $manifestPath -Raw)|ConvertFrom-Json
+          $manifestSha=(Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $binarySha=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          Need ($manifest.schema -ceq 'forge.f139.v41.offline-cold-bundle-dev.v2' -and
+            $manifest.target_source_sha -ceq $target -and
+            $manifest.original_source_sha -ceq '2c7caad5a4502d4b874a11d57207a35cf033eb08' -and
+            $manifest.run_id -eq $request.backup_run_id -and
+            $manifest.source_transition_authorized -eq $false -and
+            $manifest.scientific_first_use -eq $false -and
+            $manifest.hybrid_admission -eq $false -and
+            $manifestSha -cmatch '^[a-f0-9]{64}$' -and
+            $binarySha -cmatch '^[a-f0-9]{64}$') 'SEALED_ORIGINAL_PROOF'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).
+            Translate([Security.Principal.SecurityIdentifier]).Value}catch{}
+          Need ([string]$task.State -cin @('Running','Ready') -and
+            $task.Settings.Enabled -eq $true -and
+            @($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3 -and
+            ([string]$task.Principal.UserId -ieq $who.Name -or $sid -ceq $who.User.Value)) 'ORIGINAL_TASK_SID_DRIFT'
+          $xml=Export-ScheduledTask -TaskName 'FORGE-F139-UnifiedController'
+          $bytes=[Text.Encoding]::UTF8.GetBytes([string]$xml)
+          $taskHash=([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($bytes))).Replace('-','').ToLowerInvariant()
+          $sidBytes=[Text.Encoding]::UTF8.GetBytes([string]$who.User.Value)
+          $sidHash=([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($sidBytes))).Replace('-','').ToLowerInvariant()
+          $db=Join-Path $data 'state.sqlite'
+          $code=@'
+          import json,sys
+          from pathlib import Path
+          from contextlib import closing
+          from f139.local_controller import Database,GitHub,SingleOwner
+          from f139.nci04_native_contract import canonical,digest
+          from f139 import nci04_v41_pending_custody as pending
+          from f139 import nci04_v41_guarded_release_preflight as release
+          p=Path(sys.argv[1]).resolve()
+          target=sys.argv[2]
+          release_pr=int(sys.argv[3])
+          api=GitHub()
+          remote=release._remote_source(api.native_repo_get,target=target,release_pr=release_pr)
+          with SingleOwner(p.with_suffix(".lock")):
+              with closing(Database.open_readonly(p)) as db:
+                  before=db.meta().copy()
+                  db.verify()
+                  original=pending.inspect_never_admitted(db,api)
+                  assert db.meta()==before and db.conn.total_changes==0
+                  assert before["source_sha"]=="2c7caad5a4502d4b874a11d57207a35cf033eb08"
+          print("F139_V41_READINESS_ORIGINAL="+canonical(dict(
+              original_head_seq=before["head_seq"],
+              original_head_sha256=before["head_hash"],
+              pending_issue_number=original["issue_number"],
+              pending_issue_id=original["issue_id"],
+              pending_ticket=original["ticket"],
+              pending_semantic_identity_sha256=original["semantic_identity_sha256"],
+              pending_receipt_sha256=digest(canonical(original)),
+              source_tree_sha=remote["tree_sha"]
+          )).decode("ascii"))
+          '@
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          $rows=@($code | & python -B - $db $target ([string]$request.release_pr_number))
+          Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+            $rows[0] -cmatch '^F139_V41_READINESS_ORIGINAL=') 'LOCKED_ORIGINAL_READ_FAILED'
+          $original=$rows[0].Substring('F139_V41_READINESS_ORIGINAL='.Length)|ConvertFrom-Json
+          Need ($manifest.original_head_seq -eq $original.original_head_seq -and
+            $manifest.original_head_sha256 -ceq $original.original_head_sha256 -and
+            $original.pending_issue_number -eq 1715) 'BACKUP_OR_PENDING_DRIFT'
+          Write-Host ('F139_V41_READINESS_EVIDENCE='+(@{
+            schema='forge.f139.v41.original-owner-readiness-only.v1'
+            target_source_sha=$target
+            backup_run_id=$request.backup_run_id
+            sealed_manifest_sha256=$manifestSha
+            binary_sha256=$binarySha
+            original_head_seq=$original.original_head_seq
+            original_head_sha256=$original.original_head_sha256
+            original_task_definition_sha256=$taskHash
+            original_owner_sid_sha256=$sidHash
+            original_source_tree_sha=$original.source_tree_sha
+            pending_issue_number=$original.pending_issue_number
+            pending_issue_id=$original.pending_issue_id
+            pending_ticket=$original.pending_ticket
+            pending_semantic_identity_sha256=$original.pending_semantic_identity_sha256
+            pending_receipt_sha256=$original.pending_receipt_sha256
+            logical_all_tables_sha256=$manifest.logical_all_tables_sha256
+            provider_archives_manifest_sha256=$manifest.provider_archives_manifest_sha256
+            generation_binary_manifest_sha256=$manifest.generation_binary_manifest_sha256
+            source_transition_authorized=$false
+            original_owner_mutations=0
+            scientific_first_use=$false
+            hybrid_admission=$false
+          }|ConvertTo-Json -Depth 6 -Compress))
+          Write-Host 'F139_V41_READINESS_ONLY_NO_TASK_OR_SQLITE_MUTATION=PASS'
+ -and [int64]$request.backup_run_id -gt 0) 'REQUEST_SCOPE'
+          $data=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $target=[string]$request.target_source_sha
+          $bundle=Join-Path $data ('f139-v41-before-'+[string]$request.backup_run_id)
+          $manifestPath=Join-Path $bundle 'manifest.sha256.json'
+          $binary=Join-Path $data ('genenv-source\'+$target+'\f139-genenv-source.exe')
+          $candidate=Join-Path $data ('release-candidates\'+$target)
+          Need ((Test-Path -LiteralPath $manifestPath -PathType Leaf) -and
+            (Test-Path -LiteralPath $binary -PathType Leaf) -and
+            (Test-Path -LiteralPath $candidate -PathType Container)) 'ORIGINAL_STAGED_INPUTS'
+          $manifest=(Get-Content -LiteralPath $manifestPath -Raw)|ConvertFrom-Json
+          $manifestSha=(Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $binarySha=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          Need ($manifest.schema -ceq 'forge.f139.v41.offline-cold-bundle-dev.v2' -and
+            $manifest.target_source_sha -ceq $target -and
+            $manifest.original_source_sha -ceq '2c7caad5a4502d4b874a11d57207a35cf033eb08' -and
+            $manifest.run_id -eq $request.backup_run_id -and
+            $manifest.source_transition_authorized -eq $false -and
+            $manifest.scientific_first_use -eq $false -and
+            $manifest.hybrid_admission -eq $false -and
+            $manifestSha -cmatch '^[a-f0-9]{64}$' -and
+            $binarySha -cmatch '^[a-f0-9]{64}$') 'SEALED_ORIGINAL_PROOF'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).
+            Translate([Security.Principal.SecurityIdentifier]).Value}catch{}
+          Need ([string]$task.State -cin @('Running','Ready') -and
+            $task.Settings.Enabled -eq $true -and
+            @($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3 -and
+            ([string]$task.Principal.UserId -ieq $who.Name -or $sid -ceq $who.User.Value)) 'ORIGINAL_TASK_SID_DRIFT'
+          $xml=Export-ScheduledTask -TaskName 'FORGE-F139-UnifiedController'
+          $bytes=[Text.Encoding]::UTF8.GetBytes([string]$xml)
+          $taskHash=([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($bytes))).Replace('-','').ToLowerInvariant()
+          $sidBytes=[Text.Encoding]::UTF8.GetBytes([string]$who.User.Value)
+          $sidHash=([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($sidBytes))).Replace('-','').ToLowerInvariant()
+          $db=Join-Path $data 'state.sqlite'
+          $code=@'
+          import json,sys
+          from pathlib import Path
+          from contextlib import closing
+          from f139.local_controller import Database,GitHub,SingleOwner
+          from f139.nci04_native_contract import canonical,digest
+          from f139 import nci04_v41_pending_custody as pending
+          from f139 import nci04_v41_guarded_release_preflight as release
+          p=Path(sys.argv[1]).resolve()
+          target=sys.argv[2]
+          release_pr=int(sys.argv[3])
+          api=GitHub()
+          remote=release._remote_source(api.native_repo_get,target=target,release_pr=release_pr)
+          with SingleOwner(p.with_suffix(".lock")):
+              with closing(Database.open_readonly(p)) as db:
+                  before=db.meta().copy()
+                  db.verify()
+                  original=pending.inspect_never_admitted(db,api)
+                  assert db.meta()==before and db.conn.total_changes==0
+                  assert before["source_sha"]=="2c7caad5a4502d4b874a11d57207a35cf033eb08"
+          print("F139_V41_READINESS_ORIGINAL="+canonical(dict(
+              original_head_seq=before["head_seq"],
+              original_head_sha256=before["head_hash"],
+              pending_issue_number=original["issue_number"],
+              pending_issue_id=original["issue_id"],
+              pending_ticket=original["ticket"],
+              pending_semantic_identity_sha256=original["semantic_identity_sha256"],
+              pending_receipt_sha256=digest(canonical(original)),
+              source_tree_sha=remote["tree_sha"]
+          )).decode("ascii"))
+          '@
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          $rows=@($code | & python -B - $db $target ([string]$request.release_pr_number))
+          Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+            $rows[0] -cmatch '^F139_V41_READINESS_ORIGINAL=') 'LOCKED_ORIGINAL_READ_FAILED'
+          $original=$rows[0].Substring('F139_V41_READINESS_ORIGINAL='.Length)|ConvertFrom-Json
+          Need ($manifest.original_head_seq -eq $original.original_head_seq -and
+            $manifest.original_head_sha256 -ceq $original.original_head_sha256 -and
+            $original.pending_issue_number -eq 1715) 'BACKUP_OR_PENDING_DRIFT'
+          Write-Host ('F139_V41_READINESS_EVIDENCE='+(@{
+            schema='forge.f139.v41.original-owner-readiness-only.v1'
+            target_source_sha=$target
+            backup_run_id=$request.backup_run_id
+            sealed_manifest_sha256=$manifestSha
+            binary_sha256=$binarySha
+            original_head_seq=$original.original_head_seq
+            original_head_sha256=$original.original_head_sha256
+            original_task_definition_sha256=$taskHash
+            original_owner_sid_sha256=$sidHash
+            original_source_tree_sha=$original.source_tree_sha
+            pending_issue_number=$original.pending_issue_number
+            pending_issue_id=$original.pending_issue_id
+            pending_ticket=$original.pending_ticket
+            pending_semantic_identity_sha256=$original.pending_semantic_identity_sha256
+            pending_receipt_sha256=$original.pending_receipt_sha256
+            logical_all_tables_sha256=$manifest.logical_all_tables_sha256
+            provider_archives_manifest_sha256=$manifest.provider_archives_manifest_sha256
+            generation_binary_manifest_sha256=$manifest.generation_binary_manifest_sha256
+            source_transition_authorized=$false
+            original_owner_mutations=0
+            scientific_first_use=$false
+            hybrid_admission=$false
+          }|ConvertTo-Json -Depth 6 -Compress))
+          Write-Host 'F139_V41_READINESS_ONLY_NO_TASK_OR_SQLITE_MUTATION=PASS'
+ -and [int64]$request.release_pr_number -gt 0 -and
             [string]$request.backup_run_id -cmatch '^[1-9][0-9]*) 'REQUEST_SCOPE'
           $data=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
           $target=[string]$request.target_source_sha
