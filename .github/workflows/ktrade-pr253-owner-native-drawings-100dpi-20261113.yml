@@ -1,0 +1,181 @@
+name: KTRADE PR253 owner native drawings at unchanged 100 percent DPI
+on:
+  push:
+    branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
+    paths:
+      - .github/workflows/ktrade-pr253-owner-native-drawings-100dpi-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-pr253-owner-native-drawings-once
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    env:
+      KTRADE_EXPECTED_SOURCE: '59842e83f01fb6e1af780ede5a7395a9c7cce47a'
+      KTRADE_EXPECTED_TREE: 'df46e1b6c9adf46eb9ba69e83ce4dbd8dc8feb97'
+      KTRADE_LIVE_TRADING: 'false'
+      KTRADE_CI_LIVE_AUTHORITY: '0'
+      KTRADE_CI_COINBASE_ALLOWED: '0'
+      KTRADE_USE_LEGACY_CDP_CONFIG: '0'
+      KTRADE_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Build exact disposable candidate and run genuine Win32 drawing acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:KTRADE_LIVE_TRADING -cne 'false' -or
+             $env:KTRADE_CI_LIVE_AUTHORITY -cne '0' -or
+             $env:KTRADE_CI_COINBASE_ALLOWED -cne '0' -or
+             $env:KTRADE_PROMOTION_ALLOWED -cne '0'){
+            throw 'KTRADE_OWNER_NATIVE_SCOPE_REFUSED'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($who)
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $explorer=@(Get-Process explorer -ErrorAction SilentlyContinue|
+            Where-Object {$_.SessionId -eq $session})
+          if([string]$who.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             $session -ne 1 -or !$explorer.Count -or
+             ![Environment]::UserInteractive){
+            throw 'KTRADE_OWNER_NATIVE_INTERACTIVE_DESKTOP_REQUIRED'
+          }
+          if(@(Get-Process -Name ktrade,ktrade-engine -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTRADE_OWNER_NATIVE_EXISTING_APP_RUNNING_REFUSED'
+          }
+          $tools=@('git.exe','gh.exe','go.exe','node.exe','npm.cmd')
+          foreach($tool in $tools){
+            if(!(Get-Command $tool -ErrorAction SilentlyContinue)){
+              throw ('KTRADE_OWNER_NATIVE_TOOL_MISSING_'+$tool)
+            }
+          }
+          $goText=(& go.exe version) -join ' '
+          if($LASTEXITCODE -ne 0 -or $goText -notmatch '\bgo1\.26\.10\b'){
+            throw 'KTRADE_OWNER_NATIVE_GO_VERSION_DRIFT'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Collections.Generic;
+          using System.Runtime.InteropServices;
+          public static class KTradeOwnedDesktop {
+            [StructLayout(LayoutKind.Sequential)] public struct P {public int x;public int y;}
+            public delegate bool Cb(IntPtr monitor,IntPtr dc,IntPtr rect,IntPtr data);
+            [DllImport("user32.dll")] public static extern bool EnumDisplayMonitors(IntPtr dc,IntPtr rect,Cb cb,IntPtr data);
+            [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr m,int type,out uint x,out uint y);
+            [DllImport("user32.dll")] public static extern bool GetCursorPos(out P p);
+            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+            [StructLayout(LayoutKind.Sequential)] public struct LastInput {public uint cbSize;public uint dwTime;}
+            [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LastInput info);
+            public static uint IdleMs(){
+              var info=new LastInput{cbSize=(uint)Marshal.SizeOf(typeof(LastInput))};
+              if(!GetLastInputInfo(ref info))throw new Exception("LAST_INPUT_READ_FAILED");
+              return unchecked((uint)Environment.TickCount-info.dwTime);
+            }
+            public static string[] Dpi(){
+              var result=new List<string>();
+              if(!EnumDisplayMonitors(IntPtr.Zero,IntPtr.Zero,(m,d,r,u)=>{
+                uint x,y;int hr=GetDpiForMonitor(m,0,out x,out y);
+                result.Add(hr==0?x.ToString()+":"+y.ToString():"ERR:"+hr);return true;
+              },IntPtr.Zero))throw new Exception("MONITOR_ENUM_FAILED");
+              return result.ToArray();
+            }
+          }
+          '@
+          $beforeDpi=@([KTradeOwnedDesktop]::Dpi())
+          if($beforeDpi.Count -ne 1 -or $beforeDpi[0] -cne '96:96'){
+            throw ('KTRADE_OWNER_NATIVE_CURRENT_100_DPI_REQUIRED_OBSERVED='+($beforeDpi -join ','))
+          }
+          $cursor=[KTradeOwnedDesktop+P]::new()
+          if(![KTradeOwnedDesktop]::GetCursorPos([ref]$cursor)){
+            throw 'KTRADE_OWNER_NATIVE_CURSOR_SNAPSHOT_REFUSED'
+          }
+          $foreground=[KTradeOwnedDesktop]::GetForegroundWindow()
+          if($foreground -eq [IntPtr]::Zero){throw 'KTRADE_OWNER_NATIVE_FOREGROUND_SNAPSHOT_REFUSED'}
+          $root=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-real-native-'+[guid]::NewGuid().ToString('N'))
+          $source=Join-Path $root 'product'
+          $clonelog=Join-Path $root 'private-source.log'
+          $derived='Test-KTRADE-W160-OwnerSession-Adapted.ps1'
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop|Out-Null
+          $succeeded=$false
+          try{
+            $env:GH_PROMPT_DISABLED='1'
+            $env:GIT_TERMINAL_PROMPT='0'
+            & gh.exe repo clone spoonman136668-ai/ktrade $source -- --filter=blob:none --no-checkout *> $clonelog
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_PRIVATE_SOURCE_UNAVAILABLE'}
+            & git.exe -C $source fetch --no-tags --depth 1 origin $env:KTRADE_EXPECTED_SOURCE *> $clonelog
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_PINNED_SOURCE_FETCH_FAILED'}
+            & git.exe -C $source checkout --detach $env:KTRADE_EXPECTED_SOURCE *> $clonelog
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_CHECKOUT_FAILED'}
+            $head=(& git.exe -C $source rev-parse HEAD).Trim()
+            $tree=(& git.exe -C $source rev-parse 'HEAD^{tree}').Trim()
+            if($head -cne $env:KTRADE_EXPECTED_SOURCE -or $tree -cne $env:KTRADE_EXPECTED_TREE -or
+               @(& git.exe -C $source status --porcelain --untracked-files=no).Count -ne 0){
+              throw 'KTRADE_OWNER_NATIVE_EXACT_TREE_OR_CLEAN_REFUSED'
+            }
+            $original=Join-Path $source 'windows/Test-KTRADE-W160-NativeDrawings.ps1'
+            $text=[IO.File]::ReadAllText($original)
+            $pattern=[regex]::Escape("Require ("+'$env:GITHUB_REPOSITORY'+" -ceq 'spoonman136668-ai/ktrade' -and")+
+              '(?s:.+?)'+[regex]::Escape("'W160_PRIVATE_WINDOWS_QUALIFIER_ONLY'")
+            $adapt=@'
+          Require ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+           $env:RUNNER_OS -ceq 'Windows' -and
+           $env:RUNNER_ENVIRONMENT -ceq 'self-hosted' -and
+           $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+           $env:GITHUB_REF -ceq 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -and
+           $env:RUNNER_TEMP) 'W160_OWNER_FORGE_WINDOWS_QUALIFIER_ONLY'
+          '@
+            if(([regex]::Matches($text,$pattern)).Count -ne 1){
+              throw 'KTRADE_OWNER_NATIVE_W160_HARNESS_SOURCE_DRIFT'
+            }
+            $adjusted=[regex]::Replace($text,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($m) $adapt})
+            $script=Join-Path (Split-Path -Parent $original) $derived
+            if(Test-Path -LiteralPath $script){throw 'KTRADE_OWNER_NATIVE_ADAPTED_HARNESS_COLLISION'}
+            [IO.File]::WriteAllText($script,$adjusted,[Text.UTF8Encoding]::new($false))
+            $nodes=@(Get-Process -Name ktrade,ktrade-engine -ErrorAction SilentlyContinue)
+            if($nodes.Count -ne 0){throw 'KTRADE_OWNER_NATIVE_APP_STARTED_DURING_BUILD'}
+            $idle=[KTradeOwnedDesktop]::IdleMs()
+            Write-Host ('KTRADE_OWNER_NATIVE_STAGE='+(@{
+              schema='ktrade.pr253.owner-native-100dpi.v1'
+              source_sha=$head;tree_sha=$tree;dpi=$beforeDpi
+              owner_session=$session;idle_ms=$idle;test_harness='W160_owner_scoped_guard_only'
+              original_harness_preserved=$true;user_display_modified=$false
+            }|ConvertTo-Json -Compress))
+            if($idle -lt 45000){
+              throw 'KTRADE_OWNER_NATIVE_USER_ACTIVE_NO_POINTER_INPUT'
+            }
+            & pwsh.exe -NoProfile -NonInteractive -File $script -ExpectedSourceSha $head -ExpectedTreeSha $tree
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_W160_ACCEPTANCE_FAILED'}
+            $succeeded=$true
+          }finally{
+            [void][KTradeOwnedDesktop]::SetCursorPos($cursor.x,$cursor.y)
+            [void][KTradeOwnedDesktop]::SetForegroundWindow($foreground)
+            $afterDpi=@([KTradeOwnedDesktop]::Dpi())
+            $restored=($afterDpi.Count -eq $beforeDpi.Count -and
+              ($afterDpi -join ',') -ceq ($beforeDpi -join ','))
+            Write-Host ('KTRADE_OWNER_NATIVE_RESTORE='+(@{
+              dpi_before=$beforeDpi;dpi_after=$afterDpi;dpi_unchanged=$restored
+              pointer_restoration_attempted=$true;foreground_restoration_attempted=$true
+              source_sha=$env:KTRADE_EXPECTED_SOURCE;acceptance_passed=$succeeded
+            }|ConvertTo-Json -Compress))
+            if($root -and (Test-Path -LiteralPath $root -PathType Container) -and
+               [IO.Path]::GetFileName($root) -cmatch '^ktrade-pr253-real-native-[a-f0-9]{32}$' -and
+               [IO.Path]::GetDirectoryName($root).TrimEnd('\') -ceq ([IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\'))){
+              Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            if(!$restored){throw 'KTRADE_OWNER_NATIVE_DPI_POSTTEST_RESTORATION_FAILED'}
+          }
+          if(!$succeeded){throw 'KTRADE_OWNER_NATIVE_NOT_ACCEPTED'}
+          Write-Host 'KTRADE_PR253_NATIVE_W160_100_PERCENT=PASS'
