@@ -98,15 +98,24 @@ jobs:
                   {"invocation":mode,"exit_code":p.returncode,
                    "stdout_pass":p.stdout.strip()==b"F139_V41_OLD_TASK_DISABLED_STAGED_CANDIDATE=PASS",
                    "stderr_class":tag,"stderr_present":bool(p.stderr.strip())},sort_keys=True))
+          parse='$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseInput($env:F139_V41_READONLY_SCRIPT,[ref]$tokens,[ref]$errors)|Out-Null;$errors|ForEach-Object {Write-Output ($_.ErrorId+":"+$_.Extent.StartLineNumber+":"+$_.Extent.StartColumnNumber)}'
+          encoded=base64.b64encode(parse.encode("utf-16le")).decode("ascii")
+          parsed=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-EncodedCommand",encoded],
+                                check=False,capture_output=True,timeout=30,
+                                env=dict(env,F139_V41_READONLY_SCRIPT=SCRIPT))
+          print("F139_V41_POSTFAIL_PARSER_AST="+json.dumps(
+              {"exit_code":parsed.returncode,"parse_errors":parsed.stdout.decode("utf-8",errors="replace").strip().splitlines()[:8],
+               "stderr_present":bool(parsed.stderr.strip())},sort_keys=True))
           '@
           $env:PYTHONPATH=$env:GITHUB_WORKSPACE
           $code=@($diag | & python -B - $db $stage $old)
-          if($LASTEXITCODE -ne 0 -or $code.Count -ne 2 -or
+          if($LASTEXITCODE -ne 0 -or $code.Count -ne 3 -or
              $code[0] -cnotmatch '^F139_V41_POSTFAIL_NATIVE_PREDICATE='){
             throw 'F139_V41_POSTFAIL_PREDICATE_UNVERIFIED'
           }
           Write-Output $code[0]
           Write-Output $code[1]
+          Write-Output $code[2]
           $taskReceipt=[ordered]@{
             schema='forge.f139.v41.postfailure-original-readonly.v1'
             original_task_state=[string]$task.State
