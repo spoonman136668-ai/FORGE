@@ -4,13 +4,14 @@ Reuses the existing read-only status route and kernel owner mutex. This
 module never creates a task, backup, source transition, issue or release.
 """
 import argparse
-from contextlib import closing
+from contextlib import closing, contextmanager
 import json
 import os
 from pathlib import Path
 import re
+import time
 
-from f139.local_controller import Database, GitHub, SingleOwner
+from f139.local_controller import Database, F139Error, GitHub, SingleOwner
 from f139.nci04_native_contract import canonical
 from f139 import nci04_v41_catalog_recovery_preflight as source
 from f139 import nci04_v41_pending_custody as pending
@@ -18,6 +19,9 @@ from f139 import nci04_v41_pending_custody as pending
 SCHEMA = "forge.f139.v41.original-locked-readonly-status.v1"
 PREFIX = "F139-V9-STATUS "
 SHA = re.compile(r"[0-9a-f]{40}\Z")
+# Read-only status only: never wait while holding a lease or original SQLite.
+OWNER_MUTEX_MAX_RETRIES = 60
+OWNER_MUTEX_RETRY_SECONDS = 1.0
 
 
 class V41StatusDenied(ValueError):
@@ -27,6 +31,40 @@ class V41StatusDenied(ValueError):
 def need(condition, code):
     if not condition:
         raise V41StatusDenied("F139_V41_OWNER_STATUS_" + code)
+
+
+
+@contextmanager
+def _read_only_owner_lease(path: Path, *, wait=time.sleep):
+    """Observe an idle owner tick with bounded, non-mutating lock attempts.
+
+    The live F139 owner holds this same exclusive kernel mutex during its
+    reconciliation ticks. A read-only status query must not mistake ordinary
+    contention for corrupt owner custody or bypass exclusivity. Only the
+    *exact* existing contention error may be retried, and no original SQLite
+    is opened until the lock is genuinely acquired.
+    """
+    need(isinstance(path, Path) and path.is_absolute()
+         and path.name == "state.sqlite", "OWNER_MUTEX_PATH_INVALID")
+    for retry in range(OWNER_MUTEX_MAX_RETRIES + 1):
+        lease = SingleOwner(path.with_suffix(".lock"))
+        try:
+            lease.__enter__()
+        except F139Error as exc:
+            if str(exc) != "F139_CONTROLLER_ALREADY_RUNNING":
+                raise
+            if retry == OWNER_MUTEX_MAX_RETRIES:
+                raise V41StatusDenied(
+                    "F139_V41_OWNER_STATUS_ORIGINAL_MUTEX_STILL_BUSY") from exc
+            wait(OWNER_MUTEX_RETRY_SECONDS)
+            continue
+        # Never catch body exceptions as a lock conflict and never perform
+        # another attempt after the original mutex has been acquired.
+        try:
+            yield
+        finally:
+            lease.__exit__(None, None, None)
+        return
 
 
 
@@ -194,7 +232,7 @@ def inspect_original(path, api, *, target):
     candidate = source.source_preflight(api.native_repo_get, target)
     # The original mutex is held only while checking original SQLite and
     # the source-authenticated unadmitted issue. No background ownership.
-    with SingleOwner(path.with_suffix(".lock")):
+    with _read_only_owner_lease(path):
         with closing(Database.open_readonly(path)) as db:
             failed_inventory = inspect_failed_backup_stage(path)
             db.conn.execute("BEGIN")
