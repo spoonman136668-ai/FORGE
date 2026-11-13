@@ -91,6 +91,21 @@ jobs:
                   string.Equals(b.ToString(),"Default",StringComparison.Ordinal);
               }finally{CloseDesktop(h);}
             }
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool SystemParametersInfo(uint action,uint param,ref uint value,uint flags);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool SystemParametersInfo(uint action,uint param,IntPtr value,uint flags);
+            public static uint GetSaverTimeout(){
+              uint seconds=0;
+              if(!SystemParametersInfo(0x000E,0,ref seconds,0))
+                throw new Exception("SCREENSAVER_TIMEOUT_READ_FAILED");
+              return seconds;
+            }
+            public static void SetVolatileSaverTimeout(uint seconds){
+              // No SPIF_UPDATEINIFILE: do not persist to HKCU.
+              if(!SystemParametersInfo(0x000F,seconds,IntPtr.Zero,0))
+                throw new Exception("SCREENSAVER_VOLATILE_TIMEOUT_SET_REFUSED");
+            }
             public static bool ValidIdle(uint elapsed){return elapsed>=45000 && elapsed<=86400000;}
             public static uint IdleMs(){
               var info=new LastInput{cbSize=(uint)Marshal.SizeOf(typeof(LastInput))};
@@ -129,8 +144,8 @@ jobs:
             throw 'KTRADE_OWNER_NATIVE_IDLE_NEGATIVE_CONTROL_FAILED'
           }
           Write-Host 'KTRADE_OWNER_NATIVE_IDLE_GUARD_NEGATIVES=PASS'
-          $observedIdle=[KTradeOwnedDesktop]::IdleMs()
-          if($observedIdle -lt 45000){throw 'KTRADE_OWNER_NATIVE_USER_ACTIVE_NO_POINTER_INPUT'}
+          # Only read the actual idle clock after the short-lived, volatile screen-saver extension.
+          # Historical GETLASTINPUTINFO arithmetic returned a future timestamp; never call it proof before normalization.
           $foreground=[KTradeOwnedDesktop]::GetForegroundWindow()
           if($foreground -eq [IntPtr]::Zero){throw 'KTRADE_OWNER_NATIVE_FOREGROUND_SNAPSHOT_REFUSED'}
           $root=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-real-native-'+[guid]::NewGuid().ToString('N'))
@@ -139,7 +154,64 @@ jobs:
           $derived='Test-KTRADE-W160-OwnerSession-Adapted.ps1'
           New-Item -ItemType Directory -Path $root -ErrorAction Stop|Out-Null
           $succeeded=$false
+          $saverPreimagePath=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-saver-'+$env:GITHUB_RUN_ID+'.json')
+          $saverOriginal=0
+          $originalRegistry=''
           try{
+            $saverHKCU=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+            $originalRegistry=[string]$saverHKCU.ScreenSaveTimeOut
+            $saverOriginal=[KTradeOwnedDesktop]::GetSaverTimeout()
+            if($saverOriginal -ne 60 -or $originalRegistry -cne '60' -or
+               [string]$saverHKCU.ScreenSaveActive -cne '1' -or
+               [string]$saverHKCU.ScreenSaverIsSecure -cne '0' -or
+               [IO.Path]::GetFileName([string]$saverHKCU.'SCRNSAVE.EXE') -ine 'scrnsave.scr'){
+              throw 'KTRADE_OWNER_NATIVE_SCREENSAVER_PREIMAGE_DRIFT'
+            }
+            if(Test-Path -LiteralPath $saverPreimagePath){
+              throw 'KTRADE_OWNER_NATIVE_PREIMAGE_FILE_EXISTS'
+            }
+            if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
+              throw 'KTRADE_OWNER_NATIVE_DESKTOP_BEFORE_TIMEOUT_NOT_DEFAULT'
+            }
+            [IO.File]::WriteAllText($saverPreimagePath,((@{
+              schema='ktrade.pr253.screensaver-volatile-preimage.v1'
+              runner='FORGE-CODEX-REMOTE';run=$env:GITHUB_RUN_ID
+              timeout_seconds=$saverOriginal;registry_timeout=$originalRegistry
+              source_sha=$env:KTRADE_EXPECTED_SOURCE
+            }|ConvertTo-Json -Compress)+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+            [KTradeOwnedDesktop]::SetVolatileSaverTimeout(900)
+            if([KTradeOwnedDesktop]::GetSaverTimeout() -ne 900 -or
+               [string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne $originalRegistry){
+              throw 'KTRADE_OWNER_NATIVE_VOLATILE_SCREENSAVER_CHANGE_UNVERIFIED'
+            }
+            Write-Host ('KTRADE_OWNER_NATIVE_TEMP_SCREEN_SAVER='+(@{
+              schema='ktrade.pr253.volatile-screen-saver-test.v1'
+              original_seconds=$saverOriginal;temporary_seconds=900
+              persisted_registry_unchanged=$true
+              original_input_desktop='Default';owner_session=$session
+              installation_modified=$false;scheduler_created=$false
+            }|ConvertTo-Json -Compress))
+            # Input may be delivered by another app with a future-dated DWORD
+            # clock. Fail closed unless GetLastInputInfo becomes coherent and
+            # the owner remains idle long enough; never infer idle from wrap.
+            $deadline=(Get-Date).AddSeconds(150)
+            $idleQualified=$false
+            do{
+              if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
+                throw 'KTRADE_OWNER_NATIVE_DESKTOP_SWITCHED_DURING_IDLE_CHECK'
+              }
+              try{
+                $idleReading=[KTradeOwnedDesktop]::IdleMs()
+                if($idleReading -ge 45000){$idleQualified=$true;break}
+              }catch{
+                if($_.Exception.Message -notmatch 'LAST_INPUT_CLOCK_ANOMALY_REFUSED'){throw}
+              }
+              Start-Sleep -Seconds 2
+            }while((Get-Date) -lt $deadline)
+            if(-not $idleQualified){
+              throw 'KTRADE_OWNER_NATIVE_VALID_IDLE_NOT_ESTABLISHED'
+            }
+            Write-Host 'KTRADE_OWNER_NATIVE_VALIDATED_IDLE_AFTER_TEMP_TIMEOUT=PASS'
             # Exact Go 1.26.10 is loaded only into disposable job caches.
             # Never overwrite the workstation's Go 1.25.5 installation or global user cache.
             $env:GOTOOLCHAIN='go1.26.10'
@@ -208,14 +280,36 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_W160_ACCEPTANCE_FAILED'}
             $succeeded=$true
           }finally{
-            [void][KTradeOwnedDesktop]::SetCursorPos($cursor.x,$cursor.y)
-            [void][KTradeOwnedDesktop]::SetForegroundWindow($foreground)
+            $saverRestored=$false
+            try{
+              if($saverOriginal -gt 0){
+                [KTradeOwnedDesktop]::SetVolatileSaverTimeout([uint32]$saverOriginal)
+                $saverRestored=([KTradeOwnedDesktop]::GetSaverTimeout() -eq $saverOriginal -and
+                  [string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne $originalRegistry)
+              }else{
+                $saverRestored=(!(Test-Path -LiteralPath $saverPreimagePath))
+              }
+            }catch{
+              Write-Host ('KTRADE_OWNER_NATIVE_SCREENSAVER_RESTORE_EXCEPTION='+$_.Exception.GetType().Name)
+            }
+            Write-Host ('KTRADE_OWNER_NATIVE_SCREENSAVER_RESTORE='+(@{
+              original_timeout=$saverOriginal
+              effective_timeout_restored=$saverRestored
+              persistent_registry_unchanged=([string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -ceq $originalRegistry)
+              wallpaper_or_user_account_untouched=$true
+              task_created=$false
+            }|ConvertTo-Json -Compress))
+            $desktopDefault=[KTradeOwnedDesktop]::InputDesktopIsDefault()
+            $cursorRestored=if($desktopDefault){[KTradeOwnedDesktop]::SetCursorPos($cursor.x,$cursor.y)}else{$false}
+            $foregroundRestored=if($desktopDefault){[KTradeOwnedDesktop]::SetForegroundWindow($foreground)}else{$false}
             $afterDpi=@([KTradeOwnedDesktop]::Dpi())
             $restored=($afterDpi.Count -eq $beforeDpi.Count -and
               ($afterDpi -join ',') -ceq ($beforeDpi -join ','))
             Write-Host ('KTRADE_OWNER_NATIVE_RESTORE='+(@{
               dpi_before=$beforeDpi;dpi_after=$afterDpi;dpi_unchanged=$restored
               pointer_restoration_attempted=$true;foreground_restoration_attempted=$true
+              cursor_restored=$cursorRestored;foreground_restored=$foregroundRestored
+              screen_saver_effective_timeout_restored=$saverRestored
               source_sha=$env:KTRADE_EXPECTED_SOURCE;acceptance_passed=$succeeded
             }|ConvertTo-Json -Compress))
             if($root -and (Test-Path -LiteralPath $root -PathType Container) -and
@@ -223,6 +317,7 @@ jobs:
                [IO.Path]::GetDirectoryName($root).TrimEnd('\') -ceq ([IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\'))){
               Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
             }
+            if(!$saverRestored){throw 'KTRADE_OWNER_NATIVE_SCREENSAVER_RESTORATION_FAILED'}
             if(!$restored){throw 'KTRADE_OWNER_NATIVE_DPI_POSTTEST_RESTORATION_FAILED'}
           }
           if(!$succeeded){throw 'KTRADE_OWNER_NATIVE_NOT_ACCEPTED'}
