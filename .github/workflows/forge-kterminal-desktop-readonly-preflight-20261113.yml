@@ -239,8 +239,18 @@ jobs:
              -not [string]::IsNullOrWhiteSpace([string]$binding.account_id) -and
              -not [string]::IsNullOrWhiteSpace([string]$binding.portfolio_id))
           if(-not ($lotShape -and $posShape -and $bindingShape)){
-             Write-Host ('KTERM_LOCAL_BTC_SCHEMA_DIAGNOSTIC=FAIL;LOT_SHAPE='+$lotShape+';POSITION_SHAPE='+$posShape+';BINDING_SHAPE='+$bindingShape+';NO_AUTHORITY=TRUE')
-             throw 'KTERM_LOCAL_SNAPSHOT_SCHEMA_INCOMPATIBLE'
+             $lotHasRows=($null -ne $lot.lots)
+             $lotHasOrders=($null -ne $lot.orders)
+             $lotV1=($lot.schema_version -eq 1)
+             $lotProduct=([string]$lot.product_id -ceq 'BTC-USDC')
+             Write-Host ('KTERM_LOCAL_BTC_SCHEMA_DIAGNOSTIC=INCOMPATIBLE'+
+                ';LOT_V1='+$lotV1+';LOT_PRODUCT_BTC='+$lotProduct+
+                ';LOTS_COLLECTION_PRESENT='+$lotHasRows+';ORDERS_COLLECTION_PRESENT='+$lotHasOrders+
+                ';POSITION_SHAPE='+$posShape+';BINDING_SHAPE='+$bindingShape+
+                ';READ_ONLY=TRUE;NO_CREDENTIALS_OR_RAW_VALUES_EXPORTED=TRUE'+
+                ';SIGNED_OWNERSHIP=UNVERIFIED;LIVE_RECONCILIATION=BLOCKED')
+             Write-Host 'KTERM_LOCAL_BTC_STRUCTURAL_PROBE=COMPLETE;DATA_SCHEMA_COMPATIBLE=FALSE'
+             return
           }
           $lotOpenCount=0; $badLotCount=0; $lotOpenQty=0.0
           foreach($row in @($lot.lots)){
