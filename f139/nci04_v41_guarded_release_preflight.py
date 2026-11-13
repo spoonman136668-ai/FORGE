@@ -203,6 +203,13 @@ def qualify_inert_release_preflight(
     need(first == second
          and digest(manifest_path.read_bytes()) == sealed_manifest_sha256,
          "REMOTE_OR_OFFLINE_CHANGED_DURING_READ")
+    # A third independent protected-main/release/CI observation captures a
+    # late ABA or replaced release ref after owner-intent verification.
+    # It is still only an observation, NEVER a live release permission.
+    final = _remote_source(get, target=target, release_pr=release_pr)
+    need(first == final and second == final
+         and digest(manifest_path.read_bytes()) == sealed_manifest_sha256,
+         "FINAL_RELEASE_REF_OR_BACKUP_DRIFT")
     return {
         "schema": SCHEMA,
         "source_sha": target,
