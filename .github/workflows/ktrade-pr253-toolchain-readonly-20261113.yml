@@ -125,3 +125,45 @@ jobs:
             scheduled_task_created=$false
             service_changed=$false
           }|ConvertTo-Json -Compress -Depth 4))
+      - name: Qualify pinned Go 1.26.10 in disposable cache without user-profile changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:RUNNER_OS -cne 'Windows') {
+            throw 'KTRADE_PINNED_GO_QUALIFIER_SCOPE_REFUSED'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('ktrade-go12610-once-'+[guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop|Out-Null
+          $gotVersion=$false
+          try{
+            $env:GOTOOLCHAIN='go1.26.10'
+            $env:GOPATH=Join-Path $root 'gopath'
+            $env:GOMODCACHE=Join-Path $root 'gomodcache'
+            $env:GOCACHE=Join-Path $root 'buildcache'
+            $PSNativeCommandUseErrorActionPreference=$false
+            $version=@(& go.exe version 2>&1|ForEach-Object{[string]$_})
+            $code=$LASTEXITCODE
+            $goLine=($version|Where-Object{$_ -match '^go version ' }|Select-Object -First 1)
+            $gotVersion=($code -eq 0 -and [string]$goLine -match '^go version go1\.26\.10 ')
+            Write-Host ('KTRADE_PR253_PINNED_GO_ISOLATED='+(@{
+              schema='ktrade.pr253.pinned-go-toolchain-disposable.v1'
+              host=$env:COMPUTERNAME
+              runner=$env:RUNNER_NAME
+              version_readback=if($gotVersion){[string]$goLine}else{'VERSION_UNAVAILABLE'}
+              go_version_exact=$gotVersion
+              cached_under_runner_temp=$true
+              installed_system_go_modified=$false
+              user_profile_go_cache_modified=$false
+              other_service_modified=$false
+              native_application_started=$false
+              display_modified=$false
+              scheduler_created=$false
+            }|ConvertTo-Json -Compress -Depth 4))
+          }finally{
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          if(!$gotVersion){throw 'KTRADE_PINNED_GO_TOOLCHAIN_UNAVAILABLE_ON_THIS_RUNNER'}
