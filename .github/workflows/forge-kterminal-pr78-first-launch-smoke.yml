@@ -39,7 +39,7 @@ jobs:
           test "$GITHUB_EVENT_NAME" = push
           test "$RUNNER_OS" = Windows
           test "$RUNNER_ENVIRONMENT" = github-hosted
-          test "$(git rev-parse HEAD^)" = '539dd6590dff431f07626153ceda20f8ee064bf0'
+          test "$(git rev-parse HEAD^)" = '349e7ab202537584f39071f8b99041f8f0063f6c'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/forge-kterminal-pr78-first-launch-smoke.yml'
           test -z "$(git status --porcelain)"
@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: 21b12d28331192f65a6dddaeb3ecba72cd892b89
+          ref: f2722ad6b73d3e7ce97b1655df08c18a59e2d6e3
           path: kterminal-hotfix
           fetch-depth: 1
           persist-credentials: false
@@ -64,15 +64,15 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $source=Join-Path $env:GITHUB_WORKSPACE 'kterminal-hotfix'
-          if((& git -C $source rev-parse HEAD).Trim() -cne '21b12d28331192f65a6dddaeb3ecba72cd892b89'){throw 'KTERM_HOTFIX_SOURCE_SHA_DRIFT'}
-          if((& git -C $source rev-parse 'HEAD^{tree}').Trim() -cne '31d1069f144f3d857ab91f768f1515bfefa4c1b3'){throw 'KTERM_HOTFIX_SOURCE_TREE_DRIFT'}
+          if((& git -C $source rev-parse HEAD).Trim() -cne 'f2722ad6b73d3e7ce97b1655df08c18a59e2d6e3'){throw 'KTERM_HOTFIX_SOURCE_SHA_DRIFT'}
+          if((& git -C $source rev-parse 'HEAD^{tree}').Trim() -cne '65229a4748c55f0abc83e05834ea0f7f154c23ce'){throw 'KTERM_HOTFIX_SOURCE_TREE_DRIFT'}
           $bat=Join-Path $source 'INSTALL-KTerminal.bat'
           $normalized=[IO.File]::ReadAllText($bat).Replace("`r`n","`n")
           $sourceHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalized))).ToLowerInvariant()
           if($sourceHash -cne 'ce18786ee1f81140cabeaa4b7987cbb9d6b385f050e216a74492e183dbe4761f'){throw 'KTERM_HOTFIX_BATCH_SOURCE_HASH_DRIFT'}
           & python -m unittest discover -s (Join-Path $source 'tools/qualification') -p 'test_p5_verify_firstuse_archive.py' -q
           if($LASTEXITCODE -ne 0){throw 'KTERM_HOTFIX_BATCH_TESTS_FAILED'}
-          Write-Host 'KTERM_HOTFIX_WINDOWS_QUOTED_PATH_NEGATIVE=PASS;SOURCE=21b12d283311;REAL_BAT=TESTED;BROKER_ORDERS=0'
+          Write-Host 'KTERM_HOTFIX_WINDOWS_QUOTED_PATH_NEGATIVE=PASS;SOURCE=f2722ad6b73d;REAL_BAT=TESTED;BROKER_ORDERS=0'
       - name: Retrieve only qualified exact-SHA package and verify fresh extracted installation
         shell: pwsh
         env:
