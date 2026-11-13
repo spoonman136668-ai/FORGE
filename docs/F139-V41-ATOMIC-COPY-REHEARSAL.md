@@ -70,3 +70,37 @@ under the copied-file owner mutex, is allowed while the existing source proof
 is constructed. An unrelated intervening event, wrong source/comment/escrow
 SHA, or a second escrow fails closed. This changes no live writer or owner
 transition route; the old source without an escrow is unaffected.
+
+
+## Sealed original-backup to copied source-replay seam (DEV only)
+
+`rehearse_from_sealed_cold_bundle` now joins the **existing** independent
+offline V41 manifest verifier to the **existing** exact original-owner
+read-only and copied-ledger atomic rehearsal. It requires a sealed manifest
+bound to the **same** target candidate SHA, the identical original source
+and ledger head, the canonical run ID, and a fresh authentic owner-comment
+identity that the existing copied-rehearsal verifier must independently
+authenticate. It derives the copied-rehearsal backup hash only from the
+digest-verified sealed manifest, not from an operator-provided loose SQLite
+filename or inferred file path.
+
+Both historical failed-provider ZIPs, generation executable, provider
+archives and SQLite are verified by the existing independent restore before
+any copied transaction. A second original/backup comparison occurs inside
+`rehearse_locked_original`. This wrapper only writes through the existing
+isolated **copy-only** route; it cannot update original SQLite, install a
+release, alter the existing owner task, create a ref, update #807, admit
+#1715, authorize scientific first-use, or approve Hybrid.
+
+The original Windows success on run `43396349980` sealed a recovery bundle
+against target `616b87b01c8abd37ee0e0a2d5b5571c51272ba9e`. It is
+valid **historical recovery** evidence; it is NOT automatically an
+approval or same-target release rehearsal for later `main`
+`bb0a74d434c78266f1fd8b9388024d29f2f63ee1`. A later candidate
+needs its own source-bound release qualification and independent owner intent.
+No such actual live transition or owner approval is made by this module.
+
+The added synthetic interface tests mock ONLY the already independently
+qualified sealed restore and owner-intent/copy stages to test binding,
+wrong-target refusal, missing-approval refusal, manifest tamper and owner
+immutability. They do not assert a genuine owner or scientific result.
