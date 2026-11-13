@@ -176,6 +176,17 @@ def inspect_original_postcommit_hold(db_path, candidate_root, *,
          and p.get("scientific_first_use") is False
          and p.get("paid_model_calls") == 0,
          "OLD_POLICY_STILL_REQUIRED_BEFORE_ACTIVATION")
+    # Preserve the existing native Yggdrasil proposal; this is an audit of
+    # its source-bound evidence, never a dispatch or postcommit reissue.
+    issue_route = "repos/" + commit.REPO + "/issues/1715"
+    issue = get(issue_route)
+    need(type(issue) is dict and issue.get("number") == 1715
+         and issue.get("id") == 6333201763
+         and issue.get("state") == "open"
+         and not issue.get("pull_request")
+         and issue.get("user", {}).get("login") == commit.OWNER
+         and issue.get("author_association") == "OWNER",
+         "PENDING_1715_REMOTE_OWNER_DRIFT")
     with SingleOwner(db_path.with_suffix(".lock")):
         with closing(Database.open_readonly(db_path)) as original:
             before = original.meta().copy()
@@ -184,9 +195,21 @@ def inspect_original_postcommit_hold(db_path, candidate_root, *,
             need(original.meta() == before
                  and original.conn.total_changes == changes == 0,
                  "ORIGINAL_CHANGED_DURING_READBACK")
-    need(api.protected_main() == target
+    try:
+        issue_doc = json.loads(issue["body"], object_pairs_hook=decode_unique)
+    except (KeyError, ValueError, TypeError, UnicodeError) as exc:
+        raise V41PostcommitDenied("F139_V41_POSTCOMMIT_PENDING_BODY_JSON") from exc
+    need(type(issue_doc) is dict
+         and issue_doc.get("source_sha") == source.FROM_V40
+         and issue_doc.get("lane") == "Yggdrasil"
+         and issue_doc.get("scientific_first_use") is False
+         and issue_doc.get("paid_model_calls") == 0
+         and digest(canonical(issue_doc)) ==
+             result["pending_1715_body_sha256"]
+         and api.protected_main() == target
          and get("repos/" + commit.REPO + "/issues/807") == policy
+         and get(issue_route) == issue
          and native.verify_original_task_disabled_for_staged_candidate(
              db_path, candidate_root, target) is True,
-         "TASK_SOURCE_OR_POLICY_DRIFT_AFTER_READ")
+         "TASK_SOURCE_POLICY_OR_PENDING_DRIFT_AFTER_READ")
     return result
