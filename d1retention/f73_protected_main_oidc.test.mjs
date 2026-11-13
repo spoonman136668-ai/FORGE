@@ -55,7 +55,9 @@ function fixture(branch=BRANCH){
  };
  const requested=[];
  const fetcher=async(url,opts)=>{
-  requested.push({url,method:opts.method});
+  requested.push({url,method:opts.method,
+   githubBearer:opts.headers?.Authorization==="Bearer "+env.GITHUB_TOKEN,
+   oidcBearer:opts.headers?.Authorization==="Bearer "+env.ACTIONS_ID_TOKEN_REQUEST_TOKEN});
   assert.equal(opts.method,"GET");
   assert.equal(opts.redirect,"error");
   if(!(url in endpoints))throw new Error("F73_MOCK_UNEXPECTED_ENDPOINT");
@@ -77,6 +79,43 @@ test("valid synthetic issuer authenticity remains non-authorizing on engineering
  assert.equal(f.requested.length,7);
  assert.equal(r.on_protected_main_workflow,false);
  assert.equal(r.protected_main_ruleset_enforced,true);
+});
+test("every live GitHub identity read uses the existing scoped bearer, never issuer endpoints",async()=>{
+ const f=fixture("main");
+ const result=await observeRealOrigin({env:f.env,fetcher:f.fetcher,now:clock});
+ assert.equal(result.on_protected_main_workflow,true);
+ assert.equal(result.independently_accepted_current_scientific_owner,false);
+ assert.equal(result.worker_execution_permit_issued,false);
+ assert.deepEqual(f.requested.map(x=>x.githubBearer),
+  [false,false,false,true,true,true,true]);
+ assert.deepEqual(f.requested.map(x=>x.oidcBearer),
+  [true,false,false,false,false,false,false]);
+ assert(f.requested.every(x=>x.method==="GET"));
+ assert(f.requested.every(x=>!x.url.includes(f.env.GITHUB_TOKEN)));
+ assert(f.requested.every(x=>!x.url.includes(f.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN)));
+});
+test("missing GitHub bearer blocks before any identity or ruleset read",async()=>{
+ const f=fixture("main");
+ f.env.GITHUB_TOKEN="";
+ await assert.rejects(observeRealOrigin({env:f.env,fetcher:f.fetcher,now:clock}),Denied);
+ assert.equal(f.requested.length,3);
+ assert.equal(f.requested.some(x=>x.url.startsWith("https://api.github.com/")),false);
+});
+test("authenticated repository refusal stays fail closed without anonymous fallback",async()=>{
+ const f=fixture("main");
+ let repoAttempts=0;
+ const original=f.fetcher;
+ const fetcher=async(url,opts)=>{
+  if(url==="https://api.github.com/repos/"+REPO){
+   repoAttempts++;
+   assert.equal(opts.headers.Authorization,"Bearer "+f.env.GITHUB_TOKEN);
+   return {url,ok:false,status:403,async text(){return ""}};
+  }
+  return original(url,opts);
+ };
+ await assert.rejects(observeRealOrigin({env:f.env,fetcher,now:clock}),Denied);
+ assert.equal(repoAttempts,1);
+ assert.equal(f.requested.some(x=>x.url.includes("/rulesets/")),false);
 });
 test("forged signed JWT, wrong repository, ref, run attempt, OIDC audience or stale expiry refused",async()=>{
  for(const change of [
