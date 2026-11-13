@@ -1,11 +1,12 @@
 """V41 original Windows read-only route: fail-closed source and owner checks."""
 from contextlib import closing
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from f139.local_controller import Database, GitHub
+from f139.local_controller import Database, GitHub, SingleOwner
 from f139 import nci04_v41_original_owner_status as route
 from f139 import nci04_v41_catalog_recovery_preflight as source
 
@@ -168,6 +169,87 @@ class V41OriginalOwnerStatusTests(unittest.TestCase):
         self.assertFalse(hasattr(route,"commit_transition"))
         self.assertFalse(hasattr(route,"install_release"))
         self.assertFalse(hasattr(route,"reactivate_native"))
+
+
+    def test_bounded_failed_copy_probe_reports_failure_without_replay(self):
+        from f139 import nci04_v41_cold_copy_verifier as cold
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "state.sqlite"
+            with closing(Database.initialize(path, source.OWNER_SOURCE)):
+                pass
+            before = hashlib.sha256(path.read_bytes()).hexdigest()
+            folder = root / ("f139-v41-before-" + str(route.FAILED_BACKUP_RUN))
+            group = folder / "provider-custody" / "f139-nci04-test" / "7"
+            group.mkdir(parents=True)
+            for name in ("manifest.json", "ubuntu-latest.zip", "windows-latest.zip"):
+                (group / name).write_bytes(b"private")
+            binary = folder / "prior-generation-custody" / (source.OWNER_SOURCE)
+            binary.mkdir(parents=True)
+            (binary / "f139-genenv-source.exe").write_bytes(b"private")
+            (folder / "state.sqlite").write_bytes(b"private backup")
+            inventory = route.inspect_failed_backup_stage(path)
+            self.assertTrue(inventory["inventory_complete"])
+            self.assertEqual(inventory["classification"],
+                             "PARTIAL_AFTER_PRIOR_BINARY")
+
+            with SingleOwner(path.with_suffix(".lock")):
+                with closing(Database.open_readonly(path)) as original:
+                    with patch.object(cold, "verify_cold_copy",
+                                      side_effect=ValueError(
+                                          "F139_V41_COLD_BACKUP_BYTES_DRIFT")) as check:
+                        report = route.inspect_failed_backup_cold_copy(
+                            original, lambda _: None, target="9"*40,
+                            inventory=inventory)
+                    self.assertTrue(report["attempted"])
+                    self.assertTrue(report["snapshot_hash_checked"])
+                    self.assertFalse(report["cold_copy_verified"])
+                    self.assertEqual(report["failure_code"],
+                                     "F139_V41_COLD_BACKUP_BYTES_DRIFT")
+                    self.assertEqual(check.call_count, 1)
+                    self.assertEqual(original.conn.total_changes, 0)
+
+                    with patch.object(cold, "verify_cold_copy",
+                                      side_effect=RuntimeError(
+                                          "C:/private/secret/provider")):
+                        secret = route.inspect_failed_backup_cold_copy(
+                            original, lambda _: None, target="9"*40,
+                            inventory=inventory)
+                    self.assertEqual(secret["failure_code"],
+                                     "UNCLASSIFIED_EXCEPTION")
+                    self.assertNotIn("secret", str(secret))
+                    self.assertFalse(secret["copied_backup_written"])
+                    self.assertFalse(secret["backup_retried"])
+
+                    with patch.object(cold, "verify_cold_copy",
+                                      side_effect=AssertionError(
+                                          "should not read stage")):
+                        skipped = route.inspect_failed_backup_cold_copy(
+                            original, lambda _: None, target="9"*40,
+                            inventory={**inventory,
+                                       "provider_incomplete_groups": 1})
+                    self.assertFalse(skipped["attempted"])
+                    self.assertEqual(skipped["failure_code"], "NOT_ELIGIBLE")
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
+                             before)
+            self.assertFalse((folder / "manifest.sha256.json").exists())
+
+    def test_untrusted_failed_backup_stage_cannot_trigger_content_probe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.sqlite"
+            with closing(Database.initialize(path, source.OWNER_SOURCE)):
+                pass
+            with SingleOwner(path.with_suffix(".lock")):
+                with closing(Database.open_readonly(path)) as original:
+                    report = route.inspect_failed_backup_cold_copy(
+                        original, lambda _: None, target="9"*40,
+                        inventory={"failed_run_id": route.FAILED_BACKUP_RUN,
+                                   "classification": "UNTRUSTED_LINK",
+                                   "inventory_complete": True})
+                    self.assertFalse(report["attempted"])
+                    self.assertFalse(report["snapshot_hash_checked"])
+                    self.assertEqual(original.conn.total_changes, 0)
+
 
 
 if __name__=="__main__":
