@@ -43,15 +43,29 @@ jobs:
             if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_PREVIEW_BROKER_ENV_PRESENT'}
           }
           Write-Host 'KTERM_PREVIEW_OWNER_PREFLIGHT=PASS;DISARMED_PAPER=TRUE;NO_BROKER_ENV=TRUE'
-      - name: Check out exact private K Terminal candidate
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: Kboomllc/K-Terminal
-          ref: 0621bfda869ab9b08f656ef420ab3fc6d4aba6c0
-          path: kterm-preview
-          fetch-depth: 1
-          persist-credentials: false
-          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Clone exact private candidate through existing gh CLI (no external action download)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.FORGE_KTERM_QUAL }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          $ErrorActionPreference='Stop'
+          $checkout=Join-Path $env:GITHUB_WORKSPACE 'kterm-preview'
+          if(Test-Path -LiteralPath $checkout){throw 'KTERM_PREVIEW_WORKSPACE_NOT_FRESH'}
+          if(-not $env:GH_TOKEN){throw 'KTERM_PREVIEW_EXISTING_PRIVATE_READ_TOKEN_MISSING'}
+          $gh=(Get-Command gh -ErrorAction Stop).Source
+          $git=(Get-Command git -ErrorAction Stop).Source
+          & $gh repo clone Kboomllc/K-Terminal $checkout -- --depth 1 --single-branch --no-tags --branch fix/kterm-readonly-inherited-btc-preview-20261113
+          if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_GH_PRIVATE_CLONE_FAILED'}
+          Push-Location $checkout
+          try {
+            $head=(& $git rev-parse HEAD).Trim()
+            $tree=(& $git rev-parse 'HEAD^{tree}').Trim()
+            if($head -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE){throw 'KTERM_PREVIEW_REMOTE_REF_CHANGED'}
+            & $git remote remove origin
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_REMOTE_CREDENTIAL_CLEANUP_FAILED'}
+          } finally {Pop-Location}
+          Write-Host 'KTERM_PREVIEW_PRIVATE_GIT_CHECKOUT=PASS;EXTERNAL_GITHUB_ACTION_DOWNLOADS=0'
       - name: Pin exact source SHA tree and five modified file blobs
         shell: pwsh
         run: |
@@ -77,11 +91,74 @@ jobs:
             }
             Write-Host ('KTERM_PREVIEW_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';CHANGED_BLOBS=5')
           } finally { Pop-Location }
-      - name: Pin Go 1.26.5
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
-        with:
-          go-version: '1.26.5'
-          cache: false
+      - name: Verify already qualified local Go 1.26.5 without download or runner changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $go=(Get-Command go -ErrorAction Stop).Source
+          $version=(& $go version | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $version -notmatch '^go version go1\.26\.5 windows/amd64
+      - name: Focused inherited preview and negative-control tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go test -count=1 -p 1 -timeout 12m -run '^(TestInheritedPreview|TestBrokerHistory)' ./pkg
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_FOCUSED_TEST_FAILED'}
+            Write-Host ('KTERM_PREVIEW_FOCUSED_TESTS=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Native authority UI PowerShell syntax parse
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE 'kterm-preview\native-authority-ui.ps1'
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'KTERM_PREVIEW_AUTHORITY_UI_PARSE_FAILED'}
+          Write-Host 'KTERM_PREVIEW_NATIVE_UI_PARSER=PASS'
+      - name: Mandatory complete exact-source Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go test -count=1 -p 1 -timeout 60m ./...
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_FULL_REGRESSION_FAILED'}
+            Write-Host ('KTERM_PREVIEW_FULL_REGRESSION=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Vet and compile all candidate Go packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go vet ./...
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_VET_FAILED'}
+            & go build ./...
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_BUILD_FAILED'}
+            Write-Host ('KTERM_PREVIEW_VET_BUILD=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Final exact tree unchanged and disarmed qualification receipt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            if(((& git rev-parse 'HEAD^{tree}').Trim()) -cne $env:KTERM_TREE){throw 'KTERM_PREVIEW_FINAL_TREE_DRIFT'}
+            Write-Host ('KTERM_PREVIEW_ENGINEERING_QUALIFICATION=PASS;SOURCE_SHA='+$env:KTERM_SHA+
+               ';SOURCE_TREE='+$env:KTERM_TREE+
+               ';FULL_REGRESSION=PASS;GO_VET=PASS;GO_BUILD=PASS;UI_PARSE=PASS'+
+               ';LIVE_ACCOUNTS=NOT_TOUCHED;LOT_ADOPTION=NOT_AUTHORIZED;TP_MANAGEMENT=NOT_AUTHORIZED'+
+               ';ORIGINAL_DESKTOP_ACCEPTANCE=NOT_RUN;PRIVATE_USER_DATA=NOT_READ')
+          } finally {Pop-Location}
+){
+            throw 'KTERM_PREVIEW_PINNED_LOCAL_GO_1_26_5_UNAVAILABLE'
+          }
+          Write-Host 'KTERM_PREVIEW_LOCAL_GO_TOOLCHAIN=PASS;GO=1.26.5;NO_DOWNLOAD=TRUE'
       - name: Focused inherited preview and negative-control tests
         shell: pwsh
         run: |
