@@ -91,13 +91,17 @@ jobs:
             }
             Write-Host ('KTERM_PREVIEW_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';CHANGED_BLOBS=5')
           } finally { Pop-Location }
-      - name: Verify already qualified local Go 1.26.5 without download or runner changes
+      - name: Verify already qualified local Go toolchain without download
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $go=(Get-Command go -ErrorAction Stop).Source
           $version=(& $go version | Out-String).Trim()
-          if($LASTEXITCODE -ne 0 -or $version -notmatch '^go version go1\.26\.5 windows/amd64
+          $expect='go version go1.26.5 windows'+[char]47+'amd64'
+          if($LASTEXITCODE -ne 0 -or $version -cne $expect){
+            throw 'KTERM_PREVIEW_PINNED_LOCAL_GO_1_26_5_UNAVAILABLE'
+          }
+          Write-Host 'KTERM_PREVIEW_LOCAL_GO_TOOLCHAIN=PASS;GO=1.26.5;NO_DOWNLOAD=TRUE'
       - name: Focused inherited preview and negative-control tests
         shell: pwsh
         run: |
