@@ -1,0 +1,92 @@
+name: FORGE V41 original-owner running process and task history read-only
+on:
+  push:
+    branches:
+      - diagnostic/f139-v41-private-backup-hash-20261113
+    paths:
+      - .github/workflows/f139-v41-owner-process-readonly-diagnostic.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-v41-owner-process-readonly-20261113
+  cancel-in-progress: false
+jobs:
+  original-owner-process-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Read process/task launch history only (no owner mutation)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $target='1a40fe4e3ec6e93a1631d59863b95e90981d734e'
+          $old='2c7caad5a4502d4b874a11d57207a35cf033eb08'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-v41-private-backup-hash-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:OPENAI_API_KEY){throw 'F139_V41_PROCESS_RO_WRONG_ORIGINAL_OWNER'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $running=[string]$task.State -ceq 'Running'
+          $enabled=[bool]$task.Settings.Enabled
+          $name='FORGE-F139-UnifiedController'
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'pwsh.exe' OR Name = 'python.exe' OR Name = 'pythonw.exe'" -ErrorAction Stop)
+          $new=@($processes|Where-Object {
+            $_.CommandLine -and [string]$_.CommandLine -like ('*'+$target+'*')
+          }|Select-Object -ExpandProperty ProcessId)
+          $oldProcesses=@($processes|Where-Object {
+            $_.CommandLine -and [string]$_.CommandLine -like ('*'+$old+'*')
+          }|Select-Object -ExpandProperty ProcessId)
+          $events=@()
+          $historyAvailable=$true
+          $historyError=''
+          try {
+            $start=Get-Date '2026-11-13T18:48:00'
+            $events=@(Get-WinEvent -FilterHashtable @{
+              LogName='Microsoft-Windows-TaskScheduler/Operational'
+              StartTime=$start
+            } -MaxEvents 500 -ErrorAction Stop | Where-Object {
+              [string]$_.Message -like ('*'+$name+'*')
+            } | Select-Object -First 40 | ForEach-Object {
+              [ordered]@{
+                id=[int]$_.Id
+                time=[string]$_.TimeCreated.ToUniversalTime().ToString('o')
+                level=[string]$_.LevelDisplayName
+              }
+            })
+          } catch {
+            $historyAvailable=$false
+            $historyError=$_.Exception.GetType().Name
+          }
+          $classification='RUNNING_PROCESS_MATCH'
+          if(-not $running -or -not $enabled){
+            $classification='OWNER_TASK_NOT_RUNNING'
+          } elseif($new.Count -eq 0){
+            $classification='RUNNING_TASK_PROCESS_UNVERIFIED'
+          } elseif($oldProcesses.Count -gt 0){
+            $classification='OLD_SOURCE_PROCESS_PRESENT_REVIEW'
+          }
+          Write-Output ('F139_V41_PROCESS_TASK_HISTORY_READONLY='+([ordered]@{
+            schema='forge.f139.v41.owner-process-task-history-readonly.v1'
+            target_source_sha=$target
+            original_task_state=[string]$task.State
+            original_task_enabled=$enabled
+            last_task_result_decimal=[int64]$info.LastTaskResult
+            last_task_result_hex=('0x{0:X8}' -f ([uint32]$info.LastTaskResult))
+            last_run_time=[string]$info.LastRunTime
+            new_source_process_count=$new.Count
+            old_source_process_count=$oldProcesses.Count
+            matching_process_ids=@($new)
+            task_history_available=$historyAvailable
+            task_history_error_class=$historyError
+            task_history_events=@($events)
+            classification=$classification
+            original_task_mutations=0
+            original_sqlite_mutations=0
+            scientific_first_use=$false
+          }|ConvertTo-Json -Compress -Depth 12))
+          Write-Output 'F139_V41_PROCESS_TASK_READONLY_QUERY_COMPLETED=PASS'
