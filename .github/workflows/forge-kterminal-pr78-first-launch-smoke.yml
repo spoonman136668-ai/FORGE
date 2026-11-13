@@ -1,36 +1,36 @@
-name: FORGE K-Terminal PR78 exact-source installed first-launch smoke
+name: FORGE K-Terminal unified exact-artifact installed PAPER desktop acceptance
 on:
   push:
     branches: [qualification/kterminal-rc2-timing-hosted-20261106]
     paths: [.github/workflows/forge-kterminal-pr78-first-launch-smoke.yml]
 permissions:
   contents: read
+  actions: read
 concurrency:
-  group: forge-kterminal-pr78-installed-first-launch-once
+  group: forge-kterminal-unified-disarmed-firstlaunch-cddbe6a6
   cancel-in-progress: false
 jobs:
   first-launch:
     runs-on: windows-latest
-    timeout-minutes: 110
+    timeout-minutes: 35
     env:
-      FORGE_BASE: 64564eda2fb9d479dd936a1420f206d22e422e50
-      KTERM_SHA: 36cb55a8d335f237421082ccdb232ff6d339386d
-      KTERM_TREE: 36a0b53dc1b9507623d0660e1dce2edf0f6d8edd
-      QUALIFIED_RUN: 'PENDING_THIS_SHA'
-      QUALIFIED_FORGE_SHA: 8ef799d2cc842e8cfa4209b804daeca957915651
+      KTERM_SHA: cddbe6a6f8587d4f1699a36aabcd0f986a39692b
+      KTERM_TREE: 801fde8794e262c81eac24e1ca04889e56bb3f79
+      KTERM_QUALIFIED_RUN: '43397610217'
+      KTERM_QUALIFIED_FORGE_SHA: b9360c95c4fa6c178e06e931ba60311daff6315d
+      KTERM_ARTIFACT_ID: '14026016279'
+      KTERM_INNER_ZIP_SHA256: 88c233b6bbd556bb9dd86a6b74ce24d8e2c5644f5bcd6b64d323fd0a1720b016
+      KTERM_OUTER_ZIP_SHA256: 873cd98e50abfcfa757dfc87c07d390278fe48c0594c89ce59ed0be7e29b73d2
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_NATIVE_TIMING: '0'
       K_TERMINAL_P5_LATENCY: '0'
-      GOTOOLCHAIN: local
-      GOTELEMETRY: 'off'
-      CGO_ENABLED: '0'
     steps:
-      - name: Checkout existing FORGE qualification branch without retained credentials
+      - name: Checkout existing FORGE qualification workflow without retained credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          fetch-depth: 2
           persist-credentials: false
-          fetch-depth: 0
-      - name: Verify one-file workflow change and retained qualified source identity
+      - name: Admit only this exact source-bound and no-broker Windows host action
         shell: bash
         run: |
           set -euo pipefail
@@ -39,160 +39,84 @@ jobs:
           test "$GITHUB_EVENT_NAME" = push
           test "$RUNNER_OS" = Windows
           test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD^)" = '4b720774ace97a531dc0a3ffb86aebc58be050f4'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git merge-base --is-ancestor "$QUALIFIED_FORGE_SHA" HEAD
-          test "$(git rev-list --count "$QUALIFIED_FORGE_SHA"..HEAD)" = 1
-          test "$(git diff --name-only "$QUALIFIED_FORGE_SHA" HEAD)" = '.github/workflows/forge-kterminal-pr78-first-launch-smoke.yml'
-          actual="$(git diff --name-only "$FORGE_BASE" HEAD | LC_ALL=C sort)"
-          expected="$(printf '%s\n' '.github/workflows/forge-kterminal-rc2-focused-negative-20261106.yml' '.github/workflows/forge-kterminal-rc2-timing-exact-sha.yml' '.github/workflows/forge-kterminal-pr78-first-launch-smoke.yml' '.github/workflows/forge-kterminal-pr78-qualified-delivery-once.yml' | LC_ALL=C sort)"
-          test "$actual" = "$expected"
-          test -z "$(git status --porcelain)"
-          echo KTERM_PR78_STARTUP_SCOPE=PASS
-      - name: Checkout previously qualified private K-Terminal source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: Kboomllc/K-Terminal
-          ref: 36cb55a8d335f237421082ccdb232ff6d339386d
-          path: kterminal-private
-          fetch-depth: 1
-          persist-credentials: false
-          token: ${{ secrets.FORGE_KTERM_QUAL }}
-      - name: Set up original pinned Windows Go 1.26.5
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
-        with:
-          go-version: '1.26.5'
-          cache: false
-      - name: Verify exact private SHA and zero broker authority
-        shell: bash
-        working-directory: kterminal-private
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$KTERM_SHA"
-          test "$(git rev-parse 'HEAD^{tree}')" = "$KTERM_TREE"
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/forge-kterminal-pr78-first-launch-smoke.yml'
           test -z "$(git status --porcelain)"
           test "$K_TERMINAL_EXECUTION_MODE" = PAPER
-          test ! -e config.json
-          test ! -e .env
-          test ! -d data
-          go version | grep -F 'go1.26.5 windows/amd64' > /dev/null
-          for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET K_TERMINAL_VWAP_DIAGNOSTIC_MAX_TOTAL_USDC K_TERMINAL_VWAP_DIAGNOSTIC_ONE_POST_LOCK; do
-            if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_PR78_BROKER_AUTHORITY_REFUSED; exit 2; fi
+          test "$K_TERMINAL_P5_LATENCY" = 0
+          test "$K_TERMINAL_NATIVE_TIMING" = 0
+          for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET KTERM_COINBASE_TEST_KEY_NAME KTERM_COINBASE_TEST_KEY_SECRET; do
+            if [[ -n "$(printenv "$name" || true)" ]]; then echo KTERM_BROKER_CREDENTIAL_REFUSED; exit 2; fi
           done
-          echo KTERM_PR78_EXACT_SOURCE_DISARMED=PASS
-      - name: Focused PAPER-only SELL identity issuance and maker retry provenance negatives
-        shell: bash
-        working-directory: kterminal-private
-        run: |
-          set -euo pipefail
-          private_log="$RUNNER_TEMP/kterm-pr78-broker-display-focused-private.log"
-          if ! go test -p 1 -count=1 -timeout 15m -run '^(TestUnarmed|TestCoinbaseCold|TestCoinbaseLegacy|TestLegacyObservation|TestBrokerHistory|TestBrokerOnlyAudit|TestUnarmedBrokerAudit|TestNativeStableClientID|TestBrokerLots|TestPortableSellAllocation|TestPortableSellReplay|TestPortableScopedSell|TestCoinbaseColdHistoryPortable|TestPaperNativePortableSell)' ./pkg > "$private_log" 2>&1; then
-            echo KTERM_PR78_FOCUSED_FAILURE_DIAGNOSTIC_BEGIN
-            grep -E '^(# |--- FAIL:|FAIL|panic:)|\\.go:[0-9]+(:[0-9]+)?:|Error: ' "$private_log" | head -50 || true
-            echo KTERM_PR78_FOCUSED_FAILURE_DIAGNOSTIC_END
-            exit 1
-          fi
-          echo KTERM_PR78_BROKER_OBSERVER_FOCUSED_NEGATIVES=PASS
-      - name: Mandatory full exact-head Windows regression and vet
-        shell: bash
-        working-directory: kterminal-private
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/kterm-pr78-broker-display-isolation"
-          mkdir -p "$root/tail" "$root/post" "$root/private"
-          export K_TERMINAL_TEST_WORKSPACE="$root"
-          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$root/tail"
-          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$root/post"
-          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$root/private"
-          regression_log="$RUNNER_TEMP/kterm-pr78-broker-display-full-private.log"
-          if ! go test -p 1 -count=1 -timeout 60m ./... > "$regression_log" 2>&1; then
-            echo KTERM_PR78_FULL_FAILURE_SUMMARY_BEGIN
-            grep -E '^(--- FAIL:|FAIL|panic:|fatal error:|# k-terminal)' "$regression_log" | head -60 || true
-            echo KTERM_PR78_FULL_FAILURE_SUMMARY_END
-            exit 1
-          fi
-          vet_log="$RUNNER_TEMP/kterm-pr78-broker-display-vet-private.log"
-          if ! go vet ./... > "$vet_log" 2>&1; then
-            echo KTERM_PR78_VET_FAILURE_SUMMARY_BEGIN
-            grep -E '(go:|\.go:[0-9]+|# k-terminal)' "$vet_log" | head -35 || true
-            echo KTERM_PR78_VET_FAILURE_SUMMARY_END
-            exit 1
-          fi
-          echo KTERM_PR78_BROKER_OBSERVER_FULL_REGRESSION_VET=PASS
-      - name: Build private desktop and install only into ephemeral isolated folder
+          echo KTERM_UNIFIED_NATIVE_HOST_AND_SOURCE_SCOPE=PASS
+      - name: Retrieve only qualified exact-SHA package and verify fresh extracted installation
         shell: pwsh
-        working-directory: kterminal-private
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
-          $privateRoot=Join-Path $env:GITHUB_WORKSPACE 'kterminal-private'
-          $log=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-build-private.log'
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'BUILD.ps1') *> $log
-          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_REBUILD_FAILED'}
-          $uiOut=Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-proof'
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $privateRoot 'verification\test-ui-runtime.ps1') -Root $privateRoot -OutputDirectory $uiOut *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-test-private.log')
-          if($LASTEXITCODE -ne 0){
-            $privateLog=Join-Path $env:RUNNER_TEMP 'kterm-pr78-zonefix-ui-test-private.log'
-            $evidence=if([IO.File]::Exists($privateLog)){[IO.File]::ReadAllText($privateLog)}else{''}
-            $digest=if([IO.File]::Exists($privateLog)){(Get-FileHash -LiteralPath $privateLog -Algorithm SHA256).Hash.ToLowerInvariant()}else{'MISSING'}
-            $categories=[ordered]@{
-              SOURCE_MUTATED='(?i)(stale assembly was loaded|stale source|source hash|source drift)'
-              INVALID_HASH='(?i)(integrity check failed|corrupt UI assembly)'
-              REMOTE_ZONE='(?i)(not supported|0x80131515|loadfrom|remote|internet|zone)'
-              STREAM_UNSUPPORTED='(?i)(parameter.*stream|stream.*parameter|named.*stream)'
-              TYPE_LOAD='(?i)(unable to find type|type.*not found|could not load type)'
-              MARKUP='(?i)(markup|theme|prelaunch shading|button)'
-              ZONE_REGRESSION='(?i)(Internet-marked verified UI assembly failed)'
-              POWERSHELL_SYNTAX='(?i)(ParserError|ParseException|UnexpectedToken)'
-              FILE_ACCESS='(?i)(Access to the path|access denied|UnauthorizedAccessException)'
-              FILE_MISSING='(?i)(cannot find path|not found|FileNotFoundException)'
-            }
-            $classes=@($categories.Keys|Where-Object{$evidence-match$categories[$_]})
-            if($classes.Count-eq0){$classes=@('UNCLASSIFIED')}
-            Write-Host ('KTERM_PR78_UI_TEST_PRIVATE_LOG_SHA256='+$digest)
-            Write-Host ('KTERM_PR78_UI_TEST_FAILURE_CLASSES='+($classes -join ','))
-            $scriptLines=[regex]::Matches($evidence,'(?i)test-ui-runtime\.ps1:(\d{1,3})')
-            $lineNos=@($scriptLines|ForEach-Object{[int]$_.Groups[1].Value}|Sort-Object -Unique)
-            Write-Host ('KTERM_PR78_UI_TEST_SCRIPT_LINES='+($lineNos -join ','))
-            throw 'KTERM_PR78_DOWNLOADED_DLL_REGRESSION_FAILED'
+          if($env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows'){throw 'KTERM_UNIFIED_HOST_REFUSED'}
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-unified-firstlaunch-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_UNIFIED_STAGE_ALREADY_EXISTS'}
+          [void][IO.Directory]::CreateDirectory($root)
+          $headers=@{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          $run=Invoke-RestMethod -Uri ('https://api.github.com/repos/spoonman136668-ai/FORGE/actions/runs/'+$env:KTERM_QUALIFIED_RUN) -Headers $headers -Method Get
+          if($run.conclusion -cne 'success' -or $run.head_sha -cne $env:KTERM_QUALIFIED_FORGE_SHA -or $run.run_attempt -ne 1){throw 'KTERM_UNIFIED_FULL_REGRESSION_RUN_NOT_QUALIFIED'}
+          $jobs=Invoke-RestMethod -Uri ('https://api.github.com/repos/spoonman136668-ai/FORGE/actions/runs/'+$env:KTERM_QUALIFIED_RUN+'/jobs?per_page=100') -Headers $headers -Method Get
+          $passing=@($jobs.jobs|Where-Object{$_.name -ceq 'K Terminal unified custody + first-use exact-source Windows qualification' -and $_.conclusion -ceq 'success'})
+          if($passing.Count-ne1){throw 'KTERM_UNIFIED_FULL_REGRESSION_JOB_NOT_QUALIFIED'}
+          foreach($name in @('Mandatory full exact-candidate Windows Go regression and vet','Assemble original eight binaries and independently verify first-use ZIP','Validate extracted package WPF windows offline without launching application','Test packaged compiled UI and bounded early startup failures','Fresh portable package first-use PAPER prelaunch smoke with bounded lifetime')){
+            if(@($passing[0].steps|Where-Object{$_.name -ceq $name -and $_.conclusion -ceq 'success'}).Count-ne1){throw ('KTERM_UNIFIED_MISSING_PASS_STEP: '+$name)}
           }
-          $stage=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package'
-          $zip=Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-private.zip'
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $privateRoot 'verification\package-first-install.ps1') -SourceRoot $privateRoot -StageDirectory $stage -ZipPath $zip *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-package-private.log')
-          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_PACKAGING_FAILED'}
-          $extracted=Join-Path $env:RUNNER_TEMP 'kterm-pr78-extracted-from-zip'
-          Expand-Archive -LiteralPath $zip -DestinationPath $extracted -ErrorAction Stop
-          $sourceDLL=Join-Path $extracted 'KTerminal.UI.dll'
-          Set-Content -LiteralPath $sourceDLL -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" -ErrorAction Stop
-          if($null-eq(Get-Item -LiteralPath $sourceDLL -Stream Zone.Identifier -ErrorAction Stop)){throw 'KTERM_PR78_ZONE_FIXTURE_MISSING'}
+          $outer=Join-Path $root 'qualified-artifact.zip'
+          Invoke-WebRequest -Uri ('https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/'+$env:KTERM_ARTIFACT_ID+'/zip') -Headers $headers -Method Get -MaximumRedirection 5 -OutFile $outer
+          if((Get-FileHash -LiteralPath $outer -Algorithm SHA256).Hash.ToLowerInvariant()-cne $env:KTERM_OUTER_ZIP_SHA256){throw 'KTERM_UNIFIED_OUTER_ARTIFACT_SHA256_MISMATCH'}
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $outerDir=Join-Path $root 'outer';[IO.Compression.ZipFile]::ExtractToDirectory($outer,$outerDir)
+          $inner=Join-Path $outerDir 'K-Terminal-Disarmed-FirstUse-cddbe6a6f858.zip'
+          $receipt=Join-Path $outerDir 'FIRST-USE-RECEIPT.json'
+          if(-not[IO.File]::Exists($inner)-or-not[IO.File]::Exists($receipt)){throw 'KTERM_UNIFIED_ARTIFACT_MEMBERS_MISSING'}
+          $r=Get-Content -LiteralPath $receipt -Raw|ConvertFrom-Json
+          if($r.source_sha -cne $env:KTERM_SHA -or $r.source_tree -cne $env:KTERM_TREE -or $r.archive_sha256 -cne $env:KTERM_INNER_ZIP_SHA256 -or $r.files-ne73 -or $r.binaries-ne8 -or $r.roundtrip -cne 'PASS'){throw 'KTERM_UNIFIED_RECEIPT_IDENTITY_DRIFT'}
+          if((Get-FileHash -LiteralPath $inner -Algorithm SHA256).Hash.ToLowerInvariant()-cne $env:KTERM_INNER_ZIP_SHA256){throw 'KTERM_UNIFIED_INNER_ARTIFACT_SHA256_MISMATCH'}
+          $unpack=Join-Path $root 'source';[IO.Compression.ZipFile]::ExtractToDirectory($inner,$unpack)
+          $m=Get-Content -LiteralPath (Join-Path $unpack 'FIRST-USE-MANIFEST.json') -Raw|ConvertFrom-Json
+          if($m.source_sha -cne $env:KTERM_SHA -or $m.source_tree -cne $env:KTERM_TREE -or $m.default_authority -cne 'DISARMED' -or $m.live_trading_authorized -or $m.binary_count-ne8 -or @($m.files).Count-ne73){throw 'KTERM_UNIFIED_MANIFEST_REFUSED'}
+          if(Test-Path -LiteralPath (Join-Path $unpack 'config.json')){throw 'KTERM_UNIFIED_CREDENTIAL_CONFIG_FOUND'}
+          if(Test-Path -LiteralPath (Join-Path $unpack 'data')){throw 'KTERM_UNIFIED_ACCOUNT_STATE_FOUND'}
           $target=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $extracted 'INSTALL-KTerminal.ps1') -SourceRoot $extracted -Destination $target -NoLaunch *> (Join-Path $env:RUNNER_TEMP 'kterm-pr78-launch-install-private.log')
-          if($LASTEXITCODE -ne 0){throw 'KTERM_PR78_STARTUP_INSTALL_FAILED'}
-          if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_PR78_STARTUP_UNEXPECTED_CONFIG'}
-          $installedDll=Join-Path $target 'KTerminal.UI.dll'
-          $manifest=Get-Content -LiteralPath (Join-Path $target 'ui-runtime-manifest.json') -Raw | ConvertFrom-Json
-          if((Get-FileHash -LiteralPath $installedDll -Algorithm SHA256).Hash.ToLowerInvariant()-cne[string]$manifest.sha256){throw 'KTERM_PR78_INSTALLED_UI_HASH_INVALID'}
-          # Reapply an Internet zone after installation: the runtime loader must
-          # still recover, even when a user runs the extracted app directly.
-          Set-Content -LiteralPath $installedDll -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" -ErrorAction Stop
-          Write-Host 'KTERM_PR78_REBUILT_FRESH_INSTALL=PASS;LIVE_ORDERS=0'
+          if(Test-Path -LiteralPath $target){throw 'KTERM_UNIFIED_EXISTING_INSTALL_REFUSED'}
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $unpack 'INSTALL-KTerminal.ps1') -SourceRoot $unpack -Destination $target -NoLaunch *> (Join-Path $root 'private-install.log')
+          if($LASTEXITCODE-ne0){throw 'KTERM_UNIFIED_FRESH_INSTALL_FAILED'}
+          foreach($required in @('K-Terminal.exe','K-Terminal-Engine.exe','KTerminal.UI.dll','ui-runtime-manifest.json')){
+            if(-not[IO.File]::Exists((Join-Path $target $required))){throw 'KTERM_UNIFIED_INSTALLED_MEMBER_MISSING'}
+          }
+          if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_UNIFIED_INSTALLED_CREDENTIAL_REFUSED'}
+          $dll=Join-Path $target 'KTerminal.UI.dll'
+          Set-Content -LiteralPath $dll -Stream Zone.Identifier -Value ('[ZoneTransfer]'+[Environment]::NewLine+'ZoneId=3') -ErrorAction Stop
+          $expect=@($m.files|Where-Object{$_.path -ceq 'KTerminal.UI.dll'})
+          if($expect.Count-ne1 -or (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()-cne [string]$expect[0].sha256){throw 'KTERM_UNIFIED_UI_ASSEMBLY_SHA_MISMATCH'}
+          Write-Host 'KTERM_UNIFIED_EXACT_PACKAGE_FRESH_INSTALL=PASS;QUALIFIED_RUN=43397610217;SOURCE=cddbe6a6f858;LIVE_ORDERS=0'
       - name: Actually start installed K-Terminal.exe and verify visible prelaunch window
         shell: pwsh
         working-directory: kterminal-private
         run: |
           $ErrorActionPreference='Stop'
           $target=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
-          if(-not(Test-Path -LiteralPath (Join-Path $target 'K-Terminal.exe'))){throw 'KTERM_PR78_INSTALLED_LAUNCHER_MISSING'}
-          if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_PR78_UNEXPECTED_LIVE_CONFIG'}
+          if(-not(Test-Path -LiteralPath (Join-Path $target 'K-Terminal.exe'))){throw 'KTERM_UNIFIED_INSTALLED_LAUNCHER_MISSING'}
+          if(Test-Path -LiteralPath (Join-Path $target 'config.json')){throw 'KTERM_UNIFIED_UNEXPECTED_LIVE_CONFIG'}
           $launcher=Start-Process -FilePath (Join-Path $target 'K-Terminal.exe') -WorkingDirectory $target -PassThru
-          if($null -eq $launcher){throw 'KTERM_PR78_REAL_LAUNCH_FAILED'}
+          if($null -eq $launcher){throw 'KTERM_UNIFIED_REAL_LAUNCH_FAILED'}
           $visible=$false
           $sw=[Diagnostics.Stopwatch]::StartNew()
           try {
             while($sw.Elapsed.TotalSeconds -lt 35){
               Start-Sleep -Milliseconds 650
               $launcher.Refresh()
-              if($launcher.HasExited){throw 'KTERM_PR78_LAUNCHER_EXITED_BEFORE_PRELAUNCH_UI'}
+              if($launcher.HasExited){throw 'KTERM_UNIFIED_LAUNCHER_EXITED_BEFORE_PRELAUNCH_UI'}
               $status=Join-Path $target 'data\logs\desktop-startup-status.txt'
-              if([IO.File]::Exists($status)){throw 'KTERM_PR78_REAL_STARTUP_REPORTED_UI_FAILURE'}
+              if([IO.File]::Exists($status)){throw 'KTERM_UNIFIED_REAL_STARTUP_REPORTED_UI_FAILURE'}
               # Confirm any window belongs to this launcher's owned process tree.
               $procs=@(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId,ParentProcessId)
               $owned=New-Object 'System.Collections.Generic.HashSet[int]'
@@ -210,10 +134,10 @@ jobs:
               }
               if($visible){break}
             }
-            if(-not$visible){throw 'KTERM_PR78_PRELAUNCH_WINDOW_NOT_OBSERVED'}
-            if(Test-Path -LiteralPath (Join-Path $target 'data\.application-launch-session.json')){throw 'KTERM_PR78_UNEXPECTED_SESSION_ACTIVATION'}
-            if(Test-Path -LiteralPath (Join-Path $target 'data\native-runtime')){throw 'KTERM_PR78_UNEXPECTED_ENGINE_START'}
-            Write-Host 'KTERM_PR78_INSTALLED_REAL_PRELAUNCH_WINDOW=PASS;DASHBOARD_NOT_ACTIVATED;BROKER_ORDERS=0'
+            if(-not$visible){throw 'KTERM_UNIFIED_PRELAUNCH_WINDOW_NOT_OBSERVED'}
+            if(Test-Path -LiteralPath (Join-Path $target 'data\.application-launch-session.json')){throw 'KTERM_UNIFIED_UNEXPECTED_SESSION_ACTIVATION'}
+            if(Test-Path -LiteralPath (Join-Path $target 'data\native-runtime')){throw 'KTERM_UNIFIED_UNEXPECTED_ENGINE_START'}
+            Write-Host 'KTERM_UNIFIED_INSTALLED_REAL_PRELAUNCH_WINDOW=PASS;DASHBOARD_NOT_ACTIVATED;BROKER_ORDERS=0'
           }
           finally {
             try {
@@ -230,8 +154,8 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $target=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
-          if(-not[IO.File]::Exists((Join-Path $target 'K-Terminal.exe'))){throw 'KTERM_PR78_REAL_DASHBOARD_INSTALL_MISSING'}
-          if([IO.File]::Exists((Join-Path $target 'config.json'))){throw 'KTERM_PR78_BROKER_CONFIG_REFUSED'}
+          if(-not[IO.File]::Exists((Join-Path $target 'K-Terminal.exe'))){throw 'KTERM_UNIFIED_REAL_DASHBOARD_INSTALL_MISSING'}
+          if([IO.File]::Exists((Join-Path $target 'config.json'))){throw 'KTERM_UNIFIED_BROKER_CONFIG_REFUSED'}
           Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
           $root=[Windows.Automation.AutomationElement]::RootElement
           $tree=[Windows.Automation.TreeScope]::Children
@@ -239,7 +163,7 @@ jobs:
           $idProperty=[Windows.Automation.AutomationElement]::AutomationIdProperty
           $nameProperty=[Windows.Automation.AutomationElement]::NameProperty
           $launcher=Start-Process -FilePath (Join-Path $target 'K-Terminal.exe') -WorkingDirectory $target -PassThru
-          if($null-eq$launcher){throw 'KTERM_PR78_REAL_DASHBOARD_LAUNCHER_MISSING'}
+          if($null-eq$launcher){throw 'KTERM_UNIFIED_REAL_DASHBOARD_LAUNCHER_MISSING'}
           function OwnedProcesses {
             $rows=@(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId,ParentProcessId)
             $owned=New-Object 'System.Collections.Generic.HashSet[int]'
@@ -251,7 +175,7 @@ jobs:
             $win=$root.FindFirst($tree,[Windows.Automation.PropertyCondition]::new($nameProperty,$title))
             if($null-eq$win){return $null}
             $owned=OwnedProcesses
-            if(-not$owned.Contains([int]$win.Current.ProcessId)){throw 'KTERM_PR78_FOREIGN_WINDOW_REFUSED'}
+            if(-not$owned.Contains([int]$win.Current.ProcessId)){throw 'KTERM_UNIFIED_FOREIGN_WINDOW_REFUSED'}
             return $win
           }
           $clock=[Diagnostics.Stopwatch]::StartNew()
@@ -259,45 +183,45 @@ jobs:
             $prelaunch=$null
             while($clock.Elapsed.TotalSeconds-lt35){
               $launcher.Refresh()
-              if($launcher.HasExited){throw 'KTERM_PR78_PRELAUNCH_EXITED_EARLY'}
+              if($launcher.HasExited){throw 'KTERM_UNIFIED_PRELAUNCH_EXITED_EARLY'}
               $prelaunch=FindOwnedWindow 'K-Terminal v1.1.5 Launch'
               if($null-ne$prelaunch){break}
               Start-Sleep -Milliseconds 500
             }
-            if($null-eq$prelaunch){throw 'KTERM_PR78_PRELAUNCH_UIA_NOT_FOUND'}
+            if($null-eq$prelaunch){throw 'KTERM_UNIFIED_PRELAUNCH_UIA_NOT_FOUND'}
             $paper=$prelaunch.FindFirst($desc,[Windows.Automation.PropertyCondition]::new($idProperty,'PaperMode'))
             if($null-eq$paper){$paper=$prelaunch.FindFirst($desc,[Windows.Automation.PropertyCondition]::new($nameProperty,'PAPER TEST'))}
-            if($null-eq$paper){throw 'KTERM_PR78_PAPER_SELECTION_NOT_FOUND'}
-            if(-not$paper.Current.IsEnabled){throw 'KTERM_PR78_PAPER_SELECTION_DISABLED'}
+            if($null-eq$paper){throw 'KTERM_UNIFIED_PAPER_SELECTION_NOT_FOUND'}
+            if(-not$paper.Current.IsEnabled){throw 'KTERM_UNIFIED_PAPER_SELECTION_DISABLED'}
             $paper.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
             Start-Sleep -Milliseconds 350
             $launch=$prelaunch.FindFirst($desc,[Windows.Automation.PropertyCondition]::new($idProperty,'ContinueButton'))
             if($null-eq$launch){$launch=$prelaunch.FindFirst($desc,[Windows.Automation.PropertyCondition]::new($nameProperty,'LAUNCH'))}
-            if($null-eq$launch-or-not$launch.Current.IsEnabled){throw 'KTERM_PR78_PAPER_LAUNCH_CONTROL_NOT_READY'}
+            if($null-eq$launch-or-not$launch.Current.IsEnabled){throw 'KTERM_UNIFIED_PAPER_LAUNCH_CONTROL_NOT_READY'}
             $launch.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
             $dashboard=$null
             $clock.Restart()
             while($clock.Elapsed.TotalSeconds-lt80){
               $launcher.Refresh()
-              if($launcher.HasExited){throw 'KTERM_PR78_DASHBOARD_PROCESS_EXITED'}
-              if([IO.File]::Exists((Join-Path $target 'data\logs\desktop-startup-status.txt'))){throw 'KTERM_PR78_DASHBOARD_STARTUP_ERROR'}
+              if($launcher.HasExited){throw 'KTERM_UNIFIED_DASHBOARD_PROCESS_EXITED'}
+              if([IO.File]::Exists((Join-Path $target 'data\logs\desktop-startup-status.txt'))){throw 'KTERM_UNIFIED_DASHBOARD_STARTUP_ERROR'}
               $session=Join-Path $target 'data\.application-launch-session.json'
               if([IO.File]::Exists($session)){
                 $state=Get-Content -LiteralPath $session -Raw | ConvertFrom-Json
-                if($state.mode-cne'PAPER'-or$state.execution_state-cne'DISARMED'){throw 'KTERM_PR78_DASHBOARD_WRONG_MODE_OR_ARMED'}
+                if($state.mode-cne'PAPER'-or$state.execution_state-cne'DISARMED'){throw 'KTERM_UNIFIED_DASHBOARD_WRONG_MODE_OR_ARMED'}
               }
               $dashboard=FindOwnedWindow 'K-Terminal v1.1.5 - DASHBOARD'
               if($null-ne$dashboard -and [IO.File]::Exists($session)){break}
               Start-Sleep -Milliseconds 600
             }
-            if($null-eq$dashboard){throw 'KTERM_PR78_DASHBOARD_WINDOW_NOT_OBSERVED'}
+            if($null-eq$dashboard){throw 'KTERM_UNIFIED_DASHBOARD_WINDOW_NOT_OBSERVED'}
             Start-Sleep -Seconds 5
             $launcher.Refresh()
-            if($launcher.HasExited){throw 'KTERM_PR78_DASHBOARD_NOT_STABLE'}
-            if($null-eq(FindOwnedWindow 'K-Terminal v1.1.5 - DASHBOARD')){throw 'KTERM_PR78_DASHBOARD_WINDOW_DISAPPEARED'}
-            if([IO.File]::Exists((Join-Path $target 'config.json'))){throw 'KTERM_PR78_DASHBOARD_CREATED_LIVE_CONFIG'}
-            if([IO.Directory]::Exists((Join-Path $target 'data\native-runtime'))){throw 'KTERM_PR78_DASHBOARD_STARTED_LIVE_ENGINE'}
-            Write-Host 'KTERM_PR78_REAL_PAPER_DASHBOARD_VISIBLE_STABLE=PASS;DISARMED=TRUE;BROKER_ORDERS=0'
+            if($launcher.HasExited){throw 'KTERM_UNIFIED_DASHBOARD_NOT_STABLE'}
+            if($null-eq(FindOwnedWindow 'K-Terminal v1.1.5 - DASHBOARD')){throw 'KTERM_UNIFIED_DASHBOARD_WINDOW_DISAPPEARED'}
+            if([IO.File]::Exists((Join-Path $target 'config.json'))){throw 'KTERM_UNIFIED_DASHBOARD_CREATED_LIVE_CONFIG'}
+            if([IO.Directory]::Exists((Join-Path $target 'data\native-runtime'))){throw 'KTERM_UNIFIED_DASHBOARD_STARTED_LIVE_ENGINE'}
+            Write-Host 'KTERM_UNIFIED_REAL_PAPER_DASHBOARD_VISIBLE_STABLE=PASS;DISARMED=TRUE;BROKER_ORDERS=0'
           } finally {
             try {
               $launcher.Refresh()
@@ -307,13 +231,17 @@ jobs:
               }
             } finally { $launcher.Dispose() }
           }
-      - name: Write sanitized first-launch disposition only
+      - name: Sanitize disposition and clean only ephemeral run-owned artifacts
         if: always()
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          echo KTERM_PR78_STARTUP_PROBE_FINISHED
-          echo KTERM_SOURCE_SHA="$KTERM_SHA"
-          echo QUALIFIED_SOURCE_RUN="$QUALIFIED_RUN"
-          echo KTERM_LIVE_ORDERS=0
-          echo KTERM_PRIVATE_LOGS_AND_BINARIES_NOT_PUBLISHED
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-unified-firstlaunch-'+$env:GITHUB_RUN_ID)
+          $install=Join-Path $env:RUNNER_TEMP 'kterm-pr78-real-first-launch'
+          foreach($path in @($root,$install)){
+            $scope=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+            $full=[IO.Path]::GetFullPath($path)
+            if($full.StartsWith($scope,[StringComparison]::OrdinalIgnoreCase) -and $full -ne $scope.TrimEnd('\')){
+              if([IO.Directory]::Exists($full)){try{Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop}catch{Write-Host 'KTERM_UNIFIED_EPHEMERAL_CLEANUP_INCOMPLETE'}}
+            }
+          }
+          Write-Host 'KTERM_UNIFIED_DESKTOP_ACCEPTANCE_FINISHED;BROKER_REQUESTS=0;NO_OWNER_INSTALL=TRUE'
