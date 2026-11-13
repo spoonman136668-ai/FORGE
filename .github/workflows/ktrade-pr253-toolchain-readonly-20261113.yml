@@ -67,3 +67,61 @@ jobs:
             installer_launched=$false
             git_source_touched=$false
           }|ConvertTo-Json -Compress -Depth 6))
+      - name: Check current input-desktop and cursor accessibility read-only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113'){
+            throw 'KTRADE_INPUT_DESKTOP_SCOPE_REFUSED'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public static class KtradeInputDesktopReadOnly {
+            [StructLayout(LayoutKind.Sequential)] public struct P { public int X; public int Y; }
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool GetCursorPos(out P pos);
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr handle);
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr GetThreadDesktop(uint threadId);
+            [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+            [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)]
+            public static extern bool GetUserObjectInformation(IntPtr handle,int index,StringBuilder name,uint count,out uint needed);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            public static string Name(IntPtr h){
+              if(h==IntPtr.Zero)return "UNAVAILABLE";
+              var b=new StringBuilder(128); uint needed;
+              if(!GetUserObjectInformation(h,2,b,(uint)(b.Capacity*2),out needed))return "NAME_UNAVAILABLE";
+              return b.ToString();
+            }
+            public static string[] Snapshot(){
+              P p; bool cp=GetCursorPos(out p);int last=Marshal.GetLastWin32Error();
+              IntPtr handle=OpenInputDesktop(0,false,1);int openLast=Marshal.GetLastWin32Error();
+              string inputName=Name(handle),threadName=Name(GetThreadDesktop(GetCurrentThreadId()));
+              if(handle!=IntPtr.Zero)CloseDesktop(handle);
+              return new[]{
+                cp?"CURSOR_OK":"CURSOR_ERROR_"+last.ToString(),
+                handle!=IntPtr.Zero?"INPUT_OPEN_OK":"INPUT_OPEN_ERROR_"+openLast.ToString(),
+                "INPUT_DESKTOP_"+inputName, "THREAD_DESKTOP_"+threadName,
+                GetForegroundWindow()!=IntPtr.Zero?"FOREGROUND_PRESENT":"FOREGROUND_UNAVAILABLE"
+              };
+            }
+          }
+          '@
+          $data=[KtradeInputDesktopReadOnly]::Snapshot()
+          Write-Host ('KTRADE_PR253_INPUT_DESKTOP='+(@{
+            schema='ktrade.pr253.input-desktop-readonly.v1'
+            host=$env:COMPUTERNAME
+            runner=$env:RUNNER_NAME
+            session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+            desktop_checks=@($data)
+            changed_desktop=$false
+            changed_mouse=$false
+            changed_display=$false
+            started_app=$false
+            scheduled_task_created=$false
+            service_changed=$false
+          }|ConvertTo-Json -Compress -Depth 4))
