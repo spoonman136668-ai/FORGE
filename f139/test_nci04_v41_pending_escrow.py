@@ -131,7 +131,7 @@ class V41EscrowTests(unittest.TestCase):
                 "SELECT payload FROM events WHERE kind=?", (escrow.KIND,)
             ).fetchone()["payload"]
             self.assertEqual(payload, event_canonical(self.document()).decode("ascii"))
-            self.assertTrue(payload.endswith("\\n"))
+            self.assertTrue(payload.endswith("\n"))
             class Cold:
                 def __init__(self, db):
                     self.conn = db
@@ -139,8 +139,8 @@ class V41EscrowTests(unittest.TestCase):
             self.assertEqual(escrow.verify_before_transition(
                 db, escrow.OBSERVED_SEQ + 2), "1" * 64)
             for bad in (payload[:-1],
-                        json.dumps(self.document(), indent=2) + "\\n",
-                        payload + "\\n"):
+                        json.dumps(self.document(), indent=2) + "\n",
+                        payload + "\n"):
                 with self.subTest(bad_length=len(bad)):
                     conn.execute("UPDATE events SET payload=? WHERE kind=?",
                                  (bad, escrow.KIND))
