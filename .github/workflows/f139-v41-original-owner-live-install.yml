@@ -1,0 +1,50 @@
+name: FORGE F139 V41 guarded original-owner live installation
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: write
+  actions: read
+  pull-requests: read
+concurrency:
+  group: forge-f139-v41-original-owner-live-install
+  cancel-in-progress: false
+jobs:
+  original-owner-v41-live-install:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V41-LIVE-INSTALL ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact protected-main V41 installer source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: One-shot original-owner V41 installation with recovery fence
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_SHA -cnotmatch '^[a-f0-9]{40}$' -or
+             $env:OPENAI_API_KEY) {
+            throw 'F139_V41_INSTALL_ORIGINAL_FIRST_ATTEMPT_ONLY'
+          }
+          & "$env:GITHUB_WORKSPACE/f139/v41_original_owner_live_install.ps1" -Target $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_V41_INSTALL_NOT_ACCEPTED'
+          }
