@@ -202,3 +202,45 @@ jobs:
             hybrid_admission=$false
           }|ConvertTo-Json -Depth 6 -Compress))
           Write-Host 'F139_V41_READINESS_ONLY_NO_TASK_OR_SQLITE_MUTATION=PASS'
+  original-owner-v41-copy-rehearsal:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V41-COPY-REHEARSAL ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+      pull-requests: read
+    steps:
+      - name: Checkout exact protected-main copy rehearsal source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Original query-only ledger and isolated copy transaction
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_SHA -cnotmatch '^[a-f0-9]{40}$' -or
+             $env:OPENAI_API_KEY) {
+            throw 'F139_V41_COPY_REHEARSAL_WRONG_OWNER_RUN'
+          }
+          & python -B -m f139.nci04_v41_native_original_install_cli --target $env:GITHUB_SHA --rehearse-only
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_V41_COPY_REHEARSAL_NOT_VERIFIED'
+          }
