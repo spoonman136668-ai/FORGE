@@ -133,6 +133,17 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-preview-stage3-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_PREVIEW_STAGE3_ROOT_REUSED'}
+          $env:K_TERMINAL_TEST_WORKSPACE=$root
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'tail'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'post'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'private'
+          foreach($d in @($root,$env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,
+              $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,$env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){
+            [void][IO.Directory]::CreateDirectory($d)
+          }
+          Write-Host 'KTERM_PREVIEW_STAGE3_ISOLATION=PASS;ROOT=RUN_SPECIFIC_TEMP;TEST_CONTRACT_PATHS=3'
           Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
           try {
             $sw=[Diagnostics.Stopwatch]::StartNew()
