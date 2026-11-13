@@ -108,6 +108,16 @@ jobs:
             b,e:=os.ReadFile(os.Getenv("KTERM_ORIGINAL_CONFIG_PATH")); if e!=nil {t.Fatal("ORIGINAL_CONFIG_READ_REFUSED")}
             cfg,e:=ParseNativeConfiguration(b); if e!=nil {t.Fatal("ORIGINAL_CONFIG_PARSE_REFUSED")}
             if cfg.SyntheticTP.ProductID!="BTC-USDC" || cfg.AccountID=="" || cfg.APIKey.KeyName=="" || cfg.APIKey.KeySecret=="" {t.Fatal("ORIGINAL_ACCOUNT_BTC_SCOPE_REFUSED")}
+            signer:=NewReadOnlyAuthenticator(cfg.APIKey.KeyName,cfg.APIKey.KeySecret)
+            _,signErr:=signer.GenerateJWT("GET","api.coinbase.com","/api/v3/brokerage/accounts")
+            if signErr!=nil {
+              class:="SIGNER_OTHER"
+              lower:=strings.ToLower(signErr.Error())
+              if strings.Contains(lower,"could not decode private key"){class="PEM_DECODE"}
+              if strings.Contains(lower,"x509")||strings.Contains(lower,"asn1")||strings.Contains(lower,"parseecprivatekey"){class="EC_KEY_PARSE"}
+              fmt.Printf("KTERM_COINBASE_HISTORY_GET_ONLY=SIGNER_BLOCKED;CLASS=%s;HTTPS_GET_REQUESTS=0;NO_BROKER_REQUESTS=TRUE;NO_LOCAL_LEDGER_WRITES=TRUE\\n",class)
+              return
+            }
             g:=&kterminalGETOnlyGuard{base:http.DefaultTransport}
             http.DefaultTransport=g
             defer func(){http.DefaultTransport=g.base}()
@@ -133,7 +143,7 @@ jobs:
             $receipt=@(Select-String -LiteralPath $log -Pattern '^KTERM_COINBASE_HISTORY_GET_ONLY=' | ForEach-Object {$_.Line})
             if($receipt.Count -ne 1){throw 'KTERM_GET_ONLY_HISTORY_NO_SANITIZED_RECEIPT'}
             $line=$receipt[0]
-            if($line -match '[\r\n\x00]' -or $line.Length -gt 800 -or $line -notmatch '^KTERM_COINBASE_HISTORY_GET_ONLY=COMPLETE;STATE=(SOURCE_VERIFIED|INCOMPLETE|UNAVAILABLE);HTTPS_GET_REQUESTS=[0-9]+;'){throw 'KTERM_GET_ONLY_RECEIPT_FORMAT_REFUSED'}
+            if($line -match '[\r\n\x00]' -or $line.Length -gt 800 -or $line -notmatch '^KTERM_COINBASE_HISTORY_GET_ONLY=(COMPLETE;STATE=(SOURCE_VERIFIED|INCOMPLETE|UNAVAILABLE);HTTPS_GET_REQUESTS=[0-9]+;|SIGNER_BLOCKED;CLASS=(PEM_DECODE|EC_KEY_PARSE|SIGNER_OTHER);HTTPS_GET_REQUESTS=0;)'){throw 'KTERM_GET_ONLY_RECEIPT_FORMAT_REFUSED'}
             if($rc -ne 0){throw 'KTERM_GET_ONLY_TEST_FAILED_PRIVATE_LOG_RETAINED_FOR_LOCAL_CLEANUP'}
             Write-Host $line
             Write-Host 'KTERM_GET_ONLY_SOURCE_AND_NETWORK_FENCE=PASS;LOCAL_LEDGER_NOT_TOUCHED=TRUE;NO_CREDENTIALS_OR_RAW_REQUESTS_EXPORTED=TRUE'
