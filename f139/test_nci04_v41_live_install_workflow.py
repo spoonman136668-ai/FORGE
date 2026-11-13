@@ -4,6 +4,9 @@ Unit qualification proves source/wiring restrictions only. Actual original
 Windows owner execution and post-install research acceptance remain separate.
 """
 from pathlib import Path
+import os
+import shutil
+import subprocess
 import unittest
 
 
@@ -86,6 +89,23 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
         self.assertIn("SourceOld", src)
         self.assertIn("Main", src)
         self.assertIn("OWNER_APPROVAL_EVENT_MISSING", src)
+
+    @unittest.skipUnless(os.name == "nt", "Native Windows PowerShell only")
+    def test_windows_powershell_parser_accepts_live_wrapper(self):
+        exe = shutil.which("powershell.exe")
+        self.assertIsNotNone(exe, "native Windows PowerShell is required")
+        program = (
+            "$ErrorActionPreference='Stop';$t=$null;$e=$null;"
+            "[System.Management.Automation.Language.Parser]::ParseFile("
+            "$env:F139_CHECK_PS_SOURCE,[ref]$t,[ref]$e)|Out-Null;"
+            "if(@($e).Count -ne 0){$e|ForEach-Object{Write-Output $_};exit 1}"
+        )
+        proc = subprocess.run(
+            [exe, "-NoProfile", "-NonInteractive", "-Command", program],
+            env=dict(os.environ, F139_CHECK_PS_SOURCE=str(WRAPPER)),
+            capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(proc.returncode, 0,
+                         (proc.stdout + "\\n" + proc.stderr)[:3000])
 
     def test_no_second_controller_or_external_model(self):
         for src in (self.workflow, self.wrapper):
