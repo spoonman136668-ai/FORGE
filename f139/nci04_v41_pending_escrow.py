@@ -1,7 +1,7 @@
 """Read-only V41 #1715 escrow replay; no writer or dispatch authority."""
 import json
 import re
-from f139.nci04_native_contract import canonical
+from f139.local_controller import canonical as event_canonical
 from f139.nci04_v41_catalog_recovery_preflight import OWNER_SOURCE, OBSERVED_SEQ, OBSERVED_HEAD
 
 KIND = "NATIVE_PENDING_ESCROWED"
@@ -70,7 +70,8 @@ def verify_before_transition(db, transition_seq):
     except (TypeError, ValueError, UnicodeError) as exc:
         raise EscrowDenied("F139_V41_ESCROW_JSON_INVALID") from exc
     verify_event_shape({"seq": r["seq"], "prior_sha": r["prior_sha"]}, doc)
-    need(canonical(doc).decode("ascii") == r["payload"], "ESCROW_NONCANONICAL")
+    need(event_canonical(doc).decode("ascii") == r["payload"],
+         "ESCROW_NONCANONICAL")
     observed = db.conn.execute("SELECT sha FROM events WHERE seq=?",
                                 (OBSERVED_SEQ,)).fetchone()
     need(observed is not None and observed["sha"] == OBSERVED_HEAD,
