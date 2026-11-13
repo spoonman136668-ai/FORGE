@@ -126,7 +126,7 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Native Windows PowerShell only")
     def test_windows_powershell_parser_accepts_readiness_step(self):
         part = self.workflow.split("  original-owner-v41-readiness:", 1)[1]
-        run = textwrap.dedent(part.split("        run: |\\n", 1)[1])
+        run = textwrap.dedent(part.split("        run: |\n", 1)[1])
         self.assertIn("F139_V41_READINESS_ONLY_NO_TASK_OR_SQLITE_MUTATION", run)
         script = (
             "$ErrorActionPreference='Stop';$t=$null;$e=$null;"
