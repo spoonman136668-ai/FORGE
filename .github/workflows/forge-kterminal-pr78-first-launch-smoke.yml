@@ -39,7 +39,7 @@ jobs:
           test "$GITHUB_EVENT_NAME" = push
           test "$RUNNER_OS" = Windows
           test "$RUNNER_ENVIRONMENT" = github-hosted
-          test "$(git rev-parse HEAD^)" = 'ffe6cb9bcb4f5c7505bd7cd83a42369b2ce31011'
+          test "$(git rev-parse HEAD^)" = '539dd6590dff431f07626153ceda20f8ee064bf0'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/forge-kterminal-pr78-first-launch-smoke.yml'
           test -z "$(git status --porcelain)"
@@ -67,7 +67,9 @@ jobs:
           if((& git -C $source rev-parse HEAD).Trim() -cne '21b12d28331192f65a6dddaeb3ecba72cd892b89'){throw 'KTERM_HOTFIX_SOURCE_SHA_DRIFT'}
           if((& git -C $source rev-parse 'HEAD^{tree}').Trim() -cne '31d1069f144f3d857ab91f768f1515bfefa4c1b3'){throw 'KTERM_HOTFIX_SOURCE_TREE_DRIFT'}
           $bat=Join-Path $source 'INSTALL-KTerminal.bat'
-          if((Get-FileHash -LiteralPath $bat -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'ce18786ee1f81140cabeaa4b7987cbb9d6b385f050e216a74492e183dbe4761f'){throw 'KTERM_HOTFIX_BATCH_HASH_DRIFT'}
+          $normalized=[IO.File]::ReadAllText($bat).Replace("`r`n","`n")
+          $sourceHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalized))).ToLowerInvariant()
+          if($sourceHash -cne 'ce18786ee1f81140cabeaa4b7987cbb9d6b385f050e216a74492e183dbe4761f'){throw 'KTERM_HOTFIX_BATCH_SOURCE_HASH_DRIFT'}
           & python -m unittest discover -s (Join-Path $source 'tools/qualification') -p 'test_p5_verify_firstuse_archive.py' -q
           if($LASTEXITCODE -ne 0){throw 'KTERM_HOTFIX_BATCH_TESTS_FAILED'}
           Write-Host 'KTERM_HOTFIX_WINDOWS_QUOTED_PATH_NEGATIVE=PASS;SOURCE=21b12d283311;REAL_BAT=TESTED;BROKER_ORDERS=0'
