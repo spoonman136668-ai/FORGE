@@ -127,6 +127,66 @@ def _call(argv, *, cwd=None, timeout=45, env=None):
     return proc.stdout.decode("utf-8").strip()
 
 
+STAGE_TASK_WITNESS = r"""
+$ErrorActionPreference='Stop'
+$t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+$who=[Security.Principal.WindowsIdentity]::GetCurrent()
+$p=[string]$t.Principal.UserId
+$sid=''
+try{$sid=(New-Object Security.Principal.NTAccount($p)).Translate(
+ [Security.Principal.SecurityIdentifier]).Value}catch{}
+if($p -ine $who.Name -and $sid -ne $who.User.Value){exit 42}
+if([string]$t.State -cnotin @('Running','Ready') -or
+   $t.Settings.Enabled -ne $true){exit 43}
+if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3){exit 44}
+$a=$t.Actions[0]
+if([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe'){exit 45}
+$args=[string]$a.Arguments
+$root=[regex]::Match($args,'(?i)(?:^|\s)-RepositoryRoot\s+"([^"]+)"')
+$db=[regex]::Match($args,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+$py=[regex]::Match($args,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+$wrapper=[regex]::Match($args,'(?i)(?:^|\s)-File\s+"([^"]+)"')
+if(-not($root.Success -and $db.Success -and $py.Success -and $wrapper.Success)){exit 46}
+if([IO.Path]::GetFullPath($db.Groups[1].Value) -ine
+    [IO.Path]::GetFullPath($env:F139_STAGE_EXPECTED_DB)){exit 47}
+if([IO.Path]::GetFileName($wrapper.Groups[1].Value) -cne 'Run-FORGE-F139.ps1'){exit 48}
+if(-not (Test-Path -LiteralPath $py.Groups[1].Value -PathType Leaf)){exit 49}
+if($args -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){exit 50}
+$oldRoot=[IO.Path]::GetFullPath($root.Groups[1].Value)
+if($oldRoot -ieq [IO.Path]::GetFullPath($env:F139_STAGE_CANDIDATE_ROOT)){exit 51}
+$oldHead=(& git -C $oldRoot rev-parse HEAD | Out-String).Trim()
+if($LASTEXITCODE -ne 0 -or $oldHead -cne $env:F139_STAGE_V40_SOURCE){exit 52}
+$dirty=@(& git -C $oldRoot status --porcelain --untracked-files=all)
+if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){exit 53}
+Write-Output 'F139_V41_SAME_ORIGINAL_RUNNING_TASK_STAGE=PASS'
+"""
+
+
+def verify_running_old_task_before_stage(db_path, source_root):
+    """Read-only SID, task action and V40 repository identity witness."""
+    need(sys.platform == "win32" and os.name == "nt"
+         and isinstance(db_path, Path) and isinstance(source_root, Path)
+         and db_path.is_absolute() and db_path.is_file()
+         and db_path.name == "state.sqlite" and not db_path.is_symlink()
+         and source_root.is_absolute() and source_root.is_dir()
+         and not source_root.is_symlink(),
+         "NATIVE_OLD_TASK_WITNESS_INPUTS")
+    powershell = shutil.which("powershell.exe")
+    need(powershell is not None, "WINDOWS_POWERSHELL_REQUIRED")
+    scoped = dict(os.environ, F139_STAGE_EXPECTED_DB=str(db_path.resolve()),
+                  F139_STAGE_CANDIDATE_ROOT=str(source_root.resolve()),
+                  F139_STAGE_V40_SOURCE=source.FROM_V40)
+    status = subprocess.run(
+        [powershell, "-NoProfile", "-NonInteractive", "-Command",
+         STAGE_TASK_WITNESS], check=False, capture_output=True,
+        stdin=subprocess.DEVNULL, env=scoped, timeout=30)
+    need(status.returncode == 0 and
+         status.stdout.strip() ==
+             b"F139_V41_SAME_ORIGINAL_RUNNING_TASK_STAGE=PASS",
+         "ORIGINAL_OWNER_SID_TASK_OR_V40_ROOT_DRIFT")
+    return True
+
+
 def stage_owner_native_candidate(env, event, api):
     """Create only one new private candidate release and binary; no replay.
 
@@ -186,6 +246,9 @@ def stage_owner_native_candidate(env, event, api):
          and not (data / "state.sqlite").is_symlink()
          and data.resolve() != source_root.resolve(),
          "EXISTING_ORIGINAL_DATA_ROOT_REQUIRED")
+    need(verify_running_old_task_before_stage(
+        data / "state.sqlite", source_root) is True,
+        "ORIGINAL_OWNER_RUNNING_TASK_NOT_VERIFIED")
     install_base = data / "release-candidates"
     binary_base = data / "genenv-source"
     install = install_base / target
@@ -231,6 +294,9 @@ def stage_owner_native_candidate(env, event, api):
          and 0 < binary.stat().st_size <= 16_000_000,
          "GENENV_EXECUTABLE_MISSING")
     binary_sha = digest(binary.read_bytes())
+    need(verify_running_old_task_before_stage(
+        data / "state.sqlite", source_root) is True,
+        "ORIGINAL_OWNER_TASK_MOVED_AFTER_STAGE")
     need(_call(["git", "-C", str(install),
                 "status", "--porcelain", "--untracked-files=all"]) == ""
          and release._remote_source(
