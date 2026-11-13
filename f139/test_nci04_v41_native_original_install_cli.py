@@ -44,6 +44,23 @@ class NativeOriginalInstallEntryTests(unittest.TestCase):
                         entry.original_atomic_commit_and_hold(
                             "a" * 40, env=env, api=GitHub())
 
+    def test_copy_rehearsal_fails_closed_without_owner_event(self):
+        with self.assertRaises(entry.OriginalInstallEntryDenied):
+            entry.original_copy_rehearsal("a" * 40, env={}, api=GitHub())
+
+    def test_copy_rehearsal_cannot_claim_live_install(self):
+        source = Path(entry.__file__).read_text(encoding="utf-8")
+        self.assertIn("def original_copy_rehearsal(", source)
+        self.assertIn("stage.verify_running_old_task_before_stage(", source)
+        self.assertIn("rehearsal.rehearse_from_sealed_cold_bundle(", source)
+        self.assertIn("copy_only", source)
+        self.assertIn('"source_transition_authorized": False', source)
+        self.assertIn('"original_owner_mutations": 0', source)
+        for forbidden in ("Enable-ScheduledTask", "Start-ScheduledTask",
+                          "Stop-ScheduledTask", "Disable-ScheduledTask",
+                          "Set-ScheduledTask", "gh api --method PATCH"):
+            self.assertNotIn(forbidden, source)
+
     def test_no_cli_route_to_mutate_task_or_policy(self):
         source = Path(entry.__file__).read_text(encoding="utf-8")
         self.assertIn("atomic.verify_install_dispatch(", source)
