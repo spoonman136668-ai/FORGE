@@ -1,0 +1,87 @@
+name: KTRADE PR253 nonsecure owner screen saver process preflight
+on:
+  push:
+    branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
+    paths:
+      - .github/workflows/ktrade-pr253-nonsecure-screensaver-process-preflight-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-pr253-nonsecure-saver-readonly-once
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Verify whether non-password-protected screen saver can be dismissed safely
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar' -or
+             [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 1){
+            throw 'KTRADE_PR253_SAVER_PROCESS_SCOPE_REFUSED'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class KtradeSaverProcessPreflight {
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern IntPtr OpenInputDesktop(uint f,bool i,uint access);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int index,StringBuilder b,uint bytes,out uint needed);
+            public static string ReadDesktop(){
+              IntPtr h=OpenInputDesktop(0,false,1);
+              if(h==IntPtr.Zero)return "UNAVAILABLE";
+              try{
+                var b=new StringBuilder(128);uint size;
+                return GetUserObjectInformation(h,2,b,(uint)(b.Capacity*2),out size)?b.ToString():"NAME_UNAVAILABLE";
+              }finally{CloseDesktop(h);}
+            }
+          }
+          '@
+          $desktop=[KtradeSaverProcessPreflight]::ReadDesktop()
+          $settings=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+          $nonsecure=([string]$settings.ScreenSaveActive -ceq '1' -and
+            [string]$settings.ScreenSaverIsSecure -ceq '0' -and
+            [string]$settings.ScreenSaveTimeOut -ceq '60' -and
+            [IO.Path]::GetFileName([string]$settings.'SCRNSAVE.EXE') -ieq 'scrnsave.scr')
+          $base=[IO.Path]::GetFullPath((Join-Path $env:windir 'System32\scrnsave.scr'))
+          $screensaver=@(Get-CimInstance Win32_Process -Filter "Name='scrnsave.scr'" -ErrorAction Stop |
+            Where-Object {[int]$_.SessionId -eq 1} |
+            ForEach-Object{
+              [ordered]@{
+                id=[int]$_.ProcessId
+                owned_by_session1=$true
+                system32_exact=([string]::Equals([string]$_.ExecutablePath,$base,[StringComparison]::OrdinalIgnoreCase))
+              }
+            })
+          $login=@(Get-Process LogonUI -ErrorAction SilentlyContinue|Where-Object{$_.SessionId -eq 1})
+          $policy=@(
+            Get-ItemProperty -Path 'HKCU:\Software\Policies\Microsoft\Windows\Control Panel\Desktop' -ErrorAction SilentlyContinue
+            Get-ItemProperty -Path 'HKLM:\Software\Policies\Microsoft\Windows\Control Panel\Desktop' -ErrorAction SilentlyContinue
+          )
+          $safelyDismissible=($desktop -ceq 'Screen-saver' -and $nonsecure -and
+            $screensaver.Count -eq 1 -and $screensaver[0].system32_exact -and
+            $login.Count -eq 0 -and $policy.Count -eq 0)
+          Write-Host ('KTRADE_PR253_SAVER_PROCESS_PROOF='+([ordered]@{
+            schema='ktrade.pr253.saver-process-proof.v1'
+            host=$env:COMPUTERNAME;runner=$env:RUNNER_NAME
+            input_desktop=$desktop
+            screen_saver_nonsecure=$nonsecure
+            screen_saver_processes=$screensaver
+            login_ui_session1_count=$login.Count
+            policy_keys_found=$policy.Count
+            screen_saver_process_safe_to_dismiss=$safelyDismissible
+            system_settings_changed=$false
+            process_terminated=$false
+            desktop_switched=$false
+            scheduled_task_created=$false
+          }|ConvertTo-Json -Compress -Depth 5))
