@@ -111,14 +111,10 @@ jobs:
           }|ConvertTo-Json -Compress)+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
           $prepared=$false
           try{
-            [KtradePr253NonsecureSaverPrep]::SetVolatile(900)
-            if([KtradePr253NonsecureSaverPrep]::Timeout() -ne 900 -or
-               [string](Get-ItemProperty 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne '60'){
-              throw 'KTRADE_OWNER_SAVER_VOLATILE_TIMEOUT_DRIFT'
-            }
             if($saver){
-              # Terminate only the verified, non-password-protected blank
-              # screensaver. No lock-screen/LogonUI process or other app.
+              # Verified non-password-protected Windows blank saver only.
+              # Ending it precedes volatile SPI, which is refused while its
+              # protected input desktop is still the active desktop.
               $current=Get-CimInstance Win32_Process -Filter "ProcessId=$($saver.ProcessId)" -ErrorAction Stop
               if(!$current -or $current.Name -ine 'scrnsave.scr' -or
                  $current.CreationDate -ne $saver.CreationDate -or
@@ -133,6 +129,11 @@ jobs:
               Start-Sleep -Milliseconds 350
             }
             if(!$ready){throw 'KTRADE_OWNER_SAVER_DID_NOT_RETURN_DEFAULT_DESKTOP'}
+            [KtradePr253NonsecureSaverPrep]::SetVolatile(900)
+            if([KtradePr253NonsecureSaverPrep]::Timeout() -ne 900 -or
+               [string](Get-ItemProperty 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne '60'){
+              throw 'KTRADE_OWNER_SAVER_VOLATILE_TIMEOUT_DRIFT'
+            }
             $prepared=$true
             Write-Host ('KTRADE_OWNER_SAVER_PREPARED='+(@{
               original_timeout_seconds=60;temporary_timeout_seconds=900
@@ -142,13 +143,24 @@ jobs:
               installer_untouched=$true;scheduler_created=$false
               restore_always_step_required=$true
             }|ConvertTo-Json -Compress))
+          }catch{
+            Write-Host ('KTRADE_OWNER_SAVER_PREP_FAILED='+$_.Exception.Message)
+            throw
           }finally{
             if(!$prepared){
-              [KtradePr253NonsecureSaverPrep]::SetVolatile(60)
-              if([KtradePr253NonsecureSaverPrep]::Timeout() -ne 60){
-                throw 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE_FAILED'
+              try{
+                $effective=[KtradePr253NonsecureSaverPrep]::Timeout()
+                if($effective -ne 60){
+                  [KtradePr253NonsecureSaverPrep]::SetVolatile(60)
+                }
+                if([KtradePr253NonsecureSaverPrep]::Timeout() -eq 60){
+                  Write-Host 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PASS'
+                }else{
+                  Write-Host 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PENDING_ALWAYS_STEP'
+                }
+              }catch{
+                Write-Host ('KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PENDING_ALWAYS_STEP;reason='+$_.Exception.GetType().Name)
               }
-              Write-Host 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PASS'
             }
           }
       - name: Build exact disposable candidate and run genuine Win32 drawing acceptance
