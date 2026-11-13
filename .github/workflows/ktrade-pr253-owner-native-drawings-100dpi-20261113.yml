@@ -106,6 +106,11 @@ jobs:
               if(!SystemParametersInfo(0x000F,seconds,IntPtr.Zero,0))
                 throw new Exception("SCREENSAVER_VOLATILE_TIMEOUT_SET_REFUSED");
             }
+            public static uint LastInputStamp(){
+              var info=new LastInput{cbSize=(uint)Marshal.SizeOf(typeof(LastInput))};
+              if(!GetLastInputInfo(ref info))throw new Exception("LAST_INPUT_STAMP_READ_FAILED");
+              return info.dwTime;
+            }
             public static bool ValidIdle(uint elapsed){return elapsed>=45000 && elapsed<=86400000;}
             public static uint IdleMs(){
               var info=new LastInput{cbSize=(uint)Marshal.SizeOf(typeof(LastInput))};
@@ -191,27 +196,41 @@ jobs:
               original_input_desktop='Default';owner_session=$session
               installation_modified=$false;scheduler_created=$false
             }|ConvertTo-Json -Compress))
-            # Input may be delivered by another app with a future-dated DWORD
-            # clock. Fail closed unless GetLastInputInfo becomes coherent and
-            # the owner remains idle long enough; never infer idle from wrap.
-            $deadline=(Get-Date).AddSeconds(150)
+            # The host reported a future-dated LastInputInfo DWORD. Compare
+            # observed input *changes* and cursor stability against a monotonic
+            # Stopwatch, never subtract future timestamps or trust wrapped idle.
+            $lastStamp=[KTradeOwnedDesktop]::LastInputStamp()
+            $stationary=[Diagnostics.Stopwatch]::StartNew()
+            $deadline=[Diagnostics.Stopwatch]::StartNew()
             $idleQualified=$false
-            do{
+            while($deadline.Elapsed.TotalSeconds -lt 165){
               if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
                 throw 'KTRADE_OWNER_NATIVE_DESKTOP_SWITCHED_DURING_IDLE_CHECK'
               }
-              try{
-                $idleReading=[KTradeOwnedDesktop]::IdleMs()
-                if($idleReading -ge 45000){$idleQualified=$true;break}
-              }catch{
-                if($_.Exception.Message -notmatch 'LAST_INPUT_CLOCK_ANOMALY_REFUSED'){throw}
+              $point=[KTradeOwnedDesktop+P]::new()
+              if(-not [KTradeOwnedDesktop]::GetCursorPos([ref]$point)){
+                throw 'KTRADE_OWNER_NATIVE_CURSOR_UNAVAILABLE_DURING_IDLE_CHECK'
+              }
+              $next=[KTradeOwnedDesktop]::LastInputStamp()
+              if($next -ne $lastStamp -or $point.x -ne $cursor.x -or $point.y -ne $cursor.y){
+                $lastStamp=$next
+                $cursor=$point
+                $stationary.Restart()
+              }
+              if([KTradeOwnedDesktop]::GetForegroundWindow() -ne $foreground){
+                throw 'KTRADE_OWNER_NATIVE_FOREGROUND_CHANGED_DURING_IDLE_CHECK'
+              }
+              if($stationary.Elapsed.TotalMilliseconds -ge 45000){
+                $idleQualified=$true
+                break
               }
               Start-Sleep -Seconds 2
-            }while((Get-Date) -lt $deadline)
-            if(-not $idleQualified){
-              throw 'KTRADE_OWNER_NATIVE_VALID_IDLE_NOT_ESTABLISHED'
             }
-            Write-Host 'KTRADE_OWNER_NATIVE_VALIDATED_IDLE_AFTER_TEMP_TIMEOUT=PASS'
+            if(-not $idleQualified){
+              throw 'KTRADE_OWNER_NATIVE_45_SECOND_STABILITY_NOT_ESTABLISHED'
+            }
+            $lastStampAtAdmission=[KTradeOwnedDesktop]::LastInputStamp()
+            Write-Host 'KTRADE_OWNER_NATIVE_45_SECOND_MONOTONIC_IDLE=PASS'
             # Exact Go 1.26.10 is loaded only into disposable job caches.
             # Never overwrite the workstation's Go 1.25.5 installation or global user cache.
             $env:GOTOOLCHAIN='go1.26.10'
@@ -258,16 +277,17 @@ jobs:
             [IO.File]::WriteAllText($script,$adjusted,[Text.UTF8Encoding]::new($false))
             $nodes=@(Get-Process -Name ktrade,ktrade-engine -ErrorAction SilentlyContinue)
             if($nodes.Count -ne 0){throw 'KTRADE_OWNER_NATIVE_APP_STARTED_DURING_BUILD'}
-            $idle=[KTradeOwnedDesktop]::IdleMs()
-            Write-Host ('KTRADE_OWNER_NATIVE_STAGE='+(@{
-              schema='ktrade.pr253.owner-native-100dpi.v1'
-              source_sha=$head;tree_sha=$tree;dpi=$beforeDpi
-              owner_session=$session;idle_ms=$idle;test_harness='W160_owner_scoped_guard_only'
-              original_harness_preserved=$true;user_display_modified=$false
-            }|ConvertTo-Json -Compress))
-            if($idle -lt 45000){
-              throw 'KTRADE_OWNER_NATIVE_USER_ACTIVE_NO_POINTER_INPUT'
+            $stampBeforeLaunch=[KTradeOwnedDesktop]::LastInputStamp()
+            if($stampBeforeLaunch -ne $lastStampAtAdmission){
+              throw 'KTRADE_OWNER_NATIVE_INPUT_CHANGED_DURING_SOURCE_PREPARATION'
             }
+            Write-Host ('KTRADE_OWNER_NATIVE_STAGE='+(@{
+              schema='ktrade.pr253.owner-native-100dpi.v2'
+              source_sha=$head;tree_sha=$tree;dpi=$beforeDpi
+              owner_session=$session;monotonic_input_stable=$true
+              test_harness='W160_owner_scoped_guard_only'
+              original_harness_preserved=$true;display_dpi_unchanged=$true
+            }|ConvertTo-Json -Compress))
             if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
               throw 'KTRADE_OWNER_NATIVE_INPUT_DESKTOP_SWITCHED_DURING_BUILD'
             }
@@ -284,8 +304,12 @@ jobs:
             try{
               if($saverOriginal -gt 0){
                 [KTradeOwnedDesktop]::SetVolatileSaverTimeout([uint32]$saverOriginal)
-                $saverRestored=([KTradeOwnedDesktop]::GetSaverTimeout() -eq $saverOriginal -and
-                  [string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne $originalRegistry)
+                for($attempt=0;$attempt -lt 8;$attempt++){
+                  $saverRestored=([KTradeOwnedDesktop]::GetSaverTimeout() -eq $saverOriginal -and
+                    [string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne $originalRegistry)
+                  if($saverRestored){break}
+                  Start-Sleep -Milliseconds 200
+                }
               }else{
                 $saverRestored=(!(Test-Path -LiteralPath $saverPreimagePath))
               }
