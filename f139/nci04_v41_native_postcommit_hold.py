@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import sys
 
-from f139.local_controller import Database, GitHub, SingleOwner
+from f139.local_controller import Database, GitHub, SingleOwner, canonical as event_canonical
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_native_original_commit as commit
@@ -96,8 +96,10 @@ def verify_pair_readonly(db, receipt):
     except (ValueError, UnicodeError, TypeError) as exc:
         raise V41PostcommitDenied(
             "F139_V41_POSTCOMMIT_NONCANONICAL_EVENT_JSON") from exc
-    need(canonical(pending).decode("ascii") == rows[0]["payload"]
-         and canonical(transition).decode("ascii") == rows[1]["payload"],
+    # SQLite events use the original newline-terminated canonical grammar;
+    # signed GitHub issue bodies use the separate un-terminated native grammar.
+    need(event_canonical(pending).decode("ascii") == rows[0]["payload"]
+         and event_canonical(transition).decode("ascii") == rows[1]["payload"],
          "EVENT_CANONICAL_DRIFT")
     need(pending.get("issue_number") == 1715
          and pending.get("issue_id") == 6333201763
