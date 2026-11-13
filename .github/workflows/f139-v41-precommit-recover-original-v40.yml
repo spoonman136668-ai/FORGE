@@ -1,0 +1,178 @@
+name: FORGE V41 precommit safe resume of same original V40 task
+on:
+  push:
+    branches:
+      - recovery/f139-v41-precommit-original-resume-20261113
+permissions:
+  contents: read
+  issues: read
+concurrency:
+  group: forge-f139-v41-one-shot-precommit-v40-recovery
+  cancel-in-progress: false
+jobs:
+  verified-same-original-task-resume:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout original source-bound recovery guard
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Reverify uncommitted original V40 and safely resume only the existing task
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code){
+            if(-not $ok){throw ('F139_V41_PRECOMMIT_RECOVERY_'+$code)}
+          }
+          $old='2c7caad5a4502d4b874a11d57207a35cf033eb08'
+          $target='d6634e4ee8d6617ef31df68ca2c9e93601334c66'
+          $headHash='71fd4554315093d74f5a9968b4766191413cfd18d6b1ce81863f8451d379d769'
+          $name='FORGE-F139-UnifiedController'
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/recovery/f139-v41-precommit-original-resume-20261113' -and
+            $env:GITHUB_EVENT_NAME -ceq 'push' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            -not $env:OPENAI_API_KEY) 'EXACT_SAME_ORIGINAL_RUNNER_REQUIRED'
+          $base=(& git rev-parse 'HEAD^' | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $base -ceq $target) 'RECOVERY_SOURCE_PARENT_DRIFT'
+          function ReadMain {
+            $value=(& gh api repos/spoonman136668-ai/FORGE/branches/main --jq '.commit.sha' | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0) 'MAIN_LOOKUP_UNVERIFIED'
+            return $value
+          }
+          function ReadPolicy {
+            $value=@(& gh api repos/spoonman136668-ai/FORGE/issues/807 --jq '.body')
+            Need ($LASTEXITCODE -eq 0 -and $value.Count -eq 1) 'POLICY_LOOKUP_UNVERIFIED'
+            return [string]$value[0]
+          }
+          Need ((ReadMain) -ceq $target) 'PROTECTED_MAIN_MOVED'
+          $policyRaw=ReadPolicy
+          $policy=$policyRaw | ConvertFrom-Json
+          Need ($policy.schema -ceq 'forge.f139.native-autonomy-feed-owner-policy.v1' -and
+            $policy.source_sha -ceq $old -and $policy.enabled -eq $true -and
+            @($policy.lanes).Count -eq 2 -and
+            $policy.lanes[0] -ceq 'Wingless' -and $policy.lanes[1] -ceq 'Yggdrasil' -and
+            $policy.scientific_first_use -eq $false -and $policy.paid_model_calls -eq 0 -and
+            $policy.new_controller -eq $false -and $policy.new_scheduler -eq $false -and
+            $policy.new_queue -eq $false) 'UNMODIFIED_V40_OWNER_POLICY_REQUIRED'
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          Need ([string]$task.State -ceq 'Disabled' -and
+            $task.Settings.Enabled -eq $false -and
+            @($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3) 'ONE_DISABLED_ORIGINAL_TASK_REQUIRED'
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($identity)
+          Need $admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) 'ORIGINAL_ADMIN_REQUIRED'
+          $principal=[string]$task.Principal.UserId
+          $ownerSid=''
+          try{$ownerSid=(New-Object Security.Principal.NTAccount($principal)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value}catch{}
+          Need ($principal -ieq $identity.Name -or $ownerSid -ceq $identity.User.Value) 'ORIGINAL_SID_DRIFT'
+          $argsText=[string]$task.Actions[0].Arguments
+          Need ([IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ieq 'powershell.exe' -and
+            $argsText -match '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') 'ORIGINAL_EXECUTABLE_AND_POLL_DRIFT'
+          function ReadArg([string]$name){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            Need $m.Success ('ORIGINAL_ARGUMENT_'+$name)
+            return $m.Groups[1].Value
+          }
+          $oldRoot=ReadArg 'RepositoryRoot'
+          $dbArgument=ReadArg 'Database'
+          $python=ReadArg 'PythonExe'
+          $wrapper=ReadArg 'File'
+          $db=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          Need ([IO.Path]::GetFullPath($dbArgument) -ieq [IO.Path]::GetFullPath($db) -and
+            [IO.Path]::GetFileName($wrapper) -ceq 'Run-FORGE-F139.ps1' -and
+            (Test-Path -LiteralPath $python -PathType Leaf) -and
+            (Test-Path -LiteralPath $oldRoot -PathType Container)) 'ORIGINAL_ROOT_OR_DATABASE_ARGUMENT_DRIFT'
+          function SourceOld {
+            $head=(& git -C $oldRoot rev-parse HEAD | Out-String).Trim()
+            $dirty=@(& git -C $oldRoot status --porcelain --untracked-files=all)
+            Need ($LASTEXITCODE -eq 0 -and $head -ceq $old -and
+              $dirty.Count -eq 0) 'V40_SOURCE_DRIFT_OR_DIRTY'
+          }
+          function NoOwnerChildren {
+            $children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+              Where-Object {$_.CommandLine -and
+                $_.CommandLine.Contains('f139.local_controller') -and
+                $_.CommandLine.Contains($db)})
+            Need ($children.Count -eq 0) 'ORIGINAL_OWNER_PROCESS_STILL_RUNNING'
+          }
+          function ReadOriginal {
+            $script=@'
+          import json,sqlite3,sys,pathlib
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,isolation_level=None,timeout=10)
+          con.execute("PRAGMA query_only=ON")
+          check=con.execute("PRAGMA quick_check").fetchone()[0]
+          m=con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+          escrow=con.execute("SELECT COUNT(*) FROM events WHERE kind='NATIVE_PENDING_ESCROWED'").fetchone()[0]
+          print("F139_V41_V40_RO="+json.dumps({"quick_check":check=="ok","source_sha":m[0],"head_seq":m[1],"head_sha256":m[2],"enabled":m[3],"legacy_suspended":m[4],"escrow_count":escrow,"query_only":True},sort_keys=True))
+          con.close()
+          '@
+            $out=@($script | & python -B - $db)
+            Need ($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and
+              $out[0] -cmatch '^F139_V41_V40_RO=') 'SQLITE_READONLY_UNVERIFIED'
+            return ($out[0].Substring('F139_V41_V40_RO='.Length) | ConvertFrom-Json)
+          }
+          SourceOld
+          NoOwnerChildren
+          $lease=$null
+          try {
+            Add-Type -Path (Join-Path $env:GITHUB_WORKSPACE 'f139/F139OriginalOwnerMutex.cs') -ErrorAction Stop
+            $lease=[F139OriginalOwnerMutex]::Acquire([IO.Path]::ChangeExtension($db,'.lock'),120000)
+            $m=ReadOriginal
+            Need ($m.quick_check -eq $true -and $m.query_only -eq $true -and
+              $m.source_sha -ceq $old -and $m.head_seq -eq 1826 -and
+              $m.head_sha256 -ceq $headHash -and $m.escrow_count -eq 0 -and
+              $m.enabled -eq 1 -and $m.legacy_suspended -eq 1) 'NO_COMMIT_ORIGINAL_HEAD_REQUIRED'
+            Need ((ReadPolicy) -ceq $policyRaw -and (ReadMain) -ceq $target) 'REMOTE_V40_RECOVERY_ANCHORS_MOVED'
+            SourceOld
+            NoOwnerChildren
+            $fresh=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            Need ([string]$fresh.State -ceq 'Disabled' -and
+              $fresh.Settings.Enabled -eq $false -and
+              [string]$fresh.Actions[0].Arguments -ceq $argsText -and
+              [string]$fresh.Principal.UserId -ceq $principal -and
+              @($fresh.Triggers).Count -eq 3) 'ORIGINAL_TASK_MOVED_BEFORE_RESUME'
+          } finally {
+            if($lease){$lease.Dispose();$lease=$null}
+          }
+          # Only the two native commands below mutate state. The original task
+          # retains exactly its existing action, principal, and three triggers.
+          Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+          Start-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+          $live=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          Need ($live.Settings.Enabled -eq $true -and
+            [string]$live.State -cin @('Ready','Running') -and
+            @($live.Actions).Count -eq 1 -and @($live.Triggers).Count -eq 3 -and
+            [string]$live.Actions[0].Arguments -ceq $argsText -and
+            [string]$live.Principal.UserId -ceq $principal -and
+            (ReadPolicy) -ceq $policyRaw) 'SAME_ORIGINAL_TASK_RESUMPTION_UNVERIFIED'
+          $after=ReadOriginal
+          Need ($after.quick_check -eq $true -and $after.query_only -eq $true -and
+            $after.source_sha -ceq $old -and $after.head_seq -ge 1826 -and
+            $after.enabled -eq 1 -and $after.legacy_suspended -eq 1 -and
+            $after.escrow_count -eq 0) 'RESUMED_V40_LEDGER_INVALID'
+          Write-Output ('F139_V41_PRECOMMIT_SAFE_V40_RESUMED='+(@{
+            schema='forge.f139.v41.precommit-original-task-resume.v1'
+            release_attempt_source_sha=$target
+            installed_source_sha=$old
+            original_task_state=[string]$live.State
+            same_original_task_resumed=$true
+            policy_source_unchanged=$true
+            head_seq=[int64]$after.head_seq
+            head_sha256=[string]$after.head_sha256
+            original_sqlite_restored=$false
+            original_sqlite_written_by_recovery=$false
+            new_task_created=$false
+            new_scheduler_created=$false
+            scientific_first_use=$false
+            new_dispatches_by_recovery=0
+          }|ConvertTo-Json -Compress))
