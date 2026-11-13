@@ -18,6 +18,8 @@ REPO = "spoonman136668-ai/FORGE"
 OWNER = "spoonman136668-ai"
 PREFIX = "F139-V41-PAUSE-BACKUP-RESUME "
 SHA = re.compile(r"[a-f0-9]{40}\Z")
+# Original first qualified recovery anchor, not a permanently pinned target.
+AUDITED_COLD_BACKUP_MERGE = "616b87b01c8abd37ee0e0a2d5b5571c51272ba9e"
 
 
 class OwnerBackupDenied(ValueError):
@@ -68,23 +70,49 @@ def verify_owner_event(env, event, get, *, target):
 
 
 def verify_qualified_main(get, target):
-    """Require already successful signed-main source and original full CI.
+    """Verify current protected release is a descendant of the audited fix.
 
-    Exact audited V41 negative-custody PR #1740, first-attempt protected push checks, and
-    current main identity. This is read-only evidence, never maintenance
-    permission or source-transition approval.
+    The first recovery run used PR #1740. Requiring the *current* target
+    to be that one historical merge SHA permanently blocks subsequent
+    protected, fully qualified V41 release candidates. Preserve the audit
+    anchor, prove exact ancestry, and validate the candidate's own first-
+    attempt postmerge Linux/Windows + signed GitHub-origin runs.
+    This gate does NOT authorize owner pause, source transition or first-use.
     """
     need(callable(get) and type(target) is str and SHA.fullmatch(target),
          "QUALIFICATION_ARGUMENTS")
-    pr = get("repos/" + REPO + "/pulls/1740")
-    need(type(pr) is dict and pr.get("number") == 1740
-         and pr.get("merged") is True and pr.get("merge_commit_sha") == target
-         and pr.get("user", {}).get("login") == OWNER
-         and pr.get("base", {}).get("ref") == "main"
-         and type(pr.get("head", {}).get("sha")) is str
-         and SHA.fullmatch(pr["head"]["sha"]),
-         "EXACT_PROTECTED_MERGED_PR_REQUIRED")
-    report = get("repos/" + REPO + "/actions/runs?head_sha=" +
+    prefix = "repos/" + REPO + "/"
+    original = get(prefix + "pulls/1740")
+    need(type(original) is dict and original.get("number") == 1740
+         and original.get("merged") is True
+         and original.get("merge_commit_sha") == AUDITED_COLD_BACKUP_MERGE
+         and original.get("user", {}).get("login") == OWNER
+         and original.get("base", {}).get("ref") == "main"
+         and type(original.get("head", {}).get("sha")) is str
+         and SHA.fullmatch(original["head"]["sha"]),
+         "AUDITED_NEGATIVE_CUSTODY_MERGE_MISSING")
+    main = get(prefix + "branches/main")
+    need(type(main) is dict and main.get("protected") is True
+         and main.get("commit", {}).get("sha") == target,
+         "CURRENT_PROTECTED_MAIN_REQUIRED")
+    compare = get(prefix + "compare/" + AUDITED_COLD_BACKUP_MERGE
+                  + "..." + target + "?per_page=1&page=2")
+    need(type(compare) is dict
+         and compare.get("status") in ("ahead", "identical")
+         and type(compare.get("ahead_by")) is int
+         and compare["ahead_by"] >= 0
+         and compare.get("behind_by") == 0
+         and compare.get("merge_base_commit", {}).get("sha") ==
+             AUDITED_COLD_BACKUP_MERGE
+         and (compare["status"] == "identical") ==
+             (target == AUDITED_COLD_BACKUP_MERGE),
+         "AUDITED_RELEASE_ANCESTRY_DRIFT")
+    commit = get(prefix + "git/commits/" + target)
+    need(type(commit) is dict and commit.get("sha") == target
+         and type(commit.get("tree", {}).get("sha")) is str
+         and SHA.fullmatch(commit["tree"]["sha"]),
+         "TARGET_COMMIT_OR_TREE_DRIFT")
+    report = get(prefix + "actions/runs?head_sha=" +
                  target + "&event=push&branch=main&per_page=30")
     need(type(report) is dict
          and type(report.get("workflow_runs")) is list
@@ -98,16 +126,22 @@ def verify_qualified_main(get, target):
         selected = [row for row in report["workflow_runs"]
                     if type(row) is dict and row.get("name") == name
                     and row.get("head_sha") == target
-                    and row.get("event") == "push"
-                    and row.get("head_branch") == "main"]
+                    and row.get("head_branch") == "main"
+                    and row.get("event") == "push"]
         need(len(selected) == 1
              and selected[0].get("status") == "completed"
              and selected[0].get("conclusion") == "success"
              and selected[0].get("run_attempt") == 1
-             and selected[0].get("actor", {}).get("login") == OWNER,
+             and selected[0].get("actor", {}).get("login") == OWNER
+             and type(selected[0].get("id")) is int
+             and selected[0]["id"] > 0,
              "QUALIFIED_POSTMERGE_RUN_REQUIRED")
+    # Read the protected target again before returning; the caller will
+    # independently recheck it after detached backup and before resuming.
+    again = get(prefix + "branches/main")
+    need(type(again) is dict and again == main,
+         "MAIN_MOVED_DURING_QUALIFICATION")
     return True
-
 
 def preflight_only(path, env, event, api, *, target):
     """Read-only exact owner and postmerge CI authorization before task pause."""

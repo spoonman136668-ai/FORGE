@@ -29,6 +29,38 @@ def get(route):
                          gate.REPO + "/issues/807"}
 
 
+
+def release_get(route):
+    """Synthetic complete ancestor-relative candidate, NOT real owner proof."""
+    prefix = "repos/" + gate.REPO + "/"
+    audit = gate.AUDITED_COLD_BACKUP_MERGE
+    if route == prefix + "pulls/1740":
+        return {"number": 1740, "merged": True,
+                "merge_commit_sha": audit,
+                "user": {"login": gate.OWNER},
+                "base": {"ref": "main"}, "head": {"sha": "a"*40}}
+    if route == prefix + "branches/main":
+        return {"protected": True, "commit": {"sha": SHA}}
+    if route == (prefix + "compare/" + audit + "..." + SHA
+                 + "?per_page=1&page=2"):
+        return {"status": "ahead", "ahead_by": 5, "behind_by": 0,
+                "merge_base_commit": {"sha": audit}}
+    if route == prefix + "git/commits/" + SHA:
+        return {"sha": SHA, "tree": {"sha": "f"*40}}
+    if route == (prefix + "actions/runs?head_sha=" + SHA
+                 + "&event=push&branch=main&per_page=30"):
+        return {"workflow_runs": [
+            {"id": i, "name": name, "head_sha": SHA, "event": "push",
+             "head_branch": "main", "status": "completed",
+             "conclusion": "success", "run_attempt": 1,
+             "actor": {"login": gate.OWNER}}
+            for i, name in enumerate((
+                "FORGE public Linux and Windows qualification",
+                "FORGE F73 protected-main cryptographic origin (no science permission)"),
+                start=23456)]}
+    raise AssertionError("unexpected release read: " + route)
+
+
 class OwnerBackupGateTests(unittest.TestCase):
     def attempt(self, env=None, ev=None, reader=get):
         return gate.verify_owner_event(ENV if env is None else env,
@@ -86,51 +118,84 @@ class OwnerBackupGateTests(unittest.TestCase):
             self.attempt(reader=drift)
 
 
-    def test_unmerged_or_incomplete_postmerge_ci_denied(self):
-        def remote(route):
+    def test_protected_descendant_exact_signed_origin_and_original_audit(self):
+        self.assertTrue(gate.verify_qualified_main(release_get, SHA))
+        self.assertNotEqual(SHA, gate.AUDITED_COLD_BACKUP_MERGE)
+
+    def test_original_audited_1740_merge_cannot_be_forged(self):
+        def altered(route):
+            data = release_get(route)
             if route.endswith("/pulls/1740"):
-                return {"number": 1740, "merged": True, "merge_commit_sha": SHA,
-                        "user": {"login": gate.OWNER},
-                        "base": {"ref": "main"}, "head": {"sha": "a" * 40}}
-            if "/actions/runs?" in route:
-                return {"workflow_runs": [
-                    {"name": name, "head_sha": SHA, "event": "push",
-                     "head_branch": "main", "status": "completed",
-                     "conclusion": "success", "run_attempt": 1,
-                     "actor": {"login": gate.OWNER}}
-                    for name in (
-                        "FORGE public Linux and Windows qualification",
-                        "FORGE F73 protected-main cryptographic origin (no science permission)")
-                ]}
-            raise AssertionError("unexpected read")
-        self.assertTrue(gate.verify_qualified_main(remote, SHA))
-
-        def wrong(route):
-            obj = remote(route)
-            if "/pulls/" in route:
-                obj["merged"] = False
-            return obj
+                data["merge_commit_sha"] = SHA
+            return data
         with self.assertRaisesRegex(gate.OwnerBackupDenied,
-                                    "EXACT_PROTECTED_MERGED_PR_REQUIRED"):
-            gate.verify_qualified_main(wrong, SHA)
+                                    "AUDITED_NEGATIVE_CUSTODY_MERGE_MISSING"):
+            gate.verify_qualified_main(altered, SHA)
 
-        def failed(route):
-            obj = remote(route)
-            if "/actions/runs?" in route:
-                obj["workflow_runs"][0]["conclusion"] = "failure"
-            return obj
-        with self.assertRaisesRegex(gate.OwnerBackupDenied,
-                                    "QUALIFIED_POSTMERGE_RUN_REQUIRED"):
-            gate.verify_qualified_main(failed, SHA)
+    def test_protected_main_and_ancestry_fail_closed(self):
+        for case in ("unprotected", "moved", "unrelated", "behind",
+                     "wrong_merge_base", "false_identical", "bad_tree"):
+            with self.subTest(case=case):
+                def altered(route):
+                    data = release_get(route)
+                    if route.endswith("/branches/main"):
+                        if case == "unprotected":
+                            data["protected"] = False
+                        if case == "moved":
+                            data["commit"]["sha"] = "1"*40
+                    if "/compare/" in route:
+                        if case == "unrelated":
+                            data["status"] = "diverged"
+                        if case == "behind":
+                            data["behind_by"] = 1
+                        if case == "wrong_merge_base":
+                            data["merge_base_commit"]["sha"] = "3"*40
+                        if case == "false_identical":
+                            data["status"] = "identical"
+                    if "/git/commits/" in route and case == "bad_tree":
+                        data["tree"]["sha"] = "invalid"
+                    return data
+                with self.assertRaises(gate.OwnerBackupDenied):
+                    gate.verify_qualified_main(altered, SHA)
 
-        def duplicate(route):
-            obj = remote(route)
-            if "/actions/runs?" in route:
-                obj["workflow_runs"].append(dict(obj["workflow_runs"][0]))
-            return obj
+    def test_unqualified_failed_or_replayed_postmerge_ci_denied(self):
+        for case in ("failed", "duplicate", "attempt2", "wrong_actor",
+                     "wrong_sha", "missing"):
+            with self.subTest(case=case):
+                def altered(route):
+                    data = release_get(route)
+                    if "/actions/runs?" in route:
+                        rows = data["workflow_runs"]
+                        if case == "failed":
+                            rows[0]["conclusion"] = "failure"
+                        if case == "duplicate":
+                            rows.append(dict(rows[0]))
+                        if case == "attempt2":
+                            rows[0]["run_attempt"] = 2
+                        if case == "wrong_actor":
+                            rows[0]["actor"]["login"] = "untrusted"
+                        if case == "wrong_sha":
+                            rows[0]["head_sha"] = "3"*40
+                        if case == "missing":
+                            rows.pop(0)
+                    return data
+                with self.assertRaisesRegex(gate.OwnerBackupDenied,
+                                            "QUALIFIED_POSTMERGE_RUN_REQUIRED"):
+                    gate.verify_qualified_main(altered, SHA)
+
+    def test_protected_main_changes_during_two_reads_is_denied(self):
+        seen = [0]
+        def altered(route):
+            data = release_get(route)
+            if route.endswith("/branches/main"):
+                seen[0] += 1
+                if seen[0] == 2:
+                    data["commit"]["sha"] = "2"*40
+            return data
         with self.assertRaisesRegex(gate.OwnerBackupDenied,
-                                    "QUALIFIED_POSTMERGE_RUN_REQUIRED"):
-            gate.verify_qualified_main(duplicate, SHA)
+                                    "MAIN_MOVED_DURING_QUALIFICATION"):
+            gate.verify_qualified_main(altered, SHA)
+        self.assertEqual(seen, [2])
 
     def test_windows_concrete_path_subtype_not_rejected_before_authority(self):
         import json
@@ -152,32 +217,18 @@ class OwnerBackupGateTests(unittest.TestCase):
                 routes.append(route)
                 if route.endswith("/issues/comments/77"):
                     return get(route)
-                if route.endswith("/pulls/1740"):
-                    return {
-                        "number": 1740, "merged": True,
-                        "merge_commit_sha": SHA,
-                        "user": {"login": gate.OWNER},
-                        "base": {"ref": "main"},
-                        "head": {"sha": "a" * 40},
-                    }
-                if "/actions/runs?" in route:
-                    return {"workflow_runs": [
-                        {"name": name, "head_sha": SHA, "event": "push",
-                         "head_branch": "main", "status": "completed",
-                         "conclusion": "success", "run_attempt": 1,
-                         "actor": {"login": gate.OWNER}}
-                        for name in (
-                            "FORGE public Linux and Windows qualification",
-                            "FORGE F73 protected-main cryptographic origin (no science permission)")
-                    ]}
-                if route.endswith("/issues/807"):
-                    return {"body": json.dumps({
-                        "schema": "forge.f139.native-autonomy-feed-owner-policy.v1",
-                        "enabled": True, "source_sha": gate.preflight.OWNER_SOURCE,
-                        "lanes": ["Wingless", "Yggdrasil"], "scientific_first_use": False,
-                        "paid_model_calls": 0, "new_controller": False,
-                        "new_scheduler": False, "new_queue": False,
-                    })}
+                if route.startswith("repos/" + gate.REPO + "/"):
+                    if route.endswith("/issues/807"):
+                        return {"body": json.dumps({
+                            "schema": "forge.f139.native-autonomy-feed-owner-policy.v1",
+                            "enabled": True,
+                            "source_sha": gate.preflight.OWNER_SOURCE,
+                            "lanes": ["Wingless", "Yggdrasil"],
+                            "scientific_first_use": False,
+                            "paid_model_calls": 0, "new_controller": False,
+                            "new_scheduler": False, "new_queue": False,
+                        })}
+                    return release_get(route)
                 raise AssertionError("noncanonical read")
             api = object.__new__(gate.GitHub)
             with patch.object(gate.GitHub, "native_repo_get",
