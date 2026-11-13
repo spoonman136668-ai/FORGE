@@ -23,6 +23,7 @@ jobs:
       KTERM_SHA: 2bf85c220a1ac1ee3b63e1f1429842808aa8485c
       KTERM_TREE: d03f165e4b60550e3f0ccca6c556e762ad73ec55
       KTERM_BASE: d27d5ccb51b2e0a5527127da0b9fcd25ac20895d
+      KTERM_CHECKOUT_RELATIVE: kterm-preview-${{ github.run_id }}
     steps:
       - name: Confirm qualified one-shot Windows owner, disarmed context
         shell: pwsh
@@ -50,7 +51,7 @@ jobs:
           GIT_TERMINAL_PROMPT: '0'
         run: |
           $ErrorActionPreference='Stop'
-          $checkout=Join-Path $env:GITHUB_WORKSPACE 'kterm-preview'
+          $checkout=Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE
           if(Test-Path -LiteralPath $checkout){throw 'KTERM_PREVIEW_WORKSPACE_NOT_FRESH'}
           if(-not $env:GH_TOKEN){throw 'KTERM_PREVIEW_EXISTING_PRIVATE_READ_TOKEN_MISSING'}
           $gh=(Get-Command gh -ErrorAction Stop).Source
@@ -70,7 +71,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
           try {
             $sha=(& git rev-parse HEAD).Trim()
             $tree=(& git rev-parse 'HEAD^{tree}').Trim()
@@ -114,7 +115,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
           try {
             $sw=[Diagnostics.Stopwatch]::StartNew()
             & go test -count=20 -p 1 -timeout 6m -run '^TestHotfixAccountingAlreadyFreshAndCoalescedStateCannotLoseWake$' ./pkg
@@ -125,7 +126,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
           try {
             $sw=[Diagnostics.Stopwatch]::StartNew()
             & go test -count=1 -p 1 -timeout 12m -run '^(TestInheritedPreview|TestBrokerHistory)' ./pkg
@@ -136,7 +137,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $path=Join-Path $env:GITHUB_WORKSPACE 'kterm-preview\native-authority-ui.ps1'
+          $path=Join-Path (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE) 'native-authority-ui.ps1'
           $tokens=$null; $errors=$null
           [void][System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
           if(@($errors).Count -ne 0){throw 'KTERM_PREVIEW_AUTHORITY_UI_PARSE_FAILED'}
@@ -156,7 +157,7 @@ jobs:
             [void][IO.Directory]::CreateDirectory($d)
           }
           Write-Host 'KTERM_PREVIEW_STAGE3_ISOLATION=PASS;ROOT=RUN_SPECIFIC_TEMP;TEST_CONTRACT_PATHS=3'
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
           try {
             $sw=[Diagnostics.Stopwatch]::StartNew()
             & go test -count=1 -p 1 -timeout 60m ./...
@@ -167,7 +168,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
           try {
             $sw=[Diagnostics.Stopwatch]::StartNew()
             & go vet ./...
@@ -180,7 +181,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
           try {
             if(((& git rev-parse 'HEAD^{tree}').Trim()) -cne $env:KTERM_TREE){throw 'KTERM_PREVIEW_FINAL_TREE_DRIFT'}
             Write-Host ('KTERM_PREVIEW_ENGINEERING_QUALIFICATION=PASS;SOURCE_SHA='+$env:KTERM_SHA+
