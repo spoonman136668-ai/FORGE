@@ -1,0 +1,69 @@
+name: KTRADE PR253 exact Go toolchain availability read-only
+on:
+  push:
+    branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
+    paths:
+      - .github/workflows/ktrade-pr253-toolchain-readonly-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-pr253-go-readonly
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    env:
+      KTRADE_EXPECTED_SOURCE: '59842e83f01fb6e1af780ede5a7395a9c7cce47a'
+    steps:
+      - name: Read toolchains and owner display without changing settings
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:KTRADE_EXPECTED_SOURCE -cne '59842e83f01fb6e1af780ede5a7395a9c7cce47a') {
+            throw 'KTRADE_PR253_TOOLCHAIN_SCOPE_REFUSED'
+          }
+          $go=Get-Command go.exe -ErrorAction Stop
+          $ver=(& go.exe version) -join ' '
+          $gov=(& go.exe env GOVERSION) -join ' '
+          $tool=(& go.exe env GOTOOLCHAIN) -join ' '
+          $goRoot=(& go.exe env GOROOT) -join ' '
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $locations=@(
+            'C:\Program Files\Go\bin\go.exe',
+            'C:\Go\bin\go.exe',
+            'C:\tools\go\bin\go.exe',
+            'C:\ProgramData\chocolatey\bin\go.exe',
+            'C:\Users\camar\go\bin\go1.26.10.exe'
+          )
+          $available=@()
+          foreach($p in $locations){
+            if(Test-Path -LiteralPath $p -PathType Leaf){
+              $v=try{(& $p version) -join ' '}catch{'VERSION_ERROR'}
+              $available+=@{path=$p;version=$v}
+            }
+          }
+          $baseline=(Get-ItemProperty 'HKCU:\Control Panel\Desktop' -ErrorAction SilentlyContinue)
+          Write-Host ('KTRADE_PR253_GO_TOOLCHAIN='+([ordered]@{
+            schema='ktrade.pr253.go-toolchain-readonly.v1'
+            runner=$env:RUNNER_NAME
+            host=$env:COMPUTERNAME
+            runner_session=$session
+            current_go_executable=$go.Source
+            current_go_version=$ver
+            go_env_version=$gov
+            go_env_toolchain=$tool
+            go_env_root=$goRoot
+            installed_known_paths=$available
+            native_acceptance_executable_ran=$false
+            settings_changed=$false
+            task_created=$false
+            service_changed=$false
+            installer_launched=$false
+            git_source_touched=$false
+          }|ConvertTo-Json -Compress -Depth 6))
