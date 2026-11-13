@@ -257,8 +257,10 @@ def stage_owner_native_candidate(env, event, api):
     need(not install.exists() and not install.is_symlink()
          and not binary_dir.exists() and not binary_dir.is_symlink()
          and (not install_base.exists() or
-              (install_base.is_dir() and not install_base.is_symlink()))
-         and binary_base.is_dir() and not binary_base.is_symlink(),
+              (install_base.is_dir() and not install_base.is_symlink()
+               and not getattr(install_base, "is_junction", lambda: False)()))
+         and binary_base.is_dir() and not binary_base.is_symlink()
+         and not getattr(binary_base, "is_junction", lambda: False)(),
          "CREATE_ONLY_PRIVATE_STAGING_COLLISION")
     version = _call(["go", "version"])
     need(version == "go version " + source.TOOLCHAIN,
