@@ -1,0 +1,141 @@
+name: K Terminal source-only inherited BTC preview Windows qualification
+on:
+  push:
+    branches:
+      - qualification/kterminal-inherited-btc-preview-20261113
+    paths:
+      - .github/workflows/forge-kterminal-inherited-btc-preview-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: kterm-inherited-btc-preview-20261113
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 115
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      KTERM_SHA: 0621bfda869ab9b08f656ef420ab3fc6d4aba6c0
+      KTERM_TREE: 0899e2845a971aa913312ef68528981e39d49edf
+      KTERM_BASE: d27d5ccb51b2e0a5527127da0b9fcd25ac20895d
+    steps:
+      - name: Confirm qualified one-shot Windows owner, disarmed context
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-inherited-btc-preview-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0') {throw 'KTERM_PREVIEW_WRONG_OWNER_OR_EXECUTION_MODE'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+            'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_PREVIEW_BROKER_ENV_PRESENT'}
+          }
+          Write-Host 'KTERM_PREVIEW_OWNER_PREFLIGHT=PASS;DISARMED_PAPER=TRUE;NO_BROKER_ENV=TRUE'
+      - name: Check out exact private K Terminal candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 0621bfda869ab9b08f656ef420ab3fc6d4aba6c0
+          path: kterm-preview
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Pin exact source SHA tree and five modified file blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            $sha=(& git rev-parse HEAD).Trim()
+            $tree=(& git rev-parse 'HEAD^{tree}').Trim()
+            if($sha -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
+               ((& git status --porcelain | Out-String).Trim())) {
+              throw 'KTERM_PREVIEW_SOURCE_CUSTODY_FAILED'
+            }
+            $expected=@{
+              'internal/personalmigration/authority.go'='2c5984bcf2e9fc72485c01e34986eeae7f3e6ad5'
+              'native-authority-ui.ps1'='1b51a70eda968c495f51abf3b6c008d4c3cfb882'
+              'pkg/native-coinbase-cold-history-report.go'='7dbfaadbdc10dc174acce500028d45e4439a89d3'
+              'pkg/native-inherited-inventory-preview.go'='97fc3b0ce3b620e14c9f5915d83888f54e3e8438'
+              'pkg/native-inherited-inventory-preview_test.go'='65bc11964ec463d55c52d94ef6234dec45eb4376'
+            }
+            foreach($key in $expected.Keys) {
+              $actual=(& git rev-parse ('HEAD:'+ $key)).Trim()
+              if($actual -cne $expected[$key]){throw 'KTERM_PREVIEW_BLOB_DRIFT'}
+            }
+            Write-Host ('KTERM_PREVIEW_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';CHANGED_BLOBS=5')
+          } finally { Pop-Location }
+      - name: Pin Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Focused inherited preview and negative-control tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go test -count=1 -p 1 -timeout 12m -run '^(TestInheritedPreview|TestBrokerHistory)' ./pkg
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_FOCUSED_TEST_FAILED'}
+            Write-Host ('KTERM_PREVIEW_FOCUSED_TESTS=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Native authority UI PowerShell syntax parse
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE 'kterm-preview\native-authority-ui.ps1'
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'KTERM_PREVIEW_AUTHORITY_UI_PARSE_FAILED'}
+          Write-Host 'KTERM_PREVIEW_NATIVE_UI_PARSER=PASS'
+      - name: Mandatory complete exact-source Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go test -count=1 -p 1 -timeout 60m ./...
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_FULL_REGRESSION_FAILED'}
+            Write-Host ('KTERM_PREVIEW_FULL_REGRESSION=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Vet and compile all candidate Go packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go vet ./...
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_VET_FAILED'}
+            & go build ./...
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_BUILD_FAILED'}
+            Write-Host ('KTERM_PREVIEW_VET_BUILD=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Final exact tree unchanged and disarmed qualification receipt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            if(((& git rev-parse 'HEAD^{tree}').Trim()) -cne $env:KTERM_TREE){throw 'KTERM_PREVIEW_FINAL_TREE_DRIFT'}
+            Write-Host ('KTERM_PREVIEW_ENGINEERING_QUALIFICATION=PASS;SOURCE_SHA='+$env:KTERM_SHA+
+               ';SOURCE_TREE='+$env:KTERM_TREE+
+               ';FULL_REGRESSION=PASS;GO_VET=PASS;GO_BUILD=PASS;UI_PARSE=PASS'+
+               ';LIVE_ACCOUNTS=NOT_TOUCHED;LOT_ADOPTION=NOT_AUTHORIZED;TP_MANAGEMENT=NOT_AUTHORIZED'+
+               ';ORIGINAL_DESKTOP_ACCEPTANCE=NOT_RUN;PRIVATE_USER_DATA=NOT_READ')
+          } finally {Pop-Location}
