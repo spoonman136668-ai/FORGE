@@ -60,8 +60,7 @@ if($LASTEXITCODE -ne 0 -or $oldHead -cne $env:F139_EXPECTED_V40_SOURCE){exit 51}
 $dirty=@(& git -C $oldRoot status --porcelain --untracked-files=all)
 if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){exit 52}
 if($opts -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){exit 53}
-$other=@(Get-CimInstance Win32_Process -Filter
-    "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+$other=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
     Where-Object { [int]$_.ProcessId -ne [int]$env:F139_CANDIDATE_PID -and
       $_.CommandLine -and
       $_.CommandLine.Contains('f139.local_controller') -and

@@ -1,5 +1,6 @@
 """Windows original-owner task read-only guard; no live task manipulation."""
 from pathlib import Path
+import base64
 import inspect
 import os
 import shutil
@@ -47,6 +48,42 @@ class NativePreinstallWitnessTests(unittest.TestCase):
                 pre.verify_original_task_disabled_for_staged_candidate(
                     Path("/tmp/f139-state.sqlite"), Path("/tmp/forge"), "bad")
             called.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "win32", "native Windows PowerShell parser")
+    def test_native_preinstall_powershell_ast_and_broken_filter_negative(self):
+        # Parse, but NEVER execute, the genuine owner-task witness. Its earlier
+        # two-line -Filter command failed on the original Windows host before
+        # any V41 SQLite event was written. Do not mock the PowerShell parser.
+        ps = shutil.which("powershell.exe")
+        self.assertIsNotNone(ps)
+        checker = (
+            "$tokens=$null;$syntaxErrors=$null;"
+            "[System.Management.Automation.Language.Parser]::ParseInput("
+            "$env:F139_READONLY_PS_SOURCE,[ref]$tokens,[ref]$syntaxErrors)"
+            "|Out-Null;"
+            "if(@($syntaxErrors).Count -ne 0){exit 15};exit 0"
+        )
+        args = [ps, "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                base64.b64encode(checker.encode("utf-16le")).decode("ascii")]
+        bad_filter = (
+            "-Filter \"Name='python.exe' OR Name='pythonw.exe'\" -ErrorAction"
+        )
+        self.assertIn(bad_filter, pre.SCRIPT)
+        malformed = pre.SCRIPT.replace(
+            bad_filter,
+            "-Filter\n    \"Name='python.exe' OR Name='pythonw.exe'\" -ErrorAction"
+        )
+        for script, valid in ((pre.SCRIPT, True), (malformed, False)):
+            with self.subTest(valid=valid):
+                ran = subprocess.run(
+                    args, capture_output=True, check=False, timeout=20,
+                    stdin=subprocess.DEVNULL,
+                    env=dict(os.environ, F139_READONLY_PS_SOURCE=script),
+                )
+                if valid:
+                    self.assertEqual(ran.returncode, 0)
+                else:
+                    self.assertNotEqual(ran.returncode, 0)
 
     @unittest.skipUnless(sys.platform == "win32", "native Windows witness")
     def test_windows_canonical_path_binary_git_task_and_fail_closed(self):
