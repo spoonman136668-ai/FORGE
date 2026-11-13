@@ -1,0 +1,120 @@
+name: FORGE V41 postinstall original-owner read-only validation
+on:
+  push:
+    branches:
+      - diagnostic/f139-v41-private-backup-hash-20261113
+    paths:
+      - .github/workflows/f139-v41-postinstall-readonly-diagnostic.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-v41-postinstall-custody-readonly-20261113
+  cancel-in-progress: false
+jobs:
+  original-owner-postinstall-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout isolated diagnostic branch without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Read original scheduled task and source-bound ledger without writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code){
+            if(-not $ok){throw ('F139_V41_POSTINSTALL_RO_'+$code)}
+          }
+          $target='1a40fe4e3ec6e93a1631d59863b95e90981d734e'
+          $head1828='104bfdfdbae30d4ec80a9d8f7d0d440cd5b15ced8995709383b66db761a2ceb2'
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostic/f139-v41-private-backup-hash-20261113' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:GITHUB_EVENT_NAME -ceq 'push' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            -not $env:OPENAI_API_KEY) 'ORIGINAL_OWNER_EVENT'
+          $base=(& git merge-base $target HEAD | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $base -ceq $target) 'SOURCE_ANCESTRY'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $taskSid=''
+          try {
+            $taskSid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).
+              Translate([Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          Need ($task.Settings.Enabled -eq $true -and
+            [string]$task.State -cin @('Running','Ready') -and
+            @($task.Actions).Count -eq 1 -and
+            @($task.Triggers).Count -eq 3 -and
+            ([string]$task.Principal.UserId -ieq $identity.Name -or
+             $taskSid -ceq $identity.User.Value)) 'TASK_OR_SID_DRIFT'
+          $data=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $db=Join-Path $data 'state.sqlite'
+          $stage=Join-Path (Join-Path $data 'release-candidates') $target
+          $arguments=[string]$task.Actions[0].Arguments
+          function Arg([string]$name){
+            $m=[regex]::Match($arguments,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){return ''}
+            return $m.Groups[1].Value
+          }
+          $actualRoot=Arg 'RepositoryRoot'
+          $actualDb=Arg 'Database'
+          $wrapper=Arg 'File'
+          Need ($actualRoot -and $actualDb -and $wrapper -and
+            [IO.Path]::GetFullPath($actualRoot) -ieq [IO.Path]::GetFullPath($stage) -and
+            [IO.Path]::GetFullPath($actualDb) -ieq [IO.Path]::GetFullPath($db) -and
+            [IO.Path]::GetFileName($wrapper) -ceq 'Run-FORGE-F139.ps1' -and
+            $arguments -match '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') 'ORIGINAL_TASK_NOT_RETARGETED'
+          $stageHead=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $stageHead -ceq $target) 'STAGED_RELEASE_HEAD_DRIFT'
+          $code=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          path=Path(sys.argv[1]).resolve(strict=True)
+          target,expected=sys.argv[2:]
+          con=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,isolation_level=None,timeout=15)
+          try:
+              con.execute("PRAGMA query_only=ON")
+              integrity=con.execute("PRAGMA quick_check").fetchone()[0]
+              meta=con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              events=con.execute("SELECT seq,kind FROM events WHERE seq IN (1827,1828) ORDER BY seq").fetchall()
+              assert integrity=="ok" and meta is not None
+              assert meta[0]==target and meta[1]>=1828 and meta[3]==1 and meta[4]==1
+              assert events==[(1827,"NATIVE_PENDING_ESCROWED"),(1828,"SOURCE_TRANSITION_ADMITTED")]
+              if meta[1]==1828:
+                  assert meta[2]==expected
+              assert con.total_changes==0
+              print("F139_V41_POSTINSTALL_ORIGINAL_SQLITE_RO="+json.dumps({
+                  "schema":"forge.f139.v41.original-postinstall-readonly.v1",
+                  "source_sha":meta[0],"head_seq":meta[1],"head_sha256":meta[2],
+                  "ledger_transition_events_verified":True,
+                  "original_sqlite_quick_check":True,"original_sqlite_query_only":True,
+                  "original_sqlite_mutations":0,"scientific_first_use":False},sort_keys=True))
+          finally:
+              con.close()
+          '@
+          $rows=@($code | & python -B - $db $target $head1828)
+          Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+            $rows[0] -cmatch '^F139_V41_POSTINSTALL_ORIGINAL_SQLITE_RO=') 'ORIGINAL_LEDGER_READ_FAILED'
+          Write-Output $rows[0]
+          $taskInfo=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Write-Output ('F139_V41_POSTINSTALL_TASK_RO='+([ordered]@{
+            schema='forge.f139.v41.postinstall-original-task-readonly.v1'
+            task_name='FORGE-F139-UnifiedController'
+            enabled=$true
+            task_state=[string]$task.State
+            owner_sid_matches_runner=$true
+            staged_release_source_sha=$stageHead
+            task_source_root_matches_staged_release=$true
+            original_database_path_matches=$true
+            task_last_run_time=[string]$taskInfo.LastRunTime
+            task_last_result=[int64]$taskInfo.LastTaskResult
+            task_mutations=0
+            policy_mutations=0
+            scientific_first_use=$false
+          }|ConvertTo-Json -Compress))
+          Write-Output 'F139_V41_POSTINSTALL_ORIGINAL_READONLY=PASS'
