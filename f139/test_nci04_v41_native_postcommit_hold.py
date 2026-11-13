@@ -36,8 +36,16 @@ class NativePostcommitHoldTests(unittest.TestCase):
                     (escrow.OBSERVED_SEQ, HEAD))
                 self.before = db.meta().copy()
                 with SingleOwner(self.file.with_suffix(".lock")):
+                    def qualified_synthetic_proof(*args):
+                        doc = synthetic_proof(*args)
+                        # Only the historical prefix/crypto proof is mocked.
+                        # Preserve actual non-authorizing event authority bits
+                        # as the native V41 cold parser requires.
+                        doc.update(new_dispatches=0, scientific_first_use=False,
+                                   hybrid_admission=False, v2_receipt_authorized=False)
+                        return doc
                     with patch.object(source, "build_proof",
-                                      side_effect=synthetic_proof):
+                                      side_effect=qualified_synthetic_proof):
                         produced = atomic._commit_pair_under_existing_owner_lock(
                             db, original_meta=self.before, target=TARGET,
                             binary_sha="7"*64, toolchain=source.TOOLCHAIN,
