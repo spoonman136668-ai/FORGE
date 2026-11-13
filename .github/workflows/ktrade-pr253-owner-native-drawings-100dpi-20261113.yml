@@ -91,10 +91,13 @@ jobs:
                   string.Equals(b.ToString(),"Default",StringComparison.Ordinal);
               }finally{CloseDesktop(h);}
             }
+            public static bool ValidIdle(uint elapsed){return elapsed>=45000 && elapsed<=86400000;}
             public static uint IdleMs(){
               var info=new LastInput{cbSize=(uint)Marshal.SizeOf(typeof(LastInput))};
               if(!GetLastInputInfo(ref info))throw new Exception("LAST_INPUT_READ_FAILED");
-              return unchecked((uint)Environment.TickCount-info.dwTime);
+              uint elapsed=unchecked((uint)Environment.TickCount-info.dwTime);
+              if(elapsed>86400000)throw new Exception("LAST_INPUT_CLOCK_ANOMALY_REFUSED");
+              return elapsed;
             }
             public static string[] Dpi(){
               var result=new List<string>();
@@ -117,6 +120,17 @@ jobs:
           if(![KTradeOwnedDesktop]::GetCursorPos([ref]$cursor)){
             throw 'KTRADE_OWNER_NATIVE_CURSOR_SNAPSHOT_REFUSED'
           }
+          # Deterministic negative controls prevent a 2^32-wrap idle value
+          # from admitting pointer operations.
+          if(![KTradeOwnedDesktop]::ValidIdle(45000) -or
+             [KTradeOwnedDesktop]::ValidIdle(44999) -or
+             [KTradeOwnedDesktop]::ValidIdle(4294556138) -or
+             [KTradeOwnedDesktop]::ValidIdle(86400001)){
+            throw 'KTRADE_OWNER_NATIVE_IDLE_NEGATIVE_CONTROL_FAILED'
+          }
+          Write-Host 'KTRADE_OWNER_NATIVE_IDLE_GUARD_NEGATIVES=PASS'
+          $observedIdle=[KTradeOwnedDesktop]::IdleMs()
+          if($observedIdle -lt 45000){throw 'KTRADE_OWNER_NATIVE_USER_ACTIVE_NO_POINTER_INPUT'}
           $foreground=[KTradeOwnedDesktop]::GetForegroundWindow()
           if($foreground -eq [IntPtr]::Zero){throw 'KTRADE_OWNER_NATIVE_FOREGROUND_SNAPSHOT_REFUSED'}
           $root=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-real-native-'+[guid]::NewGuid().ToString('N'))
