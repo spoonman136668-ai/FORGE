@@ -1,5 +1,6 @@
 """Disposable SQLite transaction tests: never an original Windows owner."""
 from contextlib import closing
+import hashlib
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -12,6 +13,7 @@ from f139 import nci04_v41_owner_approval as approval
 from f139 import nci04_v41_pending_custody as pending
 from f139 import nci04_v41_source_transition as source
 from f139 import nci04_v41_pending_escrow as escrow
+from f139 import nci04_v41_cold_copy_verifier as cold
 
 SOURCE = escrow.OWNER_SOURCE
 TARGET = "9" * 40
@@ -158,6 +160,108 @@ class AtomicCopiedLedgerTests(unittest.TestCase):
                     self.execute(**opts)
                 self.assertEqual(self.state(self.original),original)
                 self.assertEqual(self.state(self.copy),original)
+
+
+    def _rehearse_detached_negatives(self, *, tamper=False):
+        """Real SQLite online copy and frozen ZIP hash checks, mocked history.
+
+        This is source-only DEV. Never treat synthetic ledger or mocked remote
+        approval as authentic owner or release evidence.
+        """
+        root = Path(self.folder.name)
+        detached = root / "detached"
+        detached.mkdir()
+        dest = detached / "rehearsal.sqlite"
+        artifacts = (
+            ("NATIVE_NEGATIVE_CUSTODIED",
+             "native-negative/synthetic-first/11/ubuntu-latest.zip",
+             b"negative-first-frozen"),
+            ("NATIVE_SPLIT_NEGATIVE_CUSTODIED",
+             "native-negative/synthetic-second/22/ubuntu-latest.zip",
+             b"negative-second-frozen"),
+        )
+        definitions = []
+        expected = {}
+        for kind, relative, payload in artifacts:
+            source_file = root.joinpath(*relative.split("/"))
+            source_file.parent.mkdir(parents=True, exist_ok=False)
+            source_file.write_bytes(payload)
+            wanted = hashlib.sha256(payload).hexdigest()
+            definitions.append((kind, relative, wanted))
+            expected[relative] = wanted
+        original_bytes = self.original.read_bytes()
+        if tamper:
+            root.joinpath(*artifacts[0][1].split("/")).write_bytes(
+                b"untrusted-change")
+        with patch.object(Database, "verify", return_value=None), \
+             patch.object(source, "build_proof", side_effect=synthetic_proof), \
+             patch.object(cold, "verify_cold_copy", return_value=cold_receipt()), \
+             patch.object(cold, "_negative_definitions",
+                          return_value=tuple(definitions)), \
+             patch.object(cold, "required_negative_custody",
+                          return_value=expected), \
+             patch.object(pending, "inspect_never_admitted",
+                          return_value=preserved()), \
+             patch.object(approval, "verify_owner_comment",
+                          return_value=owner_intent()):
+            with SingleOwner(self.original.with_suffix(".lock")):
+                with closing(Database.open_readonly(self.original)) as readonly:
+                    if tamper:
+                        with self.assertRaisesRegex(
+                                Exception, "NEGATIVE_CUSTODY_ORIGINAL_HASH"):
+                            atomic.rehearse_locked_original(
+                                readonly, root / "old-backup.sqlite",
+                                lambda _: None, None, target=TARGET,
+                                qualification_run_id=11,
+                                backup_sha256="a"*64,
+                                owner_comment_id=123456, copy_path=dest,
+                                binary_sha="7"*64, toolchain=source.TOOLCHAIN)
+                        self.assertFalse(dest.exists())
+                        self.assertFalse((detached / "native-negative").exists())
+                        self.assertEqual(self.original.read_bytes(),
+                                         original_bytes)
+                        return
+                    result = atomic.rehearse_locked_original(
+                        readonly, root / "old-backup.sqlite",
+                        lambda _: None, None, target=TARGET,
+                        qualification_run_id=11, backup_sha256="a"*64,
+                        owner_comment_id=123456, copy_path=dest,
+                        binary_sha="7"*64, toolchain=source.TOOLCHAIN)
+        self.assertTrue(result["copy_only"])
+        self.assertFalse(result["source_transition_authorized"])
+        self.assertEqual(result["copy_head_seq"], self.start["head_seq"]+2)
+        for relative, wanted in expected.items():
+            recovered = detached.joinpath(*relative.split("/"))
+            self.assertTrue(recovered.is_file())
+            self.assertEqual(hashlib.sha256(recovered.read_bytes()).hexdigest(),
+                             wanted)
+        self.assertEqual(self.original.read_bytes(), original_bytes)
+        self.assertEqual(self.state(self.original)[0][0], SOURCE)
+        self.assertEqual(self.state(dest)[0][0], TARGET)
+
+    def test_relocated_sqlite_rehearsal_preserves_two_historical_negative_zips(self):
+        self._rehearse_detached_negatives()
+
+    def test_relocated_sqlite_rehearsal_rejects_tampered_negative_zip(self):
+        self._rehearse_detached_negatives(tamper=True)
+
+    def test_rehearsal_must_not_stage_custody_in_original_owner_root(self):
+        # setUp deliberately uses a synthetic 1,826-event head; disable full
+        # history replay ONLY for this interface isolation negative control.
+        with patch.object(Database, "verify", return_value=None):
+            with closing(Database.open_readonly(self.original)) as readonly:
+                with SingleOwner(self.original.with_suffix(".lock")):
+                    with self.assertRaisesRegex(
+                            atomic.V41AtomicDenied,
+                            "ISOLATED_CUSTODY_ROOT_REQUIRED"):
+                        atomic.rehearse_locked_original(
+                            readonly, self.original.with_name("old.sqlite"),
+                            None, None, target=TARGET,
+                            qualification_run_id=1, backup_sha256="a"*64,
+                            owner_comment_id=11,
+                            copy_path=self.original.with_name("unsafe.sqlite"),
+                            binary_sha="7"*64, toolchain=source.TOOLCHAIN)
+        self.assertFalse(self.original.with_name("unsafe.sqlite").exists())
 
     def test_original_must_be_query_only_and_no_live_commands(self):
         with patch.object(Database,"verify",return_value=None):

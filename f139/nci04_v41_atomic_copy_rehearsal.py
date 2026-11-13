@@ -173,6 +173,14 @@ def rehearse_locked_original(original, backup, get, api, *, target,
          "ORIGINAL_QUERY_ONLY_MUTEX_REQUIRED")
     copy_path = Path(copy_path)
     backup = Path(backup)
+    # A detached SQLite without its ledger-bound historical negative ZIPs
+    # fails the real A8B/A8E2A2 Database.verify() cold replay. Do not put a
+    # rehearsal in the original or backup custody directory.
+    origin_root = original.filename.parent
+    copy_root = copy_path.parent
+    need(copy_root.resolve() != origin_root.resolve()
+         and copy_root.resolve() != backup.parent.resolve(),
+         "ISOLATED_CUSTODY_ROOT_REQUIRED")
     need(copy_path.is_absolute() and not copy_path.exists()
          and copy_path.parent.is_dir() and not copy_path.parent.is_symlink()
          and all(not p.is_symlink() for p in copy_path.parent.parents)
@@ -190,8 +198,17 @@ def rehearse_locked_original(original, backup, get, api, *, target,
         get, target=target, cold=cold_receipt, pending_receipt=preserved,
         comment_id=owner_comment_id)
     _approval_bound(before, cold_receipt, preserved, owner_intent, target)
+    negative_custody = cold.required_negative_custody(original)
+    # Copy only exact frozen, original-hash-matched negative provider evidence.
+    # Exclude an existing destination root to avoid mixing independent custody
+    # or overwriting a previous rehearsal. No source files are modified.
+    need(not (copy_root / "native-negative").exists()
+         and not (copy_root / "native-negative").is_symlink(),
+         "COPIED_NEGATIVE_CUSTODY_ALREADY_EXISTS")
     need(original.meta() == before and original.conn.total_changes == changes,
          "ORIGINAL_MOVED_BEFORE_COPY")
+    cold.copy_negative_custody(origin_root, copy_root, negative_custody,
+                              copy_files=True)
     # The backup API produces a transaction-consistent SQLite copy; never
     # copy only the potentially WAL-incomplete original main-file bytes.
     destination = sqlite3.connect(str(copy_path), timeout=10)
@@ -210,6 +227,12 @@ def rehearse_locked_original(original, backup, get, api, *, target,
                 cold_receipt=cold_receipt, pending_receipt=preserved,
                 owner_intent=owner_intent, inject_failure=inject_failure)
     with closing(Database.open_readonly(copy_path)) as restored:
+        # Check the recovered ledger's own negative event identities and the
+        # original frozen ZIP hashes, not merely that two file paths exist.
+        need(cold.required_negative_custody(restored) == negative_custody,
+             "COPIED_NEGATIVE_LEDGER_DRIFT")
+        cold.copy_negative_custody(origin_root, copy_root, negative_custody,
+                                  copy_files=False)
         restored.verify()
         need(restored.meta()["source_sha"] == target
              and restored.meta()["head_seq"] == before["head_seq"]+2
