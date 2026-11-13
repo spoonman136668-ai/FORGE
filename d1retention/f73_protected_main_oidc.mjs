@@ -122,26 +122,33 @@ export async function observeRealOrigin({
  const jwks=await getJSON(config.jwks_uri,fetcher);
  mark("JWT_VERIFICATION");
  const verified=verifyJWT(result.value,jwks,pins,now);
+ // Reuse the existing workflow-scoped token for *all* GitHub REST reads.
+ // Unauthenticated requests can be rejected or rate-limited independently
+ // of the cryptographically verified OIDC identity. Never downgrade to a
+ // public/anonymous fallback or omit the source and policy comparisons.
+ requireTrue(eligibleText(env.GITHUB_TOKEN,2048));
+ const githubReadHeaders={Authorization:"Bearer "+env.GITHUB_TOKEN};
  mark("REPOSITORY_READ");
- const repo=await getJSON(GITHUB+"/repos/"+REPO,fetcher);
+ const repo=await getJSON(GITHUB+"/repos/"+REPO,fetcher,githubReadHeaders);
  requireTrue(repo.full_name===REPO&&repo.id===verified.repository_id);
  mark("RUN_READ");
- const run=await getJSON(GITHUB+"/repos/"+REPO+"/actions/runs/"+pins.run_id,fetcher);
+ const run=await getJSON(GITHUB+"/repos/"+REPO+"/actions/runs/"+pins.run_id,
+  fetcher,githubReadHeaders);
  requireTrue(String(run.id)===pins.run_id&&
   run.head_sha===pins.sha&&run.head_branch===pins.ref.slice(11)&&
   run.event==="push"&&run.run_attempt===1&&
   run.path===".github/workflows/forge-f73-protected-main-identity.yml");
  mark("MAIN_READ");
- const main=await getJSON(GITHUB+"/repos/"+REPO+"/branches/main",fetcher);
+ const main=await getJSON(GITHUB+"/repos/"+REPO+"/branches/main",
+  fetcher,githubReadHeaders);
  requireTrue(isObj(main.commit)&&hex40.test(main.commit.sha)&&
   typeof main.protected==="boolean");
  // Authenticated policy observation independently joins real protected-main
  // rules, required Linux+Windows checks and exact current run commit. Even a
  // protected-main GitHub identity cannot mint scientific first-use authority.
- requireTrue(eligibleText(env.GITHUB_TOKEN,2048));
  mark("RULESET_READ");
- const rules=await getJSON(GITHUB+"/repos/"+REPO+"/rulesets/25031517",fetcher,
-  {Authorization:"Bearer "+env.GITHUB_TOKEN});
+ const rules=await getJSON(GITHUB+"/repos/"+REPO+"/rulesets/25031517",
+  fetcher,githubReadHeaders);
  mark("RULESET_VALIDATION");
  const status=rules.rules?.find(x=>x.type==="required_status_checks");
  const contexts=status?.parameters?.required_status_checks;
