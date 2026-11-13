@@ -1,0 +1,97 @@
+name: KTRADE PR253 original workstation screen saver recovery preflight
+on:
+  push:
+    branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
+    paths:
+      - .github/workflows/ktrade-pr253-screen-saver-recovery-preflight-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-pr253-screen-saver-readonly-once
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Determine exact screen saver policy and input desktop without changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+            throw 'KTRADE_SCREEN_SAVER_SCOPE_REFUSED'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public static class KtradeScreenSaverReadOnly {
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int index,StringBuilder name,uint count,out uint needed);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool SystemParametersInfo(uint action,uint param,ref uint value,uint flags);
+            public static string InputDesktop(){
+              IntPtr h=OpenInputDesktop(0,false,1);
+              if(h==IntPtr.Zero)return "UNAVAILABLE";
+              try{
+                var name=new StringBuilder(128);uint needed;
+                if(!GetUserObjectInformation(h,2,name,(uint)(name.Capacity*2),out needed))return "NAME_UNAVAILABLE";
+                return name.ToString();
+              }finally{CloseDesktop(h);}
+            }
+            public static string ScreenSaverEnabled(){
+              uint val=0;
+              if(!SystemParametersInfo(0x0010,0,ref val,0))return "UNAVAILABLE";
+              return val!=0?"ENABLED":"DISABLED";
+            }
+          }
+          '@
+          $regRoot='HKCU:\Control Panel\Desktop'
+          $settings=Get-ItemProperty -Path $regRoot -ErrorAction Stop
+          $policyRoot='HKCU:\Software\Policies\Microsoft\Windows\Control Panel\Desktop'
+          $policyMachine='HKLM:\Software\Policies\Microsoft\Windows\Control Panel\Desktop'
+          $userPolicy=Get-ItemProperty -Path $policyRoot -ErrorAction SilentlyContinue
+          $machinePolicy=Get-ItemProperty -Path $policyMachine -ErrorAction SilentlyContinue
+          $scr=Get-CimInstance Win32_Process -ErrorAction Stop |
+            Where-Object {$_.Name -match '(?i)\.scr$'}
+          $knownKeys=@('ScreenSaveActive','ScreenSaveTimeOut','ScreenSaverIsSecure','SCRNSAVE.EXE')
+          $snapshot=[ordered]@{}
+          foreach($key in $knownKeys){
+            $value=$settings.PSObject.Properties[$key]
+            $snapshot[$key]=if(!$value){'UNSET'}elseif($key -eq 'SCRNSAVE.EXE'){
+              $raw=[string]$value.Value
+              if(!$raw){'EMPTY'}else{[IO.Path]::GetFileName($raw)}
+            }else{[string]$value.Value}
+          }
+          $policy=@{}
+          foreach($name in @('HKCU','HKLM')){
+            $entry=if($name -eq 'HKCU'){$userPolicy}else{$machinePolicy}
+            $policy[$name]=[ordered]@{}
+            foreach($key in $knownKeys){
+              $p=if($entry){$entry.PSObject.Properties[$key]}else{$null}
+              $policy[$name][$key]=if(!$p){'UNSET'}elseif($key -eq 'SCRNSAVE.EXE'){
+                'CONFIGURED'
+              }else{[string]$p.Value}
+            }
+          }
+          Write-Host ('KTRADE_PR253_SCREENSAVER_PREFLIGHT='+([ordered]@{
+            schema='ktrade.pr253.owner-screensaver-preimage.v1'
+            runner=$env:RUNNER_NAME;host=$env:COMPUTERNAME
+            process_session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+            actual_input_desktop=[KtradeScreenSaverReadOnly]::InputDesktop()
+            system_parameter_screen_saver_active=[KtradeScreenSaverReadOnly]::ScreenSaverEnabled()
+            hkcu_desktop_snapshot=$snapshot
+            screen_saver_group_policies=$policy
+            visible_scr_processes=@($scr|Select-Object Name,SessionId)
+            registry_changed=$false;session_switched=$false
+            screen_saver_dismissed=$false;display_changed=$false
+            scheduled_tasks_created=$false;services_changed=$false
+            application_launched=$false
+          }|ConvertTo-Json -Compress -Depth 6))
