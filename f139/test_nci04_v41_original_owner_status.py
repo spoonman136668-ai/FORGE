@@ -51,6 +51,62 @@ class V41OriginalOwnerStatusTests(unittest.TestCase):
                 self.assertEqual(readonly.meta(),meta)
                 self.assertEqual(readonly.conn.total_changes,0)
 
+
+    def test_failed_backup_forensic_inventory_reads_no_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db = root / "state.sqlite"
+            db.write_bytes(b"unchanged original")
+            self.assertEqual(route.inspect_failed_backup_stage(db)
+                             ["classification"], "ABSENT")
+            folder = root / ("f139-v41-before-" + str(route.FAILED_BACKUP_RUN))
+            folder.mkdir()
+            (folder / "state.sqlite").write_bytes(b"private backup")
+            self.assertEqual(route.inspect_failed_backup_stage(db)
+                             ["classification"], "PARTIAL_AFTER_SQLITE")
+            archive = folder / "provider-custody" / "f139-nci04-example" / "7"
+            archive.mkdir(parents=True)
+            (archive / "manifest.json").write_bytes(b"private provider")
+            self.assertEqual(route.inspect_failed_backup_stage(db)
+                             ["classification"], "PARTIAL_AFTER_PROVIDER")
+            gen = folder / "prior-generation-custody" / ("a" * 40)
+            gen.mkdir(parents=True)
+            (gen / "f139-genenv-source.exe").write_bytes(b"private binary")
+            self.assertEqual(route.inspect_failed_backup_stage(db)
+                             ["classification"], "PARTIAL_AFTER_PRIOR_BINARY")
+            (folder / "manifest.sha256.json").write_bytes(b"not valid seal")
+            with patch("builtins.open", side_effect=AssertionError("content read")):
+                result = route.inspect_failed_backup_stage(db)
+            self.assertEqual(result["classification"],
+                             "SEALED_MARKER_PRESENT_UNVERIFIED")
+            self.assertTrue(result["sealed_manifest_present"])
+            self.assertEqual(result["provider_file_count"], 1)
+            self.assertEqual(result["prior_binary_file_count"], 1)
+            for key in ("contents_read", "original_db_written", "backup_retried"):
+                self.assertFalse(result[key])
+            self.assertEqual(result["task_mutations"], 0)
+            self.assertEqual(db.read_bytes(), b"unchanged original")
+
+    def test_failed_backup_forensic_deny_symlink_and_wrong_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db = root / "state.sqlite"
+            db.write_bytes(b"immutable")
+            folder = root / ("f139-v41-before-" + str(route.FAILED_BACKUP_RUN))
+            folder.write_bytes(b"not a folder")
+            self.assertEqual(route.inspect_failed_backup_stage(db)
+                             ["classification"], "NON_DIRECTORY")
+            folder.unlink()
+            try:
+                folder.symlink_to(root, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pass
+            else:
+                self.assertEqual(route.inspect_failed_backup_stage(db)
+                                 ["classification"], "UNTRUSTED_LINK")
+            with self.assertRaises(route.V41StatusDenied):
+                route.inspect_failed_backup_stage(Path("state.sqlite"))
+
     def test_existing_mutation_routes_are_not_exposed(self):
         import inspect
         code=inspect.getsource(route)

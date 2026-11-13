@@ -89,3 +89,17 @@ platforms exercises the full authenticated preflight, verifies zero bytes
 changed and keeps the earlier negative in provenance. The backup job is
 NOT replayed on the failed run; only a separate exact qualified merge and
 new owner comment can invoke a new one-shot maintenance attempt.
+
+
+## Failed one-shot maintenance: bounded original-host inventory
+
+After genuine run #43332363875 failed the private backup subprocess, owner
+recovery and post-run read-only V40 ledger inspection passed on #43332623846.
+The specific subprocess exception was not printed and remains unknown.
+The pre-existing issue #807 read-only status route now classifies only the
+already-existing run-specific staging folder, without replaying maintenance.
+It emits snapshot/seal presence, provider archive and prior binary file
+counts, and noncanonical entry counts. It does not open original/backup
+SQLite, archives, executables, or secrets; it outputs no paths or names.
+A sealed marker is not proof of a valid backup.
+No maintenance, source cutover, research dispatch or new workflow is added.
