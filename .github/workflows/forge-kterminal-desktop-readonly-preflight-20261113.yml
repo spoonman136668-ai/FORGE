@@ -287,3 +287,51 @@ jobs:
              ';NO_CONFIG_OR_SECRETS_READ=TRUE;NO_NETWORK=TRUE;NO_WRITES=TRUE')
           if(-not $numericSafe){throw 'KTERM_LOCAL_BTC_SNAPSHOT_NUMERIC_REFUSED'}
           Write-Host 'KTERM_SAVED_ACCOUNTING_DIAGNOSTIC=COMPLETE;NO_ACTIVATION_OR_RECOVERY_AUTHORITY'
+      - name: Inspect existing reconciliation timing counters without exposing private failure bodies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-firstuse-artifact-20261112' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER'){throw 'KTERM_LOCAL_METRICS_WRONG_OWNER_OR_MODE'}
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -gt 0){throw 'KTERM_LOCAL_METRICS_ACTIVE_APP_REFUSED'}
+          $p=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal\data\native-runtime\reconciliation-metrics.json'
+          $item=Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+          if(-not $item -or $item.PSIsContainer){Write-Host 'KTERM_ORIGINAL_METRICS=ABSENT';return}
+          if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+             $item.Length -le 0 -or $item.Length -gt 1048576){throw 'KTERM_ORIGINAL_METRICS_UNSAFE_FILE_REFUSED'}
+          try{$m=Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop}
+          catch{throw 'KTERM_ORIGINAL_METRICS_MALFORMED'}
+          $keys=@('duration_ms','api_requests','pagination_pages','retries','observation_passes',
+             'order_reads_reused','local_history_records_parsed','local_history_records_reused',
+             'authority_ready_ms','final_identity_ms')
+          $pair=[System.Collections.Generic.List[string]]::new()
+          foreach($key in $keys){
+             $v=$m.PSObject.Properties[$key]
+             if($null -eq $v){continue}
+             $n=[long]0
+             if(-not [long]::TryParse([string]$v.Value,[ref]$n) -or $n -lt 0 -or $n -gt 100000000000){
+                throw 'KTERM_ORIGINAL_METRICS_INVALID_COUNTER'
+             }
+             $pair.Add(($key.ToUpperInvariant()+'='+$n))
+          }
+          $stageCount=0
+          if($m.stage_ms){$stageCount=@($m.stage_ms.PSObject.Properties).Count}
+          $startedValid=$false
+          if($m.started_at){
+             $start=[datetime]::MinValue
+             $startedValid=[datetime]::TryParse([string]$m.started_at,[ref]$start)
+          }
+          $checkpointHit=([string]$m.checkpoint_path -ceq 'HIT')
+          $result='KTERM_ORIGINAL_RECONCILIATION_METRICS=PASS;'+($pair.ToArray() -join ';')+
+             ';STAGE_COUNT='+$stageCount+';START_TIMESTAMP_PARSEABLE='+$startedValid+
+             ';CHECKPOINT_HIT='+$checkpointHit+
+             ';HISTORICAL_SNAPSHOT_ONLY=TRUE;NOT_NEW_BROKER_RESULT=TRUE'+
+             ';NO_FAILURE_TEXT_OR_PATH_EXPORTED=TRUE;NO_CREDENTIALS_READ=TRUE'+
+             ';NO_RAW_FINANCIAL_AMOUNTS_EXPORTED=TRUE;NO_NETWORK=TRUE;NO_WRITES=TRUE'
+          Write-Host $result
