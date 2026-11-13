@@ -60,10 +60,9 @@ jobs:
               throw ('KTRADE_OWNER_NATIVE_TOOL_MISSING_'+$tool)
             }
           }
-          $goText=(& go.exe version) -join ' '
-          if($LASTEXITCODE -ne 0 -or $goText -notmatch '\bgo1\.26\.10\b'){
-            throw 'KTRADE_OWNER_NATIVE_GO_VERSION_DRIFT'
-          }
+          $goPreimage=(& go.exe version) -join ' '
+          if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_GO_VERSION_READ_FAILED'}
+          Write-Host ('KTRADE_OWNER_NATIVE_GO_PREIMAGE='+$goPreimage)
           Add-Type -TypeDefinition @'
           using System;
           using System.Collections.Generic;
@@ -111,6 +110,17 @@ jobs:
           New-Item -ItemType Directory -Path $root -ErrorAction Stop|Out-Null
           $succeeded=$false
           try{
+            # Exact Go 1.26.10 is loaded only into disposable job caches.
+            # Never overwrite the workstation's Go 1.25.5 installation or global user cache.
+            $env:GOTOOLCHAIN='go1.26.10'
+            $env:GOPATH=Join-Path $root 'go-path'
+            $env:GOMODCACHE=Join-Path $root 'go-mod-cache'
+            $env:GOCACHE=Join-Path $root 'go-build-cache'
+            $goText=(& go.exe version) -join ' '
+            Write-Host ('KTRADE_OWNER_NATIVE_JOB_TOOLCHAIN='+$goText)
+            if($LASTEXITCODE -ne 0 -or $goText -notmatch '\bgo1\.26\.10\b'){
+              throw 'KTRADE_OWNER_NATIVE_PINNED_GO_TOOLCHAIN_UNAVAILABLE'
+            }
             $env:GH_PROMPT_DISABLED='1'
             $env:GIT_TERMINAL_PROMPT='0'
             & gh.exe repo clone spoonman136668-ai/ktrade $source -- --filter=blob:none --no-checkout *> $clonelog
