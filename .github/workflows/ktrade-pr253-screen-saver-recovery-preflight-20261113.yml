@@ -182,3 +182,97 @@ jobs:
             scheduled_task_created=$false
             original_app_launched=$false
           }|ConvertTo-Json -Compress -Depth 4))
+      - name: Measure original 80 second Windows input stability without changing or injecting input
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 1 -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+            throw 'KTRADE_PR253_INPUT_STABILITY_SCOPE_REFUSED'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class KtradePr253StabilitySampler {
+            [StructLayout(LayoutKind.Sequential)] public struct Last { public uint Size;public uint Tick; }
+            [StructLayout(LayoutKind.Sequential)] public struct Pos { public int X;public int Y; }
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool GetLastInputInfo(ref Last val);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool GetCursorPos(out Pos pos);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int index,StringBuilder b,uint size,out uint needed);
+            public static string InputDesktop(){
+              var h=OpenInputDesktop(0,false,1);
+              if(h==IntPtr.Zero)return "UNAVAILABLE";
+              try{
+                var b=new StringBuilder(128);uint n;
+                return GetUserObjectInformation(h,2,b,(uint)(b.Capacity*2),out n)?b.ToString():"UNAVAILABLE";
+              }finally{CloseDesktop(h);}
+            }
+            public static string[] Sample(){
+              var last=new Last{Size=(uint)Marshal.SizeOf(typeof(Last))};
+              bool l=GetLastInputInfo(ref last);
+              var p=new Pos();bool c=GetCursorPos(out p);
+              var foreground=GetForegroundWindow();
+              return new[]{l?last.Tick.ToString():"UNAVAILABLE",c?(p.X.ToString()+","+p.Y.ToString()):"UNAVAILABLE",
+                foreground!=IntPtr.Zero?foreground.ToInt64().ToString():"UNAVAILABLE",
+                InputDesktop()};
+            }
+          }
+          '@
+          $period=[Diagnostics.Stopwatch]::StartNew()
+          $last=@([KtradePr253StabilitySampler]::Sample())
+          $initialDesktop=$last[3]
+          $counts=[ordered]@{last_input_changes=0;cursor_changes=0;foreground_changes=0;desktop_changes=0;unavailable_samples=0}
+          $maxStableMs=0
+          $stableStartMs=0
+          $samples=1
+          while($period.Elapsed.TotalSeconds -lt 80){
+            Start-Sleep -Milliseconds 500
+            $next=@([KtradePr253StabilitySampler]::Sample())
+            $elapsed=[int64]$period.ElapsedMilliseconds
+            $counts.last_input_changes+=if($next[0] -cne $last[0]){1}else{0}
+            $counts.cursor_changes+=if($next[1] -cne $last[1]){1}else{0}
+            $counts.foreground_changes+=if($next[2] -cne $last[2]){1}else{0}
+            $counts.desktop_changes+=if($next[3] -cne $last[3]){1}else{0}
+            if(@($next|Where-Object {$_ -ceq 'UNAVAILABLE'}).Count -gt 0){$counts.unavailable_samples++}
+            $stable=($next[0] -ceq $last[0] -and
+              $next[1] -ceq $last[1] -and
+              $next[2] -ceq $last[2] -and
+              $next[3] -ceq $last[3] -and
+              $next[3] -ceq 'Default' -and
+              $next[1] -cne 'UNAVAILABLE' -and $next[2] -cne 'UNAVAILABLE')
+            if(!$stable){$stableStartMs=$elapsed}
+            $maxStableMs=[Math]::Max($maxStableMs,($elapsed-$stableStartMs))
+            $last=$next
+            $samples++
+          }
+          Write-Host ('KTRADE_PR253_INPUT_STABILITY_DIAGNOSTIC='+([ordered]@{
+            schema='ktrade.pr253.input-stability-sampler.v1'
+            runner=$env:RUNNER_NAME
+            host=$env:COMPUTERNAME
+            session=1
+            duration_ms=[int64]$period.ElapsedMilliseconds
+            samples=$samples
+            initial_desktop=$initialDesktop
+            final_desktop=$last[3]
+            maximum_stable_default_desktop_ms=$maxStableMs
+            would_admit_45_second_native_mouse_test=($maxStableMs -ge 45000)
+            last_input_changes=$counts.last_input_changes
+            cursor_changes=$counts.cursor_changes
+            foreground_changes=$counts.foreground_changes
+            input_desktop_changes=$counts.desktop_changes
+            unavailable_samples=$counts.unavailable_samples
+            pointer_or_keyboard_injected=$false
+            windows_settings_changed=$false
+            scheduled_task_created=$false
+            app_or_controller_started=$false
+          }|ConvertTo-Json -Compress -Depth 4))
