@@ -151,14 +151,67 @@ from f139.nci04_v41_native_original_commit import verify_install_dispatch
 e=json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes(),object_pairs_hook=decode_unique)
 r=verify_install_dispatch(dict(os.environ),e,GitHub().native_repo_get)
 assert r["target_source_sha"]==sys.argv[1]
-print("F139_V41_INSTALL_OWNER_INTENT_READBACK=PASS")
+from f139.nci04_native_contract import canonical
+print("F139_V41_INSTALL_OWNER_INTENT_READBACK="+canonical(r).decode("ascii"))
 '@
 Push-Location $stage
 try {
   $checked=@($preflight | & $python -B - $Target)
   Need ($LASTEXITCODE -eq 0 -and $checked.Count -eq 1 -and
-    $checked[0] -ceq 'F139_V41_INSTALL_OWNER_INTENT_READBACK=PASS') 'OWNER_APPROVAL_EVENT_MISSING'
+    $checked[0] -cmatch '^F139_V41_INSTALL_OWNER_INTENT_READBACK=') 'OWNER_APPROVAL_EVENT_MISSING'
+  $request=$checked[0].Substring('F139_V41_INSTALL_OWNER_INTENT_READBACK='.Length)|ConvertFrom-Json
+  Need ($request.target_source_sha -ceq $Target -and
+    [int64]$request.owner_approval_comment_id -gt 0) 'OWNER_INTENT_READBACK'
 } finally {Pop-Location}
+# Bind owner approval to the actual original task/SID and real CI artifact.
+# The existing Python verifier independently double-reads the same comment.
+$ownerApproval=@(& gh api ('repos/spoonman136668-ai/FORGE/issues/comments/'+
+  [string]$request.owner_approval_comment_id))
+Need ($LASTEXITCODE -eq 0 -and $ownerApproval.Count -ge 1) 'OWNER_APPROVAL_FETCH'
+$comment=($ownerApproval -join [Environment]::NewLine)|ConvertFrom-Json
+$prefix='F139-V41-OWNER-APPROVAL '
+Need ($comment.id -eq $request.owner_approval_comment_id -and
+  $comment.user.login -ceq 'spoonman136668-ai' -and
+  $comment.author_association -ceq 'OWNER' -and
+  $comment.issue_url -ceq 'https://api.github.com/repos/spoonman136668-ai/FORGE/issues/807' -and
+  [string]$comment.body -clike ($prefix+'*')) 'OWNER_APPROVAL_IDENTITY'
+$approval=([string]$comment.body).Substring($prefix.Length)|ConvertFrom-Json
+$xml=Export-ScheduledTask -TaskName $name
+$taskBytes=[Text.Encoding]::UTF8.GetBytes([string]$xml)
+$taskSha=([BitConverter]::ToString(
+  [Security.Cryptography.SHA256]::Create().ComputeHash($taskBytes))).
+  Replace('-','').ToLowerInvariant()
+$sidBytes=[Text.Encoding]::UTF8.GetBytes([string]$id.User.Value)
+$sidSha=([BitConverter]::ToString(
+  [Security.Cryptography.SHA256]::Create().ComputeHash($sidBytes))).
+  Replace('-','').ToLowerInvariant()
+Need ($approval.owner_comment_id -eq $request.owner_approval_comment_id -and
+  $approval.from_source_sha -ceq $old -and
+  $approval.to_source_sha -ceq $Target -and
+  $approval.original_task_definition_sha256 -ceq $taskSha -and
+  $approval.original_owner_sid_sha256 -ceq $sidSha) 'APPROVED_TASK_OR_SID_HASH_MISMATCH'
+$runData=@(& gh api ('repos/spoonman136668-ai/FORGE/actions/runs/'+
+  [string]$approval.qualification_run_id))
+Need ($LASTEXITCODE -eq 0 -and $runData.Count -ge 1) 'QUALIFICATION_RUN_READ'
+$run=($runData -join [Environment]::NewLine)|ConvertFrom-Json
+Need ($run.id -eq $approval.qualification_run_id -and
+  $run.head_sha -ceq $Target -and
+  $run.head_branch -ceq 'main' -and
+  $run.event -ceq 'push' -and
+  $run.actor.login -ceq 'spoonman136668-ai' -and
+  $run.run_attempt -eq 1 -and
+  $run.status -ceq 'completed' -and $run.conclusion -ceq 'success' -and
+  [string]$run.name -cin @('FORGE public Linux and Windows qualification',
+                          'FORGE F73 protected-main cryptographic origin (no science permission)')) 'QUALIFICATION_RUN_SOURCE_DRIFT'
+$artifactData=@(& gh api ('repos/spoonman136668-ai/FORGE/actions/artifacts/'+
+  [string]$approval.qualification_artifact_id))
+Need ($LASTEXITCODE -eq 0 -and $artifactData.Count -ge 1) 'QUALIFICATION_ARTIFACT_READ'
+$artifact=($artifactData -join [Environment]::NewLine)|ConvertFrom-Json
+Need ($artifact.id -eq $approval.qualification_artifact_id -and
+  $artifact.expired -eq $false -and
+  $artifact.workflow_run.id -eq $run.id -and
+  [string]$artifact.digest -ceq ('sha256:'+$approval.qualification_artifact_sha256)) 'QUALIFICATION_ARTIFACT_DIGEST_DRIFT'
+Write-Host 'F139_V41_AUTHENTIC_OWNER_TASK_SID_AND_CI_ARTIFACT=PASS'
 # A failed preflight never changes task/policy/SQLite.
 $lease=$null
 try {
