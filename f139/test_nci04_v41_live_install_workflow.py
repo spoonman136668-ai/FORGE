@@ -63,7 +63,7 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
         self.assertIn("startsWith(github.event.comment.body, 'F139-V41-INSTALL-READINESS ')", part)
         self.assertIn("github.actor == 'spoonman136668-ai'", part)
         self.assertIn("RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE'", part)
-        self.assertIn("    permissions:\\n      contents: read\\n      issues: read", part)
+        self.assertIn("    permissions:\n      contents: read\n      issues: read", part)
         self.assertIn("F139_V41_READINESS_ONLY_NO_TASK_OR_SQLITE_MUTATION=PASS", part)
         for forbidden in ("Set-ScheduledTask", "Disable-ScheduledTask",
                           "Enable-ScheduledTask", "Start-ScheduledTask",
