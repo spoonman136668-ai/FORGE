@@ -94,6 +94,8 @@ def synthetic_observation(stage):
         "installed_source_sha": TARGET if code_new else ORIGINAL,
         "escrow_count": 0 if pre else 1,
         "source_transition_count": 0 if pre else 1,
+        "paired_escrow_sha256": None if pre else ESCROW_SHA,
+        "sqlite_transaction_closed": True,
         "new_dispatches": 0,
         "scientific_first_use": False,
         "hybrid_admission": False,
@@ -226,6 +228,7 @@ class V41InstallFailureFenceTests(unittest.TestCase):
                 ("head_sha256", COPY_HEAD),
                 ("escrow_count", 1),
                 ("source_transition_count", 1),
+                ("paired_escrow_sha256", ESCROW_SHA),
                 ("policy_source_sha", TARGET),
                 ("installed_source_sha", TARGET),
             ):
@@ -244,6 +247,7 @@ class V41InstallFailureFenceTests(unittest.TestCase):
                 ("head_sha256", HEAD),
                 ("escrow_count", 0),
                 ("source_transition_count", 0),
+                ("paired_escrow_sha256", "0"*64),
             ):
                 with self.subTest(stage=stage, field=field):
                     observed = synthetic_observation(stage)
@@ -271,6 +275,29 @@ class V41InstallFailureFenceTests(unittest.TestCase):
                 observed = synthetic_observation(stage)
                 observed[field] = ORIGINAL
                 with self.assertRaises(fence.InstallSafetyDenied):
+                    fence.interrupted_cutover_response(
+                        self.plan, stage=stage, observation=observed)
+
+
+    def test_transaction_must_be_closed_before_any_recovery_decision(self):
+        for stage in fence.ALL_STAGES:
+            with self.subTest(stage=stage):
+                observed = synthetic_observation(stage)
+                observed["sqlite_transaction_closed"] = False
+                with self.assertRaisesRegex(
+                        fence.InstallSafetyDenied,
+                        "OBSERVED_AUTHORITY_OR_SHAPE_DRIFT"):
+                    fence.interrupted_cutover_response(
+                        self.plan, stage=stage, observation=observed)
+
+    def test_postcommit_escrow_identity_cannot_be_replaced(self):
+        for stage in fence.POST_COMMIT:
+            with self.subTest(stage=stage):
+                observed = synthetic_observation(stage)
+                observed["paired_escrow_sha256"] = "0"*64
+                with self.assertRaisesRegex(
+                        fence.InstallSafetyDenied,
+                        "COMMITTED_EVENT_PAIR_NOT_VERIFIED"):
                     fence.interrupted_cutover_response(
                         self.plan, stage=stage, observation=observed)
 
