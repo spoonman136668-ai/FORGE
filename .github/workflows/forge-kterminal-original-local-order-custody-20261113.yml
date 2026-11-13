@@ -1,0 +1,75 @@
+name: K Terminal original BTC local order custody presence (one-shot)
+on:
+  push:
+    branches: [qualification/kterminal-owner-getonly-broker-history-20261113]
+    paths: [.github/workflows/forge-kterminal-original-local-order-custody-20261113.yml]
+permissions:
+  contents: read
+jobs:
+  local-order-evidence:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+    steps:
+      - name: Count original BTC order/TP references only, without ids or values
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-owner-getonly-broker-history-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER'){throw 'KTERM_LOCAL_CUSTODY_WRONG_RUNNER_OR_SCOPE'}
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){throw 'KTERM_LOCAL_CUSTODY_APP_RUNNING_REFUSED'}
+          $data=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal\data'
+          $lotPath=Join-Path $data 'ladder-lots-BTC-USDC.json'
+          $posPath=Join-Path $data 'position-state-BTC-USDC.json'
+          foreach($path in @($lotPath,$posPath)){
+            $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               $item.Length -le 0 -or $item.Length -gt 67108864){throw 'KTERM_LOCAL_CUSTODY_SOURCE_UNSAFE'}
+          }
+          try{
+             $lot=Get-Content -LiteralPath $lotPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+             $pos=Get-Content -LiteralPath $posPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+          }catch{throw 'KTERM_LOCAL_CUSTODY_JSON_INVALID'}
+          if([string]$lot.product_id -cne 'BTC-USDC' -or [string]$pos.product_id -cne 'BTC-USDC' -or
+             [int]$lot.schema_version -ne 1 -or [int]$pos.schema_version -ne 1){throw 'KTERM_LOCAL_CUSTODY_SCOPE_OR_SCHEMA_INVALID'}
+          $orderRows=@()
+          if($null -ne $lot.orders){$orderRows=@($lot.orders.PSObject.Properties)}
+          if($orderRows.Count -gt 200000){throw 'KTERM_LOCAL_CUSTODY_ORDERS_TOO_LARGE'}
+          $buy=0;$sell=0;$other=0;$clientIds=0;$lotRefs=0;$alloc=0;$filled=0
+          foreach($entry in $orderRows){
+             $v=$entry.Value
+             switch(([string]$v.side).ToUpperInvariant()){
+                'BUY'{$buy++;break}
+                'SELL'{$sell++;break}
+                default{$other++}
+             }
+             if(-not [string]::IsNullOrWhiteSpace([string]$v.client_order_id)){$clientIds++}
+             if(-not [string]::IsNullOrWhiteSpace([string]$v.lot_id)){$lotRefs++}
+             if(@($v.allocations).Count -gt 0){$alloc++}
+             if(([string]$v.status).ToUpperInvariant() -in @('FILLED','DONE','COMPLETED')){$filled++}
+          }
+          $processed=0;$positionProcessedIDs=0
+          if($null -ne $pos.processed_orders){
+             $rows=@($pos.processed_orders.PSObject.Properties)
+             $processed=$rows.Count
+             if($processed -gt 200000){throw 'KTERM_LOCAL_CUSTODY_POSITION_TOO_LARGE'}
+             foreach($entry in $rows){if(-not [string]::IsNullOrWhiteSpace([string]$entry.Value.order_id)){$positionProcessedIDs++}}
+          }
+          $journal=Join-Path $data 'ladder-lots-BTC-USDC.json.reservation.wal'
+          $nativeOrigin=Join-Path $data 'native-runtime\ledger-origin.json'
+          Write-Host ('KTERM_ORIGINAL_ORDER_CUSTODY_COUNTS=PASS;LOCAL_ORDER_LINKS='+$orderRows.Count+
+             ';BUY_ORDER_LINKS='+$buy+';SELL_ORDER_LINKS='+$sell+';OTHER_ORDER_LINKS='+$other+
+             ';ORDER_LINKS_WITH_CLIENT_ID='+$clientIds+';ORDER_LINKS_WITH_LOT_ID='+$lotRefs+
+             ';ORDER_LINKS_WITH_ALLOCATIONS='+$alloc+';ORDER_LINKS_TERMINAL='+$filled+
+             ';POSITION_PROCESSED_ORDERS='+$processed+';POSITION_PROCESSED_WITH_ORDER_ID='+$positionProcessedIDs+
+             ';RESERVATION_WAL_NAMED_FILE_PRESENT='+[bool](Test-Path -LiteralPath $journal -PathType Leaf)+
+             ';NATIVE_LEDGER_ORIGIN_PRESENT='+[bool](Test-Path -LiteralPath $nativeOrigin -PathType Leaf)+
+             ';NO_RAW_IDS_OR_AMOUNTS_EXPORTED=TRUE;NO_CONFIG_OR_SECRETS_READ=TRUE'+
+             ';NO_NETWORK_OR_BROKER_REQUESTS=TRUE;NO_LOCAL_MUTATIONS=TRUE'+
+             ';AUTHENTICATED_ORDER_OWNERSHIP=UNVERIFIED')
