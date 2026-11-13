@@ -25,6 +25,102 @@ from f139.nci04_v41_catalog_recovery_preflight import (
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 MAX_BACKUP_BYTES = 1_000_000_000
 
+# A8B and A8E2A2 verify historical negative ZIPs relative to db.filename.
+# An isolated SQLite snapshot therefore needs its *own* authenticated copies:
+# a main-file-only snapshot is not a complete replayable owner state.
+def _negative_definitions():
+    from f139.nci04_negative_owner_store import (
+        KIND as first_kind, TICKET as first_ticket, RUN_ID as first_run,
+        ARTIFACT_SHA as first_sha)
+    from f139.nci04_split_negative_owner_store import (
+        KIND as second_kind, TICKET as second_ticket, RUN_ID as second_run)
+    from f139.nci04_split_negative_custody import ARTIFACT_SHA256 as second_sha
+    return (
+        (first_kind, "native-negative/" + first_ticket + "/" +
+         str(first_run) + "/ubuntu-latest.zip", first_sha),
+        (second_kind, "native-negative/" + second_ticket + "/" +
+         str(second_run) + "/ubuntu-latest.zip", second_sha),
+    )
+
+
+def required_negative_custody(db: Database) -> dict:
+    """Identify exactly the historical filesystem adjuncts in this SQLite."""
+    need(type(db) is Database, "NEGATIVE_DATABASE_REQUIRED")
+    result = {}
+    for kind, relative, expected in _negative_definitions():
+        count = db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind=?", (kind,)).fetchone()[0]
+        need(count in (0, 1), "NEGATIVE_EVENT_MULTIPLICITY")
+        if count:
+            result[relative] = expected
+    kinds = _negative_definitions()
+    need(kinds[1][1] not in result or kinds[0][1] in result,
+         "SECOND_NEGATIVE_WITHOUT_FIRST")
+    return result
+
+
+def copy_negative_custody(source_root: Path, destination_root: Path,
+                          expected: dict, *, copy_files: bool) -> dict:
+    """Hash-bound, create-only copy of original negative evidence ZIPs.
+
+    This copies only two frozen historical artifacts. It never downloads or
+    regenerates consumed evidence, never modifies an original source directory,
+    and does not turn a negative event into a positive scientific result.
+    """
+    import shutil
+    source_root = Path(source_root)
+    destination_root = Path(destination_root)
+    allowed = {relative: sha for _, relative, sha in _negative_definitions()}
+    need(type(expected) is dict
+         and set(expected).issubset(allowed)
+         and all(allowed[k] == v for k, v in expected.items())
+         and source_root.is_absolute() and destination_root.is_absolute()
+         and source_root != destination_root
+         and source_root.is_dir() and destination_root.is_dir(),
+         "NEGATIVE_CUSTODY_SCOPE")
+    for root in (source_root, destination_root):
+        need(not root.is_symlink()
+             and not getattr(root, "is_junction", lambda: False)(),
+             "NEGATIVE_CUSTODY_ROOT_LINK")
+    for relative, wanted in sorted(expected.items()):
+        parts = relative.split("/")
+        source = source_root.joinpath(*parts)
+        destination = destination_root.joinpath(*parts)
+        for root, subpath in ((source_root, source),):
+            current = root
+            for part in parts[:-1]:
+                current = current / part
+                need(current.is_dir() and not current.is_symlink()
+                     and not getattr(current, "is_junction", lambda: False)(),
+                     "NEGATIVE_CUSTODY_DIRECTORY_MISSING_OR_LINK")
+        need(source.is_file() and not source.is_symlink()
+             and not getattr(source, "is_junction", lambda: False)()
+             and 0 < source.stat().st_size <= 2_000_000,
+             "NEGATIVE_CUSTODY_ORIGINAL_FILE_INVALID")
+        payload = source.read_bytes()
+        need(digest(payload) == wanted, "NEGATIVE_CUSTODY_ORIGINAL_HASH")
+        if copy_files:
+            need(not destination.exists() and not destination.is_symlink(),
+                 "NEGATIVE_CUSTODY_DESTINATION_EXISTS")
+            destination.parent.mkdir(parents=True, exist_ok=False)
+            with destination.open("xb") as handle:
+                handle.write(payload)
+                handle.flush()
+        else:
+            current = destination_root
+            for part in parts[:-1]:
+                current = current / part
+                need(current.is_dir() and not current.is_symlink()
+                     and not getattr(current, "is_junction", lambda: False)(),
+                     "NEGATIVE_CUSTODY_COPIED_DIR_INVALID")
+        need(destination.is_file() and not destination.is_symlink()
+             and not getattr(destination, "is_junction", lambda: False)()
+             and destination.stat().st_size == len(payload)
+             and digest(destination.read_bytes()) == wanted,
+             "NEGATIVE_CUSTODY_COPIED_BYTES_CHANGED")
+    return dict(sorted(expected.items()))
+
+
 
 def _require_standalone_sqlite(backup: Path) -> None:
     """The main file digest cannot attest to WAL/journal sidecar contents.
@@ -96,6 +192,9 @@ def _hashed_private_sqlite_snapshot(backup: Path, expected_sha256: str):
              "PRIVATE_SNAPSHOT_BYTES_DRIFT")
         _require_standalone_sqlite(private)
         with closing(_open_immutable_hashed_backup(private)) as cold:
+            required = required_negative_custody(cold)
+            copy_negative_custody(backup.parent, private.parent, required,
+                                  copy_files=True)
             yield cold
         # The attested database is this immutable private snapshot, not the
         # independently mutable external backup path.
@@ -167,6 +266,12 @@ def verify_cold_copy(original: Database, backup: Path, get, *, target: str,
         need(original_view == cold_view, "COLD_ALL_TABLE_LOGICAL_DRIFT")
         need(cold.conn.total_changes == 0,
              "COLD_COPY_WAS_MUTATED")
+    # Stage and cold snapshot must independently retain both frozen
+    # negative original ZIPs; the old code checked SQLite alone and lost them
+    # when verifying a detached db.filename.
+    negatives = required_negative_custody(original)
+    copy_negative_custody(Path(original.filename).parent, backup.parent,
+                          negatives, copy_files=False)
     # Reuse actual owner backup-custody readers. copy_files=False cannot write.
     archives = copy_provider_archives(original, backup.parent, copy_files=False)
     generation = copy_generation_executable(original, backup.parent, copy_files=False)
