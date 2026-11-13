@@ -20,6 +20,8 @@ jobs:
       KTRADE_CI_LIVE_AUTHORITY: '0'
       KTRADE_CI_COINBASE_ALLOWED: '0'
       KTRADE_USE_LEGACY_CDP_CONFIG: '0'
+      KTRADE_PAPER_SESSION_ROOT: ''
+      KTRADE_PAPER_CUSTODY_REVIEW_ROOT: ''
       KTRADE_PROMOTION_ALLOWED: '0'
     steps:
       - name: Prepare only original nonsecure screen saver for exact Windows native test
@@ -164,6 +166,8 @@ jobs:
              $env:KTRADE_LIVE_TRADING -cne 'false' -or
              $env:KTRADE_CI_LIVE_AUTHORITY -cne '0' -or
              $env:KTRADE_CI_COINBASE_ALLOWED -cne '0' -or
+             $env:KTRADE_PAPER_SESSION_ROOT -cne '' -or
+             $env:KTRADE_PAPER_CUSTODY_REVIEW_ROOT -cne '' -or
              $env:KTRADE_PROMOTION_ALLOWED -cne '0'){
             throw 'KTRADE_OWNER_NATIVE_SCOPE_REFUSED'
           }
@@ -457,7 +461,9 @@ jobs:
                [IO.Path]::GetDirectoryName($root).TrimEnd('\') -ceq ([IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\'))){
               Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
             }
-            if(!$saverRestored){throw 'KTRADE_OWNER_NATIVE_SCREENSAVER_RESTORATION_FAILED'}
+            if(!$saverRestored){
+              Write-Host 'KTRADE_OWNER_NATIVE_SCREENSAVER_RESTORE=PENDING_SECONDARY_ALWAYS_STEP'
+            }
             if(!$restored){throw 'KTRADE_OWNER_NATIVE_DPI_POSTTEST_RESTORATION_FAILED'}
           }
           if(!$succeeded){throw 'KTRADE_OWNER_NATIVE_NOT_ACCEPTED'}
