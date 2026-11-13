@@ -150,7 +150,7 @@ class NativePostcommitHoldTests(unittest.TestCase):
         bad = dict(self.receipt, source_event_owner_approval_id=999)
         with self.assertRaisesRegex(
                 hold.V41PostcommitDenied,
-                "ESCROW_1715_OR_TRANSITION_AUTHORITY_DRIFT"):
+                "PENDING_ESCROW_IDENTITY_DRIFT"):
             self.inspect(bad)
 
     def test_bad_orphaned_escrow_audit_refuses_even_if_receipt_looks_valid(self):
