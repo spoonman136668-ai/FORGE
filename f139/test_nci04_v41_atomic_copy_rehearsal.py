@@ -193,15 +193,15 @@ class AtomicCopiedLedgerTests(unittest.TestCase):
         if tamper:
             root.joinpath(*artifacts[0][1].split("/")).write_bytes(
                 b"untrusted-change")
-        with patch.object(Database, "verify", return_value=None), \\
-             patch.object(source, "build_proof", side_effect=synthetic_proof), \\
-             patch.object(cold, "verify_cold_copy", return_value=cold_receipt()), \\
+        with patch.object(Database, "verify", return_value=None), \
+             patch.object(source, "build_proof", side_effect=synthetic_proof), \
+             patch.object(cold, "verify_cold_copy", return_value=cold_receipt()), \
              patch.object(cold, "_negative_definitions",
-                          return_value=tuple(definitions)), \\
+                          return_value=tuple(definitions)), \
              patch.object(cold, "required_negative_custody",
-                          return_value=expected), \\
+                          return_value=expected), \
              patch.object(pending, "inspect_never_admitted",
-                          return_value=preserved()), \\
+                          return_value=preserved()), \
              patch.object(approval, "verify_owner_comment",
                           return_value=owner_intent()):
             with SingleOwner(self.original.with_suffix(".lock")):
