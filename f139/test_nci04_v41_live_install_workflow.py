@@ -105,6 +105,10 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
         self.assertIn("SourceOld", src)
         self.assertIn("Main", src)
         self.assertIn("OWNER_APPROVAL_EVENT_MISSING", src)
+        self.assertIn("APPROVED_TASK_OR_SID_HASH_MISMATCH", src)
+        self.assertIn("QUALIFICATION_RUN_SOURCE_DRIFT", src)
+        self.assertIn("QUALIFICATION_ARTIFACT_DIGEST_DRIFT", src)
+        self.assertIn("F139_V41_AUTHENTIC_OWNER_TASK_SID_AND_CI_ARTIFACT=PASS", src)
 
     @unittest.skipUnless(os.name == "nt", "Native Windows PowerShell only")
     def test_windows_powershell_parser_accepts_live_wrapper(self):
