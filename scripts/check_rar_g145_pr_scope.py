@@ -77,6 +77,7 @@ FROZEN_SCOPES = {
     "engineering/f139-v41-owner-native-stage-workflow-20261113": (
         "2a7f2f58f829e9de9bdf47fe963d3edbf9335982",
         {
+            ".github/workflows/f139-v38-original-owner-release.yml",
             ".github/workflows/f139-v41-original-owner-native-stage.yml",
             "f139/test_nci04_v41_owner_native_stage_workflow.py",
             "scripts/check_rar_g145_pr_scope.py",
