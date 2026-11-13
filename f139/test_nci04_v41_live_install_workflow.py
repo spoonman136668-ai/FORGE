@@ -73,6 +73,21 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
                           "sqlite3.connect(", "new controller"):
             self.assertNotIn(forbidden, part)
 
+    def test_copy_rehearsal_separate_read_only_job(self):
+        src = self.workflow
+        self.assertEqual(src.count("  original-owner-v41-copy-rehearsal:"), 1)
+        part = src.split("  original-owner-v41-copy-rehearsal:", 1)[1]
+        self.assertIn("startsWith(github.event.comment.body, 'F139-V41-COPY-REHEARSAL ')", part)
+        self.assertIn("github.actor == 'spoonman136668-ai'", part)
+        self.assertIn("RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'", part)
+        self.assertIn("    permissions:\\n      contents: read\\n      issues: read", part)
+        self.assertIn("--rehearse-only", part)
+        for forbidden in ("Set-ScheduledTask", "Disable-ScheduledTask",
+                          "Enable-ScheduledTask", "Start-ScheduledTask",
+                          "Stop-ScheduledTask", "gh api --method PATCH",
+                          "sqlite3.connect(", "issue: write"):
+            self.assertNotIn(forbidden, part)
+
     def test_original_owner_single_task_and_forward_only_failure(self):
         src = self.wrapper
         self.assertIn("$name='FORGE-F139-UnifiedController'", src)
