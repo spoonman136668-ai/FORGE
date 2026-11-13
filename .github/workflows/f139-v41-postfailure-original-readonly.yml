@@ -82,19 +82,31 @@ jobs:
                    F139_EXPECTED_CANDIDATE_ROOT=stage,
                    F139_EXPECTED_V40_SOURCE=old,
                    F139_CANDIDATE_PID=str(os.getpid()))
-          p=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",SCRIPT],
-                           check=False,capture_output=True,env=env,timeout=30)
-          print("F139_V41_POSTFAIL_NATIVE_PREDICATE="+json.dumps(
-              {"exit_code":p.returncode,"stdout_pass":p.stdout.strip()==b"F139_V41_OLD_TASK_DISABLED_STAGED_CANDIDATE=PASS",
-               "stderr_present":bool(p.stderr.strip())},sort_keys=True))
+          import base64
+          for mode,arguments in (
+              ("plain",["-Command",SCRIPT]),
+              ("encoded",["-EncodedCommand",base64.b64encode(SCRIPT.encode("utf-16le")).decode("ascii")]),
+          ):
+              p=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive",*arguments],
+                               check=False,capture_output=True,env=env,timeout=30)
+              stderr=p.stderr.decode("utf-8",errors="replace")
+              categories=["ParserError","UnexpectedToken","Get-CimInstance",
+                          "Get-ScheduledTask","Access is denied","MethodInvocationException",
+                          "PropertyNotFoundException"]
+              tag=next((c for c in categories if c.lower() in stderr.lower()),"OTHER" if stderr else "NONE")
+              print("F139_V41_POSTFAIL_NATIVE_PREDICATE="+json.dumps(
+                  {"invocation":mode,"exit_code":p.returncode,
+                   "stdout_pass":p.stdout.strip()==b"F139_V41_OLD_TASK_DISABLED_STAGED_CANDIDATE=PASS",
+                   "stderr_class":tag,"stderr_present":bool(p.stderr.strip())},sort_keys=True))
           '@
           $env:PYTHONPATH=$env:GITHUB_WORKSPACE
           $code=@($diag | & python -B - $db $stage $old)
-          if($LASTEXITCODE -ne 0 -or $code.Count -ne 1 -or
+          if($LASTEXITCODE -ne 0 -or $code.Count -ne 2 -or
              $code[0] -cnotmatch '^F139_V41_POSTFAIL_NATIVE_PREDICATE='){
             throw 'F139_V41_POSTFAIL_PREDICATE_UNVERIFIED'
           }
           Write-Output $code[0]
+          Write-Output $code[1]
           $taskReceipt=[ordered]@{
             schema='forge.f139.v41.postfailure-original-readonly.v1'
             original_task_state=[string]$task.State
