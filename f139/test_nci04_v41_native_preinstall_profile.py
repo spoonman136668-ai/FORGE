@@ -71,7 +71,7 @@ class NativePreinstallWitnessTests(unittest.TestCase):
         self.assertIn(bad_filter, pre.SCRIPT)
         malformed = pre.SCRIPT.replace(
             bad_filter,
-            "-Filter\\n    \"Name='python.exe' OR Name='pythonw.exe'\" -ErrorAction"
+            "-Filter\n    \"Name='python.exe' OR Name='pythonw.exe'\" -ErrorAction"
         )
         for script, valid in ((pre.SCRIPT, True), (malformed, False)):
             with self.subTest(valid=valid):
