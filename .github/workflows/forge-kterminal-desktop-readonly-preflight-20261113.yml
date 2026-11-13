@@ -202,3 +202,75 @@ jobs:
              ';NO_FILE_BYTES_READ=TRUE;NO_CONFIG_READ=TRUE;NO_PRIVATE_IDENTIFIERS_EXPORTED=TRUE'+
              ';NO_CREDENTIALS_USED=TRUE;NO_NETWORK_OR_BROKER_REQUESTS=TRUE;NO_WRITES=TRUE')
           Write-Host 'KTERM_BTC_PROVENANCE_AUTHORITY=UNVERIFIED;SAVED_FILE_PRESENCE_IS_NOT_SIGNED_LOT_OWNERSHIP'
+      - name: Inspect saved BTC lot and position JSON invariants without emitting values
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-firstuse-artifact-20261112' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER'){throw 'KTERM_LOCAL_SNAPSHOT_WRONG_OWNER_OR_MODE'}
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -gt 0){throw 'KTERM_LOCAL_SNAPSHOT_ACTIVE_APPLICATION_REFUSED'}
+          $data=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal\data'
+          $lotPath=Join-Path $data 'ladder-lots-BTC-USDC.json'
+          $posPath=Join-Path $data 'position-state-BTC-USDC.json'
+          $bindingPath=Join-Path $data 'account-binding.json'
+          function Read-KTermScopedSnapshot([string]$name,[string]$path){
+             $f=Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+             if(-not $f -or $f.PSIsContainer){throw ('KTERM_LOCAL_SNAPSHOT_'+$name+'_MISSING')}
+             if(($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw ('KTERM_LOCAL_SNAPSHOT_'+$name+'_REPARSE_REFUSED')}
+             if($f.Length -le 0 -or $f.Length -gt 67108864){throw ('KTERM_LOCAL_SNAPSHOT_'+$name+'_SIZE_REFUSED')}
+             try{ return (Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop) }
+             catch{throw ('KTERM_LOCAL_SNAPSHOT_'+$name+'_JSON_PARSE_FAILED')}
+          }
+          $lot=Read-KTermScopedSnapshot 'LOT' $lotPath
+          $pos=Read-KTermScopedSnapshot 'POSITION' $posPath
+          $binding=Read-KTermScopedSnapshot 'BINDING' $bindingPath
+          $lotShape=($lot.schema_version -eq 1 -and $lot.product_id -ceq 'BTC-USDC' -and
+             $null -ne $lot.lots -and $null -ne $lot.orders)
+          $posShape=($pos.schema_version -eq 1 -and $pos.product_id -ceq 'BTC-USDC' -and
+             $null -ne $pos.quantity -and $null -ne $pos.cost_basis -and
+             $null -ne $pos.tp_state)
+          $bindingShape=($binding.schema_version -eq 1 -and
+             -not [string]::IsNullOrWhiteSpace([string]$binding.account_id) -and
+             -not [string]::IsNullOrWhiteSpace([string]$binding.portfolio_id))
+          if(-not ($lotShape -and $posShape -and $bindingShape)){
+             Write-Host ('KTERM_LOCAL_BTC_SCHEMA_DIAGNOSTIC=FAIL;LOT_SHAPE='+$lotShape+';POSITION_SHAPE='+$posShape+';BINDING_SHAPE='+$bindingShape+';NO_AUTHORITY=TRUE')
+             throw 'KTERM_LOCAL_SNAPSHOT_SCHEMA_INCOMPATIBLE'
+          }
+          $lotOpenCount=0; $badLotCount=0; $lotOpenQty=0.0
+          foreach($row in @($lot.lots)){
+             $filled=[double]$row.filled_quantity
+             $rem=[double]$row.remaining_quantity
+             $basis=[double]$row.filled_value
+             if(-not [double]::IsFinite($filled) -or -not [double]::IsFinite($rem) -or
+                -not [double]::IsFinite($basis) -or $filled -lt 0 -or $rem -lt 0 -or
+                $basis -lt 0 -or $rem -gt $filled+0.00000001 -or
+                ([string]$row.product_id -and [string]$row.product_id -cne 'BTC-USDC')){ $badLotCount++; continue }
+             if($rem -gt 0){$lotOpenCount++; $lotOpenQty+=$rem}
+          }
+          $qty=[double]$pos.quantity; $cost=[double]$pos.cost_basis
+          $numericSafe=([double]::IsFinite($qty) -and [double]::IsFinite($cost) -and
+             $qty -ge 0 -and $cost -ge 0 -and $badLotCount -eq 0)
+          $localQuantityAgrees=($numericSafe -and [math]::Abs($lotOpenQty-$qty) -le 0.00000001)
+          Write-Host ('KTERM_LOCAL_BTC_SCHEMA_DIAGNOSTIC=PASS'+
+             ';LOT_SCHEMA=1;POSITION_SCHEMA=1;BINDING_SCHEMA=1'+
+             ';LOT_INITIALIZED='+[bool]$lot.initialized+
+             ';LOT_RECORDS='+@($lot.lots).Count+
+             ';OPEN_LOT_RECORDS='+$lotOpenCount+
+             ';INVALID_LOT_ROWS='+$badLotCount+
+             ';POSITION_ACCOUNTING_VERIFIED_SAVED_FLAG='+[bool]$pos.accounting_verified+
+             ';POSITION_BASIS_ESTIMATED_SAVED_FLAG='+[bool]$pos.basis_estimated+
+             ';POSITION_HAS_COST_BASIS='+[bool]($cost -gt 0)+
+             ';POSITION_HAS_ACTIVE_TP_ORDER='+[bool](-not [string]::IsNullOrWhiteSpace([string]$pos.active_tp_order_id))+
+             ';NONNEGATIVE_FINITE_QUANTITIES='+[bool]$numericSafe+
+             ';LOCAL_OPEN_LOTS_POSITION_QTY_AGREE_1E8='+[bool]$localQuantityAgrees+
+             ';AUTHENTICATED_BROKER_MATCH=NOT_TESTED;LOT_OWNERSHIP=UNVERIFIED'+
+             ';NO_AMOUNTS_OR_IDS_EXPORTED=TRUE;NO_RAW_FILE_BYTES_EXPORTED=TRUE'+
+             ';NO_CONFIG_OR_SECRETS_READ=TRUE;NO_NETWORK=TRUE;NO_WRITES=TRUE')
+          if(-not $numericSafe){throw 'KTERM_LOCAL_BTC_SNAPSHOT_NUMERIC_REFUSED'}
+          Write-Host 'KTERM_SAVED_ACCOUNTING_DIAGNOSTIC=COMPLETE;NO_ACTIVATION_OR_RECOVERY_AUTHORITY'
