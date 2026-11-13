@@ -14,9 +14,9 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: cddbe6a6f8587d4f1699a36aabcd0f986a39692b
-      KTERM_BASE: 5c4e5d76de28993863e02382239b93775f5c9667
-      KTERM_TREE: 801fde8794e262c81eac24e1ca04889e56bb3f79
+      KTERM_SHA: f2722ad6b73d3e7ce97b1655df08c18a59e2d6e3
+      KTERM_BASE: ed8bf826f8221ec31fbc880ac27d92424c03fc0a
+      KTERM_TREE: 65229a4748c55f0abc83e05834ea0f7f154c23ce
       KTERM_REISSUE_ONLY: 'false'
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
@@ -80,8 +80,8 @@ jobs:
             throw 'KTERM_PR96_IMMUTABLE_SOURCE_DRIFT'
           }
           $blobs=@{
-            '.ice/file-descriptions.json'='e6c87565fe79ff31188d9301bb9203aa79f1fc77'
-            '.ice/source-file-descriptions.ice'='db6bfe0faef1b42ebd2db7cfa99b5d0eb0a2d5c1'
+            'INSTALL-KTerminal.bat'='61b29cee88cc8df8b67ce94468f4ca11bf0c3162'
+            'tools/qualification/test_p5_verify_firstuse_archive.py'='252cfb2790c28f6d2f351b2f6260af846249418d'
           }
           foreach($p in $blobs.Keys){
             $actual=(& git -C $src rev-parse ('HEAD:'+$p) | Out-String).Trim()
@@ -95,7 +95,7 @@ jobs:
           foreach($private in @('config.json','data','reporting','logs','notifications','.env')){
             if(Test-Path -LiteralPath (Join-Path $src $private)){throw 'KTERM_PR96_PRIVATE_STATE_REFUSED'}
           }
-          Write-Host ('KTERM_UNIFIED_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=NONE_CATALOG_METADATA_PARITY_ONLY;FULL_GO_REQUALIFICATION=REQUIRED')
+          Write-Host ('KTERM_UNIFIED_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=INSTALL_BATCH_QUOTED_PATH_ONLY;FULL_GO_REQUALIFICATION=REQUIRED')
       - name: Pinned original Windows Go toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
@@ -770,7 +770,7 @@ jobs:
              $proof.original_desktop_smoke -cne 'NOT_RUN' -or
              $proof.field_performance -cne 'UNVERIFIED' -or
              $proof.binaries -ne 8 -or $proof.files -ne 73 -or
-             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-cddbe6a6f858.zip'){
+             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-f2722ad6b73d.zip'){
             throw 'KTERM_FIRSTUSE_REISSUE_RECEIPT_INVALID'
           }
           $zip=Join-Path $out $proof.archive
@@ -794,9 +794,9 @@ jobs:
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: K-Terminal-Disarmed-FirstUse-cddbe6a6f858-${{ github.run_id }}
+          name: K-Terminal-Disarmed-FirstUse-f2722ad6b73d-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-cddbe6a6f858.zip
+            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-f2722ad6b73d.zip
             ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/FIRST-USE-RECEIPT.json
           if-no-files-found: error
           retention-days: 14
