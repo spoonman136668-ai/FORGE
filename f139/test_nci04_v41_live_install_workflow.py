@@ -18,6 +18,22 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
         cls.wrapper = WRAPPER.read_text(encoding="utf-8")
 
+    def test_frozen_ci_branch_does_not_admit_arbitrary_workflow_edits(self):
+        from scripts import check_rar_g145_pr_scope as scope
+        self.assertEqual(
+            scope.FROZEN_SCOPES[
+                "engineering/f139-v41-native-original-install-entry-20261113"],
+            ("98ec09b732a7764d1f2a38b98abd5927dab03dac", {
+                ".github/workflows/f139-v41-original-owner-live-install.yml",
+                "f139/nci04_v41_native_original_install_cli.py",
+                "f139/v41_original_owner_live_install.ps1",
+                "f139/test_nci04_v41_native_original_install_cli.py",
+                "f139/test_nci04_v41_live_install_workflow.py",
+                "scripts/check_rar_g145_pr_scope.py",
+                "scripts/check_rar_g148_go_cache.py",
+                "scripts/check_rar_g156_dynamic_base_cache.py",
+            }))
+
     def test_only_original_owner_created_issue_comment_can_enter(self):
         src = self.workflow
         self.assertIn("  issue_comment:\n    types: [created]", src)
