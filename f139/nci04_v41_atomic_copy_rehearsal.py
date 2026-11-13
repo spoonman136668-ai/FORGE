@@ -8,7 +8,9 @@ A source-only demonstration does not qualify an original-owner release.
 from __future__ import annotations
 
 from contextlib import closing
+import json
 from pathlib import Path
+import re
 import sqlite3
 
 from f139.local_controller import Database, SingleOwner
@@ -16,8 +18,9 @@ from f139 import nci04_v41_pending_escrow as escrow
 from f139 import nci04_v41_pending_custody as pending
 from f139 import nci04_v41_owner_approval as approval
 from f139 import nci04_v41_cold_copy_verifier as cold
+from f139 import nci04_v41_offline_cold_bundle as offline
 from f139 import nci04_v41_source_transition as source
-from f139.nci04_native_contract import digest
+from f139.nci04_native_contract import canonical, digest
 
 class V41AtomicDenied(ValueError):
     pass
@@ -242,3 +245,102 @@ def rehearse_locked_original(original, backup, get, api, *, target,
     need(original.meta() == before and original.conn.total_changes == changes,
          "ORIGINAL_MUTATED_DURING_COPY_REHEARSAL")
     return outcome
+
+
+def rehearse_from_sealed_cold_bundle(original, bundle_root, get, api, *,
+                                    target, run_id, manifest_sha256,
+                                    original_head_seq, original_head_sha256,
+                                    owner_comment_id, copy_path,
+                                    binary_sha, toolchain,
+                                    inject_failure=None):
+    """Bind an independently sealed *same-target* recovery to copied replay.
+
+    Reuses both independently qualified verifiers. A valid old backup bound
+    to another target SHA is a recovery asset, NOT the source-release backup
+    for a new candidate. No release approval is manufactured here.
+    """
+    need(type(original) is Database
+         and getattr(original, "_readonly_opened", False) is True
+         and original.conn.execute("PRAGMA query_only").fetchone()[0] == 1
+         and SingleOwner.held(original.filename.with_suffix(".lock")),
+         "SEALED_ORIGINAL_QUERY_ONLY_MUTEX_REQUIRED")
+    need(type(target) is str and source.HEX40.fullmatch(target)
+         and type(manifest_sha256) is str
+         and re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is not None
+         and type(original_head_seq) is int and original_head_seq > 0
+         and type(original_head_sha256) is str
+         and re.fullmatch(r"[0-9a-f]{64}", original_head_sha256) is not None
+         and type(run_id) is int and run_id > 0
+         and type(owner_comment_id) is int and owner_comment_id > 0,
+         "SEALED_INPUTS_INVALID")
+    before = original.meta().copy()
+    changes = original.conn.total_changes
+    need(before["source_sha"] == source.FROM_V40
+         and before["head_seq"] == original_head_seq
+         and before["head_hash"] == original_head_sha256,
+         "SEALED_PREIMAGE_DRIFT")
+    bundle_root = Path(bundle_root)
+    # The offline verifier refuses aliases, symlinks, unlisted content and
+    # every altered custody entry, and independently restores SQLite.
+    receipt = offline.verify_sealed_bundle_offline(
+        bundle_root, expected_manifest_sha256=manifest_sha256,
+        target=target, run_id=run_id, expected_head_seq=original_head_seq,
+        expected_head_sha256=original_head_sha256)
+    need(type(receipt) is dict
+         and receipt.get("independent_restore_verified") is True
+         and receipt.get("manifest_sha256") == manifest_sha256
+         and receipt.get("original_source_sha") == source.FROM_V40
+         and receipt.get("target_source_sha") == target
+         and receipt.get("original_head_seq") == original_head_seq
+         and receipt.get("original_head_sha256") == original_head_sha256
+         and receipt.get("source_transition_authorized") is False
+         and receipt.get("release_qualified") is False
+         and receipt.get("scientific_first_use") is False
+         and receipt.get("hybrid_admission") is False,
+         "INDEPENDENT_RESTORE_RECEIPT_DRIFT")
+    sealed = bundle_root / "manifest.sha256.json"
+    raw = sealed.read_bytes()
+    need(digest(raw) == manifest_sha256, "SEALED_MANIFEST_MOVED")
+    try:
+        manifest = json.loads(raw)
+    except (ValueError, UnicodeError) as exc:
+        raise V41AtomicDenied("F139_V41_ATOMIC_SEALED_MANIFEST_JSON") from exc
+    need(type(manifest) is dict
+         and canonical(manifest) == raw
+         and manifest.get("schema") == offline.SCHEMA
+         and manifest.get("original_source_sha") == source.FROM_V40
+         and manifest.get("target_source_sha") == target
+         and manifest.get("run_id") == run_id
+         and manifest.get("original_head_seq") == original_head_seq
+         and manifest.get("original_head_sha256") == original_head_sha256
+         and type(manifest.get("files_sha256")) is dict
+         and type(manifest["files_sha256"].get("state.sqlite")) is str
+         and re.fullmatch(r"[0-9a-f]{64}",
+                          manifest["files_sha256"]["state.sqlite"]) is not None,
+         "SEALED_SOURCE_OR_BACKUP_IDENTITY_DRIFT")
+    need(original.meta() == before and
+         original.conn.total_changes == changes,
+         "ORIGINAL_MOVED_DURING_OFFLINE_RESTORE")
+    # The owner-authored comment is authenticated by the existing
+    # rehearse_locked_original route, together with the original old-source
+    # policy and pending #1715. It can only write to an isolated SQLite copy.
+    outcome = rehearse_locked_original(
+        original, bundle_root / "state.sqlite", get, api, target=target,
+        qualification_run_id=run_id,
+        backup_sha256=manifest["files_sha256"]["state.sqlite"],
+        owner_comment_id=owner_comment_id, copy_path=copy_path,
+        binary_sha=binary_sha, toolchain=toolchain,
+        inject_failure=inject_failure)
+    need(type(outcome) is dict
+         and outcome.get("copy_only") is True
+         and outcome.get("source_transition_authorized") is False
+         and outcome.get("release_qualified") is False
+         and outcome.get("scientific_first_use") is False
+         and outcome.get("hybrid_admission") is False
+         and outcome.get("original_head_seq") == original_head_seq
+         and original.meta() == before
+         and original.conn.total_changes == changes,
+         "COPY_ORIGINAL_PARITY_OR_AUTHORITY_DRIFT")
+    return dict(outcome, sealed_recovery_manifest_sha256=manifest_sha256,
+                independent_restore_verified=True,
+                original_owner_mutations=0)

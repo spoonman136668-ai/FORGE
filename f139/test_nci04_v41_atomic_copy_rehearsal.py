@@ -263,6 +263,177 @@ class AtomicCopiedLedgerTests(unittest.TestCase):
                             binary_sha="7"*64, toolchain=source.TOOLCHAIN)
         self.assertFalse(self.original.with_name("unsafe.sqlite").exists())
 
+
+    def _sealed_copy_inputs(self):
+        from f139 import nci04_v41_offline_cold_bundle as offline
+        from f139.nci04_native_contract import canonical, digest
+        folder = Path(self.folder.name) / "f139-v41-before-998877"
+        folder.mkdir()
+        manifest = dict(
+            schema=offline.SCHEMA,
+            original_source_sha=SOURCE,
+            target_source_sha=TARGET,
+            run_id=998877,
+            original_head_seq=self.start["head_seq"],
+            original_head_sha256=self.start["head_hash"],
+            files_sha256={"state.sqlite": "a" * 64})
+        raw = canonical(manifest)
+        (folder / "manifest.sha256.json").write_bytes(raw)
+        seal = digest(raw)
+        restored = dict(
+            independent_restore_verified=True,
+            manifest_sha256=seal,
+            original_source_sha=SOURCE, target_source_sha=TARGET,
+            original_head_seq=self.start["head_seq"],
+            original_head_sha256=self.start["head_hash"],
+            source_transition_authorized=False,
+            release_qualified=False, scientific_first_use=False,
+            hybrid_admission=False)
+        copied = dict(copy_only=True, source_transition_authorized=False,
+                      release_qualified=False, scientific_first_use=False,
+                      hybrid_admission=False,
+                      original_head_seq=self.start["head_seq"])
+        return folder, seal, restored, copied
+
+    def test_sealed_recovery_is_bound_to_same_target_and_copied_ledger(self):
+        from f139 import nci04_v41_offline_cold_bundle as offline
+        folder, seal, restored, copied = self._sealed_copy_inputs()
+        before = self.original.read_bytes()
+        with patch.object(Database, "verify", return_value=None):
+            with SingleOwner(self.original.with_suffix(".lock")):
+                with closing(Database.open_readonly(self.original)) as original:
+                    with patch.object(offline, "verify_sealed_bundle_offline",
+                                      return_value=restored) as offline_check, \
+                         patch.object(atomic, "rehearse_locked_original",
+                                      return_value=copied) as rehearsal:
+                        result = atomic.rehearse_from_sealed_cold_bundle(
+                            original, folder, lambda _: None, None,
+                            target=TARGET, run_id=998877,
+                            manifest_sha256=seal,
+                            original_head_seq=self.start["head_seq"],
+                            original_head_sha256=self.start["head_hash"],
+                            owner_comment_id=123456,
+                            copy_path=folder.parent / "detached" / "copy.sqlite",
+                            binary_sha="7" * 64, toolchain=source.TOOLCHAIN)
+        self.assertTrue(result["independent_restore_verified"])
+        self.assertTrue(result["copy_only"])
+        self.assertEqual(result["sealed_recovery_manifest_sha256"], seal)
+        self.assertEqual(result["original_owner_mutations"], 0)
+        self.assertEqual(self.original.read_bytes(), before)
+        offline_check.assert_called_once()
+        rehearsal.assert_called_once()
+        kwargs = rehearsal.call_args.kwargs
+        self.assertEqual(kwargs["backup_sha256"], "a" * 64)
+        self.assertEqual(kwargs["qualification_run_id"], 998877)
+        self.assertEqual(kwargs["owner_comment_id"], 123456)
+        self.assertEqual(kwargs["target"], TARGET)
+
+    def test_sealed_recovery_rejects_wrong_target_or_missing_approval(self):
+        from f139 import nci04_v41_offline_cold_bundle as offline
+        folder, seal, restored, copied = self._sealed_copy_inputs()
+        original_bytes = self.original.read_bytes()
+        with patch.object(Database, "verify", return_value=None):
+            with SingleOwner(self.original.with_suffix(".lock")):
+                with closing(Database.open_readonly(self.original)) as original:
+                    with patch.object(offline, "verify_sealed_bundle_offline",
+                                      return_value=restored):
+                        with patch.object(atomic, "rehearse_locked_original",
+                                          return_value=copied) as rehearsal:
+                            with self.assertRaisesRegex(
+                                    atomic.V41AtomicDenied,
+                                    "SEALED_PREIMAGE_DRIFT"):
+                                atomic.rehearse_from_sealed_cold_bundle(
+                                    original, folder, None, None,
+                                    target=TARGET, run_id=998877,
+                                    manifest_sha256=seal,
+                                    original_head_seq=self.start["head_seq"] + 1,
+                                    original_head_sha256=self.start["head_hash"],
+                                    owner_comment_id=123456,
+                                    copy_path=folder.parent / "copy.sqlite",
+                                    binary_sha="7" * 64,
+                                    toolchain=source.TOOLCHAIN)
+                            self.assertEqual(rehearsal.call_count, 0)
+                            with self.assertRaisesRegex(
+                                    atomic.V41AtomicDenied,
+                                    "INDEPENDENT_RESTORE_RECEIPT_DRIFT"):
+                                atomic.rehearse_from_sealed_cold_bundle(
+                                    original, folder, None, None,
+                                    target="8" * 40, run_id=998877,
+                                    manifest_sha256=seal,
+                                    original_head_seq=self.start["head_seq"],
+                                    original_head_sha256=self.start["head_hash"],
+                                    owner_comment_id=123456,
+                                    copy_path=folder.parent / "copy.sqlite",
+                                    binary_sha="7" * 64,
+                                    toolchain=source.TOOLCHAIN)
+                            self.assertEqual(rehearsal.call_count, 0)
+                    with patch.object(offline, "verify_sealed_bundle_offline",
+                                      return_value=restored):
+                        with patch.object(atomic, "rehearse_locked_original",
+                                          side_effect=approval.V41ApprovalDenied(
+                                              "F139_V41_APPROVAL_MISSING")):
+                            with self.assertRaisesRegex(
+                                    approval.V41ApprovalDenied,
+                                    "APPROVAL_MISSING"):
+                                atomic.rehearse_from_sealed_cold_bundle(
+                                    original, folder, None, None,
+                                    target=TARGET, run_id=998877,
+                                    manifest_sha256=seal,
+                                    original_head_seq=self.start["head_seq"],
+                                    original_head_sha256=self.start["head_hash"],
+                                    owner_comment_id=123456,
+                                    copy_path=folder.parent / "copy.sqlite",
+                                    binary_sha="7" * 64,
+                                    toolchain=source.TOOLCHAIN)
+        self.assertEqual(self.original.read_bytes(), original_bytes)
+
+    def test_sealed_manifest_tamper_and_forged_release_result_fail_closed(self):
+        from f139 import nci04_v41_offline_cold_bundle as offline
+        folder, seal, restored, copied = self._sealed_copy_inputs()
+        original_bytes = self.original.read_bytes()
+        with patch.object(Database, "verify", return_value=None):
+            with SingleOwner(self.original.with_suffix(".lock")):
+                with closing(Database.open_readonly(self.original)) as original:
+                    with patch.object(offline, "verify_sealed_bundle_offline",
+                                      return_value=restored):
+                        path = folder / "manifest.sha256.json"
+                        path.write_bytes(path.read_bytes() + b" ")
+                        with patch.object(atomic, "rehearse_locked_original",
+                                          return_value=copied) as rehearsal:
+                            with self.assertRaisesRegex(
+                                    atomic.V41AtomicDenied,
+                                    "SEALED_MANIFEST_MOVED"):
+                                atomic.rehearse_from_sealed_cold_bundle(
+                                    original, folder, None, None,
+                                    target=TARGET, run_id=998877,
+                                    manifest_sha256=seal,
+                                    original_head_seq=self.start["head_seq"],
+                                    original_head_sha256=self.start["head_hash"],
+                                    owner_comment_id=123456,
+                                    copy_path=folder.parent / "copy.sqlite",
+                                    binary_sha="7" * 64,
+                                    toolchain=source.TOOLCHAIN)
+                            self.assertEqual(rehearsal.call_count, 0)
+                        path.write_bytes(path.read_bytes()[:-1])
+                        with patch.object(atomic, "rehearse_locked_original",
+                                          return_value={
+                                              **copied,
+                                              "source_transition_authorized": True}):
+                            with self.assertRaisesRegex(
+                                    atomic.V41AtomicDenied,
+                                    "COPY_ORIGINAL_PARITY_OR_AUTHORITY_DRIFT"):
+                                atomic.rehearse_from_sealed_cold_bundle(
+                                    original, folder, None, None,
+                                    target=TARGET, run_id=998877,
+                                    manifest_sha256=seal,
+                                    original_head_seq=self.start["head_seq"],
+                                    original_head_sha256=self.start["head_hash"],
+                                    owner_comment_id=123456,
+                                    copy_path=folder.parent / "copy.sqlite",
+                                    binary_sha="7" * 64,
+                                    toolchain=source.TOOLCHAIN)
+        self.assertEqual(self.original.read_bytes(), original_bytes)
+
     def test_original_must_be_query_only_and_no_live_commands(self):
         with patch.object(Database,"verify",return_value=None):
             with closing(Database(self.original)) as db:
