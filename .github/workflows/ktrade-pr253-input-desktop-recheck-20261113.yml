@@ -1,0 +1,92 @@
+name: KTRADE PR253 owner input desktop readiness one shot
+on:
+  push:
+    branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
+    paths:
+      - .github/workflows/ktrade-pr253-input-desktop-recheck-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-pr253-input-desktop-readonly-once
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect actual input desktop and current cursor safety without changing session
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'KTRADE_PR253_DESKTOP_READBACK_WRONG_RUNNER'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class KtradeDesktopRecheck {
+            [StructLayout(LayoutKind.Sequential)] public struct P { public int X;public int Y; }
+            [StructLayout(LayoutKind.Sequential)] public struct Last { public uint cbSize;public uint dwTime; }
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool GetCursorPos(out P p);
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int index,StringBuilder name,uint count,out uint needed);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool GetLastInputInfo(ref Last v);
+            public static string[] Read(){
+              P p;bool cursor=GetCursorPos(out p);int cErr=Marshal.GetLastWin32Error();
+              IntPtr h=OpenInputDesktop(0,false,1);int dErr=Marshal.GetLastWin32Error();
+              string desk="UNAVAILABLE";
+              if(h!=IntPtr.Zero){
+                var b=new StringBuilder(128);uint needed;
+                if(GetUserObjectInformation(h,2,b,(uint)(b.Capacity*2),out needed))desk=b.ToString();
+                else desk="NAME_UNAVAILABLE";
+                CloseDesktop(h);
+              }
+              var last=new Last{cbSize=(uint)Marshal.SizeOf(typeof(Last))};
+              bool idleOk=GetLastInputInfo(ref last);
+              uint idle=idleOk?unchecked((uint)Environment.TickCount-last.dwTime):0;
+              return new[]{desk,cursor?"YES":"NO",cursor?"0":cErr.ToString(),
+                h!=IntPtr.Zero?"YES":"NO",dErr.ToString(),
+                GetForegroundWindow()!=IntPtr.Zero?"YES":"NO",
+                idleOk?idle.ToString():"UNKNOWN"};
+            }
+          }
+          '@
+          $items=[KtradeDesktopRecheck]::Read()
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $explorerHere=@(Get-Process explorer -ErrorAction SilentlyContinue |
+            Where-Object {$_.SessionId -eq $session}).Count -gt 0
+          $account=([Security.Principal.WindowsIdentity]::GetCurrent().Name -ieq 'LINKDEADKB\camar')
+          $admitted=($session -eq 1 -and $explorerHere -and $account -and
+            [Environment]::UserInteractive -and $items[0] -ceq 'Default' -and
+            $items[1] -ceq 'YES' -and $items[5] -ceq 'YES')
+          $idleQualified=$false
+          $idle=0
+          if([uint]::TryParse($items[6],[ref]$idle)){$idleQualified=($idle -ge 45000)}
+          Write-Host ('KTRADE_PR253_INPUT_DESKTOP_RECHECK='+([ordered]@{
+            schema='ktrade.pr253.input-desktop-recheck.v1'
+            owner_machine=$env:COMPUTERNAME
+            runner=$env:RUNNER_NAME
+            session=$session
+            owner_account=$account
+            same_session_explorer=$explorerHere
+            input_desktop=$items[0]
+            cursor_accessible=($items[1] -ceq 'YES')
+            cursor_win32_error=$items[2]
+            foreground_present=($items[5] -ceq 'YES')
+            idle_time_over_45_seconds=$idleQualified
+            native_mouse_acceptance_admissible=($admitted -and $idleQualified)
+            input_desktop_changed=$false
+            display_settings_changed=$false
+            cursor_changed=$false
+            app_launched=$false
+            controllers_or_services_changed=$false
+            scheduled_task_created=$false
+          }|ConvertTo-Json -Compress -Depth 5))
