@@ -98,8 +98,10 @@ jobs:
           $request=([string]$event.comment.body).Substring($prefix.Length)|ConvertFrom-Json
           Need ($request.schema -ceq 'forge.f139.v41.owner-readiness-request.v1' -and
             $request.target_source_sha -ceq $env:GITHUB_SHA -and
-            [string]$request.release_pr_number -cmatch '^[1-9][0-9]* -and
-            [string]$request.backup_run_id -cmatch '^[1-9][0-9]*) 'REQUEST_SCOPE'
+            [string]$request.release_pr_number -cmatch '^[1-9][0-9]*$' -and
+            [int64]$request.release_pr_number -gt 0 -and
+            [string]$request.backup_run_id -cmatch '^[1-9][0-9]*$' -and
+            [int64]$request.backup_run_id -gt 0) 'REQUEST_SCOPE'
           $data=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
           $target=[string]$request.target_source_sha
           $bundle=Join-Path $data ('f139-v41-before-'+[string]$request.backup_run_id)
