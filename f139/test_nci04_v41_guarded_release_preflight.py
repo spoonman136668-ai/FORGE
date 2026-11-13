@@ -150,7 +150,7 @@ class V41ReleaseReadinessTests(unittest.TestCase):
         self.assertEqual(result["exact_first_attempt_ci_runs"],
                          dict(CHECKS))
         self.assertEqual(self.offline_calls, 1)
-        self.assertEqual(len(self.calls), 20)  # 5+double-read(5)+5
+        self.assertEqual(len(self.calls), 25)  # triple 5-route source reads + 10 owner-identity reads
         self.assertTrue(all(x.startswith("repos/" + release.REPO + "/")
                             for x in self.calls))
         self.assertEqual((self.folder / "manifest.sha256.json").read_bytes(), raw)
