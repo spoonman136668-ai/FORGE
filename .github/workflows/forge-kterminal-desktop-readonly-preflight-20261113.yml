@@ -1,0 +1,69 @@
+name: K Terminal one-shot desktop session read-only preflight
+on:
+  push:
+    branches:
+      - qualification/kterminal-p5-firstuse-artifact-20261112
+    paths:
+      - .github/workflows/forge-kterminal-desktop-readonly-preflight-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-desktop-readonly-preflight-20261113
+  cancel-in-progress: false
+jobs:
+  desktop-preflight:
+    name: K Terminal Windows runner desktop eligibility, no installation
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - name: Confirm isolated owner and measure interactive desktop eligibility read-only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-firstuse-artifact-20261112' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows'){ throw 'KTERM_DESKTOP_PREFLIGHT_WRONG_OWNER' }
+          if($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0'){ throw 'KTERM_DESKTOP_PREFLIGHT_NOT_DISARMED' }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+             'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET',
+             'KTERM_COINBASE_TEST_KEY_NAME','KTERM_COINBASE_TEST_KEY_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_DESKTOP_PREFLIGHT_BROKER_ENV_PRESENT'}
+          }
+          $self=[Diagnostics.Process]::GetCurrent()
+          $sess=[int]$self.SessionId
+          $shells=@(Get-Process -Name explorer -ErrorAction SilentlyContinue)
+          $same=@($shells|Where-Object {$_.SessionId -eq $sess})
+          $distinct=@($shells|Select-Object -ExpandProperty SessionId -Unique)
+          $apps=@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue)
+          $targetRoot=$null
+          if($env:LOCALAPPDATA){$targetRoot=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal-Qualified-3d8ff329485e'}
+          $targetExists=($null -ne $targetRoot -and (Test-Path -LiteralPath $targetRoot))
+          $legacyRootExists=($env:LOCALAPPDATA -and (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'KTerminal-Personal')))
+          $interactive=($sess -gt 0 -and $same.Count -gt 0 -and [Environment]::UserInteractive)
+          $eligible=($interactive -and $apps.Count -eq 0 -and -not $targetExists)
+          Write-Host ('KTERM_OWNER_DESKTOP_READONLY=PASS;RUNNER_NAME_VERIFIED=TRUE'+
+             ';RUNNER_SESSION_NONZERO='+($sess -gt 0)+
+             ';SAME_SESSION_EXPLORER='+($same.Count -gt 0)+
+             ';RUNNER_USER_INTERACTIVE='+[Environment]::UserInteractive+
+             ';VISIBLE_EXPLORER_SESSIONS='+$distinct.Count+
+             ';KTERM_RUNNING_PROCESSES='+$apps.Count+
+             ';NEW_SIDEBYSIDE_TARGET_EXISTS='+$targetExists+
+             ';RUNNER_PROFILE_LEGACY_DEFAULT_EXISTS='+[bool]$legacyRootExists+
+             ';DIRECT_SIDEBYSIDE_DESKTOP_ELIGIBLE='+$eligible+
+             ';NO_PATHS_OR_IDENTITIES_EXPORTED=TRUE'+
+             ';NO_INSTALL=TRUE;NO_LAUNCH=TRUE;NO_BROKER_REQUESTS=TRUE'+
+             ';NO_USER_FILES_MODIFIED=TRUE;NO_SCHEDULED_TASKS=TRUE')
+          if(-not $interactive){Write-Host 'KTERM_NEXT_GATE=SERVICE_OR_DIFFERENT_SESSION;DO_NOT_INSTALL_OR_LAUNCH_FROM_THIS_RUNNER_CONTEXT'}
+          elseif($apps.Count -gt 0){Write-Host 'KTERM_NEXT_GATE=EXISTING_APP_RUNNING;DO_NOT_INSTALL_OR_LAUNCH'}
+          elseif($targetExists){Write-Host 'KTERM_NEXT_GATE=QUALIFIED_TARGET_ALREADY_EXISTS;DO_NOT_OVERWRITE_OR_INSTALL'}
+          else{Write-Host 'KTERM_NEXT_GATE=INTERACTIVE_SIDEBYSIDE_POSSIBLE;DEPLOYMENT_SEPARATE_GATE'}
