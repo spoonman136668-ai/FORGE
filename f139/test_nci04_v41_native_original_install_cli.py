@@ -3,6 +3,7 @@
 This test never invokes the original commit primitive or accesses a live DB.
 """
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -28,7 +29,7 @@ class NativeOriginalInstallEntryTests(unittest.TestCase):
         # Real Windows qualification will enforce this too; no fake live
         # GitHub comment or original-owner file is opened in these tests.
         with (mock.patch.object(entry.sys, "platform", "win32"),
-              mock.patch.object(entry.os, "name", "nt")):
+              mock.patch.object(entry, "os", SimpleNamespace(name="nt"))):
             for marker in (None, "true", "dev", "preflight"):
                 env = {
                     "F139_V41_INSTALL_WRAPPER": marker,
