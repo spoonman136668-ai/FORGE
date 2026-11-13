@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import shutil
 import subprocess
+import textwrap
 import unittest
 
 
@@ -118,6 +119,26 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
         proc = subprocess.run(
             [exe, "-NoProfile", "-NonInteractive", "-Command", program],
             env=dict(os.environ, F139_CHECK_PS_SOURCE=str(WRAPPER)),
+            capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(proc.returncode, 0,
+                         (proc.stdout + "\\n" + proc.stderr)[:3000])
+
+    @unittest.skipUnless(os.name == "nt", "Native Windows PowerShell only")
+    def test_windows_powershell_parser_accepts_readiness_step(self):
+        part = self.workflow.split("  original-owner-v41-readiness:", 1)[1]
+        run = textwrap.dedent(part.split("        run: |\\n", 1)[1])
+        self.assertIn("F139_V41_READINESS_ONLY_NO_TASK_OR_SQLITE_MUTATION", run)
+        script = (
+            "$ErrorActionPreference='Stop';$t=$null;$e=$null;"
+            "[System.Management.Automation.Language.Parser]::ParseInput("
+            "$env:F139_CHECK_PS_READINESS,[ref]$t,[ref]$e)|Out-Null;"
+            "if(@($e).Count -ne 0){$e|ForEach-Object{Write-Output $_};exit 1}"
+        )
+        exe = shutil.which("powershell.exe")
+        self.assertIsNotNone(exe)
+        proc = subprocess.run(
+            [exe, "-NoProfile", "-NonInteractive", "-Command", script],
+            env=dict(os.environ, F139_CHECK_PS_READINESS=run),
             capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(proc.returncode, 0,
                          (proc.stdout + "\\n" + proc.stderr)[:3000])
