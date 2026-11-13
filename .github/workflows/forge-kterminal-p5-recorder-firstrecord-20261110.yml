@@ -14,9 +14,9 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: f2722ad6b73d3e7ce97b1655df08c18a59e2d6e3
+      KTERM_SHA: 0cde150a304442b4209bada44c99b77f01712d5a
       KTERM_BASE: ed8bf826f8221ec31fbc880ac27d92424c03fc0a
-      KTERM_TREE: 65229a4748c55f0abc83e05834ea0f7f154c23ce
+      KTERM_TREE: 9fddd2d007be663c2ade92a4c292274b99eefb72
       KTERM_REISSUE_ONLY: 'false'
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
@@ -81,6 +81,11 @@ jobs:
           }
           $blobs=@{
             'INSTALL-KTerminal.bat'='61b29cee88cc8df8b67ce94468f4ca11bf0c3162'
+            'internal/personalmigration/authority.go'='47c28e85098891a1739adca949e0fecabd1fd259'
+            'native-authority-ui.ps1'='1ac2d039a4e9b59befb4d953c5a31c2791bf6b65'
+            'pkg/native-reconciliation-gap-observation.go'='508a044bb6572130d5eae436c1f2be40a80b90c6'
+            'pkg/native-reconciliation-gap-observation_test.go'='c8a14421265c775db3f4b42c807ce6a6c03a36b7'
+            'pkg/personal-reconciliation.go'='9dd009fbf5c628a6cfc733d33e8d742ce054338b'
             'tools/qualification/test_p5_verify_firstuse_archive.py'='252cfb2790c28f6d2f351b2f6260af846249418d'
           }
           foreach($p in $blobs.Keys){
@@ -88,14 +93,14 @@ jobs:
             if($actual -cne $blobs[$p]){throw 'KTERM_PR96_QUALIFIER_BLOB_DRIFT'}
           }
           $changed=@(& git -C $src diff --name-only $env:KTERM_BASE $env:KTERM_SHA)
-          if($LASTEXITCODE-ne0 -or $changed.Count-ne2 -or
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne7 -or
              @($changed|Where-Object{$_ -cnotin @($blobs.Keys)}).Count-ne0){
             throw 'KTERM_PR96_UNIFIED_SOURCE_SCOPE_DRIFT'
           }
           foreach($private in @('config.json','data','reporting','logs','notifications','.env')){
             if(Test-Path -LiteralPath (Join-Path $src $private)){throw 'KTERM_PR96_PRIVATE_STATE_REFUSED'}
           }
-          Write-Host ('KTERM_UNIFIED_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=INSTALL_BATCH_QUOTED_PATH_ONLY;FULL_GO_REQUALIFICATION=REQUIRED')
+          Write-Host ('KTERM_UNIFIED_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=READ_ONLY_LIVE_ACCOUNT_GAP_EVIDENCE_PLUS_BATCH_FIX;FULL_GO_REQUALIFICATION=REQUIRED')
       - name: Pinned original Windows Go toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
@@ -770,7 +775,7 @@ jobs:
              $proof.original_desktop_smoke -cne 'NOT_RUN' -or
              $proof.field_performance -cne 'UNVERIFIED' -or
              $proof.binaries -ne 8 -or $proof.files -ne 73 -or
-             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-f2722ad6b73d.zip'){
+             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-0cde150a3044.zip'){
             throw 'KTERM_FIRSTUSE_REISSUE_RECEIPT_INVALID'
           }
           $zip=Join-Path $out $proof.archive
@@ -794,9 +799,9 @@ jobs:
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: K-Terminal-Disarmed-FirstUse-f2722ad6b73d-${{ github.run_id }}
+          name: K-Terminal-Disarmed-FirstUse-0cde150a3044-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-f2722ad6b73d.zip
+            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-0cde150a3044.zip
             ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/FIRST-USE-RECEIPT.json
           if-no-files-found: error
           retention-days: 14
