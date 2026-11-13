@@ -56,6 +56,21 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
                           "\n  pull_request:"):
             self.assertNotIn(forbidden, src)
 
+    def test_readiness_is_distinct_read_only_owner_job(self):
+        src = self.workflow
+        self.assertEqual(src.count("  original-owner-v41-readiness:"), 1)
+        part = src.split("  original-owner-v41-readiness:", 1)[1]
+        self.assertIn("startsWith(github.event.comment.body, 'F139-V41-INSTALL-READINESS ')", part)
+        self.assertIn("github.actor == 'spoonman136668-ai'", part)
+        self.assertIn("RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE'", part)
+        self.assertIn("    permissions:\\n      contents: read\\n      issues: read", part)
+        self.assertIn("F139_V41_READINESS_ONLY_NO_TASK_OR_SQLITE_MUTATION=PASS", part)
+        for forbidden in ("Set-ScheduledTask", "Disable-ScheduledTask",
+                          "Enable-ScheduledTask", "Start-ScheduledTask",
+                          "Stop-ScheduledTask", "gh api --method PATCH",
+                          "sqlite3.connect(", "new controller"):
+            self.assertNotIn(forbidden, part)
+
     def test_original_owner_single_task_and_forward_only_failure(self):
         src = self.wrapper
         self.assertIn("$name='FORGE-F139-UnifiedController'", src)
