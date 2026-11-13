@@ -112,6 +112,28 @@ def _receipts(cold, pending_receipt, target):
          "PENDING_1715_CUSTODY_DRIFT")
 
 
+DISPOSITION_INTENT_SCHEMA = "forge.f139.v41.pending-disposition-intent.v1"
+
+
+def pending_disposition_intent_sha256(pending_receipt, target, disposition):
+    """Bind a proposed disposition to the authenticated, frozen pending receipt.
+
+    This is an intent fingerprint, not evidence of an executed escrow. An
+    independent OWNER comment and the original-host verifier remain required.
+    """
+    need(type(pending_receipt) is dict
+         and set(pending_receipt) == pending.FROZEN_KEYS
+         and _sha(target, 40)
+         and disposition in ("EXPLICIT_QUARANTINE_ONCE", "EXPLICIT_ESCROW_ONCE"),
+         "DISPOSITION_INTENT_INPUT_INVALID")
+    return digest(canonical({
+        "schema": DISPOSITION_INTENT_SCHEMA,
+        "pending_receipt_sha256": digest(canonical(pending_receipt)),
+        "target_source_sha": target,
+        "pending_disposition": disposition,
+    }))
+
+
 def _decode(body, comment_id, cold, pending_receipt, target, target_tree):
     need(type(body) is str and 0 < len(body) <= 6000
          and body.startswith(PREFIX), "CANONICAL_COMMENT_REQUIRED")
@@ -158,6 +180,10 @@ def _decode(body, comment_id, cold, pending_receipt, target, target_tree):
          and all(doc[k] is False for k in DENIED_ACTIONS)
          and type(doc["paid_model_calls"]) is int
          and doc["paid_model_calls"] == 0, "SCOPE_SOURCE_OR_CUSTODY_DRIFT")
+    need(doc["pending_disposition_receipt_sha256"] ==
+         pending_disposition_intent_sha256(
+             pending_receipt, target, doc["pending_disposition"]),
+         "DISPOSITION_INTENT_HASH_DRIFT")
     return doc
 
 
