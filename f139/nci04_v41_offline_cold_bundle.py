@@ -18,7 +18,7 @@ from f139.nci04_native_contract import canonical, digest
 from f139.nci04_v38_original_owner_transition_cli import rollback_view
 from f139 import nci04_v41_cold_copy_verifier as cold
 
-SCHEMA = "forge.f139.v41.offline-cold-bundle-dev.v1"
+SCHEMA = "forge.f139.v41.offline-cold-bundle-dev.v2"
 _SHA40 = re.compile(r"[a-f0-9]{40}\Z")
 _SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 
@@ -56,6 +56,9 @@ def _disposable_restore(original: Database, backup: Path, expected: str, before:
             with closing(sqlite3.connect(str(restored), isolation_level=None)) as dst:
                 immutable.conn.backup(dst)
         cold._require_standalone_sqlite(restored)
+        cold.copy_negative_custody(backup.parent, Path(scratch),
+                                   cold.required_negative_custody(original),
+                                   copy_files=True)
         with closing(cold._open_immutable_hashed_backup(restored)) as reopened:
             reopened.verify()
             need(reopened.meta() == before
@@ -121,19 +124,27 @@ def stage_offline_cold_bundle(original: Database, get, *, target: str, run_id: i
          and 0 < backup.stat().st_size <= cold.MAX_BACKUP_BYTES,
          "NONSTANDALONE_OR_OVERSIZE_BACKUP")
 
+    # Database.verify requires historical failed-original ZIP custody beside
+    # db.filename. Preserve that exact immutable adjunct in the sealed bundle.
+    negatives = cold.copy_negative_custody(
+        origin.parent, folder, cold.required_negative_custody(original),
+        copy_files=True)
     archives = cold.copy_provider_archives(original, folder, copy_files=True)
     executable = cold.copy_generation_executable(original, folder, copy_files=True)
     need(type(archives) is dict and len(archives) > 0
          and type(executable) is dict and len(executable) > 0
-         and not (set(archives) & set(executable)),
+         and not (set(archives) & set(executable))
+         and not (set(negatives) & (set(archives) | set(executable))),
          "PROVIDER_OR_EXECUTABLE_CUSTODY_MISSING")
 
     backup_sha = cold._hash_standalone_sqlite(backup)
     receipt = cold.verify_cold_copy(original, backup, get, target=target,
                                     run_id=run_id,
                                     expected_backup_sha256=backup_sha)
-    expected_files = {"state.sqlite": backup_sha, **archives, **executable}
-    need(len(expected_files) == len(archives) + len(executable) + 1,
+    expected_files = {"state.sqlite": backup_sha, **archives, **executable,
+                      **negatives}
+    need(len(expected_files) ==
+         len(archives) + len(executable) + len(negatives) + 1,
          "DUPLICATE_BUNDLE_PATH")
     for relative, expected in expected_files.items():
         _manifest_entry(folder, relative, expected)
@@ -155,6 +166,7 @@ def stage_offline_cold_bundle(original: Database, get, *, target: str, run_id: i
         "logical_all_tables_sha256": receipt["logical_all_tables_sha256"],
         "provider_archives_manifest_sha256": receipt["provider_archives_manifest_sha256"],
         "generation_binary_manifest_sha256": receipt["generation_binary_manifest_sha256"],
+        "negative_custody_manifest_sha256": digest(canonical(negatives)),
         "owner_quiescence_verified": False,
         "release_qualified": False, "source_transition_authorized": False,
         "reissue_authorized": False, "scientific_first_use": False,
@@ -212,6 +224,7 @@ def verify_sealed_bundle_offline(folder: Path, *, expected_manifest_sha256: str,
         "original_head_seq", "original_head_sha256", "files_sha256",
         "restore_sqlite_sha256", "logical_all_tables_sha256",
         "provider_archives_manifest_sha256", "generation_binary_manifest_sha256",
+        "negative_custody_manifest_sha256",
         "owner_quiescence_verified", "release_qualified",
         "source_transition_authorized", "reissue_authorized",
         "scientific_first_use", "hybrid_admission", "new_dispatches",
@@ -229,7 +242,8 @@ def verify_sealed_bundle_offline(folder: Path, *, expected_manifest_sha256: str,
                  for k in ("restore_sqlite_sha256",
                            "logical_all_tables_sha256",
                            "provider_archives_manifest_sha256",
-                           "generation_binary_manifest_sha256"))
+                           "generation_binary_manifest_sha256",
+                           "negative_custody_manifest_sha256"))
          and all(doc[k] is False for k in (
              "owner_quiescence_verified", "release_qualified",
              "source_transition_authorized", "reissue_authorized",
@@ -245,12 +259,20 @@ def verify_sealed_bundle_offline(folder: Path, *, expected_manifest_sha256: str,
                 if type(k) is str and k.startswith("provider-custody/")}
     binaries = {k: v for k, v in files.items()
                 if type(k) is str and k.startswith("prior-generation-custody/")}
+    negatives = {k: v for k, v in files.items()
+                 if type(k) is str and k.startswith("native-negative/")}
+    known_negatives = {relative: sha
+                       for _, relative, sha in cold._negative_definitions()}
     need(bool(archives) and len(binaries) == 1
-         and set(files) == {"state.sqlite", *archives, *binaries}
+         and set(negatives).issubset(known_negatives)
+         and all(known_negatives[k] == v for k, v in negatives.items())
+         and set(files) == {"state.sqlite", *archives, *binaries, *negatives}
          and digest(canonical(archives)) ==
              doc["provider_archives_manifest_sha256"]
          and digest(canonical(binaries)) ==
-             doc["generation_binary_manifest_sha256"],
+             doc["generation_binary_manifest_sha256"]
+         and digest(canonical(negatives)) ==
+             doc["negative_custody_manifest_sha256"],
          "CUSTODY_MANIFEST_DIGEST_OR_SCOPE")
     # Reject unlisted files, junctions and symlinks (including file/dir aliases).
     def actual_file_set():
@@ -319,6 +341,8 @@ def verify_sealed_bundle_offline(folder: Path, *, expected_manifest_sha256: str,
         with cold._hashed_private_sqlite_snapshot(
                 backup, files["state.sqlite"]) as source:
             source.verify()
+            need(cold.required_negative_custody(source) == negatives,
+                 "NEGATIVE_EVENT_OR_MANIFEST_DRIFT")
             meta = source.meta().copy()
             need(meta["source_sha"] == cold.FROM
                  and meta["head_seq"] == expected_head_seq
@@ -329,6 +353,8 @@ def verify_sealed_bundle_offline(folder: Path, *, expected_manifest_sha256: str,
             with closing(sqlite3.connect(str(restored), isolation_level=None)) as dst:
                 source.conn.backup(dst)
         cold._require_standalone_sqlite(restored)
+        cold.copy_negative_custody(folder, Path(scratch), negatives,
+                                   copy_files=True)
         with closing(cold._open_immutable_hashed_backup(restored)) as second:
             second.verify()
             need(second.meta() == meta
