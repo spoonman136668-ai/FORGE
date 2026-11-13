@@ -20,8 +20,8 @@ jobs:
       K_TERMINAL_NATIVE_TIMING: '0'
       GOTOOLCHAIN: local
       GOTELEMETRY: 'off'
-      KTERM_SHA: 0621bfda869ab9b08f656ef420ab3fc6d4aba6c0
-      KTERM_TREE: 0899e2845a971aa913312ef68528981e39d49edf
+      KTERM_SHA: 2bf85c220a1ac1ee3b63e1f1429842808aa8485c
+      KTERM_TREE: d03f165e4b60550e3f0ccca6c556e762ad73ec55
       KTERM_BASE: d27d5ccb51b2e0a5527127da0b9fcd25ac20895d
     steps:
       - name: Confirm qualified one-shot Windows owner, disarmed context
@@ -66,7 +66,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_REMOTE_CREDENTIAL_CLEANUP_FAILED'}
           } finally {Pop-Location}
           Write-Host 'KTERM_PREVIEW_PRIVATE_GIT_CHECKOUT=PASS;EXTERNAL_GITHUB_ACTION_DOWNLOADS=0'
-      - name: Pin exact source SHA tree and five modified file blobs
+      - name: Pin exact source SHA tree and six modified file blobs
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -81,6 +81,7 @@ jobs:
             $expected=@{
               'internal/personalmigration/authority.go'='2c5984bcf2e9fc72485c01e34986eeae7f3e6ad5'
               'native-authority-ui.ps1'='1b51a70eda968c495f51abf3b6c008d4c3cfb882'
+              'pkg/native-accounting-hotfix_test.go'='b622b3f2078b9d0ce59636afcf9bdfc2308b728c'
               'pkg/native-coinbase-cold-history-report.go'='7dbfaadbdc10dc174acce500028d45e4439a89d3'
               'pkg/native-inherited-inventory-preview.go'='97fc3b0ce3b620e14c9f5915d83888f54e3e8438'
               'pkg/native-inherited-inventory-preview_test.go'='65bc11964ec463d55c52d94ef6234dec45eb4376'
@@ -89,7 +90,7 @@ jobs:
               $actual=(& git rev-parse ('HEAD:'+ $key)).Trim()
               if($actual -cne $expected[$key]){throw 'KTERM_PREVIEW_BLOB_DRIFT'}
             }
-            Write-Host ('KTERM_PREVIEW_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';CHANGED_BLOBS=5')
+            Write-Host ('KTERM_PREVIEW_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';CHANGED_BLOBS=6')
           } finally { Pop-Location }
       - name: Reuse previously qualified exact Go toolchain from existing runner cache
         shell: pwsh
@@ -109,6 +110,17 @@ jobs:
           $goBin=Split-Path -Parent $go
           Add-Content -LiteralPath $env:GITHUB_PATH -Value $goBin -Encoding utf8
           Write-Host 'KTERM_PREVIEW_LOCAL_GO_TOOLCHAIN=PASS;GO=1.26.5;SOURCE=EXISTING_RUNNER_TOOL_CACHE;NO_DOWNLOAD=TRUE'
+      - name: Repeat corrected fresh-account fixture offline before expensive full regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'kterm-preview')
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go test -count=20 -p 1 -timeout 6m -run '^TestHotfixAccountingAlreadyFreshAndCoalescedStateCannotLoseWake$' ./pkg
+            if($LASTEXITCODE -ne 0){throw 'KTERM_PREVIEW_TIMESTAMP_FIXTURE_REPETITION_FAILED'}
+            Write-Host ('KTERM_PREVIEW_TIMESTAMP_FIXTURE=PASS;REPETITIONS=20;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
       - name: Focused inherited preview and negative-control tests
         shell: pwsh
         run: |
