@@ -151,6 +151,10 @@ def inspect_original_postcommit_hold(db_path, candidate_root, *,
          and db_path.is_absolute() and db_path.is_file()
          and not db_path.is_symlink()
          and db_path.name == "state.sqlite"
+         and type(os.environ.get("LOCALAPPDATA")) is str
+         and db_path.resolve() ==
+             (Path(os.environ["LOCALAPPDATA"]) / "FORGE-F139" /
+              "state.sqlite").resolve()
          and type(receipt) is dict,
          "NATIVE_ORIGINAL_HOST_ONLY")
     target = receipt.get("target_source_sha")
