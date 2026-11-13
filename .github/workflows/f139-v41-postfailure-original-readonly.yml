@@ -1,0 +1,116 @@
+name: FORGE V41 postfailure original-owner read-only custody diagnosis
+on:
+  push:
+    branches:
+      - diagnostic/f139-v41-postfail-original-readonly-20261113
+permissions:
+  contents: read
+concurrency:
+  group: forge-v41-postfailure-original-readonly-one-shot
+  cancel-in-progress: false
+jobs:
+  original-custody-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated diagnosis only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: One-shot read-only task, source, original SQLite and preinstall predicate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $target='d6634e4ee8d6617ef31df68ca2c9e93601334c66'
+          $old='2c7caad5a4502d4b874a11d57207a35cf033eb08'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-v41-postfail-original-readonly-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:OPENAI_API_KEY) {throw 'F139_V41_DIAGNOSTIC_ORIGINAL_EVENT_DENIED'}
+          $base=(& git rev-parse 'HEAD^' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $base -cne $target){throw 'F139_V41_DIAGNOSTIC_BASE_DRIFT'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $who=[string]$task.Principal.UserId
+          $ownerSid=''
+          try{$ownerSid=(New-Object Security.Principal.NTAccount($who)).Translate([Security.Principal.SecurityIdentifier]).Value}catch{}
+          $sidOk=($who -ieq $identity.Name -or $ownerSid -ceq $identity.User.Value)
+          $argsText=[string]$task.Actions[0].Arguments
+          function Arg([string]$name){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){return ''}
+            return $m.Groups[1].Value
+          }
+          $oldRoot=Arg 'RepositoryRoot'
+          $dbArgument=Arg 'Database'
+          $wrapper=Arg 'File'
+          $db=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $stage=Join-Path $env:LOCALAPPDATA ('FORGE-F139\release-candidates\'+$target)
+          $rootHead=''
+          $rootClean=$false
+          if($oldRoot -and (Test-Path -LiteralPath $oldRoot -PathType Container)){
+            $rootHead=(& git -C $oldRoot rev-parse HEAD | Out-String).Trim()
+            $rootClean=($LASTEXITCODE -eq 0 -and @(& git -C $oldRoot status --porcelain --untracked-files=all).Count -eq 0 -and $LASTEXITCODE -eq 0)
+          }
+          $sourceScript=@'
+          import json,sqlite3,sys,pathlib
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,isolation_level=None,timeout=10)
+          con.execute("PRAGMA query_only=ON")
+          check=con.execute("PRAGMA quick_check").fetchone()[0]
+          meta=con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+          kinds=dict(con.execute("SELECT kind,COUNT(*) FROM events WHERE kind IN ('NATIVE_PENDING_ESCROWED','SOURCE_TRANSITION_ADMITTED') GROUP BY kind").fetchall())
+          print("F139_V41_POSTFAIL_SQLITE_RO="+json.dumps({"quick_check_pass":check=="ok","source_sha":meta[0],"head_seq":meta[1],"head_sha256":meta[2],"enabled":meta[3],"legacy_suspended":meta[4],"escrow_count":kinds.get("NATIVE_PENDING_ESCROWED",0),"source_transition_count":kinds.get("SOURCE_TRANSITION_ADMITTED",0),"sqlite_query_only":True},sort_keys=True))
+          con.close()
+          '@
+          $report=@($sourceScript | & python -B - $db)
+          if($LASTEXITCODE -ne 0 -or $report.Count -ne 1 -or
+             $report[0] -cnotmatch '^F139_V41_POSTFAIL_SQLITE_RO='){
+            throw 'F139_V41_POSTFAIL_SQLITE_RO_UNVERIFIED'
+          }
+          Write-Output $report[0]
+          $diag=@'
+          import json,os,subprocess,sys
+          from f139.nci04_v41_native_preinstall_profile import SCRIPT
+          db,stage,old=sys.argv[1:]
+          env=dict(os.environ,F139_EXPECTED_ORIGINAL_DATABASE=db,
+                   F139_EXPECTED_CANDIDATE_ROOT=stage,
+                   F139_EXPECTED_V40_SOURCE=old,
+                   F139_CANDIDATE_PID=str(os.getpid()))
+          p=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",SCRIPT],
+                           check=False,capture_output=True,env=env,timeout=30)
+          print("F139_V41_POSTFAIL_NATIVE_PREDICATE="+json.dumps(
+              {"exit_code":p.returncode,"stdout_pass":p.stdout.strip()==b"F139_V41_OLD_TASK_DISABLED_STAGED_CANDIDATE=PASS",
+               "stderr_present":bool(p.stderr.strip())},sort_keys=True))
+          '@
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          $code=@($diag | & python -B - $db $stage $old)
+          if($LASTEXITCODE -ne 0 -or $code.Count -ne 1 -or
+             $code[0] -cnotmatch '^F139_V41_POSTFAIL_NATIVE_PREDICATE='){
+            throw 'F139_V41_POSTFAIL_PREDICATE_UNVERIFIED'
+          }
+          Write-Output $code[0]
+          $taskReceipt=[ordered]@{
+            schema='forge.f139.v41.postfailure-original-readonly.v1'
+            original_task_state=[string]$task.State
+            original_task_enabled=[bool]$task.Settings.Enabled
+            original_task_sid_matches_runner=$sidOk
+            one_original_action=(@($task.Actions).Count -eq 1)
+            three_original_triggers=(@($task.Triggers).Count -eq 3)
+            task_old_source_sha_matches=($rootHead -ceq $old)
+            task_old_source_clean=$rootClean
+            original_database_arg_matches=($dbArgument -and ([IO.Path]::GetFullPath($dbArgument) -ieq [IO.Path]::GetFullPath($db)))
+            original_wrapper_matches=([IO.Path]::GetFileName($wrapper) -ceq 'Run-FORGE-F139.ps1')
+            staged_candidate_exists=(Test-Path -LiteralPath $stage -PathType Container)
+            task_mutations=0
+            original_sqlite_mutations=0
+            policy_mutations=0
+            new_dispatches=0
+            scientific_first_use=$false
+          }
+          Write-Output ('F139_V41_POSTFAIL_TASK_RO='+($taskReceipt|ConvertTo-Json -Compress))
