@@ -116,6 +116,71 @@ def inspect_failed_backup_stage(original_db: Path) -> dict:
     return status
 
 
+# Replay only the READ-ONLY cold-copy verifier on the non-replayable failed
+# run's copied material. No task pause, backup staging, sealed manifest,
+# source transition, or owner/remote mutation occurs here.
+COLD_COPY_PROBE_SCHEMA = "forge.f139.v41.failed-cold-copy-readonly-probe.v1"
+
+
+def inspect_failed_backup_cold_copy(original: Database, get, *,
+                                    target: str, inventory: dict) -> dict:
+    """Identify the first cold-copy integrity failure without exposing paths."""
+    from f139 import nci04_v41_cold_copy_verifier as cold
+
+    result = dict(schema=COLD_COPY_PROBE_SCHEMA,
+                  failed_run_id=FAILED_BACKUP_RUN,
+                  attempted=False, snapshot_hash_checked=False,
+                  cold_copy_verified=False, failure_code="NOT_ELIGIBLE",
+                  original_db_written=False, copied_backup_written=False,
+                  task_mutations=0, new_dispatches=0, backup_retried=False,
+                  source_transition_authorized=False,
+                  scientific_first_use=False, hybrid_admission=False)
+    if (type(original) is not Database
+            or getattr(original, "_readonly_opened", False) is not True
+            or original.conn.execute("PRAGMA query_only").fetchone()[0] != 1
+            or not SingleOwner.held(original.filename.with_suffix(".lock"))
+            or type(target) is not str or not SHA.fullmatch(target)
+            or type(inventory) is not dict
+            or inventory.get("failed_run_id") != FAILED_BACKUP_RUN
+            or inventory.get("classification") != "PARTIAL_AFTER_PRIOR_BINARY"
+            or inventory.get("inventory_complete") is not True
+            or inventory.get("unexpected_entry_count") != 0
+            or inventory.get("provider_incomplete_groups") != 0
+            or inventory.get("provider_complete_groups", 0) < 1
+            or inventory.get("prior_binary_file_count") != 1
+            or inventory.get("sqlite_snapshot_present") is not True
+            or inventory.get("sealed_manifest_present") is not False):
+        return result
+    folder = (original.filename.parent /
+              ("f139-v41-before-" + str(FAILED_BACKUP_RUN)))
+    backup = folder / "state.sqlite"
+    if (not folder.is_dir() or folder.is_symlink()
+            or getattr(folder, "is_junction", lambda: False)()
+            or not backup.is_file() or backup.is_symlink()
+            or getattr(backup, "is_junction", lambda: False)()
+            or not 0 < backup.stat().st_size <= cold.MAX_BACKUP_BYTES):
+        result["failure_code"] = "UNTRUSTED_OR_OVERSIZE_STAGE"
+        return result
+    result["attempted"] = True
+    try:
+        cold._require_standalone_sqlite(backup)
+        backup_sha = cold._hash_standalone_sqlite(backup)
+        result["snapshot_hash_checked"] = True
+        cold.verify_cold_copy(original, backup, get, target=target,
+                              run_id=FAILED_BACKUP_RUN,
+                              expected_backup_sha256=backup_sha)
+    except Exception as exc:
+        # Error strings outside a strict machine-code grammar may contain
+        # private filesystem paths, API routes or provider data: never emit.
+        reason = str(exc)
+        result["failure_code"] = (reason if re.fullmatch(
+            r"F139_[A-Z0-9_]{1,120}", reason) else "UNCLASSIFIED_EXCEPTION")
+        return result
+    result["cold_copy_verified"] = True
+    result["failure_code"] = "NONE"
+    return result
+
+
 def inspect_original(path, api, *, target):
     """Actual original read-only ledger + authenticated catalog, no cutover."""
     path = Path(path)
@@ -131,6 +196,7 @@ def inspect_original(path, api, *, target):
     # the source-authenticated unadmitted issue. No background ownership.
     with SingleOwner(path.with_suffix(".lock")):
         with closing(Database.open_readonly(path)) as db:
+            failed_inventory = inspect_failed_backup_stage(path)
             db.conn.execute("BEGIN")
             try:
                 before = db.meta().copy()
@@ -146,6 +212,11 @@ def inspect_original(path, api, *, target):
                      and issue["new_dispatches"] == 0
                      and issue["owner_mutations"] == 0,
                      "LEDGER_OR_PENDING_CUSTODY_DRIFT")
+                failed_copy = inspect_failed_backup_cold_copy(
+                    db, api.native_repo_get, target=target,
+                    inventory=failed_inventory)
+                need(db.meta() == before and db.conn.total_changes == count,
+                     "FORENSIC_CHANGED_ORIGINAL")
             finally:
                 db.conn.rollback()
 
@@ -186,7 +257,8 @@ def inspect_original(path, api, *, target):
         "reissue_authorized": False,
         "scientific_first_use": False,
         "hybrid_admission": False,
-        "failed_backup_forensic": inspect_failed_backup_stage(path),
+        "failed_backup_forensic": failed_inventory,
+        "failed_backup_copy_probe": failed_copy,
     }
 
 
