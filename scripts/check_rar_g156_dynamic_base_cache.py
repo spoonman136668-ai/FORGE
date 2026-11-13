@@ -255,6 +255,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or tree != "2eae7f1826a93a584563d77eeaa94a46201956e7"):
             raise ValueError("G156_V41_OWNER_READONLY_FROZEN_SCOPE_REQUIRED")
         return
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v41-owner-native-stage-workflow-20261113":
+        if (admission != FROZEN
+                or base != "2a7f2f58f829e9de9bdf47fe963d3edbf9335982"
+                or tree != "620b6945a8621bc2971610cabe7906b5e91c43c2"):
+            raise ValueError("G156_V41_STAGE_EXACT_BASE_OR_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == 'engineering/f139-v40-explicit-owner-handoff-20261109':
         if (admission != FROZEN or base != 'feb75e7490256a6930698742a43b8d12384fbbca'
                 or tree != '548dd8a0cc7b9ea3db278aa82dc6a22e0c350929'):

@@ -17,6 +17,19 @@ class V41OwnerNativeStageWorkflowTests(unittest.TestCase):
     def setUpClass(cls):
         cls.contents = WORKFLOW.read_text(encoding="utf-8")
 
+    def test_frozen_branch_scope_matches_only_our_five_paths(self):
+        from scripts import check_rar_g145_pr_scope as guard
+        expected = {
+            ".github/workflows/f139-v41-original-owner-native-stage.yml",
+            "f139/test_nci04_v41_owner_native_stage_workflow.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        }
+        self.assertEqual(
+            guard.FROZEN_SCOPES["engineering/f139-v41-owner-native-stage-workflow-20261113"],
+            ("2a7f2f58f829e9de9bdf47fe963d3edbf9335982", expected))
+
     def test_trigger_is_only_new_original_owner_issue_comment(self):
         source = self.contents
         self.assertIn("  issue_comment:\n    types: [created]", source)

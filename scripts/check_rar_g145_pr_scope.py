@@ -80,6 +80,8 @@ FROZEN_SCOPES = {
             ".github/workflows/f139-v41-original-owner-native-stage.yml",
             "f139/test_nci04_v41_owner_native_stage_workflow.py",
             "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
     # Exact owner-approved V40 handoff engineering source; no live approval inferred.
