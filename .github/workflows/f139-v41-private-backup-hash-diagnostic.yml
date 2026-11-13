@@ -1,0 +1,103 @@
+name: FORGE V41 original-owner private backup SHA read-only (single diagnostic)
+on:
+  push:
+    branches:
+      - diagnostic/f139-v41-private-backup-hash-20261113
+    paths:
+      - .github/workflows/f139-v41-private-backup-hash-diagnostic.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-v41-private-backup-hash-readonly-20261113
+  cancel-in-progress: false
+jobs:
+  private-backup-hash-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated diagnostic branch without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact sealed cold backup hash without task, policy or SQLite writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code) {
+            if(-not $ok){throw ('F139_V41_BACKUP_HASH_'+$code)}
+          }
+          $target='1a40fe4e3ec6e93a1631d59863b95e90981d734e'
+          $old='2c7caad5a4502d4b874a11d57207a35cf033eb08'
+          $backupRun=43524844735
+          $manifestExpected='f4dba17a47f4ac458cec6205ce00451f7c18d555ffd86ac97f9c746b7bdd3462'
+          $headExpected='71fd4554315093d74f5a9968b4766191413cfd18d6b1ce81863f8451d379d769'
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostic/f139-v41-private-backup-hash-20261113' -and
+            $env:GITHUB_EVENT_NAME -ceq 'push' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            -not $env:OPENAI_API_KEY) 'WRONG_OWNER_OR_EVENT'
+          $base=(& git merge-base $target HEAD | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $base -ceq $target) 'SOURCE_BASE_DRIFT'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          try {
+            $sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).
+              Translate([Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          Need ($task.Settings.Enabled -eq $true -and
+            [string]$task.State -cin @('Running','Ready') -and
+            @($task.Actions).Count -eq 1 -and
+            @($task.Triggers).Count -eq 3 -and
+            ([string]$task.Principal.UserId -ieq $identity.Name -or
+             $sid -ceq $identity.User.Value)) 'OWNER_TASK_OR_SID_DRIFT'
+          $data=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $bundle=Join-Path $data ('f139-v41-before-'+[string]$backupRun)
+          $manifestPath=Join-Path $bundle 'manifest.sha256.json'
+          $backupPath=Join-Path $bundle 'state.sqlite'
+          foreach($p in @($data,$bundle,$manifestPath,$backupPath)) {
+            $item=Get-Item -LiteralPath $p -Force -ErrorAction Stop
+            Need (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'REPARSE_POINT_DENIED'
+          }
+          Need ((Test-Path -LiteralPath $manifestPath -PathType Leaf) -and
+            (Test-Path -LiteralPath $backupPath -PathType Leaf)) 'SEALED_INPUT_MISSING'
+          $manifestSha=(Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Need ($manifestSha -ceq $manifestExpected) 'MANIFEST_DIGEST_DRIFT'
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          Need ($manifest.schema -ceq 'forge.f139.v41.offline-cold-bundle-dev.v2' -and
+            $manifest.target_source_sha -ceq $target -and
+            $manifest.original_source_sha -ceq $old -and
+            $manifest.run_id -eq $backupRun -and
+            $manifest.original_head_seq -eq 1826 -and
+            $manifest.original_head_sha256 -ceq $headExpected -and
+            $manifest.source_transition_authorized -eq $false -and
+            $manifest.scientific_first_use -eq $false -and
+            $manifest.hybrid_admission -eq $false) 'CUSTODY_OR_RELEASE_MISMATCH'
+          $sealedBackupSha=[string]$manifest.files_sha256.'state.sqlite'
+          Need ($sealedBackupSha -cmatch '^[a-f0-9]{64}$') 'SEALED_BACKUP_DIGEST_MISSING'
+          $actualBackupSha=(Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Need ($actualBackupSha -ceq $sealedBackupSha) 'BACKUP_BYTES_DIFFER_FROM_MANIFEST'
+          $secondManifestSha=(Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $secondBackupSha=(Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Need ($secondManifestSha -ceq $manifestExpected -and
+            $secondBackupSha -ceq $actualBackupSha) 'BACKUP_CHANGED_DURING_READ'
+          Write-Output ('F139_V41_PRIVATE_BACKUP_HASH_READONLY='+([ordered]@{
+            schema='forge.f139.v41.private-backup-sha-readonly.v1'
+            target_source_sha=$target
+            backup_run_id=$backupRun
+            sealed_manifest_sha256=$manifestSha
+            cold_backup_sha256=$actualBackupSha
+            backup_hash_matches_sealed_manifest=$true
+            original_head_seq=1826
+            original_head_sha256=$headExpected
+            original_owner_task_enabled=$true
+            owner_task_mutations=0
+            policy_mutations=0
+            original_sqlite_mutations=0
+            scientific_first_use=$false
+          }|ConvertTo-Json -Compress))
+          Write-Output 'F139_V41_PRIVATE_BACKUP_HASH_READONLY=PASS'
