@@ -12,7 +12,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 25
     env:
-      K_TERM_SHA: 'cddbe6a6f8587d4f1699a36aabcd0f986a39692b'
+      K_TERM_SHA: '3d8ff329485e0e97e452e953656976e68c33296a'
       K_TERMINAL_EXECUTION_MODE: PAPER
       GOTOOLCHAIN: local
       GOTELEMETRY: 'off'
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: Kboomllc/K-Terminal
-          ref: cddbe6a6f8587d4f1699a36aabcd0f986a39692b
+          ref: 3d8ff329485e0e97e452e953656976e68c33296a
           path: kterminal-private
           # G35 prove_sources compares an immutable historical base blob;
           # shallow depth=1 omits it and cannot qualify the source ancestry.
@@ -96,8 +96,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$K_TERM_SHA"
-          test "$(git rev-parse HEAD^{tree})" = "801fde8794e262c81eac24e1ca04889e56bb3f79"
-          test "$(git rev-parse HEAD^)" = "5c4e5d76de28993863e02382239b93775f5c9667"
+          test "$(git rev-parse HEAD^{tree})" = "73d44fee8672717ddfc05704a05f4b2b55156257"
+          test "$(git rev-parse HEAD^)" = "0cde150a304442b4209bada44c99b77f01712d5a"
           run_private(){
             label="$1"; shift
             if "$@" > "$RUNNER_TEMP/forge-graphify-g47-private-last.log" 2>&1; then echo "$label=PASS";
@@ -128,6 +128,7 @@ jobs:
             printf 'labeling=no-llm\n'
           } > graphify-out/source-manifest.txt
           run_private G47_FILE_CATALOG python tools/graphify/build_file_catalog.py graphify-out
+          run_private KTERM_LIVE_GAP_FOCUSED go test -p 1 -count=1 -timeout 7m -run '^(TestLiveReconciliationGapExplainsBlockedHoldingsWithoutAdoptingLots|TestReconciliationGapRejectsInvalidQuantityAndCounts)$' ./pkg
           run_private G57_CURRENT_G27_RAW go run tools/graphify/g27_type_calls.go --root . --sha "$K_TERM_SHA" --out "$RUNNER_TEMP/g57-g27-raw.json"
           run_private G57_CURRENT_G27_VERIFY python tools/graphify/g27_qualify_type_calls.py --raw "$RUNNER_TEMP/g57-g27-raw.json" --out graphify-out --sha "$K_TERM_SHA"
           run_private G57_CURRENT_G27_CUSTODY python tools/graphify/g29_fresh_source_custody.py --receipt graphify-out/G27_TYPE_CALLS.json --sha "$K_TERM_SHA"
