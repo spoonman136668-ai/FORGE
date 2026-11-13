@@ -80,7 +80,7 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
         self.assertIn("startsWith(github.event.comment.body, 'F139-V41-COPY-REHEARSAL ')", part)
         self.assertIn("github.actor == 'spoonman136668-ai'", part)
         self.assertIn("RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'", part)
-        self.assertIn("    permissions:\\n      contents: read\\n      issues: read", part)
+        self.assertIn("    permissions:\n      contents: read\n      issues: read", part)
         self.assertIn("--rehearse-only", part)
         for forbidden in ("Set-ScheduledTask", "Disable-ScheduledTask",
                           "Enable-ScheduledTask", "Start-ScheduledTask",
