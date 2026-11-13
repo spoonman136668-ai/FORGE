@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from f139.local_controller import Database, GitHub, SingleOwner
+from f139.local_controller import Database, F139Error, GitHub, SingleOwner
 from f139 import nci04_v41_original_owner_status as route
 from f139 import nci04_v41_catalog_recovery_preflight as source
 
@@ -157,6 +157,76 @@ class V41OriginalOwnerStatusTests(unittest.TestCase):
             self.assertEqual(denied["entries_scanned"], 2)
             self.assertFalse(denied["contents_read"])
             self.assertEqual(db.read_bytes(), b"immutable-original")
+
+
+    def test_original_live_mutex_contention_is_bounded_and_never_bypassed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.sqlite"
+            with closing(Database.initialize(path, source.OWNER_SOURCE)):
+                pass
+            before = hashlib.sha256(path.read_bytes()).hexdigest()
+            lock_path = path.with_suffix(".lock")
+            waits = []
+            with SingleOwner(lock_path):
+                with patch.object(route, "OWNER_MUTEX_MAX_RETRIES", 2):
+                    with self.assertRaisesRegex(
+                            route.V41StatusDenied,
+                            "ORIGINAL_MUTEX_STILL_BUSY"):
+                        with route._read_only_owner_lease(
+                                path, wait=waits.append):
+                            self.fail("must not bypass original kernel lock")
+                self.assertTrue(SingleOwner.held(lock_path))
+            self.assertEqual(waits, [route.OWNER_MUTEX_RETRY_SECONDS] * 2)
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
+                             before)
+
+    def test_original_mutex_release_observed_only_after_real_lock_acquired(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.sqlite"
+            with closing(Database.initialize(path, source.OWNER_SOURCE)):
+                pass
+            before = hashlib.sha256(path.read_bytes()).hexdigest()
+            lock_path = path.with_suffix(".lock")
+            owner = SingleOwner(lock_path)
+            owner.__enter__()
+            waits = []
+            def relinquish(delay):
+                waits.append(delay)
+                owner.__exit__(None, None, None)
+            try:
+                with route._read_only_owner_lease(path, wait=relinquish):
+                    self.assertTrue(SingleOwner.held(lock_path))
+                    with closing(Database.open_readonly(path)) as cold:
+                        self.assertEqual(cold.conn.execute(
+                            "PRAGMA query_only").fetchone()[0], 1)
+                        self.assertEqual(cold.meta()["source_sha"],
+                                         source.OWNER_SOURCE)
+            finally:
+                if owner.fd is not None:
+                    owner.__exit__(None, None, None)
+            self.assertEqual(waits, [route.OWNER_MUTEX_RETRY_SECONDS])
+            self.assertFalse(SingleOwner.held(lock_path))
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
+                             before)
+
+    def test_unexpected_mutex_error_or_body_failure_is_never_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.sqlite"
+            waits = []
+            with patch.object(route, "SingleOwner") as one:
+                one.return_value.__enter__.side_effect = F139Error(
+                    "F139_DIFFERENT_OWNER_FAILURE")
+                with self.assertRaisesRegex(
+                        F139Error, "DIFFERENT_OWNER_FAILURE"):
+                    with route._read_only_owner_lease(path, wait=waits.append):
+                        self.fail("unexpected mutex error")
+                self.assertEqual(one.return_value.__enter__.call_count, 1)
+                self.assertEqual(waits, [])
+            with self.assertRaisesRegex(F139Error, "ALREADY_RUNNING"):
+                with route._read_only_owner_lease(path, wait=waits.append):
+                    raise F139Error("F139_CONTROLLER_ALREADY_RUNNING")
+            self.assertEqual(waits, [])
+            self.assertFalse(SingleOwner.held(path.with_suffix(".lock")))
 
     def test_existing_mutation_routes_are_not_exposed(self):
         import inspect
