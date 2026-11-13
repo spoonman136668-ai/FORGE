@@ -22,6 +22,133 @@ jobs:
       KTRADE_USE_LEGACY_CDP_CONFIG: '0'
       KTRADE_PROMOTION_ALLOWED: '0'
     steps:
+      - name: Prepare only original nonsecure screen saver for exact Windows native test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar' -or
+             [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 1){
+            throw 'KTRADE_OWNER_SAVER_PREP_SCOPE_REFUSED'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public static class KtradePr253NonsecureSaverPrep {
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int i,StringBuilder b,uint size,out uint needed);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool SystemParametersInfo(uint a,uint b,ref uint c,uint f);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool SystemParametersInfo(uint a,uint b,IntPtr c,uint f);
+            public static string Desktop(){
+              var h=OpenInputDesktop(0,false,1);
+              if(h==IntPtr.Zero)return "UNAVAILABLE";
+              try{
+                var s=new StringBuilder(128);uint size;
+                return GetUserObjectInformation(h,2,s,(uint)(s.Capacity*2),out size)?s.ToString():"UNAVAILABLE";
+              }finally{CloseDesktop(h);}
+            }
+            public static uint Timeout(){
+              uint v=0;if(!SystemParametersInfo(0xE,0,ref v,0))throw new Exception("SAVER_GET_REFUSED");return v;
+            }
+            public static void SetVolatile(uint v){
+              if(!SystemParametersInfo(0xF,v,IntPtr.Zero,0))throw new Exception("SAVER_VOLATILE_SET_REFUSED");
+            }
+          }
+          '@
+          $prePath=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-saver-'+$env:GITHUB_RUN_ID+'.json')
+          if(Test-Path -LiteralPath $prePath){throw 'KTRADE_OWNER_SAVER_PREIMAGE_ALREADY_EXISTS'}
+          $reg=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+          if([string]$reg.ScreenSaveActive -cne '1' -or
+             [string]$reg.ScreenSaveTimeOut -cne '60' -or
+             [string]$reg.ScreenSaverIsSecure -cne '0' -or
+             [IO.Path]::GetFileName([string]$reg.'SCRNSAVE.EXE') -ine 'scrnsave.scr' -or
+             [KtradePr253NonsecureSaverPrep]::Timeout() -ne 60){
+            throw 'KTRADE_OWNER_SAVER_CONFIG_DRIFT_REFUSED'
+          }
+          foreach($p in @('HKCU:\Software\Policies\Microsoft\Windows\Control Panel\Desktop',
+                          'HKLM:\Software\Policies\Microsoft\Windows\Control Panel\Desktop')){
+            if(Test-Path -LiteralPath $p){throw 'KTRADE_OWNER_SAVER_POLICY_PRESENT_REFUSED'}
+          }
+          if(@(Get-Process LogonUI -ErrorAction SilentlyContinue|
+               Where-Object {$_.SessionId -eq 1}).Count -ne 0){
+            throw 'KTRADE_OWNER_SAVER_LOGON_SCREEN_PRESENT_REFUSED'
+          }
+          $desktop=[KtradePr253NonsecureSaverPrep]::Desktop()
+          if($desktop -cnotin @('Default','Screen-saver')){
+            throw ('KTRADE_OWNER_SAVER_UNRECOGNIZED_DESKTOP_'+$desktop)
+          }
+          $saver=$null
+          if($desktop -ceq 'Screen-saver'){
+            $candidates=@(Get-CimInstance Win32_Process -Filter "Name='scrnsave.scr'" -ErrorAction Stop|
+              Where-Object {[int]$_.SessionId -eq 1})
+            $systemPath=[IO.Path]::GetFullPath((Join-Path $env:windir 'System32\scrnsave.scr'))
+            if($candidates.Count -ne 1 -or
+               ![string]::Equals([string]$candidates[0].ExecutablePath,$systemPath,[StringComparison]::OrdinalIgnoreCase)){
+              throw 'KTRADE_OWNER_SAVER_NOT_EXACT_SYSTEM_BINARY_REFUSED'
+            }
+            $saver=$candidates[0]
+            $owner=Invoke-CimMethod -InputObject $saver -MethodName GetOwner -ErrorAction Stop
+            if([string]($owner.Domain+'\'+$owner.User) -ine 'LINKDEADKB\camar'){
+              throw 'KTRADE_OWNER_SAVER_NOT_OWNED_BY_USER_REFUSED'
+            }
+          }
+          [IO.File]::WriteAllText($prePath,((@{
+            schema='ktrade.pr253.screensaver-volatile-preimage.v1'
+            runner=$env:RUNNER_NAME;run=$env:GITHUB_RUN_ID
+            timeout_seconds=60;registry_timeout='60'
+            source_sha=$env:KTRADE_EXPECTED_SOURCE
+          }|ConvertTo-Json -Compress)+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          $prepared=$false
+          try{
+            [KtradePr253NonsecureSaverPrep]::SetVolatile(900)
+            if([KtradePr253NonsecureSaverPrep]::Timeout() -ne 900 -or
+               [string](Get-ItemProperty 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne '60'){
+              throw 'KTRADE_OWNER_SAVER_VOLATILE_TIMEOUT_DRIFT'
+            }
+            if($saver){
+              # Terminate only the verified, non-password-protected blank
+              # screensaver. No lock-screen/LogonUI process or other app.
+              $current=Get-CimInstance Win32_Process -Filter "ProcessId=$($saver.ProcessId)" -ErrorAction Stop
+              if(!$current -or $current.Name -ine 'scrnsave.scr' -or
+                 $current.CreationDate -ne $saver.CreationDate -or
+                 [string]$current.ExecutablePath -ine [string]$saver.ExecutablePath){
+                throw 'KTRADE_OWNER_SAVER_PID_DRIFT_REFUSED'
+              }
+              Stop-Process -Id ([int]$saver.ProcessId) -ErrorAction Stop
+            }
+            $ready=$false
+            for($i=0;$i -lt 15;$i++){
+              if([KtradePr253NonsecureSaverPrep]::Desktop() -ceq 'Default'){$ready=$true;break}
+              Start-Sleep -Milliseconds 350
+            }
+            if(!$ready){throw 'KTRADE_OWNER_SAVER_DID_NOT_RETURN_DEFAULT_DESKTOP'}
+            $prepared=$true
+            Write-Host ('KTRADE_OWNER_SAVER_PREPARED='+(@{
+              original_timeout_seconds=60;temporary_timeout_seconds=900
+              original_registry_unchanged=$true
+              exact_nonsecure_system_saver_dismissed=[bool]$saver
+              desktop='Default';lock_screen_untouched=$true
+              installer_untouched=$true;scheduler_created=$false
+              restore_always_step_required=$true
+            }|ConvertTo-Json -Compress))
+          }finally{
+            if(!$prepared){
+              [KtradePr253NonsecureSaverPrep]::SetVolatile(60)
+              if([KtradePr253NonsecureSaverPrep]::Timeout() -ne 60){
+                throw 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE_FAILED'
+              }
+              Write-Host 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PASS'
+            }
+          }
       - name: Build exact disposable candidate and run genuine Win32 drawing acceptance
         shell: pwsh
         run: |
@@ -163,37 +290,26 @@ jobs:
           $saverOriginal=0
           $originalRegistry=''
           try{
+            $pre=Get-Content -LiteralPath $saverPreimagePath -Raw -ErrorAction Stop|ConvertFrom-Json
             $saverHKCU=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
             $originalRegistry=[string]$saverHKCU.ScreenSaveTimeOut
-            $saverOriginal=[KTradeOwnedDesktop]::GetSaverTimeout()
-            if($saverOriginal -ne 60 -or $originalRegistry -cne '60' -or
+            $saverOriginal=[uint32]$pre.timeout_seconds
+            if($pre.schema -cne 'ktrade.pr253.screensaver-volatile-preimage.v1' -or
+               $pre.runner -cne 'FORGE-CODEX-REMOTE' -or
+               $pre.run -cne $env:GITHUB_RUN_ID -or
+               $pre.source_sha -cne $env:KTRADE_EXPECTED_SOURCE -or
+               $saverOriginal -ne 60 -or [string]$pre.registry_timeout -cne '60' -or
+               $originalRegistry -cne '60' -or
                [string]$saverHKCU.ScreenSaveActive -cne '1' -or
                [string]$saverHKCU.ScreenSaverIsSecure -cne '0' -or
-               [IO.Path]::GetFileName([string]$saverHKCU.'SCRNSAVE.EXE') -ine 'scrnsave.scr'){
-              throw 'KTRADE_OWNER_NATIVE_SCREENSAVER_PREIMAGE_DRIFT'
-            }
-            if(Test-Path -LiteralPath $saverPreimagePath){
-              throw 'KTRADE_OWNER_NATIVE_PREIMAGE_FILE_EXISTS'
-            }
-            if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
-              throw 'KTRADE_OWNER_NATIVE_DESKTOP_BEFORE_TIMEOUT_NOT_DEFAULT'
-            }
-            [IO.File]::WriteAllText($saverPreimagePath,((@{
-              schema='ktrade.pr253.screensaver-volatile-preimage.v1'
-              runner='FORGE-CODEX-REMOTE';run=$env:GITHUB_RUN_ID
-              timeout_seconds=$saverOriginal;registry_timeout=$originalRegistry
-              source_sha=$env:KTRADE_EXPECTED_SOURCE
-            }|ConvertTo-Json -Compress)+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
-            [KTradeOwnedDesktop]::SetVolatileSaverTimeout(900)
-            if([KTradeOwnedDesktop]::GetSaverTimeout() -ne 900 -or
-               [string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne $originalRegistry){
-              throw 'KTRADE_OWNER_NATIVE_VOLATILE_SCREENSAVER_CHANGE_UNVERIFIED'
+               [KTradeOwnedDesktop]::GetSaverTimeout() -ne 900){
+              throw 'KTRADE_OWNER_NATIVE_PREPARED_NONSECURE_SAVER_READBACK_REFUSED'
             }
             Write-Host ('KTRADE_OWNER_NATIVE_TEMP_SCREEN_SAVER='+(@{
-              schema='ktrade.pr253.volatile-screen-saver-test.v1'
-              original_seconds=$saverOriginal;temporary_seconds=900
+              schema='ktrade.pr253.volatile-screen-saver-test.v2'
+              original_seconds=60;temporary_seconds=900
               persisted_registry_unchanged=$true
-              original_input_desktop='Default';owner_session=$session
+              input_desktop_after_prep='Default';owner_session=$session
               installation_modified=$false;scheduler_created=$false
             }|ConvertTo-Json -Compress))
             # The host reported a future-dated LastInputInfo DWORD. Compare
