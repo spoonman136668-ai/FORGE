@@ -91,17 +91,24 @@ jobs:
             }
             Write-Host ('KTERM_PREVIEW_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';CHANGED_BLOBS=5')
           } finally { Pop-Location }
-      - name: Verify already qualified local Go toolchain without download
+      - name: Reuse previously qualified exact Go toolchain from existing runner cache
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $go=(Get-Command go -ErrorAction Stop).Source
+          if(-not $env:RUNNER_TOOL_CACHE){throw 'KTERM_PREVIEW_RUNNER_TOOL_CACHE_MISSING'}
+          $go=Join-Path $env:RUNNER_TOOL_CACHE 'go\1.26.5\x64\bin\go.exe'
+          $binary=Get-Item -LiteralPath $go -ErrorAction Stop
+          if($binary.PSIsContainer -or ($binary.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+            throw 'KTERM_PREVIEW_PINNED_GO_BINARY_UNSAFE'
+          }
           $version=(& $go version | Out-String).Trim()
           $expect='go version go1.26.5 windows'+[char]47+'amd64'
           if($LASTEXITCODE -ne 0 -or $version -cne $expect){
             throw 'KTERM_PREVIEW_PINNED_LOCAL_GO_1_26_5_UNAVAILABLE'
           }
-          Write-Host 'KTERM_PREVIEW_LOCAL_GO_TOOLCHAIN=PASS;GO=1.26.5;NO_DOWNLOAD=TRUE'
+          $goBin=Split-Path -Parent $go
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $goBin -Encoding utf8
+          Write-Host 'KTERM_PREVIEW_LOCAL_GO_TOOLCHAIN=PASS;GO=1.26.5;SOURCE=EXISTING_RUNNER_TOOL_CACHE;NO_DOWNLOAD=TRUE'
       - name: Focused inherited preview and negative-control tests
         shell: pwsh
         run: |
