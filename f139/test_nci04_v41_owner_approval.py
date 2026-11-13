@@ -76,7 +76,9 @@ def approved_doc(cold, pending):
         "pending_semantic_identity_sha256":
             pending["semantic_identity_sha256"],
         "pending_disposition": "EXPLICIT_ESCROW_ONCE",
-        "pending_disposition_receipt_sha256": "4"*64,
+        "pending_disposition_receipt_sha256":
+            v41.pending_disposition_intent_sha256(
+                pending, TARGET, "EXPLICIT_ESCROW_ONCE"),
         "qualification_run_id": 43197218249,
         "qualification_artifact_id": 4567,
         "qualification_artifact_sha256": "5"*64,
@@ -192,6 +194,44 @@ class SourceOnlyApprovalTests(unittest.TestCase):
         self.doc["qualification_artifact_sha256"] = "0"*64
         with self.assertRaises(v41.V41ApprovalDenied):
             self.verify()
+
+    def test_disposition_hash_binds_frozen_pending_intent_and_target(self):
+        expected = v41.pending_disposition_intent_sha256(
+            self.pending, TARGET, "EXPLICIT_ESCROW_ONCE")
+        self.assertEqual(self.doc["pending_disposition_receipt_sha256"],
+                         expected)
+        self.doc["pending_disposition_receipt_sha256"] = "4" * 64
+        with self.assertRaisesRegex(
+                v41.V41ApprovalDenied, "DISPOSITION_INTENT_HASH_DRIFT"):
+            self.verify()
+
+    def test_new_disposition_requires_new_bound_intent_fingerprint(self):
+        self.doc["pending_disposition"] = "EXPLICIT_QUARANTINE_ONCE"
+        with self.assertRaisesRegex(
+                v41.V41ApprovalDenied, "DISPOSITION_INTENT_HASH_DRIFT"):
+            self.verify()
+        self.doc["pending_disposition_receipt_sha256"] = (
+            v41.pending_disposition_intent_sha256(
+                self.pending, TARGET, "EXPLICIT_QUARANTINE_ONCE"))
+        # The read-only owner intent verifier supports both decisions;
+        # the separate V41 source transition permits escrow only.
+        self.assertTrue(self.verify()["owner_comment_identity_verified"])
+
+    def test_disposition_hash_rejects_unqualified_inputs(self):
+        with self.assertRaisesRegex(
+                v41.V41ApprovalDenied, "DISPOSITION_INTENT_INPUT_INVALID"):
+            v41.pending_disposition_intent_sha256(
+                dict(self.pending, issue_number=1714, extra="injected"),
+                TARGET, "EXPLICIT_ESCROW_ONCE")
+        with self.assertRaisesRegex(
+                v41.V41ApprovalDenied, "DISPOSITION_INTENT_INPUT_INVALID"):
+            v41.pending_disposition_intent_sha256(
+                self.pending, TARGET, "REPLAY_1715")
+        self.assertNotEqual(
+            v41.pending_disposition_intent_sha256(
+                self.pending, TARGET, "EXPLICIT_ESCROW_ONCE"),
+            v41.pending_disposition_intent_sha256(
+                self.pending, "f" * 40, "EXPLICIT_ESCROW_ONCE"))
 
     def test_comment_exact_canonical_encoding_required(self):
         original = self.provider
