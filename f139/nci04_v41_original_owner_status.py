@@ -34,6 +34,8 @@ def need(condition, code):
 # authorized by this diagnostic; no original or backup contents are opened.
 FAILED_BACKUP_RUN = 43332363875
 FAILED_BACKUP_SCHEMA = "forge.f139.v41.failed-cold-bundle-inventory-only.v1"
+# Bound the original 300-entry truncated inventory without reading any bytes.
+MAX_FORENSIC_ENTRIES = 4096
 
 
 def inspect_failed_backup_stage(original_db: Path) -> dict:
@@ -47,7 +49,9 @@ def inspect_failed_backup_stage(original_db: Path) -> dict:
     status = dict(schema=FAILED_BACKUP_SCHEMA, failed_run_id=FAILED_BACKUP_RUN,
                   classification="ABSENT", sqlite_snapshot_present=False,
                   sealed_manifest_present=False, provider_file_count=0,
-                  prior_binary_file_count=0, unexpected_entry_count=0,
+                  prior_binary_file_count=0, provider_complete_groups=0,
+                  provider_incomplete_groups=0, unexpected_entry_count=0,
+                  inventory_complete=False, entries_scanned=0,
                   contents_read=False, original_db_written=False,
                   task_mutations=0, backup_retried=False)
     if folder.is_symlink() or getattr(folder, "is_junction", lambda: False)():
@@ -64,11 +68,18 @@ def inspect_failed_backup_stage(original_db: Path) -> dict:
         if len(prefix) > 4:
             status["classification"] = "DEPTH_LIMIT"
             return status
+        if len(prefix) == 3 and prefix[0] == "provider-custody":
+            if (set(files) == {"manifest.json", "ubuntu-latest.zip",
+                               "windows-latest.zip"} and not dirs):
+                status["provider_complete_groups"] += 1
+            else:
+                status["provider_incomplete_groups"] += 1
         for name in (*dirs, *files):
             total += 1
-            if total > 300:
+            if total > MAX_FORENSIC_ENTRIES:
                 status["classification"] = "ENTRY_LIMIT"
                 return status
+            status["entries_scanned"] = total
             entry = Path(parent) / name
             if entry.is_symlink() or getattr(entry, "is_junction", lambda: False)():
                 status["classification"] = "UNTRUSTED_LINK"
@@ -91,6 +102,7 @@ def inspect_failed_backup_stage(original_db: Path) -> dict:
             elif (len(parts) > 3 or parts[0] not in
                   ("provider-custody", "prior-generation-custody")):
                 status["unexpected_entry_count"] += 1
+    status["inventory_complete"] = True
     if status["sealed_manifest_present"]:
         status["classification"] = "SEALED_MARKER_PRESENT_UNVERIFIED"
     elif status["prior_binary_file_count"]:

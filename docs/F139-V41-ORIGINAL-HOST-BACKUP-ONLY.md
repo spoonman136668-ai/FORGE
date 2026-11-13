@@ -103,3 +103,20 @@ counts, and noncanonical entry counts. It does not open original/backup
 SQLite, archives, executables, or secrets; it outputs no paths or names.
 A sealed marker is not proof of a valid backup.
 No maintenance, source cutover, research dispatch or new workflow is added.
+
+## Original-host 300-entry partial forensic negative and bounded follow-up
+
+The actual completed Windows read-only run #43334595460 (source
+`b583ab923bedd13ba2724e1d1fd64a763ce001fa`) confirmed task Running,
+original V40 head event 1826 unchanged, and zero original mutations. The
+failed-run folder for #43332363875 contained at least 93 provider files,
+one previous-generation binary, and SQLite snapshot. Enumeration reached
+its 300-entry limit; therefore the earlier no-sealed-manifest observation
+was not an exhaustive proof. The follow-up increases the fixed metadata-only
+limit to 4,096 entries and reports completeness, bounded scanned count and
+complete/incomplete three-file provider groups. Any cap hit remains explicitly
+INCOMPLETE, never a successful backup. No private file contents, filenames,
+absolute paths, owner task controls, or science authority are exposed.
+
+Only already-existing read-only original-host status may inspect this folder.
+No owner pause/restart, failed maintenance replay or V41 cutover is permitted.
