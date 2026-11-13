@@ -1,0 +1,129 @@
+name: FORGE V41 original-owner polling cadence and intake read-only proof
+on:
+  push:
+    branches:
+      - diagnostic/f139-v41-private-backup-hash-20261113
+    paths:
+      - .github/workflows/f139-v41-polling-readonly-diagnostic.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-v41-polling-readonly-20261113
+  cancel-in-progress: false
+jobs:
+  owner-poll-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout original diagnostic lineage
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Prove original owner's completed polling and once-only intake
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$reason){if(-not $ok){throw ('F139_V41_POLL_RO_'+$reason)}}
+          $target='1a40fe4e3ec6e93a1631d59863b95e90981d734e'
+          $old='2c7caad5a4502d4b874a11d57207a35cf033eb08'
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostic/f139-v41-private-backup-hash-20261113' -and
+            $env:GITHUB_EVENT_NAME -ceq 'push' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            -not $env:OPENAI_API_KEY) 'ORIGINAL_OWNER_IDENTITY'
+          $base=(& git merge-base $target HEAD | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $base -ceq $target) 'SOURCE_ANCESTRY'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $user=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          try {$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).
+            Translate([Security.Principal.SecurityIdentifier]).Value} catch {}
+          Need ($task.Settings.Enabled -eq $true -and
+            [string]$task.State -cin @('Running','Ready') -and
+            @($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3 -and
+            ([string]$task.Principal.UserId -ieq $user.Name -or $sid -ceq $user.User.Value)) 'TASK_OR_SID'
+          $data=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $db=Join-Path $data 'state.sqlite'
+          $log=Join-Path $data 'logs/controller.log'
+          Need ((Test-Path -LiteralPath $db -PathType Leaf) -and
+            (Test-Path -LiteralPath $log -PathType Leaf)) 'ORIGINAL_LEDGER_OR_LOG_MISSING'
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'pwsh.exe' OR Name = 'python.exe' OR Name = 'pythonw.exe'")
+          $new=@($processes|Where-Object {$_.CommandLine -and $_.CommandLine.Contains($target)})
+          $prior=@($processes|Where-Object {$_.CommandLine -and $_.CommandLine.Contains($old)})
+          Need ($new.Count -ge 1 -and $prior.Count -eq 0) 'V41_PROCESS_NOT_ALIVE_OR_V40_REMAINS'
+          $code=@'
+          import sys,sqlite3,json,collections,datetime,re
+          from pathlib import Path
+          path=Path(sys.argv[1]).resolve(strict=True)
+          logpath=Path(sys.argv[2]).resolve(strict=True)
+          target=sys.argv[3]
+          marker=datetime.datetime.fromisoformat("2026-11-13T23:50:38+00:00")
+          conn=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,isolation_level=None,timeout=15)
+          try:
+              conn.execute("PRAGMA query_only=ON")
+              conn.execute("BEGIN")
+              check=conn.execute("PRAGMA quick_check").fetchone()[0]
+              meta=conn.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              assert check=="ok" and meta and meta[0]==target and meta[1]>=1828 and meta[3:]==(1,1)
+              rows=conn.execute("SELECT seq,kind,payload FROM events WHERE kind IN ('NATIVE_DEVELOPMENT_ADMITTED','DEVELOPMENT_WORK_ADMITTED','TASK_INTAKE','SOURCE_TRANSITION_ADMITTED','NATIVE_PENDING_ESCROWED') ORDER BY seq").fetchall()
+              native_numbers=set();native_ids=set();native_tickets=set()
+              duplicate_count=0; post=collections.Counter()
+              for seq,kind,payload in rows:
+                  if seq>1828: post[kind]+=1
+                  if kind!="NATIVE_DEVELOPMENT_ADMITTED":continue
+                  obj=json.loads(payload)
+                  for seen,key in ((native_numbers,"issue_number"),(native_ids,"issue_id"),(native_tickets,"ticket")):
+                      if obj[key] in seen:duplicate_count+=1
+                      seen.add(obj[key])
+              stages=dict(conn.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage").fetchall())
+              lanes=dict(conn.execute("SELECT lane,COUNT(*) FROM tasks GROUP BY lane").fetchall())
+              active=stages.get("START_RISK",0)+stages.get("WAIT_PROVIDER",0)
+              pending=conn.execute("SELECT COUNT(*) FROM tasks WHERE ticket LIKE 'f139-nci04-i1715-%'").fetchone()[0]
+              assert duplicate_count==0 and active<=2 and pending==0
+              assert conn.total_changes==0
+          finally:
+              conn.close()
+          ticks=[]
+          with logpath.open("rb") as f:
+              size=f.seek(0,2)
+              f.seek(max(0,size-1310720))
+              raw=f.read().decode("utf-8",errors="replace")
+          for line in raw.splitlines():
+              line=line.strip()
+              if not line.startswith("{"):continue
+              try:
+                  obj=json.loads(line)
+                  if type(obj)!=dict or type(obj.get("at"))!=str:continue
+                  at=datetime.datetime.fromisoformat(obj["at"].replace("Z","+00:00"))
+                  if at<marker:continue
+                  code=str(obj.get("blocked") or "")
+                  match=re.search(r"F139_[A-Z0-9_]+",code)
+                  ticks.append({"at":obj["at"],"disposition":obj.get("disposition","BLOCKED" if "blocked" in obj else "UNCLASSIFIED"),
+                     "block_code": match.group(0) if match else ("OTHER" if code else ""),
+                     "scientific_first_use":obj.get("scientific_first_use",False)})
+              except (ValueError,TypeError,OverflowError):continue
+          recent=ticks[-8:]
+          block_count=sum(bool(x["block_code"]) for x in ticks)
+          recent_ok=len(ticks)>=1 and bool(ticks[-1].get("at")) and not bool(ticks[-1]["block_code"])
+          report={"schema":"forge.f139.v41.owner-polling-intake-readonly.v1",
+            "target_source_sha":target,"original_head_seq":meta[1],"original_head_sha256":meta[2],
+            "sqlite_quick_check_pass":check=="ok","duplicate_admission_identifiers":duplicate_count,
+            "postinstall_event_kinds":dict(post),"task_stages":stages,"task_lanes":lanes,
+            "active_task_count":active,"old_issue_1715_readmitted_count":pending,
+            "postinstall_logged_tick_count":len(ticks),"postinstall_blocked_tick_count":block_count,
+            "recent_poll_outcomes":recent,"original_sqlite_mutations":0,
+            "new_controller":False,"scientific_first_use":False,
+            "polling_confirmed":recent_ok}
+          print("F139_V41_POLLING_INTAKE_READONLY="+json.dumps(report,sort_keys=True,separators=(",",":")))
+          if not recent_ok:
+              raise SystemExit("F139_V41_POLL_NO_COMPLETED_UNBLOCKED_TICK")
+          '@
+          $output=@($code | & python -B - $db $log $target)
+          Need ($LASTEXITCODE -eq 0 -and
+            $output.Count -eq 1 -and $output[0] -cmatch '^F139_V41_POLLING_INTAKE_READONLY=') 'UNVERIFIED_OR_BLOCKED_CYCLE'
+          Write-Output $output[0]
+          Write-Output 'F139_V41_POLLING_AND_DUPLICATE_INTAKE_READONLY=PASS'
