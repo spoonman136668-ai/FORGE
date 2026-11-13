@@ -108,7 +108,7 @@ class V41InstallFailureFenceTests(unittest.TestCase):
 
     def test_exact_three_way_owner_and_copied_history_match_is_disarmed(self):
         expected = {
-            "source_sha": TARGET,
+            "target_source_sha": TARGET,
             "original_head_seq": escrow.OBSERVED_SEQ,
             "expected_copy_head_seq": escrow.OBSERVED_SEQ + 2,
             "expected_copy_head_sha256": COPY_HEAD,
