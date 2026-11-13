@@ -3,6 +3,8 @@ import copy
 import inspect
 from pathlib import Path
 import subprocess
+import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -183,6 +185,66 @@ class CandidateStageSourceOnlyTests(unittest.TestCase):
                 stage._call(["git", "version"])
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1]["stdin"], subprocess.DEVNULL)
+
+
+    def test_running_owner_stage_witness_never_changes_scheduled_task(self):
+        script = stage.STAGE_TASK_WITNESS
+        for required in (
+            "Get-ScheduledTask",
+            "F139_STAGE_EXPECTED_DB",
+            "F139_STAGE_CANDIDATE_ROOT",
+            "F139_STAGE_V40_SOURCE",
+            "GetCurrent",
+            "PollSeconds",
+            "F139_V41_SAME_ORIGINAL_RUNNING_TASK_STAGE=PASS",
+        ):
+            self.assertIn(required, script)
+        for forbidden in (
+            "Disable-ScheduledTask", "Enable-ScheduledTask",
+            "Stop-ScheduledTask", "Start-ScheduledTask",
+            "Set-ScheduledTask", "Register-ScheduledTask",
+            "Remove-Item", "Set-Content", "gh api",
+        ):
+            self.assertNotIn(forbidden, script)
+        with patch.object(stage.sys, "platform", "linux"), \
+             patch.object(stage.subprocess, "run") as called:
+            with self.assertRaisesRegex(stage.V41StageDenied,
+                                        "NATIVE_OLD_TASK_WITNESS_INPUTS"):
+                stage.verify_running_old_task_before_stage(
+                    Path("/tmp/original.sqlite"), Path("/tmp/forge"))
+            called.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "win32", "native Windows stage SID witness")
+    def test_windows_stage_witness_requires_exact_readback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            original = Path(tmp) / "state.sqlite"
+            original.write_bytes(b"read-only fixture")
+            source_root = Path(__file__).resolve().parents[1]
+            def mock_run(argv, **kwargs):
+                self.assertIn("Get-ScheduledTask", argv[-1])
+                self.assertEqual(
+                    kwargs["env"]["F139_STAGE_EXPECTED_DB"],
+                    str(original.resolve()))
+                self.assertEqual(
+                    kwargs["env"]["F139_STAGE_V40_SOURCE"],
+                    stage.source.FROM_V40)
+                return subprocess.CompletedProcess(
+                    argv, 0,
+                    b"F139_V41_SAME_ORIGINAL_RUNNING_TASK_STAGE=PASS\n",
+                    b"")
+            with patch.object(stage.shutil, "which", return_value="powershell.exe"), \
+                 patch.object(stage.subprocess, "run", side_effect=mock_run):
+                self.assertTrue(stage.verify_running_old_task_before_stage(
+                    original, source_root))
+            with patch.object(stage.shutil, "which", return_value="powershell.exe"), \
+                 patch.object(stage.subprocess, "run",
+                              return_value=subprocess.CompletedProcess(
+                                  [], 43, b"", b"")):
+                with self.assertRaisesRegex(
+                        stage.V41StageDenied,
+                        "ORIGINAL_OWNER_SID_TASK_OR_V40_ROOT_DRIFT"):
+                    stage.verify_running_old_task_before_stage(
+                        original, source_root)
 
     def test_exact_create_only_staging_no_original_task_or_policy_writes(self):
         text = inspect.getsource(stage)
