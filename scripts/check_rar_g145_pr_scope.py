@@ -79,6 +79,7 @@ FROZEN_SCOPES = {
         "98ec09b732a7764d1f2a38b98abd5927dab03dac",
         {
             ".github/workflows/f139-v41-original-owner-live-install.yml",
+            ".github/workflows/f139-v41-install-focused-qualification.yml",
             "f139/nci04_v41_native_original_install_cli.py",
             "f139/v41_original_owner_live_install.ps1",
             "f139/test_nci04_v41_native_original_install_cli.py",
