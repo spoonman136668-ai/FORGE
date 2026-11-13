@@ -148,3 +148,57 @@ jobs:
              ';APPS_RUNNING=0;NO_FILE_CONTENTS_ACCESSED=TRUE;NO_PRIVATE_PATHS_EXPORTED=TRUE'+
              ';NO_CREDENTIALS_ACCESSED=TRUE;NO_BROKER_REQUESTS=TRUE;NO_STATE_MUTATION=TRUE')
           Write-Host 'KTERM_NEXT_GATE=AUTHENTICATED_ORIGINAL_LEDGER_CUSTODY_NOT_ESTABLISHED;KEEP_LIVE_DISABLED'
+      - name: Check canonical BTC lot and TP custody file presence only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-p5-firstuse-artifact-20261112' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER'){throw 'KTERM_BTC_CUSTODY_PRESENCE_SCOPE_REFUSED'}
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -ne 0){
+             throw 'KTERM_BTC_CUSTODY_PRESENCE_ACTIVE_APP_REFUSED'
+          }
+          $legacy=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal'
+          $data=Join-Path $legacy 'data'
+          if(-not(Test-Path -LiteralPath $data -PathType Container)){throw 'KTERM_BTC_CUSTODY_PRESENCE_NO_LEGACY_DATA'}
+          $root=Get-Item -LiteralPath $data -Force
+          if(($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'KTERM_BTC_CUSTODY_PRESENCE_REPARSE_REFUSED'}
+          $known=@{
+             'LOT_SNAPSHOT'='ladder-lots-BTC-USDC.json'
+             'POSITION_SNAPSHOT'='position-state-BTC-USDC.json'
+             'ACCOUNT_BINDING'='account-binding.json'
+             'PERFORMANCE_SUMMARY'='performance-summary-BTC-USDC.json'
+             'CONSUMED_POSITION_WAL'='ladder-lots-BTC-USDC.json.consumed.position.wal'
+             'CONSUMED_HISTORY_WAL'='ladder-lots-BTC-USDC.json.consumed.history.wal'
+             'CONSUMED_ARCHIVE_WAL'='ladder-lots-BTC-USDC.json.consumed.archive.wal'
+             'CONSUMED_REPORT_WAL'='ladder-lots-BTC-USDC.json.consumed.report.wal'
+             'NATIVE_LEDGER_ORIGIN'='native-runtime/ledger-origin.json'
+             'NATIVE_CHECKPOINT'='native-runtime/checkpoint.json'
+             'NATIVE_RECONCILIATION_METRICS'='native-runtime/reconciliation-metrics.json'
+          }
+          $result=@{}
+          foreach($key in $known.Keys){
+             $file=Join-Path $data ($known[$key].Replace('/','\'))
+             $item=Get-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+             if($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw 'KTERM_BTC_CUSTODY_PRESENCE_REPARSE_FILE_REFUSED'
+             }
+             $result[$key]=($null -ne $item -and -not $item.PSIsContainer)
+          }
+          $candidateLots=@(Get-ChildItem -LiteralPath $data -File -Filter 'ladder-lots-*.json' -ErrorAction Stop | Select-Object -First 9).Count
+          $candidatePositions=@(Get-ChildItem -LiteralPath $data -File -Filter 'position-state-*.json' -ErrorAction Stop | Select-Object -First 9).Count
+          $segments=@('LOT_SNAPSHOT','POSITION_SNAPSHOT','ACCOUNT_BINDING','PERFORMANCE_SUMMARY',
+             'CONSUMED_POSITION_WAL','CONSUMED_HISTORY_WAL','CONSUMED_ARCHIVE_WAL','CONSUMED_REPORT_WAL',
+             'NATIVE_LEDGER_ORIGIN','NATIVE_CHECKPOINT','NATIVE_RECONCILIATION_METRICS')
+          $pairs=@($segments|ForEach-Object {$_+'='+[bool]$result[$_]})
+          Write-Host ('KTERM_BTC_ORIGINAL_CUSTODY_PRESENCE=PASS;'+($pairs -join ';')+
+             ';LOT_SNAPSHOT_FILES_CAPPED_9='+$candidateLots+
+             ';POSITION_SNAPSHOT_FILES_CAPPED_9='+$candidatePositions+
+             ';NO_FILE_BYTES_READ=TRUE;NO_CONFIG_READ=TRUE;NO_PRIVATE_IDENTIFIERS_EXPORTED=TRUE'+
+             ';NO_CREDENTIALS_USED=TRUE;NO_NETWORK_OR_BROKER_REQUESTS=TRUE;NO_WRITES=TRUE')
+          Write-Host 'KTERM_BTC_PROVENANCE_AUTHORITY=UNVERIFIED;SAVED_FILE_PRESENCE_IS_NOT_SIGNED_LOT_OWNERSHIP'
