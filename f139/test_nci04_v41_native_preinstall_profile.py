@@ -33,8 +33,6 @@ class NativePreinstallWitnessTests(unittest.TestCase):
             self.assertNotIn(forbidden, pre.SCRIPT)
         self.assertIn('t.State -cne \'Disabled\'', pre.SCRIPT)
         self.assertIn('t.Settings.Enabled -ne $false', pre.SCRIPT)
-        self.assertIn("IsInRole", inspect.getsource(pre.NativePreinstallDenied)
-                      if False else "IsInRole") if False else None
 
     def test_nonwindows_and_invalid_target_never_call_shell(self):
         with patch.object(pre.sys, "platform", "linux"), \
@@ -64,7 +62,7 @@ class NativePreinstallWitnessTests(unittest.TestCase):
                     if argv[-2:] == ["rev-parse", "HEAD"]:
                         stdout = (TARGET + "\n").encode("ascii")
                     else:
-                        self.assertEqual(argv[-3:],
+                        self.assertEqual(argv[-2:],
                                          ["--porcelain", "--untracked-files=all"])
                         stdout = b""
                     return subprocess.CompletedProcess(argv, 0, stdout, b"")
