@@ -85,6 +85,88 @@ def _escrow_doc(original_meta, preserved, owner):
          "prior_sha": original_meta["head_hash"]}, doc)
     return doc
 
+def _commit_pair_under_existing_owner_lock(db, *, original_meta, target,
+                                           binary_sha, toolchain,
+                                           pending_receipt, owner_intent,
+                                           inject_failure=None):
+    """Reusable two-event SQLite primitive; never an authority to use original.
+
+    A future original-owner installer must independently authenticate the
+    native Windows task, release, paused policy, backup and one-use approval.
+    This primitive only mutates the *passed* Database after its existing
+    kernel mutex is already held. All faults before COMMIT roll back both
+    events and the source column in one transaction.
+    """
+    need(type(db) is Database
+         and not getattr(db, "_readonly_opened", False)
+         and db.conn.execute("PRAGMA query_only").fetchone()[0] == 0
+         and SingleOwner.held(db.filename.with_suffix(".lock"))
+         and not db.conn.in_transaction
+         and type(original_meta) is dict
+         and original_meta.get("source_sha") == source.FROM_V40
+         and db.meta() == original_meta
+         and type(target) is str and source.HEX40.fullmatch(target)
+         and target != source.FROM_V40
+         and type(binary_sha) is str and source.HEX64.fullmatch(binary_sha)
+         and toolchain == source.TOOLCHAIN
+         and inject_failure in (None, "after_escrow", "after_source_event",
+                                "after_verify"),
+         "EXISTING_MUTEX_AND_FROZEN_PREIMAGE_REQUIRED")
+    # The existing invariant checker verifies the real owner-comment intent,
+    # *not* deployment authority. No caller may use this helper as a permit.
+    need(type(pending_receipt) is dict and type(owner_intent) is dict
+         and pending_receipt.get("original_head_seq") ==
+             original_meta["head_seq"]
+         and pending_receipt.get("original_head_sha256") ==
+             original_meta["head_hash"]
+         and owner_intent.get("source_transition_authorized") is False
+         and owner_intent.get("original_owner_release_qualified") is False
+         and owner_intent.get("owner_comment_identity_verified") is True,
+         "OWNER_INTENT_AND_PENDING_HEAD_REQUIRED")
+    with db.transaction():
+        db.verify()
+        need(db.meta() == original_meta
+             and db.ready() is None and not db.actives(),
+             "ORIGINAL_NOT_IDLE_OR_PREIMAGE_MOVED")
+        need(db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind=?",
+            (escrow.KIND,)).fetchone()[0] == 0,
+            "ESCROW_REPLAY")
+        escrow_doc = _escrow_doc(original_meta, pending_receipt, owner_intent)
+        db.event(escrow.KIND, escrow_doc)
+        if inject_failure == "after_escrow":
+            raise V41AtomicDenied("F139_V41_ATOMIC_INJECTED_AFTER_ESCROW")
+        proof = source.build_proof(
+            db, target, owner_intent["owner_comment_id"],
+            binary_sha, toolchain)
+        need(type(proof) is dict and set(proof) == source.FIELDS
+             and proof["to_source_sha"] == target
+             and proof["original_head_seq"] == original_meta["head_seq"] + 1
+             and proof["pending_1715_escrow_sha256"] ==
+                 db.meta()["head_hash"], "SOURCE_PROOF_OR_ESCROW_DRIFT")
+        # Both events and meta source change are one SQLite COMMIT. A fault
+        # after this point cannot be repaired by restoring the old V40 file.
+        db.conn.execute("UPDATE meta SET source_sha=? WHERE id=1", (target,))
+        db.event("SOURCE_TRANSITION_ADMITTED", proof)
+        if inject_failure == "after_source_event":
+            raise V41AtomicDenied("F139_V41_ATOMIC_INJECTED_AFTER_SOURCE")
+        db.verify()
+        need(db.meta()["head_seq"] == original_meta["head_seq"] + 2
+             and db.meta()["source_sha"] == target
+             and db.conn.execute(
+                 "SELECT kind FROM events ORDER BY seq DESC LIMIT 2"
+             ).fetchall()[0][0] == "SOURCE_TRANSITION_ADMITTED",
+             "PAIR_POSTIMAGE_MISMATCH")
+        if inject_failure == "after_verify":
+            raise V41AtomicDenied("F139_V41_ATOMIC_INJECTED_AFTER_VERIFY")
+    # After COMMIT, a verification error is a forward-repair HOLD, not a
+    # rollback request. A future live caller must keep owner task disabled.
+    db.verify()
+    return {"copy_head_seq": db.meta()["head_seq"],
+            "copy_head_sha256": db.meta()["head_hash"],
+            "escrow_event_sha256": proof["pending_1715_escrow_sha256"]}
+
+
 def _atomic_on_copy(db, *, original, original_meta, target, binary_sha,
                     toolchain, cold_receipt, pending_receipt, owner_intent,
                     inject_failure=None):
@@ -108,39 +190,13 @@ def _atomic_on_copy(db, *, original, original_meta, target, binary_sha,
          and original.meta() == original_meta, "COPY_OR_ORIGINAL_PREIMAGE_MOVED")
     original_changes = original.conn.total_changes
     db.verify()
-    before_changes = db.conn.total_changes
-    with db.transaction():
-        db.verify()
-        need(db.meta() == original_meta, "COPY_CHANGED_BEFORE_BEGIN")
-        need(db.ready() is None and not db.actives(), "ORIGINAL_NOT_IDLE")
-        need(db.conn.execute(
-            "SELECT COUNT(*) FROM events WHERE kind=?",
-            (escrow.KIND,)).fetchone()[0] == 0, "ESCROW_REPLAY")
-        escrow_doc = _escrow_doc(original_meta, pending_receipt, owner_intent)
-        db.event(escrow.KIND, escrow_doc)
-        if inject_failure == "after_escrow":
-            raise V41AtomicDenied("F139_V41_ATOMIC_INJECTED_AFTER_ESCROW")
-        proof = source.build_proof(
-            db, target, owner_intent["owner_comment_id"], binary_sha, toolchain)
-        need(type(proof) is dict and set(proof) == source.FIELDS
-             and proof["to_source_sha"] == target
-             and proof["original_head_seq"] == original_meta["head_seq"] + 1
-             and proof["pending_1715_escrow_sha256"] == db.meta()["head_hash"],
-             "SOURCE_PROOF_OR_ESCROW_DRIFT")
-        # The source change and both append-only events are ONE SQLite commit.
-        db.conn.execute("UPDATE meta SET source_sha=? WHERE id=1", (target,))
-        db.event("SOURCE_TRANSITION_ADMITTED", proof)
-        if inject_failure == "after_source_event":
-            raise V41AtomicDenied("F139_V41_ATOMIC_INJECTED_AFTER_SOURCE")
-        db.verify()
-        need(db.meta()["head_seq"] == original_meta["head_seq"] + 2
-             and db.meta()["source_sha"] == target
-             and db.conn.execute(
-                 "SELECT kind FROM events ORDER BY seq DESC LIMIT 2").fetchall()[0][0]
-                 == "SOURCE_TRANSITION_ADMITTED", "COPY_POSTIMAGE_MISMATCH")
-        if inject_failure == "after_verify":
-            raise V41AtomicDenied("F139_V41_ATOMIC_INJECTED_AFTER_VERIFY")
-    db.verify()
+    # The isolated copied rehearsal and the eventual native writer must use
+    # one identical event-writing primitive, not two drifting algorithms.
+    pair = _commit_pair_under_existing_owner_lock(
+        db, original_meta=original_meta, target=target,
+        binary_sha=binary_sha, toolchain=toolchain,
+        pending_receipt=pending_receipt, owner_intent=owner_intent,
+        inject_failure=inject_failure)
     original.verify()
     need(original.meta() == original_meta
          and original.conn.total_changes == original_changes,
@@ -150,9 +206,9 @@ def _atomic_on_copy(db, *, original, original_meta, target, binary_sha,
         "original_source_sha": source.FROM_V40,
         "copy_source_sha": db.meta()["source_sha"],
         "original_head_seq": original_meta["head_seq"],
-        "copy_head_seq": db.meta()["head_seq"],
-        "copy_head_sha256": db.meta()["head_hash"],
-        "escrow_event_sha256": proof["pending_1715_escrow_sha256"],
+        "copy_head_seq": pair["copy_head_seq"],
+        "copy_head_sha256": pair["copy_head_sha256"],
+        "escrow_event_sha256": pair["escrow_event_sha256"],
         "original_unchanged": True, "copy_only": True,
         "source_transition_authorized": False,
         "release_qualified": False, "reissue_authorized": False,
