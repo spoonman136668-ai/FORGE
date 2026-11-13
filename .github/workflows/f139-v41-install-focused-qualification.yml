@@ -1,0 +1,36 @@
+name: FORGE V41 installer focused source qualification (no owner execution)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'f139/nci04_v41_native_original_install_cli.py'
+      - 'f139/test_nci04_v41_native_original_install_cli.py'
+      - 'f139/test_nci04_v41_live_install_workflow.py'
+      - 'f139/v41_original_owner_live_install.ps1'
+      - '.github/workflows/f139-v41-original-owner-live-install.yml'
+      - '.github/workflows/f139-v41-install-focused-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-v41-installer-focused-${{ github.event.pull_request.number }}-${{ matrix.os }}
+  cancel-in-progress: false
+jobs:
+  focused-source:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run exact V41 installer negative tests (no original-owner action)
+        shell: bash
+        run: |
+          python -B -m unittest -v f139.test_nci04_v41_native_original_install_cli f139.test_nci04_v41_live_install_workflow
