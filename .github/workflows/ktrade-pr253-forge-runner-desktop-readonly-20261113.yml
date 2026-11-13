@@ -1,0 +1,89 @@
+name: KTRADE PR253 existing FORGE Windows runner desktop preflight
+on:
+  push:
+    branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
+    paths:
+      - .github/workflows/ktrade-pr253-forge-runner-desktop-readonly-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-pr253-forge-runner-desktop-readonly
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    env:
+      KTRADE_EXPECTED_SOURCE: '59842e83f01fb6e1af780ede5a7395a9c7cce47a'
+      KTRADE_LIVE_TRADING: 'false'
+      KTRADE_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Verify existing original-host runner and read desktop/DPI only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:KTRADE_EXPECTED_SOURCE -cne '59842e83f01fb6e1af780ede5a7395a9c7cce47a' -or
+             $env:KTRADE_LIVE_TRADING -cne 'false' -or
+             $env:KTRADE_PROMOTION_ALLOWED -cne '0'){
+            throw 'KTRADE_PR253_RUNNER_SOURCE_ISOLATION_REFUSED'
+          }
+          $current=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($current)
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $desktopSessions=@(Get-Process explorer -ErrorAction SilentlyContinue|
+            Select-Object -ExpandProperty SessionId -Unique)
+          $interactive=[Environment]::UserInteractive
+          $ownerAccount=([string]$current.Name -ieq 'LINKDEADKB\camar')
+          $explorerHere=($desktopSessions -contains $session)
+          $dpi=@()
+          if($ownerAccount -and $interactive -and $session -gt 0 -and $explorerHere){
+            Add-Type -TypeDefinition @'
+          using System;
+          using System.Collections.Generic;
+          using System.Runtime.InteropServices;
+          public static class KTrade253DpiProbe {
+            public delegate bool Callback(IntPtr monitor, IntPtr hdc, IntPtr rectangle, IntPtr user);
+            [DllImport("user32.dll")] public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr rect, Callback cb, IntPtr data);
+            [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint x, out uint y);
+            public static string[] Snapshot() {
+              var result=new List<string>();
+              if(!EnumDisplayMonitors(IntPtr.Zero,IntPtr.Zero,(m,hdc,rect,user)=>{
+                uint x,y;int hr=GetDpiForMonitor(m,0,out x,out y);
+                result.Add(hr==0?x.ToString()+":"+y.ToString():"API_ERROR:"+hr.ToString());
+                return true;
+              },IntPtr.Zero)) throw new Exception("DISPLAY_READ_ONLY_ENUM_FAILED");
+              return result.ToArray();
+            }
+          }
+          '@
+            $dpi=@([KTrade253DpiProbe]::Snapshot())
+          }
+          $report=[ordered]@{
+            schema='ktrade.pr253.existing-forge-runner-desktop-readonly.v1'
+            source_sha=$env:KTRADE_EXPECTED_SOURCE
+            runner=$env:RUNNER_NAME
+            host=$env:COMPUTERNAME
+            owner_account=$ownerAccount
+            elevated_identity=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+            process_session=$session
+            environment_interactive=$interactive
+            same_session_explorer=$explorerHere
+            explorer_session_ids=$desktopSessions
+            native_session1_dpi_admissible=($ownerAccount -and $interactive -and $session -gt 0 -and $explorerHere)
+            current_monitor_dpi=$dpi
+            display_settings_changed=$false
+            services_or_controllers_changed=$false
+            installed_ktrade_or_owner_profile_accessed=$false
+            broker_contacted=$false
+            scheduled_tasks_created=$false
+            other_runner_accessed=$false
+            scientific_first_use=$false
+          }
+          Write-Host ('KTRADE_PR253_EXISTING_FORGE_RUNNER_READBACK='+($report|ConvertTo-Json -Compress -Depth 6))
