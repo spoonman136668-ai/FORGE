@@ -231,7 +231,7 @@ jobs:
           $pos=Read-KTermScopedSnapshot 'POSITION' $posPath
           $binding=Read-KTermScopedSnapshot 'BINDING' $bindingPath
           $lotShape=($lot.schema_version -eq 1 -and $lot.product_id -ceq 'BTC-USDC' -and
-             $null -ne $lot.lots -and $null -ne $lot.orders)
+             $null -ne $lot.PSObject.Properties['lots'] -and $null -ne $lot.PSObject.Properties['orders'])
           $posShape=($pos.schema_version -eq 1 -and $pos.product_id -ceq 'BTC-USDC' -and
              $null -ne $pos.quantity -and $null -ne $pos.cost_basis -and
              $null -ne $pos.tp_state)
@@ -239,8 +239,8 @@ jobs:
              -not [string]::IsNullOrWhiteSpace([string]$binding.account_id) -and
              -not [string]::IsNullOrWhiteSpace([string]$binding.portfolio_id))
           if(-not ($lotShape -and $posShape -and $bindingShape)){
-             $lotHasRows=($null -ne $lot.lots)
-             $lotHasOrders=($null -ne $lot.orders)
+             $lotHasRows=($null -ne $lot.PSObject.Properties['lots'])
+             $lotHasOrders=($null -ne $lot.PSObject.Properties['orders'])
              $lotV1=($lot.schema_version -eq 1)
              $lotProduct=([string]$lot.product_id -ceq 'BTC-USDC')
              Write-Host ('KTERM_LOCAL_BTC_SCHEMA_DIAGNOSTIC=INCOMPATIBLE'+
@@ -252,8 +252,10 @@ jobs:
              Write-Host 'KTERM_LOCAL_BTC_STRUCTURAL_PROBE=COMPLETE;DATA_SCHEMA_COMPATIBLE=FALSE'
              return
           }
+          $rows=@()
+          if($null -ne $lot.lots){$rows=@($lot.lots)}
           $lotOpenCount=0; $badLotCount=0; $lotOpenQty=0.0
-          foreach($row in @($lot.lots)){
+          foreach($row in $rows){
              $filled=[double]$row.filled_quantity
              $rem=[double]$row.remaining_quantity
              $basis=[double]$row.filled_value
@@ -270,7 +272,8 @@ jobs:
           Write-Host ('KTERM_LOCAL_BTC_SCHEMA_DIAGNOSTIC=PASS'+
              ';LOT_SCHEMA=1;POSITION_SCHEMA=1;BINDING_SCHEMA=1'+
              ';LOT_INITIALIZED='+[bool]$lot.initialized+
-             ';LOT_RECORDS='+@($lot.lots).Count+
+             ';LOT_RECORDS='+$rows.Count+
+             ';SAVED_LOTS_NULL='+[bool]($null -eq $lot.lots)+
              ';OPEN_LOT_RECORDS='+$lotOpenCount+
              ';INVALID_LOT_ROWS='+$badLotCount+
              ';POSITION_ACCOUNTING_VERIFIED_SAVED_FLAG='+[bool]$pos.accounting_verified+
