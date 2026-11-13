@@ -73,6 +73,21 @@ V41_STATUS_FILES = frozenset({
 })
 
 FROZEN_SCOPES = {
+    # Exact, one-shot original-owner V41 installation implementation scope.
+    # CI source admission is not owner installation or science authority.
+    "engineering/f139-v41-native-original-install-entry-20261113": (
+        "98ec09b732a7764d1f2a38b98abd5927dab03dac",
+        {
+            ".github/workflows/f139-v41-original-owner-live-install.yml",
+            "f139/nci04_v41_native_original_install_cli.py",
+            "f139/v41_original_owner_live_install.ps1",
+            "f139/test_nci04_v41_native_original_install_cli.py",
+            "f139/test_nci04_v41_live_install_workflow.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Exact V41 native-stage route only; original owner, no SQLite/task mutation.
     "engineering/f139-v41-owner-native-stage-workflow-20261113": (
         "2a7f2f58f829e9de9bdf47fe963d3edbf9335982",
