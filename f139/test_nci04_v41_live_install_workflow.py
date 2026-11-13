@@ -119,7 +119,8 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
             "$ErrorActionPreference='Stop';$t=$null;$e=$null;"
             "[System.Management.Automation.Language.Parser]::ParseFile("
             "$env:F139_CHECK_PS_SOURCE,[ref]$t,[ref]$e)|Out-Null;"
-            "if(@($e).Count -ne 0){$e|ForEach-Object{Write-Output $_};exit 1}"
+            "if($null -ne $e -and @($e).Count -gt 0){"
+            "$e|ForEach-Object{Write-Output $_.Message};exit 1}"
         )
         proc = subprocess.run(
             [exe, "-NoProfile", "-NonInteractive", "-Command", program],
@@ -137,7 +138,8 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
             "$ErrorActionPreference='Stop';$t=$null;$e=$null;"
             "[System.Management.Automation.Language.Parser]::ParseInput("
             "$env:F139_CHECK_PS_READINESS,[ref]$t,[ref]$e)|Out-Null;"
-            "if(@($e).Count -ne 0){$e|ForEach-Object{Write-Output $_};exit 1}"
+            "if($null -ne $e -and @($e).Count -gt 0){"
+            "$e|ForEach-Object{Write-Output $_.Message};exit 1}"
         )
         exe = shutil.which("powershell.exe")
         self.assertIsNotNone(exe)
