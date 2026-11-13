@@ -78,6 +78,19 @@ jobs:
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
             [StructLayout(LayoutKind.Sequential)] public struct LastInput {public uint cbSize;public uint dwTime;}
             [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LastInput info);
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int index,System.Text.StringBuilder name,uint count,out uint needed);
+            public static bool InputDesktopIsDefault(){
+              IntPtr h=OpenInputDesktop(0,false,1);
+              if(h==IntPtr.Zero)return false;
+              try{
+                var b=new System.Text.StringBuilder(128);uint needed;
+                return GetUserObjectInformation(h,2,b,(uint)(b.Capacity*2),out needed) &&
+                  string.Equals(b.ToString(),"Default",StringComparison.Ordinal);
+              }finally{CloseDesktop(h);}
+            }
             public static uint IdleMs(){
               var info=new LastInput{cbSize=(uint)Marshal.SizeOf(typeof(LastInput))};
               if(!GetLastInputInfo(ref info))throw new Exception("LAST_INPUT_READ_FAILED");
@@ -96,6 +109,9 @@ jobs:
           $beforeDpi=@([KTradeOwnedDesktop]::Dpi())
           if($beforeDpi.Count -ne 1 -or $beforeDpi[0] -cne '96:96'){
             throw ('KTRADE_OWNER_NATIVE_CURRENT_100_DPI_REQUIRED_OBSERVED='+($beforeDpi -join ','))
+          }
+          if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
+            throw 'KTRADE_OWNER_NATIVE_INPUT_DESKTOP_NOT_DEFAULT'
           }
           $cursor=[KTradeOwnedDesktop+P]::new()
           if(![KTradeOwnedDesktop]::GetCursorPos([ref]$cursor)){
@@ -165,6 +181,14 @@ jobs:
             }|ConvertTo-Json -Compress))
             if($idle -lt 45000){
               throw 'KTRADE_OWNER_NATIVE_USER_ACTIVE_NO_POINTER_INPUT'
+            }
+            if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
+              throw 'KTRADE_OWNER_NATIVE_INPUT_DESKTOP_SWITCHED_DURING_BUILD'
+            }
+            $cursorPrelaunch=[KTradeOwnedDesktop+P]::new()
+            if(-not [KTradeOwnedDesktop]::GetCursorPos([ref]$cursorPrelaunch) -or
+               [KTradeOwnedDesktop]::GetForegroundWindow() -eq [IntPtr]::Zero){
+              throw 'KTRADE_OWNER_NATIVE_POINTER_PRELAUNCH_ACCESS_REFUSED'
             }
             & pwsh.exe -NoProfile -NonInteractive -File $script -ExpectedSourceSha $head -ExpectedTreeSha $tree
             if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_W160_ACCEPTANCE_FAILED'}
