@@ -14,9 +14,9 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 0cde150a304442b4209bada44c99b77f01712d5a
+      KTERM_SHA: 3d8ff329485e0e97e452e953656976e68c33296a
       KTERM_BASE: ed8bf826f8221ec31fbc880ac27d92424c03fc0a
-      KTERM_TREE: 9fddd2d007be663c2ade92a4c292274b99eefb72
+      KTERM_TREE: 73d44fee8672717ddfc05704a05f4b2b55156257
       KTERM_REISSUE_ONLY: 'false'
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
@@ -80,6 +80,8 @@ jobs:
             throw 'KTERM_PR96_IMMUTABLE_SOURCE_DRIFT'
           }
           $blobs=@{
+            '.ice/file-descriptions.json'='428a03c825103f697604b3fd3e86d667debfd326'
+            '.ice/source-file-descriptions.ice'='1529919a27f2e19123879cd9047e6606b7e04dfa'
             'INSTALL-KTerminal.bat'='61b29cee88cc8df8b67ce94468f4ca11bf0c3162'
             'internal/personalmigration/authority.go'='47c28e85098891a1739adca949e0fecabd1fd259'
             'native-authority-ui.ps1'='1ac2d039a4e9b59befb4d953c5a31c2791bf6b65'
@@ -93,7 +95,7 @@ jobs:
             if($actual -cne $blobs[$p]){throw 'KTERM_PR96_QUALIFIER_BLOB_DRIFT'}
           }
           $changed=@(& git -C $src diff --name-only $env:KTERM_BASE $env:KTERM_SHA)
-          if($LASTEXITCODE-ne0 -or $changed.Count-ne7 -or
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne9 -or
              @($changed|Where-Object{$_ -cnotin @($blobs.Keys)}).Count-ne0){
             throw 'KTERM_PR96_UNIFIED_SOURCE_SCOPE_DRIFT'
           }
@@ -775,7 +777,7 @@ jobs:
              $proof.original_desktop_smoke -cne 'NOT_RUN' -or
              $proof.field_performance -cne 'UNVERIFIED' -or
              $proof.binaries -ne 8 -or $proof.files -ne 73 -or
-             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-0cde150a3044.zip'){
+             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-3d8ff329485e.zip'){
             throw 'KTERM_FIRSTUSE_REISSUE_RECEIPT_INVALID'
           }
           $zip=Join-Path $out $proof.archive
@@ -799,9 +801,9 @@ jobs:
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: K-Terminal-Disarmed-FirstUse-0cde150a3044-${{ github.run_id }}
+          name: K-Terminal-Disarmed-FirstUse-3d8ff329485e-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-0cde150a3044.zip
+            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-3d8ff329485e.zip
             ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/FIRST-USE-RECEIPT.json
           if-no-files-found: error
           retention-days: 14
