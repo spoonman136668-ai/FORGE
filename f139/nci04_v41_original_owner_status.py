@@ -29,6 +29,81 @@ def need(condition, code):
         raise V41StatusDenied("F139_V41_OWNER_STATUS_" + code)
 
 
+
+# Only this completed failed-run folder may be inspected. No future run is
+# authorized by this diagnostic; no original or backup contents are opened.
+FAILED_BACKUP_RUN = 43332363875
+FAILED_BACKUP_SCHEMA = "forge.f139.v41.failed-cold-bundle-inventory-only.v1"
+
+
+def inspect_failed_backup_stage(original_db: Path) -> dict:
+    """Read filename categories, never filenames/bytes/paths in the receipt."""
+    path = Path(original_db)
+    need(path.is_absolute() and path.name == "state.sqlite"
+         and path.parent.is_dir() and not path.parent.is_symlink()
+         and not getattr(path.parent, "is_junction", lambda: False)(),
+         "FORENSIC_CANONICAL_PARENT")
+    folder = path.parent / ("f139-v41-before-" + str(FAILED_BACKUP_RUN))
+    status = dict(schema=FAILED_BACKUP_SCHEMA, failed_run_id=FAILED_BACKUP_RUN,
+                  classification="ABSENT", sqlite_snapshot_present=False,
+                  sealed_manifest_present=False, provider_file_count=0,
+                  prior_binary_file_count=0, unexpected_entry_count=0,
+                  contents_read=False, original_db_written=False,
+                  task_mutations=0, backup_retried=False)
+    if folder.is_symlink() or getattr(folder, "is_junction", lambda: False)():
+        status["classification"] = "UNTRUSTED_LINK"
+        return status
+    if not folder.exists():
+        return status
+    if not folder.is_dir():
+        status["classification"] = "NON_DIRECTORY"
+        return status
+    total = 0
+    for parent, dirs, files in os.walk(folder, followlinks=False):
+        prefix = Path(parent).relative_to(folder).parts
+        if len(prefix) > 4:
+            status["classification"] = "DEPTH_LIMIT"
+            return status
+        for name in (*dirs, *files):
+            total += 1
+            if total > 300:
+                status["classification"] = "ENTRY_LIMIT"
+                return status
+            entry = Path(parent) / name
+            if entry.is_symlink() or getattr(entry, "is_junction", lambda: False)():
+                status["classification"] = "UNTRUSTED_LINK"
+                return status
+            parts = (*prefix, name)
+            if name in files:
+                if not entry.is_file():
+                    status["classification"] = "NONREGULAR_ENTRY"
+                    return status
+                if parts == ("state.sqlite",):
+                    status["sqlite_snapshot_present"] = True
+                elif parts == ("manifest.sha256.json",):
+                    status["sealed_manifest_present"] = True
+                elif parts[0] == "provider-custody" and len(parts) == 4:
+                    status["provider_file_count"] += 1
+                elif parts[0] == "prior-generation-custody" and len(parts) == 3:
+                    status["prior_binary_file_count"] += 1
+                else:
+                    status["unexpected_entry_count"] += 1
+            elif (len(parts) > 3 or parts[0] not in
+                  ("provider-custody", "prior-generation-custody")):
+                status["unexpected_entry_count"] += 1
+    if status["sealed_manifest_present"]:
+        status["classification"] = "SEALED_MARKER_PRESENT_UNVERIFIED"
+    elif status["prior_binary_file_count"]:
+        status["classification"] = "PARTIAL_AFTER_PRIOR_BINARY"
+    elif status["provider_file_count"]:
+        status["classification"] = "PARTIAL_AFTER_PROVIDER"
+    elif status["sqlite_snapshot_present"]:
+        status["classification"] = "PARTIAL_AFTER_SQLITE"
+    else:
+        status["classification"] = "EMPTY_OR_NONSTANDARD_STAGE"
+    return status
+
+
 def inspect_original(path, api, *, target):
     """Actual original read-only ledger + authenticated catalog, no cutover."""
     path = Path(path)
@@ -99,6 +174,7 @@ def inspect_original(path, api, *, target):
         "reissue_authorized": False,
         "scientific_first_use": False,
         "hybrid_admission": False,
+        "failed_backup_forensic": inspect_failed_backup_stage(path),
     }
 
 
