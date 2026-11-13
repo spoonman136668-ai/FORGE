@@ -97,7 +97,7 @@ Need ($event.action -ceq 'created' -and
   [string]$event.comment.body -clike 'F139-V41-LIVE-INSTALL *') 'EXACT_OWNER_COMMENT'
 $id=[Security.Principal.WindowsIdentity]::GetCurrent()
 $administrator=[Security.Principal.WindowsPrincipal]::new($id)
-Need $administrator.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) 'ADMIN_REQUIRED'
+Need ($administrator.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'ADMIN_REQUIRED'
 $data=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
 $stage=Join-Path $data ('release-candidates\'+$Target)
 $binary=Join-Path $data ('genenv-source\'+$Target+'\f139-genenv-source.exe')
@@ -172,7 +172,7 @@ try {
   $disabled=$true
   Disable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
   $taskNow=Get-ScheduledTask -TaskName $name -ErrorAction Stop
-  if([string]$taskNow.State -ceq 'Running'){
+  if([string]$task.State -ceq 'Running'){
     Stop-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
   }
   for($i=0;$i -lt 40;$i++){
@@ -219,8 +219,11 @@ try {
   $oldAction=$task.Actions[0]
   $workingDir=[string]$oldAction.WorkingDirectory
   if($workingDir -ceq $originalRoot){$workingDir=$stage}
-  $newAction=New-ScheduledTaskAction -Execute ([string]$oldAction.Execute) -Argument $newArgs
-  if($workingDir){$newAction.WorkingDirectory=$workingDir}
+  if($workingDir){
+    $newAction=New-ScheduledTaskAction -Execute ([string]$oldAction.Execute) -Argument $newArgs -WorkingDirectory $workingDir
+  } else {
+    $newAction=New-ScheduledTaskAction -Execute ([string]$oldAction.Execute) -Argument $newArgs
+  }
   Set-ScheduledTask -TaskName $name -Action $newAction -ErrorAction Stop|Out-Null
   $retargeted=Get-ScheduledTask -TaskName $name -ErrorAction Stop
   Need ($retargeted.Settings.Enabled -eq $false -and
