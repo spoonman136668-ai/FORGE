@@ -107,6 +107,56 @@ class V41OriginalOwnerStatusTests(unittest.TestCase):
             with self.assertRaises(route.V41StatusDenied):
                 route.inspect_failed_backup_stage(Path("state.sqlite"))
 
+
+    def test_failed_backup_inventory_resolves_previous_300_entry_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            db = base / "state.sqlite"
+            db.write_bytes(b"immutable-original")
+            folder = base / ("f139-v41-before-" + str(route.FAILED_BACKUP_RUN))
+            folder.mkdir()
+            (folder / "state.sqlite").write_bytes(b"private")
+            for i in range(110):
+                custody = folder / "provider-custody" / ("f139-nci04-ticket-" + str(i)) / "7"
+                custody.mkdir(parents=True)
+                for name in ("manifest.json", "ubuntu-latest.zip", "windows-latest.zip"):
+                    (custody / name).write_bytes(b"secret")
+            binary = folder / "prior-generation-custody" / ("a" * 40)
+            binary.mkdir(parents=True)
+            (binary / "f139-genenv-source.exe").write_bytes(b"secret")
+            with patch("builtins.open", side_effect=AssertionError("no file read")):
+                result = route.inspect_failed_backup_stage(db)
+            self.assertTrue(result["inventory_complete"])
+            self.assertGreater(result["entries_scanned"], 300)
+            self.assertLess(result["entries_scanned"], route.MAX_FORENSIC_ENTRIES)
+            self.assertEqual(result["classification"], "PARTIAL_AFTER_PRIOR_BINARY")
+            self.assertEqual(result["provider_complete_groups"], 110)
+            self.assertEqual(result["provider_incomplete_groups"], 0)
+            self.assertEqual(result["provider_file_count"], 330)
+            self.assertEqual(result["prior_binary_file_count"], 1)
+            self.assertEqual(db.read_bytes(), b"immutable-original")
+
+    def test_failed_backup_inventory_stays_bounded_and_rejects_partial_custody(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            db = base / "state.sqlite"
+            db.write_bytes(b"immutable-original")
+            folder = base / ("f139-v41-before-" + str(route.FAILED_BACKUP_RUN))
+            package = folder / "provider-custody" / "f139-nci04-missing-one" / "7"
+            package.mkdir(parents=True)
+            (package / "manifest.json").write_bytes(b"private")
+            result = route.inspect_failed_backup_stage(db)
+            self.assertTrue(result["inventory_complete"])
+            self.assertEqual(result["provider_incomplete_groups"], 1)
+            self.assertEqual(result["provider_complete_groups"], 0)
+            with patch.object(route, "MAX_FORENSIC_ENTRIES", 2):
+                denied = route.inspect_failed_backup_stage(db)
+            self.assertEqual(denied["classification"], "ENTRY_LIMIT")
+            self.assertFalse(denied["inventory_complete"])
+            self.assertEqual(denied["entries_scanned"], 2)
+            self.assertFalse(denied["contents_read"])
+            self.assertEqual(db.read_bytes(), b"immutable-original")
+
     def test_existing_mutation_routes_are_not_exposed(self):
         import inspect
         code=inspect.getsource(route)
