@@ -58,8 +58,19 @@ try {
   Write-Output 'F139_HYBRID_POLICY_UPDATE=FALSE'
   Write-Output 'F139_HYBRID_SCIENTIFIC_FIRST_USE=FALSE'
 } catch {
+  # Retain the original cause. A separate query-only replay of the observed
+  # event chain can classify a lost receipt; it NEVER retries the commit.
+  $priorError=$_.Exception.Message
+  try {
+    & python -B -m f139.nci04_v41_hybrid_held_recovery --target $Target
+    if($LASTEXITCODE -ne 0) {
+      Write-Warning 'F139_HYBRID_V41_READONLY_RECOVERY_UNVERIFIED'
+    }
+  } catch {
+    Write-Warning 'F139_HYBRID_V41_READONLY_RECOVERY_UNVERIFIED'
+  }
   # On an uncertain commit, NEVER restore old SQLite or resume V41:
   # independently authenticated forward repair is mandatory.
   throw ('F139_HYBRID_V41_ORIGINAL_SOURCE_FORWARD_REPAIR_HOLD: '+
-         $_.Exception.Message)
+         $priorError)
 }
