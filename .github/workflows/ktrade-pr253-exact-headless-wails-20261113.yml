@@ -73,10 +73,6 @@ jobs:
             $env:npm_config_cache=Join-Path $root 'npm-cache'
             $env:GH_PROMPT_DISABLED='1'
             $env:GIT_TERMINAL_PROMPT='0'
-            $goVersion=((& go.exe version) -join ' ')
-            if($LASTEXITCODE -ne 0 -or $goVersion -notmatch '^go version go1\.26\.10 '){
-              throw 'KTRADE_PR253_HEADLESS_PINNED_GO_UNAVAILABLE'
-            }
             $scope='PRIVATE_CLONE'
             & gh.exe repo clone spoonman136668-ai/ktrade $source -- --filter=blob:none --no-checkout *> $stageLog
             if($LASTEXITCODE -ne 0){throw 'KTRADE_PR253_HEADLESS_PRIVATE_SOURCE_UNAVAILABLE'}
@@ -114,6 +110,13 @@ jobs:
               $testsPassed=$true
             }finally{Pop-Location}
             Write-Host ('KTRADE_PR253_HEADLESS_FOCUSED_TESTS=PASS;source_sha='+$head+';tests=10')
+            # Preserve pinned Go qualification, but run source-only regression
+            # before toolchain acquisition so failures classify independently.
+            $scope='PINNED_GO_PREFLIGHT'
+            $goVersion=((& go.exe version) -join ' ')
+            if($LASTEXITCODE -ne 0 -or $goVersion -notmatch '^go version go1\.26\.11 '){
+              throw 'KTRADE_PR253_HEADLESS_PINNED_GO_UNAVAILABLE'
+            }
             $scope='OFFLINE_VENDOR_STAGE'
             Push-Location $source
             try{
