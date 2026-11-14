@@ -12,13 +12,12 @@ from f139 import nci04_v41_hybrid_held_recovery as recovery
 from f139 import nci04_v41_hybrid_original_commit as commit
 from f139 import nci04_v41_hybrid_source_transition as source
 from f139.local_controller import Database, SingleOwner
-from f139.test_nci04_v41_hybrid_source_transition import (
-    HybridSyntheticSqlTransactionTests)
+from f139 import test_nci04_v41_hybrid_source_transition as fixture_tests
 
 
 class HeldReadOnlyRecoveryFixtureTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = HybridSyntheticSqlTransactionTests(
+        self.fixture = fixture_tests.HybridSyntheticSqlTransactionTests(
             "test_atomic_source_commit_keeps_history_and_new_dispatches_zero")
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
