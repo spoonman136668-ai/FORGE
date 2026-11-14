@@ -1,0 +1,121 @@
+name: KTRADE PR253 owner local ZIP immutable read-only custody
+on:
+  push:
+    branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
+    paths:
+      - .github/workflows/ktrade-pr253-owner-zip-custody-readonly-20261114.yml
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-pr253-owner-zip-custody-once
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Verify owner-built exact ZIP, receipt and every signed-by-manifest file hash without launching
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Require([bool]$ok,[string]$reason){if(!$ok){throw $reason}}
+          $sourceSha='98783a8b509d355c3d75ca9fe665517f13c9dc75'
+          $treeSha='32cba5d0679afcfe8348243ece0d870823ab55b2'
+          $expectedArchive='43f62a8b2ef9e7a7cedda75b216c7bf8e84e0030863afd5276bb92f86b3ca78b'
+          $expectedManifest='726b86f37d0a745d4a3c78f8fdfbfd905482e7eb0c3877e3b1f108b08923c4cb'
+          $base='KTRADE-PR253-UNSIGNED-98783a8b509d-2c8bce64'
+          Require ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -and
+            $env:GITHUB_EVENT_NAME -ceq 'push' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            $env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_ENVIRONMENT -ceq 'self-hosted' -and
+            $env:COMPUTERNAME -ceq 'LINKDEADKB' -and
+            [Security.Principal.WindowsIdentity]::GetCurrent().Name -ieq 'LINKDEADKB\camar' -and
+            [Diagnostics.Process]::GetCurrentProcess().SessionId -eq 1) 'KTRADE_OWNER_ZIP_WRONG_RUNNER_OR_SCOPE'
+          $downloads=Join-Path $env:USERPROFILE 'Downloads'
+          Require (Test-Path -LiteralPath $downloads -PathType Container) 'KTRADE_OWNER_DOWNLOADS_UNAVAILABLE'
+          Require (!(Get-Item -LiteralPath $downloads -Force).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'KTRADE_OWNER_REDIRECTED_DOWNLOADS_REFUSED'
+          $archivePath=Join-Path $downloads ($base+'.zip')
+          $receiptPath=Join-Path $downloads ($base+'.receipt.json')
+          foreach($target in @($archivePath,$receiptPath)){
+            Require (Test-Path -LiteralPath $target -PathType Leaf) 'KTRADE_OWNER_EXPECTED_ARTIFACT_NOT_FOUND'
+            $item=Get-Item -LiteralPath $target -Force
+            Require (-not $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'KTRADE_OWNER_ARTIFACT_REDIRECT_REFUSED'
+          }
+          $archiveItem=Get-Item -LiteralPath $archivePath
+          Require ($archiveItem.Length -gt 1024 -and $archiveItem.Length -lt 2147483648) 'KTRADE_OWNER_ZIP_SIZE_REFUSED'
+          $archiveSha=(Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Require ($archiveSha -ceq $expectedArchive) 'KTRADE_OWNER_ZIP_HASH_MISMATCH'
+          $receipt=Get-Content -LiteralPath $receiptPath -Raw -ErrorAction Stop|ConvertFrom-Json
+          Require ($receipt.schema -ceq 'ktrade.pr253.private-local-build-receipt.v1' -and
+            $receipt.source_sha -ceq $sourceSha -and $receipt.tree_sha -ceq $treeSha -and
+            $receipt.go_version -ceq 'go1.26.11' -and
+            $receipt.installer_sha256 -ceq $expectedArchive -and
+            $receipt.installer_manifest_sha256 -ceq $expectedManifest -and
+            $receipt.signature_status -ceq 'unsigned' -and
+            $receipt.live_armed -eq $false -and $receipt.release_authority -ceq 'none' -and
+            $receipt.installation_performed -eq $false -and
+            $receipt.artifact_distribution -ceq 'local-owner-review-only' -and
+            $receipt.local_candidate_go_node_regression -ceq 'PASS') 'KTRADE_OWNER_LOCAL_RECEIPT_DRIFT'
+          Add-Type -AssemblyName System.IO.Compression
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $expected=@('KTRADE-Setup.ps1','Manage-KTRADE-FreshInstall.ps1','release-setup.exe',
+            'release-launch.exe','release-maintain.exe','KTRADE-Setup.exe','KTRADE-Payload.zip')
+          $allowed=@($expected+'installer-manifest.json')
+          $zip=[IO.Compression.ZipFile]::OpenRead($archivePath)
+          $entryHashes=0
+          try{
+            $entries=@($zip.Entries)
+            Require ($entries.Count -eq 8) 'KTRADE_OWNER_ZIP_ENTRY_COUNT_DRIFT'
+            $names=@($entries|ForEach-Object {$_.FullName})
+            Require (@($names|Select-Object -Unique).Count -eq 8) 'KTRADE_OWNER_DUPLICATE_ENTRY_REFUSED'
+            foreach($name in $names){
+              Require ($allowed -ccontains $name -and $name -notmatch '[\/\\]') 'KTRADE_OWNER_ZIP_ENTRY_SCOPE_REFUSED'
+            }
+            $manifestEntry=@($entries|Where-Object {$_.FullName -ceq 'installer-manifest.json'})
+            Require ($manifestEntry.Count -eq 1 -and $manifestEntry[0].Length -lt 65536) 'KTRADE_OWNER_MANIFEST_ENTRY_REFUSED'
+            $stream=$manifestEntry[0].Open()
+            try{
+              $buffer=[IO.MemoryStream]::new()
+              try{$stream.CopyTo($buffer);$manifestBytes=$buffer.ToArray()}
+              finally{$buffer.Dispose()}
+            }finally{$stream.Dispose()}
+            $sha=[Security.Cryptography.SHA256]::Create()
+            try{$manifestHash=[BitConverter]::ToString($sha.ComputeHash($manifestBytes)).Replace('-','').ToLowerInvariant()}
+            finally{$sha.Dispose()}
+            Require ($manifestHash -ceq $expectedManifest) 'KTRADE_OWNER_MANIFEST_BYTES_HASH_DRIFT'
+            $manifest=[Text.Encoding]::UTF8.GetString($manifestBytes)|ConvertFrom-Json
+            Require ($manifest.schema -ceq 'ktrade.setup-bundle.v2' -and
+              $manifest.source_sha -ceq $sourceSha -and $manifest.signature_status -ceq 'unsigned' -and
+              $manifest.live_armed -eq $false -and $manifest.release_authority -ceq 'none') 'KTRADE_OWNER_MANIFEST_SCOPE_DRIFT'
+            $rows=@($manifest.files)
+            Require ($rows.Count -eq 7) 'KTRADE_OWNER_MANIFEST_FILE_COUNT_DRIFT'
+            $observed=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach($row in $rows){
+              $name=[string]$row.name
+              Require ($expected -ccontains $name -and $observed.Add($name)) 'KTRADE_OWNER_MANIFEST_FILE_SCOPE_REFUSED'
+              $parts=@($entries|Where-Object {$_.FullName -ceq $name})
+              Require ($parts.Count -eq 1 -and $parts[0].Length -eq [long]$row.size -and
+                $parts[0].Length -gt 0 -and $parts[0].Length -lt 1610612736) 'KTRADE_OWNER_MANIFEST_FILE_SIZE_DRIFT'
+              $fileStream=$parts[0].Open()
+              try{
+                $h=[Security.Cryptography.SHA256]::Create()
+                try{$computed=[BitConverter]::ToString($h.ComputeHash($fileStream)).Replace('-','').ToLowerInvariant()}
+                finally{$h.Dispose()}
+              }finally{$fileStream.Dispose()}
+              Require ($computed -ceq [string]$row.sha256) 'KTRADE_OWNER_MANIFEST_FILE_HASH_DRIFT'
+              $entryHashes++
+            }
+          }finally{$zip.Dispose()}
+          Require ($entryHashes -eq 7) 'KTRADE_OWNER_ZIP_FILE_DIGEST_INCOMPLETE'
+          Write-Host ('KTRADE_OWNER_LOCAL_ZIP_CUSTODY='+([ordered]@{
+            schema='ktrade.pr253.owner-local-archive-readonly-custody.v1'
+            source_sha=$sourceSha;tree_sha=$treeSha;go_version='go1.26.11'
+            zip_sha256=$archiveSha;manifest_sha256=$expectedManifest
+            receipt_verified=$true;manifest_verified=$true;manifest_file_hashes_verified=$entryHashes
+            unsigned=$true;live_armed=$false;release_authority='none'
+            source_requalification_reused=$true;owner_physical_native_acceptance='UNVERIFIED'
+            owner_zip_installed=$false;app_launched=$false;broker_called=$false
+            user_files_written=$false;settings_changed=$false;scheduled_tasks_created=$false
+            archive_or_raw_file_uploaded=$false
+          }|ConvertTo-Json -Compress -Depth 3))
