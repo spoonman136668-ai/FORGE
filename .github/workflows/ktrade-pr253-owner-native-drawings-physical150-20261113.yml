@@ -441,7 +441,7 @@ jobs:
           }
           if(!$succeeded){throw 'KTRADE_OWNER_NATIVE_NOT_ACCEPTED'}
           Write-Host 'KTRADE_PR253_NATIVE_W160_PHYSICAL_150_PERCENT=PASS'
-      - name: Independently verify and restore original screen saver even after test failure
+      - name: Independently verify owner's 20 minute screen saver remains unchanged after test
         if: always()
         shell: pwsh
         run: |
@@ -451,56 +451,25 @@ jobs:
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
              $env:COMPUTERNAME -cne 'LINKDEADKB' -or
              [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
-            throw 'KTRADE_OWNER_SCREENSAVER_RESTORE_IDENTITY_REFUSED'
-          }
-          $file=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-saver-'+$env:GITHUB_RUN_ID+'.json')
-          if(!(Test-Path -LiteralPath $file -PathType Leaf)){
-            Write-Host 'KTRADE_OWNER_SCREENSAVER_SECONDARY_RESTORE=NOT_REQUIRED;no_preimage'
-            exit 0
-          }
-          $pre=Get-Content -LiteralPath $file -Raw -ErrorAction Stop|ConvertFrom-Json
-          if($pre.schema -cne 'ktrade.pr253.screensaver-volatile-preimage.v1' -or
-             $pre.runner -cne 'FORGE-CODEX-REMOTE' -or
-             $pre.run -cne $env:GITHUB_RUN_ID -or
-             $pre.source_sha -cne '98783a8b509d355c3d75ca9fe665517f13c9dc75' -or
-             [int]$pre.timeout_seconds -ne 60 -or
-             [string]$pre.registry_timeout -cne '60'){
-            throw 'KTRADE_OWNER_SCREENSAVER_PREIMAGE_INVALID'
+            throw 'KTRADE_MANUAL20_INDEPENDENT_SCOPE_REFUSED'
           }
           Add-Type -TypeDefinition @'
           using System;
           using System.Runtime.InteropServices;
-          public static class KtradePr253SecondaryRestore {
+          public static class KtradeManual20Independent {
             [DllImport("user32.dll",SetLastError=true)]
-            public static extern bool SystemParametersInfo(uint a,uint b,ref uint v,uint f);
-            [DllImport("user32.dll",SetLastError=true)]
-            public static extern bool SystemParametersInfo(uint a,uint b,IntPtr v,uint f);
+            public static extern bool SystemParametersInfo(uint action,uint param,ref uint value,uint flags);
             public static uint Read(){
               uint v=0;
               if(!SystemParametersInfo(0x000E,0,ref v,0))
-                throw new Exception("SECONDARY_READ_FAILED");
+                throw new Exception("MANUAL20_SAVER_READ_FAILED");
               return v;
-            }
-            public static void Set(uint v){
-              if(!SystemParametersInfo(0x000F,v,IntPtr.Zero,0))
-                throw new Exception("SECONDARY_SET_FAILED");
             }
           }
           '@
-          $current=[KtradePr253SecondaryRestore]::Read()
-          if($current -ne [uint32]$pre.timeout_seconds){
-            [KtradePr253SecondaryRestore]::Set([uint32]$pre.timeout_seconds)
+          $seconds=[KtradeManual20Independent]::Read()
+          $reg=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+          if($seconds -ne 1200 -or [string]$reg.ScreenSaveTimeOut -cne '1200'){
+            throw 'KTRADE_OWNER_MANUAL20_SETTINGS_CHANGED'
           }
-          $final=[KtradePr253SecondaryRestore]::Read()
-          $persist=[string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop).ScreenSaveTimeOut
-          if($final -ne [uint32]$pre.timeout_seconds -or $persist -cne [string]$pre.registry_timeout){
-            throw 'KTRADE_OWNER_SCREENSAVER_SECONDARY_RESTORE_FAILED'
-          }
-          Remove-Item -LiteralPath $file -Force -ErrorAction Stop
-          Write-Host ('KTRADE_OWNER_SCREENSAVER_SECONDARY_RESTORE='+(@{
-            result='PASS';effective_timeout_seconds=$final
-            persistent_registry_timeout_seconds=$persist
-            original_screen_saver_settings_restored=$true
-            user_profile_data_untouched=$true;display_dpi_untouched=$true
-            scheduled_tasks_created=$false
-          }|ConvertTo-Json -Compress -Depth 3))
+          Write-Host 'KTRADE_OWNER_MANUAL20_INDEPENDENT_READBACK=PASS;effective_seconds=1200;registry_seconds=1200;settings_changed=false;scheduled_tasks_created=false'
