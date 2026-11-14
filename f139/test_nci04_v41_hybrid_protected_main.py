@@ -23,6 +23,8 @@ class ProtectedMainHybridTests(unittest.TestCase):
                    "base":{"ref":"main","sha":bridge.V41,
                            "repo":{"full_name":bridge.REPO}}}
         self.commit = {"sha":TARGET,"tree":{"sha":TREE}}
+        self.ancestry = {"status":"ahead","ahead_by":3,"behind_by":0,
+                         "merge_base_commit":{"sha":bridge.V41}}
         self.runs = {"workflow_runs":[
             {"id":i+200,"name":name,"head_sha":TARGET,"event":"push",
              "head_branch":"main","status":"completed",
@@ -40,6 +42,9 @@ class ProtectedMainHybridTests(unittest.TestCase):
             return self.pr
         if path==prefix+"git/commits/"+TARGET:
             return self.commit
+        if path==(prefix+"compare/"+bridge.V41+"..."+TARGET
+                 +"?per_page=1&page=2"):
+            return self.ancestry
         if path==prefix+"actions/runs?head_sha="+TARGET+"&event=push&branch=main&per_page=100":
             return self.runs
         raise AssertionError("noncanonical route: "+path)
@@ -91,6 +96,20 @@ class ProtectedMainHybridTests(unittest.TestCase):
                     bridge.ProtectedHybridSourceDenied,"MERGED_PR1660"):
                 self.auth()
             self.pr[field]=old
+
+    def test_original_source_ancestry_must_remain_exact(self):
+        for change in ({"status":"diverged"}, {"behind_by":1},
+                       {"merge_base_commit":{"sha":"f"*40}}):
+            prior=self.ancestry
+            self.ancestry={**prior,**change}
+            with self.subTest(change=change),self.assertRaisesRegex(
+                    bridge.ProtectedHybridSourceDenied,"V41_SOURCE_ANCESTRY"):
+                self.auth()
+            self.ancestry=prior
+
+    def test_base_pointer_may_be_current_merge_commit(self):
+        self.pr["base"]["sha"]=TARGET
+        self.assertTrue(self.auth()["postmerge_ci_verified"])
 
     def test_wrong_main_event_or_rerun_denied(self):
         for key,val in (

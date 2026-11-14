@@ -11,7 +11,9 @@ maintenance operation, but the executable owner-maintenance source must be
 it requires exact first-attempt original-owner issue-comment provenance,
 the protected-main SHA equal the executing source, merged PR #1660 owned by
 \`spoonman136668-ai\` with that exact merge commit, historical V41 base,
-authenticated commit tree, and four distinct terminal successful postmerge
+authenticated V41-to-merge ancestry (even if GitHub updates the PR base
+branch pointer after merge), immutable commit tree, and four distinct
+terminal successful postmerge
 push workflows for the same SHA (no retries, duplicates or other actors).
 It re-reads main/PR/tree after CI and fails closed on drift. The exact main
 commit cannot be known until a separately authorized merge; the gate does

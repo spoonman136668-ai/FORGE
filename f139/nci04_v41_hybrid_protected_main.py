@@ -51,8 +51,22 @@ def _source(get, target):
          and pr["base"].get("ref") == "main"
          and type(pr["base"].get("repo")) is dict
          and pr["base"]["repo"].get("full_name") == REPO
-         and pr["base"].get("sha") == V41,
+         and pr["base"].get("sha") in (V41, target),
          "MERGED_PR1660_CUSTODY_NOT_PROVEN")
+    # GitHub may advance a merged PR's base.sha to the merge commit;
+    # verify original-V41 ancestry independently instead of trusting that
+    # mutable branch pointer as the pre-merge base.
+    ancestry = get(prefix + "compare/" + V41 + "..." + target
+                   + "?per_page=1&page=2")
+    need(type(ancestry) is dict
+         and ancestry.get("status") == "ahead"
+         and type(ancestry.get("ahead_by")) is int
+         and ancestry["ahead_by"] > 0
+         and type(ancestry.get("behind_by")) is int
+         and ancestry["behind_by"] == 0
+         and type(ancestry.get("merge_base_commit")) is dict
+         and ancestry["merge_base_commit"].get("sha") == V41,
+         "V41_SOURCE_ANCESTRY_NOT_VERIFIED")
     commit = get(prefix + "git/commits/" + target)
     need(type(commit) is dict and commit.get("sha") == target
          and type(commit.get("tree")) is dict
