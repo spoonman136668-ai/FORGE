@@ -33,9 +33,37 @@ jobs:
           path: hybrid
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@a02a550bdd3185dba2ebb6aa98d77047ce54ad21
         with:
-          python-version: '3.11.11'
+          version: '0.9.5'
+          enable-cache: false
+      - name: Install and pin managed Python 3.11.11 before dependency resolution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-public-hybrid-original-worker-readonly-20261114' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:OPENAI_API_KEY -or $env:GH_TOKEN -or $env:GITHUB_TOKEN){
+            throw 'F139_HYBRID_CPU_TRUSTED_PYTHON_AUTHORITY_DENIED'
+          }
+          $v=(& uv --version|Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $v -cnotmatch '^uv\\s+0\\.9\\.5(?:\\s|$)'){
+            throw 'F139_HYBRID_CPU_UV_VERSION_DRIFT'
+          }
+          & uv python install 3.11.11
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_CPU_MANAGED_PYTHON_INSTALL_FAILED'}
+          $exe=(& uv python find 3.11.11 |Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $exe -PathType Leaf)){
+            throw 'F139_HYBRID_CPU_MANAGED_INTERPRETER_MISSING'
+          }
+          $v=(& $exe -B -c 'import platform;print(platform.python_version())' |Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $v -cne '3.11.11'){
+            throw 'F139_HYBRID_CPU_MANAGED_INTERPRETER_VERSION_DRIFT'
+          }
+          "F139_PINNED_MANAGED_PYTHON=$exe" >> $env:GITHUB_ENV
+          Write-Output 'F139_HYBRID_CPU_EXACT_PYTHON=PASS'
       - name: Freeze official CPU wheels by SHA256 BEFORE any installs
         shell: pwsh
         env:
@@ -134,7 +162,7 @@ jobs:
               "science_first_use":False
           },sort_keys=True,separators=(",",":")))
           '@
-          $out=@($code | & python -B -)
+          $out=@($code | & $env:F139_PINNED_MANAGED_PYTHON -B -)
           if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_PUBLIC_CPU_WHEEL_QUALIFICATION_FAILED'}
           $out|ForEach-Object{Write-Output $_}
           if(-not(@($out|Where-Object{$_ -cmatch '^F139_HYBRID_PUBLIC_CPU_OFFLINE_INSTALL='}).Count -eq 1)){
