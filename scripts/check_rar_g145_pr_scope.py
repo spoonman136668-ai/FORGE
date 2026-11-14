@@ -34,9 +34,11 @@ HYBRID_COMPLETE_FILES = frozenset({
     "f139/nci04_v41_hybrid_successor_release.py",
     "f139/test_nci04_v41_hybrid_successor_release.py",
     "f139/test_nci04_v41_hybrid_safe_abort.py",
+    "f139/test_nci04_v41_hybrid_source_hold.py",
     "f139/test_v41_hybrid_original_activate.py",
     "f139/v41_hybrid_original_activate.ps1",
     "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
 })
 
 V41_PAUSE_BRANCH = "engineering/f139-v41-original-pause-backup-resume-20261112"
