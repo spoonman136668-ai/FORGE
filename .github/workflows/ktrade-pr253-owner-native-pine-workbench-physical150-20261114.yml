@@ -3,7 +3,9 @@ on:
   push:
     branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
     paths:
-      - .github/workflows/ktrade-pr253-owner-native-pine-workbench-physical150-20261114.yml
+      # Explicit owner-authorized native recheck signal only; changes to this
+      # qualification workflow MUST NOT automatically take the desktop.
+      - .github/ktrade-pr253-owner-native-pine-retry.signal
 permissions:
   contents: read
 concurrency:
@@ -337,8 +339,14 @@ jobs:
             $env:GIT_TERMINAL_PROMPT='0'
             & gh.exe repo clone spoonman136668-ai/ktrade $source -- --filter=blob:none --no-checkout *> $clonelog
             if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_PRIVATE_SOURCE_UNAVAILABLE'}
-            & git.exe -C $source fetch --no-tags --depth 1 origin $env:KTRADE_EXPECTED_SOURCE *> $clonelog
-            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_PINNED_SOURCE_FETCH_FAILED'}
+            # Named ref is fetchable even when a private server refuses a raw
+            # unadvertised object-ID fetch. Never accept a different branch tip.
+            & git.exe -C $source fetch --no-tags --depth 1 origin refs/heads/feature/rb3-workstation-ui-refresh-20261108 *> $clonelog
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_PRIVATE_BRANCH_FETCH_FAILED'}
+            $fetched=(& git.exe -C $source rev-parse FETCH_HEAD).Trim()
+            if($LASTEXITCODE -ne 0 -or $fetched -cne $env:KTRADE_EXPECTED_SOURCE){
+              throw 'KTRADE_OWNER_NATIVE_PRIVATE_BRANCH_SHA_DRIFT'
+            }
             & git.exe -C $source checkout --detach $env:KTRADE_EXPECTED_SOURCE *> $clonelog
             if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_CHECKOUT_FAILED'}
             $head=(& git.exe -C $source rev-parse HEAD).Trim()
