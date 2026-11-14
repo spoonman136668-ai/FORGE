@@ -3,8 +3,12 @@
 **Source-only; no owner execution or live release authorization.**
 
 The original V41 owner is pinned to `1a40fe4e3ec6e93a1631d59863b95e90981d734e`.
-Existing Hybrid source PR #1660 is pinned here to `788673aae2d1b42a0c9152395a866e910191cbdd`.
-Both identifiers must be requalified if either source moves.
+Hybrid PR #1660 must be independently authenticated at its CURRENT exact head
+through the original native GitHub reader; the tool re-reads the protected
+V41 main and PR base/head before and after SQLite verification. The previous
+qualified Hybrid candidate was 788673aa..., but it is historical after edits
+to this PR. The final source always needs its own complete Linux/Windows
+qualification and separately authorized protected release.
 
 The older genuine V41 backup (run 43502062840) was captured at event 1826.
 The new owner after V41 installation was observed at event 1829. Those are

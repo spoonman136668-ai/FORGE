@@ -51,7 +51,7 @@ class HybridColdPairTests(unittest.TestCase):
                 with SingleOwner(self.original_path.with_suffix(".lock")):
                     return cold.verify_original_sqlite_pair(
                         original, path or self.backup_path,
-                        target_sha=sha or cold.HYBRID_CANDIDATE)
+                        target_sha=sha or TARGET, get=provider or self.get)
 
     def test_exact_original_and_clean_standalone_copy_match(self):
         receipt = self.run_pair()
@@ -72,7 +72,7 @@ class HybridColdPairTests(unittest.TestCase):
             self.run_pair(lease=False)
 
     def test_candidate_sha_must_be_exact(self):
-        with self.assertRaisesRegex(cold.HybridColdPairDenied, "CANDIDATE"):
+        with self.assertRaisesRegex(cold.HybridColdPairDenied, "SOURCE_DRIFT"):
             self.run_pair(sha="f" * 40)
 
     def test_provider_identity_is_verified_before_backup(self):
