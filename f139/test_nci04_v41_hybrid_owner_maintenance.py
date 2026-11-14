@@ -83,6 +83,7 @@ class HybridOwnerMaintenanceTests(unittest.TestCase):
 
     def preflight(self, *, env=None, event=None, provider=None):
         with patch.object(route, "_task_readback", return_value=True), \
+             patch.object(route, "_candidate_clean_checkout", return_value=True), \
              patch.object(pair, "MIN_V41_HEAD", 0), \
              patch.object(pair, "verify_native_activation",
                           return_value=True):
@@ -161,6 +162,22 @@ class HybridOwnerMaintenanceTests(unittest.TestCase):
                 finally:
                     self.policy=old
 
+    def test_candidate_checkout_wrong_source_or_dirty_is_denied(self):
+        def bad_git(args, **kwargs):
+            if "rev-parse" in args:
+                return subprocess.CompletedProcess(args,0,b"f"*40+b"\n",b"")
+            return subprocess.CompletedProcess(args,0,b"",b"")
+        with self.assertRaisesRegex(route.HybridOwnerBackupDenied,
+                                    "WRONG_HEAD"):
+            route._candidate_clean_checkout(TARGET,runner=bad_git)
+        def dirty_git(args, **kwargs):
+            if "rev-parse" in args:
+                return subprocess.CompletedProcess(args,0,TARGET.encode()+b"\n",b"")
+            return subprocess.CompletedProcess(args,0,b" M dirty.py\n",b"")
+        with self.assertRaisesRegex(route.HybridOwnerBackupDenied,
+                                    "DIRTY_OR_WRONG_HEAD"):
+            route._candidate_clean_checkout(TARGET,runner=dirty_git)
+
     def test_source_pr_move_denied(self):
         def wrong(url):
             if url.endswith("/pulls/1660"):
@@ -181,7 +198,8 @@ class HybridOwnerMaintenanceTests(unittest.TestCase):
                                      target_sha=TARGET)
 
     def test_backup_without_original_paused_task_fails_before_stage(self):
-        with patch.object(route, "_task_readback",
+        with patch.object(route, "_candidate_clean_checkout", return_value=True), \
+             patch.object(route, "_task_readback",
                           side_effect=route.HybridOwnerBackupDenied(
                               "F139_HYBRID_V41_OWNER_BACKUP_TASK_NOT_DISABLED")):
             with self.assertRaisesRegex(route.HybridOwnerBackupDenied,

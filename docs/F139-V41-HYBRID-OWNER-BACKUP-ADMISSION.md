@@ -10,7 +10,9 @@ The new \`f139/nci04_v41_hybrid_owner_maintenance.py\` has explicit
 owner runner, first-attempt issue-comment event #807 with exact owner text
 \`F139-HYBRID-V41-BACKUP-ONLY <current PR #1660 head SHA>\`, double
 provider readback of that comment, protected V41 main, current open PR head
-and base, and the unchanged two-lane policy. The user must authorize any
+and base, and the unchanged two-lane policy. The Git checkout executing the backup
+must be clean and EXACTLY the current authenticated PR candidate SHA,
+not an Actions synthetic merge ref or local uncommitted code. The user must authorize any
 actual task pause/resume separately; a comment here is one authenticated,
 scoped backup intent, NOT release or first-use authority.
 

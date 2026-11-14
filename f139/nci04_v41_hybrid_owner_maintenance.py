@@ -198,10 +198,34 @@ Write-Output 'F139_HYBRID_V41_ORIGINAL_TASK_READONLY=PASS'
     return True
 
 
+def _candidate_clean_checkout(target_sha, *, runner=None):
+    """Check exact fully committed candidate source, not just remote PR text."""
+    need(type(target_sha) is str and SHA40.fullmatch(target_sha) is not None,
+         "CANDIDATE_CHECKOUT_ARGUMENTS")
+    checkout = Path(__file__).resolve().parents[1]
+    git = shutil.which("git")
+    need(git is not None and checkout.is_dir(), "CANDIDATE_GIT_MISSING")
+    run = subprocess.run if runner is None else runner
+    for params, wanted in (
+            (("rev-parse", "HEAD"), target_sha.encode("ascii")),
+            (("status", "--porcelain", "--untracked-files=all"), b"")):
+        try:
+            result = run([git, "-C", str(checkout), *params],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         stdin=subprocess.DEVNULL, timeout=25, check=False)
+        except subprocess.TimeoutExpired as error:
+            raise HybridOwnerBackupDenied(
+                "F139_HYBRID_V41_OWNER_BACKUP_CANDIDATE_GIT_TIMEOUT") from error
+        need(result.returncode == 0 and result.stdout.strip() == wanted,
+             "CANDIDATE_CHECKOUT_DIRTY_OR_WRONG_HEAD")
+    return True
+
+
 def _eligibility(db_path, env, event, get, *, target_sha, disabled):
     run_id = _owner_comment(env, event, get, target_sha)
     db = _original_path(db_path, env)
     pair._authenticate_candidate(get, target_sha)
+    _candidate_clean_checkout(target_sha)
     prior_policy = _owner_policy(get)
     _task_readback(db, disabled=disabled)
     return run_id, db, prior_policy
