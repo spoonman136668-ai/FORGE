@@ -42,7 +42,8 @@ class HybridColdPairTests(unittest.TestCase):
                  provider=None):
         # The synthetic initialized database has no 1829-event owner history.
         # Only production keeps MIN_V41_HEAD=1829; this isolates parity logic.
-        with patch.object(cold, "MIN_V41_HEAD", 0 if lower_history else 1829):
+        with patch.object(cold, "MIN_V41_HEAD", 0 if lower_history else 1829), \
+             patch.object(cold, "verify_native_activation", return_value=True):
             with closing(Database.open_readonly(self.original_path)) as original:
                 if not lease:
                     return cold.verify_original_sqlite_pair(
@@ -66,6 +67,19 @@ class HybridColdPairTests(unittest.TestCase):
     def test_history_floor_is_not_satisfied_by_synthetic_fixture(self):
         with self.assertRaises(cold.HybridColdPairDenied):
             self.run_pair(lower_history=False)
+
+    def test_unqualified_original_activation_is_denied(self):
+        with patch.object(cold, "verify_native_activation", return_value=False):
+            # Force the real production activation check even on the
+            # synthetic SQLite fixture, not a simulated release receipt.
+            with patch.object(cold, "MIN_V41_HEAD", 0):
+                with closing(Database.open_readonly(self.original_path)) as original:
+                    with SingleOwner(self.original_path.with_suffix(".lock")):
+                        with self.assertRaisesRegex(
+                                cold.HybridColdPairDenied, "OWNER_DRIFT"):
+                            cold.verify_original_sqlite_pair(
+                                original, self.backup_path, target_sha=TARGET,
+                                get=self.get)
 
     def test_missing_original_mutex_is_denied(self):
         with self.assertRaisesRegex(cold.HybridColdPairDenied, "MUTEX"):

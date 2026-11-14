@@ -18,6 +18,7 @@ import tempfile
 
 from f139.local_controller import Database, SingleOwner
 from f139.hybrid_owner_admission import is_migrated
+from f139.nci04_owner_ledger import verify_native_activation
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_v38_original_owner_transition_cli import rollback_view
 
@@ -123,6 +124,8 @@ def verify_original_sqlite_pair(original, backup, *, target_sha, get):
          and before["head_seq"] >= MIN_V41_HEAD
          and type(before["head_hash"]) is str
          and len(before["head_hash"]) == 64
+         and original.dual_native_schema()
+         and verify_native_activation(original)
          and original.ready() is None and not original.actives()
          and not is_migrated(original)
          and original.conn.total_changes == 0,
