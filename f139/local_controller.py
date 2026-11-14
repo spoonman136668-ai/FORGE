@@ -3213,7 +3213,15 @@ class GitHub:
                 raise ValueError("source identity mismatch")
         except (ValueError,TypeError,KeyError,binascii.Error) as exc:
             raise F139Error("F139_NATIVE_FEED_PUBLICATION_INTENT_INVALID") from None
-        visibility = self.native_repo_get("repos/"+repository)
+        if lane == "TTT-Hybrid":
+            # Recheck actual public classification directly before publishing
+            # source-bearing issue bytes. Do not coerce the private reference
+            # protocol into public mode or trust an earlier feeder inspection.
+            from f139.nci04_autonomy_feed import verify_public_hybrid_metadata
+            visibility = verify_public_hybrid_metadata(
+                self.native_repo_get, repository=repository)
+        else:
+            visibility = self.native_repo_get("repos/"+repository)
         require(isinstance(visibility,dict) and visibility.get("full_name") == repository
                 and visibility.get("private") is False,
                 "NATIVE_FEED_SOURCE_NOT_VERIFIED_PUBLIC")
