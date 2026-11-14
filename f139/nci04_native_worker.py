@@ -43,8 +43,11 @@ COMMANDS = {
     "TTT-Hybrid": (
         # Existing credential-free fixed worker. No original worlds or GPU.
         ("python", "-B", "-m", "pytest", "-q", "tests/test_model.py"),
-        ("python", "-B", "-m", "pytest", "-q"),
-        ("python", "-B", "-m", "compileall", "-q", "scripts", "tests"),
+        ("python", "-B", "-m", "pytest", "-q"),  # full final regression
+        # Real Hybrid native modules live at repository root. Compile the
+        # entire isolated source tree without deriving argv from a private
+        # filename, issue body or untrusted candidate bytes.
+        ("python", "-B", "-m", "compileall", "-q", "."),
     ),
 }
 R7_COMMANDS = {
