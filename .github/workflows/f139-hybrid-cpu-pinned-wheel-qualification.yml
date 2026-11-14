@@ -1,0 +1,167 @@
+name: FORGE F139 Hybrid CPU pinned-wheel offline-locked worker rehearsal
+on:
+  push:
+    branches:
+      - diagnostic/f139-public-hybrid-original-worker-readonly-20261114
+    paths:
+      - .github/workflows/f139-hybrid-cpu-pinned-wheel-qualification.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-hybrid-cpu-pinned-wheel-dev-20261114
+  cancel-in-progress: false
+jobs:
+  isolated-original-hosted-worker:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 9cc06f07c91399d67d4f5e9c590f9dd5366997bb
+          path: forge
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/TTT-Hybrid-Lab
+          ref: d2ede7bc2bc0f16aeeedc315681b21d7af6ec439
+          path: hybrid
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.11'
+      - name: Freeze official CPU wheels by SHA256 BEFORE any installs
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/forge
+          PIP_DISABLE_PIP_VERSION_CHECK: '1'
+          PIP_NO_INPUT: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-public-hybrid-original-worker-readonly-20261114' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:OPENAI_API_KEY -or $env:GH_TOKEN -or $env:GITHUB_TOKEN){
+            throw 'F139_HYBRID_PUBLIC_CPU_REHEARSAL_NOT_CREDENTIAL_FREE'
+          }
+          $src=(& git -C forge rev-parse HEAD | Out-String).Trim()
+          $target=(& git -C hybrid rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C hybrid rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or
+             $src -cne '9cc06f07c91399d67d4f5e9c590f9dd5366997bb' -or
+             $target -cne 'd2ede7bc2bc0f16aeeedc315681b21d7af6ec439' -or
+             $tree -cne '4535b435756edb005f078f9a6d5207fd0da7babb'){
+            throw 'F139_HYBRID_PUBLIC_CPU_SOURCE_DRIFT'
+          }
+          $code=@'
+          import hashlib,importlib.metadata,json,os,pathlib,platform,subprocess,sys,sysconfig
+          from f139.private_cpu_runtime import freeze_wheels,lock_text,hash_file
+          assert platform.python_version()=="3.11.11",platform.python_version()
+          base=pathlib.Path(os.environ["RUNNER_TEMP"])/"f139-public-hybrid-cpu"
+          assert not base.exists()
+          base.mkdir(mode=0o700)
+          wheelhouse=base/"wheelhouse"
+          wheelhouse.mkdir()
+          venv=base/"venv"
+          env={k:v for k,v in os.environ.items() if k in (
+              "PATH","SYSTEMROOT","WINDIR","TEMP","TMP","TMPDIR","LANG","LC_ALL",
+              "HOME","USERPROFILE","APPDATA","LOCALAPPDATA")}
+          env.update(PIP_DISABLE_PIP_VERSION_CHECK="1",PIP_NO_INPUT="1",
+              PIP_CONFIG_FILE=os.devnull,NETRC=os.devnull,
+              PYTHONDONTWRITEBYTECODE="1",PIP_NO_CACHE_DIR="1")
+          def cmd(argv,timeout=900):
+              p=subprocess.run(list(map(str,argv)),env=env,cwd=base,
+                  stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                  check=False,timeout=timeout)
+              if p.returncode:
+                  print("F139_HYBRID_CPU_FAILURE_CODE="+str(p.returncode))
+                  print("F139_HYBRID_CPU_FAILURE_OUTPUT="+p.stdout[-12000:].decode("utf8","replace"))
+                  raise RuntimeError("F139_HYBRID_PUBLIC_CPU_COMMAND_NEGATIVE")
+              return p.stdout.decode("utf8","replace")
+          cmd([sys.executable,"-B","-m","venv",venv],180)
+          py=venv/("Scripts/python.exe" if os.name=="nt" else "bin/python")
+          assert py.is_file()
+          # Existing Hybrid project pins +cpu PyTorch and Pytest. Adding exact
+          # NumPy1.26.4 preserves its published G5/G7 CPU dependency pin.
+          requirements=["torch==2.5.1+cpu","pytest==8.3.4","numpy==1.26.4"]
+          cmd([py,"-B","-m","pip","--isolated","download",
+              "--only-binary=:all:","--no-cache-dir",
+              "--dest",wheelhouse,
+              "--index-url","https://download.pytorch.org/whl/cpu",
+              "--extra-index-url","https://pypi.org/simple",
+              *requirements],1100)
+          rows=freeze_wheels(wheelhouse)
+          versions={r["name"]:r["version"] for r in rows}
+          assert versions["torch"]=="2.5.1+cpu"
+          assert versions["pytest"]=="8.3.4"
+          assert versions["numpy"]=="1.26.4"
+          assert all(not r["name"].startswith("nvidia-") for r in rows)
+          lock=base/"requirements.lock"
+          lock.write_text(lock_text(rows),encoding="utf8")
+          assert len(rows)>=3 and lock.read_text(encoding="utf8")==lock_text(rows)
+          print("F139_HYBRID_PUBLIC_CPU_WHEEL_FREEZE="+json.dumps({
+              "schema":"forge.f139.hybrid.public-cpu-locked-wheel-freeze.v1",
+              "os":platform.system(),"python":platform.python_version(),
+              "wheel_count":len(rows),"total_wheel_bytes":sum(
+                  (wheelhouse/r["filename"]).stat().st_size for r in rows),
+              "wheel_lock_sha256":hash_file(lock),"wheels":rows,
+              "hashes_frozen_before_install":True,
+              "no_gpu_dependencies":True,"science_first_use":False
+          },sort_keys=True,separators=(",",":")))
+          cmd([py,"-B","-m","pip","--isolated","install",
+              "--no-index","--no-deps","--no-compile","--no-cache-dir",
+              "--require-hashes","--find-links",wheelhouse,"-r",lock],900)
+          cmd([py,"-B","-m","pip","--isolated","check"],180)
+          code=("import json,importlib.metadata as m;"
+              "print(json.dumps({p:m.version(p) for p in ('torch','pytest','numpy')}))")
+          observed=json.loads(cmd([py,"-B","-c",code],60).strip())
+          assert observed=={"torch":"2.5.1+cpu","pytest":"8.3.4","numpy":"1.26.4"}
+          (base/"python-path.txt").write_text(str(py),encoding="utf8")
+          print("F139_HYBRID_PUBLIC_CPU_OFFLINE_INSTALL="+json.dumps({
+              "schema":"forge.f139.hybrid.public-cpu-offline-install.v1",
+              "os":platform.system(),"python":platform.python_version(),
+              "versions":observed,"pip_check":True,
+              "installed_from_frozen_sha256_lock":True,
+              "original_forge_owner_mutated":False,"model_training_executed":False,
+              "science_first_use":False
+          },sort_keys=True,separators=(",",":")))
+          '@
+          $out=@($code | & python -B -)
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_PUBLIC_CPU_WHEEL_QUALIFICATION_FAILED'}
+          $out|ForEach-Object{Write-Output $_}
+          if(-not(@($out|Where-Object{$_ -cmatch '^F139_HYBRID_PUBLIC_CPU_OFFLINE_INSTALL='}).Count -eq 1)){
+            throw 'F139_HYBRID_PUBLIC_CPU_LOCK_INSTALL_UNVERIFIED'
+          }
+      - name: Frozen original Hybrid full CPU engineering regression, no candidate or first-use
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:OPENAI_API_KEY -or $env:GH_TOKEN -or $env:GITHUB_TOKEN){
+            throw 'F139_HYBRID_PUBLIC_CPU_TEST_CREDENTIAL_EXPOSURE'
+          }
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          $env:OMP_NUM_THREADS='1'
+          $env:MKL_NUM_THREADS='1'
+          $env:OPENBLAS_NUM_THREADS='1'
+          $py=Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'f139-public-hybrid-cpu/python-path.txt') -Raw
+          $py=$py.Trim()
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'F139_HYBRID_CPU_VENV_UNAVAILABLE'}
+          Push-Location hybrid
+          try{
+            & $py -B -m pytest -q tests/test_model.py
+            if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_CPU_FOCUSED_REGRESSION_FAILED'}
+            & $py -B -m pytest -q
+            if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_CPU_FULL_FINAL_REGRESSION_FAILED'}
+            & $py -B -m compileall -q .
+            if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_CPU_COMPLETE_COMPILE_FAILED'}
+          }finally{Pop-Location}
+          Write-Output 'F139_HYBRID_PUBLIC_CPU_FIXED_TEST_INVENTORY=PASS'
+          Write-Output 'F139_HYBRID_PUBLIC_CPU_SCIENTIFIC_FIRST_USE=FALSE'
