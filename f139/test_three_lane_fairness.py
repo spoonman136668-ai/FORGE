@@ -26,6 +26,11 @@ class ThreeLaneProvider:
     def get(self, route):
         if route.endswith("/FORGE/issues/807"):
             return self.policy.issue()
+        if route == "repos/" + REPOS["TTT-Hybrid"][0]:
+            # Authenticate the real public classification before any synthetic
+            # Hybrid patch access; other lanes retain their original fixtures.
+            return {"full_name": REPOS["TTT-Hybrid"][0],
+                    "private": False, "visibility": "public"}
         for lane, (repo, _, _) in REPOS.items():
             prefix = "repos/" + repo + "/"
             if route.startswith(prefix):
