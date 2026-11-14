@@ -1,0 +1,164 @@
+name: FORGE V41 postactivation independent original-owner read-only proof
+on:
+  push:
+    branches:
+      - diagnostic/f139-v41-private-backup-hash-20261113
+    paths:
+      - .github/workflows/f139-v41-postactivation-native-readonly.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-v41-postactivation-independent-readonly-20261113
+  cancel-in-progress: false
+jobs:
+  verify-original-activated-ledger:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Independently verify original activated ledger, process, and native intake
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$reason){
+            if(-not $yes){throw 'F139_V41_POSTACTIVATION_RO_'+$reason}
+          }
+          $target='1a40fe4e3ec6e93a1631d59863b95e90981d734e'
+          $expected1829='55ded016778c8430bd4f6e3290972be1c5c5c796cbcb2a2ad38046283f78e3f8'
+          $old='2c7caad5a4502d4b874a11d57207a35cf033eb08'
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostic/f139-v41-private-backup-hash-20261113' -and
+            $env:GITHUB_EVENT_NAME -ceq 'push' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            -not $env:OPENAI_API_KEY) 'EXACT_ORIGINAL_OWNER'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $principalSid=''
+          try {
+            if($principal -match '^S-1-'){$principalSid=$principal}
+            else {$principalSid=(New-Object Security.Principal.NTAccount($principal)).
+              Translate([Security.Principal.SecurityIdentifier]).Value}
+          } catch {}
+          Need ($task.Settings.Enabled -eq $true -and
+            [string]$task.State -ceq 'Running' -and
+            ($principal -ieq $me.Name -or $principalSid -ceq $me.User.Value) -and
+            @($task.Actions).Count -eq 1 -and
+            @($task.Triggers).Count -eq 3) 'EXISTING_TASK_NOT_RUNNING'
+          $arg=[string]$task.Actions[0].Arguments
+          function TaskArg([string]$name){
+            $m=[regex]::Match($arg,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if($m.Success){return $m.Groups[1].Value}
+            return ''
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $database=TaskArg 'Database'
+          $stage=Join-Path (Join-Path $env:LOCALAPPDATA 'FORGE-F139/release-candidates') $target
+          $db=Join-Path $env:LOCALAPPDATA 'FORGE-F139/state.sqlite'
+          Need ($root -and $database -and
+            [IO.Path]::GetFullPath($root) -ieq [IO.Path]::GetFullPath($stage) -and
+            [IO.Path]::GetFullPath($database) -ieq [IO.Path]::GetFullPath($db) -and
+            $arg -match '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') 'TASK_SOURCE_OR_DATABASE_DRIFT'
+          $stageSha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $stageSha -ceq $target) 'INSTALLED_GIT_SHA_DRIFT'
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop)
+          $new=@($procs|Where-Object {$_.CommandLine -and $_.CommandLine.Contains($target)})
+          $v40=@($procs|Where-Object {$_.CommandLine -and $_.CommandLine.Contains($old)})
+          Need ($new.Count -eq 1 -and $v40.Count -eq 0) 'OLD_OWNER_OR_WRONG_PROCESS_COUNT'
+          $env:PYTHONPATH=$stage
+          $code=@'
+          import collections,datetime,json,sys
+          from pathlib import Path
+          from contextlib import closing
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          db_path=Path(sys.argv[1])
+          target=sys.argv[2]
+          want=sys.argv[3]
+          with closing(Database.open_readonly(db_path)) as db:
+              m=db.meta()
+              assert m["source_sha"]==target and m["head_seq"]>=1829
+              assert m["enabled"]==1 and m["legacy_suspended"]==1
+              assert verify_native_activation(db) is True
+              anchor=db.conn.execute(
+                  "SELECT seq,kind,sha,payload FROM events WHERE seq=1829").fetchone()
+              assert anchor and anchor["kind"]=="NATIVE_DEVELOPMENT_ACTIVATED"
+              assert anchor["sha"]==want
+              decoded=json.loads(anchor["payload"])
+              assert decoded["source_sha"]==target and decoded["development_only"] is True
+              assert decoded["scientific_first_use"] is False
+              activations=db.conn.execute(
+                  "SELECT COUNT(*) FROM events WHERE kind='NATIVE_DEVELOPMENT_ACTIVATED'").fetchone()[0]
+              stages=dict(db.conn.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage").fetchall())
+              lanes=dict(db.conn.execute("SELECT lane,COUNT(*) FROM tasks GROUP BY lane").fetchall())
+              native=db.conn.execute(
+                  "SELECT payload FROM events WHERE kind='NATIVE_DEVELOPMENT_ADMITTED'").fetchall()
+              numbers=set();identities=set();tickets=set()
+              for row in native:
+                  body=json.loads(row["payload"])
+                  assert body["issue_number"] not in numbers
+                  assert body["issue_id"] not in identities
+                  assert body["ticket"] not in tickets
+                  numbers.add(body["issue_number"])
+                  identities.add(body["issue_id"])
+                  tickets.add(body["ticket"])
+              no_replay=db.conn.execute(
+                  "SELECT COUNT(*) FROM tasks WHERE ticket LIKE 'f139-nci04-i1715-%'").fetchone()[0]==0
+              assert no_replay
+              active=stages.get("START_RISK",0)+stages.get("WAIT_PROVIDER",0)
+              assert active<=2 and db.conn.total_changes==0
+              new_events=db.conn.execute(
+                  "SELECT seq,kind FROM events WHERE seq>1829 ORDER BY seq").fetchall()
+              result={
+                  "schema":"forge.f139.v41.native-activated-original-owner-readonly.v1",
+                  "source_sha":target,
+                  "activation_anchor_seq":1829,
+                  "activation_anchor_sha256":want,
+                  "verified_activated_for_current_source":True,
+                  "total_historical_native_activation_events":activations,
+                  "original_head_seq":m["head_seq"],
+                  "original_head_sha256":m["head_hash"],
+                  "post_activation_event_kinds":dict(collections.Counter(x["kind"] for x in new_events)),
+                  "task_stages":stages,
+                  "task_lanes":lanes,
+                  "active_task_count":active,
+                  "duplicate_native_issue_identities":0,
+                  "old_issue_1715_replayed":False,
+                  "scientific_first_use":False,
+                  "original_sqlite_mutations":0
+              }
+              print("F139_V41_POSTACTIVATION_ORIGINAL_OWNER_RO="+json.dumps(
+                  result,sort_keys=True,separators=(",",":")))
+          '@
+          Push-Location -LiteralPath $stage
+          try{$out=@($code | & python -B - $db $target $expected1829)}
+          finally{Pop-Location}
+          Need ($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and
+            $out[0] -cmatch '^F139_V41_POSTACTIVATION_ORIGINAL_OWNER_RO=') 'ORIGINAL_LEDGER_VERIFICATION'
+          Write-Output $out[0]
+          $log=Join-Path $env:LOCALAPPDATA 'FORGE-F139/logs/controller.log'
+          if(Test-Path -LiteralPath $log -PathType Leaf){
+            $ticks=@()
+            $marker=[datetimeoffset]::Parse('2026-11-14T00:51:20Z')
+            foreach($line in @(Get-Content -LiteralPath $log -Tail 200 -ErrorAction Stop)){
+              if(-not $line.StartsWith('{')){continue}
+              try{
+                $o=$line|ConvertFrom-Json
+                if([datetimeoffset]::Parse([string]$o.at) -lt $marker){continue}
+                $ticks+=([ordered]@{
+                  at=[string]$o.at
+                  disposition=[string]$o.disposition
+                  blocked=[string]$o.blocked
+                })
+              }catch{}
+            }
+            Write-Output ('F139_V41_POSTACTIVATION_POLL_OBSERVATION='+(@{
+              schema='forge.f139.v41.native-postactivation-poll-observation.v1'
+              postactivation_poll_count=@($ticks).Count
+              recent=@($ticks|Select-Object -Last 4)
+              read_only=$true
+            }|ConvertTo-Json -Compress -Depth 6))
+          }
+          Write-Output 'F139_V41_NATIVE_ACTIVATION_INDEPENDENT_READONLY=PASS'
