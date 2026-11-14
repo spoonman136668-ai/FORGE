@@ -4,6 +4,9 @@ No original task or live owner database is touched by these provider fixtures.
 """
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from f139.nci04_native_contract import canonical, digest
 
 from f139 import nci04_v41_hybrid_forward_backup as backup
 from f139 import nci04_v41_hybrid_forward_readiness as readiness
@@ -66,6 +69,46 @@ class ForwardBackupOwnerTests(unittest.TestCase):
             backup.authenticate_backup(
                 self.api.get, env, self.event(),
                 self.api.target)
+
+    def test_commit_proof_can_be_frozen_before_commit_comment_exists(self):
+        approval = {
+            "readiness_comment_id": self.ready_id,
+            "backup_run_id": 43649999999,
+            "target_source_sha": self.api.target,
+        }
+        receipt = {
+            "manifest_sha256": "a" * 64,
+            "logical_all_tables_sha256": "b" * 64,
+            "candidate_sha": self.api.target,
+            "original_source_sha": backup.forward.FROM,
+            "original_head_seq": backup.forward.V37_SEQ,
+            "original_head_sha256": backup.forward.V37_HEAD,
+        }
+        frozen = {
+            "owner_event_id": self.ready_id,
+            "to_source_sha": self.api.target,
+            "backup_run_id": approval["backup_run_id"],
+            "backup_manifest_sha256": receipt["manifest_sha256"],
+        }
+        original = object()
+        with patch.object(backup.forward, "build_proof",
+                          return_value=frozen) as built:
+            sha = backup._frozen_source_proof_sha(
+                original, approval, receipt)
+        self.assertEqual(sha, digest(canonical(frozen)))
+        built.assert_called_once_with(
+            original, self.api.target, self.ready_id,
+            approval["backup_run_id"], receipt["manifest_sha256"],
+            receipt["logical_all_tables_sha256"])
+        # Unknown future commit-comment ID never influences proof generation.
+        self.assertNotIn("source_commit_comment_id",
+                         str(built.call_args))
+        receipt["original_head_seq"] = 1829
+        with self.assertRaisesRegex(
+                backup.ForwardBackupDenied,
+                "BACKUP_NOT_BOUND_TO_FROZEN_READINESS"):
+            backup._frozen_source_proof_sha(
+                original, approval, receipt)
 
     def test_windows_original_provider_is_required(self):
         with self.assertRaisesRegex(
