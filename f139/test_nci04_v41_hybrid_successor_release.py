@@ -49,6 +49,11 @@ class Provider:
         self.entries = {
             PREFIX + "branches/main": {"name": "main", "protected": True,
                                        "commit": {"sha": TARGET}},
+            PREFIX + "pulls/1660": {
+                "number": 1660, "state": "closed", "merged": True,
+                "merge_commit_sha": gate.BASE,
+                "base": {"ref": "main", "sha":
+                         "1a40fe4e3ec6e93a1631d59863b95e90981d734e"}},
             PREFIX + "pulls/1757": {"number": 1757, "state": "closed",
                 "merged": True, "merge_commit_sha": TARGET,
                 "user": {"login": gate.OWNER},
@@ -106,6 +111,23 @@ class HybridSuccessorProtectedReleaseTests(unittest.TestCase):
         self.assertEqual(set(proof["pr_run_ids"]), gate.CI)
         self.assertFalse(proof["source_transition_authorized"])
         self.assertFalse(proof["hybrid_admission"])
+
+    def test_real_pair_and_legacy_bridge_route_to_successor_gate(self):
+        from f139 import nci04_v41_hybrid_cold_pair as pair
+        from f139 import nci04_v41_hybrid_protected_main as bridge
+        self.assertEqual(pair._authenticate_candidate(
+            self.remote, TARGET), TARGET)
+        result = bridge.require_protected_main_release(
+            self.remote, env(), target_sha=TARGET)
+        self.assertEqual(result["source_sha"], TARGET)
+        self.assertEqual(result["qualified_pr_sha"], HEAD)
+        self.assertFalse(result["source_transition_authorized"])
+        self.remote.entries[PREFIX+"pulls/1757"]["merged"] = False
+        with self.assertRaises(gate.HybridSuccessorDenied):
+            pair._authenticate_candidate(self.remote, TARGET)
+        with self.assertRaises(gate.HybridSuccessorDenied):
+            bridge.require_protected_main_release(
+                self.remote, env(), target_sha=TARGET)
 
     def test_draft_bad_merge_ancestry_tree_denied(self):
         edits = [
