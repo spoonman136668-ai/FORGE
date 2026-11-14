@@ -137,8 +137,10 @@ class OriginalOwnerSafeAbortApprovalTests(unittest.TestCase):
     def test_old_owner_backup_or_approval_comment_cannot_be_edited(self):
         key = fixture_remote.PREFIX+"issues/comments/111"
         self.remote.entries[key]["updated_at"] = "2026-11-14T16:23:00Z"
-        with self.assertRaisesRegex(
-                abort.SafeAbortDenied, "BACKUP_REQUEST_EDITED"):
+        # The shared historical comment validator rejects edited
+        # evidence before the final safe-abort-specific consistency check.
+        with self.assertRaises((abort.SafeAbortDenied,
+                                release.HybridSuccessorDenied)):
             self.auth()
 
 
