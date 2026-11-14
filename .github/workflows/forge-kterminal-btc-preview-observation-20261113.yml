@@ -1,0 +1,211 @@
+name: K Terminal original BTC source preview GET-only observation (one-shot)
+on:
+  push:
+    branches: [qualification/kterminal-btc-preview-source-readonly-20261113]
+    paths: [.github/workflows/forge-kterminal-btc-preview-observation-20261113.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterm-owner-btc-source-preview-20261113
+  cancel-in-progress: false
+jobs:
+  history-get-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOFLAGS: '-p=1'
+      GOMAXPROCS: '2'
+      KTERM_SHA: 170abdd8fabfe6c509764acd4d6ae903489a6350
+      KTERM_TREE: d03f165e4b60550e3f0ccca6c556e762ad73ec55
+      KTERM_CHECKOUT_RELATIVE: kterm-broker-observe-${{ github.run_id }}
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - name: Verify owner desktop and local original scope, without reading credentials
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-btc-preview-source-readonly-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER'){throw 'KTERM_GET_ONLY_WRONG_OWNER_OR_MODE'}
+          if(@(Get-Process -Name 'K-Terminal','K-Terminal-Engine' -ErrorAction SilentlyContinue).Count -gt 0){throw 'KTERM_GET_ONLY_ACTIVE_APP_REFUSED'}
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          if($session -le 0 -or -not [Environment]::UserInteractive -or
+            @(Get-Process -Name explorer -ErrorAction SilentlyContinue | Where-Object {$_.SessionId -eq $session}).Count -lt 1){throw 'KTERM_GET_ONLY_NOT_INTERACTIVE_OWNER'}
+          if(-not $env:LOCALAPPDATA){throw 'KTERM_GET_ONLY_PROFILE_UNAVAILABLE'}
+          $root=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal'
+          $config=Join-Path $root 'config.json'
+          if(-not(Test-Path -LiteralPath (Join-Path $root 'data\account-binding.json') -PathType Leaf)){throw 'KTERM_GET_ONLY_NO_ORIGINAL_BINDING'}
+          foreach($p in @($root,$config)){
+            $item=Get-Item -LiteralPath $p -Force -ErrorAction Stop
+            if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'KTERM_GET_ONLY_REPARSE_REFUSED'}
+          }
+          $info=Get-Item -LiteralPath $config -ErrorAction Stop
+          if($info.Length -le 0 -or $info.Length -gt 262144){throw 'KTERM_GET_ONLY_CONFIG_SIZE_REFUSED'}
+          Write-Host 'KTERM_BROKER_HISTORY_OWNER_PREFLIGHT=PASS;EXCLUSIVE_DESKTOP=TRUE;CONFIG_EXISTS=TRUE;NO_CONFIG_CONTENTS_EXPORTED=TRUE;ORIGINAL_ACCOUNTING_UNTOUCHED=TRUE'
+      - name: Clone exact private candidate through existing gh CLI (no external action download)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.FORGE_KTERM_QUAL }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          $ErrorActionPreference='Stop'
+          $checkout=Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE
+          if(Test-Path -LiteralPath $checkout){throw 'KTERM_GET_ONLY_WORKSPACE_NOT_FRESH'}
+          if(-not $env:GH_TOKEN){throw 'KTERM_GET_ONLY_EXISTING_PRIVATE_READ_TOKEN_MISSING'}
+          $gh=(Get-Command gh -ErrorAction Stop).Source
+          $git=(Get-Command git -ErrorAction Stop).Source
+          & $gh repo clone Kboomllc/K-Terminal $checkout -- --depth 1 --single-branch --no-tags --branch main
+          if($LASTEXITCODE -ne 0){throw 'KTERM_GET_ONLY_GH_PRIVATE_CLONE_FAILED'}
+          Push-Location $checkout
+          try {
+            $head=(& $git rev-parse HEAD).Trim()
+            $tree=(& $git rev-parse 'HEAD^{tree}').Trim()
+            if($head -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE){throw 'KTERM_GET_ONLY_REMOTE_REF_CHANGED'}
+            & $git remote remove origin
+            if($LASTEXITCODE -ne 0){throw 'KTERM_GET_ONLY_REMOTE_CREDENTIAL_CLEANUP_FAILED'}
+          } finally {Pop-Location}
+          Write-Host 'KTERM_GET_ONLY_PRIVATE_GIT_CHECKOUT=PASS;EXTERNAL_GITHUB_ACTION_DOWNLOADS=0'
+      - name: Verify exact source tree and install qualified compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
+          try {
+            $sha=(& git rev-parse HEAD).Trim()
+            $tree=(& git rev-parse 'HEAD^{tree}').Trim()
+            if($sha -cne '170abdd8fabfe6c509764acd4d6ae903489a6350' -or
+               $tree -cne 'd03f165e4b60550e3f0ccca6c556e762ad73ec55' -or
+               ((& git status --porcelain | Out-String).Trim())){throw 'KTERM_BROKER_READ_SOURCE_IDENTITY_REFUSED'}
+            Write-Host 'KTERM_BROKER_READ_SOURCE_CUSTODY=PASS;TREE=d03f165e4b60550e3f0ccca6c556e762ad73ec55;NO_USER_DATA_IN_SOURCE=TRUE'
+          } finally {Pop-Location}
+      - name: Reuse previously qualified exact Go toolchain from existing runner cache
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not $env:RUNNER_TOOL_CACHE){throw 'KTERM_GET_ONLY_RUNNER_TOOL_CACHE_MISSING'}
+          $go=Join-Path $env:RUNNER_TOOL_CACHE 'go\1.26.5\x64\bin\go.exe'
+          $binary=Get-Item -LiteralPath $go -ErrorAction Stop
+          if($binary.PSIsContainer -or ($binary.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+            throw 'KTERM_GET_ONLY_PINNED_GO_BINARY_UNSAFE'
+          }
+          $version=(& $go version | Out-String).Trim()
+          $expect='go version go1.26.5 windows'+[char]47+'amd64'
+          if($LASTEXITCODE -ne 0 -or $version -cne $expect){
+            throw 'KTERM_GET_ONLY_PINNED_LOCAL_GO_1_26_5_UNAVAILABLE'
+          }
+          $goBin=Split-Path -Parent $go
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $goBin -Encoding utf8
+          Write-Host 'KTERM_GET_ONLY_LOCAL_GO_TOOLCHAIN=PASS;GO=1.26.5;SOURCE=EXISTING_RUNNER_TOOL_CACHE;NO_DOWNLOAD=TRUE'
+      - name: Read Coinbase account and history through existing GET-only code, redact all private outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $checkout=Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE
+          $test=Join-Path $checkout 'pkg\kterminal_one_shot_getonly_history_20261113_test.go'
+          $log=Join-Path $env:RUNNER_TEMP ('kterminal-getonly-'+$env:GITHUB_RUN_ID+'.private.log')
+          if(Test-Path -LiteralPath $test){throw 'KTERM_GET_ONLY_TEST_ALREADY_EXISTS'}
+          $source=@'
+          package pkg
+          
+          import (
+            "context"
+            "fmt"
+            "net/http"
+            "os"
+            "strings"
+            "sync/atomic"
+            "testing"
+          )
+          
+          type kterminalGETOnlyGuard struct { base http.RoundTripper; calls atomic.Int64 }
+          func (g *kterminalGETOnlyGuard) RoundTrip(r *http.Request) (*http.Response,error) {
+            if r.Method != http.MethodGet || r.URL.Scheme != "https" || !strings.EqualFold(r.URL.Hostname(),"api.coinbase.com") || r.URL.Port() != "" {
+              return nil, fmt.Errorf("GET_ONLY_SCOPE_REFUSED")
+            }
+            if g.calls.Add(1)>80 {return nil,fmt.Errorf("GET_ONLY_REQUEST_BUDGET_EXCEEDED")}
+            return g.base.RoundTrip(r)
+          }
+          func TestKTerminalBTCSourcePreviewGETOnly20261113(t *testing.T) {
+            b,e:=os.ReadFile(os.Getenv("KTERM_ORIGINAL_CONFIG_PATH")); if e!=nil {t.Fatal("ORIGINAL_CONFIG_READ_REFUSED")}
+            cfg,e:=ParseNativeConfiguration(b); if e!=nil {t.Fatal("ORIGINAL_CONFIG_PARSE_REFUSED")}
+            if cfg.SyntheticTP.ProductID!="BTC-USDC" || cfg.AccountID=="" || cfg.APIKey.KeyName=="" || cfg.APIKey.KeySecret=="" {t.Fatal("ORIGINAL_ACCOUNT_BTC_SCOPE_REFUSED")}
+            signer:=NewReadOnlyAuthenticator(cfg.APIKey.KeyName,cfg.APIKey.KeySecret)
+            _,signErr:=signer.GenerateJWT("GET","api.coinbase.com","/api/v3/brokerage/accounts")
+            normalizedPEM:=false
+            if signErr!=nil && strings.Contains(cfg.APIKey.KeySecret, `\n`) {
+              candidate:=strings.ReplaceAll(cfg.APIKey.KeySecret, `\n`, "\n")
+              retry:=NewReadOnlyAuthenticator(cfg.APIKey.KeyName,candidate)
+              _,retryErr:=retry.GenerateJWT("GET","api.coinbase.com","/api/v3/brokerage/accounts")
+              if retryErr==nil {cfg.APIKey.KeySecret=candidate;signErr=nil;normalizedPEM=true}
+            }
+            if signErr!=nil {
+              class:="SIGNER_OTHER"
+              lower:=strings.ToLower(signErr.Error())
+              if strings.Contains(lower,"could not decode private key"){class="PEM_DECODE"}
+              if strings.Contains(lower,"x509")||strings.Contains(lower,"asn1")||strings.Contains(lower,"parseecprivatekey"){class="EC_KEY_PARSE"}
+              fmt.Printf("KTERM_BTC_SOURCE_PREVIEW=SIGNER_BLOCKED;CLASS=%s;HTTPS_GET_REQUESTS=0;NO_BROKER_REQUESTS=TRUE;NO_LOCAL_LEDGER_WRITES=TRUE\n",class)
+              return
+            }
+            g:=&kterminalGETOnlyGuard{base:http.DefaultTransport}
+            http.DefaultTransport=g
+            defer func(){http.DefaultTransport=g.base}()
+            out:=auditCoinbaseHistoryWithoutLocalLedger(context.Background(),cfg)
+            if out==nil || out.BotOwnedLotsVerified || out.ExecutionAuthorized {t.Fatal("GET_ONLY_EVIDENCE_AUTHORITY_VIOLATION")}
+            if out.State!="SOURCE_VERIFIED" && out.State!="INCOMPLETE" && out.State!="UNAVAILABLE" {t.Fatal("GET_ONLY_HISTORY_INVALID_STATE")}
+            pv:=out.InheritedInventoryPreview
+            previewState:="ABSENT"
+            openGroups,unknownRemainders,externalOpen,unknownBasis:=0,0,0,0
+            sourceMatchesBroker:=false
+            if pv!=nil {
+              previewState=pv.State
+              if previewState!="REVIEWABLE" && previewState!="NEEDS_REVIEW" && previewState!="EMPTY" {t.Fatal("PREVIEW_UNEXPECTED_STATE")}
+              if pv.LotOwnershipVerified || pv.ExecutionAuthorized {t.Fatal("PREVIEW_AUTHORITY_VIOLATION")}
+              openGroups=pv.OpenAcquisitionGroups
+              unknownRemainders=pv.UnknownRemainingGroups
+              externalOpen=pv.ExternalOpenGroups
+              unknownBasis=pv.AcquisitionBasisUnknownGroups
+              sourceMatchesBroker=pv.SourceQuantityMatchesBroker
+            }
+            fmt.Printf("KTERM_BTC_SOURCE_PREVIEW=COMPLETE;STATE=%s;HTTPS_GET_REQUESTS=%d;HISTORY_VERIFIED=%t;TRANSACTIONS=%d;PREVIEW_STATE=%s;OPEN_GROUPS=%d;UNKNOWN_REMAINDERS=%d;EXTERNAL_OPEN=%d;UNKNOWN_ACQUISITION_BASIS=%d;SOURCE_MATCHES_BROKER=%t;OPEN_SELL_COVERAGE=%t;OPEN_SELL_COUNT=%d;LOT_OWNERSHIP_VERIFIED=%t;EXECUTION_AUTHORIZED=%t;NO_LOCAL_LEDGER_WRITES=TRUE;IN_MEMORY_ESCAPED_PEM_NORMALIZED=%t\n",
+              out.State,g.calls.Load(),out.FullHistoryVerified,out.Transactions,previewState,openGroups,
+              unknownRemainders,externalOpen,unknownBasis,sourceMatchesBroker,out.OpenSellOrderCoverageVerified,
+              out.OpenSellOrdersObserved,out.BotOwnedLotsVerified,out.ExecutionAuthorized,normalizedPEM)
+          }
+          '@
+          [IO.File]::WriteAllText($test,$source,[Text.UTF8Encoding]::new($false))
+          $env:KTERM_ORIGINAL_CONFIG_PATH=Join-Path $env:LOCALAPPDATA 'KTerminal-Personal\config.json'
+          Push-Location $checkout
+          try {
+            $ErrorActionPreference='Continue'
+            & go test -count=1 -p 1 -timeout 2m -run '^TestKTerminalBTCSourcePreviewGETOnly20261113$' -v ./pkg *> $log
+            $rc=$LASTEXITCODE
+            $ErrorActionPreference='Stop'
+            $receipt=@(Select-String -LiteralPath $log -Pattern '^KTERM_BTC_SOURCE_PREVIEW=' | ForEach-Object {$_.Line})
+            if($receipt.Count -ne 1){throw 'KTERM_GET_ONLY_HISTORY_NO_SANITIZED_RECEIPT'}
+            $line=$receipt[0]
+            if($line -match '[\r\n\x00]' -or $line.Length -gt 950 -or $line -notmatch '^KTERM_BTC_SOURCE_PREVIEW=(COMPLETE;STATE=(SOURCE_VERIFIED|INCOMPLETE|UNAVAILABLE);HTTPS_GET_REQUESTS=[0-9]+;|SIGNER_BLOCKED;CLASS=(PEM_DECODE|EC_KEY_PARSE|SIGNER_OTHER);HTTPS_GET_REQUESTS=0;)'){throw 'KTERM_GET_ONLY_RECEIPT_FORMAT_REFUSED'}
+            if($rc -ne 0){throw 'KTERM_GET_ONLY_TEST_FAILED_PRIVATE_LOG_RETAINED_FOR_LOCAL_CLEANUP'}
+            Write-Host $line
+            Write-Host 'KTERM_GET_ONLY_SOURCE_AND_NETWORK_FENCE=PASS;LOCAL_LEDGER_NOT_TOUCHED=TRUE;NO_CREDENTIALS_OR_RAW_REQUESTS_EXPORTED=TRUE'
+          } finally { Pop-Location; Remove-Item Env:KTERM_ORIGINAL_CONFIG_PATH -ErrorAction SilentlyContinue }
+      - name: Remove only transient checkout and private test log
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          $checkout=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE))
+          if(-not $checkout.StartsWith($root,[StringComparison]::OrdinalIgnoreCase)){throw 'KTERM_GET_ONLY_CLEANUP_OUTSIDE_WORKSPACE_REFUSED'}
+          if(Test-Path -LiteralPath $checkout){Remove-Item -LiteralPath $checkout -Force -Recurse}
+          $log=Join-Path $env:RUNNER_TEMP ('kterminal-getonly-'+$env:GITHUB_RUN_ID+'.private.log')
+          if(Test-Path -LiteralPath $log){Remove-Item -LiteralPath $log -Force}
+          Write-Host 'KTERM_GET_ONLY_TRANSIENT_SOURCE_REMOVED=PASS;PRIVATE_LOG_REMOVED=TRUE;ORIGINAL_WORKSTATION_APP_UNMODIFIED=TRUE'
