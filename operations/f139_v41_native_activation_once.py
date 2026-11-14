@@ -266,8 +266,8 @@ def apply(db,data,stage,python,policy_sha,run_id):
         need(check_owner_scope()==policy_sha,"OWNER_POLICY_CHANGED")
         before_expected(read_ledger(db))
         validate_task(task_state(),db,stage)
+        disabled=True  # Recovery must cover a partially completed disable/stop.
         pause()
-        disabled=True
         before_expected(read_ledger(db))
         folder,backup_sha=stage_cold_backup(data,db,run_id)
         need(check_owner_scope()==policy_sha,"POLICY_OR_SOURCE_DRIFT_AFTER_PAUSE")
