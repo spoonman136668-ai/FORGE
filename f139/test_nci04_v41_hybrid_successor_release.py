@@ -51,10 +51,13 @@ class Provider:
                                        "commit": {"sha": TARGET}},
             PREFIX + "pulls/1660": {
                 "number": 1660, "state": "closed", "merged": True,
-                "merge_commit_sha": gate.BASE,
+                "merge_commit_sha": "b98dae4c6b0a78b145cfca06aeb465d6d85d3597",
                 "base": {"ref": "main", "sha":
                          "1a40fe4e3ec6e93a1631d59863b95e90981d734e"}},
             PREFIX + "pulls/1757": {"number": 1757, "state": "closed",
+                "merged": True, "merge_commit_sha": gate.BASE,
+                "head": {"sha": "9c9c9f62a32e9cfd63667d50e3421623ef8c970f"}},
+            PREFIX + "pulls/1758": {"number": 1758, "state": "closed",
                 "merged": True, "merge_commit_sha": TARGET,
                 "user": {"login": gate.OWNER},
                 "base": {"ref": "main", "sha": gate.BASE,
@@ -122,7 +125,7 @@ class HybridSuccessorProtectedReleaseTests(unittest.TestCase):
         self.assertEqual(result["source_sha"], TARGET)
         self.assertEqual(result["qualified_pr_sha"], HEAD)
         self.assertFalse(result["source_transition_authorized"])
-        self.remote.entries[PREFIX+"pulls/1757"]["merged"] = False
+        self.remote.entries[PREFIX+"pulls/1758"]["merged"] = False
         with self.assertRaises(gate.HybridSuccessorDenied):
             pair._authenticate_candidate(self.remote, TARGET)
         with self.assertRaises(gate.HybridSuccessorDenied):
@@ -131,8 +134,8 @@ class HybridSuccessorProtectedReleaseTests(unittest.TestCase):
 
     def test_draft_bad_merge_ancestry_tree_denied(self):
         edits = [
-            (PREFIX + "pulls/1757", ("merged", False)),
-            (PREFIX + "pulls/1757", ("merge_commit_sha", HEAD)),
+            (PREFIX + "pulls/1758", ("merged", False)),
+            (PREFIX + "pulls/1758", ("merge_commit_sha", HEAD)),
             (PREFIX + "branches/main", ("protected", False)),
             (PREFIX + "git/commits/" + HEAD, ("tree", {"sha": "f"*40})),
             (PREFIX + "compare/" + gate.BASE + "..." + TARGET +
@@ -147,6 +150,23 @@ class HybridSuccessorProtectedReleaseTests(unittest.TestCase):
                         self.source()
                 finally:
                     self.remote.entries[path] = old
+
+    def test_predecessor_source_merge_must_remain_authentic(self):
+        key = PREFIX + "pulls/1757"
+        original = copy.deepcopy(self.remote.entries[key])
+        try:
+            for field, bad in (
+                ("merged", False),
+                ("merge_commit_sha", "f"*40),
+                ("head", {"sha": "e"*40}),
+            ):
+                self.remote.entries[key][field] = bad
+                with self.subTest(field=field), self.assertRaises(
+                        gate.HybridSuccessorDenied):
+                    self.source()
+                self.remote.entries[key] = copy.deepcopy(original)
+        finally:
+            self.remote.entries[key] = original
 
     def test_missing_failed_or_replayed_ci_denied(self):
         pr_path = PREFIX + "actions/runs?head_sha=" + HEAD + "&event=pull_request&per_page=100"
