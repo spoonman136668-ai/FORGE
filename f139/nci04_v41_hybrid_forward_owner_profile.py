@@ -40,7 +40,7 @@ def readback(db_path, *, runner=None):
     This check alone is not source transition or runner execution authority.
     """
     need(os.name == "nt", "ORIGINAL_WINDOWS_HOST_REQUIRED")
-    need(type(db_path) is Path and db_path.is_absolute()
+    need(isinstance(db_path, Path) and db_path.is_absolute()
          and db_path.name == "state.sqlite" and db_path.is_file()
          and not db_path.is_symlink(),
          "EXACT_ORIGINAL_SQLITE_PATH_REQUIRED")
