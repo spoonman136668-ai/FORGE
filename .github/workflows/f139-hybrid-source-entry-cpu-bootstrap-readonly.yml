@@ -1,0 +1,109 @@
+name: FORGE F139 actual signed-entry Hybrid CPU bootstrap source rehearsal
+on:
+  push:
+    branches:
+      - diagnostic/f139-public-hybrid-original-worker-readonly-20261114
+    paths:
+      - .github/workflows/f139-hybrid-source-entry-cpu-bootstrap-readonly.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-public-cpu-source-entry-rehearsal-20261114
+  cancel-in-progress: false
+jobs:
+  frozen-public-source-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 788673aae2d1b42a0c9152395a866e910191cbdd
+          path: forge
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/TTT-Hybrid-Lab
+          ref: d2ede7bc2bc0f16aeeedc315681b21d7af6ec439
+          path: native
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact-source credential-free built-in uv+wheel runtime
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-public-hybrid-original-worker-readonly-20261114' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:F139_WORKER_HMAC_KEY -or $env:GITHUB_TOKEN -or
+             $env:GH_TOKEN -or $env:OPENAI_API_KEY){
+             throw 'F139_HYBRID_CPU_READONLY_ORIGINAL_WORKER_BOUNDARY'
+          }
+          $env:PYTHONPATH=Join-Path $env:GITHUB_WORKSPACE 'forge'
+          $code=@'
+          import json,os,pathlib,platform
+          from f139.public_hybrid_cpu_runtime import (
+              pinned_managed_python,provision,RECEIPT_SCHEMA)
+          here=pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          source=here/"forge";target=here/"native"
+          assert source.is_dir() and target.is_dir()
+          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          py=pinned_managed_python(root=temp/"f139-diagnostic-pinned-uv")
+          result=provision(
+              root=temp/"f139-diagnostic-public-cpu-lock",
+              owner_source_sha="788673aae2d1b42a0c9152395a866e910191cbdd",
+              managed_python=py,source_root=source)
+          assert result["schema"]==RECEIPT_SCHEMA
+          assert result["fully_locked_offline_install"] is True
+          assert result["pip_check"] is True
+          assert result["candidate_executed"] is False
+          assert result["scientific_first_use"] is False
+          path=(temp/"f139-diagnostic-python.txt")
+          path.write_text(str(pathlib.Path(result["venv_bin_directory"])/(
+              "python.exe" if platform.system()=="Windows" else "python")))
+          print("F139_HYBRID_PUBLIC_CPU_DIRECT_SOURCE_RUNTIME="+json.dumps(
+              {k:v for k,v in result.items() if k!="venv_bin_directory"},
+              sort_keys=True,separators=(",",":")))
+          '@
+          $out=@($code | & python -B -)
+          $status=$LASTEXITCODE
+          $out|ForEach-Object{Write-Output $_}
+          if($status -ne 0 -or
+             @($out|Where-Object {$_ -cmatch '^F139_HYBRID_PUBLIC_CPU_DIRECT_SOURCE_RUNTIME='}).Count -ne 1){
+             throw 'F139_HYBRID_CPU_DIRECT_SOURCE_BOOTSTRAP_FAILED'
+          }
+          Write-Output 'F139_HYBRID_CPU_DIRECT_SOURCE_ENVIRONMENT=PASS'
+      - name: Existing fixed Hybrid focused, complete, compile regression
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=(Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'f139-diagnostic-python.txt') -Raw).Trim()
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
+            throw 'F139_HYBRID_CPU_RUNTIME_PYTHON_MISSING'
+          }
+          Push-Location native
+          try{
+            & $py -B -m pytest -q tests/test_model.py
+            if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_CPU_REAL_FOCUSED_NEGATIVE'}
+            & $py -B -m pytest -q
+            if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_CPU_REAL_FULL_NEGATIVE'}
+            & $py -B -m compileall -q .
+            if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_CPU_REAL_COMPILE_NEGATIVE'}
+          }finally{Pop-Location}
+          Write-Output 'F139_HYBRID_CPU_DIRECT_SOURCE_FULL_REGRESSION=PASS'
+          Write-Output 'F139_HYBRID_CPU_DIRECT_SOURCE_SCIENTIFIC_FIRST_USE=FALSE'
