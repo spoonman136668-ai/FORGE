@@ -1,0 +1,188 @@
+name: K Terminal signed post-anchor BUY boundary PAPER qualification
+on:
+  push:
+    branches:
+      - qualification/kterminal-postanchor-buy-boundary-20261113
+    paths:
+      - .github/workflows/forge-kterminal-postanchor-buy-boundary-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: kterm-postanchor-buy-boundary-20261113
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 115
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      KTERM_SHA: 433c6be404f405e6dcd92d62093437cf12eb75f2
+      KTERM_TREE: 38c4a08ee4c959a06e6051b2e3a12b6f968fe201
+      KTERM_BASE: 7ff0a926807ad07cb89c1db791bb98393bfbd6ac
+      KTERM_CHECKOUT_RELATIVE: kterm-postanchor-buy-${{ github.run_id }}
+    steps:
+      - name: Confirm qualified one-shot Windows owner, disarmed context
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-postanchor-buy-boundary-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+             $env:K_TERMINAL_NATIVE_TIMING -cne '0') {throw 'KTERM_POSTBUY_WRONG_OWNER_OR_EXECUTION_MODE'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+            'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_POSTBUY_BROKER_ENV_PRESENT'}
+          }
+          Write-Host 'KTERM_POSTBUY_OWNER_PREFLIGHT=PASS;DISARMED_PAPER=TRUE;NO_BROKER_ENV=TRUE'
+      - name: Clone exact private candidate through existing gh CLI (no external action download)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.FORGE_KTERM_QUAL }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          $ErrorActionPreference='Stop'
+          $checkout=Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE
+          if(Test-Path -LiteralPath $checkout){throw 'KTERM_POSTBUY_WORKSPACE_NOT_FRESH'}
+          if(-not $env:GH_TOKEN){throw 'KTERM_POSTBUY_EXISTING_PRIVATE_READ_TOKEN_MISSING'}
+          $gh=(Get-Command gh -ErrorAction Stop).Source
+          $git=(Get-Command git -ErrorAction Stop).Source
+          & $gh repo clone Kboomllc/K-Terminal $checkout -- --depth 1 --single-branch --no-tags --branch feature/kterminal-paper-postanchor-buy-boundary-20261113
+          if($LASTEXITCODE -ne 0){throw 'KTERM_POSTBUY_GH_PRIVATE_CLONE_FAILED'}
+          Push-Location $checkout
+          try {
+            $head=(& $git rev-parse HEAD).Trim()
+            $tree=(& $git rev-parse 'HEAD^{tree}').Trim()
+            if($head -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE){throw 'KTERM_POSTBUY_REMOTE_REF_CHANGED'}
+            & $git remote remove origin
+            if($LASTEXITCODE -ne 0){throw 'KTERM_POSTBUY_REMOTE_CREDENTIAL_CLEANUP_FAILED'}
+          } finally {Pop-Location}
+          Write-Host 'KTERM_POSTBUY_PRIVATE_GIT_CHECKOUT=PASS;EXTERNAL_GITHUB_ACTION_DOWNLOADS=0'
+      - name: Pin exact source SHA tree and two new signed BUY boundary source blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
+          try {
+            $sha=(& git rev-parse HEAD).Trim()
+            $tree=(& git rev-parse 'HEAD^{tree}').Trim()
+            if($sha -cne $env:KTERM_SHA -or $tree -cne $env:KTERM_TREE -or
+               ((& git status --porcelain | Out-String).Trim())) {
+              throw 'KTERM_POSTBUY_SOURCE_CUSTODY_FAILED'
+            }
+            $expected=@{
+              'pkg/native-paper-postanchor-buy-boundary.go'='c523c86bfcbed72db01ba8e0eba53f6e33222460'
+              'pkg/native-paper-postanchor-buy-boundary_test.go'='3dc0dd3bddb868bdb0f05d936ac2fa444b30e1cc'
+            }
+            foreach($key in $expected.Keys) {
+              $actual=(& git rev-parse ('HEAD:'+ $key)).Trim()
+              if($actual -cne $expected[$key]){throw 'KTERM_POSTBUY_BLOB_DRIFT'}
+            }
+            Write-Host ('KTERM_POSTBUY_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';CHANGED_BLOBS=2')
+          } finally { Pop-Location }
+      - name: Reuse previously qualified exact Go toolchain from existing runner cache
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not $env:RUNNER_TOOL_CACHE){throw 'KTERM_POSTBUY_RUNNER_TOOL_CACHE_MISSING'}
+          $go=Join-Path $env:RUNNER_TOOL_CACHE 'go\1.26.5\x64\bin\go.exe'
+          $binary=Get-Item -LiteralPath $go -ErrorAction Stop
+          if($binary.PSIsContainer -or ($binary.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+            throw 'KTERM_POSTBUY_PINNED_GO_BINARY_UNSAFE'
+          }
+          $version=(& $go version | Out-String).Trim()
+          $expect='go version go1.26.5 windows'+[char]47+'amd64'
+          if($LASTEXITCODE -ne 0 -or $version -cne $expect){
+            throw 'KTERM_POSTBUY_PINNED_LOCAL_GO_1_26_5_UNAVAILABLE'
+          }
+          $goBin=Split-Path -Parent $go
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $goBin -Encoding utf8
+          Write-Host 'KTERM_POSTBUY_LOCAL_GO_TOOLCHAIN=PASS;GO=1.26.5;SOURCE=EXISTING_RUNNER_TOOL_CACHE;NO_DOWNLOAD=TRUE'
+      - name: Repeat signed post-anchor BUY matching across independent synthetic witness fixtures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go test -count=20 -p 1 -timeout 6m -run '^TestPaperPostAnchorBuyBoundaryMatchesAuthenticSyntheticBUYWithoutAdoption$' ./pkg
+            if($LASTEXITCODE -ne 0){throw 'KTERM_POSTBUY_RESTART_FIXTURE_REPETITION_FAILED'}
+            Write-Host ('KTERM_POSTBUY_RESTART_FIXTURE=PASS;REPETITIONS=20;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Focused post-anchor BUY provenance, protected floor, custody and preview negatives
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go test -count=1 -p 1 -timeout 12m -run '^(TestPaperPostAnchorBuyBoundary|TestPaperProtectedBTCFloor|TestInheritedPaperCustody|TestInheritedPreview)' ./pkg
+            if($LASTEXITCODE -ne 0){throw 'KTERM_POSTBUY_FOCUSED_TEST_FAILED'}
+            Write-Host ('KTERM_POSTBUY_FOCUSED_TESTS=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Native authority UI PowerShell syntax parse
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=Join-Path (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE) 'native-authority-ui.ps1'
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'KTERM_POSTBUY_AUTHORITY_UI_PARSE_FAILED'}
+          Write-Host 'KTERM_POSTBUY_NATIVE_UI_PARSER=PASS'
+      - name: Mandatory complete exact-source Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-preview-stage3-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'KTERM_POSTBUY_STAGE3_ROOT_REUSED'}
+          $env:K_TERMINAL_TEST_WORKSPACE=$root
+          $env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=Join-Path $root 'tail'
+          $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=Join-Path $root 'post'
+          $env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=Join-Path $root 'private'
+          foreach($d in @($root,$env:KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT,
+              $env:KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT,$env:KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT)){
+            [void][IO.Directory]::CreateDirectory($d)
+          }
+          Write-Host 'KTERM_POSTBUY_STAGE3_ISOLATION=PASS;ROOT=RUN_SPECIFIC_TEMP;TEST_CONTRACT_PATHS=3'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go test -count=1 -p 1 -timeout 60m ./...
+            if($LASTEXITCODE -ne 0){throw 'KTERM_POSTBUY_FULL_REGRESSION_FAILED'}
+            Write-Host ('KTERM_POSTBUY_FULL_REGRESSION=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Vet and compile all candidate Go packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
+          try {
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & go vet ./...
+            if($LASTEXITCODE -ne 0){throw 'KTERM_POSTBUY_VET_FAILED'}
+            & go build ./...
+            if($LASTEXITCODE -ne 0){throw 'KTERM_POSTBUY_BUILD_FAILED'}
+            Write-Host ('KTERM_POSTBUY_VET_BUILD=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
+          } finally {Pop-Location}
+      - name: Final exact tree unchanged and disarmed qualification receipt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
+          try {
+            if(((& git rev-parse 'HEAD^{tree}').Trim()) -cne $env:KTERM_TREE){throw 'KTERM_POSTBUY_FINAL_TREE_DRIFT'}
+            Write-Host ('KTERM_POSTBUY_ENGINEERING_QUALIFICATION=PASS;SOURCE_SHA='+$env:KTERM_SHA+
+               ';SOURCE_TREE='+$env:KTERM_TREE+
+               ';FULL_REGRESSION=PASS;GO_VET=PASS;GO_BUILD=PASS;UI_PARSE=PASS'+
+               ';LIVE_ACCOUNTS=NOT_TOUCHED;LOT_ADOPTION=NOT_AUTHORIZED;TP_MANAGEMENT=NOT_AUTHORIZED'+
+               ';ORIGINAL_DESKTOP_ACCEPTANCE=NOT_RUN;PRIVATE_USER_DATA=NOT_READ')
+          } finally {Pop-Location}
