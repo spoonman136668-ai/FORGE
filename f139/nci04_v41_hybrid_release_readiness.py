@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 
 from f139.local_controller import Database, GitHub, SingleOwner
-from f139.nci04_native_contract import canonical
+from f139.nci04_native_contract import canonical, digest
 from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_hybrid_source_transition as transition
 from f139 import nci04_v41_hybrid_owner_maintenance as owner
@@ -60,6 +60,7 @@ def inspect_original(db_path, env, event, get, *, target, run_id,
         "owner_event_id": intent["owner_event_id"],
         "backup_run_id": run_id,
         "backup_manifest_sha256": manifest_sha,
+        "proof_sha256": digest(canonical(proof)),
         "independent_detached_restore_verified": True,
         "original_owner_mutations": 0,
         "task_resume_authorized": False,
