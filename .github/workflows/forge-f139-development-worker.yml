@@ -349,37 +349,7 @@ jobs:
           if($env:F139_LANE -cne 'TTT-Hybrid' -or
              $env:F139_SOURCE_SHA -cne $env:GITHUB_SHA -or
              $env:F139_NATIVE_AUTHENTICATION_PASSED -cne 'true' -or
-             $env:F139_NATIVE_AUTHORIZATION_SHA256 -cnotmatch '^[a-f0-9]{64}
-        shell: pwsh
-        env:
-          GOMAXPROCS: '2'
-          GOFLAGS: '-p=2'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if($env:F139_NATIVE_AUTHORIZATION_SHA256 -cnotmatch '^[a-f0-9]{64}$' -or
-             $env:F139_NATIVE_AUTHENTICATION_PASSED -cne 'true' -or
-             $env:F139_LANE -cnotin @('Wingless','Yggdrasil','TTT-Hybrid')) { throw 'NCI04_AUTH_JOB_NOT_BOUND' }
-          if($env:F139_WORKER_HMAC_KEY -or $env:GH_TOKEN -or $env:GITHUB_TOKEN -or $env:OPENAI_API_KEY) { throw 'NCI04_CODE_JOB_CREDENTIAL_EXPOSURE' }
-          $scratch = Join-Path $env:RUNNER_TEMP 'f139-native-stage'
-          $out = Join-Path $env:RUNNER_TEMP 'f139-native-receipt'
-          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
-          New-Item -ItemType Directory -Path $out -ErrorAction Stop | Out-Null
-          python -B -m f139.nci04_worker_entry execute --native-root (Join-Path $env:GITHUB_WORKSPACE 'native') --scratch $scratch --output $out
-          if($LASTEXITCODE -ne 0) { throw 'NCI04_NATIVE_QUALIFICATION_NEGATIVE_OR_REJECTED' }
-          Write-Host 'F139_NCI04_SOURCE_BOUND_NATIVE_QUALIFICATION=PASS'
-          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: forge-f139-native-receipt-${{ matrix.os }}
-          path: |
-            ${{ runner.temp }}/f139-native-receipt/f139-receipt.json
-            ${{ runner.temp }}/f139-native-receipt/f139-receipt.sha256
-            ${{ runner.temp }}/f139-native-receipt/f139-native-report.json
-          if-no-files-found: warn
-          retention-days: 90
-
- -or
+             $env:F139_NATIVE_AUTHORIZATION_SHA256 -cnotmatch '^[a-f0-9]{64}$' -or
              $env:F139_WORKER_HMAC_KEY -or $env:GH_TOKEN -or
              $env:GITHUB_TOKEN -or $env:OPENAI_API_KEY){
             throw 'F139_HYBRID_CPU_SIGNED_WORKER_BOUNDARY_DENIED'
