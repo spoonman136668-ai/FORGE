@@ -105,7 +105,7 @@ def verify_original_sqlite_pair(original, backup, *, target_sha, get):
     backup = Path(backup)
     original_root = original.filename.parent
     need(backup.is_absolute() and backup.name == "state.sqlite"
-         and backup.parent.parent == original_root
+         and backup.parent.parent.resolve(strict=True) == original_root.resolve(strict=True)
          and RUN_NAME.fullmatch(backup.parent.name) is not None
          and backup.parent.is_dir() and not backup.parent.is_symlink()
          and not getattr(backup.parent, "is_junction", lambda: False)()
