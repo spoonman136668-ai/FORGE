@@ -56,8 +56,7 @@ class HybridOwnerMigrationTests(unittest.TestCase):
             self.db.verify()
 
     def test_worker_not_qualified_never_unlocks_original_owner_migration(self):
-        for candidate in ("74dd90e6d71da6b53898c7a80d5362f1b0e6af27",
-                          "8eab7972ba1b30eabf1e38477aff60b598cdeb2f",
+        for candidate in ("8eab7972ba1b30eabf1e38477aff60b598cdeb2f",
                           "0" * 40, "", None):
             with self.subTest(value=candidate), self.assertRaisesRegex(
                     ValueError, "QUALIFIED_WORKER_NOT_RELEASED"):

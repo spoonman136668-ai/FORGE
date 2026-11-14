@@ -111,7 +111,7 @@ class PublicHybridCpuRuntimeTests(unittest.TestCase):
                     command(argv, directory=Path(td), timeout=10, env={})
             run.assert_not_called()
 
-    def test_worker_retains_original_hmac_and_fixed_full_test_gate(self):
+    def test_staged_runtime_does_not_silently_modify_signed_worker(self):
         worker = Path(__file__).resolve().parents[1] / (
             ".github/workflows/forge-f139-development-worker.yml")
         source = worker.read_text(encoding="utf-8")
@@ -121,12 +121,11 @@ class PublicHybridCpuRuntimeTests(unittest.TestCase):
         self.assertIn("F139_NATIVE_AUTHENTICATION_PASSED: 'true'", native)
         self.assertIn("python -B -m f139.nci04_worker_entry execute", native)
         self.assertIn("F139_NCI04_SOURCE_BOUND_NATIVE_QUALIFICATION=PASS", native)
-        self.assertIn("f139.public_hybrid_cpu_runtime", native)
-        self.assertIn("astral-sh/setup-uv@a02a550bdd3185dba2ebb6aa98d77047ce54ad21",
-                      native)
-        self.assertIn("version: '0.9.5'", native)
-        self.assertIn("--source-sha $env:F139_SOURCE_SHA", native)
-        self.assertIn("F139_HYBRID_CPU_RUNTIME=", native)
+        # This is a staging/source-only PR. The original signed worker
+        # requires its own explicit release governance and MUST remain unchanged.
+        self.assertNotIn("f139.public_hybrid_cpu_runtime", native)
+        self.assertNotIn("astral-sh/setup-uv@", native)
+        self.assertNotIn("F139_HYBRID_CPU_RUNTIME=", native)
 
 
 if __name__ == "__main__":
