@@ -64,6 +64,23 @@ class ForwardSourceTests(unittest.TestCase):
             return_value=True)
         self.activation.start()
         self.addCleanup(self.activation.stop)
+        self.cold = patch(
+            "f139.nci04_v41_hybrid_forward_cold_bundle.verify_detached_restore",
+            return_value={
+                "original_source_sha": repair.FROM,
+                "original_head_seq": repair.V37_SEQ,
+                "original_head_sha256": repair.V37_HEAD,
+                "candidate_sha": self.target,
+                "manifest_sha256": "f" * 64,
+                "logical_all_tables_sha256": "a" * 64,
+                "provider_archives_bytes_verified": True,
+                "generation_binary_bytes_verified": True,
+                "independent_detached_restore_verified": True,
+                "original_owner_mutations": 0, "new_dispatches": 0,
+                "source_transition_authorized": False,
+                "hybrid_admission": False, "scientific_first_use": False,
+            }).start()
+        self.addCleanup(patch.stopall)
 
     def rows(self):
         return [tuple(x) for x in self.db.conn.execute(
@@ -100,6 +117,21 @@ class ForwardSourceTests(unittest.TestCase):
                     self.db, proof, disabled_owner_witness=lambda: True,
                     release_witness=lambda: True,
                     cold_bundle_witness=lambda: True)
+
+    def test_missing_or_wrong_fresh_cold_bundle_blocks_source_commit(self):
+        self.cold.return_value["logical_all_tables_sha256"] = "0" * 64
+        with SingleOwner(self.path.with_suffix(".lock")):
+            proof = repair.build_proof(
+                self.db, self.target, 9876, 34567, "f" * 64, "a" * 64)
+            with self.assertRaisesRegex(
+                    repair.ForwardRepairDenied,
+                    "NEW_1830_COLD_BACKUP_NOT_AUTHENTIC"):
+                repair.commit_transition(
+                    self.db, proof, disabled_owner_witness=lambda: True,
+                    release_witness=lambda: True,
+                    cold_bundle_witness=lambda: True)
+        self.assertEqual(self.db.meta()["source_sha"], repair.FROM)
+        self.assertEqual(self.db.meta()["head_seq"], repair.V37_SEQ)
 
     def test_missing_cold_witness_fails_before_write(self):
         with SingleOwner(self.path.with_suffix(".lock")):
