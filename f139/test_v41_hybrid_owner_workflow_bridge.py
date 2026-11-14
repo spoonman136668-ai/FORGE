@@ -36,7 +36,9 @@ class ExactOwnerWorkflowBridge(unittest.TestCase):
         self.assertTrue(self.before.endswith("\n\n"))  # one blank separator
         self.assertEqual(digest(self.before[:-1].encode()),BEFORE)
         self.assertTrue(self.release_marker)
-        self.assertEqual(digest(self.original_workflow),AFTER)
+        # The newly appended owner jobs begin after one separator newline.
+        # The original PAUSE-RESUME workflow remains byte-for-byte identical.
+        self.assertEqual(digest(self.original_workflow[:-1]),AFTER)
         # The later, separately qualified PR #1758 pins its complete owner
         # workflow SHA. The original PAUSE-RESUME route stays byte-identical.
         from scripts import check_rar_g145_pr_scope as scope
