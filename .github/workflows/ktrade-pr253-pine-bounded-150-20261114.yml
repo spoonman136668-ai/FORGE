@@ -128,6 +128,54 @@ jobs:
           }
           if($desktop -cne 'Default'){throw 'KTRADE_OWNER_MANUAL20_DEFAULT_DESKTOP_REQUIRED'}
           Write-Host 'KTRADE_OWNER_MANUAL20_READONLY_PREFLIGHT=PASS;physical_dpi=144:144;timeout_seconds=1200;settings_changed=false'
+      - name: Prove native UTC deadline interpretation and fail-closed negative controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted'){
+            throw 'W169_UTC_GUARD_WRONG_RUNNER_REFUSED'
+          }
+          $prior=$env:KTRADE_NATIVE_DEADLINE_UTC
+          try{
+            $now=[DateTime]::UtcNow
+            $future=$now.AddSeconds(102)
+            $env:KTRADE_NATIVE_DEADLINE_UTC=$future.ToString('o')
+            $end=[DateTimeOffset]::Parse($env:KTRADE_NATIVE_DEADLINE_UTC,
+              [Globalization.CultureInfo]::InvariantCulture).UtcDateTime
+            if($end.Kind -ne [DateTimeKind]::Utc -or
+               !([DateTime]::UtcNow -lt $end)){
+              throw 'W169_UTC_FUTURE_DEADLINE_FALSE_NEGATIVE'
+            }
+            $env:KTRADE_NATIVE_DEADLINE_UTC=([DateTimeOffset]::new($future,[TimeSpan]::Zero).ToOffset([TimeSpan]::FromHours(-5))).ToString('o')
+            $same=[DateTimeOffset]::Parse($env:KTRADE_NATIVE_DEADLINE_UTC,
+              [Globalization.CultureInfo]::InvariantCulture).UtcDateTime
+            if($same.Kind -ne [DateTimeKind]::Utc -or
+               $same.Ticks -ne $end.Ticks -or
+               !([DateTime]::UtcNow -lt $same)){
+              throw 'W169_UTC_EXPLICIT_OFFSET_FALSE_NEGATIVE'
+            }
+            $env:KTRADE_NATIVE_DEADLINE_UTC=$now.AddSeconds(-1).ToString('o')
+            if([DateTime]::UtcNow -lt [DateTimeOffset]::Parse(
+               $env:KTRADE_NATIVE_DEADLINE_UTC,[Globalization.CultureInfo]::InvariantCulture).UtcDateTime){
+              throw 'W169_UTC_EXPIRED_DEADLINE_FALSE_POSITIVE'
+            }
+            $env:KTRADE_NATIVE_DEADLINE_UTC='not-a-timestamp'
+            $malformedRejected=$false
+            try{
+              [void][DateTimeOffset]::Parse($env:KTRADE_NATIVE_DEADLINE_UTC,
+                [Globalization.CultureInfo]::InvariantCulture)
+            }catch [FormatException]{$malformedRejected=$true}
+            if(!$malformedRejected){throw 'W169_UTC_MALFORMED_ACCEPTED'}
+            Write-Host ('W169_UTC_GUARD_NEGATIVES=PASS;future_102s=true;offset_minus5_equivalence=true;expired=false;malformed=refused;local_utc_offset='+[TimeZoneInfo]::Local.BaseUtcOffset)
+          }finally{
+            $env:KTRADE_NATIVE_DEADLINE_UTC=$prior
+          }
       - name: Build frozen exact-source Wails fixture before desktop access
         shell: pwsh
         run: |
