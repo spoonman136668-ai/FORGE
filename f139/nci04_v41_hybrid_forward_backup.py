@@ -141,7 +141,7 @@ def _frozen_source_proof_sha(db, approval, receipt):
 def original_backup(db_path, env, event, api):
     """Fresh original source event-1830 backup, with no original writes."""
     need(sys.platform == "win32" and os.name == "nt"
-         and type(api) is GitHub and type(db_path) is Path,
+         and type(api) is GitHub and isinstance(db_path, Path),
          "NATIVE_WINDOWS_ORIGINAL_PROVIDER_REQUIRED")
     get = api.native_repo_get
     target = env.get("GITHUB_SHA")
