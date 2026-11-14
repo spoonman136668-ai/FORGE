@@ -1,4 +1,4 @@
-name: KTRADE PR253 one-time private ref checkout without desktop access
+name: KTRADE PR253 source-only Pine editor, compiler and chart regressions
 on:
   push:
     branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
@@ -21,7 +21,7 @@ jobs:
       KTRADE_CI_COINBASE_ALLOWED: '0'
       KTRADE_PROMOTION_ALLOWED: '0'
     steps:
-      - name: Source-only private PR ref fetch and clean exact-SHA checkout
+      - name: Exact private PR source and read-only Pine compiler/viewport tests
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -38,7 +38,7 @@ jobs:
              $env:KTRADE_PROMOTION_ALLOWED -cne '0'){
             throw 'KTRADE_SOURCE_ONLY_SCOPE_REFUSED'
           }
-          foreach($tool in @('gh.exe','git.exe')){
+          foreach($tool in @('gh.exe','git.exe','node.exe')){
             if(!(Get-Command $tool -ErrorAction SilentlyContinue)){
               throw ('KTRADE_SOURCE_ONLY_TOOL_MISSING_'+$tool)
             }
@@ -52,6 +52,7 @@ jobs:
           if(Test-Path -LiteralPath $root){throw 'KTRADE_SOURCE_ONLY_ROOT_NOT_FRESH'}
           New-Item -ItemType Directory -Path $root -ErrorAction Stop|Out-Null
           $ok=$false
+          $testsPassed=$false
           try{
             & gh.exe repo clone spoonman136668-ai/ktrade $source -- --filter=blob:none --no-checkout *> $privateLog
             if($LASTEXITCODE -ne 0){throw 'KTRADE_SOURCE_ONLY_PRIVATE_CLONE_FAILED'}
@@ -71,6 +72,42 @@ jobs:
                (Test-Path -LiteralPath (Join-Path $source '.env'))){
               throw 'KTRADE_SOURCE_ONLY_EXACT_TREE_OR_CUSTODY_REFUSED'
             }
+            # Original Go/Pine and chart code is read as-is. No WebView2 UI,
+            # original user profile, network backend or trading capability.
+            $cases=@(
+              'tests/rb3_w32b_pine_compile.test.cjs',
+              'tests/rb3_pine_apply_viewport.test.cjs',
+              'tests/rb3_pine_input_settings.test.cjs',
+              'tests/rb3_pine_label_response_affinity.test.cjs',
+              'tests/rb3_pine_marker_attachment_failclosed.test.cjs',
+              'tests/rb3_w32d_pine_pane.test.cjs',
+              'tests/pine_library_compat_browser.test.cjs',
+              'tests/rb3_w32c_pine_renderer.test.cjs',
+              'tests/rb3_pine_hline_transport.test.cjs',
+              'tests/rb3_pine_shape_transport.test.cjs',
+              'tests/rb3_w98_pine_native_accessibility.test.cjs',
+              'tests/rb3_w96_medium_viewport_controls.test.cjs',
+              'tests/rb3_w85_desktop_operator_shell.test.cjs',
+              'tests/historical_pine_editor_chart_wiring.test.cjs'
+            )
+            foreach($case in $cases){
+              if(!(Test-Path -LiteralPath (Join-Path $source $case) -PathType Leaf)){
+                throw ('KTRADE_PINE_FOCUSED_CASE_MISSING_'+$case)
+              }
+            }
+            Push-Location $source
+            try{
+              & node.exe --test --test-concurrency=1 @cases *> $privateLog
+              if($LASTEXITCODE -ne 0){throw 'KTRADE_PINE_FOCUSED_REGRESSIONS_FAILED'}
+              $testsPassed=$true
+              $stats=Get-Content -LiteralPath $privateLog -ErrorAction Stop |
+                Where-Object {$_ -match '^# (?:tests|pass|fail|cancelled|skipped) '}
+              Write-Host ('KTRADE_PR253_PINE_FOCUSED=PASS;source_sha='+$head+
+                ';test_files='+$cases.Count+';summary='+($stats -join ','))
+            }finally{Pop-Location}
+            if(@(& git.exe -C $source status --porcelain --untracked-files=no).Count -ne 0){
+              throw 'KTRADE_PINE_FOCUSED_SOURCE_CHANGED'
+            }
             $ok=$true
             Write-Host ('KTRADE_PR253_PRIVATE_REF_SOURCE_ONLY=PASS;source_sha='+$head+
               ';tree_sha='+$tree+';runner=FORGE-CODEX-REMOTE;app_launched=false;display_unchanged=true;broker_contacted=false')
@@ -82,7 +119,7 @@ jobs:
               }
               Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
             }
-            Write-Host ('KTRADE_PR253_SOURCE_ONLY_CLEANUP=PASS;source_verified='+$ok+
+            Write-Host ('KTRADE_PR253_SOURCE_ONLY_CLEANUP=PASS;source_verified='+$ok+';pine_tests_pass='+$testsPassed+
               ';installed_app_untouched=true;pointer_untouched=true;display_unchanged=true;live_armed=false')
           }
           if(!$ok){throw 'KTRADE_PR253_SOURCE_ONLY_UNVERIFIED'}
