@@ -219,5 +219,109 @@ class OriginalPostcommitSqliteFixtureTests(unittest.TestCase):
                             db, proof, {**commit, key: bad})
 
 
+class OriginalCommitCallerDisposableIntegrationTests(unittest.TestCase):
+    """Real original_commit caller + real SQL on disposable historical fixture.
+
+    Only the unavailable original Windows SID/Task Scheduler, provider source,
+    release comments and independent off-host cold evidence are mocked.
+    No actual user workstation, task, policy or project state is modified.
+    """
+
+    def setUp(self):
+        self.fixture = HybridSyntheticSqlTransactionTests(
+            "test_atomic_source_commit_keeps_history_and_new_dispatches_zero")
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.simulated_external_qualification()
+        f = self.fixture
+        with SingleOwner(f.file.with_suffix(".lock")):
+            proof = source.build_proof(
+                f.db, f.target, 31, 800001, "5"*64)
+        from f139.nci04_native_contract import digest
+        self.request = {
+            "target_source_sha": f.target,
+            "original_head_seq": source.ACTIVATED_SEQ,
+            "original_head_sha256": source.ACTIVATED_HASH,
+            "expected_proof_sha256": digest(canonical(proof)),
+            "readiness_comment_id": 31,
+            "source_commit_comment_id": 42,
+            "backup_run_id": 800001,
+            "backup_manifest_sha256": "5"*64,
+        }
+        self.environment = {"LOCALAPPDATA": str(f.file.parent),
+                            "GITHUB_SHA": f.target}
+        self.before = f.state()
+
+    def invoke_original(self, *, readback=True):
+        from contextlib import ExitStack
+        from f139 import nci04_v41_hybrid_owner_maintenance as owner
+        from f139.local_controller import GitHub
+
+        f = self.fixture
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        windows = stack.enter_context(mock.patch.object(gate.sys, "platform", "win32"))
+        fake_os = stack.enter_context(mock.patch.object(gate, "os"))
+        fake_os.name = "nt"
+        stack.enter_context(mock.patch.object(
+            gate, "authenticate_commit_request", return_value=self.request))
+        stack.enter_context(mock.patch.object(
+            release, "require_successor_source",
+            return_value={"source_sha": f.target, "source_tree_sha": "a"*40}))
+        stack.enter_context(mock.patch.object(
+            owner, "_original_path", return_value=f.file))
+        stack.enter_context(mock.patch.object(
+            owner, "_candidate_clean_checkout", return_value=True))
+        stack.enter_context(mock.patch.object(
+            owner, "_owner_policy", return_value="original-two-lane-policy"))
+        task = stack.enter_context(mock.patch.object(
+            owner, "_task_readback", return_value=readback))
+        api = GitHub(runner=lambda args: "{}")
+        result = gate.original_commit(f.file, self.environment, {}, api)
+        return result, task
+
+    def test_exact_original_caller_commits_once_and_returns_disabled_hold(self):
+        f = self.fixture
+        result, task = self.invoke_original()
+        self.assertEqual(result["schema"], gate.RECEIPT)
+        self.assertEqual(result["target_source_sha"], f.target)
+        self.assertEqual(result["readiness_comment_id"], 31)
+        self.assertEqual(result["source_commit_comment_id"], 42)
+        self.assertEqual(result["commit"]["event_seq"], source.ACTIVATED_SEQ+1)
+        self.assertEqual(result["postcommit"]["schema"], gate.POSTCOMMIT)
+        self.assertEqual(result["postcommit"]["verified_historical_tasks"], 153)
+        self.assertEqual(result["postcommit"]["custodied_negative_tasks"], 56)
+        self.assertTrue(result["original_task_still_disabled"])
+        self.assertTrue(result["original_policy_unchanged"])
+        self.assertFalse(result["owner_activation_authorized"])
+        self.assertFalse(result["hybrid_admission"])
+        self.assertFalse(result["scientific_first_use"])
+        self.assertEqual(result["new_dispatches"], 0)
+        self.assertGreaterEqual(task.call_count, 3)
+        self.assertTrue(all(call.kwargs.get("disabled") is True
+                            for call in task.call_args_list))
+        after = f.state()
+        self.assertEqual(after[0]["source_sha"], f.target)
+        self.assertEqual(after[1][:len(self.before[1])], self.before[1])
+        self.assertEqual(after[2], self.before[2])
+        self.assertEqual(len(after[1]), len(self.before[1])+1)
+
+    def test_wrong_frozen_proof_denies_source_commit_before_any_write(self):
+        self.request["expected_proof_sha256"] = "0"*64
+        with self.assertRaisesRegex(
+                gate.OriginalCommitDenied, "FROZEN_PROOF_MISMATCH"):
+            self.invoke_original()
+        self.assertEqual(self.fixture.state(), self.before)
+
+    def test_original_task_gate_rejects_commit_before_any_write(self):
+        from f139 import nci04_v41_hybrid_owner_maintenance as owner
+        with mock.patch.object(owner, "_task_readback", side_effect=
+                               owner.HybridOwnerBackupDenied("ORIGINAL_TASK_DRIFT")):
+            with self.assertRaisesRegex(
+                    owner.HybridOwnerBackupDenied, "ORIGINAL_TASK_DRIFT"):
+                self.invoke_original()
+        self.assertEqual(self.fixture.state(), self.before)
+
+
 if __name__ == "__main__":
     unittest.main()
