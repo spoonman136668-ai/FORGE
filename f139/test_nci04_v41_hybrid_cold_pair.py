@@ -9,6 +9,8 @@ from unittest.mock import patch
 from f139.local_controller import Database, SingleOwner
 from f139 import nci04_v41_hybrid_cold_pair as cold
 
+TARGET = "788673aae2d1b42a0c9152395a866e910191cbdd"
+
 
 class HybridColdPairTests(unittest.TestCase):
     def setUp(self):
@@ -26,7 +28,18 @@ class HybridColdPairTests(unittest.TestCase):
             with closing(sqlite3.connect(self.original_path)) as original:
                 original.backup(target)
 
-    def run_pair(self, *, path=None, sha=None, lease=True, lower_history=True):
+    def get(self, route):
+        if route == "repos/spoonman136668-ai/FORGE/branches/main":
+            return {"name": "main", "protected": True,
+                    "commit": {"sha": cold.V41_SOURCE}}
+        if route == "repos/spoonman136668-ai/FORGE/pulls/1660":
+            return {"number": 1660, "state": "open", "merged": False,
+                    "head": {"sha": TARGET},
+                    "base": {"sha": cold.V41_SOURCE, "ref": "main"}}
+        raise AssertionError("unrecognized repo path")
+
+    def run_pair(self, *, path=None, sha=None, lease=True, lower_history=True,
+                 provider=None):
         # The synthetic initialized database has no 1829-event owner history.
         # Only production keeps MIN_V41_HEAD=1829; this isolates parity logic.
         with patch.object(cold, "MIN_V41_HEAD", 0 if lower_history else 1829):
@@ -34,7 +47,7 @@ class HybridColdPairTests(unittest.TestCase):
                 if not lease:
                     return cold.verify_original_sqlite_pair(
                         original, path or self.backup_path,
-                        target_sha=sha or cold.HYBRID_CANDIDATE)
+                        target_sha=sha or TARGET, get=provider or self.get)
                 with SingleOwner(self.original_path.with_suffix(".lock")):
                     return cold.verify_original_sqlite_pair(
                         original, path or self.backup_path,
@@ -43,7 +56,7 @@ class HybridColdPairTests(unittest.TestCase):
     def test_exact_original_and_clean_standalone_copy_match(self):
         receipt = self.run_pair()
         self.assertEqual(receipt["from_source_sha"], cold.V41_SOURCE)
-        self.assertEqual(receipt["to_source_sha"], cold.HYBRID_CANDIDATE)
+        self.assertEqual(receipt["to_source_sha"], TARGET)
         self.assertEqual(receipt["original_sqlite_mutations"], 0)
         self.assertFalse(receipt["owner_release_authorized"])
         self.assertFalse(receipt["hybrid_policy_active"])
@@ -61,6 +74,16 @@ class HybridColdPairTests(unittest.TestCase):
     def test_candidate_sha_must_be_exact(self):
         with self.assertRaisesRegex(cold.HybridColdPairDenied, "CANDIDATE"):
             self.run_pair(sha="f" * 40)
+
+    def test_provider_identity_is_verified_before_backup(self):
+        def wrong(route):
+            if route.endswith("/pulls/1660"):
+                return {"number": 1660, "state": "open", "merged": False,
+                        "head": {"sha": "f" * 40},
+                        "base": {"sha": cold.V41_SOURCE, "ref": "main"}}
+            return self.get(route)
+        with self.assertRaisesRegex(cold.HybridColdPairDenied, "SOURCE_DRIFT"):
+            self.run_pair(provider=wrong)
 
     def test_stale_sqlite_backup_is_denied(self):
         with closing(sqlite3.connect(self.backup_path)) as copy:

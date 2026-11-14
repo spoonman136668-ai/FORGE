@@ -22,7 +22,8 @@ from f139.nci04_native_contract import canonical, digest
 from f139.nci04_v38_original_owner_transition_cli import rollback_view
 
 V41_SOURCE = "1a40fe4e3ec6e93a1631d59863b95e90981d734e"
-HYBRID_CANDIDATE = "788673aae2d1b42a0c9152395a866e910191cbdd"
+HYBRID_PR_NUMBER = 1660
+SHA40 = re.compile(r"[a-f0-9]{40}\\Z")
 MIN_V41_HEAD = 1829
 MAX_SQLITE_BYTES = 1_000_000_000
 RUN_NAME = re.compile(r"f139-hybrid-before-([1-9][0-9]*)\Z")
@@ -63,7 +64,30 @@ def _hash_file(path):
     return h.hexdigest()
 
 
-def verify_original_sqlite_pair(original, backup, *, target_sha):
+def _authenticate_candidate(get, target_sha):
+    # Authenticated native GitHub provider is mandatory; a caller's SHA
+    # string, issue text, or CI-success label alone is not source authority.
+    need(callable(get) and type(target_sha) is str
+         and SHA40.fullmatch(target_sha) is not None
+         and target_sha != V41_SOURCE, "CANDIDATE_SHA_INVALID")
+    main = get("repos/spoonman136668-ai/FORGE/branches/main")
+    pr = get("repos/spoonman136668-ai/FORGE/pulls/1660")
+    need(type(main) is dict and main.get("name") == "main"
+         and main.get("protected") is True
+         and type(main.get("commit")) is dict
+         and main["commit"].get("sha") == V41_SOURCE
+         and type(pr) is dict and pr.get("number") == HYBRID_PR_NUMBER
+         and pr.get("state") == "open" and pr.get("merged") is False
+         and type(pr.get("head")) is dict
+         and pr["head"].get("sha") == target_sha
+         and type(pr.get("base")) is dict
+         and pr["base"].get("sha") == V41_SOURCE
+         and pr["base"].get("ref") == "main",
+         "PROTECTED_PR_SOURCE_DRIFT")
+    return target_sha
+
+
+def verify_original_sqlite_pair(original, backup, *, target_sha, get):
     """Cold-compare a standalone SQLite backup under the original owner lock.
 
     The caller must independently establish task SID/lease, exact provider
@@ -76,8 +100,7 @@ def verify_original_sqlite_pair(original, backup, *, target_sha):
          and original.conn.execute("PRAGMA query_only").fetchone()[0] == 1
          and SingleOwner.held(original.filename.with_suffix(".lock")),
          "READONLY_ORIGINAL_MUTEX_REQUIRED")
-    need(type(target_sha) is str and target_sha == HYBRID_CANDIDATE,
-         "CANDIDATE_SHA_NOT_FROZEN")
+    _authenticate_candidate(get, target_sha)
     backup = Path(backup)
     original_root = original.filename.parent
     need(backup.is_absolute() and backup.name == "state.sqlite"
@@ -145,6 +168,7 @@ def verify_original_sqlite_pair(original, backup, *, target_sha):
     need(_file_identity(backup) == first_identity
          and _hash_file(backup) == sealed_sqlite_sha256,
          "BACKUP_CHANGED_DURING_VERIFICATION")
+    _authenticate_candidate(get, target_sha)
     original.verify()
     need(original.meta() == before
          and original.conn.total_changes == 0
@@ -153,7 +177,7 @@ def verify_original_sqlite_pair(original, backup, *, target_sha):
     return {
         "schema": "forge.f139.v41-hybrid.sqlite-cold-pair-only.v1",
         "from_source_sha": V41_SOURCE,
-        "to_source_sha": HYBRID_CANDIDATE,
+        "to_source_sha": target_sha,
         "original_head_seq": before["head_seq"],
         "original_head_sha256": before["head_hash"],
         "standalone_sqlite_sha256": sealed_sqlite_sha256,

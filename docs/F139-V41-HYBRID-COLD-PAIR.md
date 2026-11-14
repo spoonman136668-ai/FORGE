@@ -13,7 +13,7 @@ justify the Hybrid release.
 
 `f139/nci04_v41_hybrid_cold_pair.py` implements a bounded, source-pinned,
 read-only SQLite component for a FUTURE authorized owner-created fresh backup.
-It requires the genuine original query-only `Database` under its existing
+It requires an authenticated native GitHub reader and the genuine original query-only `Database` under its existing
 `SingleOwner` kernel mutex; it verifies the original cold ledger, V41
 identity, idle state and absence of Hybrid migration. It only accepts a
 standalone owner-scoped backup file with no WAL/SHM/journal sidecars, snapshots
