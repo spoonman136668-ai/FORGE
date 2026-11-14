@@ -32,7 +32,9 @@ class HybridOriginalTaskWrapperTests(unittest.TestCase):
 
     def test_paired_request_and_exact_github_source_before_pause(self):
         src=self.source
-        self.assertIn("F139-HYBRID-V41-PAUSE-RESUME ",src)
+        self.assertIn("$approvalMode=if($Hold){'PAUSE-HOLD'}else{'PAUSE-RESUME'}",src)
+        self.assertIn("'^F139-HYBRID-V41-'+$approvalMode",src)
+        self.assertIn("if($Hold){$args+=('--hold')}",src)
         self.assertIn("F139_HYBRID_V41_PAIRED_PREFLIGHT=",src)
         self.assertIn("GITHUB_RUN_ATTEMPT -ceq '1'",src)
         self.assertIn("GITHUB_SHA -ceq $Target",src)

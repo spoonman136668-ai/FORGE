@@ -33,6 +33,18 @@ def _source(get, target):
     prefix = "repos/" + REPO + "/"
     main = get(prefix + "branches/main")
     pr = get(prefix + "pulls/1660")
+    # Preserve all original PR #1660 checks for that release. For the
+    # successor, require *separate* PR #1757 source/tree/CI custody.
+    if (type(main) is dict and type(main.get("commit")) is dict
+            and main["commit"].get("sha") == target
+            and type(pr) is dict and pr.get("state") == "closed"
+            and pr.get("merged") is True
+            and pr.get("merge_commit_sha") ==
+                "b98dae4c6b0a78b145cfca06aeb465d6d85d3597"
+            and target != pr["merge_commit_sha"]):
+        from f139.nci04_v41_hybrid_successor_release import (
+            require_successor_source)
+        return ("successor", require_successor_source(get, target))
     need(type(main) is dict and main.get("name") == "main"
          and main.get("protected") is True
          and type(main.get("commit")) is dict
@@ -106,7 +118,10 @@ def require_protected_main_release(get, env, *, target_sha):
          and env.get("RUNNER_NAME") == "FORGE-CODEX-REMOTE"
          and not env.get("OPENAI_API_KEY"),
          "ORIGINAL_OWNER_EVENT_OR_PROTECTED_SHA_DRIFT")
-    tree, pr_head_sha = _source(get, target_sha)
+    source = _source(get, target_sha)
+    if source[0] == "successor":
+        return source[1]
+    tree, pr_head_sha = source
     # Only the public Linux/Windows qualification runs on main push today.
     # The three additional native/development workflows run on PR events.
     # Exact source-tree parity binds the PR full regression to protected main.
