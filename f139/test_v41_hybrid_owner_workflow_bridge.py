@@ -29,7 +29,8 @@ class ExactOwnerWorkflowBridge(unittest.TestCase):
 
     def test_existing_job_source_is_exact_and_workflow_is_pinned(self):
         self.assertTrue(self.marker)
-        self.assertEqual(digest(self.before.encode()),BEFORE)
+        self.assertTrue(self.before.endswith("\n\n"))  # one blank separator
+        self.assertEqual(digest(self.before[:-1].encode()),BEFORE)
         self.assertEqual(digest(self.blob),AFTER)
         self.assertEqual(self.body.count(self.marker),1)
         for job in ("original-owner-v41-live-install",
