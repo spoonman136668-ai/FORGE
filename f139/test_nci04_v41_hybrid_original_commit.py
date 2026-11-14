@@ -252,7 +252,7 @@ class OriginalCommitCallerDisposableIntegrationTests(unittest.TestCase):
                             "GITHUB_SHA": f.target}
         self.before = f.state()
 
-    def invoke_original(self, *, readback=True):
+    def invoke_original(self, *, readback=True, fail_task=False):
         from contextlib import ExitStack
         from f139 import nci04_v41_hybrid_owner_maintenance as owner
         from f139.local_controller import GitHub
@@ -260,7 +260,7 @@ class OriginalCommitCallerDisposableIntegrationTests(unittest.TestCase):
         f = self.fixture
         stack = ExitStack()
         self.addCleanup(stack.close)
-        windows = stack.enter_context(mock.patch.object(gate.sys, "platform", "win32"))
+        stack.enter_context(mock.patch.object(gate.sys, "platform", "win32"))
         fake_os = stack.enter_context(mock.patch.object(gate, "os"))
         fake_os.name = "nt"
         stack.enter_context(mock.patch.object(
@@ -275,7 +275,9 @@ class OriginalCommitCallerDisposableIntegrationTests(unittest.TestCase):
         stack.enter_context(mock.patch.object(
             owner, "_owner_policy", return_value="original-two-lane-policy"))
         task = stack.enter_context(mock.patch.object(
-            owner, "_task_readback", return_value=readback))
+            owner, "_task_readback",
+            side_effect=(owner.HybridOwnerBackupDenied("ORIGINAL_TASK_DRIFT")
+                         if fail_task else None), return_value=readback))
         api = GitHub(runner=lambda args: "{}")
         result = gate.original_commit(f.file, self.environment, {}, api)
         return result, task
@@ -315,11 +317,9 @@ class OriginalCommitCallerDisposableIntegrationTests(unittest.TestCase):
 
     def test_original_task_gate_rejects_commit_before_any_write(self):
         from f139 import nci04_v41_hybrid_owner_maintenance as owner
-        with mock.patch.object(owner, "_task_readback", side_effect=
-                               owner.HybridOwnerBackupDenied("ORIGINAL_TASK_DRIFT")):
-            with self.assertRaisesRegex(
-                    owner.HybridOwnerBackupDenied, "ORIGINAL_TASK_DRIFT"):
-                self.invoke_original()
+        with self.assertRaisesRegex(
+                owner.HybridOwnerBackupDenied, "ORIGINAL_TASK_DRIFT"):
+            self.invoke_original(fail_task=True)
         self.assertEqual(self.fixture.state(), self.before)
 
 
