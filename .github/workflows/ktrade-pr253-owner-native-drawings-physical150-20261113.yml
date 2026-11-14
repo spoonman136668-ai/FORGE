@@ -96,11 +96,20 @@ jobs:
           $prePath=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-saver-'+$env:GITHUB_RUN_ID+'.json')
           if(Test-Path -LiteralPath $prePath){throw 'KTRADE_OWNER_SAVER_PREIMAGE_ALREADY_EXISTS'}
           $reg=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+          $effective=[KtradePr253NonsecureSaverPrep]::Timeout()
+          Write-Host ('KTRADE_OWNER_MANUAL20_READONLY_OBSERVED='+(@{
+            effective_timeout_seconds=$effective
+            registry_timeout_seconds=[string]$reg.ScreenSaveTimeOut
+            screen_saver_enabled=([string]$reg.ScreenSaveActive -ceq '1')
+            screen_saver_secure=([string]$reg.ScreenSaverIsSecure -ceq '1')
+            system_blank_saver=([IO.Path]::GetFileName([string]$reg.'SCRNSAVE.EXE') -ieq 'scrnsave.scr')
+            settings_changed_by_job=$false
+          }|ConvertTo-Json -Compress))
           if([string]$reg.ScreenSaveActive -cne '1' -or
              [string]$reg.ScreenSaveTimeOut -cne '1200' -or
              [string]$reg.ScreenSaverIsSecure -cne '0' -or
              [IO.Path]::GetFileName([string]$reg.'SCRNSAVE.EXE') -ine 'scrnsave.scr' -or
-             [KtradePr253NonsecureSaverPrep]::Timeout() -ne 1200){
+             $effective -ne 1200){
             throw 'KTRADE_OWNER_SAVER_CONFIG_DRIFT_REFUSED'
           }
           foreach($p in @('HKCU:\Software\Policies\Microsoft\Windows\Control Panel\Desktop',
@@ -469,6 +478,11 @@ jobs:
           '@
           $seconds=[KtradeManual20Independent]::Read()
           $reg=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+          Write-Host ('KTRADE_OWNER_MANUAL20_INDEPENDENT_OBSERVED='+(@{
+            effective_timeout_seconds=$seconds
+            registry_timeout_seconds=[string]$reg.ScreenSaveTimeOut
+            settings_changed_by_job=$false
+          }|ConvertTo-Json -Compress))
           if($seconds -ne 1200 -or [string]$reg.ScreenSaveTimeOut -cne '1200'){
             throw 'KTRADE_OWNER_MANUAL20_SETTINGS_CHANGED'
           }
