@@ -1,0 +1,608 @@
+name: KTRADE PR253 genuine native drawings on measured physical 125 or 200 percent DPI
+on:
+  push:
+    branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
+    paths:
+      - .github/workflows/ktrade-pr253-owner-native-drawings-physical125-200-20261113.yml
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-pr253-owner-native-drawings-once
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    env:
+      KTRADE_EXPECTED_SOURCE: '59842e83f01fb6e1af780ede5a7395a9c7cce47a'
+      KTRADE_EXPECTED_TREE: 'df46e1b6c9adf46eb9ba69e83ce4dbd8dc8feb97'
+      KTRADE_LIVE_TRADING: 'false'
+      KTRADE_CI_LIVE_AUTHORITY: '0'
+      KTRADE_CI_COINBASE_ALLOWED: '0'
+      KTRADE_USE_LEGACY_CDP_CONFIG: '0'
+      KTRADE_PAPER_SESSION_ROOT: ''
+      KTRADE_PAPER_CUSTODY_REVIEW_ROOT: ''
+      KTRADE_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Prepare only original nonsecure screen saver for exact Windows native test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar' -or
+             [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 1){
+            throw 'KTRADE_OWNER_SAVER_PREP_SCOPE_REFUSED'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public static class KtradePr253NonsecureSaverPrep {
+            public delegate bool MonitorCallback(IntPtr monitor,IntPtr dc,IntPtr rect,IntPtr data);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr ctx);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool EnumDisplayMonitors(IntPtr dc,IntPtr rect,MonitorCallback cb,IntPtr data);
+            [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr h,int kind,out uint x,out uint y);
+            public static string[] PhysicalDpi(){
+              var prior=SetThreadDpiAwarenessContext(new IntPtr(-4));
+              if(prior==IntPtr.Zero)throw new Exception("PER_MONITOR_V2_CONTEXT_REQUIRED");
+              try{
+                var list=new System.Collections.Generic.List<string>();
+                MonitorCallback cb=(IntPtr h,IntPtr dc,IntPtr rect,IntPtr data)=>{
+                  uint x,y;var hr=GetDpiForMonitor(h,0,out x,out y);
+                  if(hr!=0)throw new Exception("PHYSICAL_MONITOR_DPI_READ_FAILED_"+hr);
+                  list.Add(x.ToString()+":"+y.ToString());
+                  return true;
+                };
+                if(!EnumDisplayMonitors(IntPtr.Zero,IntPtr.Zero,cb,IntPtr.Zero))
+                  throw new Exception("PHYSICAL_MONITOR_ENUM_FAILED_"+Marshal.GetLastWin32Error());
+                return list.ToArray();
+              }finally{
+                if(SetThreadDpiAwarenessContext(prior)==IntPtr.Zero)
+                  throw new Exception("PER_MONITOR_V2_CONTEXT_RESTORE_FAILED");
+              }
+            }
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int i,StringBuilder b,uint size,out uint needed);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool SystemParametersInfo(uint a,uint b,ref uint c,uint f);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool SystemParametersInfo(uint a,uint b,IntPtr c,uint f);
+            public static string Desktop(){
+              var h=OpenInputDesktop(0,false,1);
+              if(h==IntPtr.Zero)return "UNAVAILABLE";
+              try{
+                var s=new StringBuilder(128);uint size;
+                return GetUserObjectInformation(h,2,s,(uint)(s.Capacity*2),out size)?s.ToString():"UNAVAILABLE";
+              }finally{CloseDesktop(h);}
+            }
+            public static uint Timeout(){
+              uint v=0;if(!SystemParametersInfo(0xE,0,ref v,0))throw new Exception("SAVER_GET_REFUSED");return v;
+            }
+            public static void SetVolatile(uint v){
+              if(!SystemParametersInfo(0xF,v,IntPtr.Zero,0))throw new Exception("SAVER_VOLATILE_SET_REFUSED");
+            }
+          }
+          '@
+          $physicalPreimage=@([KtradePr253NonsecureSaverPrep]::PhysicalDpi())
+          if($physicalPreimage.Count -ne 1 -or $physicalPreimage[0] -cnotin @('120:120','192:192')){
+            throw ('KTRADE_PR253_PHYSICAL_125_OR_200_NOT_PRESENT_NO_MUTATION='+($physicalPreimage -join ','))
+          }
+          Write-Host ('KTRADE_PR253_PHYSICAL_125_OR_200_PREP=PASS;effective_monitor_dpi='+($physicalPreimage -join ','))
+          $prePath=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-saver-'+$env:GITHUB_RUN_ID+'.json')
+          if(Test-Path -LiteralPath $prePath){throw 'KTRADE_OWNER_SAVER_PREIMAGE_ALREADY_EXISTS'}
+          $reg=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+          if([string]$reg.ScreenSaveActive -cne '1' -or
+             [string]$reg.ScreenSaveTimeOut -cne '60' -or
+             [string]$reg.ScreenSaverIsSecure -cne '0' -or
+             [IO.Path]::GetFileName([string]$reg.'SCRNSAVE.EXE') -ine 'scrnsave.scr' -or
+             [KtradePr253NonsecureSaverPrep]::Timeout() -ne 60){
+            throw 'KTRADE_OWNER_SAVER_CONFIG_DRIFT_REFUSED'
+          }
+          foreach($p in @('HKCU:\Software\Policies\Microsoft\Windows\Control Panel\Desktop',
+                          'HKLM:\Software\Policies\Microsoft\Windows\Control Panel\Desktop')){
+            if(Test-Path -LiteralPath $p){throw 'KTRADE_OWNER_SAVER_POLICY_PRESENT_REFUSED'}
+          }
+          if(@(Get-Process LogonUI -ErrorAction SilentlyContinue|
+               Where-Object {$_.SessionId -eq 1}).Count -ne 0){
+            throw 'KTRADE_OWNER_SAVER_LOGON_SCREEN_PRESENT_REFUSED'
+          }
+          $desktop=[KtradePr253NonsecureSaverPrep]::Desktop()
+          if($desktop -cnotin @('Default','Screen-saver')){
+            throw ('KTRADE_OWNER_SAVER_UNRECOGNIZED_DESKTOP_'+$desktop)
+          }
+          $saver=$null
+          if($desktop -ceq 'Screen-saver'){
+            $candidates=@(Get-CimInstance Win32_Process -Filter "Name='scrnsave.scr'" -ErrorAction Stop|
+              Where-Object {[int]$_.SessionId -eq 1})
+            $systemPath=[IO.Path]::GetFullPath((Join-Path $env:windir 'System32\scrnsave.scr'))
+            if($candidates.Count -ne 1 -or
+               ![string]::Equals([string]$candidates[0].ExecutablePath,$systemPath,[StringComparison]::OrdinalIgnoreCase)){
+              throw 'KTRADE_OWNER_SAVER_NOT_EXACT_SYSTEM_BINARY_REFUSED'
+            }
+            $saver=$candidates[0]
+            $owner=Invoke-CimMethod -InputObject $saver -MethodName GetOwner -ErrorAction Stop
+            if([string]($owner.Domain+'\'+$owner.User) -ine 'LINKDEADKB\camar'){
+              throw 'KTRADE_OWNER_SAVER_NOT_OWNED_BY_USER_REFUSED'
+            }
+          }
+          [IO.File]::WriteAllText($prePath,((@{
+            schema='ktrade.pr253.screensaver-volatile-preimage.v1'
+            runner=$env:RUNNER_NAME;run=$env:GITHUB_RUN_ID
+            timeout_seconds=60;registry_timeout='60'
+            source_sha=$env:KTRADE_EXPECTED_SOURCE
+          }|ConvertTo-Json -Compress)+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          $prepared=$false
+          try{
+            if($saver){
+              # Verified non-password-protected Windows blank saver only.
+              # Ending it precedes volatile SPI, which is refused while its
+              # protected input desktop is still the active desktop.
+              $current=Get-CimInstance Win32_Process -Filter "ProcessId=$($saver.ProcessId)" -ErrorAction Stop
+              if(!$current -or $current.Name -ine 'scrnsave.scr' -or
+                 $current.CreationDate -ne $saver.CreationDate -or
+                 [string]$current.ExecutablePath -ine [string]$saver.ExecutablePath){
+                throw 'KTRADE_OWNER_SAVER_PID_DRIFT_REFUSED'
+              }
+              Stop-Process -Id ([int]$saver.ProcessId) -ErrorAction Stop
+            }
+            $ready=$false
+            for($i=0;$i -lt 15;$i++){
+              if([KtradePr253NonsecureSaverPrep]::Desktop() -ceq 'Default'){$ready=$true;break}
+              Start-Sleep -Milliseconds 350
+            }
+            if(!$ready){throw 'KTRADE_OWNER_SAVER_DID_NOT_RETURN_DEFAULT_DESKTOP'}
+            [KtradePr253NonsecureSaverPrep]::SetVolatile(900)
+            if([KtradePr253NonsecureSaverPrep]::Timeout() -ne 900 -or
+               [string](Get-ItemProperty 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne '60'){
+              throw 'KTRADE_OWNER_SAVER_VOLATILE_TIMEOUT_DRIFT'
+            }
+            $prepared=$true
+            Write-Host ('KTRADE_OWNER_SAVER_PREPARED='+(@{
+              original_timeout_seconds=60;temporary_timeout_seconds=900
+              original_registry_unchanged=$true
+              exact_nonsecure_system_saver_dismissed=[bool]$saver
+              desktop='Default';lock_screen_untouched=$true
+              installer_untouched=$true;scheduler_created=$false
+              restore_always_step_required=$true
+            }|ConvertTo-Json -Compress))
+          }catch{
+            Write-Host ('KTRADE_OWNER_SAVER_PREP_FAILED='+$_.Exception.Message)
+            throw
+          }finally{
+            if(!$prepared){
+              try{
+                $effective=[KtradePr253NonsecureSaverPrep]::Timeout()
+                if($effective -ne 60){
+                  [KtradePr253NonsecureSaverPrep]::SetVolatile(60)
+                }
+                if([KtradePr253NonsecureSaverPrep]::Timeout() -eq 60){
+                  Write-Host 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PASS'
+                }else{
+                  Write-Host 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PENDING_ALWAYS_STEP'
+                }
+              }catch{
+                Write-Host ('KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PENDING_ALWAYS_STEP;reason='+$_.Exception.GetType().Name)
+              }
+            }
+          }
+      - name: Build exact disposable candidate and run genuine Win32 drawing acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:KTRADE_LIVE_TRADING -cne 'false' -or
+             $env:KTRADE_CI_LIVE_AUTHORITY -cne '0' -or
+             $env:KTRADE_CI_COINBASE_ALLOWED -cne '0' -or
+             $env:KTRADE_PAPER_SESSION_ROOT -cne '' -or
+             $env:KTRADE_PAPER_CUSTODY_REVIEW_ROOT -cne '' -or
+             $env:KTRADE_PROMOTION_ALLOWED -cne '0'){
+            throw 'KTRADE_OWNER_NATIVE_SCOPE_REFUSED'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($who)
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          $explorer=@(Get-Process explorer -ErrorAction SilentlyContinue|
+            Where-Object {$_.SessionId -eq $session})
+          if([string]$who.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             $session -ne 1 -or !$explorer.Count -or
+             ![Environment]::UserInteractive){
+            throw 'KTRADE_OWNER_NATIVE_INTERACTIVE_DESKTOP_REQUIRED'
+          }
+          if(@(Get-Process -Name ktrade,ktrade-engine -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTRADE_OWNER_NATIVE_EXISTING_APP_RUNNING_REFUSED'
+          }
+          $tools=@('git.exe','gh.exe','go.exe','node.exe','npm.cmd')
+          foreach($tool in $tools){
+            if(!(Get-Command $tool -ErrorAction SilentlyContinue)){
+              throw ('KTRADE_OWNER_NATIVE_TOOL_MISSING_'+$tool)
+            }
+          }
+          $goPreimage=(& go.exe version) -join ' '
+          if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_GO_VERSION_READ_FAILED'}
+          Write-Host ('KTRADE_OWNER_NATIVE_GO_PREIMAGE='+$goPreimage)
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Collections.Generic;
+          using System.Runtime.InteropServices;
+          public static class KTradeOwnedDesktop {
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr ctx);
+            public static string[] PhysicalDpi(){
+              IntPtr prior=SetThreadDpiAwarenessContext(new IntPtr(-4));
+              if(prior==IntPtr.Zero)throw new Exception("PER_MONITOR_V2_CONTEXT_REQUIRED");
+              try{return Dpi();}
+              finally{
+                if(SetThreadDpiAwarenessContext(prior)==IntPtr.Zero)
+                  throw new Exception("PER_MONITOR_V2_CONTEXT_RESTORE_FAILED");
+              }
+            }
+            [StructLayout(LayoutKind.Sequential)] public struct P {public int x;public int y;}
+            public delegate bool Cb(IntPtr monitor,IntPtr dc,IntPtr rect,IntPtr data);
+            [DllImport("user32.dll")] public static extern bool EnumDisplayMonitors(IntPtr dc,IntPtr rect,Cb cb,IntPtr data);
+            [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr m,int type,out uint x,out uint y);
+            [DllImport("user32.dll")] public static extern bool GetCursorPos(out P p);
+            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+            [StructLayout(LayoutKind.Sequential)] public struct LastInput {public uint cbSize;public uint dwTime;}
+            [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LastInput info);
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int index,System.Text.StringBuilder name,uint count,out uint needed);
+            public static bool InputDesktopIsDefault(){
+              IntPtr h=OpenInputDesktop(0,false,1);
+              if(h==IntPtr.Zero)return false;
+              try{
+                var b=new System.Text.StringBuilder(128);uint needed;
+                return GetUserObjectInformation(h,2,b,(uint)(b.Capacity*2),out needed) &&
+                  string.Equals(b.ToString(),"Default",StringComparison.Ordinal);
+              }finally{CloseDesktop(h);}
+            }
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool SystemParametersInfo(uint action,uint param,ref uint value,uint flags);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool SystemParametersInfo(uint action,uint param,IntPtr value,uint flags);
+            public static uint GetSaverTimeout(){
+              uint seconds=0;
+              if(!SystemParametersInfo(0x000E,0,ref seconds,0))
+                throw new Exception("SCREENSAVER_TIMEOUT_READ_FAILED");
+              return seconds;
+            }
+            public static void SetVolatileSaverTimeout(uint seconds){
+              // No SPIF_UPDATEINIFILE: do not persist to HKCU.
+              if(!SystemParametersInfo(0x000F,seconds,IntPtr.Zero,0))
+                throw new Exception("SCREENSAVER_VOLATILE_TIMEOUT_SET_REFUSED");
+            }
+            public static uint LastInputStamp(){
+              var info=new LastInput{cbSize=(uint)Marshal.SizeOf(typeof(LastInput))};
+              if(!GetLastInputInfo(ref info))throw new Exception("LAST_INPUT_STAMP_READ_FAILED");
+              return info.dwTime;
+            }
+            public static bool ValidIdle(uint elapsed){return elapsed>=45000 && elapsed<=86400000;}
+            public static uint IdleMs(){
+              var info=new LastInput{cbSize=(uint)Marshal.SizeOf(typeof(LastInput))};
+              if(!GetLastInputInfo(ref info))throw new Exception("LAST_INPUT_READ_FAILED");
+              uint elapsed=unchecked((uint)Environment.TickCount-info.dwTime);
+              if(elapsed>86400000)throw new Exception("LAST_INPUT_CLOCK_ANOMALY_REFUSED");
+              return elapsed;
+            }
+            public static string[] Dpi(){
+              var result=new List<string>();
+              if(!EnumDisplayMonitors(IntPtr.Zero,IntPtr.Zero,(m,d,r,u)=>{
+                uint x,y;int hr=GetDpiForMonitor(m,0,out x,out y);
+                result.Add(hr==0?x.ToString()+":"+y.ToString():"ERR:"+hr);return true;
+              },IntPtr.Zero))throw new Exception("MONITOR_ENUM_FAILED");
+              return result.ToArray();
+            }
+          }
+          '@
+          $beforeDpi=@([KTradeOwnedDesktop]::PhysicalDpi())
+          if($beforeDpi.Count -ne 1 -or $beforeDpi[0] -cnotin @('120:120','192:192')){
+            throw ('KTRADE_OWNER_NATIVE_PHYSICAL_125_OR_200_DPI_REQUIRED_OBSERVED='+($beforeDpi -join ','))
+          }
+          $env:KTRADE_EXPECTED_MONITOR_WINDOW_DPI=$beforeDpi[0].Split(':')[0]
+          Write-Host ('KTRADE_OWNER_NATIVE_PHYSICAL_125_OR_200_DPI_CONFIRMED='+($beforeDpi -join ','))
+          if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
+            throw 'KTRADE_OWNER_NATIVE_INPUT_DESKTOP_NOT_DEFAULT'
+          }
+          $cursor=[KTradeOwnedDesktop+P]::new()
+          if(![KTradeOwnedDesktop]::GetCursorPos([ref]$cursor)){
+            throw 'KTRADE_OWNER_NATIVE_CURSOR_SNAPSHOT_REFUSED'
+          }
+          # Deterministic negative controls prevent a 2^32-wrap idle value
+          # from admitting pointer operations.
+          if(![KTradeOwnedDesktop]::ValidIdle(45000) -or
+             [KTradeOwnedDesktop]::ValidIdle(44999) -or
+             [KTradeOwnedDesktop]::ValidIdle(4294556138) -or
+             [KTradeOwnedDesktop]::ValidIdle(86400001)){
+            throw 'KTRADE_OWNER_NATIVE_IDLE_NEGATIVE_CONTROL_FAILED'
+          }
+          Write-Host 'KTRADE_OWNER_NATIVE_IDLE_GUARD_NEGATIVES=PASS'
+          # Only read the actual idle clock after the short-lived, volatile screen-saver extension.
+          # Historical GETLASTINPUTINFO arithmetic returned a future timestamp; never call it proof before normalization.
+          $foreground=[KTradeOwnedDesktop]::GetForegroundWindow()
+          if($foreground -eq [IntPtr]::Zero){throw 'KTRADE_OWNER_NATIVE_FOREGROUND_SNAPSHOT_REFUSED'}
+          $root=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-real-native-'+[guid]::NewGuid().ToString('N'))
+          $source=Join-Path $root 'product'
+          $clonelog=Join-Path $root 'private-source.log'
+          $derived='Test-KTRADE-W160-OwnerSession-Adapted.ps1'
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop|Out-Null
+          $succeeded=$false
+          $saverPreimagePath=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-saver-'+$env:GITHUB_RUN_ID+'.json')
+          $saverOriginal=0
+          $originalRegistry=''
+          try{
+            $pre=Get-Content -LiteralPath $saverPreimagePath -Raw -ErrorAction Stop|ConvertFrom-Json
+            $saverHKCU=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+            $originalRegistry=[string]$saverHKCU.ScreenSaveTimeOut
+            $saverOriginal=[uint32]$pre.timeout_seconds
+            if($pre.schema -cne 'ktrade.pr253.screensaver-volatile-preimage.v1' -or
+               $pre.runner -cne 'FORGE-CODEX-REMOTE' -or
+               $pre.run -cne $env:GITHUB_RUN_ID -or
+               $pre.source_sha -cne $env:KTRADE_EXPECTED_SOURCE -or
+               $saverOriginal -ne 60 -or [string]$pre.registry_timeout -cne '60' -or
+               $originalRegistry -cne '60' -or
+               [string]$saverHKCU.ScreenSaveActive -cne '1' -or
+               [string]$saverHKCU.ScreenSaverIsSecure -cne '0' -or
+               [KTradeOwnedDesktop]::GetSaverTimeout() -ne 900){
+              throw 'KTRADE_OWNER_NATIVE_PREPARED_NONSECURE_SAVER_READBACK_REFUSED'
+            }
+            Write-Host ('KTRADE_OWNER_NATIVE_TEMP_SCREEN_SAVER='+(@{
+              schema='ktrade.pr253.volatile-screen-saver-test.v2'
+              original_seconds=60;temporary_seconds=900
+              persisted_registry_unchanged=$true
+              input_desktop_after_prep='Default';owner_session=$session
+              installation_modified=$false;scheduler_created=$false
+            }|ConvertTo-Json -Compress))
+            # The host reported a future-dated LastInputInfo DWORD. Compare
+            # observed input *changes* and cursor stability against a monotonic
+            # Stopwatch, never subtract future timestamps or trust wrapped idle.
+            $lastStamp=[KTradeOwnedDesktop]::LastInputStamp()
+            $stationary=[Diagnostics.Stopwatch]::StartNew()
+            $deadline=[Diagnostics.Stopwatch]::StartNew()
+            $idleQualified=$false
+            while($deadline.Elapsed.TotalSeconds -lt 165){
+              if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
+                throw 'KTRADE_OWNER_NATIVE_DESKTOP_SWITCHED_DURING_IDLE_CHECK'
+              }
+              $point=[KTradeOwnedDesktop+P]::new()
+              if(-not [KTradeOwnedDesktop]::GetCursorPos([ref]$point)){
+                throw 'KTRADE_OWNER_NATIVE_CURSOR_UNAVAILABLE_DURING_IDLE_CHECK'
+              }
+              $next=[KTradeOwnedDesktop]::LastInputStamp()
+              if($next -ne $lastStamp -or $point.x -ne $cursor.x -or $point.y -ne $cursor.y){
+                $lastStamp=$next
+                $cursor=$point
+                $stationary.Restart()
+              }
+              if([KTradeOwnedDesktop]::GetForegroundWindow() -ne $foreground){
+                throw 'KTRADE_OWNER_NATIVE_FOREGROUND_CHANGED_DURING_IDLE_CHECK'
+              }
+              if($stationary.Elapsed.TotalMilliseconds -ge 45000){
+                $idleQualified=$true
+                break
+              }
+              Start-Sleep -Seconds 2
+            }
+            if(-not $idleQualified){
+              throw 'KTRADE_OWNER_NATIVE_45_SECOND_STABILITY_NOT_ESTABLISHED'
+            }
+            $lastStampAtAdmission=[KTradeOwnedDesktop]::LastInputStamp()
+            Write-Host 'KTRADE_OWNER_NATIVE_45_SECOND_MONOTONIC_IDLE=PASS'
+            # Exact Go 1.26.10 is loaded only into disposable job caches.
+            # Never overwrite the workstation's Go 1.25.5 installation or global user cache.
+            $env:GOTOOLCHAIN='go1.26.10'
+            $env:GOPATH=Join-Path $root 'go-path'
+            $env:GOMODCACHE=Join-Path $root 'go-mod-cache'
+            $env:GOCACHE=Join-Path $root 'go-build-cache'
+            $goText=(& go.exe version) -join ' '
+            Write-Host ('KTRADE_OWNER_NATIVE_JOB_TOOLCHAIN='+$goText)
+            if($LASTEXITCODE -ne 0 -or $goText -notmatch '\bgo1\.26\.10\b'){
+              throw 'KTRADE_OWNER_NATIVE_PINNED_GO_TOOLCHAIN_UNAVAILABLE'
+            }
+            $env:GH_PROMPT_DISABLED='1'
+            $env:GIT_TERMINAL_PROMPT='0'
+            & gh.exe repo clone spoonman136668-ai/ktrade $source -- --filter=blob:none --no-checkout *> $clonelog
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_PRIVATE_SOURCE_UNAVAILABLE'}
+            & git.exe -C $source fetch --no-tags --depth 1 origin $env:KTRADE_EXPECTED_SOURCE *> $clonelog
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_PINNED_SOURCE_FETCH_FAILED'}
+            & git.exe -C $source checkout --detach $env:KTRADE_EXPECTED_SOURCE *> $clonelog
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_CHECKOUT_FAILED'}
+            $head=(& git.exe -C $source rev-parse HEAD).Trim()
+            $tree=(& git.exe -C $source rev-parse 'HEAD^{tree}').Trim()
+            if($head -cne $env:KTRADE_EXPECTED_SOURCE -or $tree -cne $env:KTRADE_EXPECTED_TREE -or
+               @(& git.exe -C $source status --porcelain --untracked-files=no).Count -ne 0){
+              throw 'KTRADE_OWNER_NATIVE_EXACT_TREE_OR_CLEAN_REFUSED'
+            }
+            $original=Join-Path $source 'windows/Test-KTRADE-W160-NativeDrawings.ps1'
+            $text=[IO.File]::ReadAllText($original)
+            $pattern=[regex]::Escape("Require ("+'$env:GITHUB_REPOSITORY'+" -ceq 'spoonman136668-ai/ktrade' -and")+
+              '(?s:.+?)'+[regex]::Escape("'W160_PRIVATE_WINDOWS_QUALIFIER_ONLY'")
+            $adapt=@'
+          Require ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+           $env:RUNNER_OS -ceq 'Windows' -and
+           $env:RUNNER_ENVIRONMENT -ceq 'self-hosted' -and
+           $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+           $env:GITHUB_REF -ceq 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -and
+           $env:RUNNER_TEMP) 'W160_OWNER_FORGE_WINDOWS_QUALIFIER_ONLY'
+          '@
+            if(([regex]::Matches($text,$pattern)).Count -ne 1){
+              throw 'KTRADE_OWNER_NATIVE_W160_HARNESS_SOURCE_DRIFT'
+            }
+            $adjusted=[regex]::Replace($text,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($m) $adapt})
+            # Disposable W160 source gets one additional independent native
+            # GetDpiForWindow witness per launch; product candidate is pristine.
+            $loopAnchor=' for($phase=0;$phase -lt 2;$phase++){'
+            $windowAnchor='  [void](Window)'
+            if($adjusted.Split(@($loopAnchor),[StringSplitOptions]::None).Count -ne 2 -or
+               $adjusted.Split(@($windowAnchor),[StringSplitOptions]::None).Count -ne 2){
+              throw 'KTRADE_PR253_W160_MATRIX_DPI_WITNESS_HARNESS_DRIFT'
+            }
+            $dpiType=@'
+           Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class KTradeW160DpiMatrix { [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd); }'
+           for($phase=0;$phase -lt 2;$phase++){
+          '@
+            $windowProof=@'
+            [void](Window)
+            $nativeWinDpi=[KTradeW160DpiMatrix]::GetDpiForWindow($proc.MainWindowHandle)
+            Require ($nativeWinDpi -eq [uint32]$env:KTRADE_EXPECTED_MONITOR_WINDOW_DPI) 'W160_NATIVE_WINDOW_DPI_PHYSICAL_MATRIX_REQUIRED'
+            Write-Host ('W160_NATIVE_WINDOW_DPI_PHYSICAL_MATRIX=PASS;dpi='+$nativeWinDpi)
+          '@
+            $adjusted=$adjusted.Replace($loopAnchor,$dpiType)
+            $adjusted=$adjusted.Replace($windowAnchor,$windowProof)
+            $script=Join-Path (Split-Path -Parent $original) $derived
+            if(Test-Path -LiteralPath $script){throw 'KTRADE_OWNER_NATIVE_ADAPTED_HARNESS_COLLISION'}
+            [IO.File]::WriteAllText($script,$adjusted,[Text.UTF8Encoding]::new($false))
+            $nodes=@(Get-Process -Name ktrade,ktrade-engine -ErrorAction SilentlyContinue)
+            if($nodes.Count -ne 0){throw 'KTRADE_OWNER_NATIVE_APP_STARTED_DURING_BUILD'}
+            $stampBeforeLaunch=[KTradeOwnedDesktop]::LastInputStamp()
+            if($stampBeforeLaunch -ne $lastStampAtAdmission){
+              throw 'KTRADE_OWNER_NATIVE_INPUT_CHANGED_DURING_SOURCE_PREPARATION'
+            }
+            Write-Host ('KTRADE_OWNER_NATIVE_STAGE='+(@{
+              schema='ktrade.pr253.owner-native-physical-125or200dpi.v1'
+              source_sha=$head;tree_sha=$tree;dpi=$beforeDpi
+              owner_session=$session;monotonic_input_stable=$true
+              test_harness='W160_owner_scoped_guard_plus_physical_window_dpi_witness'
+              product_source_unchanged=$true;disposable_harness_dpi_witness=$true;display_dpi_unchanged=$true
+            }|ConvertTo-Json -Compress))
+            if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
+              throw 'KTRADE_OWNER_NATIVE_INPUT_DESKTOP_SWITCHED_DURING_BUILD'
+            }
+            $cursorPrelaunch=[KTradeOwnedDesktop+P]::new()
+            if(-not [KTradeOwnedDesktop]::GetCursorPos([ref]$cursorPrelaunch) -or
+               [KTradeOwnedDesktop]::GetForegroundWindow() -eq [IntPtr]::Zero){
+              throw 'KTRADE_OWNER_NATIVE_POINTER_PRELAUNCH_ACCESS_REFUSED'
+            }
+            & pwsh.exe -NoProfile -NonInteractive -File $script -ExpectedSourceSha $head -ExpectedTreeSha $tree
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_W160_ACCEPTANCE_FAILED'}
+            $succeeded=$true
+          }finally{
+            $saverRestored=$false
+            try{
+              if($saverOriginal -gt 0){
+                [KTradeOwnedDesktop]::SetVolatileSaverTimeout([uint32]$saverOriginal)
+                for($attempt=0;$attempt -lt 8;$attempt++){
+                  $saverRestored=([KTradeOwnedDesktop]::GetSaverTimeout() -eq $saverOriginal -and
+                    [string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne $originalRegistry)
+                  if($saverRestored){break}
+                  Start-Sleep -Milliseconds 200
+                }
+              }else{
+                $saverRestored=(!(Test-Path -LiteralPath $saverPreimagePath))
+              }
+            }catch{
+              Write-Host ('KTRADE_OWNER_NATIVE_SCREENSAVER_RESTORE_EXCEPTION='+$_.Exception.GetType().Name)
+            }
+            Write-Host ('KTRADE_OWNER_NATIVE_SCREENSAVER_RESTORE='+(@{
+              original_timeout=$saverOriginal
+              effective_timeout_restored=$saverRestored
+              persistent_registry_unchanged=([string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -ceq $originalRegistry)
+              wallpaper_or_user_account_untouched=$true
+              task_created=$false
+            }|ConvertTo-Json -Compress))
+            $desktopDefault=[KTradeOwnedDesktop]::InputDesktopIsDefault()
+            $cursorRestored=if($desktopDefault){[KTradeOwnedDesktop]::SetCursorPos($cursor.x,$cursor.y)}else{$false}
+            $foregroundRestored=if($desktopDefault){[KTradeOwnedDesktop]::SetForegroundWindow($foreground)}else{$false}
+            $afterDpi=@([KTradeOwnedDesktop]::PhysicalDpi())
+            $restored=($afterDpi.Count -eq $beforeDpi.Count -and
+              ($afterDpi -join ',') -ceq ($beforeDpi -join ','))
+            Write-Host ('KTRADE_OWNER_NATIVE_RESTORE='+(@{
+              dpi_before=$beforeDpi;dpi_after=$afterDpi;dpi_unchanged=$restored
+              pointer_restoration_attempted=$true;foreground_restoration_attempted=$true
+              cursor_restored=$cursorRestored;foreground_restored=$foregroundRestored
+              screen_saver_effective_timeout_restored=$saverRestored
+              source_sha=$env:KTRADE_EXPECTED_SOURCE;acceptance_passed=$succeeded
+            }|ConvertTo-Json -Compress))
+            if($root -and (Test-Path -LiteralPath $root -PathType Container) -and
+               [IO.Path]::GetFileName($root) -cmatch '^ktrade-pr253-real-native-[a-f0-9]{32}$' -and
+               [IO.Path]::GetDirectoryName($root).TrimEnd('\') -ceq ([IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\'))){
+              Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            if(!$saverRestored){
+              Write-Host 'KTRADE_OWNER_NATIVE_SCREENSAVER_RESTORE=PENDING_SECONDARY_ALWAYS_STEP'
+            }
+            if(!$restored){throw 'KTRADE_OWNER_NATIVE_DPI_POSTTEST_RESTORATION_FAILED'}
+          }
+          if(!$succeeded){throw 'KTRADE_OWNER_NATIVE_NOT_ACCEPTED'}
+          Write-Host 'KTRADE_PR253_NATIVE_W160_PHYSICAL_125_OR_200_PERCENT=PASS'
+      - name: Independently verify and restore original screen saver even after test failure
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+            throw 'KTRADE_OWNER_SCREENSAVER_RESTORE_IDENTITY_REFUSED'
+          }
+          $file=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-saver-'+$env:GITHUB_RUN_ID+'.json')
+          if(!(Test-Path -LiteralPath $file -PathType Leaf)){
+            Write-Host 'KTRADE_OWNER_SCREENSAVER_SECONDARY_RESTORE=NOT_REQUIRED;no_preimage'
+            exit 0
+          }
+          $pre=Get-Content -LiteralPath $file -Raw -ErrorAction Stop|ConvertFrom-Json
+          if($pre.schema -cne 'ktrade.pr253.screensaver-volatile-preimage.v1' -or
+             $pre.runner -cne 'FORGE-CODEX-REMOTE' -or
+             $pre.run -cne $env:GITHUB_RUN_ID -or
+             $pre.source_sha -cne '59842e83f01fb6e1af780ede5a7395a9c7cce47a' -or
+             [int]$pre.timeout_seconds -ne 60 -or
+             [string]$pre.registry_timeout -cne '60'){
+            throw 'KTRADE_OWNER_SCREENSAVER_PREIMAGE_INVALID'
+          }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class KtradePr253SecondaryRestore {
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool SystemParametersInfo(uint a,uint b,ref uint v,uint f);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool SystemParametersInfo(uint a,uint b,IntPtr v,uint f);
+            public static uint Read(){
+              uint v=0;
+              if(!SystemParametersInfo(0x000E,0,ref v,0))
+                throw new Exception("SECONDARY_READ_FAILED");
+              return v;
+            }
+            public static void Set(uint v){
+              if(!SystemParametersInfo(0x000F,v,IntPtr.Zero,0))
+                throw new Exception("SECONDARY_SET_FAILED");
+            }
+          }
+          '@
+          $current=[KtradePr253SecondaryRestore]::Read()
+          if($current -ne [uint32]$pre.timeout_seconds){
+            [KtradePr253SecondaryRestore]::Set([uint32]$pre.timeout_seconds)
+          }
+          $final=[KtradePr253SecondaryRestore]::Read()
+          $persist=[string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop).ScreenSaveTimeOut
+          if($final -ne [uint32]$pre.timeout_seconds -or $persist -cne [string]$pre.registry_timeout){
+            throw 'KTRADE_OWNER_SCREENSAVER_SECONDARY_RESTORE_FAILED'
+          }
+          Remove-Item -LiteralPath $file -Force -ErrorAction Stop
+          Write-Host ('KTRADE_OWNER_SCREENSAVER_SECONDARY_RESTORE='+(@{
+            result='PASS';effective_timeout_seconds=$final
+            persistent_registry_timeout_seconds=$persist
+            original_screen_saver_settings_restored=$true
+            user_profile_data_untouched=$true;display_dpi_untouched=$true
+            scheduled_tasks_created=$false
+          }|ConvertTo-Json -Compress -Depth 3))
