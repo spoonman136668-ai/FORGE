@@ -77,6 +77,7 @@ class OriginalOwnerV41InstallWorkflowTests(unittest.TestCase):
         src = self.workflow
         self.assertEqual(src.count("  original-owner-v41-copy-rehearsal:"), 1)
         part = src.split("  original-owner-v41-copy-rehearsal:", 1)[1]
+        part = part.split("  hybrid-v41-paired-original-owner-backup:", 1)[0]
         self.assertIn("startsWith(github.event.comment.body, 'F139-V41-COPY-REHEARSAL ')", part)
         self.assertIn("github.actor == 'spoonman136668-ai'", part)
         self.assertIn("RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'", part)

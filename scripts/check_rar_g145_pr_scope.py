@@ -72,7 +72,71 @@ V41_STATUS_FILES = frozenset({
     "scripts/check_rar_g156_dynamic_base_cache.py",
 })
 
+HYBRID_OWNER_WORKFLOW_BRANCH = "engineering/f139-hybrid-reader-route-20261110"
+HYBRID_OWNER_WORKFLOW_PR = 1660
+HYBRID_OWNER_WORKFLOW_BASE = "1a40fe4e3ec6e93a1631d59863b95e90981d734e"
+HYBRID_OWNER_WORKFLOW_BASE_TREE = "e2d0322dd38baf8bc94bf32b6c3496b0471f3ed9"
+HYBRID_OWNER_WORKFLOW = ".github/workflows/f139-v41-original-owner-live-install.yml"
+HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
+HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
+
 FROZEN_SCOPES = {
+    # ONLY original owner PR #1660, original main, exact full workflow blob.
+    "engineering/f139-hybrid-reader-route-20261110": (
+        "1a40fe4e3ec6e93a1631d59863b95e90981d734e",
+        {
+            ".github/workflows/f139-v41-original-owner-live-install.yml",
+            "docs/F139-HYBRID-NATIVE-READER-ROUTE.md",
+            "docs/F139-PRIVATE-CPU-RUNTIME-CUSTODY.md",
+            "docs/F139-PRIVATE-CPU-SANDBOX-PROBE.md",
+            "docs/F139-V41-HYBRID-COLD-PAIR.md",
+            "docs/F139-V41-HYBRID-COMPLETE-COLD-BUNDLE.md",
+            "docs/F139-V41-HYBRID-OWNER-BACKUP-ADMISSION.md",
+            "docs/F139-V41-HYBRID-PAIRED-MAINTENANCE-WRAPPER.md",
+            "docs/F139-V41-HYBRID-PROTECTED-MAIN-SOURCE-BRIDGE.md",
+            "docs/F139-V41-HYBRID-SCOPED-ORIGINAL-WORKFLOW-BRIDGE.md",
+            "f139/local_controller.py",
+            "f139/nci04_autonomy_feed.py",
+            "f139/nci04_native_contract.py",
+            "f139/nci04_native_worker.py",
+            "f139/nci04_v41_hybrid_cold_bundle.py",
+            "f139/nci04_v41_hybrid_cold_pair.py",
+            "f139/nci04_v41_hybrid_owner_maintenance.py",
+            "f139/nci04_v41_hybrid_pair_owner.py",
+            "f139/nci04_v41_hybrid_protected_main.py",
+            "f139/nci04_worker_entry.py",
+            "f139/private_cpu_runtime.py",
+            "f139/private_cpu_sandbox.py",
+            "f139/private_hybrid_opaque_issue.py",
+            "f139/private_hybrid_owner_binding.py",
+            "f139/private_hybrid_reference.py",
+            "f139/private_hybrid_terminal.py",
+            "f139/public_hybrid_cpu_runtime.py",
+            "f139/public_hybrid_cpu_wheel_lock.json",
+            "f139/test_hybrid_root_native_source_family.py",
+            "f139/test_nci04_autonomy_feed.py",
+            "f139/test_nci04_v41_hybrid_cold_bundle.py",
+            "f139/test_nci04_v41_hybrid_cold_pair.py",
+            "f139/test_nci04_v41_hybrid_owner_maintenance.py",
+            "f139/test_nci04_v41_hybrid_pair_owner.py",
+            "f139/test_nci04_v41_hybrid_protected_main.py",
+            "f139/test_nci04_v41_live_install_workflow.py",
+            "f139/test_private_cpu_runtime.py",
+            "f139/test_private_cpu_sandbox.py",
+            "f139/test_private_hybrid_opaque_issue.py",
+            "f139/test_private_hybrid_owner_binding.py",
+            "f139/test_private_hybrid_reference.py",
+            "f139/test_private_hybrid_terminal.py",
+            "f139/test_public_hybrid_cpu_runtime.py",
+            "f139/test_three_lane_fairness.py",
+            "f139/test_v41_hybrid_owner_pause_backup_resume.py",
+            "f139/test_v41_hybrid_owner_workflow_bridge.py",
+            "f139/v41_hybrid_owner_pause_backup_resume.ps1",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Exact, one-shot original-owner V41 installation implementation scope.
     # CI source admission is not owner installation or science authority.
     "engineering/f139-v41-native-original-install-entry-20261113": (
@@ -615,6 +679,20 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == HYBRID_OWNER_WORKFLOW_BRANCH:
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            if (type(request.get("number")) is not int
+                    or request["number"] != HYBRID_OWNER_WORKFLOW_PR
+                    or request.get("user",{}).get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or git("rev-parse", HYBRID_OWNER_WORKFLOW_BASE + "^{tree}")
+                           != HYBRID_OWNER_WORKFLOW_BASE_TREE
+                    or git("rev-parse", HYBRID_OWNER_WORKFLOW_BASE + ":"
+                           + HYBRID_OWNER_WORKFLOW) != HYBRID_OWNER_WORKFLOW_BEFORE
+                    or git("rev-parse", head_sha + ":"
+                           + HYBRID_OWNER_WORKFLOW) != HYBRID_OWNER_WORKFLOW_AFTER):
+                raise ValueError("G145_HYBRID_OWNER_WORKFLOW_SCOPE_DENIED")
         frozen_base, expected = FROZEN_SCOPES[branch]
         try:
             changed = git(

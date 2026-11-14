@@ -132,6 +132,10 @@ def event_mode(head):
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G148_V40_READONLY_FROZEN_SCOPE_REQUIRED")
         return "pr"
+    if branch == "engineering/f139-hybrid-reader-route-20261110":
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G148_HYBRID_OWNER_WORKFLOW_EXACT_SCOPE_REQUIRED")
+        return "pr"
     if branch == "engineering/f139-v41-native-original-install-entry-20261113":
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G148_V41_INSTALL_FROZEN_SCOPE_REQUIRED")

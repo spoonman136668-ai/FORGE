@@ -90,6 +90,34 @@ class FakeProvider:
         raise AssertionError("unexpected route " + route)
 
 
+class FakePublicHybridProvider(FakeProvider):
+    """Hybrid owner PR, using the exact existing feeder/provider read protocol."""
+    def __init__(self):
+        super().__init__()
+        self.path = "native_p64k_public_probe.py"
+        self.before = b"def causal_update(state):\n    return state\n"
+        self.after = b"def causal_update(state):\n    return state + 1\n"
+        self.pr["head"]["repo"]["full_name"] = "spoonman136668-ai/TTT-Hybrid-Lab"
+        self.policy["lanes"] = ["Wingless", "Yggdrasil", "TTT-Hybrid"]
+        self.metadata = {
+            "full_name": "spoonman136668-ai/TTT-Hybrid-Lab",
+            "private": False, "visibility": "public",
+        }
+        self.routes = []
+
+    def get(self, route):
+        self.routes.append(route)
+        hybrid = "repos/spoonman136668-ai/TTT-Hybrid-Lab"
+        wingless = "repos/spoonman136668-ai/Wingless"
+        if route == hybrid:
+            return self.metadata
+        if route == wingless + "/pulls?state=open&per_page=100&page=1":
+            return []
+        if route.startswith(hybrid + "/"):
+            return super().get(wingless + route[len(hybrid):])
+        return super().get(route)
+
+
 class NativeAutonomyFeedTests(unittest.TestCase):
     def test_enabled_owner_single_commit_source_candidate_compiles_v1_issue(self):
         p = FakeProvider()
@@ -200,6 +228,197 @@ class NativeAutonomyFeedTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "NATIVE_FEED_ROUTE_INVALID"):
             api.native_repo_get(
                 "repos/spoonman136668-ai/Wingless/contents/../secret")
+
+    def test_real_native_reader_accepts_exact_hybrid_repository_get_routes(self):
+        # Exercise the real transport boundary; feeder FakeProvider alone
+        # cannot detect a missing repository in GitHub.native_repo_get.
+        seen = []
+        api = GitHub(runner=lambda args: (seen.append(args) or b'{"private":true}'))
+        prefix = "repos/spoonman136668-ai/TTT-Hybrid-Lab/"
+        for suffix in ("branches/main", "git/commits/"+"a"*40,
+                       "pulls?state=open&per_page=100", "pulls/55/files?per_page=100",
+                       "contents/scripts/native_qualified_policy.py?ref="+"b"*40,
+                       "compare/"+"a"*40+"..."+"b"*40+"?per_page=1&page=2"):
+            route = prefix+suffix
+            self.assertEqual(api.native_repo_get(route), {"private": True})
+            self.assertEqual(seen[-1], [route])
+        self.assertEqual(api.native_repo_get(prefix[:-1]), {"private": True})
+        self.assertEqual(seen[-1], [prefix[:-1]])
+        self.assertEqual(len(seen), 7)
+        before = list(seen)
+        for route in (prefix+"contents/../secret", prefix+"contents/..",
+                      prefix+"contents/unsafe\\file", prefix+"contents/unsafe file",
+                      "https://api.github.com/"+prefix+"branches/main",
+                      "repos/foreign/TTT-Hybrid-Lab/branches/main",
+                      "repos/spoonman136668-ai/TTT-Hybrid-Lab-other/branches/main",
+                      "repos/spoonman136668-ai/K-Terminal/branches/main",
+                      "--method POST"):
+            with self.subTest(route=route), self.assertRaisesRegex(Exception, "NATIVE_FEED_ROUTE_INVALID"):
+                api.native_repo_get(route)
+        self.assertEqual(seen, before)
+
+    def publication_case(self, lane, *, visibility=False, fullname=None):
+        from f139.nci04_proposal_compiler import prepare_proposal
+        from f139.nci04_owner_issue import LABEL
+        from f139.nci04_native_contract import REPOS
+        repo = REPOS[lane][0]
+        toolchain = "go1.25.0" if lane == "Wingless" else "python3.11.11"
+        private = lane != "Wingless"
+        before = b"def after_action():\n    return None\n" if private else b"package cognition\nfunc Old(){}\n"
+        after = b"def after_action():\n    return 1 # synthetic private marker\n" if private else b"package cognition\nfunc Old(){ println(1) }\n"
+        proposal = prepare_proposal(controller_source_sha="a"*40, lane=lane,
+            target_commit="b"*40, target_tree_sha="c"*40,
+            path="scripts/native_qualified_policy.py" if private else "cognition/continual.go",
+            before=before, after=after, dependency_sha256="d"*64,
+            qualification_harness_sha256="e"*64, training_config_sha256="f"*64,
+            suite_identity_sha256="1"*64, toolchain_identity=toolchain)
+        body = proposal["issue_body"]
+        # Existing public issue bytes really contain the complete patch;
+        # encoding is not a confidentiality boundary.
+        intent = json.loads(base64.b64decode(json.loads(body)["intent_base64"]))
+        self.assertEqual(base64.b64decode(intent["after_base64"]), after)
+        seen = []
+        def runner(args):
+            seen.append(args)
+            if args[0] == "--method":
+                return json.dumps(dict(state="open",number=1,id=2,
+                    user=dict(login="spoonman136668-ai"),author_association="OWNER",
+                    body=body,labels=[dict(name=LABEL)])).encode()
+            metadata=dict(full_name=repo if fullname is None else fullname,
+                          private=visibility)
+            if lane == "TTT-Hybrid":
+                metadata["visibility"] = "private" if visibility else "public"
+            return json.dumps(metadata).encode()
+        return GitHub(runner=runner), seen, body, repo
+
+    def test_private_source_patch_is_never_posted_to_public_owner_issue(self):
+        api, seen, body, repo = self.publication_case("TTT-Hybrid", visibility=True)
+        with self.assertRaisesRegex(Exception, "HYBRID_PUBLIC_VISIBILITY_NOT_AUTHENTICATED"):
+            api.create_native_feed_issue(title="F139 auto-feed TTT-Hybrid PR#1",body=body)
+        self.assertEqual(seen, [["repos/"+repo]])
+        self.assertFalse(any(args[0] == "--method" for args in seen))
+
+    def test_public_source_publication_preserves_existing_two_lane_path(self):
+        for lane in ("Wingless","Yggdrasil"):
+            api, seen, body, repo = self.publication_case(lane)
+            result=api.create_native_feed_issue(title="F139 auto-feed "+lane+" PR#1",body=body)
+            self.assertEqual(result["body"],body)
+            self.assertEqual(seen[0],["repos/"+repo])
+            self.assertEqual(seen[1][:3],["--method","POST","repos/spoonman136668-ai/FORGE/issues"])
+
+    def test_visibility_missing_wrong_identity_and_read_failure_never_publish(self):
+        for value in (True,None,"false",0):
+            api, seen, body, _ = self.publication_case("Wingless", visibility=value)
+            with self.subTest(value=value),self.assertRaisesRegex(Exception,"NATIVE_FEED_SOURCE_NOT_VERIFIED_PUBLIC"):
+                api.create_native_feed_issue(title="F139 auto-feed Wingless PR#1",body=body)
+            self.assertEqual(len(seen),1)
+        api, seen, body, _ = self.publication_case("Wingless",fullname="foreign/repo")
+        with self.assertRaisesRegex(Exception,"NATIVE_FEED_SOURCE_NOT_VERIFIED_PUBLIC"):
+            api.create_native_feed_issue(title="F139 auto-feed Wingless PR#1",body=body)
+        self.assertEqual(len(seen),1)
+        def unavailable(args):
+            seen.append(args)
+            raise RuntimeError("metadata unavailable")
+        api.runner=unavailable;seen.clear()
+        with self.assertRaisesRegex(RuntimeError,"metadata unavailable"):
+            api.create_native_feed_issue(title="F139 auto-feed Wingless PR#1",body=body)
+        self.assertEqual(len(seen),1)
+        for broken in ('{}', 'null', '{', json.dumps({"lane":"Wingless","intent_base64":"bad"})):
+            seen.clear()
+            with self.assertRaisesRegex(Exception,"NATIVE_FEED_PUBLICATION_INTENT_INVALID"):
+                api.create_native_feed_issue(title="F139 auto-feed Wingless PR#1",body=broken)
+            self.assertEqual(seen,[])
+        record=json.loads(body)
+        for key,value in (("lane","TTT-Hybrid"),("target_repository","spoonman136668-ai/TTT-Hybrid-Lab")):
+            intent=json.loads(base64.b64decode(record["intent_base64"]))
+            intent[key]=value
+            bad={**record,"intent_base64":base64.b64encode(json.dumps(intent).encode()).decode()}
+            seen.clear()
+            with self.subTest(key=key),self.assertRaisesRegex(Exception,"NATIVE_FEED_PUBLICATION_INTENT_INVALID"):
+                api.create_native_feed_issue(title="F139 auto-feed Wingless PR#1",body=json.dumps(bad))
+            self.assertEqual(seen,[])
+
+    def test_public_hybrid_real_feeder_uses_authenticated_source_bytes(self):
+        p = FakePublicHybridProvider()
+        report = prepare_feed(p.get, source_sha=p.source,
+                              existing_candidate_identities=set())
+        self.assertTrue(report["enabled"])
+        self.assertEqual(report["rejected"], [])
+        self.assertEqual(len(report["candidates"]), 1)
+        candidate = report["candidates"][0]
+        self.assertEqual(candidate["lane"], "TTT-Hybrid")
+        self.assertEqual(candidate["pr_number"], 383)
+        intent = json.loads(base64.b64decode(
+            json.loads(candidate["issue_body"])["intent_base64"],validate=True))
+        self.assertEqual(intent["path"], p.path)
+        self.assertEqual(base64.b64decode(intent["after_base64"]),p.after)
+        self.assertEqual(intent["target_commit"],p.parent)
+        self.assertFalse(intent["scientific_first_use"])
+        self.assertEqual(p.routes.count("repos/spoonman136668-ai/TTT-Hybrid-Lab"),1)
+        self.assertLess(
+            p.routes.index("repos/spoonman136668-ai/TTT-Hybrid-Lab"),
+            next(i for i,x in enumerate(p.routes) if "/git/commits/" in x))
+
+    def test_private_internal_spoofed_or_ambiguous_hybrid_metadata_cannot_read_patch(self):
+        repository="spoonman136668-ai/TTT-Hybrid-Lab"
+        for metadata in (
+            {"full_name":repository,"private":True,"visibility":"private"},
+            {"full_name":repository,"private":False,"visibility":"internal"},
+            {"full_name":repository,"private":False},
+            {"full_name":"foreign/TTT-Hybrid-Lab","private":False,"visibility":"public"},
+            {"full_name":repository,"private":0,"visibility":"public"},
+            {"full_name":repository,"private":"false","visibility":"public"},
+            None,
+        ):
+            with self.subTest(metadata=metadata):
+                p=FakePublicHybridProvider()
+                p.metadata=metadata
+                report=prepare_feed(p.get,source_sha=p.source,
+                                    existing_candidate_identities=set())
+                self.assertEqual(report["candidates"],[])
+                self.assertEqual(len(report["rejected"]),1)
+                self.assertIn("HYBRID_PUBLIC_VISIBILITY_NOT_AUTHENTICATED",
+                              report["rejected"][0]["reason"])
+                self.assertFalse(any("/contents/" in x or "/git/commits/" in x
+                                     for x in p.routes))
+        p=FakePublicHybridProvider()
+        p.pr["user"]={"login":"attacker"}
+        report=prepare_feed(p.get,source_sha=p.source,
+                            existing_candidate_identities=set())
+        self.assertEqual(report["candidates"],[])
+        self.assertIn("PR_NOT_EXPLICIT_OWNER_CANDIDATE",
+                      report["rejected"][0]["reason"])
+        self.assertNotIn("repos/"+repository,p.routes)
+
+    def test_public_hybrid_publication_rechecks_classification_and_keeps_original_workflow(self):
+        api, seen, body, repo=self.publication_case("TTT-Hybrid",visibility=False)
+        result=api.create_native_feed_issue(
+            title="F139 auto-feed TTT-Hybrid PR#1",body=body)
+        self.assertEqual(result["body"],body)
+        self.assertEqual(seen[0],["repos/"+repo])
+        self.assertEqual(seen[1][:3],["--method","POST",
+                                      "repos/spoonman136668-ai/FORGE/issues"])
+        original=api.runner
+        for metadata in (
+            {"full_name":repo,"private":True,"visibility":"private"},
+            {"full_name":repo,"private":False,"visibility":"internal"},
+            {"full_name":repo,"private":False},
+            {"full_name":"foreign/repo","private":False,"visibility":"public"},
+        ):
+            seen.clear()
+            def changed(args):
+                if args == ["repos/"+repo]:
+                    seen.append(args)
+                    return json.dumps(metadata).encode()
+                return original(args)
+            api.runner=changed
+            with self.subTest(metadata=metadata),self.assertRaisesRegex(
+                    Exception,"HYBRID_PUBLIC_VISIBILITY_NOT_AUTHENTICATED"):
+                api.create_native_feed_issue(
+                    title="F139 auto-feed TTT-Hybrid PR#1",body=body)
+            self.assertEqual(seen,[["repos/"+repo]])
+        api.runner=original
+
 
     def test_staged_third_lane_does_not_enter_original_native_feeder(self):
         p = FakeProvider()

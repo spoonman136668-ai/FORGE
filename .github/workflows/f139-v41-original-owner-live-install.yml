@@ -244,3 +244,56 @@ jobs:
           if($LASTEXITCODE -ne 0) {
             throw 'F139_V41_COPY_REHEARSAL_NOT_VERIFIED'
           }
+
+  hybrid-v41-paired-original-owner-backup:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-HYBRID-V41-PAUSE-RESUME ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+      pull-requests: read
+    steps:
+      - name: Checkout exact protected-main qualified owner source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Authenticated paired original-owner same-task cold backup only
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_SHA -cnotmatch '^[a-f0-9]{40}$' -or
+             $env:OPENAI_API_KEY) {
+            throw 'F139_HYBRID_V41_ORIGINAL_APPROVAL_OR_SOURCE_DENIED'
+          }
+          $exact=(& git -C $env:GITHUB_WORKSPACE rev-parse HEAD | Out-String).Trim()
+          $dirty=@(& git -C $env:GITHUB_WORKSPACE status --porcelain --untracked-files=all)
+          if($LASTEXITCODE -ne 0 -or $exact -cne $env:GITHUB_SHA -or
+             $dirty.Count -ne 0) {
+            throw 'F139_HYBRID_V41_PROTECTED_CHECKOUT_CHANGED'
+          }
+          $wrapper=Join-Path $env:GITHUB_WORKSPACE 'f139/v41_hybrid_owner_pause_backup_resume.ps1'
+          if(-not(Test-Path -LiteralPath $wrapper -PathType Leaf)) {
+            throw 'F139_HYBRID_V41_MERGED_WRAPPER_NOT_PRESENT'
+          }
+          & $wrapper -Target $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_HYBRID_V41_MAINTENANCE_NOT_ACCEPTED'
+          }
