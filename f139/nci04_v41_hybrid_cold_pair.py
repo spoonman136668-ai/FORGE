@@ -23,7 +23,7 @@ from f139.nci04_v38_original_owner_transition_cli import rollback_view
 
 V41_SOURCE = "1a40fe4e3ec6e93a1631d59863b95e90981d734e"
 HYBRID_PR_NUMBER = 1660
-SHA40 = re.compile(r"[a-f0-9]{40}\\Z")
+SHA40 = re.compile(r"[a-f0-9]{40}\Z")
 MIN_V41_HEAD = 1829
 MAX_SQLITE_BYTES = 1_000_000_000
 RUN_NAME = re.compile(r"f139-hybrid-before-([1-9][0-9]*)\Z")
