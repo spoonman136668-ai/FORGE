@@ -24,7 +24,7 @@ jobs:
       KTRADE_PAPER_CUSTODY_REVIEW_ROOT: ''
       KTRADE_PROMOTION_ALLOWED: '0'
     steps:
-      - name: Prepare only original nonsecure screen saver for exact Windows native test
+      - name: Verify operator configured 20 minute screen saver at physical 150 percent DPI without changes
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -86,9 +86,6 @@ jobs:
             public static uint Timeout(){
               uint v=0;if(!SystemParametersInfo(0xE,0,ref v,0))throw new Exception("SAVER_GET_REFUSED");return v;
             }
-            public static void SetVolatile(uint v){
-              if(!SystemParametersInfo(0xF,v,IntPtr.Zero,0))throw new Exception("SAVER_VOLATILE_SET_REFUSED");
-            }
           }
           '@
           $physicalPreimage=@([KtradePr253NonsecureSaverPrep]::PhysicalDpi())
@@ -100,10 +97,10 @@ jobs:
           if(Test-Path -LiteralPath $prePath){throw 'KTRADE_OWNER_SAVER_PREIMAGE_ALREADY_EXISTS'}
           $reg=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
           if([string]$reg.ScreenSaveActive -cne '1' -or
-             [string]$reg.ScreenSaveTimeOut -cne '60' -or
+             [string]$reg.ScreenSaveTimeOut -cne '1200' -or
              [string]$reg.ScreenSaverIsSecure -cne '0' -or
              [IO.Path]::GetFileName([string]$reg.'SCRNSAVE.EXE') -ine 'scrnsave.scr' -or
-             [KtradePr253NonsecureSaverPrep]::Timeout() -ne 60){
+             [KtradePr253NonsecureSaverPrep]::Timeout() -ne 1200){
             throw 'KTRADE_OWNER_SAVER_CONFIG_DRIFT_REFUSED'
           }
           foreach($p in @('HKCU:\Software\Policies\Microsoft\Windows\Control Panel\Desktop',
@@ -118,81 +115,8 @@ jobs:
           if($desktop -cnotin @('Default','Screen-saver')){
             throw ('KTRADE_OWNER_SAVER_UNRECOGNIZED_DESKTOP_'+$desktop)
           }
-          $saver=$null
-          if($desktop -ceq 'Screen-saver'){
-            $candidates=@(Get-CimInstance Win32_Process -Filter "Name='scrnsave.scr'" -ErrorAction Stop|
-              Where-Object {[int]$_.SessionId -eq 1})
-            $systemPath=[IO.Path]::GetFullPath((Join-Path $env:windir 'System32\scrnsave.scr'))
-            if($candidates.Count -ne 1 -or
-               ![string]::Equals([string]$candidates[0].ExecutablePath,$systemPath,[StringComparison]::OrdinalIgnoreCase)){
-              throw 'KTRADE_OWNER_SAVER_NOT_EXACT_SYSTEM_BINARY_REFUSED'
-            }
-            $saver=$candidates[0]
-            $owner=Invoke-CimMethod -InputObject $saver -MethodName GetOwner -ErrorAction Stop
-            if([string]($owner.Domain+'\'+$owner.User) -ine 'LINKDEADKB\camar'){
-              throw 'KTRADE_OWNER_SAVER_NOT_OWNED_BY_USER_REFUSED'
-            }
-          }
-          [IO.File]::WriteAllText($prePath,((@{
-            schema='ktrade.pr253.screensaver-volatile-preimage.v1'
-            runner=$env:RUNNER_NAME;run=$env:GITHUB_RUN_ID
-            timeout_seconds=60;registry_timeout='60'
-            source_sha=$env:KTRADE_EXPECTED_SOURCE
-          }|ConvertTo-Json -Compress)+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
-          $prepared=$false
-          try{
-            if($saver){
-              # Verified non-password-protected Windows blank saver only.
-              # Ending it precedes volatile SPI, which is refused while its
-              # protected input desktop is still the active desktop.
-              $current=Get-CimInstance Win32_Process -Filter "ProcessId=$($saver.ProcessId)" -ErrorAction Stop
-              if(!$current -or $current.Name -ine 'scrnsave.scr' -or
-                 $current.CreationDate -ne $saver.CreationDate -or
-                 [string]$current.ExecutablePath -ine [string]$saver.ExecutablePath){
-                throw 'KTRADE_OWNER_SAVER_PID_DRIFT_REFUSED'
-              }
-              Stop-Process -Id ([int]$saver.ProcessId) -ErrorAction Stop
-            }
-            $ready=$false
-            for($i=0;$i -lt 15;$i++){
-              if([KtradePr253NonsecureSaverPrep]::Desktop() -ceq 'Default'){$ready=$true;break}
-              Start-Sleep -Milliseconds 350
-            }
-            if(!$ready){throw 'KTRADE_OWNER_SAVER_DID_NOT_RETURN_DEFAULT_DESKTOP'}
-            [KtradePr253NonsecureSaverPrep]::SetVolatile(900)
-            if([KtradePr253NonsecureSaverPrep]::Timeout() -ne 900 -or
-               [string](Get-ItemProperty 'HKCU:\Control Panel\Desktop').ScreenSaveTimeOut -cne '60'){
-              throw 'KTRADE_OWNER_SAVER_VOLATILE_TIMEOUT_DRIFT'
-            }
-            $prepared=$true
-            Write-Host ('KTRADE_OWNER_SAVER_PREPARED='+(@{
-              original_timeout_seconds=60;temporary_timeout_seconds=900
-              original_registry_unchanged=$true
-              exact_nonsecure_system_saver_dismissed=[bool]$saver
-              desktop='Default';lock_screen_untouched=$true
-              installer_untouched=$true;scheduler_created=$false
-              restore_always_step_required=$true
-            }|ConvertTo-Json -Compress))
-          }catch{
-            Write-Host ('KTRADE_OWNER_SAVER_PREP_FAILED='+$_.Exception.Message)
-            throw
-          }finally{
-            if(!$prepared){
-              try{
-                $effective=[KtradePr253NonsecureSaverPrep]::Timeout()
-                if($effective -ne 60){
-                  [KtradePr253NonsecureSaverPrep]::SetVolatile(60)
-                }
-                if([KtradePr253NonsecureSaverPrep]::Timeout() -eq 60){
-                  Write-Host 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PASS'
-                }else{
-                  Write-Host 'KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PENDING_ALWAYS_STEP'
-                }
-              }catch{
-                Write-Host ('KTRADE_OWNER_SAVER_PREP_EMERGENCY_RESTORE=PENDING_ALWAYS_STEP;reason='+$_.Exception.GetType().Name)
-              }
-            }
-          }
+          if($desktop -cne 'Default'){throw 'KTRADE_OWNER_MANUAL20_DEFAULT_DESKTOP_REQUIRED'}
+          Write-Host 'KTRADE_OWNER_MANUAL20_READONLY_PREFLIGHT=PASS;physical_dpi=144:144;timeout_seconds=1200;settings_changed=false'
       - name: Build exact disposable candidate and run genuine Win32 drawing acceptance
         shell: pwsh
         run: |
