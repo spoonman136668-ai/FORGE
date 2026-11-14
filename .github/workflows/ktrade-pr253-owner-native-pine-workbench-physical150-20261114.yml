@@ -385,9 +385,15 @@ jobs:
             $adjusted=$adjusted.Replace($windowAnchor,$windowProof)
             # Replace only the transient W160 drawing action segment with Pine
             # workbench UIA interactions. Original product and W160 remain pinned.
-            $beginMarker="   if("+'$phase'+" -eq 0){"
-            $endMarker="   Require ("+'$proc.CloseMainWindow()'+") 'W160_NATIVE_WINDOW_CLOSE_FAILED'"
-            $begin=$adjusted.IndexOf($beginMarker,[StringComparison]::Ordinal)
+            $beginMarker="  if("+'$phase'+" -eq 0){"
+            $endMarker="  Require ("+'$proc.CloseMainWindow()'+") 'W160_NATIVE_WINDOW_CLOSE_FAILED'"
+            # The first phase condition owns the authenticated loopback port.
+            # Preserve that safety check and the six-candle source checks; only
+            # replace the SECOND action-phase block, following frozen candles.
+            $feedAnchor="'W160_FROZEN_CANDLES_REQUIRED'"
+            $feedAt=$adjusted.IndexOf($feedAnchor,[StringComparison]::Ordinal)
+            if($feedAt -lt 0){throw 'W168_ORIGINAL_FROZEN_FEED_CONTRACT_MISSING'}
+            $begin=$adjusted.IndexOf($beginMarker,$feedAt+$feedAnchor.Length,[StringComparison]::Ordinal)
             $end=$adjusted.IndexOf($endMarker,$begin+1,[StringComparison]::Ordinal)
             if($begin -lt 0 -or $end -le $begin -or
               $adjusted.Substring($begin,$end-$begin).IndexOf("Click-Control 'Additional drawing tools'",[StringComparison]::Ordinal) -lt 0 -or
