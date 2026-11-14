@@ -397,6 +397,7 @@ jobs:
           $clonelog=Join-Path $root 'private-build.log'
           $derived='Test-KTRADE-W169-Pine-Bounded-Adapted.ps1'
           $succeeded=$false
+          $nativeChild=$null
           $saverOriginal=[uint32]1200
           $originalRegistry='1200'
           try{
@@ -527,9 +528,9 @@ jobs:
               $adjusted.Substring($buildEnd)
             $requireAnchor='function Require([bool]$ok,[string]$reason){if(-not $ok){throw $reason}}'
             $guardFunction=@'
-function Guard-W169Budget {
- Require ([DateTime]::UtcNow -lt [DateTime]::Parse($env:KTRADE_NATIVE_DEADLINE_UTC)) 'W169_TWO_MINUTE_LIMIT'
-}
+          function Guard-W169Budget {
+           Require ([DateTime]::UtcNow -lt [DateTime]::Parse($env:KTRADE_NATIVE_DEADLINE_UTC)) 'W169_TWO_MINUTE_LIMIT'
+          }
           '@
             if($adjusted.Split(@($requireAnchor),[StringSplitOptions]::None).Count -ne 2 -or
                ([regex]::Matches($adjusted,[regex]::Escape('while((Get-Date) -lt $until){'))).Count -lt 4){
@@ -648,10 +649,66 @@ function Guard-W169Budget {
                [KTradeOwnedDesktop]::GetForegroundWindow() -eq [IntPtr]::Zero){
               throw 'KTRADE_OWNER_NATIVE_POINTER_PRELAUNCH_ACCESS_REFUSED'
             }
-            & pwsh.exe -NoProfile -NonInteractive -File $script -ExpectedSourceSha $head -ExpectedTreeSha $tree
-            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_W168_ACCEPTANCE_FAILED'}
+            if($nativeBudgetClock.Elapsed.TotalMilliseconds -ge 88000){
+              throw 'W169_NATIVE_ENTRY_TOO_LATE'
+            }
+            $nativeStdout=Join-Path $root 'native-stdout.log'
+            $nativeStderr=Join-Path $root 'native-stderr.log'
+            $arguments=@('-NoProfile','-NonInteractive','-File',('"' + $script + '"'),
+              '-ExpectedSourceSha',$head,'-ExpectedTreeSha',$tree)
+            $nativeChild=Start-Process -FilePath pwsh.exe -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $nativeStdout -RedirectStandardError $nativeStderr
+            $remainingMs=[Math]::Max(1000,[int](108000-$nativeBudgetClock.Elapsed.TotalMilliseconds))
+            $finished=$nativeChild.WaitForExit($remainingMs)
+            if(!$finished){
+              try{Stop-Process -Id $nativeChild.Id -Force -ErrorAction SilentlyContinue}catch{}
+              throw 'W169_NATIVE_TWO_MINUTE_WATCHDOG'
+            }
+            $nativeChild.Refresh()
+            if(Test-Path -LiteralPath $nativeStdout){
+              Get-Content -LiteralPath $nativeStdout | Where-Object {
+                $_ -match '^(W160_NATIVE_|W168_NATIVE_|W169_NATIVE_|W169_PREBUILT_)'
+              } | ForEach-Object {Write-Host $_}
+            }
+            if($nativeChild.ExitCode -ne 0){
+              $privateError=if(Test-Path -LiteralPath $nativeStderr){
+                (Get-Content -LiteralPath $nativeStderr -Tail 8) -join ' '
+              }else{'No private stderr'}
+              if($privateError -match 'W160_UIA_MISSING_'){
+                throw 'W169_NATIVE_UIA_OBSERVER_MISSING'
+              }
+              if($privateError -match 'W169_TWO_MINUTE_LIMIT'){
+                throw 'W169_NATIVE_SCRIPT_BUDGET_EXHAUSTED'
+              }
+              throw 'W169_NATIVE_CHILD_FAILED_CHECK_PRIVATE_LOG'
+            }
+            if($nativeBudgetClock.Elapsed.TotalMilliseconds -ge 108000){
+              throw 'W169_NATIVE_TEST_OVERRAN_BUDGET'
+            }
             $succeeded=$true
+            Write-Host ('W169_NATIVE_END_TO_END=PASS;source_sha='+$head+
+              ';interactive_ms='+[int]$nativeBudgetClock.ElapsedMilliseconds)
           }finally{
+            # Stop only scoped disposable Pine fixture processes on timeout.
+            if($nativeChild){
+              try{
+                $nativeChild.Refresh()
+                if(!$nativeChild.HasExited){
+                  Stop-Process -Id $nativeChild.Id -Force -ErrorAction SilentlyContinue
+                }
+              }catch{}
+            }
+            if($prePkg -and (Test-Path -LiteralPath $prePkg -PathType Container)){
+              $pkgExeRoot=[IO.Path]::GetFullPath((Join-Path $prePkg 'KTRADE-WailsPortable')).TrimEnd('\')+'\'
+              $owned=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object {
+                  $_.Name -in @('ktrade.exe','ktrade-engine.exe') -and
+                  $_.ExecutablePath -and
+                  $_.ExecutablePath.StartsWith($pkgExeRoot,[StringComparison]::OrdinalIgnoreCase)
+                })
+              foreach($ownedProc in $owned){
+                try{Stop-Process -Id $ownedProc.ProcessId -Force -ErrorAction SilentlyContinue}catch{}
+              }
+            }
             $saverRestored=$false
             try{
               $saverRestored=([KTradeOwnedDesktop]::GetSaverTimeout() -eq $saverOriginal -and
@@ -677,6 +734,11 @@ function Guard-W169Budget {
               screen_saver_unchanged=$saverRestored
               source_sha=$env:KTRADE_EXPECTED_SOURCE;acceptance_passed=$succeeded
             }|ConvertTo-Json -Compress))
+            if($prePkg -and (Test-Path -LiteralPath $prePkg -PathType Container) -and
+               [IO.Path]::GetFileName($prePkg) -cmatch '^ktrade-w03-package-[a-f0-9]{32}$' -and
+               [IO.Path]::GetDirectoryName($prePkg).TrimEnd('\') -ceq $base){
+              Remove-Item -LiteralPath $prePkg -Recurse -Force -ErrorAction SilentlyContinue
+            }
             if($root -and (Test-Path -LiteralPath $root -PathType Container) -and
                [IO.Path]::GetFileName($root) -cmatch '^ktrade-pr253-real-native-[a-f0-9]{32}$' -and
                [IO.Path]::GetDirectoryName($root).TrimEnd('\') -ceq ([IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\'))){
