@@ -42,7 +42,7 @@ class PostcommitAuthTests(unittest.TestCase):
     def test_replayed_or_wrong_prior_source_is_rejected(self):
         self.provider.comments[self.comment_id]["body"] = (
             post.PREFIX + self.provider.target + " " +
-            str(post.readiness.OLD_COMMIT_ID))
+            str(self.provider.ready_id))
         with self.assertRaisesRegex(
                 post.PostcommitDenied, "ORIGINAL_SOURCE_COMMIT_INTENT_UNAVAILABLE"):
             post.authenticate(
@@ -127,6 +127,7 @@ class PostcommitLedgerTests(unittest.TestCase):
         }
         self.db = object.__new__(Database)
         self.db.filename = self.path
+        self.db._readonly_opened = True
 
     def _run(self, *, meta=None, row=None, cold=None):
         ledger = self
