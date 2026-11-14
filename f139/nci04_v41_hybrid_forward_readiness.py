@@ -20,6 +20,7 @@ from f139.nci04_native_contract import canonical
 from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_hybrid_successor_release as old_release
 from f139 import nci04_v41_hybrid_owner_maintenance as owner
+from f139 import nci04_v41_hybrid_forward_owner_profile as profile
 from f139 import nci04_v41_hybrid_original_commit as old_commit
 from f139 import nci04_v41_hybrid_held_recovery as held
 from f139 import nci04_v41_hybrid_forward_repair as forward
@@ -238,11 +239,11 @@ def read_only_original_preflight(db_path, env, event, api):
     original = owner._original_path(db_path, env)
     owner._candidate_clean_checkout(target)
     policy = owner._owner_policy(get)
-    owner._task_readback(original, disabled=True)
+    profile.readback(original)
     with SingleOwner(original.with_suffix(".lock")):
         with closing(Database.open_readonly(original)) as readonly:
             result = inspect_held_original(readonly, frozen)
-    need(owner._task_readback(original, disabled=True) is True
+    need(profile.readback(original) is True
          and owner._owner_policy(get) == policy
          and _release(get, target) == release
          and authenticate_readiness(get, env, event, target) == frozen,
