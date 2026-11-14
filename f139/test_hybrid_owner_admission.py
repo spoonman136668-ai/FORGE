@@ -59,11 +59,10 @@ class HybridOwnerMigrationTests(unittest.TestCase):
             self.db.verify()
 
     def test_only_exact_committed_v37_hold_exempts_source_bound_activation(self):
-        # Boundary check: full ledger verification is still performed by CLI.
+        # Authentic full-chain replay remains mandatory in CLI Database.verify.
         from f139.nci04_v41_hybrid_source_transition import (
             ACTIVATED_SEQ, ACTIVATED_HASH, FROM_V41, SCHEMA, PURPOSE,
         )
-        from f139.nci04_owner_ledger import ACTIVATION_KIND
         conn = sqlite3.connect(":memory:")
         self.addCleanup(conn.close)
         conn.row_factory = sqlite3.Row
@@ -72,7 +71,6 @@ class HybridOwnerMigrationTests(unittest.TestCase):
             "sha TEXT,prior_sha TEXT,payload TEXT)")
         target = "c611c4362e3cc867984448a03ecdf3be923d2ef1"
         head = "a" * 64
-        activation = {"source_sha": FROM_V41}
         transition = {
             "schema": SCHEMA, "purpose": PURPOSE,
             "from_source_sha": FROM_V41, "to_source_sha": target,
@@ -82,15 +80,24 @@ class HybridOwnerMigrationTests(unittest.TestCase):
             "new_dispatches": 0,
         }
         conn.execute("INSERT INTO events VALUES (?,?,?,?,?)", (
-            ACTIVATED_SEQ, ACTIVATION_KIND, ACTIVATED_HASH,
-            "0" * 64, json.dumps(activation)))
+            ACTIVATED_SEQ, "V41_ANCHOR", ACTIVATED_HASH,
+            "0" * 64, "{}"))
         conn.execute("INSERT INTO events VALUES (?,?,?,?,?)", (
             ACTIVATED_SEQ + 1, "SOURCE_TRANSITION_ADMITTED", head,
             ACTIVATED_HASH, json.dumps(transition)))
         meta = {"head_seq": ACTIVATED_SEQ + 1,
                 "head_hash": head, "source_sha": target}
         held = SimpleNamespace(conn=conn, meta=lambda: meta)
-        self.assertTrue(_qualified_v41_postcommit_source_hold(held))
+        # An absent historical native activation is not made authentic
+        # by the source transition alone.
+        with patch("f139.nci04_owner_ledger.verify_native_activation",
+                   return_value=False):
+            self.assertFalse(_qualified_v41_postcommit_source_hold(held))
+        with patch("f139.nci04_owner_ledger.verify_native_activation",
+                   return_value=True) as verified:
+            self.assertTrue(_qualified_v41_postcommit_source_hold(held))
+            verified.assert_called_once_with(
+                held, expected_source=FROM_V41)
         for field, bad in (
             ("to_source_sha", FROM_V41),
             ("from_source_sha", target),
@@ -102,18 +109,24 @@ class HybridOwnerMigrationTests(unittest.TestCase):
                 tampered = dict(transition, **{field: bad})
                 conn.execute("UPDATE events SET payload=? WHERE seq=?", (
                     json.dumps(tampered), ACTIVATED_SEQ + 1))
-                self.assertFalse(_qualified_v41_postcommit_source_hold(held))
+                with patch("f139.nci04_owner_ledger.verify_native_activation",
+                           return_value=True):
+                    self.assertFalse(_qualified_v41_postcommit_source_hold(held))
         conn.execute("UPDATE events SET payload=? WHERE seq=?", (
             json.dumps(transition), ACTIVATED_SEQ + 1))
         conn.execute("INSERT INTO events VALUES (?,?,?,?,?)", (
             ACTIVATED_SEQ + 2, "SOURCE_TRANSITION_ADMITTED",
             "b" * 64, head, json.dumps(transition)))
         meta["head_seq"] += 1
-        self.assertFalse(_qualified_v41_postcommit_source_hold(held))
+        with patch("f139.nci04_owner_ledger.verify_native_activation",
+                   return_value=True):
+            self.assertFalse(_qualified_v41_postcommit_source_hold(held))
         conn.execute("DELETE FROM events WHERE seq=?", (ACTIVATED_SEQ + 2,))
         meta["head_seq"] -= 1
         conn.execute("DELETE FROM events WHERE seq=?", (ACTIVATED_SEQ,))
-        self.assertFalse(_qualified_v41_postcommit_source_hold(held))
+        with patch("f139.nci04_owner_ledger.verify_native_activation",
+                   return_value=True):
+            self.assertFalse(_qualified_v41_postcommit_source_hold(held))
 
     def test_worker_not_qualified_never_unlocks_original_owner_migration(self):
         for candidate in ("8eab7972ba1b30eabf1e38477aff60b598cdeb2f",
