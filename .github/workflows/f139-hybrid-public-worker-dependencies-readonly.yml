@@ -1,0 +1,64 @@
+name: FORGE F139 public Hybrid original worker Python dependency preflight (read-only)
+on:
+  push:
+    branches:
+      - diagnostic/f139-public-hybrid-original-worker-readonly-20261114
+    paths:
+      - .github/workflows/f139-hybrid-public-worker-dependencies-readonly.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-hybrid-public-worker-dependency-readonly-20261114
+  cancel-in-progress: false
+jobs:
+  original-hosted-worker-availability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read exact no-execution model dependencies on original F139 hosted OS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-public-hybrid-original-worker-readonly-20261114' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:OPENAI_API_KEY){throw 'F139_HYBRID_DEPENDENCY_PREFLIGHT_OWNER_DENIED'}
+          $code=@'
+          import importlib.util,importlib.metadata,json,platform
+          expected=("pytest","torch","numpy")
+          result={}
+          for name in expected:
+              found=importlib.util.find_spec(name) is not None
+              version=None
+              if found:
+                  try:version=importlib.metadata.version(name)
+                  except importlib.metadata.PackageNotFoundError:version=None
+              result[name]={"available":found,"version":version}
+          print("F139_HYBRID_PUBLIC_ORIGINAL_WORKER_DEPENDENCIES="+json.dumps({
+              "schema":"forge.f139.hybrid.public-worker-dependency-readonly.v1",
+              "platform":platform.system(),
+              "python_version":platform.python_version(),
+              "modules":result,
+              "all_mandatory_modules_available":all(result[x]["available"] for x in expected),
+              "owner_task_touched":False,
+              "model_imports_or_training":False,
+              "scientific_first_use":False,
+              "new_packages_installed":0
+          },sort_keys=True,separators=(",",":")))
+          '@
+          $out=@($code | & python -B -)
+          if($LASTEXITCODE -ne 0 -or $out.Count -ne 1 -or
+             $out[0] -cnotmatch '^F139_HYBRID_PUBLIC_ORIGINAL_WORKER_DEPENDENCIES='){
+            throw 'F139_HYBRID_DEPENDENCY_PREFLIGHT_FAILED'
+          }
+          Write-Output $out[0]
+          Write-Output 'F139_HYBRID_PUBLIC_WORKER_DEPENDENCY_OBSERVATION=PASS'
