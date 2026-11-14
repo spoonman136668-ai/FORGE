@@ -1,0 +1,62 @@
+name: FORGE F139 exact Python 3.11.11 portable managed runtime qualification
+on:
+  push:
+    branches:
+      - diagnostic/f139-public-hybrid-original-worker-readonly-20261114
+    paths:
+      - .github/workflows/f139-hybrid-py31111-uv-managed-readonly.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-hybrid-managed-py31111-20261114
+  cancel-in-progress: false
+jobs:
+  portable-exact-python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: astral-sh/setup-uv@a02a550bdd3185dba2ebb6aa98d77047ce54ad21
+        with:
+          version: '0.9.5'
+          enable-cache: false
+      - name: Get exact managed Python 3.11.11 and attest interpreter
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-public-hybrid-original-worker-readonly-20261114' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:OPENAI_API_KEY -or $env:GH_TOKEN -or $env:GITHUB_TOKEN){
+            throw 'F139_HYBRID_MANAGED_PYTHON_SCOPE_DENIED'
+          }
+          $v=(& uv --version|Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $v -cne 'uv 0.9.5'){
+            throw 'F139_HYBRID_MANAGED_PYTHON_TOOL_VERSION_DRIFT'
+          }
+          & uv python install 3.11.11
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_MANAGED_PYTHON_INSTALL_FAILED'}
+          $exe=(& uv python find 3.11.11 |Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $exe -PathType Leaf)){
+            throw 'F139_HYBRID_MANAGED_PYTHON_PATH_INVALID'
+          }
+          $raw=(& $exe -B -c 'import platform,json;print(json.dumps({"version":platform.python_version(),"system":platform.system(),"machine":platform.machine()}))'|Out-String).Trim()
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_MANAGED_PYTHON_EXEC_FAILED'}
+          $doc=$raw|ConvertFrom-Json
+          if($doc.version -cne '3.11.11'){throw 'F139_HYBRID_MANAGED_PYTHON_VERSION_DRIFT'}
+          Write-Output ('F139_HYBRID_MANAGED_PY31111='+(@{
+            schema='forge.f139.hybrid.managed-exact-python-availability.v1'
+            runtime_version=$doc.version
+            platform=$doc.system
+            manager='uv 0.9.5'
+            manager_action='a02a550bdd3185dba2ebb6aa98d77047ce54ad21'
+            source_controlled=$true
+            model_imported=$false
+            scientific_first_use=$false
+          }|ConvertTo-Json -Compress))
+          Write-Output 'F139_HYBRID_MANAGED_PY31111_AVAILABILITY=PASS'
