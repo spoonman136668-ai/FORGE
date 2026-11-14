@@ -21,10 +21,13 @@ from f139 import nci04_v41_hybrid_cold_bundle as bundle
 from f139 import nci04_v41_hybrid_protected_main as bridge
 
 PREFIX = "F139-HYBRID-V41-PAUSE-RESUME "
+HOLD_PREFIX = "F139-HYBRID-V41-PAUSE-HOLD "
 REPO = owner.REPO
 OWNER = owner.OWNER
 COMMENT_RE = re.compile(
     r"F139-HYBRID-V41-PAUSE-RESUME ([a-f0-9]{40}) ([1-9][0-9]*)\Z")
+HOLD_COMMENT_RE = re.compile(
+    r"F139-HYBRID-V41-PAUSE-HOLD ([a-f0-9]{40}) ([1-9][0-9]*)\Z")
 STAMP_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
 
 
@@ -52,13 +55,14 @@ def _comment_identity(doc, *, id, body, stamp=None):
     return doc["created_at"]
 
 
-def authenticate_pair(env, event, get, *, target_sha):
+def authenticate_pair(env, event, get, *, target_sha, hold=False):
     """Require an earlier backup request followed by a distinct owner approval.
 
     A single backup comment is never sufficient authority to pause the task.
     Every historical event/receipt remains read-only.  Source checkout/owner
     SID and task lifecycle are checked separately by the maintenance route.
     """
+    need(type(hold) is bool, "EXPLICIT_APPROVAL_MODE_REQUIRED")
     need(type(env) is dict and type(event) is dict and callable(get)
          and type(target_sha) is str
          and pair.SHA40.fullmatch(target_sha) is not None
@@ -88,7 +92,7 @@ def authenticate_pair(env, event, get, *, target_sha):
          and comment.get("author_association") == "OWNER"
          and type(comment.get("body")) is str,
          "OWNER_EVENT_OR_ISSUE_SCOPE")
-    parsed = COMMENT_RE.fullmatch(comment["body"])
+    parsed = (HOLD_COMMENT_RE if hold else COMMENT_RE).fullmatch(comment["body"])
     need(parsed is not None and parsed.group(1) == target_sha
          and int(parsed.group(2)) > 0
          and int(parsed.group(2)) != comment["id"],
@@ -107,8 +111,13 @@ def authenticate_pair(env, event, get, *, target_sha):
     for _ in range(2):
         found = []
         for route, number, body in routes:
+            observed = get(route)
+            if hold:
+                need(type(observed) is dict
+                     and observed.get("updated_at") == observed.get("created_at"),
+                     "HOLD_REQUIRES_UNEDITED_BOTH_OWNER_COMMENTS")
             found.append(_comment_identity(
-                get(route), id=number, body=body,
+                observed, id=number, body=body,
                 stamp=before_stamp if number == comment["id"] else None))
         need(found[0] < found[1],
              "BACKUP_REQUEST_NOT_BEFORE_INDEPENDENT_APPROVAL")
@@ -117,11 +126,13 @@ def authenticate_pair(env, event, get, *, target_sha):
         "backup_comment_id": backup_id,
         "approval_comment_id": comment["id"],
         "source_sha": target_sha,
+        **({"source_hold_requested": True} if hold else {}),
     }
 
 
-def _eligible(path, env, event, get, *, target_sha, disabled):
-    request = authenticate_pair(env, event, get, target_sha=target_sha)
+def _eligible(path, env, event, get, *, target_sha, disabled, hold=False):
+    request = authenticate_pair(env, event, get, target_sha=target_sha,
+                                hold=hold)
     # Never execute open-PR source on the privileged original owner.
     # Verified main SHA and 4 post-merge push workflows are required.
     bridge.require_protected_main_release(get, env, target_sha=target_sha)
@@ -133,9 +144,10 @@ def _eligible(path, env, event, get, *, target_sha, disabled):
     return request, db_path, policy
 
 
-def preflight_only(path, env, event, get, *, target_sha):
+def preflight_only(path, env, event, get, *, target_sha, hold=False):
     request, path, policy = _eligible(
-        path, env, event, get, target_sha=target_sha, disabled=False)
+        path, env, event, get, target_sha=target_sha, disabled=False,
+        hold=hold)
     with SingleOwner(path.with_suffix(".lock")):
         with closing(Database.open_readonly(path)) as original:
             original.verify()
@@ -153,9 +165,11 @@ def preflight_only(path, env, event, get, *, target_sha):
                  "CURRENT_ORIGINAL_OWNER_LEDGER_UNQUALIFIED")
     need(owner._owner_policy(get) == policy, "POLICY_CHANGED_DURING_PREFLIGHT")
     pair._authenticate_candidate(get, target_sha)
-    authenticate_pair(env, event, get, target_sha=target_sha)
+    authenticate_pair(env, event, get, target_sha=target_sha, hold=hold)
     return {
-        "schema": "forge.f139.hybrid-v41.paired-owner-preflight.v1",
+        "schema": ("forge.f139.hybrid-v41.source-hold-preflight.v1"
+                   if hold else "forge.f139.hybrid-v41.paired-owner-preflight.v1"),
+        **({"source_hold_requested": True} if hold else {}),
         "run_id": request["run_id"],
         "backup_comment_id": request["backup_comment_id"],
         "approval_comment_id": request["approval_comment_id"],
@@ -169,9 +183,10 @@ def preflight_only(path, env, event, get, *, target_sha):
     }
 
 
-def backup_only(path, env, event, get, *, target_sha):
+def backup_only(path, env, event, get, *, target_sha, hold=False):
     request, path, policy = _eligible(
-        path, env, event, get, target_sha=target_sha, disabled=True)
+        path, env, event, get, target_sha=target_sha, disabled=True,
+        hold=hold)
     with SingleOwner(path.with_suffix(".lock")):
         with closing(Database.open_readonly(path)) as original:
             before = original.meta().copy()
@@ -190,9 +205,11 @@ def backup_only(path, env, event, get, *, target_sha):
     owner._task_readback(path, disabled=True)
     need(owner._owner_policy(get) == policy, "POLICY_CHANGED_DURING_BACKUP")
     pair._authenticate_candidate(get, target_sha)
-    authenticate_pair(env, event, get, target_sha=target_sha)
+    authenticate_pair(env, event, get, target_sha=target_sha, hold=hold)
     return {
-        "schema": "forge.f139.hybrid-v41.paired-owner-backup-only.v1",
+        "schema": ("forge.f139.hybrid-v41.source-hold-backup-only.v1"
+                   if hold else "forge.f139.hybrid-v41.paired-owner-backup-only.v1"),
+        **({"source_hold_requested": True} if hold else {}),
         "run_id": request["run_id"],
         "backup_comment_id": request["backup_comment_id"],
         "approval_comment_id": request["approval_comment_id"],
@@ -214,6 +231,7 @@ def main(argv=None, *, env=None, event=None, get=None):
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--target", required=True)
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--hold", action="store_true")
     args = parser.parse_args(argv)
     values = dict(os.environ if env is None else env)
     need(os.name == "nt", "ORIGINAL_WINDOWS_ONLY")
@@ -225,12 +243,14 @@ def main(argv=None, *, env=None, event=None, get=None):
                            object_pairs_hook=decode_unique)
     get = GitHub().native_repo_get if get is None else get
     result = (preflight_only(args.db, values, event, get,
-                             target_sha=args.target)
+                             target_sha=args.target, hold=args.hold)
               if args.preflight_only else
               backup_only(args.db, values, event, get,
-                          target_sha=args.target))
-    prefix = ("F139_HYBRID_V41_PAIRED_PREFLIGHT=" if args.preflight_only
-              else "F139_HYBRID_V41_PAIRED_BACKUP_ONLY=")
+                          target_sha=args.target, hold=args.hold))
+    prefix = (("F139_HYBRID_V41_HOLD_PREFLIGHT=" if args.preflight_only
+               else "F139_HYBRID_V41_HOLD_BACKUP_ONLY=") if args.hold
+              else ("F139_HYBRID_V41_PAIRED_PREFLIGHT=" if args.preflight_only
+                    else "F139_HYBRID_V41_PAIRED_BACKUP_ONLY="))
     print(prefix + canonical(result).decode("ascii"))
     return 0
 
