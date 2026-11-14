@@ -249,8 +249,24 @@ jobs:
             }finally{Pop-Location}
             $env:KTRADE_W13_QUALIFICATION_ONLY='1'
             $env:KTRADE_W41_QUALIFICATION_ONLY='1'
-            & (Join-Path $source 'windows/Build-KTRADE-WailsPortable.ps1') -OutputRoot $pkg -ExpectedSourceSha $head -W13QualificationFixture -W41ColdFixture *> $log
-            if($LASTEXITCODE -ne 0){throw 'W169_PACKAGE_BUILD_FAILED'}
+            try{
+              & (Join-Path $source 'windows/Build-KTRADE-WailsPortable.ps1') -OutputRoot $pkg -ExpectedSourceSha $head -W13QualificationFixture -W41ColdFixture *> $log
+              if($LASTEXITCODE -ne 0){throw 'W169_PACKAGE_BUILD_FAILED'}
+            }catch{
+              # Keep private Go source and error text out of public FORGE logs.
+              # Emit only a bounded diagnostic class from the disposable log.
+              $tail=@(Get-Content -LiteralPath $log -Tail 250 -ErrorAction SilentlyContinue)
+              $message=($tail -join ' ')
+              $kind=if($message -match '(?i)no space left|disk full|not enough space'){'DISK'}
+                elseif($message -match '(?i)out of memory|cannot allocate memory|signal: killed'){'MEMORY'}
+                elseif($message -match '(?i)(connection reset|proxyconnect|TLS handshake|network is unreachable|connection refused|timeout|no such host|unexpected EOF|dial tcp|i/o timeout)'){'NETWORK'}
+                elseif($message -match '(?i)go: downloading|go: download'){'TOOLCHAIN_OR_MODULE_FETCH'}
+                elseif($message -match '(?i)(undefined:|cannot use|syntax error|build constraints exclude|import cycle|does not implement)'){'SOURCE_COMPILE'}
+                elseif($message -match '(?i)(access is denied|permission denied|cannot access the file|sharing violation)'){'WINDOWS_FILE_ACCESS'}
+                else{'UNCLASSIFIED'}
+              Write-Host ('W169_BUILD_FAILURE_CLASS='+$kind+';private_build_log_lines='+$tail.Count+';user_files_unchanged=true;desktop_not_entered=true')
+              throw 'W169_PACKAGE_BUILD_FAILED'
+            }
             $manifest=Get-Content -LiteralPath (Join-Path $pkg 'source-manifest.json') -Raw|ConvertFrom-Json
             $shell=Join-Path $pkg 'KTRADE-WailsPortable/ktrade.exe'
             $engine=Join-Path $pkg 'KTRADE-WailsPortable/ktrade-engine.exe'
