@@ -1,0 +1,129 @@
+name: FORGE V41 original-owner Hybrid lane disposable-copy migration (read-only)
+on:
+  push:
+    branches:
+      - diagnostic/f139-public-hybrid-original-worker-readonly-20261114
+    paths:
+      - .github/workflows/f139-v41-hybrid-lane-original-copy-qualification.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-v41-hybrid-lane-copy-diagnostic-20261114
+  cancel-in-progress: false
+jobs:
+  original-owner-disposable-copy:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Check original owner identity; migrate and cold-audit only a disposable database copy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $target='1a40fe4e3ec6e93a1631d59863b95e90981d734e'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-public-hybrid-original-worker-readonly-20261114' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY){
+            throw 'F139_HYBRID_COLD_COPY_NOT_EXISTING_ORIGINAL_OWNER'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(-not $task.Settings.Enabled -or [string]$task.State -cne 'Running'){
+            throw 'F139_HYBRID_COLD_COPY_ORIGINAL_TASK_NOT_RUNNING'
+          }
+          $base=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $db=Join-Path $base 'state.sqlite'
+          $stage=Join-Path (Join-Path $base 'release-candidates') $target
+          if(-not(Test-Path -LiteralPath $db -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $stage -PathType Container)){
+            throw 'F139_HYBRID_COLD_COPY_ORIGINAL_SOURCE_MISSING'
+          }
+          $sha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne $target){
+            throw 'F139_HYBRID_COLD_COPY_INSTALLED_SOURCE_DRIFT'
+          }
+          $env:PYTHONPATH=$stage
+          $code=@'
+          import json,os,sqlite3,sys,tempfile
+          from pathlib import Path
+          from contextlib import closing
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          from f139.hybrid_owner_admission import (migrate_hybrid_lane,
+              is_migrated,audit_hybrid_lane,OLD_CHECK,NEW_CHECK)
+          original=Path(sys.argv[1]).resolve(strict=True)
+          target=sys.argv[2]
+          with closing(Database.open_readonly(original)) as db:
+              m=db.meta()
+              assert m["source_sha"]==target and m["head_seq"]>=1829
+              assert verify_native_activation(db) is True
+              assert not is_migrated(db)
+              assert db.ready() is None and not db.actives()
+              assert db.conn.execute("PRAGMA query_only").fetchone()[0]==1
+              assert db.conn.total_changes==0
+          with tempfile.TemporaryDirectory(prefix="f139-hybrid-cold-copy-",dir=os.environ["RUNNER_TEMP"]) as temp:
+              copied=Path(temp)/"cold.sqlite"
+              with closing(sqlite3.connect(original.as_uri()+"?mode=ro",
+                    uri=True,isolation_level=None,timeout=20)) as src:
+                  src.execute("PRAGMA query_only=ON")
+                  with closing(sqlite3.connect(copied)) as dst:
+                      src.backup(dst)
+              with closing(Database(copied)) as copy:
+                  pre=copy.meta().copy()
+                  assert pre["source_sha"]==target and pre["head_seq"]>=1829
+                  assert pre["head_seq"]>=m["head_seq"]
+                  assert copy.ready() is None and not copy.actives()
+                  assert verify_native_activation(copy) is True
+                  assert is_migrated(copy) is False
+                  prior_rows=[tuple(row) for row in copy.conn.execute(
+                      "SELECT * FROM tasks ORDER BY ticket")]
+                  prior_events=[tuple(row) for row in copy.conn.execute(
+                      "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq")]
+                  assert migrate_hybrid_lane(copy) is True
+                  assert migrate_hybrid_lane(copy) is False
+                  post=copy.meta().copy()
+                  assert post["head_seq"]==pre["head_seq"]+1
+                  assert is_migrated(copy) and audit_hybrid_lane(copy) is True
+                  assert [tuple(row) for row in copy.conn.execute(
+                      "SELECT * FROM tasks ORDER BY ticket")]==prior_rows
+                  assert [tuple(row) for row in copy.conn.execute(
+                      "SELECT seq,kind,payload,prior_sha,sha FROM events "
+                      "ORDER BY seq LIMIT ?",(len(prior_events),))]==prior_events
+                  assert copy.conn.execute("PRAGMA quick_check").fetchone()[0]=="ok"
+                  copy.verify()
+                  schema=copy.conn.execute("SELECT sql FROM sqlite_master "
+                      "WHERE type='table' AND name='tasks'").fetchone()[0]
+                  assert NEW_CHECK in schema and OLD_CHECK not in schema
+                  after_event=copy.conn.execute("SELECT kind,payload FROM events "
+                      "WHERE seq=?",(post["head_seq"],)).fetchone()
+                  assert after_event["kind"]=="HYBRID_LANE_SCHEMA_ADMITTED"
+                  doc=json.loads(after_event["payload"])
+                  assert doc["source_sha"]==target
+                  assert doc["scientific_first_use"] is False
+                  assert doc["worker_dispatched"] is False
+                  assert doc["model_promoted"] is False
+                  print("F139_V41_HYBRID_COLD_COPY_MIGRATION="+json.dumps({
+                     "schema":"forge.f139.v41.hybrid-lane-disposable-copy.v1",
+                     "source_sha":target,"pre_copy_seq":pre["head_seq"],
+                     "pre_copy_head_sha256":pre["head_hash"],
+                     "post_copy_seq":post["head_seq"],
+                     "post_copy_head_sha256":post["head_hash"],
+                     "preserved_original_task_rows":len(prior_rows),
+                     "preserved_original_events":len(prior_events),
+                     "hybrid_schema_valid_on_copy":True,
+                     "second_migration_noop":True,
+                     "original_owner_unchanged":True,
+                     "original_sqlite_written":False,
+                     "new_worker_dispatched":False,
+                     "scientific_first_use":False
+                  },sort_keys=True,separators=(",",":")))
+          '@
+          $out=@($code | & python -B - $db $target)
+          if($LASTEXITCODE -ne 0 -or $out.Count -ne 1 -or
+             $out[0] -cnotmatch '^F139_V41_HYBRID_COLD_COPY_MIGRATION='){
+             throw 'F139_V41_HYBRID_COPY_QUALIFICATION_FAILED'
+          }
+          Write-Output $out[0]
+          Write-Output 'F139_V41_HYBRID_ORIGINAL_DISPOSABLE_COPY=PASS'
