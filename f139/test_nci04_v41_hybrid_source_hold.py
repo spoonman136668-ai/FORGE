@@ -82,6 +82,8 @@ class DistinctOwnerHoldIntentTests(unittest.TestCase):
                           return_value={"source_sha": original_fixtures.TARGET}), \
              patch.object(pair.pair, "_authenticate_candidate",
                           return_value=original_fixtures.TARGET), \
+             patch.object(pair.pair, "verify_native_activation",
+                          return_value=True), \
              patch.object(original_fixtures.original, "_task_readback",
                           return_value=True), \
              patch.object(original_fixtures.original,
