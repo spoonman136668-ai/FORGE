@@ -7,6 +7,7 @@ This is NOT a registered workflow or a source-commit approval.
 """
 from __future__ import annotations
 
+import argparse
 from contextlib import closing
 import json
 import os
@@ -150,15 +151,20 @@ def authenticate_readiness(get, env, event, target):
          and env.get("GITHUB_SHA") == target
          and env.get("GITHUB_RUN_ATTEMPT") == "1"
          and env.get("RUNNER_NAME") == "FORGE-CODEX-REMOTE"
+         and type(env.get("GITHUB_RUN_ID")) is str
+         and re.fullmatch(r"[1-9][0-9]*", env["GITHUB_RUN_ID"])
          and not env.get("OPENAI_API_KEY"),
          "NATIVE_FIRST_ATTEMPT_RUNNER_REQUIRED")
     issue, sender, comment = (event.get(k) for k in ("issue", "sender", "comment"))
     need(event.get("action") == "created"
          and type(issue) is dict and issue.get("number") == 807
+         and type(issue.get("user")) is dict
+         and issue["user"].get("login") == OWNER
          and "pull_request" not in issue
          and type(sender) is dict and sender.get("login") == OWNER
          and type(comment) is dict
          and type(comment.get("id")) is int
+         and comment["id"] > OLD_COMMIT_ID
          and type(comment.get("user")) is dict
          and comment["user"].get("login") == OWNER
          and comment.get("author_association") == "OWNER"
@@ -258,3 +264,36 @@ def read_only_original_preflight(db_path, env, event, api):
         "original_database_mutations": 0,
         "new_dispatches": 0,
     }
+
+
+def main(argv=None):
+    """Read-only manually invoked owner entrypoint, not a job registration."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--target", required=True)
+    args = parser.parse_args(argv)
+    env = dict(os.environ)
+    need(type(env.get("GITHUB_SHA")) is str
+         and args.target == env["GITHUB_SHA"]
+         and SHA40.fullmatch(args.target) is not None,
+         "EXACT_SHA_ARGUMENT_REQUIRED")
+    path = env.get("GITHUB_EVENT_PATH")
+    need(type(path) is str and Path(path).is_file(),
+         "ORIGINAL_OWNER_EVENT_FILE_REQUIRED")
+    try:
+        event = json.loads(Path(path).read_text("utf-8"),
+                           object_pairs_hook=decode_unique)
+    except (UnicodeError, ValueError, OSError) as error:
+        raise ForwardReadinessDenied(
+            "F139_HYBRID_FORWARD_READINESS_EVENT_NOT_CANONICAL") from error
+    need(type(env.get("LOCALAPPDATA")) is str
+         and Path(env["LOCALAPPDATA"]).is_absolute(),
+         "ORIGINAL_OWNER_LOCAL_DATA_REQUIRED")
+    database = Path(env["LOCALAPPDATA"]) / "FORGE-F139" / "state.sqlite"
+    receipt = read_only_original_preflight(database, env, event, GitHub())
+    print("F139_HYBRID_FORWARD_READONLY_PREFLIGHT=" +
+          canonical(receipt).decode("ascii"))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
