@@ -56,12 +56,19 @@ class HeldReadOnlyRecoveryFixtureTests(unittest.TestCase):
             self.assertFalse(view["restore_older_sqlite_authorized"])
             self.assertFalse(view["original_task_resume_authorized"])
             self.assertEqual(view["readback_database_mutations"], 0)
-            self.cold.assert_called_with(
-                self.fixture.file.parent / "f139-hybrid-before-800001",
-                expected_manifest_sha256="5" * 64,
-                target_sha=self.fixture.target, run_id=800001,
-                expected_head_seq=source.ACTIVATED_SEQ,
-                expected_head_sha256=source.ACTIVATED_HASH)
+            self.cold.assert_called_once()
+            actual_folder = self.cold.call_args.args[0]
+            self.assertEqual(actual_folder.name, "f139-hybrid-before-800001")
+            # Windows may resolve the same temp directory through short 8.3
+            # or long paths. Assert real parent identity, never path spelling.
+            self.assertTrue(actual_folder.parent.samefile(
+                self.fixture.file.parent))
+            self.assertEqual(self.cold.call_args.kwargs, {
+                "expected_manifest_sha256": "5" * 64,
+                "target_sha": self.fixture.target, "run_id": 800001,
+                "expected_head_seq": source.ACTIVATED_SEQ,
+                "expected_head_sha256": source.ACTIVATED_HASH,
+            })
 
     def test_commit_receipt_lost_but_exact_v37_event_still_identifiable(self):
         with SingleOwner(self.fixture.file.with_suffix(".lock")):
