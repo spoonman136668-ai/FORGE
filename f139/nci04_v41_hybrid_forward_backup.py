@@ -16,10 +16,11 @@ import re
 import sys
 
 from f139.local_controller import Database, GitHub, SingleOwner
-from f139.nci04_native_contract import canonical
+from f139.nci04_native_contract import canonical, digest
 from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_hybrid_forward_readiness as readiness
 from f139 import nci04_v41_hybrid_forward_cold_bundle as bundle
+from f139 import nci04_v41_hybrid_forward_repair as forward
 from f139 import nci04_v41_hybrid_owner_maintenance as owner
 from f139 import nci04_v41_hybrid_forward_owner_profile as profile
 
@@ -99,6 +100,44 @@ def authenticate_backup(get, env, event, target):
     }
 
 
+
+def _frozen_source_proof_sha(db, approval, receipt):
+    """Compute before SOURCE-COMMIT exists, using the prior owner readiness ID.
+
+    A commit comment ID cannot be an input to a proof hash that must be
+    included in that same comment; this breaks the circular dependency.
+    """
+    need(type(approval) is dict and type(receipt) is dict
+         and type(approval.get("readiness_comment_id")) is int
+         and approval["readiness_comment_id"] > readiness.OLD_COMMIT_ID
+         and type(approval.get("backup_run_id")) is int
+         and approval["backup_run_id"] > 0
+         and type(approval.get("target_source_sha")) is str
+         and readiness.SHA40.fullmatch(approval["target_source_sha"])
+         and type(receipt.get("manifest_sha256")) is str
+         and forward.HEX64.fullmatch(receipt["manifest_sha256"])
+         and type(receipt.get("logical_all_tables_sha256")) is str
+         and forward.HEX64.fullmatch(receipt["logical_all_tables_sha256"])
+         and receipt.get("candidate_sha") ==
+             approval["target_source_sha"]
+         and receipt.get("original_source_sha") == forward.FROM
+         and receipt.get("original_head_seq") == forward.V37_SEQ
+         and receipt.get("original_head_sha256") == forward.V37_HEAD,
+         "BACKUP_NOT_BOUND_TO_FROZEN_READINESS")
+    proof = forward.build_proof(
+        db, approval["target_source_sha"],
+        approval["readiness_comment_id"], approval["backup_run_id"],
+        receipt["manifest_sha256"],
+        receipt["logical_all_tables_sha256"])
+    need(proof["owner_event_id"] == approval["readiness_comment_id"]
+         and proof["to_source_sha"] == approval["target_source_sha"]
+         and proof["backup_run_id"] == approval["backup_run_id"]
+         and proof["backup_manifest_sha256"] ==
+             receipt["manifest_sha256"],
+         "FROZEN_SOURCE_PROOF_NOT_PRECOMPUTABLE")
+    return digest(canonical(proof))
+
+
 def original_backup(db_path, env, event, api):
     """Fresh original source event-1830 backup, with no original writes."""
     need(sys.platform == "win32" and os.name == "nt"
@@ -135,6 +174,8 @@ def original_backup(db_path, env, event, api):
                 target=target, run_id=approval["backup_run_id"],
                 owner_disabled_witness=disabled,
                 release_witness=released)
+            expected_proof_sha = _frozen_source_proof_sha(
+                db, approval, receipt)
             need(db.meta() == before and db.conn.total_changes == 0,
                  "ORIGINAL_LEDGER_CHANGED_BY_BACKUP")
         need(disabled(), "ORIGINAL_TASK_RESUMED_DURING_BACKUP")
@@ -161,6 +202,7 @@ def original_backup(db_path, env, event, api):
         "original_event_seq": readiness.forward.V37_SEQ,
         "original_event_head_sha256": readiness.forward.V37_HEAD,
         "manifest_sha256": receipt["manifest_sha256"],
+        "expected_proof_sha256": expected_proof_sha,
         "logical_all_tables_sha256":
             receipt["logical_all_tables_sha256"],
         "detached_restore": receipt,
