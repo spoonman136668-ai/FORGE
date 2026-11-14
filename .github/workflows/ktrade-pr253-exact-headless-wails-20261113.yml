@@ -14,8 +14,8 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 45
     env:
-      KTRADE_EXPECTED_SOURCE: '59842e83f01fb6e1af780ede5a7395a9c7cce47a'
-      KTRADE_EXPECTED_TREE: 'df46e1b6c9adf46eb9ba69e83ce4dbd8dc8feb97'
+      KTRADE_EXPECTED_SOURCE: '65ac7b90727cc06983fab5d42e1e6e9d25afdcde'
+      KTRADE_EXPECTED_TREE: '0be7fdefa086d59beb443227a1c2f7774bbf836b'
       KTRADE_LIVE_TRADING: 'false'
       KTRADE_CI_LIVE_AUTHORITY: '0'
       KTRADE_CI_COINBASE_ALLOWED: '0'
@@ -66,7 +66,7 @@ jobs:
           try{
             $env:TEMP=$runnerTemp
             $env:TMP=$runnerTemp
-            $env:GOTOOLCHAIN='go1.26.10'
+            $env:GOTOOLCHAIN='go1.26.11'
             $env:GOPATH=Join-Path $root 'go-path'
             $env:GOMODCACHE=Join-Path $root 'go-mod-cache'
             $env:GOCACHE=Join-Path $root 'go-build-cache'
@@ -93,15 +93,19 @@ jobs:
               throw 'KTRADE_PR253_HEADLESS_SOURCE_TREE_DRIFT'
             }
             $pin=(Get-Content (Join-Path $source 'windows/Go-Toolchain.version') -Raw).Trim()
-            if($pin -cne 'go1.26.10'){throw 'KTRADE_PR253_HEADLESS_TOOLCHAIN_PIN_DRIFT'}
+            if($pin -cne 'go1.26.11'){throw 'KTRADE_PR253_HEADLESS_TOOLCHAIN_PIN_DRIFT'}
             $scope='FOCUSED_NODE_TESTS'
             $tests=@(
               'tests/w149_advanced_drawings.test.cjs',
               'tests/w151_parallel_channel.test.cjs',
               'tests/w160_native_drawings_observer.test.cjs',
               'tests/w145_tick_intervals.test.cjs',
+              'tests/w114_tick_chart.test.cjs',
+              'tests/rb3_w85_desktop_operator_shell.test.cjs',
+              'tests/rb3_w94_chart_theme.test.cjs',
               'tests/rb3_w96_medium_viewport_controls.test.cjs',
-              'tests/rb3_w98_pine_native_accessibility.test.cjs'
+              'tests/rb3_w98_pine_native_accessibility.test.cjs',
+              'tests/historical_pine_editor_chart_wiring.test.cjs'
             )
             Push-Location $source
             try{
@@ -109,7 +113,7 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'KTRADE_PR253_HEADLESS_FOCUSED_TESTS_FAILED'}
               $testsPassed=$true
             }finally{Pop-Location}
-            Write-Host ('KTRADE_PR253_HEADLESS_FOCUSED_TESTS=PASS;source_sha='+$head+';tests=6')
+            Write-Host ('KTRADE_PR253_HEADLESS_FOCUSED_TESTS=PASS;source_sha='+$head+';tests=10')
             $scope='OFFLINE_VENDOR_STAGE'
             Push-Location $source
             try{
@@ -127,7 +131,7 @@ jobs:
             $shell=Join-Path $pkg 'KTRADE-WailsPortable/ktrade.exe'
             $engine=Join-Path $pkg 'KTRADE-WailsPortable/ktrade-engine.exe'
             if($manifest.source_sha -cne $head -or
-               $manifest.go_version -cne 'go1.26.10' -or
+               $manifest.go_version -cne 'go1.26.11' -or
                $manifest.fixture_mode -cne 'w41-frozen-disposable-restart' -or
                $manifest.live_armed -ne $false -or
                $manifest.paper_started -ne $false -or
@@ -146,8 +150,8 @@ jobs:
             Write-Host ('KTRADE_PR253_HEADLESS_PACKAGE='+([ordered]@{
               schema='ktrade.pr253.exact-headless-wails.v1'
               source_sha=$head;tree_sha=$tree
-              go_toolchain='go1.26.10'
-              drawing_test_files=6
+              go_toolchain='go1.26.11'
+              drawing_test_files=10
               drawing_regressions_pass=$testsPassed
               wails_sha256=$sHash
               engine_sha256=$eHash
