@@ -133,6 +133,28 @@ class ForwardReadinessTests(unittest.TestCase):
     def setUp(self):
         self.api = FakeProvider()
 
+    def test_existing_workflow_only_adds_distinct_read_only_owner_gate(self):
+        root = Path(__file__).resolve().parent.parent
+        workflow = (root / ".github" / "workflows" /
+                    "f139-v41-original-owner-live-install.yml").read_text(
+                        encoding="utf-8")
+        name = "  hybrid-v41-original-forward-readonly:"
+        self.assertEqual(workflow.count(name), 1)
+        source = workflow.split(name, 1)[1]
+        self.assertIn("github.event_name == 'issue_comment'", source)
+        self.assertIn("github.event.issue.number == 807", source)
+        self.assertIn("github.actor == 'spoonman136668-ai'", source)
+        self.assertIn("runs-on: [self-hosted, Windows, forge-codex-isolated]", source)
+        self.assertIn("persist-credentials: false", source)
+        self.assertIn(
+            "f139.nci04_v41_hybrid_forward_readiness", source)
+        for forbidden in (
+            "Start-ScheduledTask", "Stop-ScheduledTask",
+            "Enable-ScheduledTask", "Disable-ScheduledTask",
+            "gh api --method PATCH", "gh workflow run",
+            "workflow_dispatch", "issues: write"):
+            self.assertNotIn(forbidden, source)
+
     def test_readiness_main_is_not_a_second_worker_or_automatic_controller(self):
         from pathlib import Path
         source = Path(readiness.__file__).read_text("utf-8")
