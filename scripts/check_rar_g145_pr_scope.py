@@ -19,6 +19,26 @@ HYBRID_RELEASE_ANCHOR = "0e122eb8e571ddddee1dea4168cf18cfc7dc019d"
 HYBRID_WORKER_PATH = ".github/workflows/forge-f139-development-worker.yml"
 HYBRID_WORKER_BEFORE = "8eab7972ba1b30eabf1e38477aff60b598cdeb2f"
 HYBRID_WORKER_AFTER = "74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
+# One exact owner PR may extend the EXISTING owner workflow for a complete
+# source HOLD -> Hybrid lane migration -> same-task restart. Unrelated workflow
+# or harness changes remain denied by generic_paths_safe().
+HYBRID_COMPLETE_BRANCH = "engineering/f139-v41-hybrid-original-owner-complete-cutover-20261114"
+HYBRID_COMPLETE_PR = 1758
+HYBRID_COMPLETE_BASE = "25edd09d77b87d248b7908f0b898881cc5fb27c3"
+HYBRID_COMPLETE_BASE_TREE = "5c73f425f5936c11800e39be2f40141a8b608f3a"
+HYBRID_COMPLETE_WORKFLOW = ".github/workflows/f139-v41-original-owner-live-install.yml"
+HYBRID_COMPLETE_WORKFLOW_BEFORE = "ff11352d1d298361e97b1e7422338f608d4b2a70"
+HYBRID_COMPLETE_WORKFLOW_AFTER = "6ad719d04639f96e3342f33bcbc9c5b379557e52"
+HYBRID_COMPLETE_FILES = frozenset({
+    HYBRID_COMPLETE_WORKFLOW,
+    "f139/nci04_v41_hybrid_successor_release.py",
+    "f139/test_nci04_v41_hybrid_successor_release.py",
+    "f139/test_nci04_v41_hybrid_safe_abort.py",
+    "f139/test_v41_hybrid_original_activate.py",
+    "f139/v41_hybrid_original_activate.ps1",
+    "scripts/check_rar_g145_pr_scope.py",
+})
+
 V41_PAUSE_BRANCH = "engineering/f139-v41-original-pause-backup-resume-20261112"
 V41_PAUSE_PR = 1735
 V41_PAUSE_BASE = "89f283492fd7ef171b4482b78baae88772880e51"
@@ -271,6 +291,85 @@ def is_sha(value: object) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value) is not None
 
 
+def admit_hybrid_complete(head_sha: str, base_sha: str,
+                          request: dict, git: Callable[..., str]) -> str:
+    """Exact original-owner PR#1758 workflow and seven-file engineering scope.
+
+    This ONLY admits running the unchanged G141/G145 performance check on
+    the PR source. It does not authorize owner pause, release, merge, science
+    first-use, policy changes or an unqualified workflow replacement.
+    """
+    if (not is_sha(head_sha) or base_sha != HYBRID_COMPLETE_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != HYBRID_COMPLETE_PR
+            or request.get("user",{}).get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_HYBRID_COMPLETE_EXACT_PR_OWNER_REQUIRED")
+    try:
+        ancestor=git("merge-base",base_sha,head_sha)
+        tree=git("rev-parse",base_sha+"^{tree}")
+        paths=git("diff","--no-renames","--name-only",base_sha,head_sha).splitlines()
+        old=git("ls-tree",base_sha,"--",HYBRID_COMPLETE_WORKFLOW)
+        new=git("ls-tree",head_sha,"--",HYBRID_COMPLETE_WORKFLOW)
+        worker=git("rev-parse",head_sha+":"+HYBRID_WORKER_PATH)
+    except (subprocess.CalledProcessError,subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_HYBRID_COMPLETE_GIT_PROVENANCE_MISSING") from exc
+    def blob(sha,path):
+        return "100644 blob "+sha+"\t"+path
+    if (ancestor != base_sha
+            or tree != HYBRID_COMPLETE_BASE_TREE
+            or len(paths) != len(HYBRID_COMPLETE_FILES)
+            or set(paths) != HYBRID_COMPLETE_FILES
+            or old != blob(HYBRID_COMPLETE_WORKFLOW_BEFORE,HYBRID_COMPLETE_WORKFLOW)
+            or new != blob(HYBRID_COMPLETE_WORKFLOW_AFTER,HYBRID_COMPLETE_WORKFLOW)
+            or worker != HYBRID_WORKER_AFTER):
+        raise ValueError("G145_HYBRID_COMPLETE_EXACT_SOURCE_OR_WORKFLOW_CHANGED")
+    return "EXACT_PR1758_HYBRID_ORIGINAL_ENGINEERING_QUALIFICATION_ONLY"
+
+
+def hybrid_complete_negative_controls() -> None:
+    base,head=HYBRID_COMPLETE_BASE,"e"*40
+    request={"number":HYBRID_COMPLETE_PR,
+             "user":{"login":"spoonman136668-ai"},
+             "author_association":"OWNER"}
+    def good(*args):
+        if args==("merge-base",base,head):return base
+        if args==("rev-parse",base+"^{tree}"):return HYBRID_COMPLETE_BASE_TREE
+        if args==("diff","--no-renames","--name-only",base,head):
+            return "\n".join(sorted(HYBRID_COMPLETE_FILES))
+        if args==("ls-tree",base,"--",HYBRID_COMPLETE_WORKFLOW):
+            return "100644 blob "+HYBRID_COMPLETE_WORKFLOW_BEFORE+"\t"+HYBRID_COMPLETE_WORKFLOW
+        if args==("ls-tree",head,"--",HYBRID_COMPLETE_WORKFLOW):
+            return "100644 blob "+HYBRID_COMPLETE_WORKFLOW_AFTER+"\t"+HYBRID_COMPLETE_WORKFLOW
+        if args==("rev-parse",head+":"+HYBRID_WORKER_PATH):
+            return HYBRID_WORKER_AFTER
+        raise AssertionError("unexpected exact-cutover original source route")
+    if (admit_hybrid_complete(head,base,request,good) !=
+            "EXACT_PR1758_HYBRID_ORIGINAL_ENGINEERING_QUALIFICATION_ONLY"):
+        raise ValueError("G145_HYBRID_COMPLETE_POSITIVE_CONTROL_FAILED")
+    def reject(req=request,base_value=base,changed=None):
+        def read(*args):
+            return changed[1] if changed and args==changed[0] else good(*args)
+        try:
+            admit_hybrid_complete(head,base_value,req,read)
+        except ValueError:
+            return
+        raise ValueError("G145_HYBRID_COMPLETE_NEGATIVE_CONTROL_ADMITTED")
+    reject({**request,"number":1757})
+    reject({**request,"user":{"login":"different"}})
+    reject({**request,"author_association":"CONTRIBUTOR"})
+    reject(base_value="f"*40)
+    reject(changed=(("merge-base",base,head),"f"*40))
+    reject(changed=(("rev-parse",base+"^{tree}"),"f"*40))
+    reject(changed=(("diff","--no-renames","--name-only",base,head),
+                    "\n".join(sorted(HYBRID_COMPLETE_FILES-{
+                        HYBRID_COMPLETE_WORKFLOW}))))
+    reject(changed=(("ls-tree",head,"--",HYBRID_COMPLETE_WORKFLOW),
+                    "100644 blob "+"f"*40+"\t"+HYBRID_COMPLETE_WORKFLOW))
+    reject(changed=(("rev-parse",head+":"+HYBRID_WORKER_PATH),"f"*40))
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -307,6 +406,7 @@ def negative_controls() -> None:
     if not generic_paths_safe(valid) or any(generic_paths_safe(x) for x in invalid):
         raise ValueError("G145_ADMISSION_NEGATIVE_CONTROL_FAILED")
     hybrid_release_negative_controls()
+    hybrid_complete_negative_controls()
     v41_status_negative_controls()
     v41_backup_negative_controls()
     v41_pause_negative_controls()
@@ -673,6 +773,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         if payload.get("number") != HYBRID_RELEASE_PR:
             raise ValueError("G145_HYBRID_RELEASE_ORIGINAL_PR_REQUIRED")
         return admit_hybrid_workflow_release(head_sha, base_sha, request, git)
+    if branch == HYBRID_COMPLETE_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_hybrid_complete(head_sha,base_sha,request,git)
     if branch in {'engineering/f139-v40-explicit-owner-handoff-20261109', 'engineering/f139-v40-qualified-readonly-route-20261109', 'engineering/f139-v40-source-bound-copy-qualification-20261109'}:
         request = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))['pull_request']
         if (request.get('user', {}).get('login') != 'spoonman136668-ai'

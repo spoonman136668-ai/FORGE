@@ -229,7 +229,7 @@ class OriginalOwnerAbortSqliteTests(unittest.TestCase):
 
 
 class OriginalOwnerSafeAbortWrapperTests(unittest.TestCase):
-    def test_inert_unregistered_abort_without_new_controller_or_retry(self):
+    def test_original_owner_abort_registered_only_with_exact_issue_comment(self):
         text = WRAPPER.read_text("utf-8")
         self.assertIn("F139-HYBRID-V41-SAFE-ABORT ", text)
         self.assertIn("nci04_v41_hybrid_safe_abort", text)
@@ -247,7 +247,18 @@ class OriginalOwnerSafeAbortWrapperTests(unittest.TestCase):
         self.assertEqual(text.count("Enable-ScheduledTask -TaskName"), 1)
         self.assertEqual(text.count("Start-ScheduledTask -TaskName"), 1)
         for workflow in (ROOT / ".github/workflows").glob("*.yml"):
-            self.assertNotIn(WRAPPER.name, workflow.read_text("utf-8"))
+            registered = workflow.read_text("utf-8")
+            if workflow.name == "f139-v41-original-owner-live-install.yml":
+                self.assertIn(WRAPPER.name, registered)
+                self.assertIn(
+                    "startsWith(github.event.comment.body, "
+                    "'F139-HYBRID-V41-SAFE-ABORT ')", registered)
+                self.assertIn(
+                    "runs-on: [self-hosted, Windows, forge-codex-isolated]",
+                    registered)
+                self.assertIn("github.event.issue.number == 807", registered)
+            else:
+                self.assertNotIn(WRAPPER.name, registered)
 
     @unittest.skipUnless(os.name == "nt", "Native Windows PS5 syntax check")
     def test_original_windows_safe_abort_parser(self):
