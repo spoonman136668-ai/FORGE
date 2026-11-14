@@ -42,10 +42,14 @@ jobs:
           from contextlib import closing
           from f139.local_controller import Database
           from f139.nci04_owner_ledger import activate_native,verify_native_activation
+          from f139.nci04_v41_cold_copy_verifier import required_negative_custody,copy_negative_custody
           original=Path(sys.argv[1]).resolve(strict=True)
           target=sys.argv[2]
-          with tempfile.TemporaryDirectory(prefix="forge-v41-activation-copy-",dir=os.environ["RUNNER_TEMP"]) as td:
+          with tempfile.TemporaryDirectory(prefix="forge-v41-activation-copy-",dir=os.environ["RUNNER_TEMP"],ignore_cleanup_errors=True) as td:
               copy=Path(td)/"disposable.sqlite"
+              with closing(Database.open_readonly(original)) as opened_original:
+                  expected=required_negative_custody(opened_original)
+                  copy_negative_custody(original.parent,Path(td),expected,copy_files=True)
               with closing(sqlite3.connect(original.as_uri()+"?mode=ro",uri=True,isolation_level=None,timeout=20)) as src:
                   src.execute("PRAGMA query_only=ON")
                   with closing(sqlite3.connect(copy)) as dst:
@@ -87,7 +91,10 @@ jobs:
                     "new_dispatches":0,
                   },sort_keys=True,separators=(",",":")))
           '@
-          $out=@($code | & python -B - $db $target)
+          Push-Location -LiteralPath $root
+          try {
+            $out=@($code | & python -B - $db $target)
+          } finally {Pop-Location}
           if($LASTEXITCODE -ne 0 -or $out.Count -ne 1 -or
              $out[0] -cnotmatch '^F139_V41_NATIVE_ACTIVATION_COPIED_REHEARSAL='){
             throw 'F139_V41_ACTIVATION_COPY_NOT_QUALIFIED'
