@@ -255,6 +255,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or tree != "2eae7f1826a93a584563d77eeaa94a46201956e7"):
             raise ValueError("G156_V41_OWNER_READONLY_FROZEN_SCOPE_REQUIRED")
         return
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-hybrid-reader-route-20261110":
+        if (admission != FROZEN
+                or base != "1a40fe4e3ec6e93a1631d59863b95e90981d734e"
+                or tree != "e2d0322dd38baf8bc94bf32b6c3496b0471f3ed9"):
+            raise ValueError("G156_HYBRID_OWNER_WORKFLOW_EXACT_BASE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v41-native-original-install-entry-20261113":
         if (admission != FROZEN
                 or base != "98ec09b732a7764d1f2a38b98abd5927dab03dac"
