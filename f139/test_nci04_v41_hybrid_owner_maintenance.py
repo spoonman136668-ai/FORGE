@@ -191,6 +191,7 @@ class HybridOwnerMaintenanceTests(unittest.TestCase):
 
     def test_v41_event_floor_is_genuine_only(self):
         with patch.object(route,"_task_readback",return_value=True), \
+             patch.object(route,"_candidate_clean_checkout",return_value=True), \
              patch.object(pair,"verify_native_activation",return_value=True):
             with self.assertRaisesRegex(route.HybridOwnerBackupDenied,
                                         "LEDGER_UNQUALIFIED"):
