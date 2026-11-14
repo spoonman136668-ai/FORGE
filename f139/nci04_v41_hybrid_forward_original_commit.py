@@ -26,6 +26,7 @@ from f139 import nci04_v41_hybrid_forward_cold_bundle as cold
 from f139 import nci04_v41_hybrid_forward_repair as forward
 from f139 import nci04_v41_hybrid_forward_backup as previous_backup
 from f139 import nci04_v41_hybrid_owner_maintenance as owner
+from f139 import nci04_v41_hybrid_forward_owner_profile as profile
 from f139.hybrid_owner_admission import is_migrated
 
 SCHEMA = "forge.f139.hybrid-forward.original-source-commit-intent.v1"
@@ -272,10 +273,10 @@ def original_source_commit(db_path, env, event, api):
     db_path = owner._original_path(db_path, env)
     owner._candidate_clean_checkout(target)
     policy = owner._owner_policy(get)
-    owner._task_readback(db_path, disabled=True)
+    profile.readback(db_path)
 
     def disabled():
-        return owner._task_readback(db_path, disabled=True) is True
+        return profile.readback(db_path) is True
 
     def released():
         return (
