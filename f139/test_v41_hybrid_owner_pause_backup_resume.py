@@ -35,7 +35,7 @@ class HybridOriginalTaskWrapperTests(unittest.TestCase):
         self.assertIn("F139-HYBRID-V41-PAUSE-RESUME ",src)
         self.assertIn("F139_HYBRID_V41_PAIRED_PREFLIGHT=",src)
         self.assertIn("GITHUB_RUN_ATTEMPT -ceq '1'",src)
-        self.assertIn("GITHUB_SHA -ceq $original",src)
+        self.assertIn("GITHUB_SHA -ceq $Target",src)
         self.assertIn("$pre=Invoke-Pair $true 120000",src)
         self.assertLess(src.index("$pre=Invoke-Pair"),
                         src.index("Disable-ScheduledTask -TaskName $name"))

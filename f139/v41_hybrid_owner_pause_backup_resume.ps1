@@ -44,7 +44,7 @@ function Task() {
 }
 function Main() {
   $current=(& gh api repos/spoonman136668-ai/FORGE/branches/main --jq '.commit.sha'|Out-String).Trim()
-  Need ($LASTEXITCODE -eq 0 -and $current -ceq $original) 'V41_PROTECTED_MAIN_MOVED'
+  Need ($LASTEXITCODE -eq 0 -and $current -ceq $Target) 'PROTECTED_MERGED_MAIN_MOVED'
 }
 function Policy() {
   $output=& gh api repos/spoonman136668-ai/FORGE/issues/807 --jq '.body'
@@ -145,7 +145,7 @@ Need ($Target -cmatch '^[a-f0-9]{40}$' -and
   $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
   $env:GITHUB_EVENT_NAME -ceq 'issue_comment' -and
   $env:GITHUB_REF -ceq 'refs/heads/main' -and
-  $env:GITHUB_SHA -ceq $original -and
+  $env:GITHUB_SHA -ceq $Target -and
   $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
   $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
   -not $env:OPENAI_API_KEY) 'UNAUTHORIZED_RUNNER_OR_EVENT'

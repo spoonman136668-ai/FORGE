@@ -30,7 +30,7 @@ class PairedOwnerTests(unittest.TestCase):
             "GITHUB_ACTOR": gate.OWNER,
             "GITHUB_EVENT_NAME": "issue_comment",
             "GITHUB_REF": "refs/heads/main",
-            "GITHUB_SHA": pair.V41_SOURCE,
+            "GITHUB_SHA": TARGET,
             "GITHUB_RUN_ATTEMPT": "1",
             "GITHUB_RUN_ID": "99113",
             "RUNNER_NAME": "FORGE-CODEX-REMOTE",
@@ -147,7 +147,9 @@ class PairedOwnerTests(unittest.TestCase):
             self.auth(provider=changed)
 
     def test_synthetic_readonly_preflight_not_original_acceptance(self):
-        with patch.object(original,"_task_readback",return_value=True), \
+        with patch.object(gate.bridge,"require_protected_main_release",
+                          return_value={"source_sha":TARGET}), \
+             patch.object(original,"_task_readback",return_value=True), \
              patch.object(original,"_candidate_clean_checkout",
                           return_value=True), \
              patch.object(pair,"MIN_V41_HEAD",0), \
@@ -180,7 +182,9 @@ class PairedOwnerTests(unittest.TestCase):
                                     target_sha=TARGET)
 
     def test_disabled_owner_is_required_before_backup(self):
-        with patch.object(original,"_candidate_clean_checkout",return_value=True), \
+        with patch.object(gate.bridge,"require_protected_main_release",
+                          return_value={"source_sha":TARGET}), \
+             patch.object(original,"_candidate_clean_checkout",return_value=True), \
              patch.object(original,"_task_readback",
                           side_effect=original.HybridOwnerBackupDenied(
                               "F139_HYBRID_V41_OWNER_BACKUP_ORIGINAL_TASK_NOT_DISABLED")):
@@ -188,6 +192,14 @@ class PairedOwnerTests(unittest.TestCase):
                                         "NOT_DISABLED"):
                 gate.backup_only(self.db,self.env,self.event,self.get,
                                  target_sha=TARGET)
+        self.assertFalse(list(self.db.parent.glob("f139-hybrid-before-*")))
+
+    def test_open_pr_can_never_start_original_task_or_backup(self):
+        with self.assertRaisesRegex(
+                gate.bridge.ProtectedHybridSourceDenied,
+                "PROTECTED_MAIN"):
+            gate.preflight_only(self.db,self.env,self.event,self.get,
+                                target_sha=TARGET)
         self.assertFalse(list(self.db.parent.glob("f139-hybrid-before-*")))
 
     def test_no_mutation_or_controller_surface(self):

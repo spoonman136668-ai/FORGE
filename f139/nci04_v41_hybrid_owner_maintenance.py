@@ -55,7 +55,7 @@ def _owner_comment(env, event, get, target):
          and env.get("GITHUB_ACTOR") == OWNER
          and env.get("GITHUB_EVENT_NAME") == "issue_comment"
          and env.get("GITHUB_REF") == "refs/heads/main"
-         and env.get("GITHUB_SHA") == pair.V41_SOURCE
+         and env.get("GITHUB_SHA") == target
          and env.get("GITHUB_RUN_ATTEMPT") == "1"
          and env.get("RUNNER_NAME") == "FORGE-CODEX-REMOTE"
          and type(env.get("GITHUB_RUN_ID")) is str

@@ -22,7 +22,9 @@ This is **not** a new controller, workflow, task or release authorization.
 Protected main must first contain this code and the future appropriate
 original-owner workflow, with full exact-main regression. A future paired
 maintenance request has to point to the new merged protected-main SHA, not
-the historical PR head. Owner pause/resume and actual backup are still
+the historical PR head. The paired owner gate has been wired to this
+protected-main verifier; inert developer SQLite-copy tests may continue
+to model the open PR, but never authorize original-owner execution. Owner pause/resume and actual backup are still
 separately authorized; existing PR-open source validators cannot be reused
 as live main execution authority.
 

@@ -31,7 +31,7 @@ class HybridOwnerMaintenanceTests(unittest.TestCase):
             "GITHUB_ACTOR": route.OWNER,
             "GITHUB_EVENT_NAME": "issue_comment",
             "GITHUB_REF": "refs/heads/main",
-            "GITHUB_SHA": pair.V41_SOURCE,
+            "GITHUB_SHA": TARGET,
             "GITHUB_RUN_ID": "70203",
             "GITHUB_RUN_ATTEMPT": "1",
             "RUNNER_NAME": "FORGE-CODEX-REMOTE",

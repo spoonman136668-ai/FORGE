@@ -18,6 +18,7 @@ from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_hybrid_owner_maintenance as owner
 from f139 import nci04_v41_hybrid_cold_pair as pair
 from f139 import nci04_v41_hybrid_cold_bundle as bundle
+from f139 import nci04_v41_hybrid_protected_main as bridge
 
 PREFIX = "F139-HYBRID-V41-PAUSE-RESUME "
 REPO = owner.REPO
@@ -66,7 +67,7 @@ def authenticate_pair(env, event, get, *, target_sha):
          and env.get("GITHUB_ACTOR") == OWNER
          and env.get("GITHUB_EVENT_NAME") == "issue_comment"
          and env.get("GITHUB_REF") == "refs/heads/main"
-         and env.get("GITHUB_SHA") == pair.V41_SOURCE
+         and env.get("GITHUB_SHA") == target_sha
          and env.get("RUNNER_NAME") == "FORGE-CODEX-REMOTE"
          and env.get("GITHUB_RUN_ATTEMPT") == "1"
          and type(env.get("GITHUB_RUN_ID")) is str
@@ -121,6 +122,9 @@ def authenticate_pair(env, event, get, *, target_sha):
 
 def _eligible(path, env, event, get, *, target_sha, disabled):
     request = authenticate_pair(env, event, get, target_sha=target_sha)
+    # Never execute open-PR source on the privileged original owner.
+    # Verified main SHA and 4 post-merge push workflows are required.
+    bridge.require_protected_main_release(get, env, target_sha=target_sha)
     db_path = owner._original_path(path, env)
     pair._authenticate_candidate(get, target_sha)
     owner._candidate_clean_checkout(target_sha)

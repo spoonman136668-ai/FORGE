@@ -76,15 +76,22 @@ def _authenticate_candidate(get, target_sha):
     need(type(main) is dict and main.get("name") == "main"
          and main.get("protected") is True
          and type(main.get("commit")) is dict
-         and main["commit"].get("sha") == V41_SOURCE
          and type(pr) is dict and pr.get("number") == HYBRID_PR_NUMBER
-         and pr.get("state") == "open" and pr.get("merged") is False
-         and type(pr.get("head")) is dict
-         and pr["head"].get("sha") == target_sha
          and type(pr.get("base")) is dict
          and pr["base"].get("sha") == V41_SOURCE
          and pr["base"].get("ref") == "main",
          "PROTECTED_PR_SOURCE_DRIFT")
+    # DEV: original main + open PR is permitted for inert test fixtures.
+    # LIVE: only the merged, protected main source may execute after its
+    # own separate post-merge qualification in the paired owner gate.
+    dev = (main["commit"].get("sha") == V41_SOURCE
+           and pr.get("state") == "open" and pr.get("merged") is False
+           and type(pr.get("head")) is dict
+           and pr["head"].get("sha") == target_sha)
+    live = (main["commit"].get("sha") == target_sha
+            and pr.get("state") == "closed" and pr.get("merged") is True
+            and pr.get("merge_commit_sha") == target_sha)
+    need(dev or live, "PROTECTED_PR_SOURCE_DRIFT")
     return target_sha
 
 
