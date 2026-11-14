@@ -117,36 +117,41 @@ class HoldReleaseChainTests(unittest.TestCase):
                 target=release_fixtures.TARGET, run_id=987654,
                 manifest_sha=release_fixtures.BACKUP_SHA, approval_id=112)
 
-    def test_unregistered_hold_wrapper_keeps_resume_wrapper_unchanged(self):
-        script = HOLD_PS.read_text("utf-8")
-        prior = RESUME_PS.read_text("utf-8")
-        self.assertIn("F139-HYBRID-V41-PAUSE-HOLD ", script)
-        self.assertNotIn("F139-HYBRID-V41-PAUSE-HOLD ", prior)
-        self.assertIn("F139-HYBRID-V41-PAUSE-RESUME ", prior)
-        self.assertIn("'--hold'", script)
+    def test_single_wrapper_has_distinct_nonresuming_hold_mode(self):
+        script = RESUME_PS.read_text("utf-8")
+        self.assertFalse(HOLD_PS.exists())  # duplicated implementation removed
+        self.assertIn("[switch]$Hold", script)
+        self.assertIn(
+            "$approvalMode=if($Hold){'PAUSE-HOLD'}else{'PAUSE-RESUME'}",
+            script)
+        self.assertIn("if($Hold){$args+=('--hold')}", script)
         self.assertIn("source-hold-preflight.v1", script)
         self.assertIn("source-hold-backup-only.v1", script)
-        self.assertIn("F139_HYBRID_V41_SAME_ORIGINAL_TASK_DISABLED=PASS",
-                      script)
-        self.assertIn("F139_HYBRID_V41_SAME_ORIGINAL_OWNER_RESUMED=PASS",
-                      prior)
-        # Intentionally held in success path; verified old-owner resume only
-        # after a safe-to-resume failure. Never a new controller/scheduler.
-        success = script.split(
-            "# The separately approved HOLD prevents an intervening owner tick.",
-            1)[1].split("\n} catch {", 1)[0]
-        self.assertNotIn("Enable-ScheduledTask", success)
-        self.assertNotIn("Start-ScheduledTask", success)
-        self.assertNotIn("$resumed=$true", success)
+        self.assertIn("F139_HYBRID_V41_HOLD_PREFLIGHT=", script)
+        self.assertIn("F139_HYBRID_V41_PAIRED_PREFLIGHT=", script)
+        self.assertIn(
+            "if($Hold){ Need ($pre.source_hold_requested -eq $true)", script)
+        self.assertIn(
+            "if($Hold){ Need ($receipt.source_hold_requested -eq $true)", script)
+        self.assertIn("F139_HYBRID_V41_SAME_ORIGINAL_TASK_DISABLED=PASS", script)
+        self.assertIn("F139_HYBRID_V41_SAME_ORIGINAL_OWNER_RESUMED=PASS", script)
+        hold = script.split(
+            "  if($Hold){\n    # The explicitly approved HOLD prevents", 1
+        )[1].split("\n  } else {", 1)[0]
+        self.assertNotIn("Enable-ScheduledTask", hold)
+        self.assertNotIn("Start-ScheduledTask", hold)
+        self.assertNotIn("$resumed=$true", hold)
+        resume = script.split("  } else {\n    Main\n    Enable-ScheduledTask", 1)[1]
+        self.assertIn("Start-ScheduledTask", resume)
         self.assertIn("BACKUP_FAILED_SAME_ORIGINAL_OWNER_RESUMED", script)
         for forbidden in (
-                "Register-ScheduledTask", "New-ScheduledTask",
-                "Set-ScheduledTask", "workflow_dispatch",
-                "gh api --method POST", "gh api --method PATCH"):
+            "Register-ScheduledTask", "New-ScheduledTask",
+            "Set-ScheduledTask", "workflow_dispatch",
+            "gh api --method POST", "gh api --method PATCH",
+        ):
             self.assertNotIn(forbidden, script)
-        workflows = ROOT / ".github" / "workflows"
-        for path in workflows.glob("*.yml"):
-            self.assertNotIn(HOLD_PS.name, path.read_text("utf-8"))
+        for workflow in (ROOT / ".github/workflows").glob("*.yml"):
+            self.assertNotIn(RESUME_PS.name, workflow.read_text("utf-8"))
 
     @unittest.skipUnless(os.name == "nt", "Native Windows PowerShell parser")
     def test_native_windows_hold_wrapper_parses(self):
@@ -160,7 +165,7 @@ class HoldReleaseChainTests(unittest.TestCase):
             "$errors|ForEach-Object{Write-Output $_.Message};exit 1}")
         result = subprocess.run(
             [exe, "-NoProfile", "-NonInteractive", "-Command", program],
-            env={**os.environ, "F139_HOLD_PS": str(HOLD_PS)},
+            env={**os.environ, "F139_HOLD_PS": str(RESUME_PS)},
             capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0,
                          result.stdout+"\n"+result.stderr)

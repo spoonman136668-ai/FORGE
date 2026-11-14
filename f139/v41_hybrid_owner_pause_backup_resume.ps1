@@ -1,7 +1,7 @@
-# Source-only V41 -> Hybrid original-task backup maintenance.
-# NOT connected to GitHub Actions or automatically invoked.
-# Two distinct original-owner issue comments are mandatory. No release.
-param([Parameter(Mandatory=$true)][string]$Target)
+# One original-owner maintenance path: PAUSE-RESUME (default) or PAUSE-HOLD.
+# -Hold requires distinct owner authorization and does not restart the task.
+# Unregistered; never authorizes source transition or scientific first-use.
+param([Parameter(Mandatory=$true)][string]$Target,[switch]$Hold)
 
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -116,6 +116,7 @@ function Invoke-Pair([bool]$preflight,[int]$limitMs) {
   $proc.StartInfo.RedirectStandardError=$true
   $args=@('-B','-m','f139.nci04_v41_hybrid_pair_owner',
           '--db',$db,'--target',$Target)
+  if($Hold){$args+=('--hold')}
   if($preflight){$args+=('--preflight-only')}
   foreach($arg in $args){[void]$proc.StartInfo.ArgumentList.Add([string]$arg)}
   Need ($proc.Start()) 'CANDIDATE_CHILD_START_DENIED'
@@ -136,6 +137,10 @@ function Invoke-Pair([bool]$preflight,[int]$limitMs) {
   Need ($lines.Count -eq 1) 'CANDIDATE_RECEIPT_NOT_UNIQUE'
   $prefix='F139_HYBRID_V41_PAIRED_BACKUP_ONLY='
   if($preflight){$prefix='F139_HYBRID_V41_PAIRED_PREFLIGHT='}
+  if($Hold){
+    $prefix='F139_HYBRID_V41_HOLD_BACKUP_ONLY='
+    if($preflight){$prefix='F139_HYBRID_V41_HOLD_PREFLIGHT='}
+  }
   Need ($lines[0].StartsWith($prefix,[StringComparison]::Ordinal)) 'RECEIPT_PREFIX_INVALID'
   return ($lines[0].Substring($prefix.Length)|ConvertFrom-Json)
 }
@@ -151,6 +156,7 @@ Need ($Target -cmatch '^[a-f0-9]{40}$' -and
   -not $env:OPENAI_API_KEY) 'UNAUTHORIZED_RUNNER_OR_EVENT'
 
 $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json
+$approvalMode=if($Hold){'PAUSE-HOLD'}else{'PAUSE-RESUME'}
 Need ($event.action -ceq 'created' -and
   $event.issue.number -eq 807 -and
   $event.issue.user.login -ceq 'spoonman136668-ai' -and
@@ -158,7 +164,7 @@ Need ($event.action -ceq 'created' -and
   $event.sender.login -ceq 'spoonman136668-ai' -and
   $event.comment.user.login -ceq 'spoonman136668-ai' -and
   $event.comment.author_association -ceq 'OWNER' -and
-  [string]$event.comment.body -cmatch ('^F139-HYBRID-V41-PAUSE-RESUME '+$Target+' [1-9][0-9]*$')) 'SEPARATE_APPROVAL_EVENT_REQUIRED'
+  [string]$event.comment.body -cmatch ('^F139-HYBRID-V41-'+$approvalMode+' '+$Target+' [1-9][0-9]*$')) 'SEPARATE_APPROVAL_EVENT_REQUIRED'
 
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 $admin=[Security.Principal.WindowsPrincipal]::new($identity)
@@ -181,12 +187,19 @@ $policyBefore=Policy
 
 # Before first mutation the separate owner request, explicit linked approval,
 # exact candidate checkout, current 2-lane ledger and original SID are proven.
+$preflightSchema='forge.f139.hybrid-v41.paired-owner-preflight.v1'
+$backupSchema='forge.f139.hybrid-v41.paired-owner-backup-only.v1'
+if($Hold){
+  $preflightSchema='forge.f139.hybrid-v41.source-hold-preflight.v1'
+  $backupSchema='forge.f139.hybrid-v41.source-hold-backup-only.v1'
+}
 $pre=Invoke-Pair $true 120000
-Need ($pre.schema -ceq 'forge.f139.hybrid-v41.paired-owner-preflight.v1' -and
+Need ($pre.schema -ceq $preflightSchema -and
   $pre.candidate_sha -ceq $Target -and
   $pre.approval_comment_id -eq $event.comment.id -and
   $pre.source_transition_authorized -eq $false -and
   $pre.scientific_first_use -eq $false) 'PREPAUSE_PAIRED_AUTHORITY_INVALID'
+if($Hold){ Need ($pre.source_hold_requested -eq $true) 'HOLD_APPROVAL_REQUIRED' }
 Add-Type -Path (Join-Path $env:GITHUB_WORKSPACE 'f139/F139OriginalOwnerMutex.cs') -ErrorAction Stop
 try {
   $lease=[F139OriginalOwnerMutex]::Acquire([IO.Path]::ChangeExtension($db,'.lock'),120000)
@@ -213,7 +226,7 @@ try {
   $lease.Dispose();$lease=$null
   # The original remains disabled until a single bounded backup is verified.
   $receipt=Invoke-Pair $false 600000
-  Need ($receipt.schema -ceq 'forge.f139.hybrid-v41.paired-owner-backup-only.v1' -and
+  Need ($receipt.schema -ceq $backupSchema -and
     $receipt.run_id -eq $pre.run_id -and
     $receipt.backup_comment_id -eq $pre.backup_comment_id -and
     $receipt.approval_comment_id -eq $pre.approval_comment_id -and
@@ -228,24 +241,40 @@ try {
     $receipt.source_transition_authorized -eq $false -and
     $receipt.hybrid_admission -eq $false -and
     $receipt.scientific_first_use -eq $false) 'FULL_COLD_RESTORE_RECEIPT_UNVERIFIED'
+  if($Hold){ Need ($receipt.source_hold_requested -eq $true) 'HOLD_BACKUP_RECEIPT_REQUIRED' }
   Disabled
   Checkouts
   Unchanged
   Need ((Policy) -ceq $policyBefore) 'POST_BACKUP_POLICY_MOVED'
-  Main
-  Enable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
-  $startAttempted=$true
-  Start-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
-  $final=Task
-  Need ([string]$final.State -cin @('Ready','Running') -and
-    $final.Settings.Enabled -eq $true) 'SAME_TASK_RESUME_UNVERIFIED'
-  $resumed=$true
-  Write-Host 'F139_HYBRID_V41_PAIRED_ORIGINAL_BACKUP=PASS'
-  Write-Host ('F139_HYBRID_V41_SEALED_MANIFEST_SHA256='+[string]$receipt.manifest_sha256)
-  Write-Host ('F139_HYBRID_V41_PRESERVED_LEDGER='+[string]$before.head_seq+':'+[string]$before.head_hash)
-  Write-Host 'F139_HYBRID_V41_SAME_ORIGINAL_OWNER_RESUMED=PASS'
-  Write-Host 'F139_HYBRID_V41_SOURCE_TRANSITION=FALSE'
-  Write-Host 'F139_HYBRID_V41_SCIENTIFIC_FIRST_USE=FALSE'
+  if($Hold){
+    # The explicitly approved HOLD prevents an intervening owner tick.
+    Disabled
+    Unchanged
+    Need ((Policy) -ceq $policyBefore) 'POST_HOLD_POLICY_DRIFT'
+    Main
+    Write-Host 'F139_HYBRID_V41_PAIRED_ORIGINAL_HOLD=PASS'
+    Write-Host ('F139_HYBRID_V41_SEALED_MANIFEST_SHA256='+[string]$receipt.manifest_sha256)
+    Write-Host ('F139_HYBRID_V41_PRESERVED_LEDGER='+[string]$before.head_seq+':'+[string]$before.head_hash)
+    Write-Host 'F139_HYBRID_V41_SAME_ORIGINAL_TASK_DISABLED=PASS'
+    Write-Host 'F139_HYBRID_V41_SOURCE_TRANSITION=FALSE'
+    Write-Host 'F139_HYBRID_V41_HYBRID_ADMISSION=FALSE'
+    Write-Host 'F139_HYBRID_V41_SCIENTIFIC_FIRST_USE=FALSE'
+  } else {
+    Main
+    Enable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
+    $startAttempted=$true
+    Start-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
+    $final=Task
+    Need ([string]$final.State -cin @('Ready','Running') -and
+      $final.Settings.Enabled -eq $true) 'SAME_TASK_RESUME_UNVERIFIED'
+    $resumed=$true
+    Write-Host 'F139_HYBRID_V41_PAIRED_ORIGINAL_BACKUP=PASS'
+    Write-Host ('F139_HYBRID_V41_SEALED_MANIFEST_SHA256='+[string]$receipt.manifest_sha256)
+    Write-Host ('F139_HYBRID_V41_PRESERVED_LEDGER='+[string]$before.head_seq+':'+[string]$before.head_hash)
+    Write-Host 'F139_HYBRID_V41_SAME_ORIGINAL_OWNER_RESUMED=PASS'
+    Write-Host 'F139_HYBRID_V41_SOURCE_TRANSITION=FALSE'
+    Write-Host 'F139_HYBRID_V41_SCIENTIFIC_FIRST_USE=FALSE'
+  }
 } catch {
   $reason=$_.Exception.Message
   if($paused -and -not $startAttempted -and $backupChildCleared){
