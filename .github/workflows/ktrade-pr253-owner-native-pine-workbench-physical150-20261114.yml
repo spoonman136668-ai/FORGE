@@ -431,13 +431,11 @@ jobs:
            Require ($dx -le 2 -or $dy -le 2) ('W168_PINE_CONTROLS_OVERLAP_'+$aName+'_'+$bName)
            }
            }
-           $sourceEditor=(Wait-Control 'Pine source editor' $true 25).Current.BoundingRectangle
-           Require (!$sourceEditor.IsEmpty -and $sourceEditor.Width -ge 180 -and
-           $sourceEditor.Height -ge 100 -and $sourceEditor.Left -ge $pane.Left-2 -and
-           $sourceEditor.Right -le $pane.Right+2) 'W168_PINE_MONACO_NOT_VISIBLE'
+           $monaco=Wait-Control 'W168_NATIVE_MONACO_MODEL_AND_GEOMETRY=PASS' $true 30
+           Require (!$monaco.Current.IsOffscreen) 'W168_PINE_MODEL_PROOF_NOT_VISIBLE'
            Write-Host ('W168_NATIVE_PINE_LAYOUT=PASS;physical_dpi=144;panel_width='+[int]$pane.Width+
-           ';panel_height='+[int]$pane.Height+';editor_width='+[int]$sourceEditor.Width+
-           ';editor_height='+[int]$sourceEditor.Height+';toolbar_controls=5;overlap=0')
+           ';panel_height='+[int]$pane.Height+';editor_model=verified_DOM_observer'+
+           ';editor_geometry=verified_DOM_observer;toolbar_controls=5;overlap=0')
            Click-Control 'Compile'
            [void](Wait-Control 'Compiled. Not applied or started.' $true 30)
            Write-Host 'W168_NATIVE_COMPILE=PASS;not_applied=true;not_started=true'
@@ -455,6 +453,18 @@ jobs:
               $adjusted.Contains("Click-Control 'Additional drawing tools'")){
               throw 'W168_UNEXPECTED_DRAWING_PATH'
             }
+            # The original WebView2 accessibility tree does not expose
+            # Monaco as an Edit control. Observe the genuine editor model and
+            # bounded editor DOM rectangle after a trusted native UIA click.
+            # This witness is injected only into the ephemeral W41 package.
+            $stageAnchor='  [IO.File]::WriteAllText($chart,$html,[Text.UTF8Encoding]::new($false))'
+            if(([regex]::Matches($adjusted,[regex]::Escape($stageAnchor))).Count -ne 1){
+              throw 'W168_ORIGINAL_DISPOSABLE_CHART_WRITE_CHANGED'
+            }
+            $hookCode=@'
+  $html=$html.Replace('</body>','<script>(function(win,doc){''use strict'';if(win.top===win||win.location.protocol!==''http:''||win.location.hostname!==''127.0.0.1'')return;const button=doc.getElementById(''pineBtn'');if(!button)return;let proven=false;button.addEventListener(''click'',function(ev){if(ev.isTrusted!==true||proven)return;let tries=0;const check=function(){if(proven)return;const app=win.KTRADE_APP,panel=doc.getElementById(''pinePanel''),node=doc.getElementById(''pine-editor-main'');const editor=app&&app.pineEditor,model=editor&&editor.getModel&&editor.getModel();const box=node&&node.getBoundingClientRect(),pane=panel&&panel.getBoundingClientRect();if(panel&&panel.classList.contains(''open'')&&model&&typeof model.getValue===''function''&&model.getValue().length>0&&box&&pane&&box.width>=180&&box.height>=100&&box.left>=pane.left-2&&box.right<=pane.right+2&&box.top>=pane.top-2&&box.bottom<=pane.bottom+2){proven=true;const node=doc.createElement(''output'');node.setAttribute(''role'',''status'');node.setAttribute(''aria-live'',''polite'');node.textContent=''W168_NATIVE_MONACO_MODEL_AND_GEOMETRY=PASS'';node.style.cssText=''position:fixed;right:7px;top:55px;z-index:32000;pointer-events:none;background:#101618;color:#13D4D4;font:11px Consolas,monospace'';doc.body.appendChild(node);return;}if(++tries<=125)win.setTimeout(check,160);};win.setTimeout(check,350);},true);})(window,document);</script></body>')
+          '@
+            $adjusted=$adjusted.Replace($stageAnchor,$hookCode+[Environment]::NewLine+$stageAnchor)
             $script=Join-Path (Split-Path -Parent $original) $derived
             if(Test-Path -LiteralPath $script){throw 'KTRADE_OWNER_NATIVE_ADAPTED_HARNESS_COLLISION'}
             [IO.File]::WriteAllText($script,$adjusted,[Text.UTF8Encoding]::new($false))
