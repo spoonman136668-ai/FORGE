@@ -21,6 +21,7 @@ from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_hybrid_forward_readiness as readiness
 from f139 import nci04_v41_hybrid_forward_cold_bundle as bundle
 from f139 import nci04_v41_hybrid_owner_maintenance as owner
+from f139 import nci04_v41_hybrid_forward_owner_profile as profile
 
 PREFIX = "F139-HYBRID-V41-FORWARD-BACKUP "
 SCHEMA = "forge.f139.hybrid-forward.original-backup-only.v1"
@@ -110,10 +111,10 @@ def original_backup(db_path, env, event, api):
     original = owner._original_path(db_path, env)
     owner._candidate_clean_checkout(target)
     old_policy = owner._owner_policy(get)
-    owner._task_readback(original, disabled=True)
+    profile.readback(original)
 
     def disabled():
-        return owner._task_readback(original, disabled=True) is True
+        return profile.readback(original) is True
 
     def released():
         return (
