@@ -50,7 +50,7 @@ class PublicHybridCpuRuntimeTests(unittest.TestCase):
         doc["requirements"]["python"] = "3.11.18"
         mutations.append(("LOCK_IDENTITY", doc))
         doc = copy.deepcopy(original)
-        doc["platforms"]["windows"]["wheels"][0]["sha256"] = "0"*64
+        doc["platforms"]["linux"]["wheels"][0]["sha256"] = "0"*64
         mutations.append(("LOCK_WHEEL_SET_OR_DIGEST", doc))
         doc = copy.deepcopy(original)
         doc["platforms"]["linux"]["wheel_count"] = 1

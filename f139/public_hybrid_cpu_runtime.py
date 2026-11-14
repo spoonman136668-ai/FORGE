@@ -44,6 +44,16 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def wheel_lock_bytes(rows: list[dict], platform_name: str) -> bytes:
+    """Freeze observed platform-specific pip lock *bytes* exactly.
+
+    Windows Path.write_text in the original qualification emitted CRLF;
+    Linux emitted LF. Both observed hashes remain immutable.
+    """
+    raw = lock_text(rows).encode("utf-8")
+    return raw.replace(b"\n", b"\r\n") if platform_name == "windows" else raw
+
+
 def read_lock(path: Path, *, platform_name: str) -> dict:
     """Exact, platform-specific SHA256 wheel inventory; no dynamic lock."""
     need(platform_name in ("linux", "windows"), "PLATFORM_FORBIDDEN")
@@ -94,7 +104,7 @@ def read_lock(path: Path, *, platform_name: str) -> dict:
          and all(next((x["version"] for x in p["wheels"]
                        if x["name"] == name), None) == REQUIREMENTS[name]
                  for name in ("torch", "pytest", "numpy"))
-         and sha(lock_text(p["wheels"]).encode("utf-8")) ==
+         and sha(wheel_lock_bytes(p["wheels"], platform_name)) ==
          p["wheel_lock_sha256"],
          "LOCK_WHEEL_SET_OR_DIGEST")
     return p
@@ -174,7 +184,7 @@ def provision(*, root: Path, owner_source_sha: str,
                      else "bin/python")
     need(python.is_file(), "VENV_PYTHON_MISSING")
     req = root / "requirements.lock"
-    req.write_text(lock_text(manifest["wheels"]), encoding="utf-8")
+    req.write_bytes(wheel_lock_bytes(manifest["wheels"], platform_name))
     need(sha(req.read_bytes()) == manifest["wheel_lock_sha256"],
          "LOCK_FILE_NOT_FROZEN")
     pip = [str(python), "-B", "-m", "pip", "--isolated"]
