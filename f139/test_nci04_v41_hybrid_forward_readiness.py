@@ -240,7 +240,7 @@ class ForwardReadinessTests(unittest.TestCase):
         fake = object.__new__(readiness.Database)
         fake.conn = conn
         fake._readonly_opened = True
-        fake.filename = None
+        fake.filename = Path("synthetic-held.sqlite")
         with patch.object(readiness.SingleOwner, "held", return_value=True):
             with patch.object(readiness.held, "inspect_held_ledger",
                               return_value=vars(observed)):
