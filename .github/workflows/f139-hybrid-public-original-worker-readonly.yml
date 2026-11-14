@@ -1,0 +1,105 @@
+name: FORGE F139 Hybrid public same-worker access and checkout read-only qualification
+on:
+  push:
+    branches:
+      - diagnostic/f139-public-hybrid-original-worker-readonly-20261114
+    paths:
+      - .github/workflows/f139-hybrid-public-original-worker-readonly.yml
+permissions:
+  contents: read
+concurrency:
+  group: f139-hybrid-public-readonly-20261114
+  cancel-in-progress: false
+jobs:
+  source-on-original-worker-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - name: Checkout diagnostic source without durable credentials
+        uses: actions/checkout@v4
+        with:
+          path: forge
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Probe actual standard F139 worker read token for Hybrid public metadata and commit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-public-hybrid-original-worker-readonly-20261114' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:OPENAI_API_KEY){throw 'F139_HYBRID_PUBLIC_ORIGINAL_WORKER_SCOPE_DENIED'}
+          $sha=(& git -C forge rev-parse HEAD | Out-String).Trim()
+          $parent=(& git -C forge rev-parse 'HEAD^' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne $env:GITHUB_SHA -or
+             $parent -cne '56eca0b6d8ca0856b218454c14980f2b45c7615f'){
+              throw 'F139_HYBRID_PUBLIC_FORGE_SOURCE_DRIFT'
+          }
+          $raw=@(& gh api repos/spoonman136668-ai/TTT-Hybrid-Lab)
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_PUBLIC_WORKER_REPO_GET_FAILED'}
+          $md=$raw -join [Environment]::NewLine | ConvertFrom-Json
+          if($md.full_name -cne 'spoonman136668-ai/TTT-Hybrid-Lab' -or
+             $md.private -cne $false -or $md.visibility -cne 'public'){
+            throw 'F139_HYBRID_PUBLIC_ORIGINAL_WORKER_VISIBILITY_MISMATCH'
+          }
+          $commitRaw=@(& gh api repos/spoonman136668-ai/TTT-Hybrid-Lab/git/commits/d2ede7bc2bc0f16aeeedc315681b21d7af6ec439)
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_PUBLIC_EXACT_COMMIT_GET_FAILED'}
+          $c=$commitRaw -join [Environment]::NewLine | ConvertFrom-Json
+          if($c.sha -cne 'd2ede7bc2bc0f16aeeedc315681b21d7af6ec439' -or
+             $c.tree.sha -cne '4535b435756edb005f078f9a6d5207fd0da7babb'){
+            throw 'F139_HYBRID_PUBLIC_COMMIT_TREE_DRIFT'
+          }
+          Write-Host ('F139_HYBRID_PUBLIC_ORIGINAL_WORKER_READ='+(@{
+            schema='forge.f139.hybrid.public-original-worker-read.v1'
+            platform=$env:RUNNER_OS
+            original_worker_token_scope='FORGE_GITHUB_TOKEN_CONTENTS_READ'
+            repository='spoonman136668-ai/TTT-Hybrid-Lab'
+            private=$false
+            visibility='public'
+            commit='d2ede7bc2bc0f16aeeedc315681b21d7af6ec439'
+            tree='4535b435756edb005f078f9a6d5207fd0da7babb'
+            owner_controller_touched=$false
+            source_mutated=$false
+            scientific_first_use=$false
+          }|ConvertTo-Json -Compress))
+      - name: Checkout exact public Hybrid source with original worker identity
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/TTT-Hybrid-Lab
+          ref: d2ede7bc2bc0f16aeeedc315681b21d7af6ec439
+          path: hybrid
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify genuine exact public-source checkout is clean and inert
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(& git -C hybrid rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C hybrid rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          $dirty=(& git -C hybrid status --porcelain --untracked-files=all | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or
+             $source -cne 'd2ede7bc2bc0f16aeeedc315681b21d7af6ec439' -or
+             $tree -cne '4535b435756edb005f078f9a6d5207fd0da7babb' -or
+             $dirty.Length -gt 0 -or
+             -not (Test-Path -LiteralPath 'hybrid/tests/test_model.py' -PathType Leaf)){
+             throw 'F139_HYBRID_PUBLIC_ORIGINAL_WORKER_CHECKOUT_DRIFT'
+          }
+          Write-Host ('F139_HYBRID_PUBLIC_EXACT_CHECKOUT='+(@{
+            schema='forge.f139.hybrid.public-exact-checkout.v1'
+            platform=$env:RUNNER_OS
+            source_sha=$source
+            tree_sha=$tree
+            source_clean=$true
+            native_commands_executed=0
+            training_executed=$false
+            scientific_first_use=$false
+            no_source_writes=$true
+          }|ConvertTo-Json -Compress))
