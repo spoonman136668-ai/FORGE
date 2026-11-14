@@ -15,7 +15,9 @@ authenticated V41-to-merge ancestry (even if GitHub updates the PR base
 branch pointer after merge), immutable commit tree, and four distinct
 terminal successful postmerge
 push workflows for the same SHA (no retries, duplicates or other actors).
-It re-reads main/PR/tree after CI and fails closed on drift. The exact main
+It re-reads main/PR/tree after CI and fails closed on drift. This matches actual source workflow
+trigger coverage: four PR event workflows, one main push event workflow.
+No imaginary main-only runs are required. The exact main
 commit cannot be known until a separately authorized merge; the gate does
 not attempt to guess it.
 

@@ -67,13 +67,23 @@ def _source(get, target):
          and type(ancestry.get("merge_base_commit")) is dict
          and ancestry["merge_base_commit"].get("sha") == V41,
          "V41_SOURCE_ANCESTRY_NOT_VERIFIED")
-    commit = get(prefix + "git/commits/" + target)
-    need(type(commit) is dict and commit.get("sha") == target
-         and type(commit.get("tree")) is dict
-         and type(commit["tree"].get("sha")) is str
-         and SHA40.fullmatch(commit["tree"]["sha"]) is not None,
-         "PROTECTED_COMMIT_TREE_INVALID")
-    return commit["tree"]["sha"]
+    need(type(pr["head"].get("sha")) is str
+         and SHA40.fullmatch(pr["head"]["sha"]) is not None
+         and type(pr["head"].get("ref")) is str
+         and pr["head"]["ref"] == "engineering/f139-hybrid-reader-route-20261110",
+         "ORIGINAL_QUALIFIED_PR_HEAD_MISSING")
+    main_commit = get(prefix + "git/commits/" + target)
+    original_pr_commit = get(prefix + "git/commits/" + pr["head"]["sha"])
+    for commit, expected in ((main_commit, target),
+                             (original_pr_commit, pr["head"]["sha"])):
+        need(type(commit) is dict and commit.get("sha") == expected
+             and type(commit.get("tree")) is dict
+             and type(commit["tree"].get("sha")) is str
+             and SHA40.fullmatch(commit["tree"]["sha"]) is not None,
+             "SOURCE_COMMIT_TREE_INVALID")
+    need(main_commit["tree"]["sha"] == original_pr_commit["tree"]["sha"],
+         "PROTECTED_MAIN_TREE_DIFFERS_FROM_QUALIFIED_PR")
+    return (main_commit["tree"]["sha"], pr["head"]["sha"])
 
 
 def require_protected_main_release(get, env, *, target_sha):
@@ -96,43 +106,74 @@ def require_protected_main_release(get, env, *, target_sha):
          and env.get("RUNNER_NAME") == "FORGE-CODEX-REMOTE"
          and not env.get("OPENAI_API_KEY"),
          "ORIGINAL_OWNER_EVENT_OR_PROTECTED_SHA_DRIFT")
-    tree = _source(get, target_sha)
-    rows = get("repos/" + REPO + "/actions/runs?head_sha=" + target_sha
-               + "&event=push&branch=main&per_page=100")
-    need(type(rows) is dict and type(rows.get("workflow_runs")) is list
-         and len(rows["workflow_runs"]) <= 100,
-         "POSTMERGE_CI_LIST_INVALID")
+    tree, pr_head_sha = _source(get, target_sha)
+    # Only the public Linux/Windows qualification runs on main push today.
+    # The three additional native/development workflows run on PR events.
+    # Exact source-tree parity binds the PR full regression to protected main.
+    pr_runs = get("repos/" + REPO + "/actions/runs?head_sha=" + pr_head_sha
+                  + "&event=pull_request&per_page=100")
+    need(type(pr_runs) is dict
+         and type(pr_runs.get("workflow_runs")) is list
+         and len(pr_runs["workflow_runs"]) <= 100,
+         "PREMERGE_CI_LIST_INVALID")
     found = {}
-    for row in rows["workflow_runs"]:
-        need(type(row) is dict, "POSTMERGE_CI_ROW_INVALID")
+    for row in pr_runs["workflow_runs"]:
+        need(type(row) is dict, "PREMERGE_CI_ROW_INVALID")
         name = row.get("name")
         if name not in CI_NAMES:
             continue
         need(name not in found
-             and row.get("head_sha") == target_sha
-             and row.get("event") == "push"
-             and row.get("head_branch") == "main"
+             and row.get("head_sha") == pr_head_sha
+             and row.get("event") == "pull_request"
+             and row.get("head_branch") ==
+                 "engineering/f139-hybrid-reader-route-20261110"
              and row.get("status") == "completed"
              and row.get("conclusion") == "success"
              and type(row.get("run_attempt")) is int
              and row["run_attempt"] == 1
-             and type(row.get("id")) is int
-             and row["id"] > 0
+             and type(row.get("id")) is int and row["id"] > 0
              and type(row.get("actor")) is dict
              and row["actor"].get("login") == OWNER,
-             "POSTMERGE_CI_INCOMPLETE_DUPLICATE_OR_REPLAY")
+             "PREMERGE_CI_INCOMPLETE_DUPLICATE_OR_REPLAY")
         found[name] = row["id"]
-    need(set(found) == CI_NAMES, "POSTMERGE_FOUR_WORKFLOWS_REQUIRED")
-    need(_source(get, target_sha) == tree,
+    need(set(found) == CI_NAMES, "PREMERGE_FOUR_WORKFLOWS_REQUIRED")
+    main_runs = get("repos/" + REPO + "/actions/runs?head_sha=" + target_sha
+                    + "&event=push&branch=main&per_page=100")
+    need(type(main_runs) is dict
+         and type(main_runs.get("workflow_runs")) is list
+         and len(main_runs["workflow_runs"]) <= 100,
+         "POSTMERGE_CI_LIST_INVALID")
+    main_public = [
+        row for row in main_runs["workflow_runs"]
+        if type(row) is dict
+        and row.get("name") == "FORGE public Linux and Windows qualification"
+    ]
+    need(len(main_public) == 1, "POSTMERGE_MAIN_QUALIFICATION_REQUIRED")
+    row = main_public[0]
+    need(row.get("head_sha") == target_sha
+         and row.get("event") == "push"
+         and row.get("head_branch") == "main"
+         and row.get("status") == "completed"
+         and row.get("conclusion") == "success"
+         and type(row.get("run_attempt")) is int
+         and row["run_attempt"] == 1
+         and type(row.get("id")) is int and row["id"] > 0
+         and type(row.get("actor")) is dict
+         and row["actor"].get("login") == OWNER,
+         "POSTMERGE_MAIN_QUALIFICATION_FAILED_OR_REPLAY")
+    need(_source(get, target_sha) == (tree, pr_head_sha),
          "SOURCE_MOVED_DURING_QUALIFICATION")
     return {
         "schema": "forge.f139.hybrid-v41.protected-main-source.v1",
         "source_sha": target_sha,
         "source_tree_sha": tree,
+        "qualified_pr_source_sha": pr_head_sha,
         "qualification_run_ids": dict(sorted(found.items())),
+        "protected_main_qualification_run_id": row["id"],
         "protected_main_verified": True,
         "merged_source_verified": True,
         "postmerge_ci_verified": True,
+        "qualified_source_tree_parity": True,
         "original_owner_mutations": 0,
         "owner_maintenance_authorized": False,
         "source_transition_authorized": False,
