@@ -1,4 +1,4 @@
-name: K Terminal native snapshot freshness exact-source Windows qualification
+name: K Terminal merged main exact-source disarmed first-use qualification
 on:
   push:
     branches: [qualification/kterminal-p5-firstuse-artifact-20261112]
@@ -10,13 +10,13 @@ concurrency:
   cancel-in-progress: false
 jobs:
   owner-p5-firstuse:
-    name: K Terminal unified custody + first-use exact-source Windows qualification
+    name: K Terminal merged main disarmed package + isolated installer acceptance
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 115
     env:
-      KTERM_SHA: 3d8ff329485e0e97e452e953656976e68c33296a
-      KTERM_BASE: ed8bf826f8221ec31fbc880ac27d92424c03fc0a
-      KTERM_TREE: 73d44fee8672717ddfc05704a05f4b2b55156257
+      KTERM_SHA: ad36b280d9f3c0a35175056c100777cd47c3c994
+      KTERM_BASE: 69107c69d0d47d027e07b7a4c1be4c490f41deee
+      KTERM_TREE: a96e812f727237f5670a0ff145499b8dcf874b3e
       KTERM_REISSUE_ONLY: 'false'
       K_TERMINAL_EXECUTION_MODE: PAPER
       K_TERMINAL_P5_LATENCY: '0'
@@ -83,26 +83,31 @@ jobs:
             '.ice/file-descriptions.json'='428a03c825103f697604b3fd3e86d667debfd326'
             '.ice/source-file-descriptions.ice'='1529919a27f2e19123879cd9047e6606b7e04dfa'
             'INSTALL-KTerminal.bat'='61b29cee88cc8df8b67ce94468f4ca11bf0c3162'
-            'internal/personalmigration/authority.go'='47c28e85098891a1739adca949e0fecabd1fd259'
-            'native-authority-ui.ps1'='1ac2d039a4e9b59befb4d953c5a31c2791bf6b65'
+            'internal/personalmigration/authority.go'='2c5984bcf2e9fc72485c01e34986eeae7f3e6ad5'
+            'native-authority-ui.ps1'='1b51a70eda968c495f51abf3b6c008d4c3cfb882'
             'pkg/native-reconciliation-gap-observation.go'='508a044bb6572130d5eae436c1f2be40a80b90c6'
             'pkg/native-reconciliation-gap-observation_test.go'='c8a14421265c775db3f4b42c807ce6a6c03a36b7'
             'pkg/personal-reconciliation.go'='9dd009fbf5c628a6cfc733d33e8d742ce054338b'
             'tools/qualification/test_p5_verify_firstuse_archive.py'='252cfb2790c28f6d2f351b2f6260af846249418d'
+            'INSTALL-KTerminal.ps1'='9b67c7122ce0f1be5ad51f375f03b5a999990032'
+            'cmd/launcher/desktop-session.cs'='527b0fe353b65514eaacb4b09745a3f1d101d2f6'
+            'tools/qualification/p5_assemble_source_bound_firstuse.ps1'='3e26953818c5ac351d9546658046d25795e4f70d'
+            'pkg/native-paper-newbuy-reservation-capacity.go'='96f3109bf088791751c3e431d1e31770c9ad8477'
+            'pkg/native-paper-newbuy-reservation-capacity_test.go'='f480426190b81c0e9a26d870e427f5793abf1438'
           }
           foreach($p in $blobs.Keys){
             $actual=(& git -C $src rev-parse ('HEAD:'+$p) | Out-String).Trim()
             if($actual -cne $blobs[$p]){throw 'KTERM_PR96_QUALIFIER_BLOB_DRIFT'}
           }
           $changed=@(& git -C $src diff --name-only $env:KTERM_BASE $env:KTERM_SHA)
-          if($LASTEXITCODE-ne0 -or $changed.Count-ne9 -or
-             @($changed|Where-Object{$_ -cnotin @($blobs.Keys)}).Count-ne0){
-            throw 'KTERM_PR96_UNIFIED_SOURCE_SCOPE_DRIFT'
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne2 -or
+             @($changed|Where-Object{$_ -cnotin @('pkg/native-paper-newbuy-reservation-capacity.go','pkg/native-paper-newbuy-reservation-capacity_test.go')}).Count-ne0){
+            throw 'KTERM_MERGED_MAIN_PARENT_DIFF_SCOPE_DRIFT'
           }
           foreach($private in @('config.json','data','reporting','logs','notifications','.env')){
             if(Test-Path -LiteralPath (Join-Path $src $private)){throw 'KTERM_PR96_PRIVATE_STATE_REFUSED'}
           }
-          Write-Host ('KTERM_UNIFIED_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';PRODUCTION_APP_CHANGE=READ_ONLY_LIVE_ACCOUNT_GAP_EVIDENCE_PLUS_BATCH_FIX;FULL_GO_REQUALIFICATION=REQUIRED')
+          Write-Host ('KTERM_UNIFIED_SOURCE_CUSTODY=PASS;SHA='+$head+';TREE='+$tree+';SOURCE=MERGED_MAIN;BTC_LOT_RECOVERY=NOT_AUTHORIZED;FULL_GO_REQUALIFICATION=REQUIRED')
       - name: Pinned original Windows Go toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
@@ -481,6 +486,69 @@ jobs:
             ';NEGATIVE_CONTROLS=PASS;WPF_SMOKE=NOT_RUN'+
             ';LIVE_ORDERS=0;NO_INSTALL=TRUE;FIELD=UNVERIFIED'+
             ';PRIVATE_BINARIES_NOT_UPLOADED=TRUE')
+      - name: Qualify packaged original installer in disposable runner-temp no-launch destination
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'KTERM_FIRSTUSE_DISPOSABLE_INSTALL_SCOPE_REFUSED'
+          }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'KTERM_FIRSTUSE_INSTALL_BROKER_ENV_REFUSED'}
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('kterm-pr96-firstuse-'+$env:GITHUB_RUN_ID)
+          $out=Join-Path $root 'artifact-only'
+          $proof=Get-Content -LiteralPath (Join-Path $out 'FIRST-USE-RECEIPT.json') -Raw|ConvertFrom-Json
+          $zip=Join-Path $out ([string]$proof.archive)
+          $source=Join-Path $root 'disposable-install-source'
+          $target=Join-Path $root 'disposable-install-target'
+          if((Test-Path -LiteralPath $source) -or (Test-Path -LiteralPath $target) -or
+             $proof.source_sha -cne $env:KTERM_SHA -or $proof.source_tree -cne $env:KTERM_TREE -or
+             $proof.deployment -cne 'NOT_AUTHORIZED' -or $proof.roundtrip -cne 'PASS' -or
+             (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $proof.archive_sha256){
+            throw 'KTERM_FIRSTUSE_DISPOSABLE_PACKAGE_CUSTODY_REFUSED'
+          }
+          if(@(Get-Process -Name 'K-Terminal*' -ErrorAction SilentlyContinue).Count -gt 0){
+            throw 'KTERM_FIRSTUSE_EXISTING_APPLICATION_REFUSED'
+          }
+          [void][IO.Directory]::CreateDirectory($source)
+          Expand-Archive -LiteralPath $zip -DestinationPath $source -ErrorAction Stop
+          $manifest=Get-Content -LiteralPath (Join-Path $source 'FIRST-USE-MANIFEST.json') -Raw|ConvertFrom-Json
+          if($manifest.source_sha -cne $env:KTERM_SHA -or $manifest.source_tree -cne $env:KTERM_TREE -or
+             $manifest.default_authority -cne 'DISARMED' -or [bool]$manifest.live_trading_authorized -or
+             (Test-Path -LiteralPath (Join-Path $source 'config.json'))){
+            throw 'KTERM_FIRSTUSE_DISPOSABLE_MANIFEST_REFUSED'
+          }
+          $log=Join-Path $root 'disposable-install.private.log'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'INSTALL-KTerminal.ps1') -SourceRoot $source -Destination $target -NoLaunch *> $log
+          if($LASTEXITCODE -ne 0){
+            Write-Host ('KTERM_FIRSTUSE_DISPOSABLE_INSTALL=FAIL;PRIVATE_LOG_SHA256='+
+              (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant())
+            throw 'KTERM_FIRSTUSE_DISPOSABLE_INSTALL_FAILED'
+          }
+          foreach($required in @('K-Terminal.exe','K-Terminal-Engine.exe','KTerminal.UI.dll','FIRST-USE-MANIFEST.json')){
+            $file=Join-Path $target $required
+            if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw 'KTERM_FIRSTUSE_INSTALLED_PAYLOAD_INCOMPLETE'}
+            $row=@($manifest.files|Where-Object{[string]$_.path -ceq $required})
+            if($required -ne 'FIRST-USE-MANIFEST.json' -and
+               ($row.Count -ne 1 -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$row[0].sha256)){
+              throw 'KTERM_FIRSTUSE_INSTALLED_BINARY_HASH_MISMATCH'
+            }
+          }
+          foreach($private in @('config.json','.env','data')){
+            if(Test-Path -LiteralPath (Join-Path $target $private)){throw 'KTERM_FIRSTUSE_UNEXPECTED_PRIVATE_STATE'}
+          }
+          if(@(Get-Process -Name 'K-Terminal*' -ErrorAction SilentlyContinue).Count -gt 0){
+            throw 'KTERM_FIRSTUSE_INSTALL_STARTED_APPLICATION'
+          }
+          Write-Host ('KTERM_FIRSTUSE_DISPOSABLE_INSTALL=PASS;SOURCE='+$env:KTERM_SHA+
+            ';TARGET=RUN_SPECIFIC_TEMP;NO_LAUNCH=TRUE;INSTALLED_BINARIES_HASHED=TRUE'+
+            ';NO_CONFIG=TRUE;LIVE_DISABLED=TRUE;EXISTING_INSTALLATION=UNTOUCHED')
       - name: Validate extracted package WPF windows offline without launching application
         shell: pwsh
         run: |
@@ -777,7 +845,7 @@ jobs:
              $proof.original_desktop_smoke -cne 'NOT_RUN' -or
              $proof.field_performance -cne 'UNVERIFIED' -or
              $proof.binaries -ne 8 -or $proof.files -ne 73 -or
-             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-3d8ff329485e.zip'){
+             $proof.archive -cne 'K-Terminal-Disarmed-FirstUse-ad36b280d9f3.zip'){
             throw 'KTERM_FIRSTUSE_REISSUE_RECEIPT_INVALID'
           }
           $zip=Join-Path $out $proof.archive
@@ -801,9 +869,9 @@ jobs:
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: K-Terminal-Disarmed-FirstUse-3d8ff329485e-${{ github.run_id }}
+          name: K-Terminal-Disarmed-FirstUse-ad36b280d9f3-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-3d8ff329485e.zip
+            ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/K-Terminal-Disarmed-FirstUse-ad36b280d9f3.zip
             ${{ runner.temp }}/kterm-pr96-firstuse-${{ github.run_id }}/artifact-only/FIRST-USE-RECEIPT.json
           if-no-files-found: error
           retention-days: 14
