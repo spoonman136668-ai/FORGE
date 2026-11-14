@@ -286,7 +286,7 @@ APPROVAL_FIELDS = frozenset({
 APPROVAL_SCHEMA = "forge.f139.nci04.owner-native-approval.v1"
 
 
-def verify_native_activation(db):
+def verify_native_activation(db, *, expected_source=None):
     """Verify every existing owner activation while selecting current source.
 
     One native activation is allowed per strictly new source authority. Older
@@ -341,7 +341,14 @@ def verify_native_activation(db):
                 "NATIVE_ACTIVATION_SOURCE_REPLAY")
         seen.add(doc["source_sha"])
         last_source = doc["source_sha"]
-    return bool(rows) and last_source == db.meta()["source_sha"]
+    # Default semantics remain source-current. Only a caller that already
+    # proved an exact held source transition may verify its predecessor.
+    if expected_source is not None:
+        require(type(expected_source) is str and
+                re.fullmatch(r"[a-f0-9]{40}", expected_source),
+                "EXPECTED_ACTIVATION_SOURCE_INVALID")
+    return bool(rows) and last_source == (
+        db.meta()["source_sha"] if expected_source is None else expected_source)
 
 
 def activate_native(db, approval: dict) -> bool:
