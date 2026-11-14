@@ -140,7 +140,7 @@ def _qualified_v41_postcommit_source_hold(db):
     intentionally does not grant another activation. Full Database.verify()
     and native owner/runner/source checks must have passed before this call.
     """
-    from f139.nci04_owner_ledger import ACTIVATION_KIND
+    from f139.nci04_owner_ledger import verify_native_activation
     from f139 import nci04_v41_hybrid_source_transition as source
 
     meta = db.meta()
@@ -150,13 +150,12 @@ def _qualified_v41_postcommit_source_hold(db):
         "SELECT seq,kind,sha,prior_sha,payload FROM events "
         "ORDER BY seq DESC LIMIT 1").fetchone()
     anchor = db.conn.execute(
-        "SELECT seq,kind,sha,payload FROM events WHERE seq=?",
+        "SELECT seq,sha FROM events WHERE seq=?",
         (source.ACTIVATED_SEQ,)).fetchone()
     if head is None or anchor is None:
         return False
     try:
         transition = json.loads(head["payload"])
-        activation = json.loads(anchor["payload"])
     except (ValueError, TypeError, UnicodeError):
         return False
     return (
@@ -164,9 +163,7 @@ def _qualified_v41_postcommit_source_hold(db):
         and head["kind"] == "SOURCE_TRANSITION_ADMITTED"
         and head["sha"] == meta["head_hash"]
         and head["prior_sha"] == source.ACTIVATED_HASH
-        and anchor["kind"] == ACTIVATION_KIND
         and anchor["sha"] == source.ACTIVATED_HASH
-        and activation["source_sha"] == source.FROM_V41
         and transition.get("schema") == source.SCHEMA
         and transition.get("purpose") == source.PURPOSE
         and transition.get("from_source_sha") == source.FROM_V41
@@ -176,6 +173,9 @@ def _qualified_v41_postcommit_source_hold(db):
         and transition.get("hybrid_admission") is False
         and transition.get("scientific_first_use") is False
         and transition.get("new_dispatches") == 0
+        # Audit every historic native activation against its authentic
+        # source; new source is a committed HOLD, not a new activation.
+        and verify_native_activation(db, expected_source=source.FROM_V41)
     )
 
 
