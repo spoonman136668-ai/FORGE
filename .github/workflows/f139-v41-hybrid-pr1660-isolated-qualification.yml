@@ -1,0 +1,112 @@
+name: FORGE V41 + Hybrid PR1660 isolated source integration and full regression
+on:
+  push:
+    branches:
+      - qualification/f139-hybrid-v41-pr1660-source-20261113
+    paths:
+      - .github/workflows/f139-v41-hybrid-pr1660-isolated-qualification.yml
+permissions:
+  contents: read
+concurrency:
+  group: f139-hybrid-v41-pr1660-source-qualification-20261113
+  cancel-in-progress: false
+jobs:
+  assemble-existing-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+    outputs:
+      integrated_sha: ${{ steps.combine.outputs.integrated_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - id: combine
+        name: Create only an isolated candidate merge of protected V41 and existing PR1660
+        shell: bash
+        env:
+          SOURCE_BASE: 1a40fe4e3ec6e93a1631d59863b95e90981d734e
+          PR1660_SOURCE: 66423fc01873cec33c57abf2355a8dd4141f8dd0
+          BRANCH: qualification/f139-hybrid-v41-pr1660-source-20261113
+          WORKER_BLOB: 74dd90e6d71da6b53898c7a80d5362f1b0e6af27
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$GITHUB_REF" = "refs/heads/$BRANCH"
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_ACTOR" = spoonman136668-ai
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test -z "${OPENAI_API_KEY:-}"
+          before="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$SOURCE_BASE"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git fetch --no-tags origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_BASE"
+          git fetch --no-tags origin "$PR1660_SOURCE"
+          test "$(git rev-parse FETCH_HEAD)" = "$PR1660_SOURCE"
+          git config user.name "forge-source-qualification"
+          git config user.email "noreply@users.noreply.github.com"
+          git merge --no-ff --no-edit "$PR1660_SOURCE"
+          test "$(git rev-parse HEAD^1)" = "$before"
+          test "$(git rev-parse HEAD^2)" = "$PR1660_SOURCE"
+          test "$(git rev-parse HEAD:.github/workflows/forge-f139-development-worker.yml)" = "$WORKER_BLOB"
+          test -z "$(git diff --name-only "$SOURCE_BASE" HEAD -- AGENTS.md .github/workflows/forge-f139-development-worker.yml f139/local_schema.sql f139/nci04_autonomy_feed.py)"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git merge-base --is-ancestor "$SOURCE_BASE" HEAD
+          git merge-base --is-ancestor "$PR1660_SOURCE" HEAD
+          integrated_sha="$(git rev-parse HEAD)"
+          # One allowed branch; never update PR1660, main, controller or original task.
+          git push origin "HEAD:refs/heads/$BRANCH"
+          printf 'integrated_sha=%s\n' "$integrated_sha" >> "$GITHUB_OUTPUT"
+          echo "F139_HYBRID_V41_EXISTING_PR_INTEGRATED_SOURCE=$integrated_sha"
+          echo "F139_HYBRID_V41_ORIGINAL_OWNER_MUTATIONS=0"
+          echo "F139_HYBRID_V41_PROTECTED_MAIN_MUTATIONS=0"
+          echo "F139_HYBRID_V41_HYBRID_LIVE_ADMISSION=FALSE"
+  mandatory-native-regression:
+    needs: assemble-existing-sources
+    if: needs.assemble-existing-sources.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.assemble-existing-sources.outputs.integrated_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Full existing F139 regression at frozen merged candidate SHA
+        shell: pwsh
+        env:
+          F139_CANDIDATE_SHA: ${{ needs.assemble-existing-sources.outputs.integrated_sha }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $sha=(& git rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne $env:F139_CANDIDATE_SHA){throw 'F139_HYBRID_V41_SOURCE_DRIFT'}
+          & python -B -m unittest discover -s f139 -p 'test_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_V41_FULL_REGRESSION_FAILED'}
+          & python -B -m compileall -q f139
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_V41_COMPILE_FAILED'}
+          & go test ./cmd/forge-model-free-loop/...
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_V41_GO_ADVISORY_REGRESSION_FAILED'}
+          if((git status --porcelain --untracked-files=all | Out-String).Trim().Length -ne 0){
+            throw 'F139_HYBRID_V41_SOURCE_DIRTY'
+          }
+          Write-Output "F139_HYBRID_V41_FULL_FINAL_REGRESSION=PASS"
+          Write-Output "F139_HYBRID_V41_TESTED_SHA=$sha"
+          Write-Output "F139_HYBRID_V41_SCIENTIFIC_FIRST_USE=FALSE"
+          Write-Output "F139_HYBRID_V41_OWNER_TASK_MUTATED=FALSE"
