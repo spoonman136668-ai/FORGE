@@ -156,6 +156,24 @@ def inspect_policy(raw: dict, source_sha: str) -> dict:
     return doc
 
 
+def verify_public_hybrid_metadata(get: Callable[[str], object], *,
+                                  repository: str) -> dict:
+    """Fail closed before any public Hybrid patch is assembled or published.
+
+    This is an authenticated read-only classification check, not a signature,
+    deployment grant, or conversion of the separate private-source contract.
+    Both provider fields must agree: private=False alone can also mean internal.
+    """
+    require(callable(get) and repository == REPOS["TTT-Hybrid"][0],
+            "HYBRID_PUBLIC_REPOSITORY_IDENTITY")
+    meta = get("repos/" + repository)
+    require(isinstance(meta, dict) and meta.get("full_name") == repository
+            and meta.get("private") is False
+            and meta.get("visibility") == "public",
+            "HYBRID_PUBLIC_VISIBILITY_NOT_AUTHENTICATED")
+    return meta
+
+
 def _semantic_identities(source_sha: str, lane: str, target_tree: str,
                          path: str) -> dict:
     """Deterministic provenance identities; no claim of scientific sufficiency."""
@@ -195,6 +213,11 @@ def _candidate_from_pr(get: Callable[[str], object], *, lane: str,
             and pr["user"].get("login") == OWNER
             and pr.get("author_association") == "OWNER",
             "PR_NOT_EXPLICIT_OWNER_CANDIDATE")
+    # Public Hybrid projects use only the ordinary owner-authored PR feeder.
+    # The private-reference path remains independently strict and inapplicable
+    # here. Verify publication classification before touching patch bytes.
+    if lane == "TTT-Hybrid":
+        verify_public_hybrid_metadata(get, repository=repo)
     head = pr.get("head")
     require(isinstance(head, dict) and _sha40(head.get("sha"))
             and isinstance(head.get("repo"), dict)
