@@ -126,17 +126,15 @@ class ForwardSourceTests(unittest.TestCase):
         self.assertEqual(self.db.meta()["head_seq"], repair.V37_SEQ)
 
     def test_predecessor_or_after_write_witness_loss_rolls_back(self):
-        self.db.conn.execute(
-            "UPDATE events SET sha=? WHERE seq=?", ("0" * 64, repair.V37_SEQ))
-        with SingleOwner(self.path.with_suffix(".lock")):
-            with self.assertRaisesRegex(
-                    repair.ForwardRepairDenied,
-                    "IMMUTABLE_COMMITTED_V37_EVENT_REQUIRED"):
-                repair.build_proof(
-                    self.db, self.target, 9876, 34567, "f" * 64, "a" * 64)
-        self.db.conn.execute(
-            "UPDATE events SET sha=? WHERE seq=?",
-            (repair.V37_HEAD, repair.V37_SEQ))
+        # The actual SQLite ledger forbids UPDATE of prior events. Exercise
+        # a forged predecessor argument instead of tampering with live rows.
+        with self.assertRaisesRegex(
+                repair.ForwardRepairDenied,
+                "EXACT_SINGLE_V37_PREDECESSOR_REQUIRED"):
+            repair.snapshot(
+                self.db,
+                {"seq": repair.V37_SEQ + 1, "prior_sha": repair.V37_HEAD},
+                [{**self.prev, "schema": "forge.f139.source-transition.v36"}])
         with SingleOwner(self.path.with_suffix(".lock")):
             proof = repair.build_proof(
                 self.db, self.target, 9876, 34567, "f" * 64, "a" * 64)
