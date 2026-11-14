@@ -381,11 +381,21 @@ jobs:
           # Historical GETLASTINPUTINFO arithmetic returned a future timestamp; never call it proof before normalization.
           $foreground=[KTradeOwnedDesktop]::GetForegroundWindow()
           if($foreground -eq [IntPtr]::Zero){throw 'KTRADE_OWNER_NATIVE_FOREGROUND_SNAPSHOT_REFUSED'}
-          $root=Join-Path $env:RUNNER_TEMP ('ktrade-pr253-real-native-'+[guid]::NewGuid().ToString('N'))
+          $root=$env:KTRADE_PREPARED_ROOT
+          $prePkg=$env:KTRADE_PREPARED_PKG_ROOT
+          $base=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')
+          if(-not $root -or -not $prePkg -or
+             [IO.Path]::GetDirectoryName($root).TrimEnd('\') -cne $base -or
+             [IO.Path]::GetDirectoryName($prePkg).TrimEnd('\') -cne $base -or
+             [IO.Path]::GetFileName($root) -cnotmatch '^ktrade-pr253-real-native-[a-f0-9]{32}$' -or
+             [IO.Path]::GetFileName($prePkg) -cnotmatch '^ktrade-w03-package-[a-f0-9]{32}$' -or
+             !(Test-Path -LiteralPath $root -PathType Container) -or
+             !(Test-Path -LiteralPath $prePkg -PathType Container)){
+            throw 'W169_PREBUILD_BOUNDARY_MISSING'
+          }
           $source=Join-Path $root 'product'
-          $clonelog=Join-Path $root 'private-source.log'
-          $derived='Test-KTRADE-W168-Pine-OwnerSession-Adapted.ps1'
-          New-Item -ItemType Directory -Path $root -ErrorAction Stop|Out-Null
+          $clonelog=Join-Path $root 'private-build.log'
+          $derived='Test-KTRADE-W169-Pine-Bounded-Adapted.ps1'
           $succeeded=$false
           $saverOriginal=[uint32]1200
           $originalRegistry='1200'
@@ -398,6 +408,10 @@ jobs:
               throw 'KTRADE_OWNER_NATIVE_MANUAL20_READBACK_REFUSED'
             }
             Write-Host 'KTRADE_OWNER_NATIVE_MANUAL20=PASS;timeout_seconds=1200;settings_written=false'
+            # 120-second owner inactivity budget starts after all prebuild work.
+            $nativeBudgetClock=[Diagnostics.Stopwatch]::StartNew()
+            $env:KTRADE_NATIVE_DEADLINE_UTC=[DateTime]::UtcNow.AddSeconds(102).ToString('o')
+            Write-Host 'W169_INACTIVE_BUDGET_STARTED=PASS;seconds=120;native_deadline=102;cleanup_reserve=18'
             # The host reported a future-dated LastInputInfo DWORD. Compare
             # observed input *changes* and cursor stability against a monotonic
             # Stopwatch, never subtract future timestamps or trust wrapped idle.
@@ -405,7 +419,7 @@ jobs:
             $stationary=[Diagnostics.Stopwatch]::StartNew()
             $deadline=[Diagnostics.Stopwatch]::StartNew()
             $idleQualified=$false
-            while($deadline.Elapsed.TotalSeconds -lt 165){
+            while($deadline.Elapsed.TotalSeconds -lt 55){
               if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
                 throw 'KTRADE_OWNER_NATIVE_DESKTOP_SWITCHED_DURING_IDLE_CHECK'
               }
@@ -437,37 +451,24 @@ jobs:
                [string](Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop).ScreenSaveTimeOut -cne $originalRegistry){
               throw 'KTRADE_MANUAL20_DRIFT_AFTER_IDLE'
             }
-            # Exact Go 1.26.11 is loaded only into disposable job caches.
-            # Never overwrite the workstation's Go 1.25.5 installation or global user cache.
-            $env:GOTOOLCHAIN='go1.26.11'
-            $env:GOPATH=Join-Path $root 'go-path'
-            $env:GOMODCACHE=Join-Path $root 'go-mod-cache'
-            $env:GOCACHE=Join-Path $root 'go-build-cache'
-            $goText=(& go.exe version) -join ' '
-            Write-Host ('KTRADE_OWNER_NATIVE_JOB_TOOLCHAIN='+$goText)
-            if($LASTEXITCODE -ne 0 -or $goText -notmatch '\bgo1\.26\.11\b'){
-              throw 'KTRADE_OWNER_NATIVE_PINNED_GO_TOOLCHAIN_UNAVAILABLE'
-            }
-            $env:GH_PROMPT_DISABLED='1'
-            $env:GIT_TERMINAL_PROMPT='0'
-            & gh.exe repo clone spoonman136668-ai/ktrade $source -- --filter=blob:none --no-checkout *> $clonelog
-            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_PRIVATE_SOURCE_UNAVAILABLE'}
-            # Named ref is fetchable even when a private server refuses a raw
-            # unadvertised object-ID fetch. Never accept a different branch tip.
-            & git.exe -C $source fetch --no-tags --depth 1 origin refs/heads/feature/rb3-workstation-ui-refresh-20261108 *> $clonelog
-            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_PRIVATE_BRANCH_FETCH_FAILED'}
-            $fetched=(& git.exe -C $source rev-parse FETCH_HEAD).Trim()
-            if($LASTEXITCODE -ne 0 -or $fetched -cne $env:KTRADE_EXPECTED_SOURCE){
-              throw 'KTRADE_OWNER_NATIVE_PRIVATE_BRANCH_SHA_DRIFT'
-            }
-            & git.exe -C $source checkout --detach $env:KTRADE_EXPECTED_SOURCE *> $clonelog
-            if($LASTEXITCODE -ne 0){throw 'KTRADE_OWNER_NATIVE_CHECKOUT_FAILED'}
+            # Exact KTRADE source and W41 package already built without using
+            # foreground or mouse. No Git/Go/npm/network inside this window.
             $head=(& git.exe -C $source rev-parse HEAD).Trim()
             $tree=(& git.exe -C $source rev-parse 'HEAD^{tree}').Trim()
-            if($head -cne $env:KTRADE_EXPECTED_SOURCE -or $tree -cne $env:KTRADE_EXPECTED_TREE -or
+            if($LASTEXITCODE -ne 0 -or $head -cne $env:KTRADE_EXPECTED_SOURCE -or
+               $tree -cne $env:KTRADE_EXPECTED_TREE -or
                @(& git.exe -C $source status --porcelain --untracked-files=no).Count -ne 0){
-              throw 'KTRADE_OWNER_NATIVE_EXACT_TREE_OR_CLEAN_REFUSED'
+              throw 'W169_PREPARED_SOURCE_DRIFT'
             }
+            $manifest=Get-Content -LiteralPath (Join-Path $prePkg 'source-manifest.json') -Raw|ConvertFrom-Json
+            if($manifest.source_sha -cne $head -or
+               $manifest.fixture_mode -cne 'w41-frozen-disposable-restart' -or
+               $manifest.live_armed -ne $false -or
+               $manifest.paper_started -ne $false -or
+               $manifest.release_candidate -ne $false){
+              throw 'W169_PREPARED_MANIFEST_DRIFT'
+            }
+            $env:KTRADE_NATIVE_PREBUILT=$prePkg
             $original=Join-Path $source 'windows/Test-KTRADE-W160-NativeDrawings.ps1'
             $text=[IO.File]::ReadAllText($original)
             $pattern=[regex]::Escape("Require ("+'$env:GITHUB_REPOSITORY'+" -ceq 'spoonman136668-ai/ktrade' -and")+
