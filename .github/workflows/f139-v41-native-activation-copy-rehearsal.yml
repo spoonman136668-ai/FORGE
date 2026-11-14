@@ -1,0 +1,96 @@
+name: FORGE V41 native activation sealed-copy rehearsal (no owner mutation)
+on:
+  push:
+    branches:
+      - diagnostic/f139-v41-private-backup-hash-20261113
+    paths:
+      - .github/workflows/f139-v41-native-activation-copy-rehearsal.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-v41-native-activation-copy-rehearsal-20261113
+  cancel-in-progress: false
+jobs:
+  copied-native-activation:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Qualify original-owner SQLite copy activation without writing original
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $target='1a40fe4e3ec6e93a1631d59863b95e90981d734e'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-v41-private-backup-hash-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:OPENAI_API_KEY){throw 'F139_V41_ACTIVATION_COPY_WRONG_OWNER'}
+          $data=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $db=Join-Path $data 'state.sqlite'
+          $root=Join-Path (Join-Path $data 'release-candidates') $target
+          $got=(& git -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $got -cne $target){
+            throw 'F139_V41_ACTIVATION_COPY_NOT_INSTALLED_RELEASE'
+          }
+          $env:PYTHONPATH=$root
+          $code=@'
+          import sys,os,sqlite3,tempfile,json
+          from pathlib import Path
+          from contextlib import closing
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import activate_native,verify_native_activation
+          original=Path(sys.argv[1]).resolve(strict=True)
+          target=sys.argv[2]
+          with tempfile.TemporaryDirectory(prefix="forge-v41-activation-copy-",dir=os.environ["RUNNER_TEMP"]) as td:
+              copy=Path(td)/"disposable.sqlite"
+              with closing(sqlite3.connect(original.as_uri()+"?mode=ro",uri=True,isolation_level=None,timeout=20)) as src:
+                  src.execute("PRAGMA query_only=ON")
+                  with closing(sqlite3.connect(copy)) as dst:
+                      src.backup(dst)
+              with closing(Database(copy)) as db:
+                  before=db.meta().copy()
+                  db.verify()
+                  assert before["source_sha"]==target
+                  assert before["head_seq"]>=1828
+                  assert verify_native_activation(db) is False
+                  assert db.ready() is None and not db.actives()
+                  approval={
+                    "schema":"forge.f139.nci04.owner-native-approval.v1",
+                    "source_sha":target,
+                    "expected_event_head_sha256":before["head_hash"],
+                    "native_development_approved":True,
+                    "scientific_first_use":False,
+                    "create_controller":False,
+                    "paid_api_calls":0,
+                  }
+                  simulated=activate_native(db,approval)
+                  after=db.meta().copy()
+                  assert simulated is True
+                  assert verify_native_activation(db) is True
+                  assert after["source_sha"]==target and after["head_seq"]==before["head_seq"]+1
+                  assert db.conn.execute("SELECT kind FROM events WHERE seq=?",(after["head_seq"],)).fetchone()[0]=="NATIVE_DEVELOPMENT_ACTIVATED"
+                  assert not db.actives() and db.ready() is None
+                  print("F139_V41_NATIVE_ACTIVATION_COPIED_REHEARSAL="+json.dumps({
+                    "schema":"forge.f139.v41.native-activation-copied-rehearsal.v1",
+                    "source_sha":target,
+                    "original_head_seq_at_copy":before["head_seq"],
+                    "simulated_copy_head_seq":after["head_seq"],
+                    "expected_copy_head_sha256":after["head_hash"],
+                    "activation_accepted_on_copy":True,
+                    "native_activation_verified_on_copy":True,
+                    "original_owner_task_touched":False,
+                    "original_sqlite_written":False,
+                    "scientific_first_use":False,
+                    "new_dispatches":0,
+                  },sort_keys=True,separators=(",",":")))
+          '@
+          $out=@($code | & python -B - $db $target)
+          if($LASTEXITCODE -ne 0 -or $out.Count -ne 1 -or
+             $out[0] -cnotmatch '^F139_V41_NATIVE_ACTIVATION_COPIED_REHEARSAL='){
+            throw 'F139_V41_ACTIVATION_COPY_NOT_QUALIFIED'
+          }
+          Write-Output $out[0]
+          Write-Output 'F139_V41_NATIVE_ACTIVATION_ON_DISPOSABLE_COPY=PASS'
