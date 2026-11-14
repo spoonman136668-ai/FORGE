@@ -1,0 +1,128 @@
+name: FORGE V41 to qualified public Hybrid source original-owner read-only release preflight
+on:
+  push:
+    branches:
+      - diagnostic/f139-public-hybrid-original-worker-readonly-20261114
+    paths:
+      - .github/workflows/f139-v41-hybrid-source-release-readonly.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-hybrid-release-readonly-20261114
+  cancel-in-progress: false
+jobs:
+  original-owner-release-observation:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Verify original V41 source/ledger, candidate identity and deferred migration without writes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$why) {
+            if(-not $v) { throw ('F139_HYBRID_RELEASE_READONLY_'+$why) }
+          }
+          $original='1a40fe4e3ec6e93a1631d59863b95e90981d734e'
+          $candidate='788673aae2d1b42a0c9152395a866e910191cbdd'
+          $expected_worker='74dd90e6d71da6b53898c7a80d5362f1b0e6af27'
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostic/f139-public-hybrid-original-worker-readonly-20261114' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:GITHUB_EVENT_NAME -ceq 'push' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            -not $env:OPENAI_API_KEY) 'OPERATOR_OR_RUNNER'
+          $mainRaw=@(& gh api repos/spoonman136668-ai/FORGE/branches/main)
+          Need ($LASTEXITCODE -eq 0) 'MAIN_GET'
+          $main=$mainRaw -join [Environment]::NewLine | ConvertFrom-Json
+          Need ($main.commit.sha -ceq $original -and $main.protected -eq $true) 'PROTECTED_MAIN_DRIFT'
+          $prRaw=@(& gh api repos/spoonman136668-ai/FORGE/pulls/1660)
+          Need ($LASTEXITCODE -eq 0) 'PR_GET'
+          $pr=$prRaw -join [Environment]::NewLine | ConvertFrom-Json
+          Need ($pr.state -ceq 'open' -and $pr.merged -eq $false -and
+            $pr.head.sha -ceq $candidate -and $pr.base.sha -ceq $original) 'PR_SOURCE_DRIFT'
+          $metaRaw=@(& gh api repos/spoonman136668-ai/TTT-Hybrid-Lab)
+          Need ($LASTEXITCODE -eq 0) 'HYBRID_METADATA_GET'
+          $meta=$metaRaw -join [Environment]::NewLine | ConvertFrom-Json
+          Need ($meta.full_name -ceq 'spoonman136668-ai/TTT-Hybrid-Lab' -and
+            $meta.private -eq $false -and $meta.visibility -ceq 'public') 'HYBRID_VISIBILITY_DRIFT'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Need ($task.Settings.Enabled -eq $true -and
+            [string]$task.State -ceq 'Running') 'ORIGINAL_OWNER_NOT_RUNNING'
+          $base=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $stage=Join-Path (Join-Path $base 'release-candidates') $original
+          $db=Join-Path $base 'state.sqlite'
+          Need ((Test-Path -LiteralPath $db -PathType Leaf) -and
+            (Test-Path -LiteralPath $stage -PathType Container)) 'ORIGINAL_SOURCE_MISSING'
+          $localSha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $localSha -ceq $original) 'INSTALLED_SOURCE_DRIFT'
+          $worker=(& git -C $stage rev-parse 'HEAD:.github/workflows/forge-f139-development-worker.yml' | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $worker -ceq $expected_worker) 'EXISTING_WORKER_DRIFT'
+          $env:PYTHONPATH=$stage
+          $code=@'
+          import json,sys
+          from contextlib import closing
+          from pathlib import Path
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          from f139.hybrid_owner_admission import is_migrated
+          from f139.nci04_release_pin_continuity import release_worker_branch
+          p=Path(sys.argv[1])
+          source=sys.argv[2]
+          with closing(Database.open_readonly(p)) as db:
+              m=db.meta()
+              assert m["source_sha"]==source
+              assert m["enabled"]==1 and m["legacy_suspended"]==1
+              assert m["head_seq"]>=1829
+              assert verify_native_activation(db)
+              original_anchor=db.conn.execute(
+                 "SELECT kind,sha FROM events WHERE seq=1829").fetchone()
+              assert original_anchor["kind"]=="NATIVE_DEVELOPMENT_ACTIVATED"
+              assert original_anchor["sha"]=="55ded016778c8430bd4f6e3290972be1c5c5c796cbcb2a2ad38046283f78e3f8"
+              stages=dict(db.conn.execute(
+                 "SELECT stage, COUNT(*) FROM tasks GROUP BY stage").fetchall())
+              lanes=dict(db.conn.execute(
+                 "SELECT lane, COUNT(*) FROM tasks GROUP BY lane").fetchall())
+              prior=db.conn.execute(
+                 "SELECT count(*) FROM events WHERE kind='HYBRID_LANE_SCHEMA_ADMITTED'").fetchone()[0]
+              assert prior==0 and not is_migrated(db)
+              active=stages.get("START_RISK",0)+stages.get("WAIT_PROVIDER",0)
+              ready=stages.get("READY",0)
+              assert active<=2 and ready<=1
+              assert db.conn.total_changes==0
+              print("F139_HYBRID_V41_ORIGINAL_RELEASE_PREFLIGHT="+json.dumps({
+                 "schema":"forge.f139.hybrid-release-readonly-original.v1",
+                 "original_source":source,
+                 "original_head_seq":m["head_seq"],
+                 "original_head_sha256":m["head_hash"],
+                 "original_task_count":sum(stages.values()),
+                 "original_stages":stages,
+                 "original_lanes":lanes,
+                 "owner_idle":active==0 and ready==0,
+                 "existing_release_worker_ref":release_worker_branch(source),
+                 "hybrid_sqlite_migrated":False,
+                 "public_hybrid_policy_active":False,
+                 "original_sqlite_mutations":0,
+                 "scientific_first_use":False,
+                 "promoted":False
+              },sort_keys=True,separators=(",",":")))
+          '@
+          $out=@($code | & python -B - $db $original)
+          Need ($LASTEXITCODE -eq 0 -and @($out).Count -eq 1 -and
+            $out[0] -cmatch '^F139_HYBRID_V41_ORIGINAL_RELEASE_PREFLIGHT=') 'READONLY_SQLITE_AUDIT'
+          Write-Output $out[0]
+          Write-Output ('F139_HYBRID_SOURCE_RELEASE_PR_PREFLIGHT='+(@{
+            source=$candidate
+            base=$original
+            private=$false
+            visibility='public'
+            original_worker_blob=$worker
+            unmerged=$true
+            owner_task_running=$true
+            original_state_untouched=$true
+            actual_release_authorized=$false
+          }|ConvertTo-Json -Compress))
+          Write-Output 'F139_HYBRID_V41_SOURCE_RELEASE_READONLY=PASS'
