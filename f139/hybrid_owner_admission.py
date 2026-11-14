@@ -16,7 +16,7 @@ OLD_CHECK="lane TEXT NOT NULL CHECK(lane IN ('Wingless','Yggdrasil','Qualificati
 NEW_CHECK="lane TEXT NOT NULL CHECK(lane IN ('Wingless','Yggdrasil','Qualification','TTT-Hybrid'))"
 # The exact previously cross-platform-qualified Hybrid worker Git blob.
 # The original two-lane worker cannot be treated as a released Hybrid worker.
-QUALIFIED_HYBRID_WORKER_BLOB="74dd90e6d71da6b53898c7a80d5362f1b0e6af27"
+QUALIFIED_HYBRID_WORKER_BLOB="d41951146334d7b77718a6854f739779d2b6710b"
 
 
 def require_qualified_worker_blob(value: str) -> None:
