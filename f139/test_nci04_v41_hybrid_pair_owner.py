@@ -127,7 +127,7 @@ class PairedOwnerTests(unittest.TestCase):
     def test_old_approval_new_request_or_wrong_issue_denied(self):
         for field,bad in (
                 ("created_at","2026-11-14T08:10:00Z"),
-                ("body",gate.PREFIX+TARGET+" 90"),
+                ("body",gate.PREFIX+TARGET+" INVALID"),
                 ("author_association","CONTRIBUTOR")):
             with self.subTest(field=field):
                 e={**self.event,"comment":{**self.approval,field:bad}}

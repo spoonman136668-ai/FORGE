@@ -162,7 +162,7 @@ Need ($event.action -ceq 'created' -and
 
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 $admin=[Security.Principal.WindowsPrincipal]::new($identity)
-Need $admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) 'ORIGINAL_ADMIN_REQUIRED'
+Need ($admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'ORIGINAL_ADMIN_REQUIRED'
 $t=Task
 Need ([string]$t.State -cin @('Ready','Running') -and
   $t.Settings.Enabled -eq $true) 'OWNER_NOT_RUNNING'
