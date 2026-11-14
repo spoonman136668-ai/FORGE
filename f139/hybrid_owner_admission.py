@@ -133,6 +133,52 @@ def audit_hybrid_lane(db):
     return True
 
 
+def _qualified_v41_postcommit_source_hold(db):
+    """Permit only the immutable immediately held V41 -> Hybrid successor.
+
+    The historic native activation belongs to V41; the source-only commit
+    intentionally does not grant another activation. Full Database.verify()
+    and native owner/runner/source checks must have passed before this call.
+    """
+    from f139.nci04_owner_ledger import ACTIVATION_KIND
+    from f139 import nci04_v41_hybrid_source_transition as source
+
+    meta = db.meta()
+    if meta["head_seq"] != source.ACTIVATED_SEQ + 1:
+        return False
+    head = db.conn.execute(
+        "SELECT seq,kind,sha,prior_sha,payload FROM events "
+        "ORDER BY seq DESC LIMIT 1").fetchone()
+    anchor = db.conn.execute(
+        "SELECT seq,kind,sha,payload FROM events WHERE seq=?",
+        (source.ACTIVATED_SEQ,)).fetchone()
+    if head is None or anchor is None:
+        return False
+    try:
+        transition = json.loads(head["payload"])
+        activation = json.loads(anchor["payload"])
+    except (ValueError, TypeError, UnicodeError):
+        return False
+    return (
+        head["seq"] == source.ACTIVATED_SEQ + 1
+        and head["kind"] == "SOURCE_TRANSITION_ADMITTED"
+        and head["sha"] == meta["head_hash"]
+        and head["prior_sha"] == source.ACTIVATED_HASH
+        and anchor["kind"] == ACTIVATION_KIND
+        and anchor["sha"] == source.ACTIVATED_HASH
+        and activation["source_sha"] == source.FROM_V41
+        and transition.get("schema") == source.SCHEMA
+        and transition.get("purpose") == source.PURPOSE
+        and transition.get("from_source_sha") == source.FROM_V41
+        and transition.get("to_source_sha") == meta["source_sha"]
+        and transition.get("original_head_seq") == source.ACTIVATED_SEQ
+        and transition.get("original_head_sha256") == source.ACTIVATED_HASH
+        and transition.get("hybrid_admission") is False
+        and transition.get("scientific_first_use") is False
+        and transition.get("new_dispatches") == 0
+    )
+
+
 def migrate_hybrid_lane(db):
     """Original owner only, once, in its existing SQLite transaction.
 
@@ -143,7 +189,8 @@ def migrate_hybrid_lane(db):
     if is_migrated(db):
         return False
     from f139.nci04_owner_ledger import verify_native_activation
-    require(verify_native_activation(db),"NATIVE_ORIGINAL_OWNER_NOT_ACTIVE")
+    require(verify_native_activation(db) or _qualified_v41_postcommit_source_hold(db),
+            "NATIVE_ORIGINAL_OWNER_NOT_ACTIVE")
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1
             and db.dual_native_schema() and not db.actives()
