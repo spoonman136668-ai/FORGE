@@ -36,6 +36,7 @@ HYBRID_COMPLETE_FILES = frozenset({
     "f139/test_nci04_v41_hybrid_safe_abort.py",
     "f139/test_nci04_v41_hybrid_source_hold.py",
     "f139/test_v41_hybrid_original_activate.py",
+    "f139/test_v41_hybrid_owner_workflow_bridge.py",
     "f139/v41_hybrid_original_activate.ps1",
     "scripts/check_rar_g145_pr_scope.py",
     "scripts/check_rar_g148_go_cache.py",
