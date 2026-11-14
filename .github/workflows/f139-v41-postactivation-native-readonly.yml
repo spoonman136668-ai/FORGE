@@ -64,9 +64,29 @@ jobs:
           $stageSha=(& git -C $stage rev-parse HEAD | Out-String).Trim()
           Need ($LASTEXITCODE -eq 0 -and $stageSha -ceq $target) 'INSTALLED_GIT_SHA_DRIFT'
           $procs=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop)
-          $new=@($procs|Where-Object {$_.CommandLine -and $_.CommandLine.Contains($target)})
-          $v40=@($procs|Where-Object {$_.CommandLine -and $_.CommandLine.Contains($old)})
-          Need ($new.Count -eq 1 -and $v40.Count -eq 0) 'OLD_OWNER_OR_WRONG_PROCESS_COUNT'
+          # The C# supervisor sets Python's working directory to V41, but
+          # the Python CLI command line contains only its module, DB and poll
+          # arguments; it does not necessarily spell out the V41 git SHA.
+          # Resolve the live original-owner Python by original DB+loop args.
+          $sameOwner=@($procs|Where-Object {
+            $c=[string]$_.CommandLine
+            $c.Contains('f139.local_controller') -and $c.Contains($db) -and
+            $c -match '(?i)(?:^|\s)loop(?:\s|$)' -and
+            $c -match '(?i)(?:^|\s)--seconds\s+300(?:\s|$)'
+          })
+          $wrongOriginal=@($procs|Where-Object {
+            $c=[string]$_.CommandLine
+            $c.Contains('f139.local_controller') -and $c.Contains($db) -and
+            -not ($c -match '(?i)(?:^|\s)loop(?:\s|$)' -and
+                  $c -match '(?i)(?:^|\s)--seconds\s+300(?:\s|$)')
+          })
+          Write-Output ('F139_V41_ORIGINAL_OWNER_PROCESS_OBSERVATION='+(@{
+            exact_loop_count=@($sameOwner).Count
+            other_owner_cli_count=@($wrongOriginal).Count
+            owner_python_pid=@($sameOwner|ForEach-Object { [int]$_.ProcessId })
+            original_owner_task_running=$true
+          }|ConvertTo-Json -Compress -Depth 4))
+          Need ($sameOwner.Count -eq 1 -and $wrongOriginal.Count -eq 0) 'ORIGINAL_OWNER_LOOP_NOT_UNIQUE'
           $env:PYTHONPATH=$stage
           $code=@'
           import collections,datetime,json,sys
