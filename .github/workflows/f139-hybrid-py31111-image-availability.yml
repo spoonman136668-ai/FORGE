@@ -1,0 +1,40 @@
+name: FORGE F139 exact Python 3.11.11 hosted image availability (read-only)
+on:
+  push:
+    branches:
+      - diagnostic/f139-public-hybrid-original-worker-readonly-20261114
+    paths:
+      - .github/workflows/f139-hybrid-py31111-image-availability.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-hybrid-py31111-image-availability-20261114
+  cancel-in-progress: false
+jobs:
+  exact-python-availability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 7
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.11'
+      - name: Read-only exact interpreter identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostic/f139-public-hybrid-original-worker-readonly-20261114' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:OPENAI_API_KEY){throw 'F139_HYBRID_PYTHON_IMAGE_AUTHORITY_DENIED'}
+          $raw=@(& python -B -c 'import platform,json;print(json.dumps({"python":platform.python_version(),"system":platform.system(),"machine":platform.machine()}))')
+          if($LASTEXITCODE -ne 0){throw 'F139_HYBRID_PYTHON_IDENTITY_UNAVAILABLE'}
+          $v=($raw -join "")|ConvertFrom-Json
+          if($v.python -cne '3.11.11'){throw 'F139_HYBRID_PYTHON_VERSION_DRIFT'}
+          Write-Output ("F139_HYBRID_PINNED_INTERPRETER="+($v|ConvertTo-Json -Compress))
+          Write-Output 'F139_HYBRID_PY31111_IMAGE_READONLY=PASS'
