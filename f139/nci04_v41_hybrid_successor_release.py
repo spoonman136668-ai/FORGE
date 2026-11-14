@@ -8,9 +8,9 @@ import re
 
 REPO = "spoonman136668-ai/FORGE"
 OWNER = "spoonman136668-ai"
-BASE = "b98dae4c6b0a78b145cfca06aeb465d6d85d3597"
-PR = 1757
-BRANCH = "engineering/f139-v41-hybrid-v37-successor-20261114"
+BASE = "25edd09d77b87d248b7908f0b898881cc5fb27c3"
+PR = 1758
+BRANCH = "engineering/f139-v41-hybrid-original-owner-complete-cutover-20261114"
 PREFIX = "F139-HYBRID-V41-SOURCE-READINESS "
 PAIR = "F139-HYBRID-V41-PAUSE-HOLD "
 BACKUP = "F139-HYBRID-V41-BACKUP-ONLY "
@@ -36,7 +36,16 @@ def need(ok, reason):
 def source_identity(get, target):
     prefix = "repos/" + REPO + "/"
     main = get(prefix + "branches/main")
-    pr = get(prefix + "pulls/1757")
+    # Require the qualified source-only predecessor as the protected parent.
+    prior = get(prefix + "pulls/1757")
+    need(type(prior) is dict and prior.get("number") == 1757
+         and prior.get("state") == "closed" and prior.get("merged") is True
+         and prior.get("merge_commit_sha") == BASE
+         and type(prior.get("head")) is dict
+         and prior["head"].get("sha") ==
+             "9c9c9f62a32e9cfd63667d50e3421623ef8c970f",
+         "PR1757_QUALIFIED_SOURCE_ANCESTRY_REQUIRED")
+    pr = get(prefix + "pulls/1758")
     need(type(main) is dict and main.get("name") == "main"
          and main.get("protected") is True
          and type(main.get("commit")) is dict
@@ -57,7 +66,7 @@ def source_identity(get, target):
          and pr["base"].get("sha") in (BASE, target)
          and type(pr["base"].get("repo")) is dict
          and pr["base"]["repo"].get("full_name") == REPO,
-         "EXACT_MERGED_PR1757_PROTECTED_MAIN_REQUIRED")
+         "EXACT_MERGED_PR1758_PROTECTED_MAIN_REQUIRED")
     head = pr["head"]["sha"]
     comparison = get(prefix + "compare/" + BASE + "..." + target +
                      "?per_page=1&page=2")

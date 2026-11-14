@@ -152,9 +152,16 @@ class HoldReleaseChainTests(unittest.TestCase):
             self.assertNotIn(forbidden, script)
         for workflow in (ROOT / ".github/workflows").glob("*.yml"):
             registered = workflow.read_text("utf-8")
-            # Existing PAUSE-RESUME workflow is retained. HOLD must never
-            # acquire an automatic issue-comment trigger.
-            self.assertNotIn("F139-HYBRID-V41-PAUSE-HOLD ", registered)
+            if workflow.name == "f139-v41-original-owner-live-install.yml":
+                self.assertIn(
+                    "startsWith(github.event.comment.body, "
+                    "'F139-HYBRID-V41-PAUSE-HOLD ')", registered)
+                self.assertIn("github.event.issue.number == 807", registered)
+                self.assertIn(
+                    "runs-on: [self-hosted, Windows, forge-codex-isolated]",
+                    registered)
+            else:
+                self.assertNotIn("F139-HYBRID-V41-PAUSE-HOLD ", registered)
             self.assertNotIn(HOLD_PS.name, registered)
 
     @unittest.skipUnless(os.name == "nt", "Native Windows PowerShell parser")

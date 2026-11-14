@@ -26,12 +26,24 @@ class ExactOwnerWorkflowBridge(unittest.TestCase):
         cls.before, marker, cls.new_job=cls.body.partition(
             "  hybrid-v41-paired-original-owner-backup:\n")
         cls.marker=marker
+        cls.existing_job, cls.release_marker, cls.new_owner_routes = (
+            cls.new_job.partition("  hybrid-v41-original-pause-hold:\n"))
+        cls.original_workflow = (
+            cls.before + cls.marker + cls.existing_job).encode("utf-8")
 
     def test_existing_job_source_is_exact_and_workflow_is_pinned(self):
         self.assertTrue(self.marker)
         self.assertTrue(self.before.endswith("\n\n"))  # one blank separator
         self.assertEqual(digest(self.before[:-1].encode()),BEFORE)
-        self.assertEqual(digest(self.blob),AFTER)
+        self.assertTrue(self.release_marker)
+        # The newly appended owner jobs begin after one separator newline.
+        # The original PAUSE-RESUME workflow remains byte-for-byte identical.
+        self.assertEqual(digest(self.original_workflow[:-1]),AFTER)
+        # The later, separately qualified PR #1758 pins its complete owner
+        # workflow SHA. The original PAUSE-RESUME route stays byte-identical.
+        from scripts import check_rar_g145_pr_scope as scope
+        self.assertEqual(digest(self.blob),
+                         scope.HYBRID_COMPLETE_WORKFLOW_AFTER)
         self.assertEqual(self.body.count(self.marker),1)
         for job in ("original-owner-v41-live-install",
                     "original-owner-v41-readiness","original-owner-v41-copy-rehearsal"):
@@ -50,12 +62,16 @@ class ExactOwnerWorkflowBridge(unittest.TestCase):
                          "persist-credentials: false", "fetch-depth: 0",
                          "contents: read", "issues: read","actions: read",
                          "v41_hybrid_owner_pause_backup_resume.ps1"):
-            self.assertIn(required,self.new_job)
+            self.assertIn(required,self.existing_job)
+        self.assertIn(
+            "F139-HYBRID-V41-PAUSE-HOLD ", self.new_owner_routes)
+        self.assertIn("F139-HYBRID-V41-SOURCE-ACTIVATE ",
+                      self.new_owner_routes)
         for forbidden in ("Register-ScheduledTask","Disable-ScheduledTask",
                           "Start-ScheduledTask","Set-ScheduledTask",
                           "workflow_dispatch:","schedule:","repository_dispatch:",
                           "gh api --method PATCH","gh api --method POST"):
-            self.assertNotIn(forbidden,self.new_job)
+            self.assertNotIn(forbidden,self.existing_job)
 
     def test_no_general_workflow_permission_or_new_trigger(self):
         from scripts import check_rar_g145_pr_scope as scope
@@ -74,7 +90,7 @@ class ExactOwnerWorkflowBridge(unittest.TestCase):
 
     @unittest.skipUnless(os.name=="nt","Native Windows PowerShell parser")
     def test_original_windows_powershell_parser(self):
-        script=textwrap.dedent(self.new_job.split("        run: |\n",1)[1])
+        script=textwrap.dedent(self.existing_job.split("        run: |\n",1)[1])
         exe=shutil.which("powershell.exe")
         self.assertIsNotNone(exe)
         code=(
