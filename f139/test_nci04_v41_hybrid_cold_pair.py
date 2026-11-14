@@ -16,8 +16,9 @@ class HybridColdPairTests(unittest.TestCase):
         self.addCleanup(self.root.cleanup)
         self.data = Path(self.root.name)
         self.original_path = self.data / "state.sqlite"
-        with closing(Database.initialize(self.original_path, cold.V41_SOURCE)):
-            pass
+        with closing(Database.initialize(self.original_path, cold.V41_SOURCE)) as owner:
+            owner.enable(legacy_suspended=True)
+            owner.enable_native_two_slots()
         self.backup_dir = self.data / "f139-hybrid-before-12345"
         self.backup_dir.mkdir()
         self.backup_path = self.backup_dir / "state.sqlite"
@@ -62,8 +63,9 @@ class HybridColdPairTests(unittest.TestCase):
             self.run_pair(sha="f" * 40)
 
     def test_stale_sqlite_backup_is_denied(self):
-        with sqlite3.connect(self.backup_path) as copy:
+        with closing(sqlite3.connect(self.backup_path)) as copy:
             copy.execute("UPDATE meta SET head_seq=head_seq+1 WHERE id=1")
+            copy.commit()
         with self.assertRaisesRegex(cold.HybridColdPairDenied, "PARITY"):
             self.run_pair()
 
