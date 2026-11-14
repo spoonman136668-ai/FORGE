@@ -111,6 +111,65 @@ def git(root: Path, *args: str) -> str:
     return p.stdout.decode("ascii").strip()
 
 
+def bound_public_hybrid_cpu_test_path(admission: NativeAdmission) -> str:
+    """One credential-free, source-bound CPU environment after signed admission.
+
+    This does not grant admission, choose a command, publish an issue,
+    create a runner or dispatch anything; the existing fixed test inventory
+    remains the sole executable candidate gate.
+    """
+    require(isinstance(admission, NativeAdmission)
+            and admission.lane == admission.intent.lane == "TTT-Hybrid"
+            and os.environ.get("F139_NATIVE_AUTHENTICATION_PASSED") == "true"
+            and os.environ.get("F139_SOURCE_SHA") == admission.source_sha
+            and SHA64.fullmatch(
+                os.environ.get("F139_NATIVE_AUTHORIZATION_SHA256", "")) is not None
+            and admission.authorization_sha256 ==
+                os.environ["F139_NATIVE_AUTHORIZATION_SHA256"],
+            "HYBRID_CPU_SIGNED_OWNER_BOUNDARY")
+    require(not any(os.environ.get(k) for k in (
+            "F139_WORKER_HMAC_KEY", "GH_TOKEN", "GITHUB_TOKEN",
+            "OPENAI_API_KEY", "CLOUDFLARE_API_TOKEN")),
+            "HYBRID_CPU_CREDENTIAL_INHERITANCE")
+    require(admission.runner_os ==
+            ("windows-latest" if os.name == "nt" else "ubuntu-latest"),
+            "HYBRID_CPU_RUNNER_OS_DRIFT")
+    temp_raw = os.environ.get("RUNNER_TEMP", "")
+    require(isinstance(temp_raw, str) and temp_raw
+            and Path(temp_raw).is_absolute(),
+            "HYBRID_CPU_RUNNER_TEMP_MISSING")
+    temp = Path(temp_raw).resolve(strict=True)
+    from f139.public_hybrid_cpu_runtime import (
+        pinned_managed_python, provision, RECEIPT_SCHEMA, REQUIREMENTS)
+    managed = pinned_managed_python(
+        root=temp / "f139-hybrid-public-exact-python")
+    receipt = provision(
+        root=temp / "f139-hybrid-public-locked-wheelhouse",
+        owner_source_sha=admission.source_sha,
+        managed_python=managed,
+        source_root=Path(__file__).resolve().parents[1])
+    require(isinstance(receipt, dict) and receipt.get("schema") == RECEIPT_SCHEMA
+            and receipt.get("owner_source_sha") == admission.source_sha
+            and receipt.get("python_version") == REQUIREMENTS["python"]
+            and receipt.get("versions") ==
+                {k: REQUIREMENTS[k] for k in ("torch", "pytest", "numpy")}
+            and receipt.get("platform") ==
+                ("windows" if os.name == "nt" else "linux")
+            and receipt.get("fully_locked_offline_install") is True
+            and receipt.get("pip_check") is True
+            and receipt.get("candidate_executed") is False
+            and receipt.get("worker_ticket_signed") is False
+            and receipt.get("original_owner_mutated") is False
+            and receipt.get("scientific_first_use") is False,
+            "HYBRID_CPU_RUNTIME_NOT_QUALIFIED")
+    root = temp / "f139-hybrid-public-locked-wheelhouse"
+    directory = Path(receipt["venv_bin_directory"]).resolve(strict=True)
+    require(directory.is_dir()
+            and directory.is_relative_to(root.resolve(strict=True)),
+            "HYBRID_CPU_RUNTIME_PATH_ESCAPE")
+    return str(directory)
+
+
 def execute(native_root: Path, scratch: Path, output: Path):
     source = common_source()
     require(not any(os.environ.get(k) for k in (
@@ -153,7 +212,19 @@ def execute(native_root: Path, scratch: Path, output: Path):
             and not any(output.iterdir()),
             "OUTPUT_NOT_EMPTY_OR_ROOT_MISSING")
     stage = stage_candidate(candidate, root, scratch)
-    report = verify_fixed_commands(candidate, stage)
+    if candidate.lane == "TTT-Hybrid":
+        # Only an already signed native issue may bootstrap this exact CPU
+        # toolchain. No additional workflow/runner/source authorization exists.
+        bin_dir = bound_public_hybrid_cpu_test_path(admission)
+        prior_path = os.environ.get("PATH", "")
+        try:
+            os.environ["PATH"] = bin_dir + os.pathsep + prior_path
+            report = verify_fixed_commands(candidate, stage)
+        finally:
+            os.environ["PATH"] = prior_path
+    else:
+        # Wingless/Yggdrasil and all existing fixed inventories are unchanged.
+        report = verify_fixed_commands(candidate, stage)
     receipt = receipt_from_report(admission, report)
     body = canonical(receipt)
     report_body = read_only_report_bytes(report)

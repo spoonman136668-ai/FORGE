@@ -2,7 +2,13 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import io
 import json
+import os
+import stat
+import tarfile
+import zipfile
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,7 +16,8 @@ from unittest.mock import patch
 
 from f139.public_hybrid_cpu_runtime import (
     PublicHybridRuntimeDenied, RECEIPT_SCHEMA, REQUIREMENTS,
-    LOCK_NAME, command, read_lock, safe_env,
+    LOCK_NAME, UV_RELEASE, _extract_exact_uv, pinned_managed_python,
+    command, read_lock, safe_env,
 )
 
 
@@ -110,6 +117,143 @@ class PublicHybridCpuRuntimeTests(unittest.TestCase):
                     PublicHybridRuntimeDenied, "TRUSTED_ARGV"):
                     command(argv, directory=Path(td), timeout=10, env={})
             run.assert_not_called()
+
+    def test_official_uv_release_digest_and_platform_pins(self):
+        self.assertEqual(set(UV_RELEASE), {"linux", "windows"})
+        for platform_name, expected_digest, expected_size in (
+            ("linux", "2cf10babba653310606f8b49876cfb679928669e7ddaa1fb41fb00ce73e64f66",
+             21370871),
+            ("windows", "515dc53d7553f1357d0abc1f70acd921fbb9e30230b1d9a08737236daa6ee920",
+             20760405),
+        ):
+            with self.subTest(platform_name=platform_name):
+                meta = UV_RELEASE[platform_name]
+                self.assertEqual(meta["sha256"], expected_digest)
+                self.assertEqual(meta["size"], expected_size)
+                self.assertLess(meta["size"], 32*1024*1024)
+
+    def test_archive_extraction_only_fixed_uv_regular_member(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            win = root/"release.zip"
+            with zipfile.ZipFile(win,"w") as z:
+                z.writestr("uv-x86_64/uv.exe",b"safe-demo")
+                z.writestr("uv-x86_64/uvx.exe",b"other")
+            dest = root/"uv.exe"
+            _extract_exact_uv(win,"windows",dest)
+            self.assertEqual(dest.read_bytes(),b"safe-demo")
+            symlink = root/"unsafe.zip"
+            with zipfile.ZipFile(symlink,"w") as z:
+                bad = zipfile.ZipInfo("uv.exe")
+                bad.create_system = 3
+                bad.external_attr = (stat.S_IFLNK | 0o777) << 16
+                z.writestr(bad,b"target")
+            with self.assertRaisesRegex(PublicHybridRuntimeDenied,"SYMLINK"):
+                _extract_exact_uv(symlink,"windows",root/"untrusted.exe")
+            tar = root/"release.tar.gz"
+            with tarfile.open(tar,"w:gz") as t:
+                raw=b"linux-demo"
+                member=tarfile.TarInfo("uv-linux/uv")
+                member.size=len(raw)
+                member.mode=0o755
+                t.addfile(member,io.BytesIO(raw))
+            _extract_exact_uv(tar,"linux",root/"uv")
+            self.assertEqual((root/"uv").read_bytes(),b"linux-demo")
+            unsafe=root/"evil.tar.gz"
+            with tarfile.open(unsafe,"w:gz") as t:
+                member=tarfile.TarInfo("uv-linux/uv")
+                member.type=tarfile.SYMTYPE
+                member.linkname="/etc/shadow"
+                t.addfile(member)
+            with self.assertRaisesRegex(PublicHybridRuntimeDenied,"UNSAFE_MEMBER"):
+                _extract_exact_uv(unsafe,"linux",root/"unsafe-uv")
+
+    def test_uv_archive_must_match_frozen_hash_before_executable_creation(self):
+        import urllib.request
+        class FakeResponse(io.BytesIO):
+            def geturl(self):
+                return ("https://release-assets.githubusercontent.com/"
+                        "fake-fixture-no-real-network")
+        class FakeOpener:
+            def __init__(self,data):
+                self.data=data
+            def open(self,*args,**kwargs):
+                return FakeResponse(self.data)
+        platform_name = "windows" if os.name == "nt" else "linux"
+        wrong=b"not a qualified uv release asset"
+        with tempfile.TemporaryDirectory() as td:
+            with patch.dict(os.environ,{"RUNNER_TEMP":td}),patch(
+                    "urllib.request.build_opener",
+                    return_value=FakeOpener(wrong)):
+                # Synthetic fixture has a valid *size* but incorrect digest.
+                fixed=dict(UV_RELEASE[platform_name])
+                fixed["size"]=len(wrong)
+                with patch.dict(UV_RELEASE,{platform_name:fixed}):
+                    with self.assertRaisesRegex(
+                            PublicHybridRuntimeDenied,"PINNED_SHA256_MISMATCH"):
+                        pinned_managed_python(root=Path(td)/"managed")
+                self.assertFalse((Path(td)/"managed"/(
+                    "uv.exe" if platform_name == "windows" else "uv")).exists())
+
+    def test_original_signed_worker_admission_before_any_hybrid_download(self):
+        from f139.nci04_signed_native import NativeAdmission
+        from f139.nci04_native_contract import Candidate
+        from f139.nci04_worker_entry import bound_public_hybrid_cpu_test_path
+        c = Candidate(intent_sha256="1"*64,qualification_key="2"*64,
+                      target_commit="a"*40,target_tree_sha="b"*40,
+                      path="native_p64k_probe.py",before_sha256="3"*64,
+                      after_sha256="4"*64,after_bytes=b"new",
+                      lane="TTT-Hybrid")
+        source="5"*40
+        auth="6"*64
+        oslabel="windows-latest" if os.name=="nt" else "ubuntu-latest"
+        admission=NativeAdmission(ticket="f139-nci04-i1-"+source[:12]+"-11111111",
+                    lane="TTT-Hybrid",source_sha=source,run_id=7,
+                    runner_os=oslabel,issue_number=1,issue_id=1,
+                    intent=c,authorization_sha256=auth)
+        with tempfile.TemporaryDirectory() as td:
+            env={"RUNNER_TEMP":td,"F139_SOURCE_SHA":source,
+                 "F139_NATIVE_AUTHORIZATION_SHA256":auth,
+                 "F139_NATIVE_AUTHENTICATION_PASSED":"false"}
+            with patch.dict(os.environ,env),patch(
+                    "f139.public_hybrid_cpu_runtime.pinned_managed_python") as start:
+                with self.assertRaisesRegex(
+                        Exception,"HYBRID_CPU_SIGNED_OWNER_BOUNDARY"):
+                    bound_public_hybrid_cpu_test_path(admission)
+                start.assert_not_called()
+            env["F139_NATIVE_AUTHENTICATION_PASSED"]="true"
+            env["F139_WORKER_HMAC_KEY"]="must-not-inherit"
+            with patch.dict(os.environ,env),patch(
+                    "f139.public_hybrid_cpu_runtime.pinned_managed_python") as start:
+                with self.assertRaisesRegex(Exception,"HYBRID_CPU_CREDENTIAL"):
+                    bound_public_hybrid_cpu_test_path(admission)
+                start.assert_not_called()
+            env.pop("F139_WORKER_HMAC_KEY")
+            runtime=Path(td)/"f139-hybrid-public-locked-wheelhouse"
+            binpath=runtime/"venv"/("Scripts" if os.name=="nt" else "bin")
+            binpath.mkdir(parents=True)
+            python=Path(td)/"managed-python-demo"
+            python.touch()
+            expected={
+                "schema":RECEIPT_SCHEMA,"owner_source_sha":source,
+                "platform":"windows" if os.name=="nt" else "linux",
+                "python_version":"3.11.11",
+                "versions":{"torch":"2.5.1+cpu","pytest":"8.3.4","numpy":"1.26.4"},
+                "fully_locked_offline_install":True,"pip_check":True,
+                "candidate_executed":False,"worker_ticket_signed":False,
+                "original_owner_mutated":False,"scientific_first_use":False,
+                "venv_bin_directory":str(binpath),
+            }
+            with patch.dict(os.environ,env),patch(
+                    "f139.public_hybrid_cpu_runtime.pinned_managed_python",
+                    return_value=python) as start,patch(
+                    "f139.public_hybrid_cpu_runtime.provision",
+                    return_value=expected) as provision:
+                result=bound_public_hybrid_cpu_test_path(admission)
+                self.assertEqual(Path(result).resolve(),binpath.resolve())
+                self.assertEqual(start.call_count,1)
+                self.assertEqual(provision.call_count,1)
+
 
     def test_staged_runtime_does_not_silently_modify_signed_worker(self):
         worker = Path(__file__).resolve().parents[1] / (
