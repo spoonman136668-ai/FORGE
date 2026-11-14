@@ -226,7 +226,8 @@ def _postcommit(db, req, proof, receipt):
          "ORIGINAL_READONLY_MUTEX_REQUIRED")
     db.verify()
     meta = db.meta()
-    need(meta["source_sha"] == req["target_source_sha"]
+    need(proof["owner_event_id"] == req["readiness_comment_id"]
+         and meta["source_sha"] == req["target_source_sha"]
          and meta["head_seq"] == forward.V37_SEQ + 1
          and meta["head_hash"] == receipt["event_head_sha256"]
          and meta["enabled"] == 1
@@ -295,7 +296,7 @@ def original_source_commit(db_path, env, event, api):
                 original, req["frozen_v37_commit"])
             cold_receipt = _fresh_bundle(db_path, req)
             proof = forward.build_proof(
-                original, target, req["source_commit_comment_id"],
+                original, target, req["readiness_comment_id"],
                 req["backup_run_id"], req["backup_manifest_sha256"],
                 req["backup_logical_all_tables_sha256"])
             need(digest(canonical(proof)) ==
