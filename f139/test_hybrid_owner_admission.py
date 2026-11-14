@@ -146,6 +146,91 @@ class HybridOwnerMigrationTests(unittest.TestCase):
         self.assertIn("failed_tickets==all_certified", source)
         self.assertIn("db.verify()", source)
 
+    def _synthetic_v37_native_activation(self, *, omit_negative=False):
+        # Isolated contract test only: real 1830-event ledger is not available
+        # in CI. Origin signatures and 153/56 history remain live owner gates.
+        from f139.nci04_owner_ledger import activate_native, APPROVAL_SCHEMA
+        from f139.nci04_negative_owner_store import TICKET as original
+        from f139.nci04_split_negative_owner_store import TICKET as second
+        from f139.nci04_g49_prepost_negative import TICKET as prepost
+        from f139.nci04_v36_source_transition import I1464_TICKET
+        from f139.nci04_v41_hybrid_source_transition import SCHEMA as V37
+        from f139.local_controller import Database
+        from contextlib import ExitStack
+        target = "c611c4362e3cc867984448a03ecdf3be923d2ef1"
+        db = Database.initialize(
+            Path(self.temp.name) / ("v37-omit.db" if omit_negative else "v37-good.db"),
+            target)
+        self.addCleanup(db.close)
+        db.enable(legacy_suspended=True)
+        g54 = "synthetic-g54-frozen"
+        providers = ["synthetic-provider-%02d" % i for i in range(51)]
+        full = sorted({original, second, prepost, g54, I1464_TICKET, *providers})
+        self.assertEqual(len(full), 56)
+        rows = [ticket for ticket in full if not (omit_negative and ticket == I1464_TICKET)]
+        for ticket in rows:
+            db.conn.execute(
+                "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha,"
+                "quarantine_reason) VALUES(?,?,?,?,?,?)",
+                (ticket, "Yggdrasil", target, "QUARANTINED", "a" * 64,
+                 "synthetic-negative"))
+        db.event("SOURCE_TRANSITION_ADMITTED", {
+            "schema": V37,
+            "from_source_sha": "1a40fe4e3ec6e93a1631d59863b95e90981d734e",
+            "to_source_sha": target,
+            "custodied_negative_tasks": 56,
+            "custodied_negative_tickets": full,
+        })
+        approval = {
+            "schema": APPROVAL_SCHEMA, "source_sha": target,
+            "expected_event_head_sha256": db.meta()["head_hash"],
+            "native_development_approved": True,
+            "scientific_first_use": False, "create_controller": False,
+            "paid_api_calls": 0,
+        }
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(db, "verify", return_value=None))
+            stack.enter_context(patch.object(
+                db, "verified_native_provider_failures", return_value=providers))
+            stack.enter_context(patch(
+                "f139.nci04_owner_ledger.verified_historical_foundation",
+                return_value=None))
+            stack.enter_context(patch(
+                "f139.nci04_negative_owner_store.verify_original_negative_custody",
+                return_value=True))
+            stack.enter_context(patch(
+                "f139.nci04_split_negative_owner_store.verify_second_negative_custody",
+                return_value=True))
+            stack.enter_context(patch(
+                "f139.nci04_g49_prepost_negative.verify_g49_custody",
+                return_value=True))
+            stack.enter_context(patch(
+                "f139.local_controller.g54_original_canonical",
+                return_value={"ticket": g54}))
+            stack.enter_context(patch(
+                "f139.nci04_v36_source_transition.i1464_negative_anchor",
+                return_value=I1464_TICKET))
+            if omit_negative:
+                with self.assertRaisesRegex(
+                        ValueError, "UNVERIFIED_HISTORICAL_TASK"):
+                    activate_native(db, approval)
+                self.assertEqual(
+                    db.conn.execute("SELECT COUNT(*) FROM events WHERE "
+                                    "kind='NATIVE_DEVELOPMENT_ACTIVATED'").fetchone()[0],
+                    0)
+            else:
+                self.assertTrue(activate_native(db, approval))
+                self.assertEqual(
+                    db.conn.execute("SELECT COUNT(*) FROM events WHERE "
+                                    "kind='NATIVE_DEVELOPMENT_ACTIVATED'").fetchone()[0],
+                    1)
+
+    def test_v37_reactivation_keeps_all_synthetic_negatives(self):
+        self._synthetic_v37_native_activation()
+
+    def test_v37_reactivation_rejects_missing_frozen_negative(self):
+        self._synthetic_v37_native_activation(omit_negative=True)
+
     def test_worker_not_qualified_never_unlocks_original_owner_migration(self):
         for candidate in ("8eab7972ba1b30eabf1e38477aff60b598cdeb2f",
                           "0" * 40, "", None):
