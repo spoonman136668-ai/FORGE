@@ -72,8 +72,8 @@ class FakeProvider:
             readiness.OLD_COMMIT_ID:
                 self.comment(readiness.OLD_COMMIT_ID,
                              self.old_body, "2026-11-14T17:00:00Z"),
-            999:
-                self.comment(999, self.new_body, "2026-11-14T20:00:00Z"),
+            6889999999:
+                self.comment(6889999999, self.new_body, "2026-11-14T20:00:00Z"),
         }
 
     @staticmethod
@@ -117,19 +117,38 @@ class FakeProvider:
             "GITHUB_SHA": self.target,
             "GITHUB_RUN_ATTEMPT": "1",
             "RUNNER_NAME": "FORGE-CODEX-REMOTE",
+            "GITHUB_RUN_ID": "43512345678",
         }
 
     def event(self):
         return {
-            "action": "created", "issue": {"number": 807},
+            "action": "created",
+            "issue": {"number": 807, "user": {"login": readiness.OWNER}},
             "sender": {"login": readiness.OWNER},
-            "comment": self.comments[999],
+            "comment": self.comments[6889999999],
         }
 
 
 class ForwardReadinessTests(unittest.TestCase):
     def setUp(self):
         self.api = FakeProvider()
+
+    def test_readiness_main_is_not_a_second_worker_or_automatic_controller(self):
+        from pathlib import Path
+        source = Path(readiness.__file__).read_text("utf-8")
+        for forbidden in ("Start-ScheduledTask", "Stop-ScheduledTask",
+                          "Enable-ScheduledTask", "Disable-ScheduledTask",
+                          "workflow_dispatch", "gh workflow run",
+                          "gh api --method PATCH", "subprocess.run("):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
+        self.assertIn(
+            "F139_HYBRID_FORWARD_READONLY_PREFLIGHT=", source)
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(
+                    readiness.ForwardReadinessDenied,
+                    "EXACT_SHA_ARGUMENT_REQUIRED"):
+                readiness.main(["--target", "b" * 40])
 
     def test_exact_merged_release_requires_all_ci_and_same_tree(self):
         receipt = readiness._release(self.api.get, self.api.target)
