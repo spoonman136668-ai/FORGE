@@ -187,7 +187,7 @@ class HybridSyntheticSqlTransactionTests(unittest.TestCase):
         self.assertEqual(after_meta["source_sha"], self.target)
         self.assertEqual(after_meta["head_seq"], successor.ACTIVATED_SEQ + 1)
         self.assertEqual(after_tasks, self.before[2])
-        self.assertEqual(after_events[:2], self.before[1])
+        self.assertEqual(after_events[:len(self.before[1])], self.before[1])
         self.assertEqual(len(after_events), len(self.before[1]) + 1)
         row = self.db.conn.execute(
             "SELECT seq,prior_sha,payload,sha FROM events "
