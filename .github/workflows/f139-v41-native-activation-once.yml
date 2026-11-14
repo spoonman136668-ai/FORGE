@@ -1,0 +1,57 @@
+name: FORGE V41 one-time original-owner native development activation
+on:
+  push:
+    branches:
+      - operation/f139-v41-native-activation-once-20261113
+    paths:
+      - .github/workflows/f139-v41-native-activation-once.yml
+permissions:
+  contents: read
+  issues: read
+  actions: read
+concurrency:
+  group: forge-f139-v41-original-owner-live-install
+  cancel-in-progress: false
+jobs:
+  exact-original-owner-preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated one-time owner operation without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Static syntax and source-bound original-owner read-only preflight
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m py_compile operations/f139_v41_native_activation_once.py
+          if($LASTEXITCODE -ne 0){throw 'F139_V41_NATIVE_OPERATION_SYNTAX_DENIED'}
+          & python -B operations/f139_v41_native_activation_once.py --preflight
+          if($LASTEXITCODE -ne 0){throw 'F139_V41_NATIVE_OWNER_PREFLIGHT_DENIED'}
+          Write-Host 'F139_V41_NATIVE_ORIGINAL_OWNER_PREFLIGHT=PASS'
+  original-owner-one-time-activation:
+    needs: [exact-original-owner-preflight]
+    if: needs.exact-original-owner-preflight.result == 'success'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout same isolated one-time operation, not runtime source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Temporarily quiesce, cold-preserve and activate only the existing original owner
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B operations/f139_v41_native_activation_once.py --apply
+          if($LASTEXITCODE -ne 0){throw 'F139_V41_ORIGINAL_NATIVE_ACTIVATION_NOT_ACCEPTED'}
+          Write-Host 'F139_V41_ORIGINAL_NATIVE_SOURCE_ACTIVATED=PASS'
+          Write-Host 'F139_V41_SCIENTIFIC_FIRST_USE=FALSE'
+          Write-Host 'F139_V41_HYBRID_ADMISSION=FALSE'
