@@ -116,13 +116,28 @@ class ForwardSourceTests(unittest.TestCase):
         self.assertEqual(self.db.meta()["source_sha"], repair.FROM)
 
     def test_snapshot_rejects_missing_quarantined_record(self):
-        self.db.conn.execute(
-            "DELETE FROM tasks WHERE ticket='synthetic-quarantined-055'")
-        with SingleOwner(self.path.with_suffix(".lock")):
-            with self.assertRaisesRegex(
-                    repair.ForwardRepairDenied, "ORIGINAL_153_56_HISTORY_DRIFT"):
-                repair.build_proof(
-                    self.db, self.target, 9876, 34567, "f" * 64, "a" * 64)
+        # Live task history is immutable. Inject a filtered read-only view
+        # rather than attempting to delete an existing original task.
+        from types import SimpleNamespace
+
+        class FilterOne:
+            def __init__(self, connection):
+                self.connection = connection
+            def execute(self, sql, params=()):
+                rows = self.connection.execute(sql, params)
+                if "FROM tasks ORDER BY ticket" in sql:
+                    return [row for row in rows
+                            if row["ticket"] != "synthetic-quarantined-055"]
+                return rows
+
+        proxy = SimpleNamespace(conn=FilterOne(self.db.conn))
+        before = self.rows()
+        with self.assertRaisesRegex(
+                repair.ForwardRepairDenied, "ORIGINAL_153_56_HISTORY_DRIFT"):
+            repair.snapshot(
+                proxy, {"seq": repair.V37_SEQ + 1,
+                        "prior_sha": repair.V37_HEAD}, [self.prev])
+        self.assertEqual(self.rows(), before)
         self.assertEqual(self.db.meta()["head_seq"], repair.V37_SEQ)
 
     def test_predecessor_or_after_write_witness_loss_rolls_back(self):
