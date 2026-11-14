@@ -122,8 +122,7 @@ class PostcommitLedgerTests(unittest.TestCase):
             "kind": "SOURCE_TRANSITION_ADMITTED",
             "sha": self.meta["head_hash"],
             "prior_sha": v38.V37_HEAD,
-            "payload": json.dumps(self.proof, sort_keys=True,
-                                  separators=(",", ":")),
+            "payload": post.db_canonical(self.proof).decode("ascii"),
         }
         self.db = object.__new__(Database)
         self.db.filename = self.path
