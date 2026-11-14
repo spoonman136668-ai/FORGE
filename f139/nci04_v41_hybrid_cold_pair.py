@@ -91,7 +91,19 @@ def _authenticate_candidate(get, target_sha):
     live = (main["commit"].get("sha") == target_sha
             and pr.get("state") == "closed" and pr.get("merged") is True
             and pr.get("merge_commit_sha") == target_sha)
-    need(dev or live, "PROTECTED_PR_SOURCE_DRIFT")
+    # The V41->Hybrid v37 successor can only be a separately qualified
+    # protected-main PR #1757 merge, NOT an arbitrary later source label.
+    successor = (main["commit"].get("sha") == target_sha
+                 and pr.get("state") == "closed"
+                 and pr.get("merged") is True
+                 and pr.get("merge_commit_sha") ==
+                     "b98dae4c6b0a78b145cfca06aeb465d6d85d3597"
+                 and target_sha != pr["merge_commit_sha"])
+    if successor:
+        from f139.nci04_v41_hybrid_successor_release import (
+            require_successor_source)
+        require_successor_source(get, target_sha)
+    need(dev or live or successor, "PROTECTED_PR_SOURCE_DRIFT")
     return target_sha
 
 
