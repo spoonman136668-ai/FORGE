@@ -128,6 +128,24 @@ class HybridOwnerMigrationTests(unittest.TestCase):
                    return_value=True):
             self.assertFalse(_qualified_v41_postcommit_source_hold(held))
 
+    def test_v37_original_negative_custody_is_required_for_native_reactivation(self):
+        # Source-level regression for the next authenticated owner gate.
+        # This alone does NOT constitute live native-activation acceptance:
+        # original 1830-event SQLite and owner readback are separately needed.
+        import inspect
+        from f139.nci04_owner_ledger import activate_native
+
+        source = inspect.getsource(activate_native)
+        self.assertEqual(source.count(
+            '"forge.f139.source-transition.v37"'), 3)
+        self.assertIn(
+            "negative_successors[-1][\"to_source_sha\"]==meta[\"source_sha\"]",
+            source)
+        self.assertIn(
+            'i1464_negative_anchor(db, db.meta()["head_seq"]+1)', source)
+        self.assertIn("failed_tickets==all_certified", source)
+        self.assertIn("db.verify()", source)
+
     def test_worker_not_qualified_never_unlocks_original_owner_migration(self):
         for candidate in ("8eab7972ba1b30eabf1e38477aff60b598cdeb2f",
                           "0" * 40, "", None):
