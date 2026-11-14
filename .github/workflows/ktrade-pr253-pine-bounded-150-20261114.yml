@@ -505,6 +505,39 @@ jobs:
           '@
             $adjusted=$adjusted.Replace($loopAnchor,$dpiType)
             $adjusted=$adjusted.Replace($windowAnchor,$windowProof)
+            # Patch ONLY the disposable copy of the W160 native harness.
+            # The source SHA, original guard and original check remain pinned.
+            $originalPkgRoot='$root=Join-Path $temp (''ktrade-w03-package-''+[guid]::NewGuid().ToString(''N''))'
+            $prebuiltPkgRoot='$root=$env:KTRADE_NATIVE_PREBUILT'
+            $originalEmptyRoot='Require (!(Test-Path -LiteralPath $root)) ''W160_ROOT_NOT_FRESH'''
+            $prebuiltRootCheck='Require (Test-Path -LiteralPath $root -PathType Container) ''W169_PREBUILT_PKG_REQUIRED'''
+            if($adjusted.Split(@($originalPkgRoot),[StringSplitOptions]::None).Count -ne 2 -or
+               $adjusted.Split(@($originalEmptyRoot),[StringSplitOptions]::None).Count -ne 2){
+              throw 'W169_SOURCE_HARNESS_PREBUILT_ROOT_DRIFT'
+            }
+            $adjusted=$adjusted.Replace($originalPkgRoot,$prebuiltPkgRoot).Replace($originalEmptyRoot,$prebuiltRootCheck)
+            $buildStart=$adjusted.IndexOf('  Push-Location $repo',[StringComparison]::Ordinal)
+            $buildEnd=$adjusted.IndexOf('  Require ((Test-Path -LiteralPath $exe',[StringComparison]::Ordinal)
+            if($buildStart -lt 0 -or $buildEnd -le $buildStart -or
+               $adjusted.Substring($buildStart,$buildEnd-$buildStart).IndexOf('W160_W41_DISPOSABLE_BUILD_FAILED',[StringComparison]::Ordinal) -lt 0){
+              throw 'W169_ORIGINAL_HARNESS_BUILD_SEGMENT_DRIFT'
+            }
+            $adjusted=$adjusted.Substring(0,$buildStart)+
+              "  Write-Host 'W169_PREBUILT_NATIVE_FIXTURE=PASS'"+[Environment]::NewLine+
+              $adjusted.Substring($buildEnd)
+            $requireAnchor='function Require([bool]$ok,[string]$reason){if(-not $ok){throw $reason}}'
+            $guardFunction=@'
+function Guard-W169Budget {
+ Require ([DateTime]::UtcNow -lt [DateTime]::Parse($env:KTRADE_NATIVE_DEADLINE_UTC)) 'W169_TWO_MINUTE_LIMIT'
+}
+          '@
+            if($adjusted.Split(@($requireAnchor),[StringSplitOptions]::None).Count -ne 2 -or
+               ([regex]::Matches($adjusted,[regex]::Escape('while((Get-Date) -lt $until){'))).Count -lt 4){
+              throw 'W169_ORIGINAL_HARNESS_DEADLINE_DRIFT'
+            }
+            $adjusted=$adjusted.Replace($requireAnchor,$requireAnchor+[Environment]::NewLine+$guardFunction)
+            $adjusted=$adjusted.Replace('while((Get-Date) -lt $until){',
+              'while((Get-Date) -lt $until){ Guard-W169Budget;')
             # Replace only the transient W160 drawing action segment with Pine
             # workbench UIA interactions. Original product and W160 remain pinned.
             $beginMarker="  if("+'$phase'+" -eq 0){"
@@ -584,7 +617,7 @@ jobs:
               throw 'W168_ORIGINAL_DISPOSABLE_CHART_WRITE_CHANGED'
             }
             $hookCode=@'
-            $html=$html.Replace('</body>','<script>(function(win,doc){''use strict'';if(win.top===win||win.location.protocol!==''http:''||win.location.hostname!==''127.0.0.1'')return;const button=doc.getElementById(''pineBtn'');if(!button)return;let proven=false;button.addEventListener(''click'',function(ev){if(ev.isTrusted!==true||proven)return;let tries=0;const check=function(){if(proven)return;const app=win.KTRADE_APP,panel=doc.getElementById(''pinePanel''),node=doc.getElementById(''pine-editor-main'');const editor=app&&app.pineEditor,model=editor&&editor.getModel&&editor.getModel();const box=node&&node.getBoundingClientRect(),pane=panel&&panel.getBoundingClientRect();if(panel&&panel.classList.contains(''open'')&&model&&typeof model.getValue===''function''&&model.getValue().length>0&&box&&pane&&box.width>=180&&box.height>=100&&box.left>=pane.left-2&&box.right<=pane.right+2&&box.top>=pane.top-2&&box.bottom<=pane.bottom+2){proven=true;const node=doc.createElement(''output'');node.setAttribute(''role'',''status'');node.setAttribute(''aria-live'',''polite'');node.textContent=''W168_NATIVE_MONACO_MODEL_AND_GEOMETRY=PASS'';node.style.cssText=''position:fixed;right:7px;top:55px;z-index:32000;pointer-events:none;background:#101618;color:#13D4D4;font:11px Consolas,monospace'';doc.body.appendChild(node);return;}if(++tries<=125)win.setTimeout(check,160);};win.setTimeout(check,350);},true);})(window,document);</script></body>')
+            $html=$html.Replace('</body>','<script>(function(win,doc){''use strict'';if(win.location.protocol!==''http:''||win.location.hostname!==''127.0.0.1'')return;const button=doc.getElementById(''pineBtn'');if(!button)return;let proven=false;button.addEventListener(''click'',function(ev){if(ev.isTrusted!==true||proven)return;let tries=0;const check=function(){if(proven)return;const app=win.KTRADE_APP,panel=doc.getElementById(''pinePanel''),node=doc.getElementById(''pine-editor-main'');const editor=app&&app.pineEditor,model=editor&&editor.getModel&&editor.getModel();const box=node&&node.getBoundingClientRect(),pane=panel&&panel.getBoundingClientRect();if(panel&&panel.classList.contains(''open'')&&model&&typeof model.getValue===''function''&&model.getValue().length>0&&box&&pane&&box.width>=180&&box.height>=100&&box.left>=pane.left-2&&box.right<=pane.right+2&&box.top>=pane.top-2&&box.bottom<=pane.bottom+2){proven=true;const node=doc.createElement(''output'');node.setAttribute(''role'',''status'');node.setAttribute(''aria-live'',''polite'');node.textContent=''W168_NATIVE_MONACO_MODEL_AND_GEOMETRY=PASS'';node.style.cssText=''position:fixed;right:7px;top:55px;z-index:32000;pointer-events:none;background:#101618;color:#13D4D4;font:11px Consolas,monospace'';doc.body.appendChild(node);return;}if(++tries<=125)win.setTimeout(check,160);};win.setTimeout(check,350);},true);})(window,document);</script></body>')
           '@
             $adjusted=$adjusted.Replace($stageAnchor,$hookCode+[Environment]::NewLine+$stageAnchor)
             $script=Join-Path (Split-Path -Parent $original) $derived
