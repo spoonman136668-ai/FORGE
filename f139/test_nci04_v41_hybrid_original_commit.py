@@ -130,7 +130,7 @@ class OriginalCommitAuthorityTests(unittest.TestCase):
             }).decode("ascii"))
         self.remote.entries[
             REMOTE_PREFIX+"issues/comments/114"]["body"] = changed["comment"]["body"]
-        with self.assertRaises(gate.HybridSuccessorDenied):
+        with self.assertRaises(release.HybridSuccessorDenied):
             self.inspect(issued=changed)
 
     def test_comment_order_edited_or_foreign_owner_denied(self):
@@ -144,7 +144,7 @@ class OriginalCommitAuthorityTests(unittest.TestCase):
             self.remote.entries[key][property] = bad
             try:
                 with self.subTest(property=property), self.assertRaises(
-                        (gate.HybridSuccessorDenied, gate.OriginalCommitDenied)):
+                        (release.HybridSuccessorDenied, gate.OriginalCommitDenied)):
                     self.inspect()
             finally:
                 self.remote.entries[key] = original
