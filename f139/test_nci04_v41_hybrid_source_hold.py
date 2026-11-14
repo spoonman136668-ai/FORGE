@@ -151,7 +151,11 @@ class HoldReleaseChainTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, script)
         for workflow in (ROOT / ".github/workflows").glob("*.yml"):
-            self.assertNotIn(RESUME_PS.name, workflow.read_text("utf-8"))
+            registered = workflow.read_text("utf-8")
+            # Existing PAUSE-RESUME workflow is retained. HOLD must never
+            # acquire an automatic issue-comment trigger.
+            self.assertNotIn("F139-HYBRID-V41-PAUSE-HOLD ", registered)
+            self.assertNotIn(HOLD_PS.name, registered)
 
     @unittest.skipUnless(os.name == "nt", "Native Windows PowerShell parser")
     def test_native_windows_hold_wrapper_parses(self):
