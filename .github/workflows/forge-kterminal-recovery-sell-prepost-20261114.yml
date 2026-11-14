@@ -20,8 +20,8 @@ jobs:
       K_TERMINAL_NATIVE_TIMING: '0'
       GOTOOLCHAIN: local
       GOTELEMETRY: 'off'
-      KTERM_SHA: 2b12822638c4f572174f09a13469a08075216893
-      KTERM_TREE: fac987957040f0d8b4c469778e0e2809c16f9ce2
+      KTERM_SHA: 0ae754610fab31da65932ad543427101fd407485
+      KTERM_TREE: 5b0a0bc60eaf6a29d74a6905b133b0da5e59efc7
       KTERM_BASE: ad36b280d9f3c0a35175056c100777cd47c3c994
       KTERM_CHECKOUT_RELATIVE: kterm-recovery-prepost-${{ github.run_id }}
     steps:
@@ -67,7 +67,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'KTERM_PREPOST_REMOTE_CREDENTIAL_CLEANUP_FAILED'}
           } finally {Pop-Location}
           Write-Host 'KTERM_PREPOST_PRIVATE_GIT_CHECKOUT=PASS;EXTERNAL_GITHUB_ACTION_DOWNLOADS=0'
-      - name: Pin exact source SHA tree and three recovery-SELL boundary source blobs
+      - name: Pin exact source SHA tree and four recovery-SELL boundary source blobs
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -80,15 +80,16 @@ jobs:
               throw 'KTERM_PREPOST_SOURCE_CUSTODY_FAILED'
             }
             $expected=@{
-              'pkg/native-execution.go'='98364871c3cdc8baf2d02bf7429c366ac0491e86'
+              'pkg/native-execution.go'='64b9a39384f2bea21654be981e24e3daa32ce356'
               'pkg/native-recovery-sell-prepost-fence.go'='80fef001633792f83bf3a6fda65ad8ec741a2ae9'
-              'pkg/native-recovery-sell-prepost-fence_test.go'='a244b2b958daeaf4694a29808b23d52a8e5f00f6'
+              'pkg/advanced-orders.go'='4940770a6bc772ac42480279b2dd745746b40a77'
+              'pkg/native-recovery-sell-prepost-fence_test.go'='1f7653e03b0e0c04777706b9983bd4750ab4809d'
             }
             foreach($key in $expected.Keys) {
               $actual=(& git rev-parse ('HEAD:'+ $key)).Trim()
               if($actual -cne $expected[$key]){throw 'KTERM_PREPOST_BLOB_DRIFT'}
             }
-            Write-Host ('KTERM_PREPOST_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';CHANGED_BLOBS=3')
+            Write-Host ('KTERM_PREPOST_EXACT_SOURCE=PASS;SHA='+$sha+';TREE='+$tree+';CHANGED_BLOBS=4')
           } finally { Pop-Location }
       - name: Reuse previously qualified exact Go toolchain from existing runner cache
         shell: pwsh
@@ -126,7 +127,7 @@ jobs:
           Push-Location (Join-Path $env:GITHUB_WORKSPACE $env:KTERM_CHECKOUT_RELATIVE)
           try {
             $sw=[Diagnostics.Stopwatch]::StartNew()
-            & go test -count=1 -p 1 -timeout 12m -run '^(TestRecoverySellPrePostFence|TestPaperNewBuyReservationCapacity|TestPaperPostAnchorBuyBoundary|TestPaperProtectedBTCFloor|TestInheritedPaperCustody|TestInheritedPreview)' ./pkg
+            & go test -count=1 -p 1 -timeout 12m -run '^(TestRecoverySellPrePostFence|TestRecoverySellHTTPGuardLateRevocationKnownUnsent|TestPaperNewBuyReservationCapacity|TestPaperPostAnchorBuyBoundary|TestPaperProtectedBTCFloor|TestInheritedPaperCustody|TestInheritedPreview)' ./pkg
             if($LASTEXITCODE -ne 0){throw 'KTERM_PREPOST_FOCUSED_TEST_FAILED'}
             Write-Host ('KTERM_PREPOST_FOCUSED_TESTS=PASS;ELAPSED_MS='+$sw.ElapsedMilliseconds)
           } finally {Pop-Location}
