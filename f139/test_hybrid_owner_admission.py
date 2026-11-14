@@ -10,7 +10,7 @@ from unittest.mock import patch
 from f139.local_controller import Database
 from f139.hybrid_owner_admission import (
     OLD_CHECK, NEW_CHECK, audit_hybrid_lane, is_migrated, migrate_hybrid_lane,
-    _qualified_v41_postcommit_source_hold,
+    _qualified_v41_postcommit_source_hold, _qualified_v38_forward_source_hold,
     QUALIFIED_HYBRID_WORKER_BLOB, require_qualified_worker_blob,
 )
 
@@ -128,6 +128,63 @@ class HybridOwnerMigrationTests(unittest.TestCase):
                    return_value=True):
             self.assertFalse(_qualified_v41_postcommit_source_hold(held))
 
+
+    def test_v38_forward_hold_requires_both_exact_source_events(self):
+        from f139 import nci04_v41_hybrid_source_transition as v37
+        from f139 import nci04_v41_hybrid_forward_repair as v38
+        conn=sqlite3.connect(":memory:")
+        self.addCleanup(conn.close)
+        conn.row_factory=sqlite3.Row
+        conn.execute("CREATE TABLE events (seq INTEGER PRIMARY KEY,kind TEXT,"
+                     "sha TEXT,prior_sha TEXT,payload TEXT)")
+        prior={"schema":v37.SCHEMA,"from_source_sha":v37.FROM_V41,
+               "to_source_sha":v38.FROM,"hybrid_admission":False,
+               "scientific_first_use":False}
+        target="b"*40
+        current={"schema":v38.SCHEMA,"purpose":v38.PURPOSE,
+                 "from_source_sha":v38.FROM,"to_source_sha":target,
+                 "original_head_seq":v38.V37_SEQ,
+                 "original_head_sha256":v38.V37_HEAD,
+                 "hybrid_admission":False,"scientific_first_use":False,
+                 "task_resume_authorized":False,
+                 "owner_policy_update_authorized":False,
+                 "new_dispatches":0}
+        conn.execute("INSERT INTO events VALUES(?,?,?,?,?)",
+                     (v38.V37_SEQ,"SOURCE_TRANSITION_ADMITTED",
+                      v38.V37_HEAD,v37.ACTIVATED_HASH,json.dumps(prior)))
+        conn.execute("INSERT INTO events VALUES(?,?,?,?,?)",
+                     (v38.V37_SEQ+1,"SOURCE_TRANSITION_ADMITTED",
+                      "c"*64,v38.V37_HEAD,json.dumps(current)))
+        meta={"head_seq":v38.V37_SEQ+1,
+              "head_hash":"c"*64,"source_sha":target}
+        held=SimpleNamespace(conn=conn,meta=lambda:meta)
+        with patch("f139.nci04_owner_ledger.verify_native_activation",
+                   return_value=False):
+            self.assertFalse(_qualified_v38_forward_source_hold(held))
+        with patch("f139.nci04_owner_ledger.verify_native_activation",
+                   return_value=True) as verify:
+            self.assertTrue(_qualified_v38_forward_source_hold(held))
+            verify.assert_called_once_with(held,expected_source=v37.FROM_V41)
+        for field,bad in (("schema","forge.f139.source-transition.v37"),
+                          ("hybrid_admission",True),
+                          ("owner_policy_update_authorized",True),
+                          ("new_dispatches",1),
+                          ("to_source_sha",v38.FROM)):
+            with self.subTest(field=field):
+                conn.execute("UPDATE events SET payload=? WHERE seq=?",
+                             (json.dumps({**current,field:bad}),
+                              v38.V37_SEQ+1))
+                with patch("f139.nci04_owner_ledger.verify_native_activation",
+                           return_value=True):
+                    self.assertFalse(_qualified_v38_forward_source_hold(held))
+        conn.execute("UPDATE events SET payload=? WHERE seq=?",
+                     (json.dumps(current),v38.V37_SEQ+1))
+        conn.execute("UPDATE events SET sha=? WHERE seq=?",
+                     ("0"*64,v38.V37_SEQ))
+        with patch("f139.nci04_owner_ledger.verify_native_activation",
+                   return_value=True):
+            self.assertFalse(_qualified_v38_forward_source_hold(held))
+
     def test_v37_original_negative_custody_is_required_for_native_reactivation(self):
         # Source-level regression for the next authenticated owner gate.
         # This alone does NOT constitute live native-activation acceptance:
@@ -138,6 +195,8 @@ class HybridOwnerMigrationTests(unittest.TestCase):
         source = inspect.getsource(activate_native)
         self.assertEqual(source.count(
             '"forge.f139.source-transition.v37"'), 3)
+        self.assertEqual(source.count(
+            '"forge.f139.source-transition.v38"'), 3)
         self.assertIn(
             "negative_successors[-1][\"to_source_sha\"]==meta[\"source_sha\"]",
             source)
@@ -146,7 +205,7 @@ class HybridOwnerMigrationTests(unittest.TestCase):
         self.assertIn("failed_tickets==all_certified", source)
         self.assertIn("db.verify()", source)
 
-    def _synthetic_v37_native_activation(self, *, omit_negative=False):
+    def _synthetic_v37_native_activation(self, *, omit_negative=False, version='v37'):
         # Isolated contract test only: real 1830-event ledger is not available
         # in CI. Origin signatures and 153/56 history remain live owner gates.
         from f139.nci04_owner_ledger import activate_native, APPROVAL_SCHEMA
@@ -155,11 +214,13 @@ class HybridOwnerMigrationTests(unittest.TestCase):
         from f139.nci04_g49_prepost_negative import TICKET as prepost
         from f139.nci04_v36_source_transition import I1464_TICKET
         from f139.nci04_v41_hybrid_source_transition import SCHEMA as V37
+        from f139.nci04_v41_hybrid_forward_repair import SCHEMA as V38
         from f139.local_controller import Database
         from contextlib import ExitStack
-        target = "c611c4362e3cc867984448a03ecdf3be923d2ef1"
+        target = ("c611c4362e3cc867984448a03ecdf3be923d2ef1"
+                  if version == "v37" else "b" * 40)
         db = Database.initialize(
-            Path(self.temp.name) / ("v37-omit.db" if omit_negative else "v37-good.db"),
+            Path(self.temp.name) / (version + ("-omit.db" if omit_negative else "-good.db")),
             target)
         self.addCleanup(db.close)
         db.enable(legacy_suspended=True)
@@ -175,8 +236,10 @@ class HybridOwnerMigrationTests(unittest.TestCase):
                 (ticket, "Yggdrasil", target, "QUARANTINED", "a" * 64,
                  "synthetic-negative"))
         db.event("SOURCE_TRANSITION_ADMITTED", {
-            "schema": V37,
-            "from_source_sha": "1a40fe4e3ec6e93a1631d59863b95e90981d734e",
+            "schema": V37 if version == "v37" else V38,
+            "from_source_sha": ("1a40fe4e3ec6e93a1631d59863b95e90981d734e"
+                                if version == "v37" else
+                                "c611c4362e3cc867984448a03ecdf3be923d2ef1"),
             "to_source_sha": target,
             "custodied_negative_tasks": 56,
             "custodied_negative_tickets": full,
@@ -230,6 +293,12 @@ class HybridOwnerMigrationTests(unittest.TestCase):
 
     def test_v37_reactivation_rejects_missing_frozen_negative(self):
         self._synthetic_v37_native_activation(omit_negative=True)
+
+    def test_v38_reactivation_keeps_56_custodied_negatives(self):
+        self._synthetic_v37_native_activation(version="v38")
+
+    def test_v38_reactivation_rejects_missing_negative(self):
+        self._synthetic_v37_native_activation(omit_negative=True,version="v38")
 
     def test_worker_not_qualified_never_unlocks_original_owner_migration(self):
         for candidate in ("8eab7972ba1b30eabf1e38477aff60b598cdeb2f",
