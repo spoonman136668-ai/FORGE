@@ -46,7 +46,7 @@ jobs:
           }
           $env:PYTHONPATH=$stage
           $code=@'
-          import json,os,sqlite3,sys,tempfile
+          import hashlib,json,os,shutil,sqlite3,sys,tempfile
           from pathlib import Path
           from contextlib import closing
           from f139.local_controller import Database
@@ -70,6 +70,26 @@ jobs:
                   src.execute("PRAGMA query_only=ON")
                   with closing(sqlite3.connect(copied)) as dst:
                       src.backup(dst)
+              # The live owner authenticates historical failed-provider ZIPs
+              # relative to its DB parent; copy those exact immutable bytes
+              # beside the disposable DB before invoking Database.verify.
+              from f139.nci04_negative_owner_store import (
+                  TICKET as NEG_TICKET,RUN_ID as NEG_RUN,ARTIFACT_SHA as NEG_SHA)
+              from f139.nci04_split_negative_owner_store import (
+                  TICKET as SPLIT_TICKET,RUN_ID as SPLIT_RUN)
+              from f139.nci04_split_negative_custody import ARTIFACT_SHA256 as SPLIT_SHA
+              for ticket,run,sha_expected in (
+                  (NEG_TICKET,NEG_RUN,NEG_SHA),
+                  (SPLIT_TICKET,SPLIT_RUN,SPLIT_SHA),
+              ):
+                  parts=("native-negative",ticket,str(run),"ubuntu-latest.zip")
+                  source=original.parent.joinpath(*parts)
+                  dest=copied.parent.joinpath(*parts)
+                  assert source.is_file() and not source.is_symlink()
+                  assert hashlib.sha256(source.read_bytes()).hexdigest()==sha_expected
+                  dest.parent.mkdir(parents=True,exist_ok=False)
+                  shutil.copyfile(source,dest)
+                  assert hashlib.sha256(dest.read_bytes()).hexdigest()==sha_expected
               with closing(Database(copied)) as copy:
                   pre=copy.meta().copy()
                   assert pre["source_sha"]==target and pre["head_seq"]>=1829
