@@ -73,25 +73,19 @@ class ForwardBackupOwnerTests(unittest.TestCase):
                 "NATIVE_WINDOWS_ORIGINAL_PROVIDER_REQUIRED"):
             backup.original_backup(None, {}, {}, None)
 
-    def test_existing_workflow_backup_has_no_task_or_policy_mutation(self):
+    def test_backup_owner_action_is_not_registered_without_separate_authority(self):
         path = (Path(__file__).resolve().parent.parent / ".github" /
                 "workflows" / "f139-v41-original-owner-live-install.yml")
         workflow = path.read_text("utf-8")
-        name = "  hybrid-v41-original-forward-backup:"
-        self.assertEqual(workflow.count(name), 1)
-        job = workflow.split(name, 1)[1]
-        self.assertIn("github.event_name == 'issue_comment'", job)
-        self.assertIn("github.event.issue.number == 807", job)
-        self.assertIn("runs-on: [self-hosted, Windows, forge-codex-isolated]", job)
-        self.assertIn("GITHUB_RUN_ATTEMPT -cne '1'", job)
-        self.assertIn("persist-credentials: false", job)
-        self.assertIn("f139.nci04_v41_hybrid_forward_backup", job)
-        for forbidden in (
-            "Start-ScheduledTask", "Stop-ScheduledTask",
-            "Enable-ScheduledTask", "Disable-ScheduledTask",
-            "gh api --method PATCH", "gh workflow run",
-            "workflow_dispatch", "issues: write"):
-            self.assertNotIn(forbidden, job)
+        self.assertNotIn("hybrid-v41-original-forward-backup:", workflow)
+        self.assertNotIn("f139.nci04_v41_hybrid_forward_backup", workflow)
+        # This file has no spontaneous execution path.
+        source = Path(backup.__file__).read_text("utf-8")
+        for forbidden in ("Start-ScheduledTask", "Stop-ScheduledTask",
+                          "Enable-ScheduledTask", "Disable-ScheduledTask",
+                          "workflow_dispatch", "gh workflow run",
+                          "gh api --method PATCH"):
+            self.assertNotIn(forbidden, source)
 
 
 if __name__ == "__main__":
