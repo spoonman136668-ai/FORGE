@@ -12,7 +12,8 @@ import sys
 from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negative_controls,
     V41_STATUS_BRANCH, V41_STATUS_RESULT, V41_STATUS_BASE,
     V41_BACKUP_BRANCH, V41_BACKUP_RESULT, V41_BACKUP_BASE,
-    V41_PAUSE_BRANCH, V41_PAUSE_RESULT, V41_PAUSE_BASE)
+    V41_PAUSE_BRANCH, V41_PAUSE_RESULT, V41_PAUSE_BASE,
+    HYBRID_COMPLETE_BRANCH, HYBRID_COMPLETE_BASE, HYBRID_COMPLETE_BASE_TREE)
 from check_rar_g148_go_cache import CAP, ROOT, git, identity, stable, compiled_graph
 
 BRANCH = "engineering/rar-g156-dynamic-main-cache-release-20261108"
@@ -260,6 +261,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or base != "1a40fe4e3ec6e93a1631d59863b95e90981d734e"
                 or tree != "e2d0322dd38baf8bc94bf32b6c3496b0471f3ed9"):
             raise ValueError("G156_HYBRID_OWNER_WORKFLOW_EXACT_BASE_REQUIRED")
+        return
+    if os.environ.get("GITHUB_HEAD_REF") == HYBRID_COMPLETE_BRANCH:
+        if (admission != "EXACT_PR1758_HYBRID_ORIGINAL_ENGINEERING_QUALIFICATION_ONLY"
+                or base != HYBRID_COMPLETE_BASE
+                or tree != HYBRID_COMPLETE_BASE_TREE):
+            raise ValueError("G156_HYBRID_COMPLETE_EXACT_OWNER_SCOPE_REQUIRED")
         return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v41-native-original-install-entry-20261113":
         if (admission != FROZEN

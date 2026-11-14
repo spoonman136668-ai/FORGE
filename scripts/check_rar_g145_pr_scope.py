@@ -40,6 +40,7 @@ HYBRID_COMPLETE_FILES = frozenset({
     "f139/v41_hybrid_original_activate.ps1",
     "scripts/check_rar_g145_pr_scope.py",
     "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
 })
 
 V41_PAUSE_BRANCH = "engineering/f139-v41-original-pause-backup-resume-20261112"
