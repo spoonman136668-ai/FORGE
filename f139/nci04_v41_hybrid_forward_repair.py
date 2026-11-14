@@ -207,7 +207,39 @@ def commit_transition(db, proof, *, disabled_owner_witness,
          and all(witness() is True for witness in (
              disabled_owner_witness, release_witness, cold_bundle_witness)),
          "SEPARATE_SOURCE_OWNER_RELEASE_AND_COLD_APPROVAL_REQUIRED")
+    # The new post-1830 cold bundle is NOT the old frozen V41 backup.
+    # Bind its actual independently restored bytes to every commit attempt;
+    # an owner-witness boolean alone cannot certify an arbitrary hash.
+    from f139 import nci04_v41_hybrid_forward_cold_bundle as cold_bundle
+    new_backup = db.filename.parent / ("f139-v38-before-" +
+                                       str(proof["backup_run_id"]))
+    def require_frozen_backup():
+        result = cold_bundle.verify_detached_restore(
+            new_backup, target=proof["to_source_sha"],
+            run_id=proof["backup_run_id"],
+            manifest_sha=proof["backup_manifest_sha256"])
+        need(type(result) is dict
+             and result.get("original_source_sha") == FROM
+             and result.get("original_head_seq") == V37_SEQ
+             and result.get("original_head_sha256") == V37_HEAD
+             and result.get("candidate_sha") == proof["to_source_sha"]
+             and result.get("manifest_sha256") ==
+                 proof["backup_manifest_sha256"]
+             and result.get("logical_all_tables_sha256") ==
+                 proof["backup_logical_all_tables_sha256"]
+             and result.get("provider_archives_bytes_verified") is True
+             and result.get("generation_binary_bytes_verified") is True
+             and result.get("independent_detached_restore_verified") is True
+             and result.get("original_owner_mutations") == 0
+             and result.get("new_dispatches") == 0
+             and result.get("source_transition_authorized") is False
+             and result.get("hybrid_admission") is False
+             and result.get("scientific_first_use") is False,
+             "NEW_1830_COLD_BACKUP_NOT_AUTHENTIC")
+        return True
+    require_frozen_backup()
     with db.transaction():
+        require_frozen_backup()
         want = build_proof(
             db, proof["to_source_sha"], proof["owner_event_id"],
             proof["backup_run_id"], proof["backup_manifest_sha256"],
