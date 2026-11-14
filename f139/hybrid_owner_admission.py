@@ -179,6 +179,62 @@ def _qualified_v41_postcommit_source_hold(db):
     )
 
 
+
+def _qualified_v38_forward_source_hold(db):
+    """Require the genuine v37 + v38 pair and historical native V41 activation.
+
+    This is NOT new-source native activation; that separately requires an
+    owner-authenticated native approval after schema migration.
+    Database.verify() is mandatory before this predicate is used.
+    """
+    from f139 import nci04_v41_hybrid_source_transition as v37
+    from f139 import nci04_v41_hybrid_forward_repair as v38
+    from f139.nci04_owner_ledger import verify_native_activation
+
+    meta = db.meta()
+    if meta["head_seq"] != v38.V37_SEQ + 1:
+        return False
+    rows = db.conn.execute(
+        "SELECT seq,kind,sha,prior_sha,payload FROM events "
+        "WHERE seq IN (?,?) ORDER BY seq", (v38.V37_SEQ,
+                                           v38.V37_SEQ + 1)).fetchall()
+    if len(rows) != 2:
+        return False
+    older, newer = rows
+    try:
+        prior = json.loads(older["payload"])
+        current = json.loads(newer["payload"])
+    except (UnicodeError, ValueError, TypeError):
+        return False
+    return (
+        older["seq"] == v38.V37_SEQ
+        and older["kind"] == "SOURCE_TRANSITION_ADMITTED"
+        and older["sha"] == v38.V37_HEAD
+        and older["prior_sha"] == v37.ACTIVATED_HASH
+        and prior.get("schema") == v37.SCHEMA
+        and prior.get("from_source_sha") == v37.FROM_V41
+        and prior.get("to_source_sha") == v38.FROM
+        and prior.get("hybrid_admission") is False
+        and prior.get("scientific_first_use") is False
+        and newer["seq"] == v38.V37_SEQ + 1
+        and newer["kind"] == "SOURCE_TRANSITION_ADMITTED"
+        and newer["prior_sha"] == v38.V37_HEAD
+        and newer["sha"] == meta["head_hash"]
+        and current.get("schema") == v38.SCHEMA
+        and current.get("purpose") == v38.PURPOSE
+        and current.get("from_source_sha") == v38.FROM
+        and current.get("to_source_sha") == meta["source_sha"]
+        and current.get("original_head_seq") == v38.V37_SEQ
+        and current.get("original_head_sha256") == v38.V37_HEAD
+        and current.get("hybrid_admission") is False
+        and current.get("scientific_first_use") is False
+        and current.get("task_resume_authorized") is False
+        and current.get("owner_policy_update_authorized") is False
+        and current.get("new_dispatches") == 0
+        and verify_native_activation(db, expected_source=v37.FROM_V41)
+    )
+
+
 def migrate_hybrid_lane(db):
     """Original owner only, once, in its existing SQLite transaction.
 
@@ -189,7 +245,9 @@ def migrate_hybrid_lane(db):
     if is_migrated(db):
         return False
     from f139.nci04_owner_ledger import verify_native_activation
-    require(verify_native_activation(db) or _qualified_v41_postcommit_source_hold(db),
+    require(verify_native_activation(db)
+            or _qualified_v41_postcommit_source_hold(db)
+            or _qualified_v38_forward_source_hold(db),
             "NATIVE_ORIGINAL_OWNER_NOT_ACTIVE")
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1
