@@ -163,7 +163,9 @@ class PairedOwnerTests(unittest.TestCase):
             self.assertEqual(db.meta()["source_sha"],pair.V41_SOURCE)
 
     def test_authentic_1829_floor_blocks_synthetic_backup(self):
-        with patch.object(original,"_task_readback",return_value=True), \
+        with patch.object(gate.bridge,"require_protected_main_release",
+                          return_value={"source_sha":TARGET}), \
+             patch.object(original,"_task_readback",return_value=True), \
              patch.object(original,"_candidate_clean_checkout",
                           return_value=True), \
              patch.object(pair,"verify_native_activation",return_value=True):
@@ -175,7 +177,9 @@ class PairedOwnerTests(unittest.TestCase):
 
     def test_wrong_policy_or_provider_head_denied(self):
         self.policy["lanes"].append("TTT-Hybrid")
-        with patch.object(original,"_task_readback",return_value=True), \
+        with patch.object(gate.bridge,"require_protected_main_release",
+                          return_value={"source_sha":TARGET}), \
+             patch.object(original,"_task_readback",return_value=True), \
              patch.object(original,"_candidate_clean_checkout",return_value=True):
             with self.assertRaises(original.HybridOwnerBackupDenied):
                 gate.preflight_only(self.db,self.env,self.event,self.get,
