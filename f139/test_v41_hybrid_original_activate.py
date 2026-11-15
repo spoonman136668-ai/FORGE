@@ -133,6 +133,23 @@ class V41HybridCutoverTests(unittest.TestCase):
         self.assertLess(s.index("upgrade-hybrid-lane"),
                         s.index("gh api --method PATCH"))
 
+    def test_embedded_v38_preflight_is_syntactically_valid_python(self):
+        script=SCRIPT.read_text("utf-8")
+        self.assertEqual(script.count("$program=@'\n"),1)
+        embedded=script.split("$program=@'\n",1)[1].split(
+            "\n'@\n$env:PYTHONPATH",1)[0]
+        compile(embedded,"<f139-v38-activation-preflight>","exec")
+        for marker in (
+            'postcommit_id<current_id',
+            'readiness._owner_comment(get,current_id,body)',
+            'postcommit.original_postcommit(db,dict(os.environ),previous,api)',
+            'receipt["event_seq"]==1831',
+            'receipt["custodied_negative_tasks"]==56',
+            'receipt["original_owner_mutations"]==0',
+            'receipt["scientific_first_use"] is False',
+        ):
+            self.assertIn(marker,embedded)
+
     @unittest.skipUnless(os.name=="nt","native Windows PowerShell parser")
     def test_native_windows_ps51_parser(self):
         exe=shutil.which("powershell.exe")
