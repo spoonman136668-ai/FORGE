@@ -264,6 +264,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or tree != "eb5dcc4e7aed43fc6f792fdf6bf8a54802206974"):
             raise ValueError("G156_V39_ORIGINAL_OWNER_EXACT_BASE_TREE_REQUIRED")
         return
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v39-postmerge-isolation-correction-20261115":
+        if (admission != FROZEN
+                or base != "f5507425859bee2f791efd6b0f82b090fddfe416"
+                or tree != "af99f4dc9acc4031f25404f33d47129dabf47836"):
+            raise ValueError("G156_V39_POSTMERGE_EXACT_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == V38_FORWARD_V2_BRANCH:
         if (admission != V38_FORWARD_V2_RESULT
                 or base != V38_FORWARD_V2_BASE

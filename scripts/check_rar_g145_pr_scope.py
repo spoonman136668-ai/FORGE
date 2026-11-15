@@ -321,6 +321,22 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # Correct only the prior protected-main diff-check whitespace and
+    # bind the follow-on original owner release to the new exact source.
+    # Source CI admission ONLY; never authorization to execute the owner task,
+    # commit event 1832, change policy, or perform scientific first-use.
+    "engineering/f139-v39-postmerge-isolation-correction-20261115": (
+        "f5507425859bee2f791efd6b0f82b090fddfe416",
+        {
+            ".github/workflows/f139-v39-original-source-successor.yml",
+            "f139/nci04_v41_hybrid_event1832_owner.py",
+            "f139/test_nci04_v41_hybrid_event1832_owner.py",
+            "f139/test_nci04_v41_hybrid_event1832_workflow.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Frozen PR1774 source-only original V39 implementation and existing owner
     # workflow event routes. This is ENGINEERING CI admission, not native
     # activation, task ownership, scientific first-use or merge authority.
@@ -2232,6 +2248,17 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v39-postmerge-isolation-correction-20261115":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1775
+                    or type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or git("rev-parse", "f5507425859bee2f791efd6b0f82b090fddfe416^{tree}") !=
+                        "af99f4dc9acc4031f25404f33d47129dabf47836"):
+                raise ValueError("G145_V39_POSTMERGE_OWNER_BASE_TREE_REQUIRED")
         if branch == "engineering/f139-v38-event1831-activation-bridge-20261115":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]

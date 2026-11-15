@@ -94,7 +94,7 @@ class FakeV39Owner:
         name = path[len(prefix):]
         if name == "branches/main":
             return self.main
-        if name == "pulls/1774":
+        if name == "pulls/1775":
             return self.pr
         if name.startswith("compare/"):
             return self.compare
@@ -149,7 +149,7 @@ class Event1832OwnerContractTests(unittest.TestCase):
         self.provider.pr["merged"] = False
         with self.assertRaisesRegex(
                 owner.Event1832OwnerDenied,
-                "PR1774_MERGED_PROTECTED_MAIN_REQUIRED"):
+                "PR1775_MERGED_PROTECTED_MAIN_REQUIRED"):
             owner.release(self.provider.get, self.provider.target)
         self.provider.pr["merged"] = True
         self.provider.tree = "0" * 40
