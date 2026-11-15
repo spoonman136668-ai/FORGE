@@ -48,6 +48,44 @@ class HeldOriginalTaskSourceTests(unittest.TestCase):
             self.assertIn("profile.readback(", text)
             self.assertNotIn("owner._task_readback(", text)
 
+    @unittest.skipUnless(os.name == "nt", "Native Windows profile parser test")
+    def test_exact_original_guard_parses_under_windows_powershell_51(self):
+        """Parse the real fixed read-only guard without touching Task Scheduler."""
+        with tempfile.TemporaryDirectory() as root:
+            db = Path(root) / "state.sqlite"
+            db.write_bytes(b"synthetic-not-a-real-database")
+            exe = profile.shutil.which("powershell.exe")
+            self.assertTrue(exe, "WIN_POWERSHELL_51_UNAVAILABLE")
+            parse_result = []
+            def verify_source(argv, **params):
+                self.assertEqual(argv[:3],
+                                 [exe, "-NoProfile", "-NonInteractive"])
+                self.assertEqual(params["check"], False)
+                self.assertEqual(params["timeout"], 25)
+                # Only run the Windows PowerShell parser, not the script.
+                env = {**params["env"], "F139_TEST_GUARD_BODY": argv[4]}
+                parser = (
+                    "$tokens=$null; $errors=$null; "
+                    "[void][System.Management.Automation.Language.Parser]::ParseInput("
+                    "$env:F139_TEST_GUARD_BODY,[ref]$tokens,[ref]$errors); "
+                    "if($errors.Count){"
+                    "Write-Output ('PARSE_ERROR_LINE='+$errors[0].Extent.StartLineNumber); "
+                    "exit 42}; Write-Output 'PARSE_OK'"
+                )
+                check = subprocess.run(
+                    [exe, "-NoProfile", "-NonInteractive", "-Command", parser],
+                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    timeout=20, stdin=subprocess.DEVNULL, check=False)
+                sanitized = check.stdout.decode("ascii", errors="replace").strip()
+                parse_result.append(sanitized)
+                self.assertEqual(check.returncode, 0,
+                                 "ORIGINAL_GUARD_" + sanitized[:65])
+                self.assertEqual(sanitized, "PARSE_OK")
+                return subprocess.CompletedProcess(argv, 0,
+                      stdout=profile.PROOF + b"\n", stderr=b"")
+            self.assertTrue(profile.readback(db, runner=verify_source))
+            self.assertEqual(parse_result, ["PARSE_OK"])
+
     @unittest.skipUnless(os.name == "nt", "Native Windows profile test")
     def test_fake_readonly_task_proof_has_exact_allowlist(self):
         with tempfile.TemporaryDirectory() as root:
