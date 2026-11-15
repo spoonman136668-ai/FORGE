@@ -18,6 +18,7 @@ env:
   CGO_ENABLED: '0'
 jobs:
   native-windows:
+    if: false # already qualified exact KABOOM source; public wheel transfer only
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
@@ -114,6 +115,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   architecture-linux:
+    if: false # already qualified exact KABOOM source; public wheel transfer only
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -248,3 +250,29 @@ jobs:
           path: ${{ runner.temp }}/kaboom-safe/status.txt
           if-no-files-found: error
           retention-days: 14
+
+  public-graphify-wheel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Download only public pinned Graphify wheel, no private source or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
+          test "$GITHUB_REF" = "refs/heads/qualification/kaboom-pr105-source-offline-20261114"
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          mkdir -p "$RUNNER_TEMP/public-wheel"
+          python -m pip download --no-deps --only-binary=:all: --dest "$RUNNER_TEMP/public-wheel" 'graphifyy==0.9.92'
+          test "$(find "$RUNNER_TEMP/public-wheel" -type f | wc -l)" -eq 1
+          echo '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c  '"$RUNNER_TEMP/public-wheel/graphifyy-0.9.92-py3-none-any.whl" | sha256sum -c -
+          echo KABOOM_PUBLIC_GRAPHIFY_WHEEL_HASH=PASS
+      - name: Upload public PyPI wheel only (no private source)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: public-graphifyy-0.9.92-wheel
+          path: ${{ runner.temp }}/public-wheel/graphifyy-0.9.92-py3-none-any.whl
+          if-no-files-found: error
+          retention-days: 1
