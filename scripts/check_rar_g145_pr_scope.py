@@ -49,6 +49,25 @@ HYBRID_COMPLETE_FILES = frozenset({
 # Separate operator-approved bounded *diagnostic only* after failed original
 # one-shot, authenticated to exact prior failed run/comment. Only grants source
 # CI admission; no owner workflow execution, mutation, task control or science.
+# Frozen operator-authorized original-owner stage localization (read-only).
+# CI source admission ONLY: never a task, scheduler, first-use or runner right.
+V38_STAGE_BRANCH = "engineering/f139-v38-held-task-stage-diagnostic-20261114"
+V38_STAGE_PR = 1762
+V38_STAGE_BASE = "396a1a36aec66a47d798ac677bf3ed473c3fa27f"
+V38_STAGE_BASE_TREE = "b59a9644b32a11ea5aafea004a54f2f6919d59dd"
+V38_STAGE_WORKFLOW = ".github/workflows/f139-v38-held-task-stage-diagnostic-once.yml"
+V38_STAGE_WORKFLOW_BLOB = "6ead37ed976f65b54a8753471c4d4369826bdcc9"
+V38_STAGE_RESULT = "EXACT_PR1762_V38_ORIGINAL_READONLY_STAGE_CI_ONLY"
+V38_STAGE_FILES = frozenset({
+    V38_STAGE_WORKFLOW,
+    "f139/nci04_v38_held_task_stage_diagnostic.py",
+    "f139/test_nci04_v38_held_task_stage_diagnostic.py",
+    "docs/F139-V38-HELD-TASK-STAGE-ONE-SHOT.md",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
 V38_DIAG_BRANCH = "engineering/f139-v38-held-task-guard-diagnostic-once-20261114"
 V38_DIAG_PR = 1761
 V38_DIAG_BASE = "46a97e22ccd061ed799b53a8b92f27ed48b98f2b"
@@ -413,6 +432,102 @@ def hybrid_complete_negative_controls() -> None:
     reject(changed=(("rev-parse",head+":"+HYBRID_WORKER_PATH),"f"*40))
 
 
+def admit_v38_stage_diagnostic(head_sha: str, base_sha: str,
+                               request: dict, git: Callable[..., str]) -> str:
+    """Only exact PR1762, same protected base, seven paths, unchanged guard."""
+    if (not is_sha(head_sha) or base_sha != V38_STAGE_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != V38_STAGE_PR
+            or type(request.get("user")) is not dict
+            or request["user"].get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_V38_STAGE_OWNER_PR_OR_BASE_DENIED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        tree = git("rev-parse", base_sha + "^{tree}")
+        paths = git("diff", "--no-renames", "--name-only",
+                    base_sha, head_sha).splitlines()
+        before = git("ls-tree", base_sha, "--", V38_STAGE_WORKFLOW)
+        after = git("ls-tree", head_sha, "--", V38_STAGE_WORKFLOW)
+        original = git("rev-parse", head_sha +
+                       ":f139/nci04_v41_hybrid_forward_owner_profile.py")
+        previous = git("rev-parse", head_sha +
+                       ":.github/workflows/f139-v38-held-task-guard-diagnostic-once.yml")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V38_STAGE_SOURCE_UNREADABLE") from exc
+    if (ancestor != V38_STAGE_BASE
+            or tree != V38_STAGE_BASE_TREE
+            or len(paths) != len(V38_STAGE_FILES)
+            or len(set(paths)) != len(paths)
+            or set(paths) != V38_STAGE_FILES
+            or before != ""
+            or after != "100644 blob " + V38_STAGE_WORKFLOW_BLOB +
+                         "\t" + V38_STAGE_WORKFLOW
+            or original != "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6"
+            or previous != "28924c2905d20e47d21a278ed763ad4a8904dda0"):
+        raise ValueError("G145_V38_STAGE_SOURCE_OR_GUARD_BLOB_DRIFT")
+    return V38_STAGE_RESULT
+
+
+def v38_stage_negative_controls() -> None:
+    head, base = "c" * 40, V38_STAGE_BASE
+    owner = {"number": V38_STAGE_PR,
+             "user": {"login": "spoonman136668-ai"},
+             "author_association": "OWNER"}
+    def source(*args):
+        results = {
+            ("merge-base", base, head): base,
+            ("rev-parse", base + "^{tree}"): V38_STAGE_BASE_TREE,
+            ("diff", "--no-renames", "--name-only", base, head):
+                "\n".join(sorted(V38_STAGE_FILES)),
+            ("ls-tree", base, "--", V38_STAGE_WORKFLOW): "",
+            ("ls-tree", head, "--", V38_STAGE_WORKFLOW):
+                "100644 blob " + V38_STAGE_WORKFLOW_BLOB + "\t" + V38_STAGE_WORKFLOW,
+            ("rev-parse", head +
+             ":f139/nci04_v41_hybrid_forward_owner_profile.py"):
+                "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6",
+            ("rev-parse", head +
+             ":.github/workflows/f139-v38-held-task-guard-diagnostic-once.yml"):
+                "28924c2905d20e47d21a278ed763ad4a8904dda0",
+        }
+        if args not in results:
+            raise AssertionError("unexpected G145 original read route")
+        return results[args]
+    if admit_v38_stage_diagnostic(head, base, owner, source) != V38_STAGE_RESULT:
+        raise ValueError("G145_V38_STAGE_POSITIVE_CONTROL_FAILED")
+    def refuse(request=owner, candidate_base=base, change=None):
+        def modified(*args):
+            return change[1] if change and args == change[0] else source(*args)
+        try:
+            admit_v38_stage_diagnostic(head, candidate_base,
+                                      request, modified)
+        except ValueError:
+            return
+        raise ValueError("G145_V38_STAGE_NEGATIVE_CONTROL_BYPASS")
+    refuse({**owner, "number": 1761})
+    refuse({**owner, "author_association": "CONTRIBUTOR"})
+    refuse({**owner, "user": {"login": "other"}})
+    refuse(candidate_base="d" * 40)
+    refuse(change=(("merge-base", base, head), "d" * 40))
+    refuse(change=(("rev-parse", base + "^{tree}"), "d" * 40))
+    refuse(change=(("diff", "--no-renames", "--name-only", base, head),
+                   "\n".join(sorted(V38_STAGE_FILES - {V38_STAGE_WORKFLOW}))))
+    refuse(change=(("diff", "--no-renames", "--name-only", base, head),
+                   "\n".join(sorted(V38_STAGE_FILES |
+                                      {".github/workflows/qualify.yml"}))))
+    refuse(change=(("ls-tree", head, "--", V38_STAGE_WORKFLOW),
+                   "100644 blob " + "d" * 40 + "\t" + V38_STAGE_WORKFLOW))
+    refuse(change=(("ls-tree", base, "--", V38_STAGE_WORKFLOW),
+                   "100644 blob " + "d" * 40 + "\t" + V38_STAGE_WORKFLOW))
+    refuse(change=(("rev-parse", head +
+                   ":f139/nci04_v41_hybrid_forward_owner_profile.py"),
+                   "d" * 40))
+    refuse(change=(("rev-parse", head +
+                   ":.github/workflows/f139-v38-held-task-guard-diagnostic-once.yml"),
+                   "d" * 40))
+
+
 def admit_v38_guard_diagnostic(head_sha: str, base_sha: str,
                                request: dict, git: Callable[..., str]) -> str:
     """Only exact owner PR1761 on the protected prior-failure main source.
@@ -657,6 +772,7 @@ def negative_controls() -> None:
     hybrid_complete_negative_controls()
     v38_readonly_negative_controls()
     v38_diagnostic_negative_controls()
+    v38_stage_negative_controls()
     v41_status_negative_controls()
     v41_backup_negative_controls()
     v41_pause_negative_controls()
@@ -1006,6 +1122,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == V38_STAGE_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_v38_stage_diagnostic(head_sha, base_sha, request, git)
     if branch == V38_DIAG_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]
