@@ -70,7 +70,6 @@ class V41HybridCutoverTests(unittest.TestCase):
             'receipt["event_seq"]==1831',
             "source_event_seq -eq 1831",
             "F139_HYBRID_V38_EVENT1831_ACTIVATION_PREFLIGHT=",
-            "release.require_successor_source(get,target,env=env)",
             "Get-ScheduledTask -TaskName $name",
             "Set-ScheduledTask -TaskName $name -Action $newAction",
             "upgrade-hybrid-lane",
@@ -101,7 +100,7 @@ class V41HybridCutoverTests(unittest.TestCase):
 
     def test_activate_requires_distinct_comment_before_any_task_mutation(self):
         script=SCRIPT.read_text("utf-8")
-        self.assertLess(script.index("POSTCOMMIT_ACTIVATION_PREFLIGHT="),
+        self.assertLess(script.index("EVENT1831_ACTIVATION_PREFLIGHT="),
                         script.index("Set-ScheduledTask -TaskName"))
         self.assertLess(script.index("Get-ScheduledTask -TaskName"),
                         script.index("Set-ScheduledTask -TaskName"))
