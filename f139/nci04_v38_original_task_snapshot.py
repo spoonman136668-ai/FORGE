@@ -229,6 +229,25 @@ Write-Output ('F{0:X4}-U{1:X4}' -f $mask,$unverified)
 '''
 
 
+def parse_receipt(raw: bytes, code: int) -> str:
+    """Validate the only two PowerShell output shapes without retaining raw."""
+    if type(code) is not int or code != 0 or type(raw) is not bytes or len(raw) > 100:
+        return "POWERSHELL_PROTOCOL_FAILED"
+    try:
+        token = raw.decode("ascii").strip()
+    except UnicodeDecodeError:
+        return "POWERSHELL_PROTOCOL_FAILED"
+    if token == "TASK_LOOKUP_FAILED":
+        return token
+    m = MASK.fullmatch(token)
+    if m is None:
+        return "POWERSHELL_PROTOCOL_FAILED"
+    failed, unknown = (int(m.group(i), 16) for i in (1, 2))
+    if (failed & unknown or failed > MAX_MASK or unknown > MAX_MASK):
+        return "POWERSHELL_PROTOCOL_FAILED"
+    return token
+
+
 def probe(db_path: Path, *, runner=subprocess.run):
     """One read-only PowerShell subprocess. Never retain or display raw output."""
     if (os.name != "nt" or type(db_path) is not Path
@@ -247,20 +266,9 @@ def probe(db_path: Path, *, runner=subprocess.run):
             [powershell, "-NoProfile", "-NonInteractive", "-Command", SCRIPT],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL, env=env, timeout=30, check=False)
-        if result.returncode != 0 or len(result.stdout) > 100:
-            return "POWERSHELL_PROTOCOL_FAILED"
-        token = result.stdout.decode("ascii").strip()
+        return parse_receipt(result.stdout, result.returncode)
     except Exception:
         return "POWERSHELL_PROTOCOL_FAILED"
-    if token == "TASK_LOOKUP_FAILED":
-        return token
-    m = MASK.fullmatch(token)
-    if m is None:
-        return "POWERSHELL_PROTOCOL_FAILED"
-    failed, unknown = (int(m.group(i), 16) for i in (1, 2))
-    if (failed & unknown or failed > MAX_MASK or unknown > MAX_MASK):
-        return "POWERSHELL_PROTOCOL_FAILED"
-    return token
 
 
 def run(env, event, get, *, task_probe=probe):
