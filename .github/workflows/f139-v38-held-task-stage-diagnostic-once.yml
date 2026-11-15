@@ -1,0 +1,77 @@
+name: FORGE F139 V38 held-owner stage-localizing read-only diagnostic once
+# Only new original-owner comment on #807; no schedule or workflow_dispatch.
+# No task/SQLite writes, owner restart, new consumer, science or retries.
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+  pull-requests: read
+concurrency:
+  group: forge-f139-v41-original-owner-live-install
+  cancel-in-progress: false
+jobs:
+  original-owner-stage-diagnostic:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V38-HELD-TASK-STAGE-DIAG ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout new protected-main source without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Authenticate exact owner intent and classify unchanged task guard once
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: .
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:GITHUB_REF -cne 'refs/heads/main' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_SHA -cnotmatch '^[a-f0-9]{40}$' -or
+              $env:OPENAI_API_KEY) {
+            throw 'F139_STAGE_DIAG_WRONG_FIRST_ATTEMPT_OWNER'
+          }
+          $head=(& git rev-parse HEAD | Out-String).Trim()
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          $orig=(& git rev-parse 'HEAD:f139/nci04_v41_hybrid_forward_owner_profile.py' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or
+              $head -cne $env:GITHUB_SHA -or
+              $dirty.Count -ne 0 -or
+              $orig -cne '9bda78341bc3651e8b7b0a24ea6c7858dbff05c6') {
+            throw 'F139_STAGE_DIAG_ORIGINAL_GUARD_OR_SOURCE_DRIFT'
+          }
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          $required='F139-V38-HELD-TASK-STAGE-DIAG '+$env:GITHUB_SHA+' 6886931814'
+          if ($event.action -cne 'created' -or
+              [string]$event.comment.body -cne $required -or
+              $event.comment.author_association -cne 'OWNER' -or
+              $event.comment.user.login -cne 'spoonman136668-ai' -or
+              $event.sender.login -cne 'spoonman136668-ai') {
+            throw 'F139_STAGE_DIAG_NEW_OWNER_COMMENT_REQUIRED'
+          }
+          & python -B -m f139.nci04_v38_held_task_stage_diagnostic
+          if ($LASTEXITCODE -ne 0) {
+            throw 'F139_STAGE_DIAG_FAIL_CLOSED'
+          }
+          Write-Output 'F139_STAGE_DIAG_CLASSIFIED_ONLY=TRUE'
+          Write-Output 'F139_STAGE_DIAG_TASK_MUTATIONS=ZERO'
+          Write-Output 'F139_STAGE_DIAG_SQLITE_OPENED=FALSE'
+          Write-Output 'F139_STAGE_DIAG_POLICY_MUTATIONS=ZERO'
+          Write-Output 'F139_STAGE_DIAG_SCIENCE_FIRST_USE=FALSE'
