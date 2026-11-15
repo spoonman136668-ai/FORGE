@@ -57,6 +57,8 @@ class OriginalReadonlyOwnerWorkflowTests(unittest.TestCase):
         self.assertEqual(set(guard.V38_READONLY_FILES), {
             ".github/workflows/f139-v38-original-owner-readonly-once.yml",
             "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
             "f139/test_v38_owner_readonly_workflow_scope.py",
             "docs/F139-V38-ONE-SHOT-ORIGINAL-OWNER-READONLY.md",
         })
