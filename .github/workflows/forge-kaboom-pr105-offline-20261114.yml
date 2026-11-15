@@ -200,6 +200,19 @@ jobs:
             echo KABOOM_GRAPHIFY_CLUSTER=FAIL; exit 1
           fi
           echo KABOOM_GRAPHIFY_CLUSTER=PASS
+          python - <<'GRAPHSHAPE'
+          import json, pathlib
+          path=pathlib.Path('graphify-out/graph.json')
+          data=json.loads(path.read_text())
+          print('KABOOM_GRAPHIFY_JSON_BYTES='+str(path.stat().st_size))
+          print('KABOOM_GRAPHIFY_JSON_KIND='+type(data).__name__)
+          if isinstance(data, dict):
+              print('KABOOM_GRAPHIFY_JSON_KEYS='+','.join(sorted(data.keys())))
+              for key in ('nodes','edges','links','entities','relations'):
+                  x=data.get(key)
+                  print('KABOOM_GRAPHIFY_'+key.upper()+'_SHAPE='+type(x).__name__+',count='+str(len(x) if hasattr(x,'__len__') else 'none'))
+              print('KABOOM_GRAPHIFY_HAS_KABOOM_CORE='+str('kaboom-core' in path.read_text().lower()))
+          GRAPHSHAPE
           if ! python tools/architecture/publish_graphify.py --root . --input graphify-out --output "$RUNNER_TEMP/kaboom-private-verified-graph" --source-sha "$KABOOM_SOURCE_SHA" > "$RUNNER_TEMP/kaboom-graphify-publisher-private.log" 2>&1; then
             grep -E '^KABOOM_GRAPHIFY_PUBLICATION=FAIL:' "$RUNNER_TEMP/kaboom-graphify-publisher-private.log" | head -1 | cut -c 1-160 || true
             echo KABOOM_GRAPHIFY_PUBLISHER=FAIL; exit 1
