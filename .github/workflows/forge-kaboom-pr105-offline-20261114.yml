@@ -18,7 +18,6 @@ env:
   CGO_ENABLED: '0'
 jobs:
   native-windows:
-    if: false # source qualification already PASS at run 43662371347
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
@@ -115,7 +114,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   architecture-linux:
-    if: false # source qualification already PASS at run 43662371347
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -250,39 +248,3 @@ jobs:
           path: ${{ runner.temp }}/kaboom-safe/status.txt
           if-no-files-found: error
           retention-days: 14
-
-  read-only-kterminal-runner-inventory:
-    runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Inspect existing K Terminal runner registration without mutation
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-              $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
-              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
-              $env:RUNNER_OS -cne 'Windows' -or
-              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
-              $env:GITHUB_RUN_ATTEMPT -cne '1') { throw 'KABOOM_LOCAL_RUNNER_IDENTITY_MISMATCH' }
-          $head=(& gh api repos/Kboomllc/K-Terminal/git/ref/heads/main --jq '.object.sha' 2>$null)
-          if ($LASTEXITCODE -ne 0) { throw 'KABOOM_READ_ONLY_SOURCE_INACCESSIBLE' }
-          Write-Output ('KABOOM_SOURCE_MAIN_SHA=' + $head.Trim())
-          $perm=(& gh api repos/Kboomllc/K-Terminal --jq '.permissions.push // false' 2>$null)
-          if ($LASTEXITCODE -ne 0 -or $perm.Trim() -cne 'true') { throw 'KABOOM_LOCAL_WRITER_NOT_AVAILABLE' }
-          Write-Output 'KABOOM_EXISTING_LOCAL_WRITER=PASS'
-          try {
-            $reply=(& gh api repos/Kboomllc/K-Terminal/actions/runners 2>$null)
-            if ($LASTEXITCODE -ne 0) { throw 'INVENTORY_REQUIRES_ADDITIONAL_PERMISSION' }
-            $data=($reply -join "`n") | ConvertFrom-Json
-            Write-Output ('KABOOM_REPOSITORY_RUNNER_INVENTORY=PASS;count=' + [int]$data.total_count)
-            foreach ($rr in $data.runners) {
-              $names=@($rr.labels | ForEach-Object { $_.name })
-              Write-Output ('KABOOM_RUNNER_ENTRY=' + $rr.name + ';status=' + $rr.status + ';labels=' + ($names -join ','))
-            }
-          } catch {
-            Write-Output 'KABOOM_REPOSITORY_RUNNER_INVENTORY=UNVERIFIED_READ_PERMISSION'
-          }
-          Write-Output 'KABOOM_LOCAL_RUNNER_PROBE=READ_ONLY;NO_PRODUCT_OR_REPOSITORY_MUTATIONS'
