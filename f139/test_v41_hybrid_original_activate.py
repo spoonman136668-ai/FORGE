@@ -139,6 +139,8 @@ class V41HybridCutoverTests(unittest.TestCase):
         embedded=script.split("$program=@'\n",1)[1].split(
             "\n'@\n$env:PYTHONPATH",1)[0]
         compile(embedded,"<f139-v38-activation-preflight>","exec")
+        self.assertNotIn("assert ",embedded)
+        self.assertIn("raise RuntimeError(",embedded)
         for marker in (
             'postcommit_id<current_id',
             'readiness._owner_comment(get,current_id,body)',
