@@ -142,3 +142,35 @@ The owner first verifies exact protected main, one completed prior V3 read-only
 job, task guard and issue policy; only then does the bounded read-only probe
 run. Its result is not owner task acceptance or Hybrid lane admission.
 Unclassified results, source drift, or inconclusive Windows evidence HOLD.
+
+## V5 owner snapshot after independent V39 original-host GitHub GET proof
+
+The consumed V4 original-owner task snapshot [run 43699712064](https://github.com/spoonman136668-ai/FORGE/actions/runs/43699712064)
+failed before task inspection with `AUTH_PROVIDER` on a GitHub ACTION_RUNS GET.
+The independently qualified, one-shot read-only V39 owner event
+comment `6892675791` produced [run 43701895198](https://github.com/spoonman136668-ai/FORGE/actions/runs/43701895198)
+with first-attempt SUCCESS and precisely `C_OK-V4_OK-V3_OK`: its
+single-read GitHub CLI GETs for the owner comment, V4 run, and V3 run all
+worked. This establishes original Windows runner provider availability at that
+moment, not permanent transport health or task acceptance.
+
+A separate fresh V5 owner read-only snapshot reuses the existing V38 workflow,
+original Windows runner and PowerShell syntax-checked task metadata probe. It
+changes no original task/SQLite/controller, scheduled task, controller owner,
+queue or first-use authority. Source-only PR #1769 binds the exact prior V39
+comment, first-attempt successful run, one completed original-host provider
+job, protected main, original owner guard and unchanged issue #807 policy.
+The consumed V4 issue-comment must not be replayed.
+
+After 12/12 exact-head candidate CI, a source-tree-matching protected-main
+merge and first-attempt 8/8 postmerge regression, issue one fresh authenticated
+original-owner issue #807 comment:
+
+```text
+F139-V38-ORIGINAL-TASK-SNAPSHOT-V5 <qualified-merged-main-sha> 6892675791
+```
+
+This snapshot is still read-only and does not authorize task start, controller
+install, scientific admission, policy change, or Hybrid lane activation. A
+nonzero failure mask, unknown bits, unavailable task, or provider failure
+remains HOLD; only exact native acceptance can later release the task.

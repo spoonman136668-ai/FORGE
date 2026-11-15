@@ -131,6 +131,17 @@ V39_ACTIONS_GET_FILES = frozenset((
     "scripts/check_rar_g156_dynamic_base_cache.py",
 ))
 
+# V5 original-owner independent one-shot task snapshot after V39 GET proof.
+V38_SNAPSHOT_V5_BRANCH = "engineering/f139-v38-original-task-snapshot-v5-after-get-proof-20261115"
+V38_SNAPSHOT_V5_PR = 1769
+V38_SNAPSHOT_V5_BASE = "1ffbcae47f71df31b0df88938c2f28e20545959b"
+V38_SNAPSHOT_V5_BASE_TREE = "a1ad4bf06103f8d088722d775b82063d0c119a3d"
+V38_SNAPSHOT_V5_WORKFLOW = ".github/workflows/f139-v38-original-task-snapshot-once.yml"
+V38_SNAPSHOT_V5_BEFORE = "6857bf5c81d9662f7cf26f4a07eb59e463ac8253"
+V38_SNAPSHOT_V5_AFTER = "f8a3a5c633929d9b292bed62b47b86855ef5caca"
+V38_SNAPSHOT_V5_RESULT = "EXACT_PR1769_V38_READONLY_TASK_SNAPSHOT_AFTER_V39_GET_CI_ONLY"
+V38_SNAPSHOT_V5_FILES = V38_SNAPSHOT_V4_FILES
+
 V38_STAGE_BRANCH = "engineering/f139-v38-held-task-stage-diagnostic-20261114"
 V38_STAGE_PR = 1762
 V38_STAGE_BASE = "396a1a36aec66a47d798ac677bf3ed473c3fa27f"
@@ -777,6 +788,94 @@ def v38_snapshot_v4_negative_controls() -> None:
                     "d" * 40))
 
 
+def admit_v38_snapshot_v5(head_sha: str, base_sha: str,
+                          request: dict, git: Callable[..., str]) -> str:
+    """Source-only: one exact PR, exact workflow-before/after and unchanged owner."""
+    if (not is_sha(head_sha) or base_sha != V38_SNAPSHOT_V5_BASE
+            or type(request) is not dict or type(request.get("number")) is not int
+            or request["number"] != V38_SNAPSHOT_V5_PR
+            or type(request.get("user")) is not dict
+            or request["user"].get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_V38_SNAPSHOT_V5_OWNER_OR_PARENT_DENIED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        tree = git("rev-parse", base_sha + "^{tree}")
+        paths = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+        before = git("ls-tree", base_sha, "--", V38_SNAPSHOT_V5_WORKFLOW)
+        after = git("ls-tree", head_sha, "--", V38_SNAPSHOT_V5_WORKFLOW)
+        owner = git("rev-parse", head_sha +
+                    ":f139/nci04_v41_hybrid_forward_owner_profile.py")
+        prior = git("rev-parse", head_sha +
+                    ":.github/workflows/f139-v38-held-task-stage-diagnostic-once.yml")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V38_SNAPSHOT_V5_EXACT_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != V38_SNAPSHOT_V5_BASE or tree != V38_SNAPSHOT_V5_BASE_TREE
+            or len(paths) != len(V38_SNAPSHOT_V5_FILES)
+            or len(set(paths)) != len(paths)
+            or set(paths) != V38_SNAPSHOT_V5_FILES
+            or before != "100644 blob " + V38_SNAPSHOT_V5_BEFORE +
+                         "\t" + V38_SNAPSHOT_V5_WORKFLOW
+            or after != "100644 blob " + V38_SNAPSHOT_V5_AFTER +
+                        "\t" + V38_SNAPSHOT_V5_WORKFLOW
+            or owner != "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6"
+            or prior != "6ead37ed976f65b54a8753471c4d4369826bdcc9"):
+        raise ValueError("G145_V38_SNAPSHOT_V5_SOURCE_OR_OWNER_GUARD_DRIFT")
+    return V38_SNAPSHOT_V5_RESULT
+
+
+def v38_snapshot_v5_negative_controls() -> None:
+    base, head = V38_SNAPSHOT_V5_BASE, "e" * 40
+    request = {"number": V38_SNAPSHOT_V5_PR,
+               "user": {"login": "spoonman136668-ai"},
+               "author_association": "OWNER"}
+    def valid(*args):
+        cases = {
+            ("merge-base", base, head): base,
+            ("rev-parse", base + "^{tree}"): V38_SNAPSHOT_V5_BASE_TREE,
+            ("diff", "--no-renames", "--name-only", base, head):
+                "\n".join(sorted(V38_SNAPSHOT_V5_FILES)),
+            ("ls-tree", base, "--", V38_SNAPSHOT_V5_WORKFLOW):
+                "100644 blob " + V38_SNAPSHOT_V5_BEFORE + "\t" + V38_SNAPSHOT_V5_WORKFLOW,
+            ("ls-tree", head, "--", V38_SNAPSHOT_V5_WORKFLOW):
+                "100644 blob " + V38_SNAPSHOT_V5_AFTER + "\t" + V38_SNAPSHOT_V5_WORKFLOW,
+            ("rev-parse", head + ":f139/nci04_v41_hybrid_forward_owner_profile.py"):
+                "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6",
+            ("rev-parse", head + ":.github/workflows/f139-v38-held-task-stage-diagnostic-once.yml"):
+                "6ead37ed976f65b54a8753471c4d4369826bdcc9",
+        }
+        if args not in cases:
+            raise AssertionError("unexpected source test read")
+        return cases[args]
+    if admit_v38_snapshot_v5(head, base, request, valid) != V38_SNAPSHOT_V5_RESULT:
+        raise ValueError("G145_V38_SNAPSHOT_V5_POSITIVE_FAILED")
+    def reject(req=request, parent=base, changed=None):
+        def reader(*args):
+            if changed is not None and args == changed[0]:
+                return changed[1]
+            return valid(*args)
+        try:
+            admit_v38_snapshot_v5(head, parent, req, reader)
+        except ValueError:
+            return
+        raise ValueError("G145_V38_SNAPSHOT_V5_NEGATIVE_ADMITTED")
+    reject({**request, "number": 1768})
+    reject({**request, "author_association": "CONTRIBUTOR"})
+    reject({**request, "user": {"login": "OTHER"}})
+    reject(parent="d" * 40)
+    reject(changed=(("merge-base", base, head), "d" * 40))
+    reject(changed=(("rev-parse", base + "^{tree}"), "d" * 40))
+    reject(changed=(("diff", "--no-renames", "--name-only", base, head),
+                    "\n".join(sorted(V38_SNAPSHOT_V5_FILES - {V38_SNAPSHOT_V5_WORKFLOW}))))
+    reject(changed=(("ls-tree", base, "--", V38_SNAPSHOT_V5_WORKFLOW), ""))
+    reject(changed=(("ls-tree", head, "--", V38_SNAPSHOT_V5_WORKFLOW),
+                    "100644 blob " + "d" * 40 + "\t" + V38_SNAPSHOT_V5_WORKFLOW))
+    reject(changed=(("rev-parse", head + ":f139/nci04_v41_hybrid_forward_owner_profile.py"),
+                    "d" * 40))
+    reject(changed=(("rev-parse", head + ":.github/workflows/f139-v38-held-task-stage-diagnostic-once.yml"),
+                    "d" * 40))
+
+
 def admit_v39_actions_get(head_sha: str, base_sha: str,
                           request: dict, git: Callable[..., str]) -> str:
     """One exact owner PR; only a read-only diagnostic, never task authority."""
@@ -1308,6 +1407,7 @@ def negative_controls() -> None:
     v38_snapshot_v2_negative_controls()
     v38_snapshot_v3_negative_controls()
     v38_snapshot_v4_negative_controls()
+    v38_snapshot_v5_negative_controls()
     v39_actions_get_negative_controls()
     v41_status_negative_controls()
     v41_backup_negative_controls()
@@ -1662,6 +1762,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]
         return admit_v39_actions_get(head_sha, base_sha, request, git)
+    if branch == V38_SNAPSHOT_V5_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_v38_snapshot_v5(head_sha, base_sha, request, git)
     if branch == V38_SNAPSHOT_V4_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]
