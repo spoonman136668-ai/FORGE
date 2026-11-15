@@ -37,7 +37,7 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                          "POWERSHELL_PROTOCOL_FAILED")
 
     def test_subprocess_failure_classes_and_no_raw_host_leak(self):
-        def fake(stdout=b"F0000-U0000\\n", code=0):
+        def fake(stdout=b"F0000-U0000\n", code=0):
             def runner(args, **kw):
                 self.assertIn("-NonInteractive", args)
                 self.assertEqual(kw["timeout"], 30)
