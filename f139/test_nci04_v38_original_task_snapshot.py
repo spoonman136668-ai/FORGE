@@ -1,7 +1,10 @@
 """Cross-platform original-owner task snapshot negative/protocol controls."""
 import json
 from pathlib import Path
+import os
+import shutil
 import subprocess
+import sys
 from types import SimpleNamespace
 import unittest
 
@@ -66,6 +69,57 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                          "POWERSHELL_SPAWN_FAILED")
         self.assertEqual(snap.powershell_once("powershell.exe", {}, runner=malformed),
                          "POWERSHELL_INTERNAL_ERROR")
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows PowerShell 5.1 only")
+    def test_windows_powershell_native_parse_and_synthetic_task(self):
+        """Parse and execute actual source with test-only task stubs, never real task."""
+        powershell = shutil.which("powershell.exe")
+        self.assertIsNotNone(powershell, "WINDOWS_POWERSHELL_UNAVAILABLE")
+        env = dict(os.environ)
+        env["FORGE_V38_SCRIPT_FOR_PARSE"] = snap.SCRIPT
+        parser = (
+            "$tokens=$null; $errors=$null; "
+            "[void][System.Management.Automation.Language.Parser]::ParseInput("
+            "$env:FORGE_V38_SCRIPT_FOR_PARSE,[ref]$tokens,[ref]$errors); "
+            "if($errors.Count -gt 0){"
+            "Write-Output ('PARSE_ERROR_LINE='+$errors[0].Extent.StartLineNumber); exit 41}; "
+            "Write-Output 'PARSE_OK'"
+        )
+        parsed = subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command", parser],
+            capture_output=True, env=env, timeout=20, text=True, check=False)
+        self.assertEqual(parsed.returncode, 0,
+                         "V38_PS_PARSE_FAILED " + parsed.stdout.strip()[:60])
+        self.assertEqual(parsed.stdout.strip(), "PARSE_OK")
+
+        # The function names mask actual OS cmdlets inside a fresh PowerShell
+        # process. Synthetic action count 0 must produce bounded mask output.
+        fake_host = r"""
+function Get-ScheduledTask {
+  [CmdletBinding()]
+  param([string]$TaskName)
+  [pscustomobject]@{
+    Principal=[pscustomobject]@{ UserId='SYNTHETIC-OWNER' }
+    Actions=@()
+    Triggers=@()
+    State='Disabled'
+    Settings=[pscustomobject]@{ Enabled=$false }
+  }
+}
+function Get-CimInstance {
+  [CmdletBinding()]
+  param([Parameter(Position=0)][string]$ClassName, [string]$Filter)
+  @()
+}
+"""
+        simulated = subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command",
+             fake_host + snap.SCRIPT],
+            capture_output=True, env=env, timeout=20, text=True, check=False)
+        self.assertEqual(simulated.returncode, 0, "V38_PS_SYNTHETIC_EXIT_FAILED")
+        receipt = simulated.stdout.encode("ascii", errors="replace")
+        self.assertRegex(snap.parse_receipt(receipt, simulated.returncode),
+                         r"^F[0-9A-F]{4}-U[0-9A-F]{4}$")
 
     def test_all_original_task_predicates_bounded_and_readonly(self):
         src = snap.SCRIPT
