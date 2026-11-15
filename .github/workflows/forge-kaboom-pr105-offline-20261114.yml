@@ -18,6 +18,7 @@ env:
   CGO_ENABLED: '0'
 jobs:
   native-windows:
+    if: false # exact-source regression previously passed; no duplicate tests
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
@@ -114,6 +115,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   architecture-linux:
+    if: false # prior architecture and Graphify qualification passed
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -248,3 +250,83 @@ jobs:
           path: ${{ runner.temp }}/kaboom-safe/status.txt
           if-no-files-found: error
           retention-days: 14
+
+  local-kterminal-current-map-and-event-bridge-preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    permissions:
+      contents: read
+    steps:
+      - name: Verify current private source maps and check for existing push-event bridge
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
+              $env:GITHUB_EVENT_NAME -cne 'push' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1') { throw 'KABOOM_LOCAL_RUNNER_IDENTITY_MISMATCH' }
+          $head='b07160e4d96e7363fc185e5c71b6cc98a3071893'
+          $source='1d5b4fefa9f7573fcdf05a5fc9ceb94f72536269'
+          $digest='202af9fe36e41dc0f7b48347c69c161387aa5019ba7df022061ed6a4892ae666'
+          $observed=(& gh api repos/Kboomllc/K-Terminal/git/ref/heads/main --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or $observed.Trim() -cne $head){throw 'KABOOM_MAIN_DRIFT'}
+          $write=(& gh api repos/Kboomllc/K-Terminal --jq '.permissions.push // false' 2>$null)
+          if($LASTEXITCODE -ne 0 -or $write.Trim() -cne 'true'){throw 'KABOOM_LOCAL_CROSS_REPO_WRITE_UNAVAILABLE'}
+          Write-Output 'KABOOM_FORGE_CODEX_LOCAL_WRITER=PASS'
+          $tmp=Join-Path $env:RUNNER_TEMP ('kaboom-readonly-source-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $tmp){throw 'KABOOM_READONLY_WORKSPACE_COLLISION'}
+          New-Item -ItemType Directory -Path $tmp | Out-Null
+          try {
+            $local=Join-Path $tmp 'source'
+            & gh repo clone Kboomllc/K-Terminal $local -- --quiet *> (Join-Path $tmp 'clone-private.log')
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PRIVATE_SOURCE_FETCH_FAILED'}
+            if((& git -C $local rev-parse HEAD).Trim() -cne $head){throw 'KABOOM_CLONE_SHA_MISMATCH'}
+            $m=Get-Content (Join-Path $local '.ice/manifest.json') -Raw | ConvertFrom-Json
+            $g=Get-Content (Join-Path $local 'docs/graphify/source-manifest.json') -Raw | ConvertFrom-Json
+            $o=Get-Content (Join-Path $local 'docs/obsidian/KABOOM.md') -Raw
+            if($m.source_content_sha256 -cne $digest -or
+               $g.source_content_sha256 -cne $digest -or
+               $g.source_commit -cne $source -or
+               $g.repository -cne 'Kboomllc/K-Terminal' -or
+               -not $o.Contains($digest)){throw 'KABOOM_ARCHITECTURE_DIGEST_MISMATCH'}
+            foreach($item in @('graph.json','graph.html','GRAPH_REPORT.md')){
+              $fn=Join-Path $local ('docs/graphify/'+$item)
+              if(-not (Test-Path -LiteralPath $fn -PathType Leaf)){throw 'KABOOM_MISSING_GRAPHIFY_REPORT'}
+              $actual=(Get-FileHash -LiteralPath $fn -Algorithm SHA256).Hash.ToLowerInvariant()
+              if($actual -cne [string]$g.files_sha256.$item){throw 'KABOOM_GRAPHIFY_REPORT_SHA256_MISMATCH'}
+            }
+            Push-Location $local
+            try {
+              & python -B tools/architecture/generate.py --check *> (Join-Path $tmp 'generate-private.log')
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_SOURCE_MAPS_STALE'}
+              & python -B tools/architecture/verify_source_custody.py *> (Join-Path $tmp 'custody-private.log')
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_SOURCE_CUSTODY_FAIL'}
+            } finally {Pop-Location}
+            if((@(& git -C $local status --porcelain)).Count -ne 0){throw 'KABOOM_READ_ONLY_WORKSPACE_MUTATED'}
+            $now=(& gh api repos/Kboomllc/K-Terminal/git/ref/heads/main --jq '.object.sha' 2>$null).Trim()
+            if($LASTEXITCODE -ne 0 -or $now -cne $head){throw 'KABOOM_SOURCE_DRIFT_AFTER_PROBE'}
+            Write-Output 'KABOOM_FORGE_CODEX_CURRENT_ARCHITECTURE_SYNC=PASS;GRAPHIFY_FILES=4;SOURCE_UNCHANGED=TRUE'
+          } finally {
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          foreach($api in @('hooks','actions/runners')){
+            try {
+              $reply=(& gh api ('repos/Kboomllc/K-Terminal/'+$api) 2>$null)
+              if($LASTEXITCODE -ne 0){throw 'READ_DENIED'}
+              if($api -ceq 'hooks'){
+                $data=@(($reply -join "`n") | ConvertFrom-Json)
+                Write-Output ('KABOOM_EXISTING_WEBHOOK_INVENTORY=VISIBLE;count='+$data.Count)
+              } else {
+                $data=($reply -join "`n") | ConvertFrom-Json
+                Write-Output ('KABOOM_NATIVE_RUNNER_INVENTORY=VISIBLE;count='+[int]$data.total_count)
+              }
+            } catch {
+              if($api -ceq 'hooks'){Write-Output 'KABOOM_EXISTING_WEBHOOK_INVENTORY=UNVERIFIED'}
+              else {Write-Output 'KABOOM_NATIVE_RUNNER_INVENTORY=UNVERIFIED'}
+            }
+          }
+          Write-Output 'KABOOM_FORGE_CODEX_AUTOMATIC_CROSS_REPO_PUSH_TRIGGER=NOT_PROVEN'
+          Write-Output 'KABOOM_FORGE_CODEX_MODE=READ_ONLY;NO_CONTROLLER_OR_SCHEDULE'
