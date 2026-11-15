@@ -264,6 +264,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or tree != "eb5dcc4e7aed43fc6f792fdf6bf8a54802206974"):
             raise ValueError("G156_V39_ORIGINAL_OWNER_EXACT_BASE_TREE_REQUIRED")
         return
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v39-concurrency-isolation-v2-20261115":
+        if (admission != FROZEN
+                or base != "f9681850ec008b5d872de960544c46e6f5c7943b"
+                or tree != "255b166ad2fc1e6febfde1077fd4e27cdcc7b603"):
+            raise ValueError("G156_V39_V2_OWNER_EXACT_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v39-postmerge-isolation-correction-20261115":
         if (admission != FROZEN
                 or base != "f5507425859bee2f791efd6b0f82b090fddfe416"

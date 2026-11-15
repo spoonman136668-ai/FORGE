@@ -12,10 +12,12 @@ GUARD=ROOT/"scripts/check_rar_g145_pr_scope.py"
 
 
 class OriginalV39WorkflowTests(unittest.TestCase):
-    def test_original_owner_comment_routes_share_existing_concurrency(self):
+    def test_original_owner_comment_routes_isolate_skipped_v41_event_concurrency(self):
         s=WORKFLOW.read_text("utf-8")
         self.assertEqual(s.count(
-            "group: forge-f139-v41-original-owner-live-install"),1)
+            "group: forge-f139-v39-original-source-v2"),1)
+        self.assertNotIn("group: forge-f139-v41-original-owner-live-install",s)
+        self.assertIn("SingleOwner mutex",s)
         self.assertIn("cancel-in-progress: false",s)
         self.assertIn("name: FORGE F139 V39 guarded original-owner successor source-only",s)
         self.assertNotIn("hybrid-v39-original-event1831-backup:",
@@ -62,6 +64,17 @@ class OriginalV39WorkflowTests(unittest.TestCase):
         self.assertIn('request["number"] != 1775',scope)
         self.assertIn("G145_V39_POSTMERGE_OWNER_BASE_TREE_REQUIRED",scope)
         self.assertIn('"scripts/check_rar_g156_dynamic_base_cache.py"',scope)
+
+    def test_v39_concurrency_guard_is_source_only_and_has_exact_owner_pr(self):
+        src=WORKFLOW.read_text("utf-8")
+        self.assertEqual(src.count("group: forge-f139-v39-original-source-v2"),1)
+        self.assertIn("cancel-in-progress: false",src)
+        self.assertNotIn("workflow_dispatch:",src)
+        self.assertNotIn("Start-ScheduledTask",src)
+        self.assertNotIn("Set-ScheduledTask",src)
+        self.assertNotIn("Enable-ScheduledTask",src)
+        self.assertIn("request[\"number\"] != 1776",GUARD.read_text("utf-8"))
+        self.assertIn("G145_V39_V2_OWNER_BASE_TREE_REQUIRED",GUARD.read_text("utf-8"))
 
     def test_source_intent_commit_job_and_postcommit_remain_distinct(self):
         s=WORKFLOW.read_text("utf-8")
