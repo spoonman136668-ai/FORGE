@@ -96,7 +96,14 @@ Need ([IO.Path]::GetFullPath($db) -ieq
   (Test-Path -LiteralPath $python -PathType Leaf)) 'EXACT_ORIGINAL_TASK_FILES_REQUIRED'
 $stage=Join-Path $env:LOCALAPPDATA ('FORGE-F139\release-candidates\'+$Target)
 Source $env:GITHUB_WORKSPACE $Target
-Source $root $old
+# The failed V41 activation may have retargeted the DISABLED task.
+# Admit only the two immutable historic checkouts already validated by
+# nci04_v41_hybrid_forward_owner_profile. Do not infer arbitrary roots.
+$heldSource=(& git -C $root rev-parse HEAD|Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $heldSource -cin @(
+  '2c7caad5a4502d4b874a11d57207a35cf033eb08',
+  'c611c4362e3cc867984448a03ecdf3be923d2ef1')) 'ORIGINAL_HELD_SOURCE_NOT_AUTHENTIC'
+Source $root $heldSource
 Source $stage $Target
 Main
 $oldPolicy=Policy
@@ -121,67 +128,74 @@ Need ($p.schema -ceq 'forge.f139.native-autonomy-feed-owner-policy.v1' -and
 # tasks under the EXISTING owner mutex, without rewriting a single byte.
 $program=@'
 import json,os,re,sys
-from contextlib import closing
 from pathlib import Path
-from f139.local_controller import Database,GitHub,SingleOwner
-from f139.nci04_owner_issue import decode_unique
+from f139.local_controller import GitHub
 from f139.nci04_native_contract import canonical
-from f139 import nci04_v41_hybrid_original_commit as commit
-from f139 import nci04_v41_hybrid_held_recovery as held
-from f139 import nci04_v41_hybrid_successor_release as release
-from f139 import nci04_v41_hybrid_owner_maintenance as owner
-raw=Path(os.environ["GITHUB_EVENT_PATH"]).read_text("utf-8")
-e=json.loads(raw,object_pairs_hook=decode_unique)
+from f139.nci04_owner_issue import decode_unique
+from f139 import nci04_v41_hybrid_event1832_postcommit as postcommit
+from f139 import nci04_v41_hybrid_forward_readiness as readiness
+
+def need(ok):
+    if not ok:
+        raise RuntimeError("F139_HYBRID_V38_ORIGINAL_ACTIVATION_PREFLIGHT_DENIED")
+
+e=json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text("utf-8"),
+             object_pairs_hook=decode_unique)
 target=sys.argv[1]
 db=Path(sys.argv[2])
-get=GitHub().native_repo_get
+api=GitHub()
+get=api.native_repo_get
 body=e["comment"]["body"]
-m=re.fullmatch(r"F139-HYBRID-V41-SOURCE-ACTIVATE "+target+r" ([1-9][0-9]*)",body)
-assert m is not None
-commit_id=int(m.group(1))
-this_id=e["comment"]["id"]
-assert this_id!=commit_id
-for _ in range(2):
-    stamp=release._comment(get,this_id,body)
-    assert stamp==e["comment"]["created_at"]
-prior=get("repos/"+release.REPO+"/issues/comments/"+str(commit_id))
-assert prior["updated_at"]==prior["created_at"]
-assert release._comment(get,commit_id,prior["body"])<e["comment"]["created_at"]
-c_event={"action":"created","sender":e["sender"],
-         "issue":e["issue"],"comment":prior}
-env=dict(os.environ)
-req=commit.authenticate_commit_request(env,c_event,get)
-assert req["source_commit_comment_id"]==commit_id
-assert req["target_source_sha"]==target
-release.require_successor_source(get,target,env=env)
-with SingleOwner(db.with_suffix(".lock")):
-    with closing(Database.open_readonly(db)) as original:
-        receipt=held.inspect_held_ledger(original,req)
-        assert receipt["classification"]=="COMMITTED_SOURCE_HOLD"
-        assert receipt["source_commit_recorded"] is True
-        assert original.meta()["source_sha"]==target
-        from f139.hybrid_owner_admission import is_migrated
-        assert not is_migrated(original)
-        assert original.conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE lane='TTT-Hybrid'").fetchone()[0]==0
-        assert original.conn.total_changes==0
-print("F139_HYBRID_V41_POSTCOMMIT_ACTIVATION_PREFLIGHT="+
-      canonical(dict(schema="forge.f139.hybrid-v41.activation-preflight.v1",
+m=re.fullmatch(r"F139-HYBRID-V41-SOURCE-ACTIVATE "+
+               re.escape(target)+r" ([1-9][0-9]*)",body)
+need(m is not None)
+postcommit_id=int(m.group(1))
+current_id=e["comment"]["id"]
+need(type(current_id) is int and postcommit_id<current_id)
+need(readiness._owner_comment(get,current_id,body)==e["comment"]["created_at"])
+prior=get("repos/"+readiness.REPO+"/issues/comments/"+str(postcommit_id))
+need(type(prior) is dict and prior.get("id")==postcommit_id)
+need(type(prior.get("body")) is str)
+need(prior["body"].startswith(postcommit.PREFIX+target+" "))
+need(readiness._owner_comment(get,postcommit_id,prior["body"])<e["comment"]["created_at"])
+# The forward-postcommit verifier reauthenticates the actual source intent,
+# detached cold bundle, immutable event 1832, task/SID/lease and 153/56 history.
+# This is read-only. Migration remains a separate owner-only operation below.
+previous={"action":"created","issue":e["issue"],"sender":e["sender"],
+          "comment":prior}
+receipt=postcommit.original_postcommit(db,dict(os.environ),previous,api)
+need(receipt["schema"]==postcommit.SCHEMA)
+need(receipt["source_sha"]==target and receipt["event_seq"]==1832)
+need(receipt["verified_historical_tasks"]==153)
+need(receipt["custodied_negative_tasks"]==56)
+need(receipt["original_owner_mutations"]==0)
+need(receipt["hybrid_schema_migrated"] is False)
+need(receipt["scientific_first_use"] is False)
+need(receipt["task_resume_authorized"] is False)
+need(receipt["original_task_still_disabled"] is True)
+need(receipt["native_activation_performed"] is False)
+print("F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT="+
+      canonical(dict(schema="forge.f139.hybrid-v39.activation-preflight.v1",
        source_sha=target,source_event_seq=receipt["event_seq"],
        source_event_head_sha256=receipt["event_head_sha256"],
-       source_commit_comment_id=commit_id,
-       activation_comment_id=this_id,
-       cold_recovery_verified=True,source_committed_once=True,
-       original_owner_mutations=0,hybrid_science_first_use=False)).decode("ascii"))
+       postcommit_comment_id=postcommit_id,
+       activation_comment_id=current_id,
+       verified_historical_tasks=153,custodied_negative_tasks=56,
+       original_owner_mutations=0,source_committed_once=True,
+       cold_recovery_verified=True,hybrid_science_first_use=False)).decode("ascii"))
 '@
 $env:PYTHONPATH=$env:GITHUB_WORKSPACE
 $pre=@($program|& $python -B - $Target $db)
 Need ($LASTEXITCODE -eq 0 -and $pre.Count -eq 1 -and
-  $pre[0].StartsWith('F139_HYBRID_V41_POSTCOMMIT_ACTIVATION_PREFLIGHT=',
+  $pre[0].StartsWith('F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT=',
     [StringComparison]::Ordinal)) 'AUTHENTIC_HELD_SOURCE_READBACK_REQUIRED'
-$proof=$pre[0].Substring('F139_HYBRID_V41_POSTCOMMIT_ACTIVATION_PREFLIGHT='.Length)|ConvertFrom-Json
-Need ($proof.schema -ceq 'forge.f139.hybrid-v41.activation-preflight.v1' -and
+$proof=$pre[0].Substring('F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT='.Length)|ConvertFrom-Json
+Need ($proof.schema -ceq 'forge.f139.hybrid-v39.activation-preflight.v1' -and
   $proof.source_sha -ceq $Target -and
+  $proof.source_event_seq -eq 1832 -and
+  $proof.verified_historical_tasks -eq 153 -and
+  $proof.custodied_negative_tasks -eq 56 -and
+  $proof.original_owner_mutations -eq 0 -and
   $proof.cold_recovery_verified -eq $true -and
   $proof.source_committed_once -eq $true -and
   $proof.hybrid_science_first_use -eq $false) 'COLD_OR_COMMENT_PROOF_DRIFT'

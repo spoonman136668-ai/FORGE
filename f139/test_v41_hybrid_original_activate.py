@@ -65,12 +65,12 @@ class V41HybridCutoverTests(unittest.TestCase):
         for required in (
             "F139-HYBRID-V41-SOURCE-ACTIVATE ",
             "SOURCE-ACTIVATE '+$Target+' [1-9][0-9]*$",
-            "nci04_v41_hybrid_original_commit as commit",
-            "nci04_v41_hybrid_held_recovery as held",
-            "authenticate_commit_request(env,c_event,get)",
-            "held.inspect_held_ledger(original,req)",
-            'receipt["classification"]=="COMMITTED_SOURCE_HOLD"',
-            "release.require_successor_source(get,target,env=env)",
+            "nci04_v41_hybrid_event1832_postcommit as postcommit",
+            "postcommit.original_postcommit(db,dict(os.environ),previous,api)",
+            'need(receipt["schema"]==postcommit.SCHEMA)',
+            'receipt["event_seq"]==1832',
+            "source_event_seq -eq 1832",
+            "F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT=",
             "Get-ScheduledTask -TaskName $name",
             "Set-ScheduledTask -TaskName $name -Action $newAction",
             "upgrade-hybrid-lane",
@@ -96,12 +96,13 @@ class V41HybridCutoverTests(unittest.TestCase):
         self.assertEqual(s.count("Set-ScheduledTask -TaskName $name"),1)
         self.assertEqual(s.count("Start-ScheduledTask -TaskName $name"),1)
         self.assertEqual(s.count("Enable-ScheduledTask -TaskName $name"),1)
-        self.assertIn("original.conn.total_changes==0",s)
+        self.assertIn('receipt["original_owner_mutations"]==0',s)
+        self.assertIn("postcommit.original_postcommit(",s)
         self.assertIn("SELECT COUNT(*) FROM tasks WHERE stage='QUARANTINED'",s)
 
     def test_activate_requires_distinct_comment_before_any_task_mutation(self):
         script=SCRIPT.read_text("utf-8")
-        self.assertLess(script.index("POSTCOMMIT_ACTIVATION_PREFLIGHT="),
+        self.assertLess(script.index("EVENT1832_ACTIVATION_PREFLIGHT="),
                         script.index("Set-ScheduledTask -TaskName"))
         self.assertLess(script.index("Get-ScheduledTask -TaskName"),
                         script.index("Set-ScheduledTask -TaskName"))
@@ -111,6 +112,46 @@ class V41HybridCutoverTests(unittest.TestCase):
                         script.index("Enable-ScheduledTask -TaskName"))
         self.assertLess(script.index("Enable-ScheduledTask -TaskName"),
                         script.index("Start-ScheduledTask -TaskName"))
+
+
+    def test_event1832_bridge_preserves_original_hold_and_rejects_old_preimage(self):
+        s=SCRIPT.read_text("utf-8")
+        self.assertIn("Source $root $heldSource",s)
+        self.assertIn("'2c7caad5a4502d4b874a11d57207a35cf033eb08'",s)
+        self.assertIn("'c611c4362e3cc867984448a03ecdf3be923d2ef1'",s)
+        self.assertNotIn("Source $root $old",s)
+        self.assertNotIn("nci04_v41_hybrid_original_commit as commit",s)
+        self.assertNotIn("nci04_v41_hybrid_held_recovery as held",s)
+        self.assertNotIn("held.inspect_held_ledger(original,req)",s)
+        self.assertIn("postcommit_id<current_id",s)
+        self.assertIn("prior[\"body\"].startswith(postcommit.PREFIX+target+",s)
+        self.assertIn("original_owner_mutations=0",s)
+        self.assertIn("custodied_negative_tasks=56",s)
+        self.assertLess(s.index("postcommit.original_postcommit("),
+                        s.index("Set-ScheduledTask -TaskName"))
+        self.assertLess(s.index("source_event_seq -eq 1832"),
+                        s.index("Set-ScheduledTask -TaskName"))
+        self.assertLess(s.index("upgrade-hybrid-lane"),
+                        s.index("gh api --method PATCH"))
+
+    def test_embedded_v38_preflight_is_syntactically_valid_python(self):
+        script=SCRIPT.read_text("utf-8")
+        self.assertEqual(script.count("$program=@'\n"),1)
+        embedded=script.split("$program=@'\n",1)[1].split(
+            "\n'@\n$env:PYTHONPATH",1)[0]
+        compile(embedded,"<f139-v39-activation-preflight>","exec")
+        self.assertNotIn("assert ",embedded)
+        self.assertIn("raise RuntimeError(",embedded)
+        for marker in (
+            'postcommit_id<current_id',
+            'readiness._owner_comment(get,current_id,body)',
+            'postcommit.original_postcommit(db,dict(os.environ),previous,api)',
+            'receipt["event_seq"]==1832',
+            'receipt["custodied_negative_tasks"]==56',
+            'receipt["original_owner_mutations"]==0',
+            'receipt["scientific_first_use"] is False',
+        ):
+            self.assertIn(marker,embedded)
 
     @unittest.skipUnless(os.name=="nt","native Windows PowerShell parser")
     def test_native_windows_ps51_parser(self):
