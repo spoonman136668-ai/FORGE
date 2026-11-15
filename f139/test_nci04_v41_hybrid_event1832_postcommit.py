@@ -70,6 +70,16 @@ class PostcommitV39OwnerTests(unittest.TestCase):
                 "ACTUAL_ORIGINAL_BACKUP_JOB_NOT_SUCCESSFUL"):
             self.auth()
 
+    def test_query_only_readback_uses_event_payload_not_hash_canonical(self):
+        from f139.local_controller import canonical as event_canonical
+        from f139.nci04_native_contract import canonical as proof_canonical
+        doc = {"schema": successor.SCHEMA, "source_sha": self.api.target}
+        self.assertEqual(event_canonical(doc), proof_canonical(doc) + b"\\n")
+        source = Path(postcommit.__file__).read_text("utf-8")
+        self.assertIn('row["payload"] == event_canonical(doc).decode("ascii")', source)
+        self.assertNotIn('row["payload"] == canonical(doc).decode("ascii")', source)
+        self.assertIn('digest(canonical(doc)) == request["expected_proof_sha256"]', source)
+
     def test_read_only_module_does_not_resume_or_migrate(self):
         with self.assertRaisesRegex(
                 postcommit.Event1832PostcommitDenied,
