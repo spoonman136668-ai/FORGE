@@ -17,7 +17,8 @@ from check_rar_g145_pr_scope import (admit_original_pr, negative_controls,
     V41_STATUS_BRANCH, V41_STATUS_RESULT,
     V41_BACKUP_BRANCH, V41_BACKUP_RESULT,
     V41_PAUSE_BRANCH, V41_PAUSE_RESULT,
-    HYBRID_COMPLETE_BRANCH)
+    HYBRID_COMPLETE_BRANCH,
+    V38_READONLY_BRANCH, V38_READONLY_RESULT)
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "spoonman136668-ai/FORGE"
@@ -121,6 +122,10 @@ def event_mode(head):
         raise ValueError("G148_ONLY_SAME_REPO_MAIN_PR")
     admiss = admit_original_pr(head, git)
     branch = os.environ["GITHUB_HEAD_REF"]
+    if branch == V38_READONLY_BRANCH:
+        if admiss != V38_READONLY_RESULT:
+            raise ValueError("G148_V38_EXACT_ONE_SHOT_READONLY_PR_REQUIRED")
+        return "pr"
     if branch == HYBRID_COMPLETE_BRANCH:
         if admiss != "EXACT_PR1758_HYBRID_ORIGINAL_ENGINEERING_QUALIFICATION_ONLY":
             raise ValueError("G148_HYBRID_COMPLETE_EXACT_OWNER_SCOPE_REQUIRED")

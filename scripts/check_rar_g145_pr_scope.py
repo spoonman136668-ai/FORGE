@@ -43,6 +43,25 @@ HYBRID_COMPLETE_FILES = frozenset({
     "scripts/check_rar_g156_dynamic_base_cache.py",
 })
 
+# One exact operator-approved, read-only original-owner V38 workflow route.
+# This is CI source admission ONLY. It cannot authorize task, SQLite, policy,
+# scheduling, first-use, merge, workflow invocation or privileged execution.
+V38_READONLY_BRANCH = "engineering/f139-v38-original-owner-readonly-once-20261114"
+V38_READONLY_PR = 1760
+V38_READONLY_BASE = "c611c4362e3cc867984448a03ecdf3be923d2ef1"
+V38_READONLY_BASE_TREE = "f2f248c8d81654d88e943ed9b5ba9686225258c4"
+V38_READONLY_WORKFLOW = ".github/workflows/f139-v38-original-owner-readonly-once.yml"
+V38_READONLY_BLOB = "087348d173fac524195cf72dc78df222c5851485"
+V38_READONLY_RESULT = "EXACT_PR1760_ONE_SHOT_ORIGINAL_READONLY_CI_ONLY"
+V38_READONLY_FILES = frozenset({
+    V38_READONLY_WORKFLOW,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+    "f139/test_v38_owner_readonly_workflow_scope.py",
+    "docs/F139-V38-ONE-SHOT-ORIGINAL-OWNER-READONLY.md",
+})
+
 V41_PAUSE_BRANCH = "engineering/f139-v41-original-pause-backup-resume-20261112"
 V41_PAUSE_PR = 1735
 V41_PAUSE_BASE = "89f283492fd7ef171b4482b78baae88772880e51"
@@ -374,6 +393,108 @@ def hybrid_complete_negative_controls() -> None:
     reject(changed=(("rev-parse",head+":"+HYBRID_WORKER_PATH),"f"*40))
 
 
+def admit_v38_owner_readonly(head_sha: str, base_sha: str,
+                             request: dict, git: Callable[..., str]) -> str:
+    """Exactly PR1760's immutable read-only owner workflow, not generic CI.
+
+    Pin protected predecessor SHA/tree, full source delta, verified PR owner,
+    the absence of the new job on main, and exact reviewed workflow bytes.
+    No running the job, ref update, source mutation, or science authorization.
+    """
+    if (not is_sha(head_sha) or base_sha != V38_READONLY_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != V38_READONLY_PR
+            or type(request.get("user")) is not dict
+            or request["user"].get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_V38_READONLY_EXACT_PR_OWNER_AND_BASE_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        tree = git("rev-parse", base_sha + "^{tree}")
+        paths = git("diff", "--no-renames", "--name-only", base_sha,
+                    head_sha).splitlines()
+        before = git("ls-tree", base_sha, "--", V38_READONLY_WORKFLOW)
+        after = git("ls-tree", head_sha, "--", V38_READONLY_WORKFLOW)
+        predecessor = git(
+            "rev-parse", head_sha +
+            ":.github/workflows/f139-v41-original-owner-live-install.yml")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V38_READONLY_FROZEN_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha
+            or tree != V38_READONLY_BASE_TREE
+            or len(paths) != len(V38_READONLY_FILES)
+            or set(paths) != V38_READONLY_FILES
+            or before != ""
+            or after != "100644 blob " + V38_READONLY_BLOB + "\t" +
+                V38_READONLY_WORKFLOW
+            or predecessor != "6ad719d04639f96e3342f33bcbc9c5b379557e52"):
+        raise ValueError("G145_V38_READONLY_SOURCE_OR_WORKFLOW_BLOB_DRIFT")
+    return V38_READONLY_RESULT
+
+
+def v38_readonly_negative_controls() -> None:
+    """Self-test immutable route including negative owner/source/workflow cases."""
+    base, head = V38_READONLY_BASE, "b" * 40
+    owner = {
+        "number": V38_READONLY_PR,
+        "user": {"login": "spoonman136668-ai"},
+        "author_association": "OWNER",
+    }
+
+    def original(*args):
+        lookups = {
+            ("merge-base", base, head): base,
+            ("rev-parse", base + "^{tree}"): V38_READONLY_BASE_TREE,
+            ("diff", "--no-renames", "--name-only", base, head):
+                "\n".join(sorted(V38_READONLY_FILES)),
+            ("ls-tree", base, "--", V38_READONLY_WORKFLOW): "",
+            ("ls-tree", head, "--", V38_READONLY_WORKFLOW):
+                "100644 blob " + V38_READONLY_BLOB + "\t" + V38_READONLY_WORKFLOW,
+            ("rev-parse", head +
+             ":.github/workflows/f139-v41-original-owner-live-install.yml"):
+                "6ad719d04639f96e3342f33bcbc9c5b379557e52",
+        }
+        if args not in lookups:
+            raise AssertionError("unexpected original owner G145 source lookup")
+        return lookups[args]
+
+    if admit_v38_owner_readonly(head, base, owner, original) != V38_READONLY_RESULT:
+        raise ValueError("G145_V38_READONLY_POSITIVE_CONTROL_FAILED")
+
+    def denied(request=owner, candidate_base=base, changed=None):
+        def fake(*args):
+            return changed[1] if changed and args == changed[0] else original(*args)
+        try:
+            admit_v38_owner_readonly(head, candidate_base, request, fake)
+        except ValueError:
+            return
+        raise ValueError("G145_V38_READONLY_NEGATIVE_CONTROL_ADMITTED")
+
+    denied({**owner, "number": 1759})
+    denied({**owner, "user": {"login": "another"}})
+    denied({**owner, "author_association": "CONTRIBUTOR"})
+    denied(candidate_base="f" * 40)
+    denied(changed=(("merge-base", base, head), "f" * 40))
+    denied(changed=(("rev-parse", base + "^{tree}"), "f" * 40))
+    denied(changed=(("diff", "--no-renames", "--name-only", base, head),
+                    "\n".join(sorted(V38_READONLY_FILES -
+                                       {V38_READONLY_WORKFLOW}))))
+    denied(changed=(("diff", "--no-renames", "--name-only", base, head),
+                    "\n".join(sorted(V38_READONLY_FILES |
+                                       {".github/workflows/qualify.yml"}))))
+    denied(changed=(("ls-tree", base, "--", V38_READONLY_WORKFLOW),
+                    "100644 blob " + "a" * 40 + "\t" + V38_READONLY_WORKFLOW))
+    denied(changed=(("ls-tree", head, "--", V38_READONLY_WORKFLOW),
+                    "100644 blob " + "a" * 40 + "\t" + V38_READONLY_WORKFLOW))
+    denied(changed=(("ls-tree", head, "--", V38_READONLY_WORKFLOW),
+                    "100755 blob " + V38_READONLY_BLOB + "\t" +
+                    V38_READONLY_WORKFLOW))
+    denied(changed=(("rev-parse", head +
+                    ":.github/workflows/f139-v41-original-owner-live-install.yml"),
+                    "a" * 40))
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -411,6 +532,7 @@ def negative_controls() -> None:
         raise ValueError("G145_ADMISSION_NEGATIVE_CONTROL_FAILED")
     hybrid_release_negative_controls()
     hybrid_complete_negative_controls()
+    v38_readonly_negative_controls()
     v41_status_negative_controls()
     v41_backup_negative_controls()
     v41_pause_negative_controls()
@@ -760,6 +882,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == V38_READONLY_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_v38_owner_readonly(head_sha, base_sha, request, git)
     if branch == V41_PAUSE_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]

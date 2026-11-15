@@ -13,7 +13,9 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
     V41_STATUS_BRANCH, V41_STATUS_RESULT, V41_STATUS_BASE,
     V41_BACKUP_BRANCH, V41_BACKUP_RESULT, V41_BACKUP_BASE,
     V41_PAUSE_BRANCH, V41_PAUSE_RESULT, V41_PAUSE_BASE,
-    HYBRID_COMPLETE_BRANCH, HYBRID_COMPLETE_BASE, HYBRID_COMPLETE_BASE_TREE)
+    HYBRID_COMPLETE_BRANCH, HYBRID_COMPLETE_BASE, HYBRID_COMPLETE_BASE_TREE,
+    V38_READONLY_BRANCH, V38_READONLY_RESULT,
+    V38_READONLY_BASE, V38_READONLY_BASE_TREE)
 from check_rar_g148_go_cache import CAP, ROOT, git, identity, stable, compiled_graph
 
 BRANCH = "engineering/rar-g156-dynamic-main-cache-release-20261108"
@@ -234,6 +236,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == V38_READONLY_BRANCH:
+        if (admission != V38_READONLY_RESULT
+                or base != V38_READONLY_BASE
+                or tree != V38_READONLY_BASE_TREE):
+            raise ValueError("G156_V38_EXACT_OWNER_READONLY_ROUTE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == V41_PAUSE_BRANCH:
         # Exact original owner PR1735 and immutable base tree; no cache bypass.
         if (admission != V41_PAUSE_RESULT
