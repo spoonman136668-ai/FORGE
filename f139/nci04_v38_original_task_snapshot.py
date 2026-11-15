@@ -145,11 +145,11 @@ try {
 if($null -eq $task) { Write-Output 'TASK_LOOKUP_FAILED'; exit 0 }
 try {
   $current=[Security.Principal.WindowsIdentity]::GetCurrent()
-  $pid=[string]$task.Principal.UserId
+  $principalId=[string]$task.Principal.UserId
   $sid=''
-  try { $sid=(New-Object Security.Principal.NTAccount($pid)).
+  try { $sid=(New-Object Security.Principal.NTAccount($principalId)).
     Translate([Security.Principal.SecurityIdentifier]).Value } catch {}
-  if(-not ($pid -ieq $current.Name -or $sid -ceq $current.User.Value)) { Bad 0 }
+  if(-not ($principalId -ieq $current.Name -or $sid -ceq $current.User.Value)) { Bad 0 }
 } catch { Unk 0 }
 try {
   $actions=@($task.Actions)
