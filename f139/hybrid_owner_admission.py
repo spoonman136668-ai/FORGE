@@ -235,6 +235,54 @@ def _qualified_v38_forward_source_hold(db):
     )
 
 
+def _qualified_v39_successor_source_hold(db):
+    """Only event 1832 after the exact immutable V38 1831 held predecessor.
+
+    A source ledger event is not a fresh native activation or science grant.
+    Full Database.verify() must have validated every predecessor event before
+    the owner-only schema migration can use this limited historical predicate.
+    """
+    from f139 import nci04_v41_hybrid_event1832_successor as v39
+    from f139 import nci04_v41_hybrid_source_transition as v37
+    from f139.nci04_owner_ledger import verify_native_activation
+
+    meta = db.meta()
+    if (meta["head_seq"] != v39.PREDECESSOR_SEQ + 1
+            or meta["source_sha"] == v39.SOURCE):
+        return False
+    row = db.conn.execute(
+        "SELECT seq,kind,sha,prior_sha,payload FROM events "
+        "WHERE seq=?", (v39.PREDECESSOR_SEQ + 1,)).fetchone()
+    anchor = db.conn.execute(
+        "SELECT kind,sha FROM events WHERE seq=?",
+        (v39.PREDECESSOR_SEQ,)).fetchone()
+    if row is None or anchor is None:
+        return False
+    try:
+        doc = json.loads(row["payload"])
+    except (ValueError, UnicodeError, TypeError):
+        return False
+    return (
+        anchor["kind"] == "SOURCE_TRANSITION_ADMITTED"
+        and anchor["sha"] == v39.PREDECESSOR_SHA
+        and row["kind"] == "SOURCE_TRANSITION_ADMITTED"
+        and row["seq"] == v39.PREDECESSOR_SEQ + 1
+        and row["prior_sha"] == v39.PREDECESSOR_SHA
+        and row["sha"] == meta["head_hash"]
+        and type(doc) is dict
+        and set(doc) == v39.FIELDS
+        and doc["schema"] == v39.SCHEMA
+        and doc["from_source_sha"] == v39.SOURCE
+        and doc["to_source_sha"] == meta["source_sha"]
+        and doc["scientific_first_use"] is False
+        and doc["hybrid_admission"] is False
+        and doc["task_resume_authorized"] is False
+        and doc["owner_policy_update_authorized"] is False
+        and doc["new_dispatches"] == 0
+        and verify_native_activation(db, expected_source=v37.FROM_V41)
+    )
+
+
 def migrate_hybrid_lane(db):
     """Original owner only, once, in its existing SQLite transaction.
 
@@ -247,7 +295,8 @@ def migrate_hybrid_lane(db):
     from f139.nci04_owner_ledger import verify_native_activation
     require(verify_native_activation(db)
             or _qualified_v41_postcommit_source_hold(db)
-            or _qualified_v38_forward_source_hold(db),
+            or _qualified_v38_forward_source_hold(db)
+            or _qualified_v39_successor_source_hold(db),
             "NATIVE_ORIGINAL_OWNER_NOT_ACTIVE")
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1
