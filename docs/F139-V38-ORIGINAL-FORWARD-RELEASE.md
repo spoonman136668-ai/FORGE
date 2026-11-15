@@ -72,3 +72,23 @@ frozen bundle/source hashes and complete postcommit readback.
 Negative results are held and classified, never automatically
 retried. Preserve the previous original V37 backup and 153 VERIFIED
 and 56 QUARANTINED history.
+
+## Forward backup concurrency repair after cancelled zero-job request
+
+The original-owner forward-readiness event passed first attempt in
+run 43711928298. The subsequent fresh backup request generated
+run 43712053928, which was cancelled by GitHub pending-workflow
+concurrency before any job: official job inventory = 0. Neither
+source commit nor a backup operation occurred in this run. The owner
+comment has been consumed and must not be reused or rerun.
+
+PR #1773 isolates the event-only forward workflow from historical
+V41 owner workflow queue replacement while preserving: original
+FORGE-CODEX-REMOTE runner name, one active job per native runner,
+existing original SingleOwner mutex, exact task disabled readback,
+source/CI/PR custody, and unchanged issue #807 policy. This is NOT
+a new controller, scheduler, consumer, or a license for concurrent
+original owner operations. Old V41 owner workflow and source routes
+remain unchanged. Request a FRESH owner backup comment only after
+exact new release/tree/postmerge verification; no replay of the
+cancelled run.
