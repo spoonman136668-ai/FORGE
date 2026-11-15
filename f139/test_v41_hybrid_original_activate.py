@@ -95,7 +95,8 @@ class V41HybridCutoverTests(unittest.TestCase):
         self.assertEqual(s.count("Set-ScheduledTask -TaskName $name"),1)
         self.assertEqual(s.count("Start-ScheduledTask -TaskName $name"),1)
         self.assertEqual(s.count("Enable-ScheduledTask -TaskName $name"),1)
-        self.assertIn("original.conn.total_changes==0",s)
+        self.assertIn('receipt["original_owner_mutations"]==0',s)
+        self.assertIn("postcommit.original_postcommit(",s)
         self.assertIn("SELECT COUNT(*) FROM tasks WHERE stage='QUARANTINED'",s)
 
     def test_activate_requires_distinct_comment_before_any_task_mutation(self):
