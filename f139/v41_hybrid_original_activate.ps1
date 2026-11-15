@@ -164,7 +164,7 @@ need(readiness._owner_comment(get,postcommit_id,prior["body"])<e["comment"]["cre
 previous={"action":"created","issue":e["issue"],"sender":e["sender"],
           "comment":prior}
 receipt=postcommit.original_postcommit(db,dict(os.environ),previous,api)
-need(receipt["schema"]==postcommit.RECEIPT)
+need(receipt["schema"]==postcommit.SCHEMA)
 need(receipt["source_sha"]==target and receipt["event_seq"]==1832)
 need(receipt["verified_historical_tasks"]==153)
 need(receipt["custodied_negative_tasks"]==56)
@@ -173,7 +173,6 @@ need(receipt["hybrid_schema_migrated"] is False)
 need(receipt["scientific_first_use"] is False)
 need(receipt["task_resume_authorized"] is False)
 need(receipt["original_task_still_disabled"] is True)
-need(receipt["hybrid_schema_migrated"] is False)
 need(receipt["native_activation_performed"] is False)
 print("F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT="+
       canonical(dict(schema="forge.f139.hybrid-v39.activation-preflight.v1",

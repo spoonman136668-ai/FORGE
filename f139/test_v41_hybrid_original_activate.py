@@ -67,6 +67,7 @@ class V41HybridCutoverTests(unittest.TestCase):
             "SOURCE-ACTIVATE '+$Target+' [1-9][0-9]*$",
             "nci04_v41_hybrid_event1832_postcommit as postcommit",
             "postcommit.original_postcommit(db,dict(os.environ),previous,api)",
+            'need(receipt["schema"]==postcommit.SCHEMA)',
             'receipt["event_seq"]==1832',
             "source_event_seq -eq 1832",
             "F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT=",
