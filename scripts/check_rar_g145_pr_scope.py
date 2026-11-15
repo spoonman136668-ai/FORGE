@@ -142,6 +142,25 @@ V38_SNAPSHOT_V5_AFTER = "f8a3a5c633929d9b292bed62b47b86855ef5caca"
 V38_SNAPSHOT_V5_RESULT = "EXACT_PR1769_V38_READONLY_TASK_SNAPSHOT_AFTER_V39_GET_CI_ONLY"
 V38_SNAPSHOT_V5_FILES = V38_SNAPSHOT_V4_FILES
 
+# Exact read-only original Windows SQLite event-1830/cold-restoration diagnostic.
+V38_COLD_BRANCH = "engineering/f139-v38-original-ledger-cold-readonly-20261115"
+V38_COLD_PR = 1771
+V38_COLD_BASE = "882806e3d849183651f601b4b319ad95a23864f7"
+V38_COLD_BASE_TREE = "f4cb528844eeb4255528271c43a64d4e36dd8a08"
+V38_COLD_WORKFLOW = ".github/workflows/f139-v38-original-owner-readonly-once.yml"
+V38_COLD_BEFORE = "087348d173fac524195cf72dc78df222c5851485"
+V38_COLD_AFTER = "eb27a1f6b8827d72874b14040dee234ce43c7314"
+V38_COLD_RESULT = "EXACT_PR1771_V38_LEDGER_COLD_READONLY_CI_ONLY"
+V38_COLD_FILES = frozenset({
+    V38_COLD_WORKFLOW,
+    "f139/nci04_v38_owner_ledger_cold_readonly.py",
+    "f139/test_nci04_v38_owner_ledger_cold_readonly.py",
+    "docs/F139-V38-ORIGINAL-LEDGER-COLD-READONLY.md",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
 V38_STAGE_BRANCH = "engineering/f139-v38-held-task-stage-diagnostic-20261114"
 V38_STAGE_PR = 1762
 V38_STAGE_BASE = "396a1a36aec66a47d798ac677bf3ed473c3fa27f"
@@ -876,6 +895,94 @@ def v38_snapshot_v5_negative_controls() -> None:
                     "d" * 40))
 
 
+def admit_v38_cold_ledger(head_sha: str, base_sha: str,
+                          request: dict, git: Callable[..., str]) -> str:
+    """Source-only: one exact PR, exact workflow-before/after and unchanged owner."""
+    if (not is_sha(head_sha) or base_sha != V38_COLD_BASE
+            or type(request) is not dict or type(request.get("number")) is not int
+            or request["number"] != V38_COLD_PR
+            or type(request.get("user")) is not dict
+            or request["user"].get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_V38_COLD_OWNER_OR_PARENT_DENIED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        tree = git("rev-parse", base_sha + "^{tree}")
+        paths = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+        before = git("ls-tree", base_sha, "--", V38_COLD_WORKFLOW)
+        after = git("ls-tree", head_sha, "--", V38_COLD_WORKFLOW)
+        owner = git("rev-parse", head_sha +
+                    ":f139/nci04_v41_hybrid_forward_owner_profile.py")
+        prior = git("rev-parse", head_sha +
+                    ":.github/workflows/f139-v41-original-owner-live-install.yml")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V38_COLD_EXACT_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != V38_COLD_BASE or tree != V38_COLD_BASE_TREE
+            or len(paths) != len(V38_COLD_FILES)
+            or len(set(paths)) != len(paths)
+            or set(paths) != V38_COLD_FILES
+            or before != "100644 blob " + V38_COLD_BEFORE +
+                         "\t" + V38_COLD_WORKFLOW
+            or after != "100644 blob " + V38_COLD_AFTER +
+                        "\t" + V38_COLD_WORKFLOW
+            or owner != "4c0226a10eed5987ab30a4156e7c1b3f1550934e"
+            or prior != "6ad719d04639f96e3342f33bcbc9c5b379557e52"):
+        raise ValueError("G145_V38_COLD_SOURCE_OR_OWNER_GUARD_DRIFT")
+    return V38_COLD_RESULT
+
+
+def v38_cold_ledger_negative_controls() -> None:
+    base, head = V38_COLD_BASE, "e" * 40
+    request = {"number": V38_COLD_PR,
+               "user": {"login": "spoonman136668-ai"},
+               "author_association": "OWNER"}
+    def valid(*args):
+        cases = {
+            ("merge-base", base, head): base,
+            ("rev-parse", base + "^{tree}"): V38_COLD_BASE_TREE,
+            ("diff", "--no-renames", "--name-only", base, head):
+                "\n".join(sorted(V38_COLD_FILES)),
+            ("ls-tree", base, "--", V38_COLD_WORKFLOW):
+                "100644 blob " + V38_COLD_BEFORE + "\t" + V38_COLD_WORKFLOW,
+            ("ls-tree", head, "--", V38_COLD_WORKFLOW):
+                "100644 blob " + V38_COLD_AFTER + "\t" + V38_COLD_WORKFLOW,
+            ("rev-parse", head + ":f139/nci04_v41_hybrid_forward_owner_profile.py"):
+                "4c0226a10eed5987ab30a4156e7c1b3f1550934e",
+            ("rev-parse", head + ":.github/workflows/f139-v41-original-owner-live-install.yml"):
+                "6ad719d04639f96e3342f33bcbc9c5b379557e52",
+        }
+        if args not in cases:
+            raise AssertionError("unexpected source test read")
+        return cases[args]
+    if admit_v38_cold_ledger(head, base, request, valid) != V38_COLD_RESULT:
+        raise ValueError("G145_V38_COLD_POSITIVE_FAILED")
+    def reject(req=request, parent=base, changed=None):
+        def reader(*args):
+            if changed is not None and args == changed[0]:
+                return changed[1]
+            return valid(*args)
+        try:
+            admit_v38_cold_ledger(head, parent, req, reader)
+        except ValueError:
+            return
+        raise ValueError("G145_V38_COLD_NEGATIVE_ADMITTED")
+    reject({**request, "number": 1770})
+    reject({**request, "author_association": "CONTRIBUTOR"})
+    reject({**request, "user": {"login": "OTHER"}})
+    reject(parent="d" * 40)
+    reject(changed=(("merge-base", base, head), "d" * 40))
+    reject(changed=(("rev-parse", base + "^{tree}"), "d" * 40))
+    reject(changed=(("diff", "--no-renames", "--name-only", base, head),
+                    "\n".join(sorted(V38_COLD_FILES - {V38_COLD_WORKFLOW}))))
+    reject(changed=(("ls-tree", base, "--", V38_COLD_WORKFLOW), ""))
+    reject(changed=(("ls-tree", head, "--", V38_COLD_WORKFLOW),
+                    "100644 blob " + "d" * 40 + "\t" + V38_COLD_WORKFLOW))
+    reject(changed=(("rev-parse", head + ":f139/nci04_v41_hybrid_forward_owner_profile.py"),
+                    "d" * 40))
+    reject(changed=(("rev-parse", head + ":.github/workflows/f139-v41-original-owner-live-install.yml"),
+                    "d" * 40))
+
+
 def admit_v39_actions_get(head_sha: str, base_sha: str,
                           request: dict, git: Callable[..., str]) -> str:
     """One exact owner PR; only a read-only diagnostic, never task authority."""
@@ -1408,6 +1515,7 @@ def negative_controls() -> None:
     v38_snapshot_v3_negative_controls()
     v38_snapshot_v4_negative_controls()
     v38_snapshot_v5_negative_controls()
+    v38_cold_ledger_negative_controls()
     v39_actions_get_negative_controls()
     v41_status_negative_controls()
     v41_backup_negative_controls()
@@ -1758,6 +1866,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == V38_COLD_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_v38_cold_ledger(head_sha, base_sha, request, git)
     if branch == V39_ACTIONS_GET_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]

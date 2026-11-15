@@ -1,6 +1,6 @@
 name: FORGE F139 V38 original owner one-shot read-only preflight
-# This route may execute only on the ORIGINAL Windows owner after a fresh,
-# canonical, owner-authored issue #807 event. No automatic/scheduled dispatch.
+# This existing read-only route is requalified for a fresh V38 cold-ledger
+# snapshot after current-main owner guard and V5 task profile verified.
 # It reads the held original task/ledger under SingleOwner; no task, source,
 # queue, policy, schema, scheduler, science or first-use mutation.
 on:
@@ -13,7 +13,7 @@ permissions:
   pull-requests: read
 # Serialize with the existing original owner V41 workflow; no rival consumer.
 concurrency:
-  group: forge-f139-v41-original-owner-live-install
+  group: forge-f139-v38-original-ledger-cold-readonly-v1
   cancel-in-progress: false
 jobs:
   original-owner-v38-readonly-preflight:
@@ -23,7 +23,7 @@ jobs:
       github.repository == 'spoonman136668-ai/FORGE' &&
       github.event.issue.number == 807 &&
       !github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, 'F139-HYBRID-V41-FORWARD-READINESS ')
+      startsWith(github.event.comment.body, 'F139-V38-LEDGER-COLD-READONLY-V1 ')
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 20
     steps:
@@ -58,7 +58,7 @@ jobs:
             throw 'F139_V38_READONLY_SOURCE_NOT_EXACT_OR_CLEAN'
           }
           $ev=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-          $required='F139-HYBRID-V41-FORWARD-READINESS '+$env:GITHUB_SHA+' 6883036903'
+          $required='F139-V38-LEDGER-COLD-READONLY-V1 '+$env:GITHUB_SHA+' 6892848524'
           if($ev.action -cne 'created' -or
              [string]$ev.comment.body -cne $required -or
              $ev.comment.user.login -cne 'spoonman136668-ai' -or
@@ -67,13 +67,14 @@ jobs:
           }
           # Read-only original SID, disabled task, 1830 event chain, 153/56
           # historical custody, cold detached replay and unchanged policy.
-          # The CLI itself additionally requires PR #1759 merged on exact
-          # protected main with first-attempt PR and postmerge main CI.
-          & python -B -m f139.nci04_v41_hybrid_forward_readiness --target $env:GITHUB_SHA
+          # The CLI separately validates signed V5 predecessor, frozen V37
+          # approval, unchanged two-lane policy, exact protected source and
+          # eight first-attempt postmerge CI jobs before touching original DB.
+          & python -B -m f139.nci04_v38_owner_ledger_cold_readonly --target $env:GITHUB_SHA
           if($LASTEXITCODE -ne 0) {
             throw 'F139_V38_ORIGINAL_READONLY_PREFLIGHT_NOT_ACCEPTED'
           }
-          Write-Output 'F139_V38_ORIGINAL_OWNER_PREFLIGHT=PASS_READONLY'
+          Write-Output 'F139_V38_ORIGINAL_OWNER_LEDGER_COLD_WORKFLOW=PASS_READONLY'
           Write-Output 'F139_V38_ORIGINAL_TASK_MUTATIONS=ZERO'
           Write-Output 'F139_V38_SOURCE_TRANSITION=NOT_REQUESTED'
           Write-Output 'F139_V38_HYBRID_ACTIVATION=NOT_REQUESTED'

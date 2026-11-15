@@ -31,7 +31,9 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
     V39_ACTIONS_GET_BRANCH, V39_ACTIONS_GET_RESULT,
     V39_ACTIONS_GET_BASE, V39_ACTIONS_GET_BASE_TREE,
     V38_SNAPSHOT_V5_BRANCH, V38_SNAPSHOT_V5_RESULT,
-    V38_SNAPSHOT_V5_BASE, V38_SNAPSHOT_V5_BASE_TREE)
+    V38_SNAPSHOT_V5_BASE, V38_SNAPSHOT_V5_BASE_TREE,
+    V38_COLD_BRANCH, V38_COLD_RESULT,
+    V38_COLD_BASE, V38_COLD_BASE_TREE)
 from check_rar_g148_go_cache import CAP, ROOT, git, identity, stable, compiled_graph
 
 BRANCH = "engineering/rar-g156-dynamic-main-cache-release-20261108"
@@ -252,6 +254,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == V38_COLD_BRANCH:
+        if (admission != V38_COLD_RESULT
+                or base != V38_COLD_BASE
+                or tree != V38_COLD_BASE_TREE):
+            raise ValueError("G156_V38_LEDGER_COLD_EXACT_BASE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == V38_SNAPSHOT_V5_BRANCH:
         if (admission != V38_SNAPSHOT_V5_RESULT
                 or base != V38_SNAPSHOT_V5_BASE
