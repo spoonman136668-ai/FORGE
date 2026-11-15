@@ -213,6 +213,22 @@ class Event1832SourceSuccessorTests(unittest.TestCase):
             self.assertEqual(self.db.conn.execute(
                 "SELECT COUNT(*) FROM events WHERE seq=1832").fetchone()[0], 0)
 
+    def test_owner_migration_predicate_accepts_only_actual_successor(self):
+        from f139.hybrid_owner_admission import (
+            _qualified_v39_successor_source_hold as eligible)
+        with patch("f139.nci04_owner_ledger.verify_native_activation",
+                   return_value=True):
+            self.assertFalse(eligible(self.db))
+            with SingleOwner(self.path.with_suffix(".lock")):
+                proof = self.proof()
+                self.action(proof)
+                self.assertTrue(eligible(self.db))
+                self.db.conn.execute(
+                    "UPDATE meta SET source_sha=? WHERE id=1", (v39.SOURCE,))
+                self.assertFalse(eligible(self.db))
+                self.db.conn.execute(
+                    "UPDATE meta SET source_sha=? WHERE id=1", (self.target,))
+
     def test_no_native_workflow_or_implicit_scientific_dispatch(self):
         import inspect
         src=inspect.getsource(v39)
