@@ -11,7 +11,7 @@
 - Draft source-only repair: PR `#1759`, first-attempt CI PASS 12/12 at `e12c2e3fdd39c39994e5bc951bafa3eac4dd10d2`. Engineering CI is not original-host acceptance.
 - Existing issue #807: only Wingless and Yggdrasil; no scientific first use.
 - Frozen branch: `engineering/f139-v38-original-owner-readonly-once-20261114`.
-- Allowed source paths: `.github/workflows/f139-v38-original-owner-readonly-once.yml`, `scripts/check_rar_g145_pr_scope.py`, `f139/test_v38_owner_readonly_workflow_scope.py`, this document. Ordinary generic workflow/harness edits remain G145-denied.
+- Allowed source paths: `.github/workflows/f139-v38-original-owner-readonly-once.yml`, `scripts/check_rar_g145_pr_scope.py`, `scripts/check_rar_g148_go_cache.py`, `scripts/check_rar_g156_dynamic_base_cache.py`, `f139/test_v38_owner_readonly_workflow_scope.py`, this document. G148/G156 only recognize this exact PR #1760 result; ordinary generic workflow/harness edits remain G145-denied. The new workflow blob is frozen as `087348d173fac524195cf72dc78df222c5851485`.
 
 ## Exactly one existing-owner read-only admission
 
