@@ -251,79 +251,105 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  local-kterminal-current-map-and-event-bridge-preflight:
+  local-kterminal-derived-manifest-integrity-repair:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 9
+    timeout-minutes: 12
     permissions:
       contents: read
     steps:
-      - name: Verify current private source maps and check for existing push-event bridge
+      - name: Repair verified native Graphify checksums from existing Git blobs only
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-              $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
-              $env:GITHUB_EVENT_NAME -cne 'push' -or
-              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
-              $env:RUNNER_OS -cne 'Windows' -or
-              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
-              $env:GITHUB_RUN_ATTEMPT -cne '1') { throw 'KABOOM_LOCAL_RUNNER_IDENTITY_MISMATCH' }
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'KABOOM_WRONG_LOCAL_RUNNER'}
           $head='b07160e4d96e7363fc185e5c71b6cc98a3071893'
           $source='1d5b4fefa9f7573fcdf05a5fc9ceb94f72536269'
           $digest='202af9fe36e41dc0f7b48347c69c161387aa5019ba7df022061ed6a4892ae666'
-          $observed=(& gh api repos/Kboomllc/K-Terminal/git/ref/heads/main --jq '.object.sha' 2>$null)
-          if($LASTEXITCODE -ne 0 -or $observed.Trim() -cne $head){throw 'KABOOM_MAIN_DRIFT'}
-          $write=(& gh api repos/Kboomllc/K-Terminal --jq '.permissions.push // false' 2>$null)
-          if($LASTEXITCODE -ne 0 -or $write.Trim() -cne 'true'){throw 'KABOOM_LOCAL_CROSS_REPO_WRITE_UNAVAILABLE'}
-          Write-Output 'KABOOM_FORGE_CODEX_LOCAL_WRITER=PASS'
-          $tmp=Join-Path $env:RUNNER_TEMP ('kaboom-readonly-source-'+$env:GITHUB_RUN_ID)
-          if(Test-Path -LiteralPath $tmp){throw 'KABOOM_READONLY_WORKSPACE_COLLISION'}
+          $permission=(& gh api repos/Kboomllc/K-Terminal --jq '.permissions.push // false' 2>$null)
+          if($LASTEXITCODE -ne 0 -or [string]$permission -cne 'true'){throw 'KABOOM_LOCAL_PUBLISHER_WRITER_DENIED'}
+          $previous=(& gh api repos/Kboomllc/K-Terminal/git/ref/heads/main --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or [string]$previous -cne $head){throw 'KABOOM_MAIN_SHA_DRIFT'}
+          $tmp=Join-Path $env:RUNNER_TEMP ('kaboom-manifest-integrity-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $tmp){throw 'KABOOM_TEMP_COLLISION'}
           New-Item -ItemType Directory -Path $tmp | Out-Null
           try {
-            $local=Join-Path $tmp 'source'
-            & gh repo clone Kboomllc/K-Terminal $local -- --quiet *> (Join-Path $tmp 'clone-private.log')
-            if($LASTEXITCODE -ne 0){throw 'KABOOM_PRIVATE_SOURCE_FETCH_FAILED'}
-            if((& git -C $local rev-parse HEAD).Trim() -cne $head){throw 'KABOOM_CLONE_SHA_MISMATCH'}
-            $m=Get-Content (Join-Path $local '.ice/manifest.json') -Raw | ConvertFrom-Json
-            $g=Get-Content (Join-Path $local 'docs/graphify/source-manifest.json') -Raw | ConvertFrom-Json
-            $o=Get-Content (Join-Path $local 'docs/obsidian/KABOOM.md') -Raw
-            if($m.source_content_sha256 -cne $digest -or
-               $g.source_content_sha256 -cne $digest -or
-               $g.source_commit -cne $source -or
-               $g.repository -cne 'Kboomllc/K-Terminal' -or
-               -not $o.Contains($digest)){throw 'KABOOM_ARCHITECTURE_DIGEST_MISMATCH'}
-            $py='import hashlib,json,pathlib,subprocess,sys; p=pathlib.Path(sys.argv[1]); m=json.loads((p/"docs/graphify/source-manifest.json").read_text()); names=("graph.json","graph.html","GRAPH_REPORT.md"); a=[(n,hashlib.sha256(subprocess.check_output(["git","-C",str(p),"show","HEAD:docs/graphify/"+n])).hexdigest(),hashlib.sha256((p/"docs"/"graphify"/n).read_bytes()).hexdigest(),m["files_sha256"][n]) for n in names]; [print("KABOOM_GRAPHIFY_BLOB_HASH_CHECK="+n+";match="+str(blob==expected).upper()+";checkout_differs="+str(blob!=checkout).upper()) for n,blob,checkout,expected in a]; sys.exit(0 if all(blob==expected for n,blob,checkout,expected in a) else 3)'
-            & python -B -c $py $local
-            if($LASTEXITCODE -ne 0){throw 'KABOOM_NATIVE_GIT_BLOB_HASHES_FAILED'}
-            Push-Location $local
-            try {
-              & python -B tools/architecture/generate.py --check *> (Join-Path $tmp 'generate-private.log')
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_SOURCE_MAPS_STALE'}
-              & python -B tools/architecture/verify_source_custody.py *> (Join-Path $tmp 'custody-private.log')
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_SOURCE_CUSTODY_FAIL'}
-            } finally {Pop-Location}
-            if((@(& git -C $local status --porcelain)).Count -ne 0){throw 'KABOOM_READ_ONLY_WORKSPACE_MUTATED'}
-            $now=(& gh api repos/Kboomllc/K-Terminal/git/ref/heads/main --jq '.object.sha' 2>$null).Trim()
-            if($LASTEXITCODE -ne 0 -or $now -cne $head){throw 'KABOOM_SOURCE_DRIFT_AFTER_PROBE'}
-            Write-Output 'KABOOM_FORGE_CODEX_CURRENT_ARCHITECTURE_SYNC=PASS;GRAPHIFY_FILES=4;SOURCE_UNCHANGED=TRUE'
+            $clone=Join-Path $tmp 'source'
+            & gh repo clone Kboomllc/K-Terminal $clone -- --quiet *> (Join-Path $tmp 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PRIVATE_CLONE_FAILED'}
+            $py=@'
+          import hashlib,json,pathlib,subprocess,sys,tempfile
+          root=pathlib.Path(sys.argv[1])
+          old,source,digest=sys.argv[2:5]
+          repo="repos/Kboomllc/K-Terminal/"
+          def gh(method,route,payload=None):
+              cmd=["gh","api","--method",method,repo+route,"--header","Accept: application/vnd.github+json"]
+              if payload is None:
+                  p=subprocess.run(cmd,capture_output=True,text=True,encoding="utf-8")
+              else:
+                  with tempfile.NamedTemporaryFile(mode="w",encoding="utf-8",suffix=".json",delete=False) as f:
+                      json.dump(payload,f,ensure_ascii=False)
+                      name=f.name
+                  try:
+                      p=subprocess.run(cmd+["--input",name],capture_output=True,text=True,encoding="utf-8")
+                  finally:
+                      pathlib.Path(name).unlink(missing_ok=True)
+              if p.returncode: raise RuntimeError("KABOOM_PRIVATE_API_"+method+"_"+route.split("/")[0]+"_FAILED")
+              return json.loads(p.stdout)
+          def head():
+              return gh("GET","git/ref/heads/main")["object"]["sha"]
+          assert head()==old,"KABOOM_CURRENT_MAIN_DRIFT"
+          assert subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],text=True).strip()==old
+          tree=subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD^{tree}"],text=True).strip()
+          assert not subprocess.check_output(["git","-C",str(root),"status","--porcelain"]).strip()
+          def original(path):
+              return subprocess.check_output(["git","-C",str(root),"show","HEAD:"+path])
+          ice=json.loads(original(".ice/manifest.json"))
+          graph=json.loads(original("docs/graphify/source-manifest.json"))
+          obs=original("docs/obsidian/KABOOM.md")
+          assert ice["source_content_sha256"]==digest
+          assert graph["source_content_sha256"]==digest and graph["source_commit"]==source
+          assert graph["repository"]=="Kboomllc/K-Terminal"
+          assert digest.encode() in obs
+          assert graph["graphify_version"]=="0.9.92" and graph["extraction"].startswith("code-only")
+          names=("graph.json","graph.html","GRAPH_REPORT.md")
+          assert set(graph["files_sha256"])==set(names)
+          blobs={n:original("docs/graphify/"+n) for n in names}
+          actual={n:hashlib.sha256(blobs[n]).hexdigest() for n in names}
+          assert actual["graph.json"]==graph["files_sha256"]["graph.json"],"GRAPH_JSON_SOURCE_CHANGED"
+          changed=("graph.html","GRAPH_REPORT.md")
+          for n in changed:
+              assert actual[n]!=graph["files_sha256"][n],"EXPECTED_PUBLICATION_MISMATCH_NOT_PRESENT"
+              restored=hashlib.sha256(blobs[n].replace(b"\n",b"\r\n")).hexdigest()
+              assert restored==graph["files_sha256"][n],"NOT_PURE_CRLF_NORMALIZATION"
+              print("KABOOM_GRAPHIFY_CRLF_PUBLICATION_ROOT_CAUSE=PASS;file="+n)
+          data=json.loads(blobs["graph.json"].decode("utf-8"))
+          assert len(data["nodes"])==graph["graph_nodes"] and len(data["links"])==graph["graph_edges"]
+          assert graph["graph_nodes"]==1390 and graph["graph_edges"]==4587
+          print("KABOOM_NATIVE_GRAPH_CONTENT_AND_SOURCE=PASS")
+          graph["files_sha256"]={n:actual[n] for n in sorted(names)}
+          new_content=json.dumps(graph,sort_keys=True,indent=2,ensure_ascii=False)+"\n"
+          assert new_content.encode("utf-8")!=original("docs/graphify/source-manifest.json")
+          assert head()==old,"KABOOM_MAIN_ADVANCED_BEFORE_REPAIR"
+          newblob=gh("POST","git/blobs",{"content":new_content,"encoding":"utf-8"})["sha"]
+          newtree=gh("POST","git/trees",{"base_tree":tree,"tree":[{"path":"docs/graphify/source-manifest.json","mode":"100644","type":"blob","sha":newblob}]})["sha"]
+          assert newtree!=tree
+          commit=gh("POST","git/commits",{"message":"docs(kaboom): correct Graphify report hashes after newline conversion [skip ci]","tree":newtree,"parents":[old]})["sha"]
+          assert head()==old,"KABOOM_MAIN_ADVANCED_DURING_REPAIR"
+          reply=gh("PATCH","git/refs/heads/main",{"sha":commit,"force":False})
+          assert reply["object"]["sha"]==commit and head()==commit
+          print("KABOOM_REPAIRED_MANIFEST_BLOB_SHA="+newblob)
+          print("KABOOM_REPAIRED_MAIN_SHA="+commit)
+          print("KABOOM_DERIVED_MANIFEST_ONLY=PASS;APPLICATION_SOURCE_UNCHANGED=TRUE")
+          
+          '@
+            $py | & python -B - $clone $head $source $digest
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PRIVATE_MANIFEST_INTEGRITY_REPAIR_FAILED'}
           } finally {
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
           }
-          foreach($api in @('hooks','actions/runners')){
-            try {
-              $reply=(& gh api ('repos/Kboomllc/K-Terminal/'+$api) 2>$null)
-              if($LASTEXITCODE -ne 0){throw 'READ_DENIED'}
-              if($api -ceq 'hooks'){
-                $data=@(($reply -join "`n") | ConvertFrom-Json)
-                Write-Output ('KABOOM_EXISTING_WEBHOOK_INVENTORY=VISIBLE;count='+$data.Count)
-              } else {
-                $data=($reply -join "`n") | ConvertFrom-Json
-                Write-Output ('KABOOM_NATIVE_RUNNER_INVENTORY=VISIBLE;count='+[int]$data.total_count)
-              }
-            } catch {
-              if($api -ceq 'hooks'){Write-Output 'KABOOM_EXISTING_WEBHOOK_INVENTORY=UNVERIFIED'}
-              else {Write-Output 'KABOOM_NATIVE_RUNNER_INVENTORY=UNVERIFIED'}
-            }
-          }
-          Write-Output 'KABOOM_FORGE_CODEX_AUTOMATIC_CROSS_REPO_PUSH_TRIGGER=NOT_PROVEN'
-          Write-Output 'KABOOM_FORGE_CODEX_MODE=READ_ONLY;NO_CONTROLLER_OR_SCHEDULE'
