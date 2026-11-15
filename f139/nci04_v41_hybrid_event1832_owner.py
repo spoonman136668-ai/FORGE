@@ -27,8 +27,8 @@ from f139 import nci04_v41_hybrid_successor_release as shared
 
 REPO = "spoonman136668-ai/FORGE"
 OWNER = "spoonman136668-ai"
-PR = 1775
-BRANCH = "engineering/f139-v39-postmerge-isolation-correction-20261115"
+PR = 1776
+BRANCH = "engineering/f139-v39-concurrency-isolation-v2-20261115"
 PREDECESSOR_POSTCOMMIT_COMMENT_ID = 6899216699
 PREDECESSOR_SOURCE_COMMIT_COMMENT_ID = 6899175188
 READINESS = "F139-HYBRID-V39-READINESS "
@@ -73,7 +73,7 @@ def release(get, target):
          and pr["base"].get("ref") == "main"
          and type(pr["base"].get("repo")) is dict
          and pr["base"]["repo"].get("full_name") == REPO,
-         "PR1775_MERGED_PROTECTED_MAIN_REQUIRED")
+         "PR1776_MERGED_PROTECTED_MAIN_REQUIRED")
     cmp = get(base + "compare/" + successor.SOURCE + "..." + target +
               "?per_page=1&page=2")
     need(type(cmp) is dict and cmp.get("status") == "ahead"
