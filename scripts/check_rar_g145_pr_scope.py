@@ -46,6 +46,26 @@ HYBRID_COMPLETE_FILES = frozenset({
 # One exact operator-approved, read-only original-owner V38 workflow route.
 # This is CI source admission ONLY. It cannot authorize task, SQLite, policy,
 # scheduling, first-use, merge, workflow invocation or privileged execution.
+# Separate operator-approved bounded *diagnostic only* after failed original
+# one-shot, authenticated to exact prior failed run/comment. Only grants source
+# CI admission; no owner workflow execution, mutation, task control or science.
+V38_DIAG_BRANCH = "engineering/f139-v38-held-task-guard-diagnostic-once-20261114"
+V38_DIAG_PR = 1761
+V38_DIAG_BASE = "46a97e22ccd061ed799b53a8b92f27ed48b98f2b"
+V38_DIAG_BASE_TREE = "2f6a8766fa8dac77531697e2990169464d600dc8"
+V38_DIAG_WORKFLOW = ".github/workflows/f139-v38-held-task-guard-diagnostic-once.yml"
+V38_DIAG_WORKFLOW_BLOB = "28924c2905d20e47d21a278ed763ad4a8904dda0"
+V38_DIAG_RESULT = "EXACT_PR1761_V38_BOUNDED_HELD_TASK_GUARD_DIAG_CI_ONLY"
+V38_DIAG_FILES = frozenset({
+    V38_DIAG_WORKFLOW,
+    "f139/nci04_v38_held_task_guard_diagnostic.py",
+    "f139/test_nci04_v38_held_task_guard_diagnostic.py",
+    "docs/F139-V38-HELD-GUARD-DIAGNOSTIC-ONCE.md",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
 V38_READONLY_BRANCH = "engineering/f139-v38-original-owner-readonly-once-20261114"
 V38_READONLY_PR = 1760
 V38_READONLY_BASE = "c611c4362e3cc867984448a03ecdf3be923d2ef1"
@@ -393,6 +413,109 @@ def hybrid_complete_negative_controls() -> None:
     reject(changed=(("rev-parse",head+":"+HYBRID_WORKER_PATH),"f"*40))
 
 
+def admit_v38_guard_diagnostic(head_sha: str, base_sha: str,
+                               request: dict, git: Callable[..., str]) -> str:
+    """Only exact owner PR1761 on the protected prior-failure main source.
+
+    Workflow immutable blob, exact seven paths, original profile bytes and
+    consumed read-only workflow pinned. This is engineering CI admission
+    only and never grants a task, first-use or privileged execution right.
+    """
+    if (not is_sha(head_sha) or base_sha != V38_DIAG_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != V38_DIAG_PR
+            or type(request.get("user")) is not dict
+            or request["user"].get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_V38_GUARD_DIAG_OWNER_PR_BASE_DENIED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        tree = git("rev-parse", base_sha + "^{tree}")
+        paths = git("diff", "--no-renames", "--name-only",
+                    base_sha, head_sha).splitlines()
+        before = git("ls-tree", base_sha, "--", V38_DIAG_WORKFLOW)
+        after = git("ls-tree", head_sha, "--", V38_DIAG_WORKFLOW)
+        guard = git("rev-parse", head_sha +
+                    ":f139/nci04_v41_hybrid_forward_owner_profile.py")
+        prior = git("rev-parse", head_sha +
+                    ":.github/workflows/f139-v38-original-owner-readonly-once.yml")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V38_DIAGNOSTIC_SOURCE_UNREADABLE") from exc
+    if (ancestor != V38_DIAG_BASE
+            or tree != V38_DIAG_BASE_TREE
+            or len(paths) != len(V38_DIAG_FILES)
+            or len(set(paths)) != len(paths)
+            or set(paths) != V38_DIAG_FILES
+            or before != ""
+            or after != "100644 blob " + V38_DIAG_WORKFLOW_BLOB +
+                        "\t" + V38_DIAG_WORKFLOW
+            or guard != "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6"
+            or prior != "087348d173fac524195cf72dc78df222c5851485"):
+        raise ValueError("G145_V38_DIAGNOSTIC_SCOPE_OR_ORIGINAL_GUARD_DRIFT")
+    return V38_DIAG_RESULT
+
+
+def v38_diagnostic_negative_controls() -> None:
+    base, head = V38_DIAG_BASE, "c" * 40
+    owner = {"number": V38_DIAG_PR, "user": {"login": "spoonman136668-ai"},
+             "author_association": "OWNER"}
+    def good(*args):
+        responses = {
+            ("merge-base", base, head): base,
+            ("rev-parse", base + "^{tree}"): V38_DIAG_BASE_TREE,
+            ("diff", "--no-renames", "--name-only", base, head):
+                "\n".join(sorted(V38_DIAG_FILES)),
+            ("ls-tree", base, "--", V38_DIAG_WORKFLOW): "",
+            ("ls-tree", head, "--", V38_DIAG_WORKFLOW):
+                "100644 blob " + V38_DIAG_WORKFLOW_BLOB + "\t" + V38_DIAG_WORKFLOW,
+            ("rev-parse", head +
+             ":f139/nci04_v41_hybrid_forward_owner_profile.py"):
+                "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6",
+            ("rev-parse", head +
+             ":.github/workflows/f139-v38-original-owner-readonly-once.yml"):
+                "087348d173fac524195cf72dc78df222c5851485",
+        }
+        if args not in responses:
+            raise AssertionError("unexpected original owner CI source lookup")
+        return responses[args]
+    if admit_v38_guard_diagnostic(head, base, owner, good) != V38_DIAG_RESULT:
+        raise ValueError("G145_V38_DIAG_POSITIVE_CONTROL_FAILED")
+    def reject(request=owner, candidate_base=base, replacement=None):
+        def changed(*args):
+            return replacement[1] if replacement and args == replacement[0] else good(*args)
+        try:
+            admit_v38_guard_diagnostic(head, candidate_base, request, changed)
+        except ValueError:
+            return
+        raise ValueError("G145_V38_DIAG_UNAUTHORIZED_SOURCE_ACCEPTED")
+    reject({**owner, "number": 1759})
+    reject({**owner, "author_association": "CONTRIBUTOR"})
+    reject({**owner, "user": {"login": "OTHER"}})
+    reject(candidate_base="d" * 40)
+    reject(replacement=(("merge-base", base, head), "d" * 40))
+    reject(replacement=(("rev-parse", base + "^{tree}"), "d" * 40))
+    reject(replacement=(("diff", "--no-renames", "--name-only", base, head),
+                        "\n".join(sorted(V38_DIAG_FILES -
+                                           {V38_DIAG_WORKFLOW}))))
+    reject(replacement=(("diff", "--no-renames", "--name-only", base, head),
+                        "\n".join(sorted(V38_DIAG_FILES |
+                                           {".github/workflows/qualify.yml"}))))
+    reject(replacement=(("ls-tree", base, "--", V38_DIAG_WORKFLOW),
+                        "100644 blob " + "d" * 40 + "\t" + V38_DIAG_WORKFLOW))
+    reject(replacement=(("ls-tree", head, "--", V38_DIAG_WORKFLOW),
+                        "100644 blob " + "d" * 40 + "\t" + V38_DIAG_WORKFLOW))
+    reject(replacement=(("ls-tree", head, "--", V38_DIAG_WORKFLOW),
+                        "100755 blob " + V38_DIAG_WORKFLOW_BLOB + "\t" +
+                        V38_DIAG_WORKFLOW))
+    reject(replacement=(("rev-parse", head +
+                        ":f139/nci04_v41_hybrid_forward_owner_profile.py"),
+                        "d" * 40))
+    reject(replacement=(("rev-parse", head +
+                        ":.github/workflows/f139-v38-original-owner-readonly-once.yml"),
+                        "d" * 40))
+
+
 def admit_v38_owner_readonly(head_sha: str, base_sha: str,
                              request: dict, git: Callable[..., str]) -> str:
     """Exactly PR1760's immutable read-only owner workflow, not generic CI.
@@ -533,6 +656,7 @@ def negative_controls() -> None:
     hybrid_release_negative_controls()
     hybrid_complete_negative_controls()
     v38_readonly_negative_controls()
+    v38_diagnostic_negative_controls()
     v41_status_negative_controls()
     v41_backup_negative_controls()
     v41_pause_negative_controls()
@@ -882,6 +1006,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == V38_DIAG_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_v38_guard_diagnostic(head_sha, base_sha, request, git)
     if branch == V38_READONLY_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]
