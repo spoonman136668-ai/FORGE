@@ -52,6 +52,9 @@ class ReadOnlySnapshotTests(unittest.TestCase):
             self.assertNotIn(forbidden, src)
         self.assertNotIn("$pid=", src.lower())
         self.assertEqual(snap.MAX_MASK, 2047)
+        self.assertIn("not isinstance(db_path, Path)",
+                      Path(snap.__file__).read_text("utf-8"))
+        self.assertIsInstance(Path("state.sqlite"), Path)
 
     def test_exact_prior_owner_comment_and_completed_staged_run(self):
         target = "a" * 40
