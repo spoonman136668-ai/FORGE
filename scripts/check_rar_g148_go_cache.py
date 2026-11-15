@@ -137,6 +137,10 @@ def event_mode(head):
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G148_V39_ORIGINAL_OWNER_SOURCE_EXACT_SCOPE_REQUIRED")
         return "pr"
+    if branch == "engineering/f139-v39-postmerge-isolation-correction-20261115":
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G148_V39_POSTMERGE_OWNER_EXACT_SCOPE_REQUIRED")
+        return "pr"
     if branch == V38_FORWARD_V2_BRANCH:
         if admiss != V38_FORWARD_V2_RESULT:
             raise ValueError("G148_V38_FORWARD_V2_EXACT_SOURCE_REQUIRED")

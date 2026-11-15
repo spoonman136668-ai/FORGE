@@ -53,6 +53,16 @@ class OriginalV39WorkflowTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden,s)
 
+    def test_release_correction_preserves_exact_frozen_owner_job(self):
+        s=WORKFLOW.read_bytes()
+        self.assertFalse(s.endswith(b"\n\n"))
+        self.assertTrue(s.endswith(b"\n"))
+        scope=GUARD.read_text("utf-8")
+        self.assertIn('engineering/f139-v39-postmerge-isolation-correction-20261115',scope)
+        self.assertIn('request["number"] != 1775',scope)
+        self.assertIn("G145_V39_POSTMERGE_OWNER_BASE_TREE_REQUIRED",scope)
+        self.assertIn('"scripts/check_rar_g156_dynamic_base_cache.py"',scope)
+
     def test_source_intent_commit_job_and_postcommit_remain_distinct(self):
         s=WORKFLOW.read_text("utf-8")
         start=s.index("  hybrid-v39-original-event1831-readiness:")
