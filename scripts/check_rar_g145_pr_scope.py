@@ -155,6 +155,7 @@ V38_COLD_FILES = frozenset({
     V38_COLD_WORKFLOW,
     "f139/nci04_v38_owner_ledger_cold_readonly.py",
     "f139/test_nci04_v38_owner_ledger_cold_readonly.py",
+    "f139/test_v38_owner_readonly_workflow_scope.py",
     "docs/F139-V38-ORIGINAL-LEDGER-COLD-READONLY.md",
     "scripts/check_rar_g145_pr_scope.py",
     "scripts/check_rar_g148_go_cache.py",
