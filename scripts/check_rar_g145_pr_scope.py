@@ -143,6 +143,29 @@ V38_SNAPSHOT_V5_RESULT = "EXACT_PR1769_V38_READONLY_TASK_SNAPSHOT_AFTER_V39_GET_
 V38_SNAPSHOT_V5_FILES = V38_SNAPSHOT_V4_FILES
 
 # Exact read-only original Windows SQLite event-1830/cold-restoration diagnostic.
+# Qualified forward original-owner install uses existing controller and source modules.
+V38_FORWARD_BRANCH = "engineering/f139-v38-forward-original-owner-release-20261115"
+V38_FORWARD_PR = 1772
+V38_FORWARD_BASE = "0b300ed59002ae12b810c3dacabd016605bb7daf"
+V38_FORWARD_BASE_TREE = "eae427e3e0f7f19880b18fcd59b4245439a076e2"
+V38_FORWARD_WORKFLOW = ".github/workflows/f139-v38-original-forward-install.yml"
+V38_FORWARD_WORKFLOW_BLOB = "bcf29aadb31c5189c81d61d6d291ce7eae3f156c"
+V38_FORWARD_READINESS_BLOB = "c9c33817182996f1d9bcd2ebdbc8bf8e5fdf6205"
+V38_FORWARD_OLD_WORKFLOW_BLOB = "6ad719d04639f96e3342f33bcbc9c5b379557e52"
+V38_FORWARD_ORIGINAL_BACKUP_BLOB = "44ed9e5faa16ff26ff85637db6137c0a6fc16689"
+V38_FORWARD_SOURCE_COMMIT_BLOB = "9ad393a67becd881d8630ed7ab23125cd92f3f47"
+V38_FORWARD_RESULT = "EXACT_PR1772_V38_FORWARD_OWNER_STAGE_RELEASE_CI_ONLY"
+V38_FORWARD_FILES = frozenset({
+    V38_FORWARD_WORKFLOW,
+    "f139/nci04_v41_hybrid_forward_readiness.py",
+    "f139/test_nci04_v41_hybrid_forward_readiness.py",
+    "f139/test_nci04_v38_original_forward_workflow.py",
+    "docs/F139-V38-ORIGINAL-FORWARD-RELEASE.md",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
 V38_COLD_BRANCH = "engineering/f139-v38-original-ledger-cold-readonly-20261115"
 V38_COLD_PR = 1771
 V38_COLD_BASE = "882806e3d849183651f601b4b319ad95a23864f7"
@@ -896,6 +919,112 @@ def v38_snapshot_v5_negative_controls() -> None:
                     "d" * 40))
 
 
+def admit_v38_forward_release(head_sha: str, base_sha: str,
+                              request: dict, git: Callable[..., str]) -> str:
+    """Exact PR1772, 8-file source scope, unmodified original owner guards."""
+    if (not is_sha(head_sha) or base_sha != V38_FORWARD_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != V38_FORWARD_PR
+            or type(request.get("user")) is not dict
+            or request["user"].get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_V38_FORWARD_OWNER_AND_BASE_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        base_tree = git("rev-parse", base_sha + "^{tree}")
+        paths = git("diff", "--no-renames", "--name-only",
+                    base_sha, head_sha).splitlines()
+        workflow = git("ls-tree", head_sha, "--", V38_FORWARD_WORKFLOW)
+        before = git("ls-tree", base_sha, "--", V38_FORWARD_WORKFLOW)
+        readiness = git("rev-parse", head_sha +
+                        ":f139/nci04_v41_hybrid_forward_readiness.py")
+        legacy = git("rev-parse", head_sha +
+                     ":.github/workflows/f139-v41-original-owner-live-install.yml")
+        original_backup = git("rev-parse", head_sha +
+                              ":f139/nci04_v41_hybrid_forward_backup.py")
+        source_commit = git("rev-parse", head_sha +
+                            ":f139/nci04_v41_hybrid_forward_original_commit.py")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V38_FORWARD_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != V38_FORWARD_BASE
+            or base_tree != V38_FORWARD_BASE_TREE
+            or before != ""
+            or workflow != "100644 blob " + V38_FORWARD_WORKFLOW_BLOB +
+                           "\t" + V38_FORWARD_WORKFLOW
+            or len(paths) != len(V38_FORWARD_FILES)
+            or len(set(paths)) != len(paths)
+            or set(paths) != V38_FORWARD_FILES
+            or readiness != V38_FORWARD_READINESS_BLOB
+            or legacy != V38_FORWARD_OLD_WORKFLOW_BLOB
+            or original_backup != V38_FORWARD_ORIGINAL_BACKUP_BLOB
+            or source_commit != V38_FORWARD_SOURCE_COMMIT_BLOB):
+        raise ValueError("G145_V38_FORWARD_EXACT_SOURCE_AND_OLD_OWNER_DRIFT")
+    return V38_FORWARD_RESULT
+
+
+def v38_forward_negative_controls() -> None:
+    base, head = V38_FORWARD_BASE, "e" * 40
+    request = {"number": V38_FORWARD_PR,
+               "user": {"login": "spoonman136668-ai"},
+               "author_association": "OWNER"}
+    values = {
+        ("merge-base", base, head): base,
+        ("rev-parse", base + "^{tree}"): V38_FORWARD_BASE_TREE,
+        ("diff", "--no-renames", "--name-only", base, head):
+            "\n".join(sorted(V38_FORWARD_FILES)),
+        ("ls-tree", base, "--", V38_FORWARD_WORKFLOW): "",
+        ("ls-tree", head, "--", V38_FORWARD_WORKFLOW):
+            "100644 blob " + V38_FORWARD_WORKFLOW_BLOB +
+            "\t" + V38_FORWARD_WORKFLOW,
+        ("rev-parse", head + ":f139/nci04_v41_hybrid_forward_readiness.py"):
+            V38_FORWARD_READINESS_BLOB,
+        ("rev-parse", head + ":.github/workflows/f139-v41-original-owner-live-install.yml"):
+            V38_FORWARD_OLD_WORKFLOW_BLOB,
+        ("rev-parse", head + ":f139/nci04_v41_hybrid_forward_backup.py"):
+            V38_FORWARD_ORIGINAL_BACKUP_BLOB,
+        ("rev-parse", head + ":f139/nci04_v41_hybrid_forward_original_commit.py"):
+            V38_FORWARD_SOURCE_COMMIT_BLOB,
+    }
+    def valid(*args):
+        if args not in values:
+            raise AssertionError("unexpected source guard read")
+        return values[args]
+    if admit_v38_forward_release(head, base, request, valid) != V38_FORWARD_RESULT:
+        raise ValueError("G145_V38_FORWARD_POSITIVE_FAILED")
+    def reject(req=request, parent=base, modified=None):
+        def reader(*args):
+            return modified[1] if modified and args == modified[0] else valid(*args)
+        try:
+            admit_v38_forward_release(head, parent, req, reader)
+        except ValueError:
+            return
+        raise ValueError("G145_V38_FORWARD_NEGATIVE_ADMITTED")
+    reject({**request, "number": 1771})
+    reject({**request, "author_association": "COLLABORATOR"})
+    reject({**request, "user": {"login": "OTHER"}})
+    reject(parent="f" * 40)
+    for pair in (
+        (("merge-base", base, head), "f" * 40),
+        (("rev-parse", base + "^{tree}"), "f" * 40),
+        (("diff", "--no-renames", "--name-only", base, head),
+         "\n".join(sorted(V38_FORWARD_FILES - {V38_FORWARD_WORKFLOW}))),
+        (("ls-tree", base, "--", V38_FORWARD_WORKFLOW), "100644 blob " + "a" * 40 +
+         "\t" + V38_FORWARD_WORKFLOW),
+        (("ls-tree", head, "--", V38_FORWARD_WORKFLOW), "100644 blob " + "a" * 40 +
+         "\t" + V38_FORWARD_WORKFLOW),
+        (("rev-parse", head + ":f139/nci04_v41_hybrid_forward_readiness.py"),
+         "f" * 40),
+        (("rev-parse", head + ":.github/workflows/f139-v41-original-owner-live-install.yml"),
+         "f" * 40),
+        (("rev-parse", head + ":f139/nci04_v41_hybrid_forward_backup.py"),
+         "f" * 40),
+        (("rev-parse", head + ":f139/nci04_v41_hybrid_forward_original_commit.py"),
+         "f" * 40),
+    ):
+        reject(modified=pair)
+
+
 def admit_v38_cold_ledger(head_sha: str, base_sha: str,
                           request: dict, git: Callable[..., str]) -> str:
     """Source-only: one exact PR, exact workflow-before/after and unchanged owner."""
@@ -1517,6 +1646,7 @@ def negative_controls() -> None:
     v38_snapshot_v4_negative_controls()
     v38_snapshot_v5_negative_controls()
     v38_cold_ledger_negative_controls()
+    v38_forward_negative_controls()
     v39_actions_get_negative_controls()
     v41_status_negative_controls()
     v41_backup_negative_controls()
@@ -1867,6 +1997,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == V38_FORWARD_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_v38_forward_release(head_sha, base_sha, request, git)
     if branch == V38_COLD_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]

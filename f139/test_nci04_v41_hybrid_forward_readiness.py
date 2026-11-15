@@ -94,7 +94,7 @@ class FakeProvider:
         relative = path[len(prefix):]
         if relative == "branches/main":
             return self.main
-        if relative == "pulls/1759":
+        if relative == "pulls/1772":
             return self.pr
         if relative.startswith("compare/"):
             return self.comparison
@@ -180,7 +180,7 @@ class ForwardReadinessTests(unittest.TestCase):
         self.api.pr["merged"] = False
         with self.assertRaisesRegex(
                 readiness.ForwardReadinessDenied,
-                "MERGED_PR1759_PROTECTED_MAIN_REQUIRED"):
+                "MERGED_PR1772_PROTECTED_MAIN_REQUIRED"):
             readiness._release(self.api.get, self.api.target)
 
     def test_forged_ancestry_is_rejected(self):
