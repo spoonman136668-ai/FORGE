@@ -18,7 +18,8 @@ class OriginalForwardWorkflowTests(unittest.TestCase):
     def test_exact_original_owner_routes_are_distinct_and_not_scheduled(self):
         text = WORKFLOW.read_text("utf-8")
         self.assertEqual(text.count("name: FORGE F139 V38 guarded original-owner forward installation"), 1)
-        self.assertIn("concurrency:\n  group: forge-f139-v38-original-forward-install-v2\n  cancel-in-progress: false", text)\n        self.assertNotIn("group: forge-f139-v41-original-owner-live-install", text)
+        self.assertIn("concurrency:\n  group: forge-f139-v38-original-forward-install-v2\n  cancel-in-progress: false", text)
+        self.assertNotIn("group: forge-f139-v41-original-owner-live-install", text)
         self.assertEqual(text.count("runs-on: [self-hosted, Windows, forge-codex-isolated]"), 4)
         self.assertEqual(text.count("github.actor == 'spoonman136668-ai'"), 4)
         self.assertEqual(text.count("github.event.issue.number == 807"), 4)
