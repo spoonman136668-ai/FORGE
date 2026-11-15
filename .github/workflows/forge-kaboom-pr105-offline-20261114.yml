@@ -18,6 +18,7 @@ env:
   CGO_ENABLED: '0'
 jobs:
   native-windows:
+    if: false # prior source; exact KABOOM candidate below
     if: false # prior separate source; isolate candidate qualification
     runs-on: windows-latest
     timeout-minutes: 50
@@ -115,6 +116,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   architecture-linux:
+    if: false # prior source; exact KABOOM candidate below
     if: false # prior separate source; isolate candidate qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -314,3 +316,77 @@ jobs:
             if($LASTEXITCODE -ne 0 -or $post.Trim() -cne $want){throw 'KABOOM_CANDIDATE_POSTRUN_SHA_DRIFT'}
             Write-Output 'KABOOM_CANDIDATE_FINAL_SHA=PASS;BROKER_CALLS=ZERO;SOURCE_MUTATIONS=ZERO'
           } finally {Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}
+  kaboom-archive-3-qualification:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 65
+    permissions:
+      contents: read
+    steps:
+      - name: Install pinned Windows Go 1.26.5 toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Validate source custody, ICE, Obsidian and complete Windows Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'KABOOM_WRONG_RUNNER'}
+          $want='1c14ec1691a9c27bc59e7f68b900d3d1e4704b98'
+          $branch='engineering/kaboom-20261114-3-intake-claude-20261115'
+          $now=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or $now.Trim() -cne $want){throw 'KABOOM_CANDIDATE_REF_DRIFT'}
+          $gover=(& go env GOVERSION).Trim()
+          if($LASTEXITCODE -ne 0 -or $gover -cne 'go1.26.5'){throw ('KABOOM_GO126_SETUP_FAILED;observed='+$gover)}
+          Write-Output 'KABOOM_GO126_5_WINDOWS=PASS'
+          $tmp=Join-Path $env:RUNNER_TEMP ('kaboom-source-qualification-'+$env:GITHUB_RUN_ID)
+          if(Test-Path $tmp){throw 'KABOOM_TEMP_COLLISION'}
+          New-Item -ItemType Directory -Path $tmp | Out-Null
+          try {
+            $source=Join-Path $tmp 'repo'
+            & gh repo clone Kboomllc/K-Terminal $source -- -c core.autocrlf=false --quiet *> (Join-Path $tmp 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PRIVATE_CLONE_FAILED'}
+            & git -C $source -c core.autocrlf=false checkout --detach $want *> (Join-Path $tmp 'private-checkout.log')
+            if($LASTEXITCODE -ne 0 -or (& git -C $source rev-parse HEAD).Trim() -cne $want){throw 'KABOOM_CANDIDATE_CHECKOUT_FAILED'}
+            Write-Output 'KABOOM_SOURCE_SHA_PIN=PASS'
+            $env:GOTOOLCHAIN='local'
+            $env:GOTELEMETRY='off'
+            $env:CGO_ENABLED='0'
+            $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+            $env:PYTHONDONTWRITEBYTECODE='1'
+            Push-Location $source
+            try {
+              & python -B tools/architecture/verify_source_custody.py
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_UPDATE_CUSTODY_FAILED'}
+              & python -B tools/architecture/generate.py
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_GENERATION_FAILED'}
+              & python -B tools/architecture/generate.py --check
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_GENERATION_CHECK_FAILED'}
+              & python -B -m unittest discover -s tools/architecture -p 'test_*.py' -v
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_ARCHITECTURE_TEST_FAIL'}
+              Write-Output 'KABOOM_CANDIDATE_CUSTODY_ARCHITECTURE=PASS'
+              Push-Location (Join-Path $source 'kaboom-core')
+              try {
+                & go test -p 1 -count=1 -timeout 35m ./...
+                if($LASTEXITCODE -ne 0){throw 'KABOOM_WINDOWS_FULL_TEST_FAIL'}
+                Write-Output 'KABOOM_WINDOWS_FULL_TEST=PASS'
+                & go vet ./...
+                if($LASTEXITCODE -ne 0){throw 'KABOOM_WINDOWS_VET_FAIL'}
+                Write-Output 'KABOOM_WINDOWS_VET=PASS'
+                & go build ./...
+                if($LASTEXITCODE -ne 0){throw 'KABOOM_WINDOWS_BUILD_FAIL'}
+                Write-Output 'KABOOM_WINDOWS_BUILD=PASS'
+              } finally {Pop-Location}
+              & git -C $source diff --exit-code -- kaboom-core tools/architecture
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_TEST_MUTATED_APP_SOURCE'}
+              $readback=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
+              if($LASTEXITCODE -ne 0 -or $readback.Trim() -cne $want){throw 'KABOOM_SOURCE_REF_CHANGED'}
+              Write-Output 'KABOOM_SOURCE_WINDOWS_QUALIFIED=PASS;BROKER_ACTIONS=ZERO'
+            } finally {Pop-Location}
+          } finally {Remove-Item -LiteralPath $tmp -Force -Recurse -ErrorAction SilentlyContinue}
