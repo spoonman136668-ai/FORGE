@@ -86,8 +86,7 @@ $dirty=@(& git -C $root status --porcelain --untracked-files=all)
 if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){exit 49}
 if([string]$t.State -cne 'Disabled' -or
    $t.Settings.Enabled -ne $false){exit 50}
-$running=@(Get-CimInstance Win32_Process -Filter
-  "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+$running=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
   Where-Object {$_.CommandLine -and
     $_.CommandLine.Contains('f139.local_controller') -and
     $_.CommandLine.Contains($env:F139_V38_EXPECTED_DATABASE)})
