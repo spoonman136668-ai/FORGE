@@ -132,7 +132,7 @@ from pathlib import Path
 from f139.local_controller import GitHub
 from f139.nci04_native_contract import canonical
 from f139.nci04_owner_issue import decode_unique
-from f139 import nci04_v41_hybrid_forward_postcommit as postcommit
+from f139 import nci04_v41_hybrid_event1832_postcommit as postcommit
 from f139 import nci04_v41_hybrid_forward_readiness as readiness
 
 def need(ok):
@@ -159,21 +159,24 @@ need(type(prior.get("body")) is str)
 need(prior["body"].startswith(postcommit.PREFIX+target+" "))
 need(readiness._owner_comment(get,postcommit_id,prior["body"])<e["comment"]["created_at"])
 # The forward-postcommit verifier reauthenticates the actual source intent,
-# detached cold bundle, immutable event 1831, task/SID/lease and 153/56 history.
+# detached cold bundle, immutable event 1832, task/SID/lease and 153/56 history.
 # This is read-only. Migration remains a separate owner-only operation below.
 previous={"action":"created","issue":e["issue"],"sender":e["sender"],
           "comment":prior}
 receipt=postcommit.original_postcommit(db,dict(os.environ),previous,api)
 need(receipt["schema"]==postcommit.RECEIPT)
-need(receipt["source_sha"]==target and receipt["event_seq"]==1831)
+need(receipt["source_sha"]==target and receipt["event_seq"]==1832)
 need(receipt["verified_historical_tasks"]==153)
 need(receipt["custodied_negative_tasks"]==56)
 need(receipt["original_owner_mutations"]==0)
 need(receipt["hybrid_schema_migrated"] is False)
 need(receipt["scientific_first_use"] is False)
 need(receipt["task_resume_authorized"] is False)
-print("F139_HYBRID_V38_EVENT1831_ACTIVATION_PREFLIGHT="+
-      canonical(dict(schema="forge.f139.hybrid-v38.activation-preflight.v1",
+need(receipt["original_task_still_disabled"] is True)
+need(receipt["hybrid_schema_migrated"] is False)
+need(receipt["native_activation_performed"] is False)
+print("F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT="+
+      canonical(dict(schema="forge.f139.hybrid-v39.activation-preflight.v1",
        source_sha=target,source_event_seq=receipt["event_seq"],
        source_event_head_sha256=receipt["event_head_sha256"],
        postcommit_comment_id=postcommit_id,
@@ -185,12 +188,12 @@ print("F139_HYBRID_V38_EVENT1831_ACTIVATION_PREFLIGHT="+
 $env:PYTHONPATH=$env:GITHUB_WORKSPACE
 $pre=@($program|& $python -B - $Target $db)
 Need ($LASTEXITCODE -eq 0 -and $pre.Count -eq 1 -and
-  $pre[0].StartsWith('F139_HYBRID_V38_EVENT1831_ACTIVATION_PREFLIGHT=',
+  $pre[0].StartsWith('F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT=',
     [StringComparison]::Ordinal)) 'AUTHENTIC_HELD_SOURCE_READBACK_REQUIRED'
-$proof=$pre[0].Substring('F139_HYBRID_V38_EVENT1831_ACTIVATION_PREFLIGHT='.Length)|ConvertFrom-Json
-Need ($proof.schema -ceq 'forge.f139.hybrid-v38.activation-preflight.v1' -and
+$proof=$pre[0].Substring('F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT='.Length)|ConvertFrom-Json
+Need ($proof.schema -ceq 'forge.f139.hybrid-v39.activation-preflight.v1' -and
   $proof.source_sha -ceq $Target -and
-  $proof.source_event_seq -eq 1831 -and
+  $proof.source_event_seq -eq 1832 -and
   $proof.verified_historical_tasks -eq 153 -and
   $proof.custodied_negative_tasks -eq 56 -and
   $proof.original_owner_mutations -eq 0 -and

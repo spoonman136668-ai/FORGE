@@ -65,11 +65,11 @@ class V41HybridCutoverTests(unittest.TestCase):
         for required in (
             "F139-HYBRID-V41-SOURCE-ACTIVATE ",
             "SOURCE-ACTIVATE '+$Target+' [1-9][0-9]*$",
-            "nci04_v41_hybrid_forward_postcommit as postcommit",
+            "nci04_v41_hybrid_event1832_postcommit as postcommit",
             "postcommit.original_postcommit(db,dict(os.environ),previous,api)",
-            'receipt["event_seq"]==1831',
-            "source_event_seq -eq 1831",
-            "F139_HYBRID_V38_EVENT1831_ACTIVATION_PREFLIGHT=",
+            'receipt["event_seq"]==1832',
+            "source_event_seq -eq 1832",
+            "F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT=",
             "Get-ScheduledTask -TaskName $name",
             "Set-ScheduledTask -TaskName $name -Action $newAction",
             "upgrade-hybrid-lane",
@@ -101,7 +101,7 @@ class V41HybridCutoverTests(unittest.TestCase):
 
     def test_activate_requires_distinct_comment_before_any_task_mutation(self):
         script=SCRIPT.read_text("utf-8")
-        self.assertLess(script.index("EVENT1831_ACTIVATION_PREFLIGHT="),
+        self.assertLess(script.index("EVENT1832_ACTIVATION_PREFLIGHT="),
                         script.index("Set-ScheduledTask -TaskName"))
         self.assertLess(script.index("Get-ScheduledTask -TaskName"),
                         script.index("Set-ScheduledTask -TaskName"))
@@ -113,7 +113,7 @@ class V41HybridCutoverTests(unittest.TestCase):
                         script.index("Start-ScheduledTask -TaskName"))
 
 
-    def test_event1831_bridge_preserves_original_hold_and_rejects_old_preimage(self):
+    def test_event1832_bridge_preserves_original_hold_and_rejects_old_preimage(self):
         s=SCRIPT.read_text("utf-8")
         self.assertIn("Source $root $heldSource",s)
         self.assertIn("'2c7caad5a4502d4b874a11d57207a35cf033eb08'",s)
@@ -128,7 +128,7 @@ class V41HybridCutoverTests(unittest.TestCase):
         self.assertIn("custodied_negative_tasks=56",s)
         self.assertLess(s.index("postcommit.original_postcommit("),
                         s.index("Set-ScheduledTask -TaskName"))
-        self.assertLess(s.index("source_event_seq -eq 1831"),
+        self.assertLess(s.index("source_event_seq -eq 1832"),
                         s.index("Set-ScheduledTask -TaskName"))
         self.assertLess(s.index("upgrade-hybrid-lane"),
                         s.index("gh api --method PATCH"))
@@ -138,14 +138,14 @@ class V41HybridCutoverTests(unittest.TestCase):
         self.assertEqual(script.count("$program=@'\n"),1)
         embedded=script.split("$program=@'\n",1)[1].split(
             "\n'@\n$env:PYTHONPATH",1)[0]
-        compile(embedded,"<f139-v38-activation-preflight>","exec")
+        compile(embedded,"<f139-v39-activation-preflight>","exec")
         self.assertNotIn("assert ",embedded)
         self.assertIn("raise RuntimeError(",embedded)
         for marker in (
             'postcommit_id<current_id',
             'readiness._owner_comment(get,current_id,body)',
             'postcommit.original_postcommit(db,dict(os.environ),previous,api)',
-            'receipt["event_seq"]==1831',
+            'receipt["event_seq"]==1832',
             'receipt["custodied_negative_tasks"]==56',
             'receipt["original_owner_mutations"]==0',
             'receipt["scientific_first_use"] is False',
