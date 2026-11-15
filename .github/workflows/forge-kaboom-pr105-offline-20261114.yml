@@ -292,12 +292,25 @@ jobs:
                $g.source_commit -cne $source -or
                $g.repository -cne 'Kboomllc/K-Terminal' -or
                -not $o.Contains($digest)){throw 'KABOOM_ARCHITECTURE_DIGEST_MISMATCH'}
-            foreach($item in @('graph.json','graph.html','GRAPH_REPORT.md')){
-              $fn=Join-Path $local ('docs/graphify/'+$item)
-              if(-not (Test-Path -LiteralPath $fn -PathType Leaf)){throw 'KABOOM_MISSING_GRAPHIFY_REPORT'}
-              $actual=(Get-FileHash -LiteralPath $fn -Algorithm SHA256).Hash.ToLowerInvariant()
-              if($actual -cne [string]$g.files_sha256.$item){throw 'KABOOM_GRAPHIFY_REPORT_SHA256_MISMATCH'}
-            }
+            $env:KABOOM_VERIFIED_CLONE=$local
+            @'
+import hashlib,json,os,pathlib,subprocess,sys
+root=pathlib.Path(os.environ["KABOOM_VERIFIED_CLONE"])
+manifest=json.loads((root/"docs/graphify/source-manifest.json").read_text(encoding="utf-8"))
+failed=[]
+for name in ("graph.json","graph.html","GRAPH_REPORT.md"):
+    path="docs/graphify/"+name
+    data=subprocess.check_output(["git","-C",str(root),"show","HEAD:"+path])
+    real=hashlib.sha256(data).hexdigest()
+    expected=manifest["files_sha256"][name]
+    checkout=hashlib.sha256((root/path).read_bytes()).hexdigest()
+    print("KABOOM_GRAPHIFY_BLOB_HASH_CHECK="+name+";match="+str(real==expected).upper()+";checkout_differs="+str(checkout!=real).upper())
+    if real!=expected: failed.append(name)
+if failed: sys.exit("KABOOM_GIT_BLOB_CONTENT_HASH_MISMATCH")
+print("KABOOM_NATIVE_GIT_BLOB_HASHES=PASS")
+'@ | & python -B -
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_NATIVE_GIT_BLOB_HASHES_FAILED'}
+            Remove-Item Env:KABOOM_VERIFIED_CLONE -ErrorAction SilentlyContinue
             Push-Location $local
             try {
               & python -B tools/architecture/generate.py --check *> (Join-Path $tmp 'generate-private.log')
