@@ -21,12 +21,12 @@ from f139 import nci04_v41_hybrid_forward_owner_profile as original
 REPO = "spoonman136668-ai/FORGE"
 OWNER = "spoonman136668-ai"
 ISSUE = 807
-PREV_COMMENT = 6891778093
-PREV_RUN = 43695298904
-PREV_SHA = "652d42ca54fbf88044a1ef122d32cf06e3233687"
-PREV_BODY = ("F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 " +
-             PREV_SHA + " 6887519100")
-PREFIX = "F139-V38-ORIGINAL-TASK-SNAPSHOT-V3 "
+PREV_COMMENT = 6892011132
+PREV_RUN = 43696957491
+PREV_SHA = "5368464e6232cb503678353040eb88d302a40f7f"
+PREV_BODY = ("F139-V38-ORIGINAL-TASK-SNAPSHOT-V3 " +
+             PREV_SHA + " 6891778093")
+PREFIX = "F139-V38-ORIGINAL-TASK-SNAPSHOT-V4 "
 LABEL = "F139_V38_TASK_SNAPSHOT="
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DECIMAL = re.compile(r"[1-9][0-9]*\Z")
@@ -108,8 +108,8 @@ def authenticate(get, env, event):
          and done.get("conclusion") == "success"
          and type(done.get("actor")) is dict
          and done["actor"].get("login") == OWNER)
-    # Predecessor V2 completed on the original Windows runner but emitted a
-    # sanitized protocol-failure classification. Require exactly one job.
+    # Predecessor V3 exited with a sanitized PowerShell nonzero code.
+    # It completed exactly one original Windows read-only snapshot job.
     prior_jobs = get("repos/" + REPO + "/actions/runs/" + str(PREV_RUN) +
                      "/jobs?per_page=100")
     need(type(prior_jobs) is dict and prior_jobs.get("total_count") == 1

@@ -110,3 +110,35 @@ workflow concurrency group and retains the original runner and owner-profile
 blob. It does not touch the original task, database or controller. Scientific
 first-use remains false, and Hybrid remains excluded from the live issue #807
 policy until separately accepted. No rerun or replay after an inconclusive V3.
+
+## V4: new original owner read-only snapshot after native parser repair
+
+Original V3 first-attempt owner event comment `6892011132` produced
+[run 43696957491](https://github.com/spoonman136668-ai/FORGE/actions/runs/43696957491)
+with one completed original Windows read-only job and the sanitized
+`F139_V38_TASK_SNAPSHOT=POWERSHELL_EXIT_FAILED` classification. Host health
+was not measured by that run.
+
+Native Windows PowerShell 5.1 source validation isolated a syntax failure in
+`Get-CimInstance -Filter` where the argument had been split onto the next
+line (parser error line 84). Source-only PR #1766 fixed that line and added
+host-independent synthetic task/parse tests. No owner task or SQLite read/write
+was performed by the repair. The V3 comment is consumed; do not replay.
+
+V4 reuses the existing task, runner, immutable two-lane issue policy, original
+owner guard, and read-only probe. The unique workflow concurrency group and
+OWNER-authenticated comment chain are new, but there is no schedule, queue,
+controller, service restart, source event, first-use or task mutation.
+
+Only after PR #1767 exact-source Linux/Windows/native qualification, a matching
+protected-main merge and first-attempt 8/8 postmerge regression, request one
+fresh first-attempt original-owner comment:
+
+```text
+F139-V38-ORIGINAL-TASK-SNAPSHOT-V4 <qualified-merged-main-sha> 6892011132
+```
+
+The owner first verifies exact protected main, one completed prior V3 read-only
+job, task guard and issue policy; only then does the bounded read-only probe
+run. Its result is not owner task acceptance or Hybrid lane admission.
+Unclassified results, source drift, or inconclusive Windows evidence HOLD.
