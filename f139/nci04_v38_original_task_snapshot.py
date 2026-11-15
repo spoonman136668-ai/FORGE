@@ -225,8 +225,7 @@ try {
      $task.Settings.Enabled -ne $false){Bad 9}
 } catch {Unk 9}
 try {
-  $procs=@(Get-CimInstance Win32_Process -Filter
-    "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+  $procs=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
     Where-Object {
       $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
       $_.CommandLine.Contains($env:F139_V38_SNAPSHOT_EXPECTED_DB)})
