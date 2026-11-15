@@ -65,3 +65,19 @@ owner-authored PR branch, SHA/tree/base and seven changed paths.
 Stop on scope drift, absent required tests, ambiguous original-host effects,
 unclassified protocol, or unexpected policy. Do not restart the task or
 change Hybrid lane admission based on this diagnostic alone.
+
+## Distinct V2 route after workflow-level cancellation
+
+The first v1 owner event, comment `6887519100`, produced [run 43664772017](https://github.com/spoonman136668-ai/FORGE/actions/runs/43664772017), **CANCELLED with zero jobs**. Historical V41 and earlier V38 issue-comment workflows share a workflow-level GitHub concurrency group. Their *skipped* jobs are still associated with workflow runs that competed for the one pending slot; v1 was cancelled before its task snapshot.
+
+The V2 amendment retains the **existing** one-shot snapshot workflow and changes only its workflow-level concurrency group to `forge-f139-v38-original-task-snapshot-v2`. It does not change any historical installation workflow or native task, and does not create a scheduler, consumer, owner, or autonomous retry. All historical workflows still reject the distinct V2 event by prefix. The existing original runner and the read-only task probe remain fixed. This isolated workflow group only prevents unrelated *rejected* event runs from canceling the V2 snapshot; **it is not original task acceptance or permission to overlap mutable owner operations**.
+
+After exact PR 1764 source qualification, matching-tree protected-main merge, and first-attempt 8/8 postmerge full regression, a **new** OWNER-authenticated issue #807 comment must be created:
+
+```text
+F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 <qualified-merged-main-sha> 6887519100
+```
+
+The Python authentication requires the original cancelled predecessor with zero jobs, immutable two-lane policy, a *newer* owner comment, first attempt, and exact protected main. If any condition is unverified, stop without inspecting or mutating the original task. No automatic event replay, source event #1831, scheduler/task change, restart, Hybrid scientific first-use, or lane admission.
+
+Engineering branch: `engineering/f139-v38-snapshot-concurrency-isolation-20261114`; base `3bd918d8409fb4a8f10581aba5ae152776357cd9` (tree `047caf400a932e01834f9e51dd29aaaf439905a1`). Source qualification only until completed CI; deployment HOLD.

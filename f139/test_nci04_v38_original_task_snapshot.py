@@ -56,7 +56,7 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                       Path(snap.__file__).read_text("utf-8"))
         self.assertIsInstance(Path("state.sqlite"), Path)
 
-    def test_exact_prior_owner_comment_and_completed_staged_run(self):
+    def test_fresh_v2_owner_comment_after_cancelled_zero_job_run(self):
         target = "a" * 40
         new_id = snap.PREV_COMMENT + 1
         body = snap.PREFIX + target + " " + str(snap.PREV_COMMENT)
@@ -85,17 +85,19 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                         "user": {"login": snap.OWNER},
                         "issue_url": "https://api.github.com/repos/" +
                                      snap.REPO + "/issues/807",
-                        "created_at": "2026-11-15T01:40:00Z"}
+                        "created_at": "2026-11-15T02:03:00Z"}
             if route == prefix + "issues/comments/" + str(snap.PREV_COMMENT):
                 return {"id": snap.PREV_COMMENT, "body": snap.PREV_BODY,
                         "author_association": "OWNER",
                         "user": {"login": snap.OWNER},
-                        "created_at": "2026-11-15T01:16:34Z"}
+                        "created_at": "2026-11-15T01:48:00Z"}
             if route == prefix + "actions/runs/" + str(snap.PREV_RUN):
                 return {"id": snap.PREV_RUN, "head_sha": snap.PREV_SHA,
                         "run_attempt": 1, "event": "issue_comment",
-                        "status": "completed", "conclusion": "success",
+                        "status": "completed", "conclusion": "cancelled",
                         "actor": {"login": snap.OWNER}}
+            if route == prefix + "actions/runs/" + str(snap.PREV_RUN) + "/jobs?per_page=100":
+                return {"total_count": 0, "jobs": []}
             if route == prefix + "branches/main":
                 return {"name": "main", "protected": True,
                         "commit": {"sha": target}}
@@ -122,10 +124,12 @@ class ReadOnlySnapshotTests(unittest.TestCase):
     def test_workflow_scope_frozen_owner_only_and_no_scheduler(self):
         text = WORKFLOW.read_text("utf-8")
         self.assertIn("on:\n  issue_comment:\n    types: [created]", text)
-        self.assertIn("group: forge-f139-v41-original-owner-live-install", text)
+        self.assertIn("group: forge-f139-v38-original-task-snapshot-v2", text)
+        self.assertNotIn("group: forge-f139-v41-original-owner-live-install", text)
         self.assertIn("runs-on: [self-hosted, Windows, forge-codex-isolated]", text)
         self.assertIn("GITHUB_RUN_ATTEMPT -cne '1'", text)
-        self.assertIn("F139-V38-ORIGINAL-TASK-SNAPSHOT ", text)
+        self.assertIn("F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 ", text)
+        self.assertIn("6887519100", text)
         self.assertIn("f139.nci04_v38_original_task_snapshot", text)
         self.assertIn("9bda78341bc3651e8b7b0a24ea6c7858dbff05c6", text)
         for forbidden in ("\n  schedule:", "\n  push:",
@@ -141,6 +145,10 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                          "engineering/f139-v38-original-task-snapshot-once-20261114")
         self.assertEqual(len(g145.V38_SNAPSHOT_FILES), 7)
         g145.v38_snapshot_negative_controls()
+        self.assertEqual(g145.V38_SNAPSHOT_V2_BRANCH,
+                         "engineering/f139-v38-snapshot-concurrency-isolation-20261114")
+        self.assertEqual(len(g145.V38_SNAPSHOT_V2_FILES), 7)
+        g145.v38_snapshot_v2_negative_controls()
 
 
 if __name__ == "__main__":

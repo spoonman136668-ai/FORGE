@@ -21,12 +21,12 @@ from f139 import nci04_v41_hybrid_forward_owner_profile as original
 REPO = "spoonman136668-ai/FORGE"
 OWNER = "spoonman136668-ai"
 ISSUE = 807
-PREV_COMMENT = 6887172639
-PREV_RUN = 43662317780
-PREV_SHA = "18ff9a91e999ca485c98c0b37414fbe3d0fe02b7"
-PREV_BODY = ("F139-V38-HELD-TASK-STAGE-DIAG " +
-             PREV_SHA + " 6886931814")
-PREFIX = "F139-V38-ORIGINAL-TASK-SNAPSHOT "
+PREV_COMMENT = 6887519100
+PREV_RUN = 43664772017
+PREV_SHA = "3bd918d8409fb4a8f10581aba5ae152776357cd9"
+PREV_BODY = ("F139-V38-ORIGINAL-TASK-SNAPSHOT " +
+             PREV_SHA + " 6887172639")
+PREFIX = "F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 "
 LABEL = "F139_V38_TASK_SNAPSHOT="
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DECIMAL = re.compile(r"[1-9][0-9]*\Z")
@@ -102,9 +102,15 @@ def authenticate(get, env, event):
          and done.get("run_attempt") == 1
          and done.get("event") == "issue_comment"
          and done.get("status") == "completed"
-         and done.get("conclusion") == "success"
+         and done.get("conclusion") == "cancelled"
          and type(done.get("actor")) is dict
          and done["actor"].get("login") == OWNER)
+    # The previous event collided at workflow scope and started zero jobs.
+    # Never replay it; a fresh v2 intent is required for this one-pass probe.
+    no_jobs = get("repos/" + REPO + "/actions/runs/" + str(PREV_RUN) +
+                  "/jobs?per_page=100")
+    need(type(no_jobs) is dict and no_jobs.get("total_count") == 0
+         and no_jobs.get("jobs") == [])
     main = get("repos/" + REPO + "/branches/main")
     need(type(main) is dict and main.get("name") == "main"
          and main.get("protected") is True
