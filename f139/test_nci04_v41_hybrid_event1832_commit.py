@@ -160,7 +160,7 @@ class Event1832SourceCommitContractTests(unittest.TestCase):
         from f139.local_controller import canonical as event_canonical
         from f139.nci04_native_contract import canonical as proof_canonical
         doc = {"schema": successor.SCHEMA, "source_sha": self.provider.target}
-        self.assertEqual(event_canonical(doc), proof_canonical(doc) + b"\\n")
+        self.assertEqual(event_canonical(doc), proof_canonical(doc) + b"\n")
         source = Path(commit.__file__).read_text("utf-8")
         self.assertIn('row["payload"] == event_canonical(expected_proof).decode("ascii")', source)
         self.assertNotIn('row["payload"] == canonical(expected_proof).decode("ascii")', source)
