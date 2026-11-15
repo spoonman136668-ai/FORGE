@@ -16,7 +16,7 @@ from pathlib import Path
 import re
 import sys
 
-from f139.local_controller import Database, GitHub, SingleOwner
+from f139.local_controller import Database, GitHub, SingleOwner, canonical as event_canonical
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_hybrid_event1832_owner as owner
@@ -231,7 +231,7 @@ def inspect_postcommit(db, req, expected_proof):
          and row["kind"] == "SOURCE_TRANSITION_ADMITTED"
          and row["sha"] == meta["head_hash"]
          and row["prior_sha"] == successor.PREDECESSOR_SHA
-         and row["payload"] == canonical(expected_proof).decode("ascii")
+         and row["payload"] == event_canonical(expected_proof).decode("ascii")
          and meta["enabled"] == 1 and meta["legacy_suspended"] == 1
          and db.dual_native_schema()
          and db.ready() is None and not db.actives()
