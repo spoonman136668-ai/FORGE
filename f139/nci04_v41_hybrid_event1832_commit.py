@@ -175,15 +175,21 @@ def authenticate_commit(get, env, event):
     authenticated_ready = owner.authenticate_readiness(get, env, {
         "action": "created", "issue": issue,
         "sender": sender, "comment": ready})
-    authenticated_backup = owner.authenticate_backup(get, env, {
+    # Reauthenticate the historical backup with *its* job identity, never
+    # the current commit-job ID. The native API independently certifies that
+    # the prior backup run was successful and first-attempt.
+    job_id = _backup_job(get, doc)
+    backup_env = {**env, "GITHUB_RUN_ID": str(doc["backup_run_id"])}
+    authenticated_backup = owner.authenticate_backup(get, backup_env, {
         "action": "created", "issue": issue,
         "sender": sender, "comment": backup})
     need(authenticated_ready["readiness_comment_id"] ==
          doc["readiness_comment_id"]
          and authenticated_backup["backup_comment_id"] ==
-             doc["backup_comment_id"],
+             doc["backup_comment_id"]
+         and authenticated_backup["backup_run_id"] ==
+             doc["backup_run_id"],
          "BACKUP_NOT_AUTHENTICATED_BY_SAME_OWNER")
-    job_id = _backup_job(get, doc)
     return {
         **doc, "source_commit_comment_id": comment["id"],
         "backup_job_id": job_id,
