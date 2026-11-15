@@ -82,7 +82,7 @@ class HeldOriginalTaskSourceTests(unittest.TestCase):
                                  "ORIGINAL_GUARD_" + sanitized[:65])
                 self.assertEqual(sanitized, "PARSE_OK")
                 return subprocess.CompletedProcess(argv, 0,
-                      stdout=profile.PROOF + b"\\n", stderr=b"")
+                      stdout=profile.PROOF + b"\n", stderr=b"")
             self.assertTrue(profile.readback(db, runner=verify_source))
             self.assertEqual(parse_result, ["PARSE_OK"])
 
