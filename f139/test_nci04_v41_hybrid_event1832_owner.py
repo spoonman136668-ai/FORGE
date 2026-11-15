@@ -248,7 +248,10 @@ class Event1832OwnerContractTests(unittest.TestCase):
             "workflow_dispatch", "gh workflow run",
             "gh api --method PATCH"):
             self.assertNotIn(forbidden, source)
-        self.assertNotIn("if __name__", source)
+        self.assertIn('if __name__ == "__main__":', source)
+        self.assertIn('choices=("readiness", "backup")', source)
+        self.assertIn("original_readiness(db, env, event, GitHub())", source)
+        self.assertIn("original_backup(db, env, event, GitHub())", source)
         self.assertIn("cold.stage_complete_cold_bundle(", source)
 
 
