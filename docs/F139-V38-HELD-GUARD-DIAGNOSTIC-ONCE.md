@@ -20,7 +20,7 @@ The diagnostic authenticates both issue comments and the failed run via bounded 
 
 The exit-code mapping is frozen in the existing production task guard: 41 SID/owner; 42 action/trigger count; 43 executable; 44 argument parser; 45 original database path; 46 wrapper name; 47 root/Python/wrapper existence; 48 allowed original source SHA; 49 checkout cleanliness; 50 task disabled/enabled flags; 51 active matching Python controller process. All guard checks are read-only. A subcode does not prove the other original-host conditions or record any cold ledger proof.
 
-No new schedule, controller, task, queue, workflow_dispatch, paid API or native science changes. Even a **PASS** never authorizes restart, source event #1831, Hybrid schema migration, issue policy update, or worker dispatch.
+No task is modified, and no new schedule, controller, task, queue, workflow_dispatch, paid API or native science changes. Even a **PASS** never authorizes restart, source event #1831, Hybrid schema migration, issue policy update, or worker dispatch.
 
 ## Qualification and release
 
