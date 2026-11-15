@@ -321,6 +321,17 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # Exact owner-only read-only classification of the already committed
+    # event 1832; this is NOT source, controller or scientific authority.
+    "engineering/f139-v39-event1832-proof-classifier-20261115": (
+        "1479f963160001037566e4cef33582c5293fb773",
+        {
+            ".github/workflows/f139-v39-original-source-successor.yml",
+            "f139/nci04_v41_hybrid_event1832_proof_diagnostic.py",
+            "f139/test_nci04_v41_hybrid_event1832_proof_diagnostic.py",
+            "scripts/check_rar_g145_pr_scope.py",
+        },
+    ),
     # Exact PR1776: isolate V39 issue_comment concurrency from skipped V41 runs.
     # Both workflow families keep existing first-attempt owner checks and
     # original SQLite SingleOwner; source admission is NOT runtime authority.
@@ -2263,6 +2274,24 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v39-event1832-proof-classifier-20261115":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            workflow = ".github/workflows/f139-v39-original-source-successor.yml"
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1777
+                    or type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or git("rev-parse",
+                           "1479f963160001037566e4cef33582c5293fb773^{tree}") !=
+                           "7f8a752a2244e00a7617dd113317ff365191b54d"
+                    or git("rev-parse",
+                           "1479f963160001037566e4cef33582c5293fb773:" + workflow) !=
+                           "4954c55309f40637954ea9a3cdff8e2d7b08965f"
+                    or git("rev-parse", head_sha + ":" + workflow) !=
+                           "1861468f471b25b5de74e8d393de33b312c60fe4"):
+                raise ValueError("G145_V39_PROOF_DIAG_EXACT_OWNER_WORKFLOW_DENIED")
         if branch == "engineering/f139-v39-concurrency-isolation-v2-20261115":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
