@@ -27,8 +27,8 @@ from f139 import nci04_v41_hybrid_forward_repair as forward
 
 REPO = "spoonman136668-ai/FORGE"
 OWNER = "spoonman136668-ai"
-PR = 1772
-BRANCH = "engineering/f139-v38-forward-original-owner-release-20261115"
+PR = 1773
+BRANCH = "engineering/f139-v38-forward-original-owner-concurrency-v2-20261115"
 PREFIX = "F139-HYBRID-V41-FORWARD-READINESS "
 OLD_COMMIT_ID = 6883036903
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
@@ -72,7 +72,7 @@ def _release(get, target):
          and pr["base"].get("ref") == "main"
          and type(pr["base"].get("repo")) is dict
          and pr["base"]["repo"].get("full_name") == REPO,
-         "MERGED_PR1772_PROTECTED_MAIN_REQUIRED")
+         "MERGED_PR1773_PROTECTED_MAIN_REQUIRED")
     head = pr["head"]["sha"]
     compare = get(route + "compare/" + forward.FROM + "..." + target +
                   "?per_page=1&page=2")

@@ -92,3 +92,16 @@ original owner operations. Old V41 owner workflow and source routes
 remain unchanged. Request a FRESH owner backup comment only after
 exact new release/tree/postmerge verification; no replay of the
 cancelled run.
+
+## Release SHA requalification after queue isolation
+
+The original V38 forward readiness was source bound to PR #1772 and
+main 756097420ea41d3884ef8ba0486e890d10e54e8e. A source merge
+for the isolated queue creates a NEW protected-main SHA: using the
+prior PR1772 release identity for its original backup would be denied
+by the native forward-readiness source validator. Therefore PR #1773
+also updates only the forward release identity and synthetic tests
+to the new qualified PR1773 merge. The prior original readiness
+comment 6894025712 is read-only historical evidence and does NOT
+qualify an original backup on the new source. A NEW first-attempt
+readiness event must PASS before any new backup event.

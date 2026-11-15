@@ -52,8 +52,8 @@ class OriginalForwardWorkflowTests(unittest.TestCase):
                          "FORGE F139 V38 guarded original-owner forward installation")
         self.assertEqual(postcommit.PREFIX, stages[3][1])
         self.assertEqual(readiness.PREFIX, stages[0][1])
-        self.assertEqual(readiness.PR, 1772)
-        self.assertEqual(readiness.BRANCH, g145.V38_FORWARD_BRANCH)
+        self.assertEqual(readiness.PR, 1773)
+        self.assertEqual(readiness.BRANCH, g145.V38_FORWARD_V2_BRANCH)
         for bad in (
             "\n  schedule:", "\n  workflow_dispatch:", "\n  push:",
             "workflow_call:", "Start-ScheduledTask", "Stop-ScheduledTask",

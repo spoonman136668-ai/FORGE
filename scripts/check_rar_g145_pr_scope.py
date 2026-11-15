@@ -153,12 +153,15 @@ V38_FORWARD_V2_WORKFLOW = ".github/workflows/f139-v38-original-forward-install.y
 V38_FORWARD_V2_BEFORE = "bcf29aadb31c5189c81d61d6d291ce7eae3f156c"
 V38_FORWARD_V2_AFTER = "4d502b1ac494f4c751af7b4c46b345615b94b933"
 V38_FORWARD_V2_OLD_WORKFLOW = "6ad719d04639f96e3342f33bcbc9c5b379557e52"
+V38_FORWARD_V2_READINESS_BLOB = "81f3f064ec1021653b95620a917ff2e689c439a7"
 V38_FORWARD_V2_BACKUP = "44ed9e5faa16ff26ff85637db6137c0a6fc16689"
 V38_FORWARD_V2_COMMIT = "9ad393a67becd881d8630ed7ab23125cd92f3f47"
 V38_FORWARD_V2_RESULT = "EXACT_PR1773_V38_FORWARD_READONLY_QUEUE_ISOLATION_CI_ONLY"
 V38_FORWARD_V2_FILES = frozenset({
     V38_FORWARD_V2_WORKFLOW,
     "f139/test_nci04_v38_original_forward_workflow.py",
+    "f139/nci04_v41_hybrid_forward_readiness.py",
+    "f139/test_nci04_v41_hybrid_forward_readiness.py",
     "docs/F139-V38-ORIGINAL-FORWARD-RELEASE.md",
     "scripts/check_rar_g145_pr_scope.py",
     "scripts/check_rar_g148_go_cache.py",
@@ -958,6 +961,8 @@ def admit_v38_forward_v2(head_sha: str, base_sha: str,
                     base_sha, head_sha).splitlines()
         before = git("ls-tree", base_sha, "--", V38_FORWARD_V2_WORKFLOW)
         after = git("ls-tree", head_sha, "--", V38_FORWARD_V2_WORKFLOW)
+        readiness = git("rev-parse", head_sha +
+                        ":f139/nci04_v41_hybrid_forward_readiness.py")
         old = git("rev-parse", head_sha +
                   ":.github/workflows/f139-v41-original-owner-live-install.yml")
         backup = git("rev-parse", head_sha +
@@ -975,6 +980,7 @@ def admit_v38_forward_v2(head_sha: str, base_sha: str,
                          "\t" + V38_FORWARD_V2_WORKFLOW
             or after != "100644 blob " + V38_FORWARD_V2_AFTER +
                         "\t" + V38_FORWARD_V2_WORKFLOW
+            or readiness != V38_FORWARD_V2_READINESS_BLOB
             or old != V38_FORWARD_V2_OLD_WORKFLOW
             or backup != V38_FORWARD_V2_BACKUP
             or commit != V38_FORWARD_V2_COMMIT):
@@ -998,6 +1004,8 @@ def v38_forward_v2_negative_controls() -> None:
         ("ls-tree", head, "--", V38_FORWARD_V2_WORKFLOW):
             "100644 blob " + V38_FORWARD_V2_AFTER +
             "\t" + V38_FORWARD_V2_WORKFLOW,
+        ("rev-parse", head + ":f139/nci04_v41_hybrid_forward_readiness.py"):
+            V38_FORWARD_V2_READINESS_BLOB,
         ("rev-parse", head + ":.github/workflows/f139-v41-original-owner-live-install.yml"):
             V38_FORWARD_V2_OLD_WORKFLOW,
         ("rev-parse", head + ":f139/nci04_v41_hybrid_forward_backup.py"):
@@ -1031,6 +1039,8 @@ def v38_forward_v2_negative_controls() -> None:
         (("ls-tree", base, "--", V38_FORWARD_V2_WORKFLOW), ""),
         (("ls-tree", head, "--", V38_FORWARD_V2_WORKFLOW),
          "100644 blob " + "f" * 40 + "\t" + V38_FORWARD_V2_WORKFLOW),
+        (("rev-parse", head + ":f139/nci04_v41_hybrid_forward_readiness.py"),
+         "f" * 40),
         (("rev-parse", head + ":.github/workflows/f139-v41-original-owner-live-install.yml"),
          "f" * 40),
         (("rev-parse", head + ":f139/nci04_v41_hybrid_forward_backup.py"),
