@@ -249,7 +249,7 @@ def parse_receipt(raw: bytes, code: int) -> str:
 
 def probe(db_path: Path, *, runner=subprocess.run):
     """One read-only PowerShell subprocess. Never retain or display raw output."""
-    if (os.name != "nt" or type(db_path) is not Path
+    if (os.name != "nt" or not isinstance(db_path, Path)
             or not db_path.is_absolute() or db_path.name != "state.sqlite"
             or not db_path.is_file() or db_path.is_symlink()):
         return "PATH_UNAVAILABLE"
