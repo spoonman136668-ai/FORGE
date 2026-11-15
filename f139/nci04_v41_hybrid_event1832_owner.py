@@ -16,6 +16,7 @@ import os
 
 from f139.local_controller import Database, GitHub, SingleOwner
 from f139.nci04_native_contract import canonical, digest
+from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_hybrid_event1832_successor as successor
 from f139 import nci04_v41_hybrid_event1832_cold as cold
 from f139 import nci04_v41_hybrid_forward_postcommit as postcommit
@@ -313,3 +314,40 @@ def original_backup(path, env, event, api):
         "scientific_first_use": False,
         "new_dispatches": 0,
     }
+
+
+def main(argv=None):
+    """Operator event only; not a runner, scheduler or background controller."""
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--operation", choices=("readiness", "backup"),
+                        required=True)
+    parser.add_argument("--target", required=True)
+    args = parser.parse_args(argv)
+    env = dict(os.environ)
+    need(args.target == env.get("GITHUB_SHA"),
+         "EXACT_PROTECTED_TARGET_REQUIRED")
+    path = env.get("GITHUB_EVENT_PATH")
+    need(type(path) is str and Path(path).is_file(),
+         "EXACT_NATIVE_EVENT_REQUIRED")
+    try:
+        event = json.loads(Path(path).read_text("utf-8"),
+                           object_pairs_hook=decode_unique)
+    except (ValueError, UnicodeError, OSError) as exc:
+        raise Event1832OwnerDenied("F139_V39_OWNER_EVENT_PARSE") from exc
+    need(type(env.get("LOCALAPPDATA")) is str
+         and Path(env["LOCALAPPDATA"]).is_absolute(),
+         "NATIVE_ORIGINAL_LOCALAPPDATA_REQUIRED")
+    db = Path(env["LOCALAPPDATA"]) / "FORGE-F139" / "state.sqlite"
+    if args.operation == "readiness":
+        receipt = original_readiness(db, env, event, GitHub())
+        marker = "F139_V39_ORIGINAL_EVENT1831_READINESS="
+    else:
+        receipt = original_backup(db, env, event, GitHub())
+        marker = "F139_V39_ORIGINAL_EVENT1831_BACKUP="
+    print(marker + canonical(receipt).decode("ascii"))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -321,6 +321,31 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # Frozen PR1774 source-only original V39 implementation and existing owner
+    # workflow event routes. This is ENGINEERING CI admission, not native
+    # activation, task ownership, scientific first-use or merge authority.
+    "engineering/f139-v38-event1831-activation-bridge-20261115": (
+        "eae38f6d0af27c41181da10c35685c6a3e8c68b4",
+        {
+            ".github/workflows/f139-v41-original-owner-live-install.yml",
+            "f139/hybrid_owner_admission.py",
+            "f139/local_controller.py",
+            "f139/nci04_v41_hybrid_event1832_cold.py",
+            "f139/nci04_v41_hybrid_event1832_commit.py",
+            "f139/nci04_v41_hybrid_event1832_owner.py",
+            "f139/nci04_v41_hybrid_event1832_postcommit.py",
+            "f139/nci04_v41_hybrid_event1832_successor.py",
+            "f139/test_nci04_v41_hybrid_event1832_cold.py",
+            "f139/test_nci04_v41_hybrid_event1832_commit.py",
+            "f139/test_nci04_v41_hybrid_event1832_owner.py",
+            "f139/test_nci04_v41_hybrid_event1832_postcommit.py",
+            "f139/test_nci04_v41_hybrid_event1832_successor.py",
+            "f139/test_nci04_v41_hybrid_event1832_workflow.py",
+            "f139/test_v41_hybrid_original_activate.py",
+            "f139/v41_hybrid_original_activate.ps1",
+            "scripts/check_rar_g145_pr_scope.py",
+        },
+    ),
     # ONLY original owner PR #1660, original main, exact full workflow blob.
     "engineering/f139-hybrid-reader-route-20261110": (
         "1a40fe4e3ec6e93a1631d59863b95e90981d734e",
@@ -2205,6 +2230,17 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v38-event1831-activation-bridge-20261115":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1774
+                    or type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or git("rev-parse", "eae38f6d0af27c41181da10c35685c6a3e8c68b4^{tree}") !=
+                        "eb5dcc4e7aed43fc6f792fdf6bf8a54802206974"):
+                raise ValueError("G145_V39_EXACT_PR1774_OWNER_BASE_TREE_REQUIRED")
         if branch == HYBRID_OWNER_WORKFLOW_BRANCH:
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
