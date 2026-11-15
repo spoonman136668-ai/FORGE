@@ -137,12 +137,13 @@ $unknown = 0
 function Bad([int]$n) { $script:fail = $script:fail -bor (1 -shl $n) }
 function Unk([int]$n) { $script:unknown = $script:unknown -bor (1 -shl $n) }
 try {
-  $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+  $taskMatches = @(Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop)
 } catch {
   Write-Output 'TASK_LOOKUP_FAILED'
   exit 0
 }
-if($null -eq $task) { Write-Output 'TASK_LOOKUP_FAILED'; exit 0 }
+if($taskMatches.Count -ne 1) { Write-Output 'TASK_LOOKUP_FAILED'; exit 0 }
+$task = $taskMatches[0]
 try {
   $current=[Security.Principal.WindowsIdentity]::GetCurrent()
   $principalId=[string]$task.Principal.UserId
