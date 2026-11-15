@@ -19,22 +19,23 @@ class OriginalReadonlyOwnerWorkflowTests(unittest.TestCase):
         self.assertTrue(src.startswith(
             "name: FORGE F139 V38 original owner one-shot read-only preflight\n"))
         self.assertIn("on:\n  issue_comment:\n    types: [created]", src)
-        self.assertIn("group: forge-f139-v41-original-owner-live-install", src)
+        self.assertIn("group: forge-f139-v38-original-ledger-cold-readonly-v1", src)
+        self.assertNotIn("group: forge-f139-v41-original-owner-live-install", src)
         self.assertIn("cancel-in-progress: false", src)
         self.assertEqual(src.count("  original-owner-v38-readonly-preflight:\n"), 1)
         self.assertIn("runs-on: [self-hosted, Windows, forge-codex-isolated]", src)
         self.assertIn("github.actor == 'spoonman136668-ai'", src)
         self.assertIn("github.event.issue.number == 807", src)
         self.assertIn("!github.event.issue.pull_request", src)
-        self.assertIn("github.event.comment.body, 'F139-HYBRID-V41-FORWARD-READINESS '", src)
+        self.assertIn("github.event.comment.body, 'F139-V38-LEDGER-COLD-READONLY-V1 '", src)
         self.assertIn("GITHUB_RUN_ATTEMPT -cne '1'", src)
         self.assertIn("RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'", src)
         self.assertIn("GH_TOKEN: ${{ github.token }}", src)
         self.assertIn("persist-credentials: false", src)
         self.assertIn("fetch-depth: 0", src)
-        self.assertIn(" python -B -m f139.nci04_v41_hybrid_forward_readiness --target $env:GITHUB_SHA", src)
-        self.assertIn("6883036903", src)
-        self.assertEqual(src.count("& python -B -m f139.nci04_v41_hybrid_forward_readiness"), 1)
+        self.assertIn(" python -B -m f139.nci04_v38_owner_ledger_cold_readonly --target $env:GITHUB_SHA", src)
+        self.assertIn("6892848524", src)
+        self.assertEqual(src.count("& python -B -m f139.nci04_v38_owner_ledger_cold_readonly"), 1)
         for prohibited in (
             "\n  schedule:", "\n  workflow_dispatch:", "\n  push:",
             "permissions:\n  contents: write",
