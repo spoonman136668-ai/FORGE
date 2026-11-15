@@ -18,7 +18,6 @@ env:
   CGO_ENABLED: '0'
 jobs:
   native-windows:
-    if: false # previously qualified exact source; avoid redundant tests
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
@@ -115,7 +114,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   architecture-linux:
-    if: false # previously qualified native Graphify; avoid redundant tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -250,54 +248,3 @@ jobs:
           path: ${{ runner.temp }}/kaboom-safe/status.txt
           if-no-files-found: error
           retention-days: 14
-
-  inspect-existing-kterminal-event-bridge:
-    runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Inspect K Terminal webhook and runner inventories read-only
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-              $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
-              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
-              $env:RUNNER_OS -cne 'Windows' -or
-              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
-              $env:GITHUB_EVENT_NAME -cne 'push' -or
-              $env:GITHUB_RUN_ATTEMPT -cne '1') { throw 'KABOOM_EVENT_PROBE_WRONG_RUNNER' }
-          $observed=(& gh api repos/Kboomllc/K-Terminal/git/ref/heads/main --jq '.object.sha' 2>$null)
-          if ($LASTEXITCODE -ne 0 -or $observed.Trim() -cne '9f17a5217714e649aae2612289839946efb2ce60') {
-            throw 'KABOOM_EVENT_PROBE_SOURCE_DRIFT'
-          }
-          Write-Output 'KABOOM_LOCAL_RUNNER_SOURCE_PIN=PASS'
-          try {
-            $raw=& gh api repos/Kboomllc/K-Terminal/hooks --paginate 2>$null
-            if ($LASTEXITCODE -ne 0) { throw 'HOOK_INVENTORY_DENIED' }
-            $hooks=@(($raw -join "`n") | ConvertFrom-Json)
-            if($hooks.Count -eq 1 -and $hooks[0] -is [System.Array]) {$hooks=@($hooks[0])}
-            Write-Output ('KABOOM_PUSH_WEBHOOKS_VISIBLE=TRUE;COUNT='+$hooks.Count)
-            $c=0
-            foreach($hook in $hooks) {
-              if ($hook.active -and (@($hook.events) -contains 'push' -or @($hook.events) -contains '*')) {
-                $c++
-              }
-            }
-            Write-Output ('KABOOM_ACTIVE_PUSH_WEBHOOK_COUNT='+$c)
-          } catch {
-            Write-Output 'KABOOM_PUSH_WEBHOOKS_VISIBLE=FALSE;INVENTORY_NOT_PROVEN'
-          }
-          try {
-            $raw=& gh api repos/Kboomllc/K-Terminal/actions/runners 2>$null
-            if($LASTEXITCODE -ne 0) { throw 'RUNNER_INVENTORY_DENIED' }
-            $r=($raw -join "`n") | ConvertFrom-Json
-            Write-Output ('KABOOM_NATIVE_REPOSITORY_RUNNERS_VISIBLE=TRUE;COUNT='+[int]$r.total_count)
-            $c=0
-            foreach($item in $r.runners) { if($item.status -eq 'online') {$c++} }
-            Write-Output ('KABOOM_NATIVE_ONLINE_RUNNER_COUNT='+$c)
-          } catch {
-            Write-Output 'KABOOM_NATIVE_REPOSITORY_RUNNERS_VISIBLE=FALSE;INVENTORY_NOT_PROVEN'
-          }
-          Write-Output 'KABOOM_READ_ONLY_EVENT_INVENTORY=COMPLETE;NO_NEW_SCHEDULERS_OR_HOOKS'
