@@ -18,7 +18,6 @@ env:
   CGO_ENABLED: '0'
 jobs:
   native-windows:
-    if: false # prior exact-source Windows full regression PASS: 43662371347
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
@@ -115,7 +114,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   architecture-linux:
-    if: false # prior exact-source Linux architecture/Graphify PASS: 43662371347
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -250,35 +248,3 @@ jobs:
           path: ${{ runner.temp }}/kaboom-safe/status.txt
           if-no-files-found: error
           retention-days: 14
-
-
-
-  private-blob-write-authorization-preflight:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    env:
-      GH_TOKEN: ${{ secrets.FORGE_KTERM_QUAL }}
-    steps:
-      - name: Validate private GitHub credential using invalid zero-effect request
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
-          test "$GITHUB_REF" = refs/heads/qualification/kaboom-pr105-source-offline-20261114
-          test "$RUNNER_ENVIRONMENT" = github-hosted
-          test -n "$GH_TOKEN"
-          code="$(curl -sS -o "$RUNNER_TEMP/kaboom-api-private-result.json" \
-            -w '%{http_code}' --request POST \
-            --header 'Accept: application/vnd.github+json' \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header 'Content-Type: application/json' \
-            --data '{}' \
-            'https://api.github.com/repos/Kboomllc/K-Terminal/git/blobs')"
-          case "$code" in
-            422) echo KABOOM_PRIVATE_BLOB_PERMISSION=WRITE_AUTHORIZED_VALIDATION_REJECTED;;
-            401|403) echo KABOOM_PRIVATE_BLOB_PERMISSION=DENIED;;
-            *) echo "KABOOM_PRIVATE_BLOB_PERMISSION=UNKNOWN_HTTP_$code";;
-          esac
-          echo KABOOM_PRIVATE_BLOB_PROBE_MUTATIONS=ZERO
