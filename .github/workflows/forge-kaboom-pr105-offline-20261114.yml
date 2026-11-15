@@ -18,6 +18,7 @@ env:
   CGO_ENABLED: '0'
 jobs:
   native-windows:
+    if: false # prior exact-source Windows regression PASS; diagnostic only
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
@@ -114,6 +115,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   architecture-linux:
+    if: false # prior exact-source Linux/Graphify PASS; diagnostic only
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -248,3 +250,45 @@ jobs:
           path: ${{ runner.temp }}/kaboom-safe/status.txt
           if-no-files-found: error
           retention-days: 14
+
+  diagnose-kterm-hosted-admission-once:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Read only GitHub job annotations without exposing private source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
+              $env:GITHUB_EVENT_NAME -cne 'push' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1') { throw 'KABOOM_DIAGNOSTIC_IDENTITY_MISMATCH' }
+          $want = 'b07160e4d96e7363fc185e5c71b6cc98a3071893'
+          $main = (& gh api repos/Kboomllc/K-Terminal/git/ref/heads/main --jq '.object.sha' 2>$null)
+          if ($LASTEXITCODE -ne 0 -or [string]$main -cne $want) { throw 'KABOOM_CURRENT_SOURCE_DRIFT' }
+          Write-Output 'KABOOM_SOURCE_PIN=PASS'
+          foreach ($id in @(132655231030,132655231143)) {
+            $json = (& gh api "repos/Kboomllc/K-Terminal/check-runs/$id/annotations" 2>$null)
+            if ($LASTEXITCODE -ne 0) {
+              Write-Output ('KABOOM_ANNOTATION=' + $id + ';status=API_DENIED_OR_MISSING')
+              continue
+            }
+            try {
+              $a = @((($json -join "`n") | ConvertFrom-Json))
+              $body = (($a | ForEach-Object { [string]$_.message + ' ' + [string]$_.title }) -join ' ').ToLowerInvariant()
+              $kind='OTHER'
+              if ($body -match 'bill|payment|spending|credit|past.due') { $kind='BILLING' }
+              elseif ($body -match 'quota|minute|limit|capacity') { $kind='QUOTA_OR_CAPACITY' }
+              elseif ($body -match 'runner|hosted|allocation|assign') { $kind='RUNNER_ADMISSION' }
+              elseif ($body -match 'permission|disabled|suspend') { $kind='PERMISSION_OR_ACCOUNT' }
+              Write-Output ('KABOOM_ANNOTATION=' + $id + ';status=VISIBLE;count=' + $a.Count + ';category=' + $kind)
+            } catch {
+              Write-Output ('KABOOM_ANNOTATION=' + $id + ';status=PARSE_UNVERIFIED')
+            }
+          }
+          Write-Output 'KABOOM_PROBE=READ_ONLY;SOURCE_OR_RUNNER_MUTATIONS=ZERO'
