@@ -500,9 +500,9 @@ def admit_v38_snapshot_v2(head_sha: str, base_sha: str,
             or len(set(paths)) != len(paths)
             or set(paths) != V38_SNAPSHOT_V2_FILES
             or before != "100644 blob " + V38_SNAPSHOT_V2_BEFORE +
-                         "\\t" + V38_SNAPSHOT_V2_WORKFLOW
+                         "\t" + V38_SNAPSHOT_V2_WORKFLOW
             or after != "100644 blob " + V38_SNAPSHOT_V2_AFTER +
-                        "\\t" + V38_SNAPSHOT_V2_WORKFLOW
+                        "\t" + V38_SNAPSHOT_V2_WORKFLOW
             or owner != "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6"
             or prior != "6ead37ed976f65b54a8753471c4d4369826bdcc9"):
         raise ValueError("G145_V38_SNAPSHOT_V2_SOURCE_OR_OWNER_GUARD_DRIFT")
@@ -519,11 +519,11 @@ def v38_snapshot_v2_negative_controls() -> None:
             ("merge-base", base, head): base,
             ("rev-parse", base + "^{tree}"): V38_SNAPSHOT_V2_BASE_TREE,
             ("diff", "--no-renames", "--name-only", base, head):
-                "\\n".join(sorted(V38_SNAPSHOT_V2_FILES)),
+                "\n".join(sorted(V38_SNAPSHOT_V2_FILES)),
             ("ls-tree", base, "--", V38_SNAPSHOT_V2_WORKFLOW):
-                "100644 blob " + V38_SNAPSHOT_V2_BEFORE + "\\t" + V38_SNAPSHOT_V2_WORKFLOW,
+                "100644 blob " + V38_SNAPSHOT_V2_BEFORE + "\t" + V38_SNAPSHOT_V2_WORKFLOW,
             ("ls-tree", head, "--", V38_SNAPSHOT_V2_WORKFLOW):
-                "100644 blob " + V38_SNAPSHOT_V2_AFTER + "\\t" + V38_SNAPSHOT_V2_WORKFLOW,
+                "100644 blob " + V38_SNAPSHOT_V2_AFTER + "\t" + V38_SNAPSHOT_V2_WORKFLOW,
             ("rev-parse", head + ":f139/nci04_v41_hybrid_forward_owner_profile.py"):
                 "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6",
             ("rev-parse", head + ":.github/workflows/f139-v38-held-task-stage-diagnostic-once.yml"):
@@ -551,10 +551,10 @@ def v38_snapshot_v2_negative_controls() -> None:
     reject(changed=(("merge-base", base, head), "d" * 40))
     reject(changed=(("rev-parse", base + "^{tree}"), "d" * 40))
     reject(changed=(("diff", "--no-renames", "--name-only", base, head),
-                    "\\n".join(sorted(V38_SNAPSHOT_V2_FILES - {V38_SNAPSHOT_V2_WORKFLOW}))))
+                    "\n".join(sorted(V38_SNAPSHOT_V2_FILES - {V38_SNAPSHOT_V2_WORKFLOW}))))
     reject(changed=(("ls-tree", base, "--", V38_SNAPSHOT_V2_WORKFLOW), ""))
     reject(changed=(("ls-tree", head, "--", V38_SNAPSHOT_V2_WORKFLOW),
-                    "100644 blob " + "d" * 40 + "\\t" + V38_SNAPSHOT_V2_WORKFLOW))
+                    "100644 blob " + "d" * 40 + "\t" + V38_SNAPSHOT_V2_WORKFLOW))
     reject(changed=(("rev-parse", head + ":f139/nci04_v41_hybrid_forward_owner_profile.py"),
                     "d" * 40))
     reject(changed=(("rev-parse", head + ":.github/workflows/f139-v38-held-task-stage-diagnostic-once.yml"),
