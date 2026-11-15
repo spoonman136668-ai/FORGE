@@ -18,6 +18,7 @@ env:
   CGO_ENABLED: '0'
 jobs:
   native-windows:
+    if: false # prior separate source; isolate candidate qualification
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
@@ -114,6 +115,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   architecture-linux:
+    if: false # prior separate source; isolate candidate qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -248,3 +250,67 @@ jobs:
           path: ${{ runner.temp }}/kaboom-safe/status.txt
           if-no-files-found: error
           retention-days: 14
+
+  kaboom-zip-candidate-go126-regression:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    steps:
+      - name: Offline native Windows Go regression of exact private candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1') {throw 'KABOOM_CANDIDATE_WRONG_RUNNER_OR_EVENT'}
+          $want='ff4b97d13a8470e79cfd8445ea964ad2eb227b3c'
+          $sourceBranch='engineering/kaboom-20261114-3-intake-claude-20261115'
+          $current=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$sourceBranch) --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or $current.Trim() -cne $want){throw 'KABOOM_CANDIDATE_SOURCE_REF_DRIFT'}
+          $tmp=Join-Path $env:RUNNER_TEMP ('kaboom-zip-qualification-'+$env:GITHUB_RUN_ID)
+          if(Test-Path $tmp){throw 'KABOOM_CANDIDATE_TEMP_COLLISION'}
+          New-Item -ItemType Directory -Path $tmp | Out-Null
+          try {
+            $repo=Join-Path $tmp 'candidate'
+            & gh repo clone Kboomllc/K-Terminal $repo -- --quiet *> (Join-Path $tmp 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_CANDIDATE_PRIVATE_CLONE_FAILED'}
+            & git -C $repo checkout --detach $want *> (Join-Path $tmp 'private-checkout.log')
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_CANDIDATE_CHECKOUT_FAILED'}
+            if((& git -C $repo rev-parse HEAD).Trim() -cne $want){throw 'KABOOM_CANDIDATE_HEAD_MISMATCH'}
+            Write-Output 'KABOOM_CANDIDATE_SHA=PASS'
+            & go version
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_GO_MISSING'}
+            $goVer=(& go env GOVERSION).Trim()
+            if($LASTEXITCODE -ne 0 -or $goVer -cnotmatch '^go1\.(?:2[6-9]|[3-9][0-9])(?:\.|$)'){
+              Write-Output ('KABOOM_NATIVE_WINDOWS_GO126=BLOCKED_TOOLCHAIN;observed='+$goVer)
+              throw 'KABOOM_GO126_REQUIRED_NOT_INSTALLED'
+            }
+            Write-Output ('KABOOM_NATIVE_WINDOWS_GO126=PASS;observed='+$goVer)
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            $env:GOTELEMETRY='off'
+            $env:GOTOOLCHAIN='local'
+            $env:CGO_ENABLED='0'
+            $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+            $env:GOMAXPROCS='2'
+            Push-Location (Join-Path $repo 'kaboom-core')
+            try {
+              & go test -p 1 -count=1 -timeout 35m ./...
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_EXACT_NATIVE_TEST_FAIL'}
+              Write-Output 'KABOOM_EXACT_NATIVE_TEST=PASS'
+              & go vet ./...
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_EXACT_NATIVE_VET_FAIL'}
+              Write-Output 'KABOOM_EXACT_NATIVE_VET=PASS'
+              & go build ./...
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_EXACT_NATIVE_BUILD_FAIL'}
+              Write-Output 'KABOOM_EXACT_NATIVE_BUILD=PASS'
+            } finally { Pop-Location }
+            $post=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$sourceBranch) --jq '.object.sha' 2>$null)
+            if($LASTEXITCODE -ne 0 -or $post.Trim() -cne $want){throw 'KABOOM_CANDIDATE_POSTRUN_SHA_DRIFT'}
+            Write-Output 'KABOOM_CANDIDATE_FINAL_SHA=PASS;BROKER_CALLS=ZERO;SOURCE_MUTATIONS=ZERO'
+          } finally {Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}
