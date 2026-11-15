@@ -6,12 +6,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: forge-kaboom-pr106-source-offline-20261114
+  group: forge-kaboom-pr107-source-offline-20261114
   cancel-in-progress: false
 env:
   FORGE_BASE: c611c4362e3cc867984448a03ecdf3be923d2ef1
-  KABOOM_SOURCE_SHA: 8f9f50d595cf369bf4400d5831b366c6daf4591e
-  KABOOM_SOURCE_TREE: 43f44ad202e31fbaaa9356b4e946f93a384619d3
+  KABOOM_SOURCE_SHA: d1603593bd97cdc9b7a639b18a21bb4738b23342
+  KABOOM_SOURCE_TREE: cd50ed3a2131822dcba2d165a5dd220ff157dfe6
   K_TERMINAL_EXECUTION_MODE: PAPER
   GOTOOLCHAIN: local
   GOTELEMETRY: 'off'
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Kboomllc/K-Terminal
-          ref: 8f9f50d595cf369bf4400d5831b366c6daf4591e
+          ref: d1603593bd97cdc9b7a639b18a21bb4738b23342
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -93,7 +93,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/kaboom-safe"
           {
-            echo schema=forge.kaboom-pr106.windows-offline.v1
+            echo schema=forge.kaboom-pr107.windows-offline.v1
             echo kterminal_sha=$KABOOM_SOURCE_SHA
             echo kterminal_tree=$KABOOM_SOURCE_TREE
             echo forge_qualification_sha=$GITHUB_SHA
@@ -109,7 +109,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: kaboom-pr106-windows-offline-safe-${{ github.run_id }}
+          name: kaboom-pr107-windows-offline-safe-${{ github.run_id }}
           path: ${{ runner.temp }}/kaboom-safe/status.txt
           if-no-files-found: error
           retention-days: 14
@@ -140,7 +140,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Kboomllc/K-Terminal
-          ref: 8f9f50d595cf369bf4400d5831b366c6daf4591e
+          ref: d1603593bd97cdc9b7a639b18a21bb4738b23342
           path: kterminal-private
           fetch-depth: 1
           persist-credentials: false
@@ -186,15 +186,16 @@ jobs:
           echo '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c  '"$wheel" | sha256sum -c - > "$RUNNER_TEMP/kaboom-graphify-hash-private.log" 2>&1
           python -m pip install "$wheel" >> "$RUNNER_TEMP/kaboom-graphify-install-private.log" 2>&1
           python -c "from importlib.metadata import version; assert version('graphifyy')=='0.9.92'"
-      - name: Analyze original KABOOM code only, no private maps exported
+      - name: Analyze and validate new KABOOM Graphify publisher, no private maps exported
         shell: bash
-        working-directory: kterminal-private/kaboom-core
+        working-directory: kterminal-private
         run: |
           set -euo pipefail
           graphify extract . --code-only --max-workers 4 > "$RUNNER_TEMP/kaboom-graphify-private.log" 2>&1
-          graphify cluster-only . >> "$RUNNER_TEMP/kaboom-graphify-private.log" 2>&1
-          for f in graph.json graph.html GRAPH_REPORT.md; do
-            test -s "graphify-out/$f"
+          graphify cluster-only . --no-label >> "$RUNNER_TEMP/kaboom-graphify-private.log" 2>&1
+          python tools/architecture/publish_graphify.py --root . --input graphify-out --output "$RUNNER_TEMP/kaboom-private-verified-graph" --source-sha "$KABOOM_SOURCE_SHA" > "$RUNNER_TEMP/kaboom-graphify-publisher-private.log" 2>&1
+          for f in graph.json graph.html GRAPH_REPORT.md source-manifest.json; do
+            test -s "$RUNNER_TEMP/kaboom-private-verified-graph/$f"
           done
           echo PASS > "$RUNNER_TEMP/kaboom-safe/graphify.ok"
           echo KABOOM_LINUX_GRAPHIFY_CODE_ONLY=PASS
@@ -205,7 +206,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/kaboom-safe"
           {
-            echo schema=forge.kaboom-pr106.architecture-offline.v1
+            echo schema=forge.kaboom-pr107.architecture-offline.v1
             echo kterminal_sha=$KABOOM_SOURCE_SHA
             echo kterminal_tree=$KABOOM_SOURCE_TREE
             echo forge_qualification_sha=$GITHUB_SHA
@@ -220,7 +221,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: kaboom-pr106-architecture-offline-safe-${{ github.run_id }}
+          name: kaboom-pr107-architecture-offline-safe-${{ github.run_id }}
           path: ${{ runner.temp }}/kaboom-safe/status.txt
           if-no-files-found: error
           retention-days: 14
