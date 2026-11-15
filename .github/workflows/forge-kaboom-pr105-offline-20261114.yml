@@ -251,34 +251,126 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  private-repository-permission-readonly:
+
+  private-graphify-one-shot-publish:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 25
     permissions:
       contents: read
+    env:
+      KABOOM_MAIN_SOURCE_SHA: 1d5b4fefa9f7573fcdf05a5fc9ceb94f72536269
+      KABOOM_MAIN_SOURCE_TREE: 2d5e1c15a28292372772c35a30d27f1e110f9668
+      KABOOM_SOURCE_DIGEST: 202af9fe36e41dc0f7b48347c69c161387aa5019ba7df022061ed6a4892ae666
     steps:
-      - name: Verify previous qualification identity without exporting private source
+      - name: Check isolated one-shot scope and private repository writer
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FORGE_KTERM_QUAL }}
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
           test "$GITHUB_REF" = refs/heads/qualification/kaboom-pr105-source-offline-20261114
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$K_TERMINAL_EXECUTION_MODE" = PAPER
-      - name: Read-only check of existing K-Terminal checkout credential permissions
+          test -n "$GH_TOKEN"
+          test "$(gh api repos/Kboomllc/K-Terminal --jq '.permissions.push // false')" = true
+          test "$(gh api repos/Kboomllc/K-Terminal/git/ref/heads/main --jq '.object.sha')" = "$KABOOM_MAIN_SOURCE_SHA"
+          echo KABOOM_PRIVATE_PUBLICATION_PREFLIGHT=PASS
+      - name: Checkout exact private KABOOM source, no retained credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 1d5b4fefa9f7573fcdf05a5fc9ceb94f72536269
+          path: private-kaboom
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Install Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Verify exact source and install hash-pinned Graphify
         shell: bash
+        working-directory: private-kaboom
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KABOOM_MAIN_SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KABOOM_MAIN_SOURCE_TREE"
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          test ! -e config.json
+          python tools/architecture/generate.py --check > "$RUNNER_TEMP/kaboom-ice-private.log" 2>&1
+          python tools/architecture/verify_source_custody.py > "$RUNNER_TEMP/kaboom-custody-private.log" 2>&1
+          python - <<'PYMANIFEST'
+          import json,os
+          m=json.load(open('.ice/manifest.json'))
+          assert m['source_content_sha256']==os.environ['KABOOM_SOURCE_DIGEST']
+          assert m['tracked_files']==152 and m['go_files']==79
+          PYMANIFEST
+          python -m pip download --no-deps --only-binary=:all: --dest "$RUNNER_TEMP/kaboom-wheel" 'graphifyy==0.9.92' > "$RUNNER_TEMP/kaboom-graphify-install-private.log" 2>&1
+          wheel="$RUNNER_TEMP/kaboom-wheel/graphifyy-0.9.92-py3-none-any.whl"
+          echo '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c  '"$wheel" | sha256sum -c - > "$RUNNER_TEMP/kaboom-graphify-hash-private.log"
+          python -m pip install "$wheel" >> "$RUNNER_TEMP/kaboom-graphify-install-private.log" 2>&1
+          python -c "from importlib.metadata import version; assert version('graphifyy')=='0.9.92'"
+          echo KABOOM_PRIVATE_SOURCE_AND_GRAPHIFY_PIN=PASS
+      - name: Generate and validate native Graphify privately
+        working-directory: private-kaboom
+        shell: bash
+        run: |
+          set -euo pipefail
+          graphify extract . --code-only --max-workers 4 > "$RUNNER_TEMP/kaboom-graphify-private.log" 2>&1
+          graphify cluster-only . --no-label >> "$RUNNER_TEMP/kaboom-graphify-private.log" 2>&1
+          python tools/architecture/publish_graphify.py --root . --input graphify-out --output "$RUNNER_TEMP/kaboom-native-verified" --source-sha "$KABOOM_MAIN_SOURCE_SHA" >> "$RUNNER_TEMP/kaboom-graphify-private.log" 2>&1
+          for name in graph.json graph.html GRAPH_REPORT.md source-manifest.json; do
+            test -s "$RUNNER_TEMP/kaboom-native-verified/$name"
+          done
+          test -z "$(git status --porcelain)"
+          echo KABOOM_PRIVATE_GRAPHIFY_EXTRACT_AND_VALIDATE=PASS
+      - name: Publish only four derived blobs to private K-Terminal main
+        shell: bash
+        working-directory: private-kaboom
         env:
           GH_TOKEN: ${{ secrets.FORGE_KTERM_QUAL }}
         run: |
           set -euo pipefail
-          if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo KABOOM_PUBLISH_CREDENTIAL=NOT_CONFIGURED
-            exit 0
-          fi
-          result="$(gh api repos/Kboomllc/K-Terminal --jq '.permissions.push // null')"
-          case "$result" in
-            true) echo KABOOM_PUBLISH_CREDENTIAL=WRITE_CAPABLE;;
-            false) echo KABOOM_PUBLISH_CREDENTIAL=READ_ONLY;;
-            *) echo KABOOM_PUBLISH_CREDENTIAL=UNVERIFIED;;
-          esac
-          echo KABOOM_PUBLISH_PROBE_MUTATIONS=ZERO
+          python - "$RUNNER_TEMP/kaboom-native-verified" <<'PUBLISH'
+          import hashlib,json,os,pathlib,subprocess,sys
+          reports=pathlib.Path(sys.argv[1])
+          sha=os.environ['KABOOM_MAIN_SOURCE_SHA']
+          tree=os.environ['KABOOM_MAIN_SOURCE_TREE']
+          digest=os.environ['KABOOM_SOURCE_DIGEST']
+          repo='repos/Kboomllc/K-Terminal/'
+          names=('graph.json','graph.html','GRAPH_REPORT.md','source-manifest.json')
+          manifest=json.loads((reports/'source-manifest.json').read_text(encoding='utf-8'))
+          assert manifest['source_commit']==sha and manifest['source_content_sha256']==digest,'SOURCE_MISMATCH'
+          assert manifest['graphify_version']=='0.9.92' and manifest['extraction'].startswith('code-only'),'TOOLCHAIN_MISMATCH'
+          assert set(manifest['files_sha256'])==set(names)-{'source-manifest.json'},'FILES_MISMATCH'
+          for name,h in manifest['files_sha256'].items():
+              assert hashlib.sha256((reports/name).read_bytes()).hexdigest()==h,'FILE_DIGEST_MISMATCH'
+          def gh(method,route,payload=None):
+              args=['gh','api','--method',method,repo+route,'--header','Accept: application/vnd.github+json']
+              if payload is not None: args.extend(['--input','-'])
+              p=subprocess.run(args,input=json.dumps(payload) if payload is not None else None,capture_output=True,text=True,encoding='utf-8')
+              if p.returncode: raise RuntimeError('PRIVATE_GITHUB_API_'+method+'_'+route.split('/')[0]+'_FAILED')
+              return json.loads(p.stdout)
+          def main_sha():
+              return gh('GET','git/ref/heads/main')['object']['sha']
+          assert main_sha()==sha,'MAIN_SOURCE_ADVANCED_BEFORE_PUBLICATION'
+          blobs=[]
+          for name in names:
+              raw=(reports/name).read_text(encoding='utf-8')
+              assert raw and len(raw.encode('utf-8')) <= 32*1024*1024,'REPORT_MISSING_OR_OVERSIZE'
+              result=gh('POST','git/blobs',{'content':raw,'encoding':'utf-8'})
+              blobs.append({'path':'docs/graphify/'+name,'mode':'100644','type':'blob','sha':result['sha']})
+          new_tree=gh('POST','git/trees',{'base_tree':tree,'tree':blobs})['sha']
+          assert new_tree!=tree,'NOTHING_TO_PUBLISH'
+          new_commit=gh('POST','git/commits',{'message':'docs(kaboom): publish pinned private native Graphify reports [skip ci]','tree':new_tree,'parents':[sha]})['sha']
+          assert main_sha()==sha,'MAIN_SOURCE_ADVANCED_DURING_PUBLICATION'
+          ref=gh('PATCH','git/refs/heads/main',{'sha':new_commit,'force':False})
+          assert ref['object']['sha']==new_commit,'REF_WRITE_NOT_CONFIRMED'
+          assert main_sha()==new_commit,'REF_READBACK_FAILED'
+          print('KABOOM_PRIVATE_NATIVE_GRAPHIFY_PUBLICATION=PASS; files=4')
+          print('KABOOM_PRIVATE_GRAPHIFY_SOURCE='+sha)
+          print('KABOOM_PRIVATE_MAIN_HEAD='+new_commit)
+          print('KABOOM_PRIVATE_GRAPHIFY_TREE='+new_tree)
+          PUBLISH
