@@ -327,7 +327,7 @@ FROZEN_SCOPES = {
     "engineering/f139-v38-event1831-activation-bridge-20261115": (
         "eae38f6d0af27c41181da10c35685c6a3e8c68b4",
         {
-            ".github/workflows/f139-v41-original-owner-live-install.yml",
+            ".github/workflows/f139-v39-original-source-successor.yml",
             "f139/hybrid_owner_admission.py",
             "f139/local_controller.py",
             "f139/nci04_v41_hybrid_event1832_cold.py",
@@ -344,6 +344,8 @@ FROZEN_SCOPES = {
             "f139/test_v41_hybrid_original_activate.py",
             "f139/v41_hybrid_original_activate.ps1",
             "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
     # ONLY original owner PR #1660, original main, exact full workflow blob.

@@ -71,6 +71,8 @@ class FakeCommittedV39(FakeV39Owner):
                     "/actions/runs/" + str(self.backup_run["id"]) +
                     "/jobs?per_page=100"):
             return self.jobs
+        if "/actions/runs/" in path and "/jobs?" not in path:
+            return {"id": int(path.rsplit("/", 1)[-1]), "name": "UNRELATED"}
         return super().get(path)
 
 

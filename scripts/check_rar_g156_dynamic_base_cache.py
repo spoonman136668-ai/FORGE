@@ -258,6 +258,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v38-event1831-activation-bridge-20261115":
+        if (admission != FROZEN
+                or base != "eae38f6d0af27c41181da10c35685c6a3e8c68b4"
+                or tree != "eb5dcc4e7aed43fc6f792fdf6bf8a54802206974"):
+            raise ValueError("G156_V39_ORIGINAL_OWNER_EXACT_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == V38_FORWARD_V2_BRANCH:
         if (admission != V38_FORWARD_V2_RESULT
                 or base != V38_FORWARD_V2_BASE

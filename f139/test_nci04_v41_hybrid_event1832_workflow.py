@@ -6,7 +6,8 @@ from f139 import nci04_v41_hybrid_event1832_commit as committed
 from f139 import nci04_v41_hybrid_event1832_postcommit as postcommit
 
 ROOT=Path(__file__).resolve().parents[1]
-WORKFLOW=ROOT/".github/workflows/f139-v41-original-owner-live-install.yml"
+WORKFLOW=ROOT/".github/workflows/f139-v39-original-source-successor.yml"
+LEGACY=ROOT/".github/workflows/f139-v41-original-owner-live-install.yml"
 GUARD=ROOT/"scripts/check_rar_g145_pr_scope.py"
 
 
@@ -16,6 +17,9 @@ class OriginalV39WorkflowTests(unittest.TestCase):
         self.assertEqual(s.count(
             "group: forge-f139-v41-original-owner-live-install"),1)
         self.assertIn("cancel-in-progress: false",s)
+        self.assertIn("name: FORGE F139 V39 guarded original-owner successor source-only",s)
+        self.assertNotIn("hybrid-v39-original-event1831-backup:",
+                         LEGACY.read_text("utf-8"))
         for name in (
             "hybrid-v39-original-event1831-readiness",
             "hybrid-v39-original-event1831-backup",
@@ -58,7 +62,8 @@ class OriginalV39WorkflowTests(unittest.TestCase):
         self.assertNotIn("      issues: write",stages)
         self.assertEqual(stages.count("    timeout-minutes:"),4)
         self.assertEqual(stages.count("  hybrid-v41-original-source-activate:"),0)
-        self.assertIn("  hybrid-v41-original-source-activate:",s[:start])
+        self.assertIn("  hybrid-v41-original-source-activate:",
+                      LEGACY.read_text("utf-8"))
 
     def test_source_scope_pin_1774_fences_privileged_workflow_changes(self):
         s=GUARD.read_text("utf-8")
@@ -67,7 +72,9 @@ class OriginalV39WorkflowTests(unittest.TestCase):
         self.assertIn('request["number"] != 1774',s)
         self.assertIn("G145_V39_EXACT_PR1774_OWNER_BASE_TREE_REQUIRED",s)
         self.assertIn('"f139/nci04_v41_hybrid_event1832_owner.py"',s)
-        self.assertIn('".github/workflows/f139-v41-original-owner-live-install.yml"',s)
+        self.assertIn('".github/workflows/f139-v39-original-source-successor.yml"',s)
+        self.assertIn('"scripts/check_rar_g148_go_cache.py"',s)
+        self.assertIn('"scripts/check_rar_g156_dynamic_base_cache.py"',s)
         self.assertIn('f139/test_nci04_v41_hybrid_event1832_workflow.py',s)
 
     def test_backup_route_has_no_user_self_dispatch_or_first_use(self):

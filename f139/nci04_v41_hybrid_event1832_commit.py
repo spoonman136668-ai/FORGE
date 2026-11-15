@@ -29,7 +29,7 @@ from f139 import nci04_v41_hybrid_forward_readiness as shared
 PREFIX = "F139-HYBRID-V39-COMMIT "
 SCHEMA = "forge.f139.v39.original-event1831-source-commit-intent.v1"
 RECEIPT = "forge.f139.v39.original-event1832-source-held.v1"
-BACKUP_WORKFLOW = "FORGE F139 V41 guarded original-owner live installation"
+BACKUP_WORKFLOW = "FORGE F139 V39 guarded original-owner successor source-only"
 BACKUP_JOB = "hybrid-v39-original-event1831-backup"
 FIELDS = frozenset({
     "schema", "target_source_sha", "readiness_comment_id",
