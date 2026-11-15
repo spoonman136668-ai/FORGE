@@ -145,7 +145,7 @@ function Get-CimInstance {
                       Path(snap.__file__).read_text("utf-8"))
         self.assertIsInstance(Path("state.sqlite"), Path)
 
-    def test_fresh_v3_owner_comment_after_protocol_failure(self):
+    def test_fresh_v4_owner_comment_after_windows_parser_fix(self):
         target = "a" * 40
         new_id = snap.PREV_COMMENT + 1
         body = snap.PREFIX + target + " " + str(snap.PREV_COMMENT)
@@ -174,12 +174,12 @@ function Get-CimInstance {
                         "user": {"login": snap.OWNER},
                         "issue_url": "https://api.github.com/repos/" +
                                      snap.REPO + "/issues/807",
-                        "created_at": "2026-11-15T09:03:00Z"}
+                        "created_at": "2026-11-15T09:30:00Z"}
             if route == prefix + "issues/comments/" + str(snap.PREV_COMMENT):
                 return {"id": snap.PREV_COMMENT, "body": snap.PREV_BODY,
                         "author_association": "OWNER",
                         "user": {"login": snap.OWNER},
-                        "created_at": "2026-11-15T08:36:21Z"}
+                        "created_at": "2026-11-15T08:58:20Z"}
             if route == prefix + "actions/runs/" + str(snap.PREV_RUN):
                 return {"id": snap.PREV_RUN, "head_sha": snap.PREV_SHA,
                         "run_attempt": 1, "event": "issue_comment",
@@ -215,12 +215,12 @@ function Get-CimInstance {
     def test_workflow_scope_frozen_owner_only_and_no_scheduler(self):
         text = WORKFLOW.read_text("utf-8")
         self.assertIn("on:\n  issue_comment:\n    types: [created]", text)
-        self.assertIn("group: forge-f139-v38-original-task-snapshot-v3", text)
+        self.assertIn("group: forge-f139-v38-original-task-snapshot-v4", text)
         self.assertNotIn("group: forge-f139-v41-original-owner-live-install", text)
         self.assertIn("runs-on: [self-hosted, Windows, forge-codex-isolated]", text)
         self.assertIn("GITHUB_RUN_ATTEMPT -cne '1'", text)
-        self.assertIn("F139-V38-ORIGINAL-TASK-SNAPSHOT-V3 ", text)
-        self.assertIn("6891778093", text)
+        self.assertIn("F139-V38-ORIGINAL-TASK-SNAPSHOT-V4 ", text)
+        self.assertIn("6892011132", text)
         self.assertIn("f139.nci04_v38_original_task_snapshot", text)
         self.assertIn("9bda78341bc3651e8b7b0a24ea6c7858dbff05c6", text)
         for forbidden in ("\n  schedule:", "\n  push:",
@@ -244,6 +244,10 @@ function Get-CimInstance {
                          "engineering/f139-v38-protocol-cause-categories-20261115")
         self.assertEqual(len(g145.V38_SNAPSHOT_V3_FILES), 7)
         g145.v38_snapshot_v3_negative_controls()
+        self.assertEqual(g145.V38_SNAPSHOT_V4_BRANCH,
+                         "engineering/f139-v38-native-parsefix-owner-snapshot-v4-20261115")
+        self.assertEqual(len(g145.V38_SNAPSHOT_V4_FILES), 7)
+        g145.v38_snapshot_v4_negative_controls()
 
 
 if __name__ == "__main__":
