@@ -18,7 +18,8 @@ class OriginalForwardWorkflowTests(unittest.TestCase):
     def test_exact_original_owner_routes_are_distinct_and_not_scheduled(self):
         text = WORKFLOW.read_text("utf-8")
         self.assertEqual(text.count("name: FORGE F139 V38 guarded original-owner forward installation"), 1)
-        self.assertIn("concurrency:\n  group: forge-f139-v41-original-owner-live-install\n  cancel-in-progress: false", text)
+        self.assertIn("concurrency:\n  group: forge-f139-v38-original-forward-install-v2\n  cancel-in-progress: false", text)
+        self.assertNotIn("group: forge-f139-v41-original-owner-live-install", text)
         self.assertEqual(text.count("runs-on: [self-hosted, Windows, forge-codex-isolated]"), 4)
         self.assertEqual(text.count("github.actor == 'spoonman136668-ai'"), 4)
         self.assertEqual(text.count("github.event.issue.number == 807"), 4)
@@ -52,8 +53,8 @@ class OriginalForwardWorkflowTests(unittest.TestCase):
                          "FORGE F139 V38 guarded original-owner forward installation")
         self.assertEqual(postcommit.PREFIX, stages[3][1])
         self.assertEqual(readiness.PREFIX, stages[0][1])
-        self.assertEqual(readiness.PR, 1772)
-        self.assertEqual(readiness.BRANCH, g145.V38_FORWARD_BRANCH)
+        self.assertEqual(readiness.PR, 1773)
+        self.assertEqual(readiness.BRANCH, g145.V38_FORWARD_V2_BRANCH)
         for bad in (
             "\n  schedule:", "\n  workflow_dispatch:", "\n  push:",
             "workflow_call:", "Start-ScheduledTask", "Stop-ScheduledTask",
@@ -77,6 +78,7 @@ class OriginalForwardWorkflowTests(unittest.TestCase):
         self.assertNotIn("f139/nci04_v41_hybrid_forward_original_commit.py",
                          g145.V38_FORWARD_FILES)
         g145.v38_forward_negative_controls()
+        g145.v38_forward_v2_negative_controls()
 
 if __name__ == "__main__":
     unittest.main()

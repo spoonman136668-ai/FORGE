@@ -28,7 +28,8 @@ from check_rar_g145_pr_scope import (admit_original_pr, negative_controls,
     V39_ACTIONS_GET_BRANCH, V39_ACTIONS_GET_RESULT,
     V38_SNAPSHOT_V5_BRANCH, V38_SNAPSHOT_V5_RESULT,
     V38_COLD_BRANCH, V38_COLD_RESULT,
-    V38_FORWARD_BRANCH, V38_FORWARD_RESULT)
+    V38_FORWARD_BRANCH, V38_FORWARD_RESULT,
+    V38_FORWARD_V2_BRANCH, V38_FORWARD_V2_RESULT)
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "spoonman136668-ai/FORGE"
@@ -132,6 +133,10 @@ def event_mode(head):
         raise ValueError("G148_ONLY_SAME_REPO_MAIN_PR")
     admiss = admit_original_pr(head, git)
     branch = os.environ["GITHUB_HEAD_REF"]
+    if branch == V38_FORWARD_V2_BRANCH:
+        if admiss != V38_FORWARD_V2_RESULT:
+            raise ValueError("G148_V38_FORWARD_V2_EXACT_SOURCE_REQUIRED")
+        return "pr"
     if branch == V38_FORWARD_BRANCH:
         if admiss != V38_FORWARD_RESULT:
             raise ValueError("G148_V38_FORWARD_RELEASE_EXACT_SOURCE_REQUIRED")
