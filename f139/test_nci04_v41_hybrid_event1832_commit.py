@@ -156,6 +156,15 @@ class Event1832SourceCommitContractTests(unittest.TestCase):
                 "ACTUAL_ORIGINAL_WINDOWS_OWNER_REQUIRED"):
             commit.original_source_commit(None, {}, {}, None)
 
+    def test_original_sqlite_payload_canonical_newline_not_owner_proof_hash(self):
+        from f139.local_controller import canonical as event_canonical
+        from f139.nci04_native_contract import canonical as proof_canonical
+        doc = {"schema": successor.SCHEMA, "source_sha": self.provider.target}
+        self.assertEqual(event_canonical(doc), proof_canonical(doc) + b"\\n")
+        source = Path(commit.__file__).read_text("utf-8")
+        self.assertIn('row["payload"] == event_canonical(expected_proof).decode("ascii")', source)
+        self.assertNotIn('row["payload"] == canonical(expected_proof).decode("ascii")', source)
+
     def test_no_second_controller_or_scheduler_registered(self):
         script = Path(commit.__file__).read_text("utf-8")
         for forbidden in (
