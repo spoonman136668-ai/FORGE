@@ -135,6 +135,10 @@ from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_hybrid_forward_postcommit as postcommit
 from f139 import nci04_v41_hybrid_forward_readiness as readiness
 
+def need(ok):
+    if not ok:
+        raise RuntimeError("F139_HYBRID_V38_ORIGINAL_ACTIVATION_PREFLIGHT_DENIED")
+
 e=json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text("utf-8"),
              object_pairs_hook=decode_unique)
 target=sys.argv[1]
@@ -144,30 +148,30 @@ get=api.native_repo_get
 body=e["comment"]["body"]
 m=re.fullmatch(r"F139-HYBRID-V41-SOURCE-ACTIVATE "+
                re.escape(target)+r" ([1-9][0-9]*)",body)
-assert m is not None
+need(m is not None)
 postcommit_id=int(m.group(1))
 current_id=e["comment"]["id"]
-assert type(current_id) is int and postcommit_id<current_id
-assert readiness._owner_comment(get,current_id,body)==e["comment"]["created_at"]
+need(type(current_id) is int and postcommit_id<current_id)
+need(readiness._owner_comment(get,current_id,body)==e["comment"]["created_at"])
 prior=get("repos/"+readiness.REPO+"/issues/comments/"+str(postcommit_id))
-assert type(prior) is dict and prior.get("id")==postcommit_id
-assert type(prior.get("body")) is str
-assert prior["body"].startswith(postcommit.PREFIX+target+" ")
-assert readiness._owner_comment(get,postcommit_id,prior["body"])<e["comment"]["created_at"]
+need(type(prior) is dict and prior.get("id")==postcommit_id)
+need(type(prior.get("body")) is str)
+need(prior["body"].startswith(postcommit.PREFIX+target+" "))
+need(readiness._owner_comment(get,postcommit_id,prior["body"])<e["comment"]["created_at"])
 # The forward-postcommit verifier reauthenticates the actual source intent,
 # detached cold bundle, immutable event 1831, task/SID/lease and 153/56 history.
 # This is read-only. Migration remains a separate owner-only operation below.
 previous={"action":"created","issue":e["issue"],"sender":e["sender"],
           "comment":prior}
 receipt=postcommit.original_postcommit(db,dict(os.environ),previous,api)
-assert receipt["schema"]==postcommit.RECEIPT
-assert receipt["source_sha"]==target and receipt["event_seq"]==1831
-assert receipt["verified_historical_tasks"]==153
-assert receipt["custodied_negative_tasks"]==56
-assert receipt["original_owner_mutations"]==0
-assert receipt["hybrid_schema_migrated"] is False
-assert receipt["scientific_first_use"] is False
-assert receipt["task_resume_authorized"] is False
+need(receipt["schema"]==postcommit.RECEIPT)
+need(receipt["source_sha"]==target and receipt["event_seq"]==1831)
+need(receipt["verified_historical_tasks"]==153)
+need(receipt["custodied_negative_tasks"]==56)
+need(receipt["original_owner_mutations"]==0)
+need(receipt["hybrid_schema_migrated"] is False)
+need(receipt["scientific_first_use"] is False)
+need(receipt["task_resume_authorized"] is False)
 print("F139_HYBRID_V38_EVENT1831_ACTIVATION_PREFLIGHT="+
       canonical(dict(schema="forge.f139.hybrid-v38.activation-preflight.v1",
        source_sha=target,source_event_seq=receipt["event_seq"],
