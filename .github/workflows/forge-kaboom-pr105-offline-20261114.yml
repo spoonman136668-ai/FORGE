@@ -1,100 +1,250 @@
-name: FORGE KABOOM ZIP Graphify and ICE source sync once
+name: FORGE KABOOM R12 read-only audit pinned-source offline qualification
 on:
   push:
     branches: [qualification/kaboom-pr105-source-offline-20261114]
     paths: [.github/workflows/forge-kaboom-pr105-offline-20261114.yml]
 permissions:
   contents: read
+concurrency:
+  group: forge-kaboom-pr107-source-offline-20261114
+  cancel-in-progress: false
+env:
+  FORGE_BASE: c611c4362e3cc867984448a03ecdf3be923d2ef1
+  KABOOM_SOURCE_SHA: cfc2a178dcfc48c456f2f1c51430f9e9388cd435
+  KABOOM_SOURCE_TREE: 2d5e1c15a28292372772c35a30d27f1e110f9668
+  K_TERMINAL_EXECUTION_MODE: PAPER
+  GOTOOLCHAIN: local
+  GOTELEMETRY: 'off'
+  CGO_ENABLED: '0'
 jobs:
-  publish-kaboom-derived:
-    runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 55
+  native-windows:
+    runs-on: windows-latest
+    timeout-minutes: 50
     steps:
-      - name: Generate and hash-verify native architecture and publish derived-only branch
-        shell: pwsh
+      - name: Checkout isolated FORGE qualification ref
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify runner and single-file FORGE scope
+        shell: bash
         run: |
-          $ErrorActionPreference='Stop'
-          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-             $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
-             $env:GITHUB_EVENT_NAME -cne 'push' -or
-             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
-             $env:RUNNER_OS -cne 'Windows' -or
-             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
-             $env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'KABOOM_DERIVED_UNAUTHORIZED_RUNNER'}
-          $want='1c14ec1691a9c27bc59e7f68b900d3d1e4704b98'
-          $branch='engineering/kaboom-20261114-3-intake-claude-20261115'
-          $head=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
-          if($LASTEXITCODE -ne 0 -or $head.Trim() -cne $want){throw 'KABOOM_SOURCE_DRIFT'}
-          $writer=(& gh api repos/Kboomllc/K-Terminal --jq '.permissions.push // false' 2>$null)
-          if($LASTEXITCODE -ne 0 -or $writer.Trim() -cne 'true'){throw 'KABOOM_WRITER_DENIED'}
-          $tmp=Join-Path $env:RUNNER_TEMP ('kaboom-new-maps-'+$env:GITHUB_RUN_ID)
-          if(Test-Path $tmp){throw 'KABOOM_TEMP_COLLISION'}
-          New-Item -ItemType Directory -Path $tmp | Out-Null
-          try {
-            $repo=Join-Path $tmp 'source'
-            $venv=Join-Path $tmp 'venv'
-            $wheels=Join-Path $tmp 'wheels'
-            New-Item -ItemType Directory -Path $wheels | Out-Null
-            & gh repo clone Kboomllc/K-Terminal $repo -- -c core.autocrlf=false --quiet *> (Join-Path $tmp 'private-clone.log')
-            if($LASTEXITCODE -ne 0){throw 'KABOOM_PRIVATE_CLONE_FAILED'}
-            & git -C $repo -c core.autocrlf=false checkout --detach $want *> (Join-Path $tmp 'private-checkout.log')
-            if($LASTEXITCODE -ne 0 -or (& git -C $repo rev-parse HEAD).Trim() -cne $want){throw 'KABOOM_EXACT_CHECKOUT_FAILED'}
-            Push-Location $repo
-            try {
-              & python -B tools/architecture/verify_source_custody.py
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_SOURCE_CUSTODY_FAILED'}
-              & python -B tools/architecture/generate.py
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_GENERATE_FAILED'}
-              & python -B tools/architecture/generate.py --check
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_GENERATE_CHECK_FAILED'}
-              & python -B -m venv $venv
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_GRAPHIFY_VENV_FAILED'}
-              $py=Join-Path $venv 'Scripts/python.exe'
-              $graph=Join-Path $venv 'Scripts/graphify.exe'
-              & $py -m pip download --disable-pip-version-check --no-deps --only-binary=:all: --dest $wheels 'graphifyy==0.9.92' *> (Join-Path $tmp 'private-pip-download.log')
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_GRAPHIFY_WHEEL_DOWNLOAD_FAILED'}
-              $wheel=Join-Path $wheels 'graphifyy-0.9.92-py3-none-any.whl'
-              if(-not(Test-Path -LiteralPath $wheel -PathType Leaf) -or
-                 (Get-FileHash -LiteralPath $wheel -Algorithm SHA256).Hash.ToLowerInvariant() -cne '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c'){throw 'KABOOM_GRAPHIFY_WHEEL_HASH_FAIL'}
-              & $py -m pip install --disable-pip-version-check --no-input --no-cache-dir $wheel *> (Join-Path $tmp 'private-pip-install.log')
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_GRAPHIFY_INSTALL_FAILED'}
-              & $graph extract . --code-only --max-workers 4 *> (Join-Path $tmp 'private-graphify-extract.log')
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_GRAPHIFY_EXTRACT_FAILED'}
-              & $graph cluster-only . --no-label *> (Join-Path $tmp 'private-graphify-cluster.log')
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_GRAPHIFY_CLUSTER_FAILED'}
-              & $py tools/architecture/publish_graphify.py --root . --input graphify-out --output docs/graphify --source-sha $want *> (Join-Path $tmp 'private-graphify-validate.log')
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_GRAPHIFY_PUBLISH_FAILED'}
-              $ice=Get-Content '.ice/manifest.json' -Raw | ConvertFrom-Json
-              $g=Get-Content 'docs/graphify/source-manifest.json' -Raw | ConvertFrom-Json
-              if($ice.source_content_sha256 -cne $g.source_content_sha256 -or
-                 $g.source_commit -cne $want -or
-                 $g.graphify_version -cne '0.9.92'){throw 'KABOOM_ARCHITECTURE_CROSS_DIGEST_MISMATCH'}
-              & git -C $repo diff --exit-code -- kaboom-core tools/architecture CLAUDE.md
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_APP_SOURCE_CHANGED'}
-              & git -C $repo -c core.autocrlf=false add -- .ice docs/obsidian docs/graphify
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_DERIVED_STAGE_FAILED'}
-              $diff=@(& git -C $repo diff --cached --name-only)
-              if($diff.Count -lt 3){throw 'KABOOM_DERIVED_NO_SYNC_PAYLOAD'}
-              foreach($name in $diff){
-                if($name -cnotmatch '^(?:\.ice/(?:manifest\.json|file-descriptions\.json|source-file-descriptions\.ice|symbol-dependency-map\.ice|code-graph\.json)|docs/obsidian/(?:KABOOM\.md|Modules/[a-z]+\.md)|docs/graphify/(?:graph\.json|graph\.html|GRAPH_REPORT\.md|source-manifest\.json))$'){
-                  throw 'KABOOM_UNEXPECTED_STAGED_PATH'
-                }
-              }
-              $check='import hashlib,json,pathlib,subprocess,sys; r=pathlib.Path(sys.argv[1]); m=json.loads((r/"docs/graphify/source-manifest.json").read_text(encoding="utf-8")); files=("graph.json","graph.html","GRAPH_REPORT.md"); digests={n:hashlib.sha256(subprocess.check_output(["git","-C",str(r),"show",":docs/graphify/"+n])).hexdigest() for n in files}; assert all(digests[n]==m["files_sha256"][n] for n in files), "GIT_STAGED_GRAPHIFY_HASH_MISMATCH"; print("KABOOM_STAGED_GRAPHIFY_GIT_BLOB_HASHES=PASS")'
-              & python -B -c $check $repo
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_STAGED_GIT_HASH_CHECK_FAILED'}
-              $readback=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
-              if($LASTEXITCODE -ne 0 -or $readback.Trim() -cne $want){throw 'KABOOM_REF_DRIFT_BEFORE_PUSH'}
-              & git -C $repo -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'docs(kaboom): sync ICE Obsidian Graphify for reviewed ZIP [skip ci]' *> (Join-Path $tmp 'private-commit.log')
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_DERIVED_COMMIT_FAILED'}
-              $candidate=(& git -C $repo rev-parse HEAD).Trim()
-              & git -C $repo -c credential.helper='!gh auth git-credential' push origin ('HEAD:refs/heads/'+$branch) *> (Join-Path $tmp 'private-push.log')
-              if($LASTEXITCODE -ne 0){throw 'KABOOM_DERIVED_PUSH_FAILED'}
-              $new=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
-              if($LASTEXITCODE -ne 0 -or $new.Trim() -cne $candidate){throw 'KABOOM_DERIVED_PUSH_READBACK_FAILED'}
-              Write-Output ('KABOOM_EXACT_SOURCE_DERIVED_PUBLICATION=PASS;sha='+$new+';changed_files='+$diff.Count)
-              Write-Output ('KABOOM_SOURCE_DIGEST='+$ice.source_content_sha256)
-              Write-Output ('KABOOM_GRAPHIFY_NODES='+$g.graph_nodes+';EDGES='+$g.graph_edges)
-              Write-Output 'KABOOM_SOURCE_MODIFICATION=NONE;LIVE_ACTION=NONE'
-            } finally {Pop-Location}
-          } finally {Remove-Item -LiteralPath $tmp -Force -Recurse -ErrorAction SilentlyContinue}
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kaboom-pr105-source-offline-20261114
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$FORGE_BASE" HEAD
+          test "$(git diff --name-only "$FORGE_BASE" HEAD)" = .github/workflows/forge-kaboom-pr105-offline-20261114.yml
+          test -z "$(git status --porcelain)"
+          echo KABOOM_FORGE_WINDOWS_ISOLATION=PASS
+      - name: Checkout private exact-source candidate, no retained credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: cfc2a178dcfc48c456f2f1c51430f9e9388cd435
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Install pinned Windows Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify exact private tree and absent broker authority
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KABOOM_SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KABOOM_SOURCE_TREE"
+          test -z "$(git status --porcelain)"
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test ! -e .env
+          test ! -e config.json
+          go version | grep -F 'go1.26.5 windows/amd64' > /dev/null
+          for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            if [[ -n "${!name:-}" ]]; then echo KABOOM_BROKER_AUTHORITY_REFUSED; exit 2; fi
+          done
+          mkdir -p "$RUNNER_TEMP/kaboom-safe"
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/source.ok"
+          echo KABOOM_WINDOWS_EXACT_SOURCE=PASS
+      - name: Complete Windows native Go tests, vet and build without application activation
+        shell: bash
+        working-directory: kterminal-private/kaboom-core
+        run: |
+          set -euo pipefail
+          go test -p 1 -count=1 -timeout 35m ./... > "$RUNNER_TEMP/kaboom-native-test-private.log" 2>&1
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/native-test.ok"
+          echo KABOOM_WINDOWS_FULL_NATIVE_TEST=PASS
+          go vet ./... > "$RUNNER_TEMP/kaboom-vet-private.log" 2>&1
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/vet.ok"
+          echo KABOOM_WINDOWS_GO_VET=PASS
+          go build ./... > "$RUNNER_TEMP/kaboom-build-private.log" 2>&1
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/build.ok"
+          echo KABOOM_WINDOWS_GO_BUILD=PASS
+      - name: Seal privacy-safe Windows result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kaboom-safe"
+          {
+            echo schema=forge.kaboom-pr107.windows-offline.v1
+            echo kterminal_sha=$KABOOM_SOURCE_SHA
+            echo kterminal_tree=$KABOOM_SOURCE_TREE
+            echo forge_qualification_sha=$GITHUB_SHA
+            echo runner=github-hosted-windows
+            for key in source native-test vet build; do
+              if test -f "$RUNNER_TEMP/kaboom-safe/$key.ok"; then echo "$key=PASS"; else echo "$key=UNVERIFIED_OR_FAIL"; fi
+            done
+            echo application_launched=false
+            echo deployment_authorized=false
+            echo private_logs_exported=false
+          } > "$RUNNER_TEMP/kaboom-safe/status.txt"
+      - name: Upload sanitized Windows receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kaboom-pr107-windows-offline-safe-${{ github.run_id }}
+          path: ${{ runner.temp }}/kaboom-safe/status.txt
+          if-no-files-found: error
+          retention-days: 14
+  architecture-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout isolated FORGE qualification ref
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify runner and single-file FORGE scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kaboom-pr105-source-offline-20261114
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$FORGE_BASE" HEAD
+          test "$(git diff --name-only "$FORGE_BASE" HEAD)" = .github/workflows/forge-kaboom-pr105-offline-20261114.yml
+          test -z "$(git status --porcelain)"
+          echo KABOOM_FORGE_LINUX_ISOLATION=PASS
+      - name: Checkout private exact-source candidate, no retained credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: cfc2a178dcfc48c456f2f1c51430f9e9388cd435
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Python and Go toolchains
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Go 1.26.5 toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify source custody, ICE/Obsidian negative controls and Go syntax
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$KABOOM_SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$KABOOM_SOURCE_TREE"
+          test -z "$(git status --porcelain)"
+          test ! -e .env
+          test ! -e config.json
+          mkdir -p "$RUNNER_TEMP/kaboom-safe"
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/source.ok"
+          python tools/architecture/verify_source_custody.py > "$RUNNER_TEMP/kaboom-custody-private.log" 2>&1
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/custody.ok"
+          python tools/architecture/generate.py --check > "$RUNNER_TEMP/kaboom-check-private.log" 2>&1
+          python -m unittest discover -s tools/architecture -p 'test_*.py' -v > "$RUNNER_TEMP/kaboom-negative-private.log" 2>&1
+          git diff --exit-code > "$RUNNER_TEMP/kaboom-diff-private.log" 2>&1
+          python -m unittest discover -s tools/acceptance -p 'test_*.py' -v > "$RUNNER_TEMP/kaboom-shadow-auditor-private.log" 2>&1
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/audit-tests.ok"
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/architecture.ok"
+          GO111MODULE=off go run tools/architecture/verify_go_syntax.go kaboom-core > "$RUNNER_TEMP/kaboom-ast-private.log" 2>&1
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/go-syntax.ok"
+          echo KABOOM_LINUX_CUSTODY_ARCHITECTURE_AST=PASS
+      - name: Install exact Graphify wheel with verified hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --no-deps --only-binary=:all: --dest "$RUNNER_TEMP/graphify-wheel" 'graphifyy==0.9.92' > "$RUNNER_TEMP/kaboom-graphify-install-private.log" 2>&1
+          wheel="$RUNNER_TEMP/graphify-wheel/graphifyy-0.9.92-py3-none-any.whl"
+          echo '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c  '"$wheel" | sha256sum -c - > "$RUNNER_TEMP/kaboom-graphify-hash-private.log" 2>&1
+          python -m pip install "$wheel" >> "$RUNNER_TEMP/kaboom-graphify-install-private.log" 2>&1
+          python -c "from importlib.metadata import version; assert version('graphifyy')=='0.9.92'"
+      - name: Diagnose isolated KABOOM code-only Graphify publication, no private maps exported
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          if ! graphify extract . --code-only --max-workers 4 > "$RUNNER_TEMP/kaboom-graphify-private.log" 2>&1; then
+            echo KABOOM_GRAPHIFY_EXTRACT=FAIL; exit 1
+          fi
+          echo KABOOM_GRAPHIFY_EXTRACT=PASS
+          if ! graphify cluster-only . --no-label >> "$RUNNER_TEMP/kaboom-graphify-private.log" 2>&1; then
+            echo KABOOM_GRAPHIFY_CLUSTER=FAIL; exit 1
+          fi
+          echo KABOOM_GRAPHIFY_CLUSTER=PASS
+          python - <<'GRAPHSHAPE'
+          import json, pathlib
+          path=pathlib.Path('graphify-out/graph.json')
+          data=json.loads(path.read_text())
+          print('KABOOM_GRAPHIFY_JSON_BYTES='+str(path.stat().st_size))
+          print('KABOOM_GRAPHIFY_JSON_KIND='+type(data).__name__)
+          if isinstance(data, dict):
+              print('KABOOM_GRAPHIFY_JSON_KEYS='+','.join(sorted(data.keys())))
+              for key in ('nodes','edges','links','entities','relations'):
+                  x=data.get(key)
+                  print('KABOOM_GRAPHIFY_'+key.upper()+'_SHAPE='+type(x).__name__+',count='+str(len(x) if hasattr(x,'__len__') else 'none'))
+              print('KABOOM_GRAPHIFY_HAS_KABOOM_CORE='+str('kaboom-core' in path.read_text().lower()))
+          GRAPHSHAPE
+          if ! python tools/architecture/publish_graphify.py --root . --input graphify-out --output "$RUNNER_TEMP/kaboom-private-verified-graph" --source-sha "$KABOOM_SOURCE_SHA" > "$RUNNER_TEMP/kaboom-graphify-publisher-private.log" 2>&1; then
+            grep -E '^KABOOM_GRAPHIFY_PUBLICATION=FAIL:' "$RUNNER_TEMP/kaboom-graphify-publisher-private.log" | head -1 | cut -c 1-160 || true
+            echo KABOOM_GRAPHIFY_PUBLISHER=FAIL; exit 1
+          fi
+          echo KABOOM_GRAPHIFY_PUBLISHER=PASS
+          for f in graph.json graph.html GRAPH_REPORT.md source-manifest.json; do
+            test -s "$RUNNER_TEMP/kaboom-private-verified-graph/$f"
+          done
+          echo PASS > "$RUNNER_TEMP/kaboom-safe/graphify.ok"
+          echo KABOOM_LINUX_GRAPHIFY_CODE_ONLY=PASS
+      - name: Seal privacy-safe architecture result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kaboom-safe"
+          {
+            echo schema=forge.kaboom-pr107.architecture-offline.v1
+            echo kterminal_sha=$KABOOM_SOURCE_SHA
+            echo kterminal_tree=$KABOOM_SOURCE_TREE
+            echo forge_qualification_sha=$GITHUB_SHA
+            echo runner=github-hosted-linux
+            for key in source custody architecture audit-tests go-syntax graphify; do
+              if test -f "$RUNNER_TEMP/kaboom-safe/$key.ok"; then echo "$key=PASS"; else echo "$key=UNVERIFIED_OR_FAIL"; fi
+            done
+            echo private_maps_exported=false
+            echo deployment_authorized=false
+          } > "$RUNNER_TEMP/kaboom-safe/status.txt"
+      - name: Upload sanitized architecture receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kaboom-pr107-architecture-offline-safe-${{ github.run_id }}
+          path: ${{ runner.temp }}/kaboom-safe/status.txt
+          if-no-files-found: error
+          retention-days: 14
