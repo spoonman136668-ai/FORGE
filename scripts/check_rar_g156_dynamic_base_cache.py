@@ -27,7 +27,9 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
     V38_SNAPSHOT_V3_BRANCH, V38_SNAPSHOT_V3_RESULT,
     V38_SNAPSHOT_V3_BASE, V38_SNAPSHOT_V3_BASE_TREE,
     V38_SNAPSHOT_V4_BRANCH, V38_SNAPSHOT_V4_RESULT,
-    V38_SNAPSHOT_V4_BASE, V38_SNAPSHOT_V4_BASE_TREE)
+    V38_SNAPSHOT_V4_BASE, V38_SNAPSHOT_V4_BASE_TREE,
+    V39_ACTIONS_GET_BRANCH, V39_ACTIONS_GET_RESULT,
+    V39_ACTIONS_GET_BASE, V39_ACTIONS_GET_BASE_TREE)
 from check_rar_g148_go_cache import CAP, ROOT, git, identity, stable, compiled_graph
 
 BRANCH = "engineering/rar-g156-dynamic-main-cache-release-20261108"
@@ -248,6 +250,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == V39_ACTIONS_GET_BRANCH:
+        if (admission != V39_ACTIONS_GET_RESULT
+                or base != V39_ACTIONS_GET_BASE
+                or tree != V39_ACTIONS_GET_BASE_TREE):
+            raise ValueError("G156_V39_EXACT_PROVIDER_SOURCE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == V38_SNAPSHOT_V4_BRANCH:
         if (admission != V38_SNAPSHOT_V4_RESULT
                 or base != V38_SNAPSHOT_V4_BASE
