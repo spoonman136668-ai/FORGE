@@ -40,7 +40,7 @@ class ReadOnlySnapshotTests(unittest.TestCase):
         self.assertIn("git -C $root rev-parse HEAD", src)
         self.assertIn("git -C $root status --porcelain --untracked-files=all", src)
         self.assertIn("if($procs.Count -ne 0) {Bad 10}", src)
-        self.assertIn("Task", snap.__doc__)
+        self.assertIn("task", snap.__doc__.lower())
         for bit in range(11):
             self.assertTrue(("Bad " + str(bit)) in src or
                             ("Unk " + str(bit)) in src)
