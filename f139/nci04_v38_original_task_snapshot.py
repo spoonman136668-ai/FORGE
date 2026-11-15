@@ -148,8 +148,7 @@ try {
   $current=[Security.Principal.WindowsIdentity]::GetCurrent()
   $principalId=[string]$task.Principal.UserId
   $sid=''
-  try { $sid=(New-Object Security.Principal.NTAccount($principalId)).
-    Translate([Security.Principal.SecurityIdentifier]).Value } catch {}
+  try { $sid=(New-Object -TypeName Security.Principal.NTAccount -ArgumentList $principalId).Translate([Security.Principal.SecurityIdentifier]).Value } catch {}
   if(-not ($principalId -ieq $current.Name -or $sid -ceq $current.User.Value)) { Bad 0 }
 } catch { Unk 0 }
 try {
