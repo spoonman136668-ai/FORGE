@@ -251,28 +251,56 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  public-graphify-wheel:
+  public-graphify-dependency-wheels:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - name: Download only public pinned Graphify wheel, no private source or credentials
+      - name: Download only public Graphify 0.9.92 tree-sitter dependencies for Python 3.13 Linux
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
           test "$GITHUB_REF" = "refs/heads/qualification/kaboom-pr105-source-offline-20261114"
           test "$RUNNER_ENVIRONMENT" = "github-hosted"
-          mkdir -p "$RUNNER_TEMP/public-wheel"
-          python -m pip download --no-deps --only-binary=:all: --dest "$RUNNER_TEMP/public-wheel" 'graphifyy==0.9.92'
-          test "$(find "$RUNNER_TEMP/public-wheel" -type f | wc -l)" -eq 1
-          echo '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c  '"$RUNNER_TEMP/public-wheel/graphifyy-0.9.92-py3-none-any.whl" | sha256sum -c -
-          echo KABOOM_PUBLIC_GRAPHIFY_WHEEL_HASH=PASS
-      - name: Upload public PyPI wheel only (no private source)
+          mkdir -p "$RUNNER_TEMP/graphify-public-deps"
+          python -m pip download --no-deps --only-binary=:all: \
+            --python-version 3.13 --implementation cp --abi cp313 \
+            --platform manylinux_2_17_x86_64 --platform manylinux2014_x86_64 --platform manylinux_2_28_x86_64 \
+            --dest "$RUNNER_TEMP/graphify-public-deps" \
+            'tree-sitter>=0.25,<0.26' \
+            'tree-sitter-python>=0.23,<0.26' \
+            'tree-sitter-javascript>=0.23,<0.26' \
+            'tree-sitter-typescript>=0.23,<0.25' \
+            'tree-sitter-go>=0.23,<0.26' \
+            'tree-sitter-rust>=0.23,<0.25' \
+            'tree-sitter-java>=0.23,<0.25' \
+            'tree-sitter-groovy>=0.1,<0.3' \
+            'tree-sitter-c>=0.23,<0.25' \
+            'tree-sitter-cpp>=0.23,<0.25' \
+            'tree-sitter-ruby>=0.23,<0.25' \
+            'tree-sitter-c-sharp>=0.23,<0.25' \
+            'tree-sitter-kotlin>=1.0,<2.0' \
+            'tree-sitter-scala>=0.23,<0.27' \
+            'tree-sitter-php>=0.23,<0.25' \
+            'tree-sitter-swift>=0.7,<0.9' \
+            'tree-sitter-lua>=0.2,<0.6' \
+            'tree-sitter-zig>=1.0,<2.0' \
+            'tree-sitter-powershell>=0.26,<0.28' \
+            'tree-sitter-elixir>=0.3,<0.5' \
+            'tree-sitter-objc>=3.0,<4.0' \
+            'tree-sitter-julia>=0.23,<0.25' \
+            'tree-sitter-verilog>=1.0,<2.0' \
+            'tree-sitter-fortran>=0.6,<0.8' \
+            'tree-sitter-bash>=0.23,<0.27' \
+            'tree-sitter-json>=0.23,<0.26'
+          test "$(find "$RUNNER_TEMP/graphify-public-deps" -type f -name '*.whl' | wc -l)" -eq 26
+          echo KABOOM_PUBLIC_TREE_SITTER_WHEELS=PASS
+      - name: Upload only public language grammar wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: public-graphifyy-0.9.92-wheel
-          path: ${{ runner.temp }}/public-wheel/graphifyy-0.9.92-py3-none-any.whl
+          name: public-graphify-tree-sitter-wheels-py313
+          path: ${{ runner.temp }}/graphify-public-deps/*.whl
           if-no-files-found: error
           retention-days: 1
