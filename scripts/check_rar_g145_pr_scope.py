@@ -70,6 +70,27 @@ V38_SNAPSHOT_FILES = frozenset({
     "scripts/check_rar_g156_dynamic_base_cache.py",
 })
 
+
+# Isolated v2 of the EXISTING read-only snapshot route only. Exact PR/parent.
+# Older owner workflows and the original task/guard cannot change.
+V38_SNAPSHOT_V2_BRANCH = "engineering/f139-v38-snapshot-concurrency-isolation-20261114"
+V38_SNAPSHOT_V2_PR = 1764
+V38_SNAPSHOT_V2_BASE = "3bd918d8409fb4a8f10581aba5ae152776357cd9"
+V38_SNAPSHOT_V2_BASE_TREE = "047caf400a932e01834f9e51dd29aaaf439905a1"
+V38_SNAPSHOT_V2_WORKFLOW = ".github/workflows/f139-v38-original-task-snapshot-once.yml"
+V38_SNAPSHOT_V2_BEFORE = "a40b94d13f19cba5e2ba4c2b33672a311bc9b483"
+V38_SNAPSHOT_V2_AFTER = "696c86b1f21a6c11b6d8a9c1e3a0230b5ad6177f"
+V38_SNAPSHOT_V2_RESULT = "EXACT_PR1764_V38_ISOLATED_SNAPSHOT_CI_ONLY"
+V38_SNAPSHOT_V2_FILES = frozenset({
+    V38_SNAPSHOT_V2_WORKFLOW,
+    "f139/nci04_v38_original_task_snapshot.py",
+    "f139/test_nci04_v38_original_task_snapshot.py",
+    "docs/F139-V38-ORIGINAL-TASK-SNAPSHOT-ONCE.md",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
 V38_STAGE_BRANCH = "engineering/f139-v38-held-task-stage-diagnostic-20261114"
 V38_STAGE_PR = 1762
 V38_STAGE_BASE = "396a1a36aec66a47d798ac677bf3ed473c3fa27f"
@@ -449,6 +470,95 @@ def hybrid_complete_negative_controls() -> None:
     reject(changed=(("ls-tree",head,"--",HYBRID_COMPLETE_WORKFLOW),
                     "100644 blob "+"f"*40+"\t"+HYBRID_COMPLETE_WORKFLOW))
     reject(changed=(("rev-parse",head+":"+HYBRID_WORKER_PATH),"f"*40))
+
+
+
+def admit_v38_snapshot_v2(head_sha: str, base_sha: str,
+                          request: dict, git: Callable[..., str]) -> str:
+    """Source-only: one exact PR, exact workflow-before/after and unchanged owner."""
+    if (not is_sha(head_sha) or base_sha != V38_SNAPSHOT_V2_BASE
+            or type(request) is not dict or type(request.get("number")) is not int
+            or request["number"] != V38_SNAPSHOT_V2_PR
+            or type(request.get("user")) is not dict
+            or request["user"].get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"):
+        raise ValueError("G145_V38_SNAPSHOT_V2_OWNER_OR_PARENT_DENIED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        tree = git("rev-parse", base_sha + "^{tree}")
+        paths = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+        before = git("ls-tree", base_sha, "--", V38_SNAPSHOT_V2_WORKFLOW)
+        after = git("ls-tree", head_sha, "--", V38_SNAPSHOT_V2_WORKFLOW)
+        owner = git("rev-parse", head_sha +
+                    ":f139/nci04_v41_hybrid_forward_owner_profile.py")
+        prior = git("rev-parse", head_sha +
+                    ":.github/workflows/f139-v38-held-task-stage-diagnostic-once.yml")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V38_SNAPSHOT_V2_EXACT_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != V38_SNAPSHOT_V2_BASE or tree != V38_SNAPSHOT_V2_BASE_TREE
+            or len(paths) != len(V38_SNAPSHOT_V2_FILES)
+            or len(set(paths)) != len(paths)
+            or set(paths) != V38_SNAPSHOT_V2_FILES
+            or before != "100644 blob " + V38_SNAPSHOT_V2_BEFORE +
+                         "\t" + V38_SNAPSHOT_V2_WORKFLOW
+            or after != "100644 blob " + V38_SNAPSHOT_V2_AFTER +
+                        "\t" + V38_SNAPSHOT_V2_WORKFLOW
+            or owner != "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6"
+            or prior != "6ead37ed976f65b54a8753471c4d4369826bdcc9"):
+        raise ValueError("G145_V38_SNAPSHOT_V2_SOURCE_OR_OWNER_GUARD_DRIFT")
+    return V38_SNAPSHOT_V2_RESULT
+
+
+def v38_snapshot_v2_negative_controls() -> None:
+    base, head = V38_SNAPSHOT_V2_BASE, "e" * 40
+    request = {"number": V38_SNAPSHOT_V2_PR,
+               "user": {"login": "spoonman136668-ai"},
+               "author_association": "OWNER"}
+    def valid(*args):
+        cases = {
+            ("merge-base", base, head): base,
+            ("rev-parse", base + "^{tree}"): V38_SNAPSHOT_V2_BASE_TREE,
+            ("diff", "--no-renames", "--name-only", base, head):
+                "\n".join(sorted(V38_SNAPSHOT_V2_FILES)),
+            ("ls-tree", base, "--", V38_SNAPSHOT_V2_WORKFLOW):
+                "100644 blob " + V38_SNAPSHOT_V2_BEFORE + "\t" + V38_SNAPSHOT_V2_WORKFLOW,
+            ("ls-tree", head, "--", V38_SNAPSHOT_V2_WORKFLOW):
+                "100644 blob " + V38_SNAPSHOT_V2_AFTER + "\t" + V38_SNAPSHOT_V2_WORKFLOW,
+            ("rev-parse", head + ":f139/nci04_v41_hybrid_forward_owner_profile.py"):
+                "9bda78341bc3651e8b7b0a24ea6c7858dbff05c6",
+            ("rev-parse", head + ":.github/workflows/f139-v38-held-task-stage-diagnostic-once.yml"):
+                "6ead37ed976f65b54a8753471c4d4369826bdcc9",
+        }
+        if args not in cases:
+            raise AssertionError("unexpected source test read")
+        return cases[args]
+    if admit_v38_snapshot_v2(head, base, request, valid) != V38_SNAPSHOT_V2_RESULT:
+        raise ValueError("G145_V38_SNAPSHOT_V2_POSITIVE_FAILED")
+    def reject(req=request, parent=base, changed=None):
+        def reader(*args):
+            if changed is not None and args == changed[0]:
+                return changed[1]
+            return valid(*args)
+        try:
+            admit_v38_snapshot_v2(head, parent, req, reader)
+        except ValueError:
+            return
+        raise ValueError("G145_V38_SNAPSHOT_V2_NEGATIVE_ADMITTED")
+    reject({**request, "number": 1763})
+    reject({**request, "author_association": "CONTRIBUTOR"})
+    reject({**request, "user": {"login": "OTHER"}})
+    reject(parent="d" * 40)
+    reject(changed=(("merge-base", base, head), "d" * 40))
+    reject(changed=(("rev-parse", base + "^{tree}"), "d" * 40))
+    reject(changed=(("diff", "--no-renames", "--name-only", base, head),
+                    "\n".join(sorted(V38_SNAPSHOT_V2_FILES - {V38_SNAPSHOT_V2_WORKFLOW}))))
+    reject(changed=(("ls-tree", base, "--", V38_SNAPSHOT_V2_WORKFLOW), ""))
+    reject(changed=(("ls-tree", head, "--", V38_SNAPSHOT_V2_WORKFLOW),
+                    "100644 blob " + "d" * 40 + "\t" + V38_SNAPSHOT_V2_WORKFLOW))
+    reject(changed=(("rev-parse", head + ":f139/nci04_v41_hybrid_forward_owner_profile.py"),
+                    "d" * 40))
+    reject(changed=(("rev-parse", head + ":.github/workflows/f139-v38-held-task-stage-diagnostic-once.yml"),
+                    "d" * 40))
 
 
 def admit_v38_snapshot(head_sha: str, base_sha: str,
@@ -889,6 +999,7 @@ def negative_controls() -> None:
     v38_diagnostic_negative_controls()
     v38_stage_negative_controls()
     v38_snapshot_negative_controls()
+    v38_snapshot_v2_negative_controls()
     v41_status_negative_controls()
     v41_backup_negative_controls()
     v41_pause_negative_controls()
@@ -1238,6 +1349,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == V38_SNAPSHOT_V2_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_v38_snapshot_v2(head_sha, base_sha, request, git)
     if branch == V38_SNAPSHOT_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]
