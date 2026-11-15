@@ -49,7 +49,7 @@ def need(ok, code):
 
 
 def folder_for(original, run_id):
-    need(type(original) is Path and original.is_absolute()
+    need(isinstance(original, Path) and original.is_absolute()
          and original.name == "state.sqlite"
          and type(run_id) is int and run_id > 0,
          "CANONICAL_ORIGINAL_AND_RUN_REQUIRED")
@@ -57,7 +57,7 @@ def folder_for(original, run_id):
 
 
 def _manifest(folder, target, run_id, manifest_sha):
-    need(type(folder) is Path and folder.is_absolute()
+    need(isinstance(folder, Path) and folder.is_absolute()
          and folder.name == "f139-v39-before-" + str(run_id)
          and folder.is_dir()
          and all(bundle._nonlink(p) for p in (folder, *folder.parents))

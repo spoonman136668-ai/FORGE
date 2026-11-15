@@ -218,7 +218,7 @@ def authenticate_backup(get, env, event):
 def original_readiness(path, env, event, api):
     """Read-only actual original ledger/identity, never inferred from CI."""
     need(sys.platform == "win32" and os.name == "nt"
-         and type(api) is GitHub and type(path) is Path,
+         and type(api) is GitHub and isinstance(path, Path),
          "WINDOWS_ORIGINAL_OWNER_REQUIRED")
     get = api.native_repo_get
     frozen = authenticate_readiness(get, env, event)
@@ -258,7 +258,7 @@ def original_readiness(path, env, event, api):
 def original_backup(path, env, event, api):
     """One create-only real event-1831 backup, no source/task/policy mutation."""
     need(sys.platform == "win32" and os.name == "nt"
-         and type(api) is GitHub and type(path) is Path,
+         and type(api) is GitHub and isinstance(path, Path),
          "WINDOWS_ORIGINAL_OWNER_REQUIRED")
     get = api.native_repo_get
     req = authenticate_backup(get, env, event)
