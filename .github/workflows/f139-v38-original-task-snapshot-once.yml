@@ -1,5 +1,5 @@
 name: FORGE F139 V38 original held task independent read-only snapshot once
-# Fresh v2 owner-only issue #807 event; isolated workflow concurrency avoids skipped historical event collision.
+# Fresh v3 owner-only issue #807 event; classified read-only PowerShell protocol, new isolated concurrency.
 # Read-only; no schedule/dispatch, DB/task writes, old event replay or controller operation.
 on:
   issue_comment:
@@ -10,7 +10,7 @@ permissions:
   actions: read
   pull-requests: read
 concurrency:
-  group: forge-f139-v38-original-task-snapshot-v2
+  group: forge-f139-v38-original-task-snapshot-v3
   cancel-in-progress: false
 jobs:
   original-owner-readonly-task-snapshot:
@@ -20,7 +20,7 @@ jobs:
       github.repository == 'spoonman136668-ai/FORGE' &&
       github.event.issue.number == 807 &&
       !github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, 'F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 ')
+      startsWith(github.event.comment.body, 'F139-V38-ORIGINAL-TASK-SNAPSHOT-V3 ')
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 10
     steps:
@@ -58,7 +58,7 @@ jobs:
             throw 'F139_TASK_SNAPSHOT_ORIGINAL_GUARD_OR_SOURCE_CHANGED'
           }
           $ev=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-          $required='F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 '+$env:GITHUB_SHA+' 6887519100'
+          $required='F139-V38-ORIGINAL-TASK-SNAPSHOT-V3 '+$env:GITHUB_SHA+' 6891778093'
           if ($ev.action -cne 'created' -or
               [string]$ev.comment.body -cne $required -or
               $ev.comment.author_association -cne 'OWNER' -or

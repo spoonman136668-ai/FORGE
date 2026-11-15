@@ -21,18 +21,21 @@ from f139 import nci04_v41_hybrid_forward_owner_profile as original
 REPO = "spoonman136668-ai/FORGE"
 OWNER = "spoonman136668-ai"
 ISSUE = 807
-PREV_COMMENT = 6887519100
-PREV_RUN = 43664772017
-PREV_SHA = "3bd918d8409fb4a8f10581aba5ae152776357cd9"
-PREV_BODY = ("F139-V38-ORIGINAL-TASK-SNAPSHOT " +
-             PREV_SHA + " 6887172639")
-PREFIX = "F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 "
+PREV_COMMENT = 6891778093
+PREV_RUN = 43695298904
+PREV_SHA = "652d42ca54fbf88044a1ef122d32cf06e3233687"
+PREV_BODY = ("F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 " +
+             PREV_SHA + " 6887519100")
+PREFIX = "F139-V38-ORIGINAL-TASK-SNAPSHOT-V3 "
 LABEL = "F139_V38_TASK_SNAPSHOT="
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DECIMAL = re.compile(r"[1-9][0-9]*\Z")
 MASK = re.compile(r"F([0-9A-F]{4})-U([0-9A-F]{4})\Z")
 MAX_MASK = (1 << 11) - 1
 LITERALS = frozenset({"TASK_LOOKUP_FAILED", "POWERSHELL_PROTOCOL_FAILED",
+                      "POWERSHELL_UNAVAILABLE", "POWERSHELL_TIMEOUT",
+                      "POWERSHELL_SPAWN_FAILED", "POWERSHELL_EXIT_FAILED",
+                      "POWERSHELL_OUTPUT_INVALID", "POWERSHELL_INTERNAL_ERROR",
                       "AUTH_INVARIANT", "AUTH_PROVIDER",
                       "PATH_UNAVAILABLE", "POSTCHECK_DENIED", "UNCLASSIFIED"})
 
@@ -102,15 +105,20 @@ def authenticate(get, env, event):
          and done.get("run_attempt") == 1
          and done.get("event") == "issue_comment"
          and done.get("status") == "completed"
-         and done.get("conclusion") == "cancelled"
+         and done.get("conclusion") == "success"
          and type(done.get("actor")) is dict
          and done["actor"].get("login") == OWNER)
-    # The previous event collided at workflow scope and started zero jobs.
-    # Never replay it; a fresh v2 intent is required for this one-pass probe.
-    no_jobs = get("repos/" + REPO + "/actions/runs/" + str(PREV_RUN) +
-                  "/jobs?per_page=100")
-    need(type(no_jobs) is dict and no_jobs.get("total_count") == 0
-         and no_jobs.get("jobs") == [])
+    # Predecessor V2 completed on the original Windows runner but emitted a
+    # sanitized protocol-failure classification. Require exactly one job.
+    prior_jobs = get("repos/" + REPO + "/actions/runs/" + str(PREV_RUN) +
+                     "/jobs?per_page=100")
+    need(type(prior_jobs) is dict and prior_jobs.get("total_count") == 1
+         and type(prior_jobs.get("jobs")) is list
+         and len(prior_jobs["jobs"]) == 1
+         and prior_jobs["jobs"][0].get("name") ==
+             "original-owner-readonly-task-snapshot"
+         and prior_jobs["jobs"][0].get("status") == "completed"
+         and prior_jobs["jobs"][0].get("conclusion") == "success")
     main = get("repos/" + REPO + "/branches/main")
     need(type(main) is dict and main.get("name") == "main"
          and main.get("protected") is True
@@ -236,21 +244,39 @@ Write-Output ('F{0:X4}-U{1:X4}' -f $mask,$unverified)
 
 def parse_receipt(raw: bytes, code: int) -> str:
     """Validate the only two PowerShell output shapes without retaining raw."""
-    if type(code) is not int or code != 0 or type(raw) is not bytes or len(raw) > 100:
-        return "POWERSHELL_PROTOCOL_FAILED"
+    if type(code) is not int or code != 0:
+        return "POWERSHELL_EXIT_FAILED"
+    if type(raw) is not bytes or len(raw) > 100:
+        return "POWERSHELL_OUTPUT_INVALID"
     try:
         token = raw.decode("ascii").strip()
     except UnicodeDecodeError:
-        return "POWERSHELL_PROTOCOL_FAILED"
-    if token == "TASK_LOOKUP_FAILED":
+        return "POWERSHELL_OUTPUT_INVALID"
+    if token in ("TASK_LOOKUP_FAILED", "POWERSHELL_PROTOCOL_FAILED"):
         return token
     m = MASK.fullmatch(token)
     if m is None:
-        return "POWERSHELL_PROTOCOL_FAILED"
+        return "POWERSHELL_OUTPUT_INVALID"
     failed, unknown = (int(m.group(i), 16) for i in (1, 2))
     if (failed & unknown or failed > MAX_MASK or unknown > MAX_MASK):
-        return "POWERSHELL_PROTOCOL_FAILED"
+        return "POWERSHELL_OUTPUT_INVALID"
     return token
+
+
+def powershell_once(executable: str, env: dict, *, runner=subprocess.run):
+    """Classify one read-only PowerShell subprocess; never log raw evidence."""
+    try:
+        result = runner(
+            [executable, "-NoProfile", "-NonInteractive", "-Command", SCRIPT],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL, env=env, timeout=30, check=False)
+        return parse_receipt(result.stdout, result.returncode)
+    except subprocess.TimeoutExpired:
+        return "POWERSHELL_TIMEOUT"
+    except OSError:
+        return "POWERSHELL_SPAWN_FAILED"
+    except Exception:
+        return "POWERSHELL_INTERNAL_ERROR"
 
 
 def probe(db_path: Path, *, runner=subprocess.run):
@@ -261,20 +287,12 @@ def probe(db_path: Path, *, runner=subprocess.run):
         return "PATH_UNAVAILABLE"
     powershell = shutil.which("powershell.exe")
     if type(powershell) is not str or not powershell:
-        return "POWERSHELL_PROTOCOL_FAILED"
+        return "POWERSHELL_UNAVAILABLE"
     env = {**os.environ,
            "F139_V38_SNAPSHOT_EXPECTED_DB": str(db_path.resolve()),
            "F139_V38_SNAPSHOT_SOURCES": ";".join(sorted(
                original.ALLOWED_ACTION_SOURCE_SHAS))}
-    try:
-        result = runner(
-            [powershell, "-NoProfile", "-NonInteractive", "-Command", SCRIPT],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            stdin=subprocess.DEVNULL, env=env, timeout=30, check=False)
-        return parse_receipt(result.stdout, result.returncode)
-    except Exception:
-        return "POWERSHELL_PROTOCOL_FAILED"
-
+    return powershell_once(powershell, env, runner=runner)
 
 def run(env, event, get, *, task_probe=probe):
     if sys.platform != "win32" or os.name != "nt":
@@ -293,7 +311,7 @@ def run(env, event, get, *, task_probe=probe):
             db = Path(local) / "FORGE-F139" / "state.sqlite"
             result = task_probe(db)
     except Exception:
-        result = "POWERSHELL_PROTOCOL_FAILED"
+        result = "POWERSHELL_INTERNAL_ERROR"
     try:
         after = get("repos/" + REPO + "/branches/main")
         if (type(after) is not dict
