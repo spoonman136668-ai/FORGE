@@ -81,3 +81,32 @@ F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 <qualified-merged-main-sha> 6887519100
 The Python authentication requires the original cancelled predecessor with zero jobs, immutable two-lane policy, a *newer* owner comment, first attempt, and exact protected main. If any condition is unverified, stop without inspecting or mutating the original task. No automatic event replay, source event #1831, scheduler/task change, restart, Hybrid scientific first-use, or lane admission.
 
 Engineering branch: `engineering/f139-v38-snapshot-concurrency-isolation-20261114`; base `3bd918d8409fb4a8f10581aba5ae152776357cd9` (tree `047caf400a932e01834f9e51dd29aaaf439905a1`). Source qualification only until completed CI; deployment HOLD.
+
+## V3 sanitized protocol classification following original V2 attempt
+
+V2 first owner attempt [#43695298904](https://github.com/spoonman136668-ai/FORGE/actions/runs/43695298904)
+ran on the existing original Windows runner, but emitted
+`F139_V38_TASK_SNAPSHOT=POWERSHELL_PROTOCOL_FAILED`. The job's success is
+not controller acceptance. Root cause remains unverified; neither task nor
+SQLite state may be inferred from that result.
+
+V3 changes only the existing read-only probe, its frozen owner-comment workflow
+and source qualification. It distinguishes missing PowerShell, timed-out
+subprocess, OS-level spawn error, nonzero exit, bad output bytes/token, and
+internal subprocess classification. The prior protocol-overlap token remains.
+No raw stdout/stderr, paths, SIDs, commands, task properties, exception text,
+SQLite bytes or process data may leave the original host.
+
+After full source qualification, matching-tree protected main merge, and first
+attempt 8/8 postmerge regression, the sole V3 owner-authenticated comment is:
+
+```text
+F139-V38-ORIGINAL-TASK-SNAPSHOT-V3 <qualified-merged-main-sha> 6891778093
+```
+
+The authenticated predecessor must be the original V2 comment, run #43695298904
+with exactly one completed-success read-only snapshot job. V3 uses a distinct
+workflow concurrency group and retains the original runner and owner-profile
+blob. It does not touch the original task, database or controller. Scientific
+first-use remains false, and Hybrid remains excluded from the live issue #807
+policy until separately accepted. No rerun or replay after an inconclusive V3.

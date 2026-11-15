@@ -1,6 +1,8 @@
 """Cross-platform original-owner task snapshot negative/protocol controls."""
 import json
 from pathlib import Path
+import subprocess
+from types import SimpleNamespace
 import unittest
 
 from f139 import nci04_v38_original_task_snapshot as snap
@@ -24,13 +26,46 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                       b"F0000-U0000\xff", b"",
                       b"scheduled task principal details"):
             self.assertEqual(snap.parse_receipt(value, 0),
-                             "POWERSHELL_PROTOCOL_FAILED")
+                             "POWERSHELL_OUTPUT_INVALID")
         self.assertEqual(snap.parse_receipt(b"F0000-U0000", 1),
-                         "POWERSHELL_PROTOCOL_FAILED")
+                         "POWERSHELL_EXIT_FAILED")
         self.assertEqual(snap.parse_receipt(b"F0000-U0000", -1),
-                         "POWERSHELL_PROTOCOL_FAILED")
+                         "POWERSHELL_EXIT_FAILED")
         self.assertEqual(snap.parse_receipt(b"a" * 101, 0),
+                         "POWERSHELL_OUTPUT_INVALID")
+        self.assertEqual(snap.parse_receipt(b"POWERSHELL_PROTOCOL_FAILED", 0),
                          "POWERSHELL_PROTOCOL_FAILED")
+
+    def test_subprocess_failure_classes_and_no_raw_host_leak(self):
+        def fake(stdout=b"F0000-U0000\n", code=0):
+            def runner(args, **kw):
+                self.assertIn("-NonInteractive", args)
+                self.assertEqual(kw["timeout"], 30)
+                self.assertEqual(kw["stdin"], subprocess.DEVNULL)
+                self.assertFalse(kw["check"])
+                return SimpleNamespace(returncode=code, stdout=stdout,
+                                       stderr=b"private host details")
+            return runner
+        self.assertEqual(snap.powershell_once("powershell.exe", {}, runner=fake()),
+                         "F0000-U0000")
+        self.assertEqual(snap.powershell_once("powershell.exe", {},
+                              runner=fake(b"secret command", 0)),
+                         "POWERSHELL_OUTPUT_INVALID")
+        self.assertEqual(snap.powershell_once("powershell.exe", {},
+                              runner=fake(b"private traceback", 5)),
+                         "POWERSHELL_EXIT_FAILED")
+        def timed_out(*args, **kwargs):
+            raise subprocess.TimeoutExpired("private command", 30, output=b"secret")
+        def denied(*args, **kwargs):
+            raise OSError("private host path")
+        def malformed(*args, **kwargs):
+            raise RuntimeError("private diagnostic information")
+        self.assertEqual(snap.powershell_once("powershell.exe", {}, runner=timed_out),
+                         "POWERSHELL_TIMEOUT")
+        self.assertEqual(snap.powershell_once("powershell.exe", {}, runner=denied),
+                         "POWERSHELL_SPAWN_FAILED")
+        self.assertEqual(snap.powershell_once("powershell.exe", {}, runner=malformed),
+                         "POWERSHELL_INTERNAL_ERROR")
 
     def test_all_original_task_predicates_bounded_and_readonly(self):
         src = snap.SCRIPT
@@ -56,7 +91,7 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                       Path(snap.__file__).read_text("utf-8"))
         self.assertIsInstance(Path("state.sqlite"), Path)
 
-    def test_fresh_v2_owner_comment_after_cancelled_zero_job_run(self):
+    def test_fresh_v3_owner_comment_after_protocol_failure(self):
         target = "a" * 40
         new_id = snap.PREV_COMMENT + 1
         body = snap.PREFIX + target + " " + str(snap.PREV_COMMENT)
@@ -85,19 +120,21 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                         "user": {"login": snap.OWNER},
                         "issue_url": "https://api.github.com/repos/" +
                                      snap.REPO + "/issues/807",
-                        "created_at": "2026-11-15T02:03:00Z"}
+                        "created_at": "2026-11-15T09:03:00Z"}
             if route == prefix + "issues/comments/" + str(snap.PREV_COMMENT):
                 return {"id": snap.PREV_COMMENT, "body": snap.PREV_BODY,
                         "author_association": "OWNER",
                         "user": {"login": snap.OWNER},
-                        "created_at": "2026-11-15T01:48:00Z"}
+                        "created_at": "2026-11-15T08:36:21Z"}
             if route == prefix + "actions/runs/" + str(snap.PREV_RUN):
                 return {"id": snap.PREV_RUN, "head_sha": snap.PREV_SHA,
                         "run_attempt": 1, "event": "issue_comment",
-                        "status": "completed", "conclusion": "cancelled",
+                        "status": "completed", "conclusion": "success",
                         "actor": {"login": snap.OWNER}}
             if route == prefix + "actions/runs/" + str(snap.PREV_RUN) + "/jobs?per_page=100":
-                return {"total_count": 0, "jobs": []}
+                return {"total_count": 1, "jobs": [
+                    {"name": "original-owner-readonly-task-snapshot",
+                     "status": "completed", "conclusion": "success"}]}
             if route == prefix + "branches/main":
                 return {"name": "main", "protected": True,
                         "commit": {"sha": target}}
@@ -124,12 +161,12 @@ class ReadOnlySnapshotTests(unittest.TestCase):
     def test_workflow_scope_frozen_owner_only_and_no_scheduler(self):
         text = WORKFLOW.read_text("utf-8")
         self.assertIn("on:\n  issue_comment:\n    types: [created]", text)
-        self.assertIn("group: forge-f139-v38-original-task-snapshot-v2", text)
+        self.assertIn("group: forge-f139-v38-original-task-snapshot-v3", text)
         self.assertNotIn("group: forge-f139-v41-original-owner-live-install", text)
         self.assertIn("runs-on: [self-hosted, Windows, forge-codex-isolated]", text)
         self.assertIn("GITHUB_RUN_ATTEMPT -cne '1'", text)
-        self.assertIn("F139-V38-ORIGINAL-TASK-SNAPSHOT-V2 ", text)
-        self.assertIn("6887519100", text)
+        self.assertIn("F139-V38-ORIGINAL-TASK-SNAPSHOT-V3 ", text)
+        self.assertIn("6891778093", text)
         self.assertIn("f139.nci04_v38_original_task_snapshot", text)
         self.assertIn("9bda78341bc3651e8b7b0a24ea6c7858dbff05c6", text)
         for forbidden in ("\n  schedule:", "\n  push:",
@@ -149,6 +186,10 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                          "engineering/f139-v38-snapshot-concurrency-isolation-20261114")
         self.assertEqual(len(g145.V38_SNAPSHOT_V2_FILES), 7)
         g145.v38_snapshot_v2_negative_controls()
+        self.assertEqual(g145.V38_SNAPSHOT_V3_BRANCH,
+                         "engineering/f139-v38-protocol-cause-categories-20261115")
+        self.assertEqual(len(g145.V38_SNAPSHOT_V3_FILES), 7)
+        g145.v38_snapshot_v3_negative_controls()
 
 
 if __name__ == "__main__":
