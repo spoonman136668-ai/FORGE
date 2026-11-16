@@ -258,6 +258,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v43-event1835-full-cold-backup-20261116":
+        if (admission != FROZEN
+                or base != "ac51b464e018b97099c7aa7fad4f6238c64b2500"
+                or tree != "bc997acca85b6219cc175267e19bd7faafa3b8e3"):
+            raise ValueError("G156_V43_ORIGINAL_COLD_BACKUP_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v42-original-host-readonly-bridge-20261116":
         if (admission != FROZEN
                 or base != "6006942116330ffc579784c88b1610d19b3f73cc"
