@@ -35,6 +35,12 @@ FAILED_RELEASE_RUN = 43959273628
 FAILED_RELEASE_JOB = 133621993553
 RECOVERY_JOB = "v46-original-owner-live-install"
 RECOVERY_WORKFLOW = "FORGE G54 guarded V9 original-owner cutover"
+HELD_RECOVERY_PREFIX = "F139-V48-HELD-RESUME "
+HELD_PREDECESSOR_COMMENT = 6930572563
+HELD_PREDECESSOR_RUN = 43965046866
+HELD_PREDECESSOR_JOB = 133642150603
+HELD_PREDECESSOR_JOB_NAME = "v47-original-owner-existing-ref-recovery"
+HELD_PREDECESSOR_MAIN = "ce5d4e06d9466735030568f4e5576adca78d804f"
 TARGET = v44.RELEASE_SOURCE
 EXPECTED_V44_COPY_HEAD = "4962c030cb2aae19ab16832260b39d941d40128b08176b3cc2875592d6123c10"
 EXPECTED_V44_PROOF = "70474d338d4c379b42362ca3cd24d7d02a0e9ac82b4fb8b018454e7c1822112c"
@@ -50,10 +56,14 @@ def need(ok, reason):
         raise OriginalV46Denied("F139_V46_" + reason)
 
 
-def request(get, env, event, *, require_worker_ref=True, recovery_mode=False):
+def request(get, env, event, *, require_worker_ref=True,
+            recovery_mode=False, held_recovery_mode=False):
     """Authenticate a NEW explicit issue #807 release, not V44's copy permit."""
-    need(type(require_worker_ref) is bool and type(recovery_mode) is bool
-         and (not recovery_mode or require_worker_ref),
+    need(type(require_worker_ref) is bool
+         and type(recovery_mode) is bool
+         and type(held_recovery_mode) is bool
+         and (not recovery_mode or require_worker_ref)
+         and (not held_recovery_mode or recovery_mode),
          "WORKER_REF_OR_RECOVERY_MODE_INVALID")
     need(type(env) is dict and type(event) is dict and callable(get)
          and sys.platform == "win32" and os.name == "nt"
@@ -72,6 +82,9 @@ def request(get, env, event, *, require_worker_ref=True, recovery_mode=False):
     issue, comment, sender = (event.get(k) for k in
                               ("issue", "comment", "sender"))
     body = (
+        HELD_RECOVERY_PREFIX + env["GITHUB_SHA"] + " " + TARGET + " " +
+        str(HELD_PREDECESSOR_COMMENT) + " " + str(HELD_PREDECESSOR_RUN)
+        if held_recovery_mode else
         RECOVERY_PREFIX + env["GITHUB_SHA"] + " " + TARGET + " " +
         str(FAILED_RELEASE_COMMENT) + " " + str(FAILED_RELEASE_RUN)
         if recovery_mode else
@@ -83,7 +96,8 @@ def request(get, env, event, *, require_worker_ref=True, recovery_mode=False):
          and issue.get("user", {}).get("login") == v42.OWNER
          and type(sender) is dict and sender.get("login") == v42.OWNER
          and type(comment) is dict and type(comment.get("id")) is int
-         and comment["id"] > (FAILED_RELEASE_COMMENT if recovery_mode
+         and comment["id"] > (HELD_PREDECESSOR_COMMENT if held_recovery_mode
+                               else FAILED_RELEASE_COMMENT if recovery_mode
                                else v45.V44_COMMENT)
          and comment.get("user", {}).get("login") == v42.OWNER
          and comment.get("author_association") == "OWNER"
@@ -155,6 +169,48 @@ def request(get, env, event, *, require_worker_ref=True, recovery_mode=False):
              and get(base + "actions/runs/" +
                      str(FAILED_RELEASE_RUN)) == old_run,
              "FAILED_ONE_SHOT_EVIDENCE_CHANGED")
+    if held_recovery_mode:
+        # Independently bind the consumed V47 first-attempt failure.
+        # Original task / event1835 readback is a separate native prerequisite.
+        prev = get(base + "issues/comments/" + str(HELD_PREDECESSOR_COMMENT))
+        run = get(base + "actions/runs/" + str(HELD_PREDECESSOR_RUN))
+        jobs = get(base + "actions/runs/" + str(HELD_PREDECESSOR_RUN) +
+                   "/jobs?per_page=100")
+        need(type(prev) is dict
+             and prev.get("id") == HELD_PREDECESSOR_COMMENT
+             and prev.get("body") == (RECOVERY_PREFIX +
+                 HELD_PREDECESSOR_MAIN + " " + TARGET + " " +
+                 str(FAILED_RELEASE_COMMENT) + " " + str(FAILED_RELEASE_RUN))
+             and prev.get("user", {}).get("login") == v42.OWNER
+             and prev.get("author_association") == "OWNER"
+             and prev.get("issue_url") ==
+                 "https://api.github.com/repos/" + v42.REPO + "/issues/807"
+             and type(prev.get("created_at")) is str
+             and prev["created_at"] < comment["created_at"]
+             and type(run) is dict
+             and run.get("id") == HELD_PREDECESSOR_RUN
+             and run.get("head_sha") == HELD_PREDECESSOR_MAIN
+             and run.get("name") == RECOVERY_WORKFLOW
+             and run.get("event") == "issue_comment"
+             and run.get("run_attempt") == 1
+             and run.get("status") == "completed"
+             and run.get("conclusion") == "failure"
+             and run.get("actor", {}).get("login") == v42.OWNER
+             and type(jobs) is dict
+             and type(jobs.get("total_count")) is int
+             and type(jobs.get("jobs")) is list
+             and jobs["total_count"] == len(jobs["jobs"])
+             and len(jobs["jobs"]) <= 100
+             and len([j for j in jobs["jobs"] if type(j) is dict
+                      and j.get("name") == HELD_PREDECESSOR_JOB_NAME
+                      and j.get("id") == HELD_PREDECESSOR_JOB
+                      and j.get("status") == "completed"
+                      and j.get("conclusion") == "failure"]) == 1
+             and get(base + "issues/comments/" +
+                     str(HELD_PREDECESSOR_COMMENT)) == prev
+             and get(base + "actions/runs/" +
+                     str(HELD_PREDECESSOR_RUN)) == run,
+             "V48_CONSUMED_FAILED_V47_OWNER_PROOF_REQUIRED")
     source = v45.qualify(get, main_sha=env["GITHUB_SHA"])
     ci = v42.release_source(get, env["GITHUB_SHA"])
     # No ref exemption may enter the actual source commit. The sole
@@ -299,12 +355,19 @@ Write-Output 'F139_V46_ORIGINAL_DISABLED_OWNER=PASS'
 def commit_original(path, env, event, api):
     need(type(api) is GitHub, "AUTHENTIC_GITHUB_PROVIDER_REQUIRED")
     get = api.native_repo_get
+    recovery = env.get("F139_V47_EXISTING_REF_RECOVERY") == "1"
+    held_mode = env.get("F139_V48_HELD_RECOVERY") == "1"
+    need(not held_mode or recovery, "HELD_RECOVERY_ENVIRONMENT_INVALID")
     req = request(get,env,event,
-                  recovery_mode=(env.get("F139_V47_EXISTING_REF_RECOVERY")
-                                 == "1"))
+                  recovery_mode=recovery,
+                  held_recovery_mode=held_mode)
     path = canonical_db(path,env)
     held = lambda: disabled_original_task(path)
-    release = lambda: request(get,env,event) == req
+    # Reauth MUST preserve mode, including every repeated precommit
+    # authorization check. V47 failed because it accidentally used V46 mode.
+    release = lambda: request(get,env,event,
+                              recovery_mode=recovery,
+                              held_recovery_mode=held_mode) == req
     need(held() and release(), "OWNER_HOLD_OR_RELEASE_MISSING")
     evidence = sealed_original(path)
     with SingleOwner(path.with_suffix(".lock")):
@@ -448,7 +511,10 @@ def main(argv=None):
         return 0
     need(args.event1836_sha is None, "POSTSTART_SHA_ONLY")
     recovery = env.get("F139_V47_EXISTING_REF_RECOVERY") == "1"
-    need(env.get("F139_V47_EXISTING_REF_RECOVERY") in (None, "1"),
+    held_mode = env.get("F139_V48_HELD_RECOVERY") == "1"
+    need(env.get("F139_V47_EXISTING_REF_RECOVERY") in (None, "1")
+         and env.get("F139_V48_HELD_RECOVERY") in (None, "1")
+         and (not held_mode or recovery),
          "RECOVERY_MODE_ENVIRONMENT_INVALID")
     need(not(recovery and args.ref_provision_preflight),
          "RECOVERY_CANNOT_CREATE_ANOTHER_REF")
@@ -465,7 +531,8 @@ def main(argv=None):
         return 0
     if args.preflight_only:
         req = request(GitHub().native_repo_get,env,event,
-                      recovery_mode=recovery)
+                      recovery_mode=recovery,
+                      held_recovery_mode=held_mode)
         db = canonical_db(db,env)
         sealed_original(db)
         result = {"schema":"forge.f139.v46.preflight.v1",
