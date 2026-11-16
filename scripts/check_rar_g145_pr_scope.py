@@ -342,6 +342,7 @@ FROZEN_SCOPES = {
             "f139/test_nci04_v41_hybrid_event1833_cold.py",
             "f139/test_nci04_v41_hybrid_event1833_owner.py",
             "f139/test_nci04_v41_hybrid_event1833_successor.py",
+            "f139/test_nci04_v41_hybrid_event1832_workflow.py",
             "f139/test_v41_hybrid_original_activate.py",
             "f139/v41_hybrid_original_activate.ps1",
             "scripts/check_rar_g145_pr_scope.py",
