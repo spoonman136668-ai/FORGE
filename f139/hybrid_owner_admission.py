@@ -283,6 +283,51 @@ def _qualified_v39_successor_source_hold(db):
     )
 
 
+def _qualified_v40_source_hold(db):
+    """One authenticated V40 source event 1833 after the original 1832.
+
+    Database.verify() in the caller must first replay the complete original
+    chain and the V40 event. Never infer native activation or science rights.
+    """
+    from f139 import nci04_v41_hybrid_event1833_successor as v40
+    from f139 import nci04_v41_hybrid_source_transition as v37
+    from f139.nci04_owner_ledger import verify_native_activation
+
+    meta = db.meta()
+    if (meta["head_seq"] != v40.PREDECESSOR_SEQ + 1
+            or meta["source_sha"] == v40.SOURCE):
+        return False
+    row = db.conn.execute(
+        "SELECT seq,kind,sha,prior_sha,payload FROM events WHERE seq=?",
+        (v40.PREDECESSOR_SEQ + 1,)).fetchone()
+    if row is None or row["kind"] != "SOURCE_TRANSITION_ADMITTED":
+        return False
+    try:
+        doc = json.loads(row["payload"])
+        previous = [
+            json.loads(r["payload"]) for r in db.conn.execute(
+                "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
+                "AND seq<? ORDER BY seq", (v40.PREDECESSOR_SEQ + 1,))]
+        v40.verify_cold_event(db, row, doc, previous)
+        return (
+            row["sha"] == meta["head_hash"]
+            and row["seq"] == meta["head_seq"]
+            and doc["to_source_sha"] == meta["source_sha"]
+            and (row["sha"] == meta["head_hash"]
+             and row["seq"] == meta["head_seq"]
+             and doc["to_source_sha"] == meta["source_sha"]
+             and doc["scientific_first_use"] is False
+             and doc["hybrid_admission"] is False
+             and doc["task_resume_authorized"] is False
+             and doc["owner_policy_update_authorized"] is False
+             and doc["new_dispatches"] == 0
+             and verify_native_activation(
+                 db, expected_source=v37.FROM_V41))
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def migrate_hybrid_lane(db):
     """Original owner only, once, in its existing SQLite transaction.
 
@@ -296,7 +341,8 @@ def migrate_hybrid_lane(db):
     require(verify_native_activation(db)
             or _qualified_v41_postcommit_source_hold(db)
             or _qualified_v38_forward_source_hold(db)
-            or _qualified_v39_successor_source_hold(db),
+            or _qualified_v39_successor_source_hold(db)
+            or _qualified_v40_source_hold(db),
             "NATIVE_ORIGINAL_OWNER_NOT_ACTIVE")
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1
