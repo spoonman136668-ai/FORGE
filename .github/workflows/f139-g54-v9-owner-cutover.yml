@@ -4275,3 +4275,51 @@ jobs:
           }
           & "$env:GITHUB_WORKSPACE/f139/v46_original_owner_live_install.ps1" -Target '4ccbb84785a43e038453d6f2bda5415ecb364084'
           if($LASTEXITCODE -ne 0) { throw 'F139_V46_LIVE_SOURCE_RELEASE_NOT_ACCEPTED' }
+
+  v47-original-owner-existing-ref-recovery:
+    # Separately authenticated recovery after V46 run 43959273628 created
+    # one protected ref then failed BEFORE changing original task/SQLite.
+    # Same Windows owner, same G54 concurrency, no new ref/scheduler/queue.
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V47-OWNER-RESUME ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      pull-requests: read
+    steps:
+      - name: Checkout exact protected main without retained credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Authenticate distinct recovery and resume original-owner event1836 cutover
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: .
+          F139_V47_EXISTING_REF_RECOVERY: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_SHA -cnotmatch '^[a-f0-9]{40}$' -or
+             $env:F139_V47_EXISTING_REF_RECOVERY -cne '1' -or
+             $env:OPENAI_API_KEY) {
+            throw 'F139_V47_EXACT_ORIGINAL_OWNER_RECOVERY_FIRST_ATTEMPT_REQUIRED'
+          }
+          & "$env:GITHUB_WORKSPACE/f139/v46_original_owner_live_install.ps1" -Target '4ccbb84785a43e038453d6f2bda5415ecb364084' -ExistingRefRecovery
+          if($LASTEXITCODE -ne 0) { throw 'F139_V47_EXISTING_REF_OWNER_RECOVERY_NOT_ACCEPTED' }
