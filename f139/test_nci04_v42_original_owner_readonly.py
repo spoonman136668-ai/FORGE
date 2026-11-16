@@ -183,7 +183,7 @@ class V42ExactOriginalCIScopeTests(unittest.TestCase):
               role="OWNER", base="6006942116330ffc579784c88b1610d19b3f73cc",
               tree="1783004aec8c720ad28c47a68175264bad394d8c",
               before_blob="b0dfd96bb86cdb834dd908a7518027d12cc9ad95",
-              after_blob="d8bfcad81206d82df7d4c2431bd56a570dbc755a",
+              after_blob="145456e37b097aafd42a3f190e538b71543115a1",
               changes=None):
         from scripts import check_rar_g145_pr_scope as guard
         branch = "engineering/f139-v42-original-host-readonly-bridge-20261116"
