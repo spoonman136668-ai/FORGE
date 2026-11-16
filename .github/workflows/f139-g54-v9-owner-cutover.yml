@@ -4125,3 +4125,108 @@ jobs:
           Write-Output 'F139_V43_ORIGINAL_TASK_MUTATIONS=ZERO'
           Write-Output 'F139_V43_SOURCE_RELEASE_AUTHORIZED=FALSE'
           Write-Output 'F139_V43_SCIENTIFIC_FIRST_USE=FALSE'
+  v44-original-owner-copy-rehearsal:
+    # This is a single disposable-copy original-owner rehearsal. No live source event,
+    # task mutation, new scheduler/consumer, or scientific first-use.
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V44-COPY-REHEARSAL ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+      pull-requests: read
+    steps:
+      - name: Checkout exact new protected main without retained credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Authenticate original owner and rehearse event1836 on isolated copy
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: .
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$valid, [string]$code) {
+            if(-not $valid) { throw ('F139_V44_COPY_'+$code) }
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:GITHUB_EVENT_NAME -ceq 'issue_comment' -and
+            $env:GITHUB_REF -ceq 'refs/heads/main' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            $env:GITHUB_SHA -cmatch '^[a-f0-9]{40}$' -and
+            -not $env:OPENAI_API_KEY) 'FIRST_ATTEMPT_ORIGINAL_OWNER_REQUIRED'
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          $required='F139-V44-COPY-REHEARSAL '+$env:GITHUB_SHA+' 4ccbb84785a43e038453d6f2bda5415ecb364084 6916414055'
+          Need ($event.action -ceq 'created' -and
+            $event.issue.number -eq 807 -and
+            $null -eq $event.issue.PSObject.Properties['pull_request'] -and
+            $event.issue.user.login -ceq 'spoonman136668-ai' -and
+            $event.sender.login -ceq 'spoonman136668-ai' -and
+            $event.comment.user.login -ceq 'spoonman136668-ai' -and
+            $event.comment.author_association -ceq 'OWNER' -and
+            [string]$event.comment.body -ceq $required -and
+            [int64]$event.comment.id -gt 6916414055) 'EXACT_FRESH_OWNER_COMMENT_REQUIRED'
+          $head=(& git -C $env:GITHUB_WORKSPACE rev-parse HEAD | Out-String).Trim()
+          $dirty=@(& git -C $env:GITHUB_WORKSPACE status --porcelain --untracked-files=all)
+          Need ($LASTEXITCODE -eq 0 -and $head -ceq $env:GITHUB_SHA -and
+            $dirty.Count -eq 0) 'PROTECTED_CHECKOUT_DRIFT'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          Need ([Security.Principal.WindowsPrincipal]::new($who).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)) 'ORIGINAL_ADMIN_REQUIRED'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $sid=''
+          try {
+            $sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).
+              Translate([Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          Need ([string]$task.State -cin @('Running','Ready') -and
+            $task.Settings.Enabled -eq $true -and
+            @($task.Actions).Count -eq 1 -and
+            @($task.Triggers).Count -eq 3 -and
+            ([string]$task.Principal.UserId -ieq $who.Name -or
+              $sid -ceq $who.User.Value)) 'ORIGINAL_TASK_IDENTITY_DRIFT'
+          Need ([IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ieq
+            'powershell.exe') 'TASK_EXECUTABLE_DRIFT'
+          function Arg([string]$key) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            Need $m.Success ('TASK_ARG_'+$key)
+            return [string]$m.Groups[1].Value
+          }
+          $db=Arg 'Database'
+          $root=Arg 'RepositoryRoot'
+          $python=Arg 'PythonExe'
+          $wrapper=Arg 'File'
+          $expectedDb=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $expectedRoot=Join-Path $env:LOCALAPPDATA 'FORGE-F139\release-candidates\af204acc983719b382bc8daf2216ec6733ca3ee7'
+          Need ([IO.Path]::GetFullPath($db) -ieq
+            [IO.Path]::GetFullPath($expectedDb) -and
+            [IO.Path]::GetFullPath($root) -ieq
+            [IO.Path]::GetFullPath($expectedRoot) -and
+            [IO.Path]::GetFileName($wrapper) -ceq 'Run-FORGE-F139.ps1' -and
+            (Test-Path -LiteralPath $db -PathType Leaf) -and
+            (Test-Path -LiteralPath $python -PathType Leaf) -and
+            (Test-Path -LiteralPath $wrapper -PathType Leaf)) 'OWNER_FILES_DRIFT'
+          $installed=(& git -C $root rev-parse HEAD | Out-String).Trim()
+          $ownerDirty=@(& git -C $root status --porcelain --untracked-files=all)
+          Need ($LASTEXITCODE -eq 0 -and
+            $installed -ceq 'af204acc983719b382bc8daf2216ec6733ca3ee7' -and
+            $ownerDirty.Count -eq 0) 'ORIGINAL_SOURCE_DRIFT'
+          & $python -B -m f139.nci04_v44_owner_copy_cli --db $db --workflow-source $env:GITHUB_SHA
+          Need ($LASTEXITCODE -eq 0) 'COPY_REHEARSAL_NOT_QUALIFIED'
+          Write-Output 'F139_V44_ORIGINAL_TASK_MUTATIONS=ZERO'
+          Write-Output 'F139_V44_SOURCE_RELEASE_AUTHORIZED=FALSE'
+          Write-Output 'F139_V44_SCIENTIFIC_FIRST_USE=FALSE'
