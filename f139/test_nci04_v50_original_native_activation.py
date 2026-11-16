@@ -227,10 +227,13 @@ class V50SourceActivationTests(unittest.TestCase):
         self.assertIn("scripts/check_rar_g145_pr_scope.py", allowed)
         self.assertIn("scripts/check_rar_g148_go_cache.py", allowed)
         self.assertIn("scripts/check_rar_g156_dynamic_base_cache.py", allowed)
-        cache = inspect.getsource(__import__(
-            "scripts.check_rar_g148_go_cache", fromlist=["event_mode"]).event_mode)
-        reuse = inspect.getsource(__import__(
-            "scripts.check_rar_g156_dynamic_base_cache", fromlist=["_release_scope"])._release_scope)
+        # Inspect the existing entrypoint source without importing its CLI
+        # module: that module intentionally uses script-relative imports.
+        script_dir = Path(__file__).resolve().parents[1] / "scripts"
+        cache = (script_dir / "check_rar_g148_go_cache.py").read_text(
+            encoding="utf-8")
+        reuse = (script_dir / "check_rar_g156_dynamic_base_cache.py").read_text(
+            encoding="utf-8")
         self.assertIn("G148_V50_ORIGINAL_NATIVE_EXACT_SCOPE_REQUIRED", cache)
         self.assertIn("G156_V50_ORIGINAL_NATIVE_EXACT_BASE_TREE_REQUIRED", reuse)
         workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
