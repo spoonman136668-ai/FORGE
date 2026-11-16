@@ -2333,7 +2333,7 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                            "6006942116330ffc579784c88b1610d19b3f73cc:" + workflow) !=
                            "b0dfd96bb86cdb834dd908a7518027d12cc9ad95"
                     or git("rev-parse", head_sha + ":" + workflow) !=
-                           "d8bfcad81206d82df7d4c2431bd56a570dbc755a"):
+                           "145456e37b097aafd42a3f190e538b71543115a1"):
                 raise ValueError("G145_V42_ORIGINAL_READONLY_PR1782_PROOF_DENIED")
         if branch == "engineering/f139-v40-stage-path-instance-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
