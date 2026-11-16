@@ -179,3 +179,45 @@ def catalog_escrow_exclusion(db, historical_issues, source_sha):
     return {**historical_issues, 1715: (
         doc["issue_id"], doc["source_sha"],
         doc["issue_body_sha256"], doc["ticket"])}
+
+def escrowed_native_candidate_identity(db, api, historical_issues, source_sha):
+    """Keep the authentic V41 #1715 candidate out of new-source auto-feed.
+
+    The paired escrow is NOT an admission or a reissue grant. Before suppressing
+    only its identical candidate, authenticate the original owner issue and
+    immutable target Git commit/tree again against its frozen ledger payload.
+    This is read-only and cannot produce a dispatch or owner-policy mutation.
+    """
+    # NO_ESCROW retains the old feeder behavior with no extra GitHub reads.
+    augmented = catalog_escrow_exclusion(db, historical_issues, source_sha)
+    if augmented is historical_issues:
+        return None
+    from f139.nci04_v41_pending_custody import (
+        _authenticated_remote_issue, _semantic_identity)
+    from f139.nci04_autonomy_feed import candidate_identity
+    issue = _authenticated_remote_issue(api, 1715, OWNER_SOURCE)
+    row = db.conn.execute(
+        "SELECT seq,prior_sha,payload FROM events WHERE kind=?", (KIND,)
+    ).fetchone()
+    need(row is not None, "FEED_ESCROW_NOT_FOUND")
+    try:
+        frozen = json.loads(row["payload"])
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise EscrowDenied("F139_V41_ESCROW_FEED_JSON") from exc
+    verify_event_shape({"seq": row["seq"], "prior_sha": row["prior_sha"]}, frozen)
+    need(issue.number == 1715
+         and issue.issue_id == frozen["issue_id"]
+         and issue.source_sha == OWNER_SOURCE
+         and issue.ticket == frozen["ticket"]
+         and issue.issue_body_sha256 == frozen["issue_body_sha256"]
+         and issue.native_intent_sha256 == frozen["native_intent_sha256"]
+         and issue.candidate.target_commit == frozen["target_commit"]
+         and issue.candidate.target_tree_sha == frozen["target_tree_sha"]
+         and _semantic_identity(issue) == frozen["semantic_identity_sha256"]
+         and db.conn.execute(
+             "SELECT 1 FROM tasks WHERE ticket=?", (frozen["ticket"],)
+         ).fetchone() is None,
+         "FEED_CANDIDATE_CUSTODY_DRIFT")
+    return candidate_identity(
+        issue.lane, issue.candidate.target_commit,
+        issue.candidate.path, issue.candidate.after_sha256)
