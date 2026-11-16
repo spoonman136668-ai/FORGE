@@ -1,7 +1,7 @@
-name: FORGE KABOOM PR108 merged ICE benchmark exact SHA regression once
+name: FORGE KABOOM current main self-hosted one-shot qualification
 on:
   push:
-    branches: [qualification/kaboom-pr105-source-offline-20261114]
+    branches: [qualification/kaboom-main-billing-fallback-20261116]
     paths: [.github/workflows/forge-kaboom-pr105-offline-20261114.yml]
 permissions:
   contents: read
@@ -20,14 +20,14 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-             $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr105-source-offline-20261114' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-main-billing-fallback-20261116' -or
              $env:GITHUB_EVENT_NAME -cne 'push' -or
              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
              $env:RUNNER_OS -cne 'Windows' -or
              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'KABOOM_FINAL_WRONG_RUNNER'}
-          $want='f1c148226e2e9178805691afa31ab4b5d77a132f'
-          $branch='engineering/kaboom-20261114-3-intake-claude-20261115'
+          $want='1b883c001243e52fb7075cc9e15660e7492cbfda'
+          $branch='main'
           $head=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
           if($LASTEXITCODE -ne 0 -or $head.Trim() -cne $want){throw 'KABOOM_FINAL_REF_DRIFT'}
           $go=(& go env GOVERSION).Trim()
@@ -44,6 +44,10 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'KABOOM_FINAL_PRIVATE_CLONE_FAILED'}
             & git -C $root -c core.autocrlf=false checkout --detach $want *> (Join-Path $tmp 'checkout-private.log')
             if($LASTEXITCODE -ne 0 -or (& git -C $root rev-parse HEAD).Trim() -cne $want){throw 'KABOOM_FINAL_CHECKOUT_SHA_FAIL'}
+            # No inherited broker credential environment is allowed in this offline run.
+            foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+              if([Environment]::GetEnvironmentVariable($key,'Process')) {throw 'KABOOM_BROKER_ENV_REFUSED'}
+            }
             $env:GOTOOLCHAIN='local'
             $env:GOTELEMETRY='off'
             $env:CGO_ENABLED='0'
