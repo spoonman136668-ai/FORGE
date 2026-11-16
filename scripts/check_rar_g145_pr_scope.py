@@ -321,6 +321,20 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # Original-owner precommit recovery after V46 one-shot created exactly one
+    # immutable release ref; no re-PUSH, no new schedule/controller or science.
+    "engineering/f139-v47-existing-ref-original-owner-recovery-20261116": (
+        "ba6419cfa75879d23e8ae24c2bb8749d08e2b6d5",
+        {
+            ".github/workflows/f139-g54-v9-owner-cutover.yml",
+            "f139/nci04_v46_live_source_commit.py",
+            "f139/v46_original_owner_live_install.ps1",
+            "f139/test_nci04_v46_live_source_commit.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Exact owner-scoped source PR: GITHUB_TOKEN may create the ONE
     # immutable 4ccbb847 worker ref after V46's original-host preflight.
     # Source CI is not remote-ref or original-task execution authority.
@@ -2376,6 +2390,23 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v47-existing-ref-original-owner-recovery-20261116":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+            if (type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != branch
+                    or request.get("base", {}).get("sha") !=
+                       "ba6419cfa75879d23e8ae24c2bb8749d08e2b6d5"
+                    or git("rev-parse", "ba6419cfa75879d23e8ae24c2bb8749d08e2b6d5^{tree}") !=
+                       "45a7d0089377269fcfa1dc5bf4c712445465f6b3"
+                    or git("rev-parse", "ba6419cfa75879d23e8ae24c2bb8749d08e2b6d5:" + workflow) !=
+                       "267016423cf28e3c260223dbcdfc863d13adb053"
+                    or git("rev-parse", head_sha + ":" + workflow) !=
+                       "ab89c3ea185ba68b08ea83517bf36d48319e32d9"):
+                raise ValueError("G145_V47_ORIGINAL_RECOVERY_SCOPE_DENIED")
         if branch == "engineering/f139-v46-original-release-ref-once-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
