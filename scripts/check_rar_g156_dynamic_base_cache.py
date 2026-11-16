@@ -258,6 +258,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v46-event1836-live-source-transition-20261116":
+        if (admission != FROZEN
+                or base != "0a1523461fc54162c4d1104586dd69bb22d28a87"
+                or tree != "385977369f3f5e22a1ff4c4ca0a2640c57287a3e"):
+            raise ValueError("G156_V46_ORIGINAL_LIVE_RELEASE_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v44-event1836-copy-rehearsal-20261116":
         if (admission != FROZEN
                 or base != "4ccbb84785a43e038453d6f2bda5415ecb364084"
