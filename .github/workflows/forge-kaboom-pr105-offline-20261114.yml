@@ -2,7 +2,9 @@ name: FORGE KABOOM current main self-hosted one-shot qualification
 on:
   push:
     branches: [qualification/kaboom-main-billing-fallback-20261116]
-    paths: [.github/workflows/forge-kaboom-pr105-offline-20261114.yml]
+    paths:
+      - .github/workflows/forge-kaboom-pr105-offline-20261114.yml
+      - .github/qualification/kaboom-source-pin.json
 permissions:
   contents: read
 jobs:
@@ -10,6 +12,11 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 25
     steps:
+      - name: Read immutable FORGE qualification pin (no persisted credentials)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
       - name: Install verified Go 1.26.5 for complete final Windows regression
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
@@ -26,7 +33,22 @@ jobs:
              $env:RUNNER_OS -cne 'Windows' -or
              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'KABOOM_FINAL_WRONG_RUNNER'}
-          $want='1b883c001243e52fb7075cc9e15660e7492cbfda'
+          # Isolated owner qualification branch: no product/source/workflow mutation outside
+          # the existing workflow file and the reviewed exact-source pin.
+          if((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'KABOOM_FORGE_CHECKOUT_DRIFT'}
+          & git merge-base --is-ancestor 'eaa5b0f5c130f7d51cfb5d4fcf1662775de1af13' $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0){throw 'KABOOM_FORGE_BASELINE_DRIFT'}
+          $changed=@(& git diff --name-only 'eaa5b0f5c130f7d51cfb5d4fcf1662775de1af13' $env:GITHUB_SHA)
+          if($LASTEXITCODE -ne 0 -or @($changed | Where-Object {$_ -cnotin @('.github/workflows/forge-kaboom-pr105-offline-20261114.yml','.github/qualification/kaboom-source-pin.json')}).Count -ne 0){throw 'KABOOM_FORGE_SCOPE_EXCEEDED'}
+          if((& git status --porcelain)){throw 'KABOOM_FORGE_DIRTY_WORKTREE'}
+          $pin=Get-Content -LiteralPath '.github/qualification/kaboom-source-pin.json' -Raw | ConvertFrom-Json
+          if($pin.schema -cne 'forge.kaboom.source-pin.v1' -or
+             $pin.repository -cne 'Kboomllc/K-Terminal' -or
+             $pin.source_ref -cne 'main' -or
+             $pin.source_sha -cnotmatch '^[a-f0-9]{40}$' -or
+             $pin.source_tree -cnotmatch '^[a-f0-9]{40}$' -or
+             $pin.source_content_sha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'KABOOM_SOURCE_PIN_INVALID'}
+          $want=[string]$pin.source_sha
           $branch='main'
           $head=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
           if($LASTEXITCODE -ne 0 -or $head.Trim() -cne $want){throw 'KABOOM_FINAL_REF_DRIFT'}
@@ -44,6 +66,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'KABOOM_FINAL_PRIVATE_CLONE_FAILED'}
             & git -C $root -c core.autocrlf=false checkout --detach $want *> (Join-Path $tmp 'checkout-private.log')
             if($LASTEXITCODE -ne 0 -or (& git -C $root rev-parse HEAD).Trim() -cne $want){throw 'KABOOM_FINAL_CHECKOUT_SHA_FAIL'}
+            if((& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne [string]$pin.source_tree){throw 'KABOOM_SOURCE_TREE_DRIFT'}
             # No inherited broker credential environment is allowed in this offline run.
             foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
               if([Environment]::GetEnvironmentVariable($key,'Process')) {throw 'KABOOM_BROKER_ENV_REFUSED'}
@@ -61,12 +84,29 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'KABOOM_FINAL_SOURCE_MAPS_STALE'}
               & python -B -m unittest discover -s tools/architecture -p 'test_*.py' -v
               if($LASTEXITCODE -ne 0){throw 'KABOOM_FINAL_ARCH_TESTS_FAIL'}
-              $check='import hashlib,json,pathlib,subprocess,sys; r=pathlib.Path(sys.argv[1]); i=json.loads((r/".ice/manifest.json").read_text(encoding="utf-8")); g=json.loads((r/"docs/graphify/source-manifest.json").read_text(encoding="utf-8")); n=("graph.json","graph.html","GRAPH_REPORT.md"); a={x:hashlib.sha256(subprocess.check_output(["git","-C",str(r),"show","HEAD:docs/graphify/"+x])).hexdigest() for x in n}; assert i["source_content_sha256"]==g["source_content_sha256"]=="0de9aad699e703a3c2d5ec2656c94f18d89f432834c1d3d7b68357489a76673f"; assert g["source_commit"]=="77c1d2a5efd8eeca1502acae4e337c905e46d297"; assert g["graph_nodes"]==1503 and g["graph_edges"]==4897; assert all(a[x]==g["files_sha256"][x] for x in n); print("KABOOM_FINAL_GRAPHIFY_GIT_HASH_DIGEST=PASS")'
-              & python -B -c $check $root
+              $check='import hashlib,json,pathlib,re,subprocess,sys; r=pathlib.Path(sys.argv[1]); expect=sys.argv[2]; i=json.loads((r/".ice/manifest.json").read_text(encoding="utf-8")); g=json.loads((r/"docs/graphify/source-manifest.json").read_text(encoding="utf-8")); n=("graph.json","graph.html","GRAPH_REPORT.md"); a={x:hashlib.sha256(subprocess.check_output(["git","-C",str(r),"show","HEAD:docs/graphify/"+x])).hexdigest() for x in n}; assert i["source_content_sha256"]==g["source_content_sha256"]==expect; assert re.fullmatch("[a-f0-9]{40}",g["source_commit"]); assert g["repository"]=="Kboomllc/K-Terminal" and g["graphify_version"]=="0.9.92"; assert all(a[x]==g["files_sha256"][x] for x in n); assert g["graph_nodes"]>0 and g["graph_edges"]>=0; print("KABOOM_FINAL_GRAPHIFY_GIT_HASH_DIGEST=PASS")'
+              & python -B -c $check $root $pin.source_content_sha256
               if($LASTEXITCODE -ne 0){throw 'KABOOM_FINAL_GRAPHIFY_GIT_HASH_FAIL'}
-                  $seriesCheck='import json,pathlib,sys; r=pathlib.Path(sys.argv[1]); a=json.loads((r/".ice/manifest.json").read_text()); latest=json.loads((r/"docs/graphify/retrieval-benchmark-latest.json").read_text()); records=[json.loads(x) for x in (r/"docs/graphify/retrieval-benchmark.jsonl").read_text().splitlines()]; assert len(records)==3 and latest["source_content_sha256"]==records[-1]["source_content_sha256"]==a["source_content_sha256"]; assert latest["freshness"]==records[-1]["freshness"]=="FRESH"; assert latest["queries_valid"]==latest["queries_total"]==127; assert latest["headline_speedup"]==records[-1]["aggregate"]["speedup"]; print("PR109_FINAL_BENCHMARK_RECEIPT=PASS")'
-                  & python -B -c $seriesCheck $root
-                  if($LASTEXITCODE -ne 0){throw 'PR109_FINAL_BENCHMARK_RECEIPT_MISMATCH'}
+              # The last retrieval benchmark is historical when a source digest advances.
+              # Preserve its provenance; it must not mislabel a changed source as FRESH.
+              $seriesCheck=@'
+import json,pathlib,sys
+r=pathlib.Path(sys.argv[1])
+m=json.loads((r/".ice/manifest.json").read_text())
+latest=json.loads((r/"docs/graphify/retrieval-benchmark-latest.json").read_text())
+records=[json.loads(x) for x in (r/"docs/graphify/retrieval-benchmark.jsonl").read_text().splitlines()]
+assert records and latest["source_content_sha256"] == records[-1]["source_content_sha256"]
+assert latest["headline_speedup"] == records[-1]["aggregate"]["speedup"]
+if latest["source_content_sha256"] == m["source_content_sha256"]:
+    assert latest["freshness"] == records[-1]["freshness"] == "FRESH"
+    assert latest["queries_valid"] == latest["queries_total"] > 0
+    print("KABOOM_BENCHMARK=PASS")
+else:
+    print("KABOOM_BENCHMARK=STALE_ADVISORY")
+'@
+              & python -B -c $seriesCheck $root
+
+              if($LASTEXITCODE -ne 0){throw 'KABOOM_BENCHMARK_RECORD_INCONSISTENT'}
               Write-Output 'KABOOM_FINAL_CUSTODY_ARCHITECTURE=PASS'
               Push-Location (Join-Path $root 'kaboom-core')
               try {
