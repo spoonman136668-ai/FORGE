@@ -182,6 +182,7 @@ if(-not(Test-Path -LiteralPath $stage)) {
 }
 Need ((GitSource $stage) -ceq $Target -and
   (Test-Path -LiteralPath (Join-Path $stage 'scripts\Run-FORGE-F139.ps1') -PathType Leaf)) 'EXACT_TARGET_STAGE_REQUIRED'
+$existingBinNeedsSourceProof=(Test-Path -LiteralPath $binary -PathType Leaf)
 if(-not(Test-Path -LiteralPath $binary -PathType Leaf)) {
   $binRoot=Split-Path -Parent $binary
   Need (-not(Test-Path -LiteralPath $binRoot)) 'UNKNOWN_PARTIAL_BINARY_STAGE'
@@ -207,6 +208,35 @@ if(-not(Test-Path -LiteralPath $binary -PathType Leaf)) {
 Need ((Test-Path -LiteralPath $binary -PathType Leaf) -and
   (Get-Item -LiteralPath $binary).Length -gt 0 -and
   (GitSource $stage) -ceq $Target) 'BINARY_OR_TARGET_NOT_READY'
+# An existing executable is never trusted by path or nonzero length alone.
+# Rebuild from the exact clean target checkout without network or toolchain
+# downloads, then compare hashes. Mismatch is a PRECOMMIT HOLD.
+if($existingBinNeedsSourceProof) {
+  $proofBin=Join-Path $data ('v46-bin-proof-'+$env:GITHUB_RUN_ID+'.exe')
+  Need (-not(Test-Path -LiteralPath $proofBin)) 'EXISTING_BINARY_PROOF_COLLISION'
+  $oldGoToolchain=$env:GOTOOLCHAIN
+  $oldGoProxy=$env:GOPROXY
+  $oldGoSumDb=$env:GOSUMDB
+  try {
+    $env:GOTOOLCHAIN='local'
+    $env:GOPROXY='off'
+    $env:GOSUMDB='off'
+    Push-Location $stage
+    try {
+      & go build -trimpath -o $proofBin ./cmd/f139-genenv-source
+      Need ($LASTEXITCODE -eq 0 -and
+        (Test-Path -LiteralPath $proofBin -PathType Leaf)) 'EXACT_SOURCE_BINARY_REBUILD_FAILED'
+    } finally {Pop-Location}
+    $originalDigest=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash
+    $rebuildDigest=(Get-FileHash -LiteralPath $proofBin -Algorithm SHA256).Hash
+    Need ($originalDigest -ceq $rebuildDigest) 'EXISTING_BINARY_NOT_SOURCE_BOUND'
+  } finally {
+    $env:GOTOOLCHAIN=$oldGoToolchain
+    $env:GOPROXY=$oldGoProxy
+    $env:GOSUMDB=$oldGoSumDb
+    Remove-Item -LiteralPath $proofBin -Force -ErrorAction SilentlyContinue
+  }
+}
 $lastTaskArgs=$originalArgs
 $lease=$null
 try {
