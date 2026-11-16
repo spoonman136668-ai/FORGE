@@ -266,7 +266,7 @@ def stage_original_candidate(path, target):
     changing the original task. Do not use an arbitrary mutable worktree.
     """
     need(sys.platform == "win32" and os.name == "nt"
-         and type(path) is Path and path.is_absolute()
+         and isinstance(path, Path) and path.is_absolute()
          and type(target) is str
          and successor.SHA40.fullmatch(target) is not None
          and SingleOwner.held(path.with_suffix(".lock")),
