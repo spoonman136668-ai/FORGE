@@ -335,6 +335,20 @@ def execute(db_path, mode):
                 new_dispatches=0)
 
 
+def combine_receipt(proof: dict, report: dict) -> dict:
+    """Combine remote admission and local proof, rejecting conflicting overlaps.
+
+    Both receipts carry immutable fields such as scientific_first_use, and
+    identical overlapping values are expected. A mismatch must fail closed.
+    """
+    need(type(proof) is dict and type(report) is dict,
+         "RECEIPT_OBJECTS_REQUIRED")
+    for field in proof.keys() & report.keys():
+        need(proof[field] == report[field],
+             "REMOTE_LOCAL_RECEIPT_MISMATCH")
+    return {**proof, **report}
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--mode", choices=("preflight", "commit", "verify", "poststart"),
@@ -351,7 +365,7 @@ def main():
              request(GitHub().native_repo_get, os.environ, event))
     report = execute(args.db, args.mode)
     print("F139_V50_OWNER_" + args.mode.upper() + "=" +
-          json.dumps(dict(**proof, **report), sort_keys=True))
+          json.dumps(combine_receipt(proof, report), sort_keys=True))
 
 
 if __name__ == "__main__":
