@@ -161,9 +161,9 @@ $env:PYTHONPATH=$env:GITHUB_WORKSPACE
 $env:PYTHONDONTWRITEBYTECODE='1'
 Push-Location $env:GITHUB_WORKSPACE
 try {
-  $pre=@(& $python -B -m f139.nci04_v46_live_source_commit --target $Target --preflight-only)
+  $pre=@(& $python -B -m f139.nci04_v46_live_source_commit --target $Target --ref-provision-preflight)
   Need ($LASTEXITCODE -eq 0 -and $pre.Count -eq 1 -and
-    $pre[0] -cmatch '^F139_V46_PRECOMMIT_PREFLIGHT=') 'PRECOMMIT_CUSTODY_UNQUALIFIED'
+    $pre[0] -ceq 'F139_V46_REF_PROVISION_PREFLIGHT=PASS') 'PREPROVISION_CUSTODY_UNQUALIFIED'
 } finally {Pop-Location}
 
 # Create-only exact ancestry stage; never overwrite an unknown partial folder.
@@ -237,6 +237,68 @@ if($existingBinNeedsSourceProof) {
     Remove-Item -LiteralPath $proofBin -Force -ErrorAction SilentlyContinue
   }
 }
+# The operator separately approved ONE exact immutable worker ref, using
+# this job's scoped GITHUB_TOKEN; token-created pushes do not dispatch the
+# pre-existing V40 owner installer. A personal-account push is NOT allowed.
+# Creation happens ONLY after original host, policy, source, ledger, V43/V44
+# custody, 8/8 postmerge CI and reproducible binary checks have all passed,
+# and strictly BEFORE touching the Windows task or original SQLite.
+Need (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) 'SCOPED_GITHUB_TOKEN_REQUIRED'
+SourceOld
+PolicyOld
+RemoteMain
+Need ((Ledger $old 1835) -ceq $preimage) 'PRE_REF_ORIGINAL_LEDGER_MOVED'
+$workerBranch='f139-owner-release-'+$Target
+$workerRef='refs/heads/'+$workerBranch
+$workerUrl='https://api.github.com/repos/spoonman136668-ai/FORGE/branches/'+$workerBranch
+$refCreateUrl='https://api.github.com/repos/spoonman136668-ai/FORGE/git/refs'
+$tokenHeaders=@{
+  Authorization=('Bearer '+$env:GH_TOKEN)
+  Accept='application/vnd.github+json'
+  'X-GitHub-Api-Version'='2022-11-28'
+}
+# HTTP 404 from an authenticated exact branch GET is mandatory. Other HTTP
+# failures HOLD; existing refs are never rewritten, force-pushed or replayed.
+$initial=Invoke-WebRequest -Method Get -Uri $workerUrl -Headers $tokenHeaders -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 25 -ErrorAction Stop
+Need ([int]$initial.StatusCode -eq 404) 'EXACT_WORKER_REF_ALREADY_PRESENT_OR_PROBE_FAILED'
+$createBody=@{ref=$workerRef;sha=$Target}|ConvertTo-Json -Depth 3 -Compress
+# Irreversible remote action: exactly one create-only POST, NO retry on error
+# or uncertain response, even if the ref now exists.
+$created=Invoke-WebRequest -Method Post -Uri $refCreateUrl -Headers $tokenHeaders -ContentType 'application/json' -Body $createBody -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 25 -ErrorAction Stop
+Need ([int]$created.StatusCode -eq 201) 'GITHUB_TOKEN_REF_CREATE_UNCERTAIN_HOLD'
+$createdBody=$created.Content|ConvertFrom-Json -Depth 8
+Need ([string]$createdBody.ref -ceq $workerRef -and
+  [string]$createdBody.object.type -ceq 'commit' -and
+  [string]$createdBody.object.sha -ceq $Target) 'CREATED_WORKER_REF_WRONG_TARGET_HOLD'
+# Independently read the active immutability ruleset and exact branch twice.
+# Ruleset #26049392 blocks update/deletion for f139-owner-release-*.
+$immutable=Invoke-RestMethod -Method Get -Uri 'https://api.github.com/repos/spoonman136668-ai/FORGE/rulesets/26049392' -Headers $tokenHeaders -MaximumRedirection 0 -TimeoutSec 25 -ErrorAction Stop
+Need ([int]$immutable.id -eq 26049392 -and
+  [string]$immutable.enforcement -ceq 'active' -and
+  [string]$immutable.target -ceq 'branch' -and
+  @($immutable.conditions.ref_name.include).Count -eq 1 -and
+  [string]$immutable.conditions.ref_name.include[0] -ceq 'refs/heads/f139-owner-release-*' -and
+  @($immutable.bypass_actors).Count -eq 0 -and
+  (@($immutable.rules.type|Sort-Object) -join '|') -ceq 'deletion|update') 'WORKER_REF_RULESET_NOT_IMMUTABLE_HOLD'
+for($i=0;$i -lt 2;$i++){
+  $worker=Invoke-RestMethod -Method Get -Uri $workerUrl -Headers $tokenHeaders -MaximumRedirection 0 -TimeoutSec 25 -ErrorAction Stop
+  Need ([string]$worker.name -ceq $workerBranch -and
+    $worker.protected -eq $true -and
+    [string]$worker.commit.sha -ceq $Target) 'IMMUTABLE_WORKER_REF_READBACK_HOLD'
+}
+RemoteMain
+SourceOld
+PolicyOld
+Need ((Ledger $old 1835) -ceq $preimage) 'ORIGINAL_LEDGER_DRIFT_AFTER_REF'
+# Re-run the STRICT existing V46 preflight: unlike the pre-provision check,
+# it requires the newly protected exact worker ref on every release witness.
+Push-Location $env:GITHUB_WORKSPACE
+try {
+  $complete=@(& $python -B -m f139.nci04_v46_live_source_commit --target $Target --preflight-only)
+  Need ($LASTEXITCODE -eq 0 -and $complete.Count -eq 1 -and
+    $complete[0] -cmatch '^F139_V46_PRECOMMIT_PREFLIGHT=') 'STRICT_POST_REF_PREFLIGHT_UNQUALIFIED'
+} finally {Pop-Location}
+Write-Output 'F139_V46_SCOPED_TOKEN_IMMUTABLE_WORKER_REF=PASS'
 $lastTaskArgs=$originalArgs
 $lease=$null
 try {

@@ -321,6 +321,21 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # Exact owner-scoped source PR: GITHUB_TOKEN may create the ONE
+    # immutable 4ccbb847 worker ref after V46's original-host preflight.
+    # Source CI is not remote-ref or original-task execution authority.
+    "engineering/f139-v46-original-release-ref-once-20261116": (
+        "2cc08f9b71a1f70d697fcd9d2d4a749eb8a39570",
+        {
+            ".github/workflows/f139-g54-v9-owner-cutover.yml",
+            "f139/nci04_v46_live_source_commit.py",
+            "f139/v46_original_owner_live_install.ps1",
+            "f139/test_nci04_v46_live_source_commit.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # PR1786: copy-only proof of sealed original event1835 and simulated
     # event1836. Does not authorize live task/source/policy mutations.
     # Exact owner PR1788: existing G54 one-shot event1836 original task transition.
@@ -2361,6 +2376,23 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v46-original-release-ref-once-20261116":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+            if (type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != branch
+                    or request.get("base", {}).get("sha") !=
+                       "2cc08f9b71a1f70d697fcd9d2d4a749eb8a39570"
+                    or git("rev-parse", "2cc08f9b71a1f70d697fcd9d2d4a749eb8a39570^{tree}") !=
+                       "3e4a827706a3be96d856ac50e67af736ca5ee956"
+                    or git("rev-parse", "2cc08f9b71a1f70d697fcd9d2d4a749eb8a39570:" + workflow) !=
+                       "557b4e5ba0daa2190c80dd53f32d31412ab14da4"
+                    or git("rev-parse", head_sha + ":" + workflow) !=
+                       "267016423cf28e3c260223dbcdfc863d13adb053"):
+                raise ValueError("G145_V46_EXACT_TOKEN_REF_PROVISION_SCOPE_DENIED")
         if branch == "engineering/f139-v46-event1836-live-source-transition-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]

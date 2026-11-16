@@ -43,8 +43,9 @@ def need(ok, reason):
         raise OriginalV46Denied("F139_V46_" + reason)
 
 
-def request(get, env, event):
+def request(get, env, event, *, require_worker_ref=True):
     """Authenticate a NEW explicit issue #807 release, not V44's copy permit."""
+    need(type(require_worker_ref) is bool, "WORKER_REF_MODE_INVALID")
     need(type(env) is dict and type(event) is dict and callable(get)
          and sys.platform == "win32" and os.name == "nt"
          and env.get("GITHUB_REPOSITORY") == v42.REPO
@@ -95,21 +96,22 @@ def request(get, env, event):
          "ORIGINAL_GITHUB_RELEASE_PROVENANCE_REQUIRED")
     source = v45.qualify(get, main_sha=env["GITHUB_SHA"])
     ci = v42.release_source(get, env["GITHUB_SHA"])
-    # A protected exact-source worker branch is required by the EXISTING
-    # deployed_release_continuity check after the live source is activated.
-    # A source-only start without this ref would remain dispatch-blocked.
-    # NEVER create the ref here: creating it triggers legacy V40 workflow
-    # jobs and needs an isolated owner release, not implicit CI authority.
-    worker_name = pin.release_worker_branch(TARGET)
-    worker_route = base + "branches/" + worker_name
-    worker = get(worker_route)
-    need(type(worker) is dict and
-         worker.get("name") == worker_name and
-         worker.get("protected") is True and
-         worker.get("commit", {}).get("sha") == TARGET and
-         pin.verify_release_worker_branch(get, TARGET) == worker_name and
-         get(worker_route) == worker,
-         "EXACT_PROTECTED_WORKER_RELEASE_REF_REQUIRED")
+    # No ref exemption may enter the actual source commit. The sole
+    # exception is the BEFORE-ANY-REMOTE-WRITE, read-only owner/backup/CI
+    # qualification for a future one-shot GITHUB_TOKEN provisioner.
+    # That provisioning is controlled by the same original Windows wrapper,
+    # not by this Python module or a second scheduler.
+    if require_worker_ref:
+        worker_name = pin.release_worker_branch(TARGET)
+        worker_route = base + "branches/" + worker_name
+        worker = get(worker_route)
+        need(type(worker) is dict and
+             worker.get("name") == worker_name and
+             worker.get("protected") is True and
+             worker.get("commit", {}).get("sha") == TARGET and
+             pin.verify_release_worker_branch(get, TARGET) == worker_name and
+             get(worker_route) == worker,
+             "EXACT_PROTECTED_WORKER_RELEASE_REF_REQUIRED")
     ancestry = get(base + "compare/" + TARGET + "..." +
                    env["GITHUB_SHA"] + "?per_page=1&page=2")
     need(type(ancestry) is dict
@@ -359,6 +361,7 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--target",required=True)
     p.add_argument("--preflight-only",action="store_true")
+    p.add_argument("--ref-provision-preflight",action="store_true")
     p.add_argument("--poststart-readonly",action="store_true")
     p.add_argument("--event1836-sha")
     args = p.parse_args(argv)
@@ -372,7 +375,8 @@ def main(argv=None):
     except (OSError,ValueError,UnicodeError,TypeError) as error:
         raise OriginalV46Denied("F139_V46_OWNER_EVENT_PARSE_FAILED") from error
     db = Path(env.get("LOCALAPPDATA",""))/"FORGE-F139"/"state.sqlite"
-    need(not(args.preflight_only and args.poststart_readonly),
+    need(sum(bool(x) for x in (args.preflight_only, args.poststart_readonly,
+                                 args.ref_provision_preflight)) <= 1,
          "MUTUALLY_EXCLUSIVE_MODES_REQUIRED")
     if args.poststart_readonly:
         need(verify_poststart_event1836(db, env, args.event1836_sha),
@@ -380,6 +384,17 @@ def main(argv=None):
         print("F139_V46_LIVE_EVENT1836_ANCHOR=PASS")
         return 0
     need(args.event1836_sha is None, "POSTSTART_SHA_ONLY")
+    if args.ref_provision_preflight:
+        # Exact owner intent, 8/8 postmerge, V43 backup, V44 authentic copy.
+        # This mode performs no GitHub mutations and grants no task/DB rights.
+        req = request(GitHub().native_repo_get, env, event,
+                      require_worker_ref=False)
+        db = canonical_db(db, env)
+        sealed_original(db)
+        need(req["workflow_sha"] == env["GITHUB_SHA"],
+             "REF_PROVISION_SOURCE_CHANGED")
+        print("F139_V46_REF_PROVISION_PREFLIGHT=PASS")
+        return 0
     if args.preflight_only:
         req = request(GitHub().native_repo_get,env,event)
         db = canonical_db(db,env)
