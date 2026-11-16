@@ -58,9 +58,9 @@ def _context(db, row, previous):
     source SHAs, so new tasks cannot change the historical custody digest.
     """
     need(type(previous) is list and bool(previous)
-         and type(row) is dict
-         and row.get("seq") == PREDECESSOR_SEQ + 1
-         and row.get("prior_sha") == PREDECESSOR_SHA,
+         and row is not None
+         and row["seq"] == PREDECESSOR_SEQ + 1
+         and row["prior_sha"] == PREDECESSOR_SHA,
          "EXACT_EVENT1836_PREDECESSOR_REQUIRED")
     latest = previous[-1]
     need(type(latest) is dict
