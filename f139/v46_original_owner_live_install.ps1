@@ -300,8 +300,13 @@ try {
     [string]$live.State -cin @('Ready','Running') -and
     [string]$live.Actions[0].Arguments -ceq $newArgs -and
     @(OwnerChildren).Count -eq 1 -and
-    (RemotePolicy) -ceq $updatedPolicy -and
-    (Ledger $Target 1836) -ceq $posthead) 'LIVE_OWNER_PROCESS_OR_LEDGER_NOT_VERIFIED'
+    (RemotePolicy) -ceq $updatedPolicy) 'LIVE_OWNER_PROCESS_OR_POLICY_NOT_VERIFIED'
+  # A healthy owner may append event1837+ as soon as it starts.
+  # Verify the immutable 1836 event proof instead of requiring the current
+  # head to remain frozen at 1836 after activation.
+  $anchor=@(& $python -B -m f139.nci04_v46_live_source_commit --target $Target --poststart-readonly --event1836-sha ([string]$receipt.new_head_sha256))
+  Need ($LASTEXITCODE -eq 0 -and $anchor.Count -eq 1 -and
+    [string]$anchor[0] -ceq 'F139_V46_LIVE_EVENT1836_ANCHOR=PASS') 'LIVE_EVENT1836_OR_SOURCE_UNVERIFIED'
   $activated=$true
   Write-Output ('F139_V46_ACTIVATED_ORIGINAL_OWNER='+($receipt|ConvertTo-Json -Depth 16 -Compress))
   Write-Output 'F139_V46_SAME_ORIGINAL_TASK_ACTIVATED=PASS'
