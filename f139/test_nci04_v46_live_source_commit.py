@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from f139 import nci04_v46_live_source_commit as live
 from f139 import nci04_v42_owner_source_readiness as v42
@@ -157,6 +157,82 @@ class LiveV46Tests(unittest.TestCase):
         self.assertNotIn("Invoke-Expression",script)
         self.assertIn("$originalArgs.Split(@($originalRoot)",script)
         self.assertIn("source_sha -ceq $old",script)
+
+    def test_poststart_live_event1836_anchor_accepts_natural_later_ticks(self):
+        # Simulate a verified current head AFTER startup. No real owner touched.
+        dbpath = Path("/fake-original.sqlite")
+        expected = "a" * 64
+        original = MagicMock()
+        original.meta.return_value = {
+            "source_sha": live.TARGET,
+            "enabled": 1, "legacy_suspended": 1,
+            "head_seq": 1837, "head_hash": "b"*64,
+        }
+        original.conn.total_changes = 0
+        original.conn.execute.return_value.fetchone.return_value = {
+            "kind": "SOURCE_TRANSITION_ADMITTED",
+            "prior_sha": live.successor.PREDECESSOR_SHA,
+            "sha": expected, "payload": "{}",
+        }
+        with patch.object(live.sys,"platform","win32"), \
+             patch.object(live.os,"name","nt"), \
+             patch.object(live,"canonical_db",return_value=dbpath), \
+             patch.object(live.Database,"open_readonly",return_value=original):
+            self.assertTrue(live.verify_poststart_event1836(
+                dbpath, {"LOCALAPPDATA": "C:/irrelevant"}, expected))
+            original.verify.assert_called_once()
+            original.close.assert_called_once()
+
+    def test_poststart_live_event1836_anchor_rejects_drift(self):
+        dbpath = Path("/fake-original.sqlite")
+        expected = "a" * 64
+        cases = [
+            ("wrong_source", {"source_sha": "f"*40}, {}),
+            ("not_enabled", {"enabled": 0}, {}),
+            ("head_rewound", {"head_seq":1835}, {}),
+            ("wrong_kind", {}, {"kind":"NATIVE_TICK"}),
+            ("wrong_predecessor", {}, {"prior_sha": "b"*64}),
+            ("wrong_sha", {}, {"sha":"c"*64}),
+            ("changes", {}, {"_total_changes":1}),
+            ("missing", {}, {"_missing":True}),
+        ]
+        for name,meta_changes,row_changes in cases:
+            with self.subTest(name=name):
+                original=MagicMock()
+                meta={"source_sha":live.TARGET,"enabled":1,
+                      "legacy_suspended":1,"head_seq":1837,
+                      "head_hash":"d"*64}
+                meta.update(meta_changes)
+                original.meta.return_value=meta
+                row={"kind":"SOURCE_TRANSITION_ADMITTED",
+                     "prior_sha":live.successor.PREDECESSOR_SHA,
+                     "sha":expected,"payload":"{}"}
+                row.update({k:v for k,v in row_changes.items()
+                            if not k.startswith("_")})
+                original.conn.total_changes=row_changes.get("_total_changes",0)
+                original.conn.execute.return_value.fetchone.return_value=(
+                    None if row_changes.get("_missing") else row)
+                with patch.object(live.sys,"platform","win32"), \
+                     patch.object(live.os,"name","nt"), \
+                     patch.object(live,"canonical_db",return_value=dbpath), \
+                     patch.object(live.Database,"open_readonly",return_value=original):
+                    with self.assertRaises(live.OriginalV46Denied):
+                        live.verify_poststart_event1836(
+                            dbpath, {"LOCALAPPDATA": "C:/irrelevant"}, expected)
+
+    def test_existing_binary_has_exact_source_rebuild_guard(self):
+        script=(Path(__file__).resolve().parents[1]/
+                "f139/v46_original_owner_live_install.ps1").read_text(
+                    encoding="utf-8")
+        self.assertIn("$existingBinNeedsSourceProof=", script)
+        self.assertIn("go build -trimpath -o $proofBin",script)
+        self.assertIn("EXISTING_BINARY_NOT_SOURCE_BOUND",script)
+        self.assertIn("GOPROXY='off'",script)
+        self.assertIn("GOTOOLCHAIN='local'",script)
+        self.assertIn("F139_V46_LIVE_EVENT1836_ANCHOR=PASS",script)
+        self.assertNotIn(
+            "(Ledger $Target 1836) -ceq $posthead) 'LIVE_OWNER_PROCESS_OR_LEDGER_NOT_VERIFIED'",
+            script)
 
     def test_windows_powershell_51_ast_parse_only(self):
         if os.name!="nt":
