@@ -318,12 +318,14 @@ from contextlib import closing
 from pathlib import Path
 from f139.local_controller import Database
 from f139.hybrid_owner_admission import is_migrated
+from f139.nci04_owner_ledger import verify_native_activation
 with closing(Database.open_readonly(Path(sys.argv[1]))) as db:
     db.verify()
     meta=db.meta()
     assert meta["source_sha"]==sys.argv[2] and meta["enabled"]==1
     assert meta["legacy_suspended"]==1
     assert is_migrated(db)
+    assert verify_native_activation(db)
     assert db.dual_native_schema()
     assert db.conn.execute("PRAGMA query_only").fetchone()[0]==1
     assert db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]>=153
@@ -341,6 +343,7 @@ print("F139_HYBRID_V41_THREE_LANE_COLD_READBACK=PASS")
   Write-Host 'F139_HYBRID_V41_SAME_ORIGINAL_TASK_RESTART=PASS'
   Write-Host 'F139_HYBRID_V41_THREE_LANE_POLICY=PASS'
   Write-Host 'F139_HYBRID_V41_LANE_SCHEMA_MIGRATION=PASS'
+  Write-Host 'F139_HYBRID_V40_ORIGINAL_NATIVE_ACTIVATION=PASS'
   Write-Host 'F139_HYBRID_V41_SCIENTIFIC_FIRST_USE=FALSE'
   Write-Host 'F139_HYBRID_V41_NEW_CONTROLLER=FALSE'
 } catch {
