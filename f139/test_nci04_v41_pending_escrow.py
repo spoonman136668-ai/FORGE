@@ -398,7 +398,7 @@ class V41EscrowTests(unittest.TestCase):
                     escrow.escrowed_native_candidate_identity(
                         db, api, historical, source)
             with self.assertRaisesRegex(
-                    escrow.EscrowDenied, "CATALOG_SOURCE_OR_PAIR_DRIFT"):
+                    escrow.EscrowDenied, "FEED_SOURCE_OR_PAIR_DRIFT"):
                 escrow.escrowed_native_candidate_identity(
                     db, api, historical, escrow.OWNER_SOURCE)
 
