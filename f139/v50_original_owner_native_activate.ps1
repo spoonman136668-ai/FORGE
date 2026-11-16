@@ -151,8 +151,9 @@ try {
   # An ambiguous postcommit state must never be repeated, repaired by
   # rollback or treated as a successful restart.
   try {
-    if($originalDisabled) {
+    if($originalDisabled -or $activationAttempted) {
       Disable-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue|Out-Null
+      Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue|Out-Null
     }
   } catch {}
   throw ('F139_V50_FORWARD_ONLY_OWNER_HOLD_NO_REPLAY: '+$_.Exception.Message)
