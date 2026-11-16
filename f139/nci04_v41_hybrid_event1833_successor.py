@@ -33,7 +33,8 @@ FIELDS = frozenset({
     "owner_event_id", "prior_event_head_sha256",
     "original_head_seq", "original_head_sha256",
     "v39_predecessor_proof_sha256", "verified_historical_tasks",
-    "custodied_negative_tasks", "terminal_tasks_sha256",
+    "custodied_negative_tasks", "custodied_negative_tickets",
+    "terminal_tasks_sha256",
     "backup_run_id", "backup_manifest_sha256",
     "backup_logical_all_tables_sha256", "qualified_worker_blob",
     "purpose", "new_dispatches", "scientific_first_use",
@@ -106,17 +107,17 @@ def predecessor(db, previous):
          and old["terminal_tasks_sha256"] ==
              earlier["terminal_tasks_sha256"],
          "FROZEN_153_56_ORIGINAL_HISTORY_DRIFT")
-    return row["sha"], earlier["terminal_tasks_sha256"]
+    return row["sha"], earlier["terminal_tasks_sha256"], earlier["custodied_negative_tickets"]
 
 
 def snapshot(db, row, previous):
     need(type(row) is not type(None)
          and row["seq"] == PREDECESSOR_SEQ + 1,
          "EXACT_EVENT1833_SEQUENCE_REQUIRED")
-    sha, historical_digest = predecessor(db, previous)
+    sha, historical_digest, tickets = predecessor(db, previous)
     need(row["prior_sha"] == sha,
          "ORIGINAL_EVENT1832_CHAIN_HASH_MISMATCH")
-    return sha, historical_digest
+    return sha, historical_digest, tickets
 
 
 def verify_cold_event(db, row, doc, previous):
@@ -154,8 +155,10 @@ def verify_cold_event(db, row, doc, previous):
              "scientific_first_use", "hybrid_admission",
              "task_resume_authorized", "owner_policy_update_authorized")),
          "EVENT1833_FIELDS_OR_AUTHORITY_DRIFT")
-    sha, task_digest = snapshot(db, row, previous)
-    need(doc["prior_event_head_sha256"] == sha
+    sha, task_digest, tickets = snapshot(db, row, previous)
+    need(type(doc["custodied_negative_tickets"]) is list
+         and doc["custodied_negative_tickets"] == tickets
+         and doc["prior_event_head_sha256"] == sha
          and doc["original_head_sha256"] == sha
          and doc["terminal_tasks_sha256"] == task_digest,
          "FROZEN_V39_PREDECESSOR_IDENTITY_DRIFT")
@@ -178,7 +181,7 @@ def _held_original(db):
         json.loads(r["payload"]) for r in db.conn.execute(
             "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
             "ORDER BY seq")]
-    head, _ = predecessor(db, source_transitions)
+    head, _, _ = predecessor(db, source_transitions)
     need(meta["head_hash"] == head,
          "ORIGINAL_EVENT1832_HEAD_DRIFT")
     return meta
@@ -197,7 +200,7 @@ def build_proof(db, *, target, owner_event_id, backup_run_id,
     previous = [json.loads(r["payload"]) for r in db.conn.execute(
         "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
         "ORDER BY seq")]
-    sha, task_digest = snapshot(
+    sha, task_digest, tickets = snapshot(
         db, {"seq": PREDECESSOR_SEQ + 1,
              "prior_sha": before["head_hash"]}, previous)
     proof = {
@@ -208,6 +211,7 @@ def build_proof(db, *, target, owner_event_id, backup_run_id,
         "v39_predecessor_proof_sha256": PREDECESSOR_PROOF_SHA256,
         "verified_historical_tasks": 153, "custodied_negative_tasks": 56,
         "terminal_tasks_sha256": task_digest,
+        "custodied_negative_tickets": tickets,
         "backup_run_id": backup_run_id,
         "backup_manifest_sha256": backup_manifest_sha256,
         "backup_logical_all_tables_sha256":
