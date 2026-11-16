@@ -208,6 +208,142 @@ class LiveV46Tests(unittest.TestCase):
         self.assertNotIn("workflow_dispatch:",recovery)
         self.assertNotIn("schedule:",recovery)
 
+    def fake_held_recovery(self):
+        env,event,data,get=self.fake_recovery()
+        base="repos/"+v42.REPO+"/"
+        previous=event["comment"]
+        data.pop(base+"issues/comments/"+str(previous["id"]))
+        cid=live.HELD_PREDECESSOR_COMMENT+3000
+        now="2026-11-16T22:30:00Z"
+        event["comment"]=dict(
+            id=cid,body=live.HELD_RECOVERY_PREFIX+
+              env["GITHUB_SHA"]+" "+live.TARGET+" "+
+              str(live.HELD_PREDECESSOR_COMMENT)+" "+
+              str(live.HELD_PREDECESSOR_RUN),
+            created_at=now,updated_at=now,user={"login":v42.OWNER},
+            author_association="OWNER")
+        data[base+"issues/comments/"+str(cid)]=dict(
+            **event["comment"],
+            issue_url="https://api.github.com/repos/"+v42.REPO+"/issues/807")
+        data[base+"issues/comments/"+str(live.HELD_PREDECESSOR_COMMENT)] = dict(
+            id=live.HELD_PREDECESSOR_COMMENT,
+            body=(live.RECOVERY_PREFIX+live.HELD_PREDECESSOR_MAIN+
+                  " "+live.TARGET+" "+str(live.FAILED_RELEASE_COMMENT)+
+                  " "+str(live.FAILED_RELEASE_RUN)),
+            created_at="2026-11-16T21:56:05Z",
+            user={"login":v42.OWNER},author_association="OWNER",
+            issue_url="https://api.github.com/repos/"+v42.REPO+"/issues/807")
+        data[base+"actions/runs/"+str(live.HELD_PREDECESSOR_RUN)] = dict(
+            id=live.HELD_PREDECESSOR_RUN,head_sha=live.HELD_PREDECESSOR_MAIN,
+            name=live.RECOVERY_WORKFLOW,event="issue_comment",run_attempt=1,
+            status="completed",conclusion="failure",actor={"login":v42.OWNER})
+        data[base+"actions/runs/"+str(live.HELD_PREDECESSOR_RUN)+
+             "/jobs?per_page=100"]=dict(
+            total_count=2,jobs=[
+                dict(id=live.HELD_PREDECESSOR_JOB,
+                     name=live.HELD_PREDECESSOR_JOB_NAME,
+                     status="completed",conclusion="failure"),
+                dict(id=5,name="other-job",status="completed",
+                     conclusion="skipped")])
+        return env,event,data,get
+
+    def invoke_held(self,env,event,get):
+        with patch.object(live.sys,"platform","win32"), \
+             patch.object(live.os,"name","nt"), \
+             patch.object(v45,"qualify",return_value={
+                 "v44_original_job_status":"success"}), \
+             patch.object(v42,"release_source",return_value={
+                 "main_qualification_job_count":8,
+                 "main_qualification_run_id":43964232168}):
+            return live.request(get,env,event,
+                                recovery_mode=True,held_recovery_mode=True)
+
+    def test_v48_held_recovery_preserves_mode_on_every_recheck(self):
+        env,event,data,get=self.fake_held_recovery()
+        proof=self.invoke_held(env,event,get)
+        self.assertEqual(proof["comment_id"],event["comment"]["id"])
+        # Neither V46 nor V47's previously consumed comment is replayable.
+        with self.assertRaises(live.OriginalV46Denied):
+            self.invoke_recovery(env,event,get)
+        with self.assertRaises(live.OriginalV46Denied):
+            self.invoke(env,event,get)
+        source=inspect.getsource(live.commit_original)
+        self.assertIn("release = lambda: request(get,env,event,",source)
+        self.assertIn("held_recovery_mode=held_mode) == req",source)
+        self.assertNotIn("release = lambda: request(get,env,event) == req",source)
+        self.assertIn("held_recovery_mode=held_mode",source)
+        self.assertIn("need(not held_mode or recovery",source)
+
+    def test_v48_held_recovery_negative_prior_run_and_comment(self):
+        base="repos/"+v42.REPO+"/"
+        edits=[
+            ("run","conclusion","success"),
+            ("run","run_attempt",2),
+            ("run","head_sha","0"*40),
+            ("run","actor",{"login":"another"}),
+            ("jobs","total_count",999),
+            ("job","conclusion","success"),
+            ("job","id",-1),
+            ("old","author_association","CONTRIBUTOR"),
+            ("old","body","unexpected"),
+            ("old","created_at","2026-11-16T23:59:00Z"),
+            ("worker","protected",False),
+        ]
+        for group,key,value in edits:
+            with self.subTest(group=group,key=key):
+                env,event,data,get=self.fake_held_recovery()
+                rows={
+                    "run":data[base+"actions/runs/"+
+                               str(live.HELD_PREDECESSOR_RUN)],
+                    "jobs":data[base+"actions/runs/"+
+                                str(live.HELD_PREDECESSOR_RUN)+
+                                "/jobs?per_page=100"],
+                    "job":data[base+"actions/runs/"+
+                               str(live.HELD_PREDECESSOR_RUN)+
+                               "/jobs?per_page=100"]["jobs"][0],
+                    "old":data[base+"issues/comments/"+
+                               str(live.HELD_PREDECESSOR_COMMENT)],
+                    "worker":data[base+"branches/"+
+                                live.pin.release_worker_branch(live.TARGET)],
+                }
+                rows[group][key]=value
+                with self.assertRaises(live.OriginalV46Denied):
+                    self.invoke_held(env,event,get)
+
+    def test_v48_held_no_replay_and_readonly_job_scopes(self):
+        root=Path(__file__).resolve().parents[1]
+        script=(root/"f139/v46_original_owner_live_install.ps1").read_text(
+            encoding="utf-8")
+        workflow=(root/".github/workflows/f139-g54-v9-owner-cutover.yml").read_text(
+            encoding="utf-8")
+        self.assertEqual(script.count("Invoke-WebRequest -Method Post"),1)
+        self.assertIn("if($HeldRecovery) {",script)
+        self.assertIn("F139-V48-HELD-RESUME ",script)
+        self.assertIn("F139_V48_HELD_RECOVERY_FORWARD_ONLY_HOLD",script)
+        self.assertIn("$disabled -and -not $commitEntered -and -not $HeldRecovery",script)
+        self.assertIn("F139_V48_HELD_RECOVERY",script)
+        self.assertEqual(workflow.count("  v48-original-owner-held-recovery:"),1)
+        self.assertEqual(workflow.count("  v48-original-owner-held-readonly:"),1)
+        diagnostic=workflow.split("  v48-original-owner-held-readonly:",1)[1].split(
+            "  v48-original-owner-held-recovery:",1)[0]
+        release=workflow.split("  v48-original-owner-held-recovery:",1)[1]
+        self.assertIn("F139-V48-HELD-READONLY ",diagnostic)
+        self.assertIn("Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController'",diagnostic)
+        self.assertIn("from f139.nci04_v42_owner_source_readiness import original_owner_cold_read",
+                      diagnostic)
+        self.assertIn("contents: read",diagnostic)
+        self.assertNotIn("contents: write",diagnostic)
+        self.assertNotIn("Disable-ScheduledTask",diagnostic)
+        self.assertNotIn("Enable-ScheduledTask",diagnostic)
+        self.assertNotIn("Start-ScheduledTask",diagnostic)
+        self.assertIn("F139-V48-HELD-RESUME ",release)
+        self.assertIn("-ExistingRefRecovery -HeldRecovery",release)
+        self.assertIn("F139_V48_HELD_RECOVERY: '1'",release)
+        self.assertIn("contents: read",release)
+        self.assertNotIn("contents: write",release)
+        self.assertNotIn("workflow_dispatch:",release)
+        self.assertNotIn("schedule:",release)
+
     def test_forged_owner_and_unsafe_replay_rejected(self):
         variants=[
             ("env","GITHUB_ACTOR","other"),
