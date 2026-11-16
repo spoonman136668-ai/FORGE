@@ -811,14 +811,18 @@ class Database:
                 is_v40 = (isinstance(doc, dict)
                           and doc.get("schema") == "forge.f139.source-transition.v40"
                           and set(doc) == V40_FIELDS)
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40,
+                from f139.nci04_v43_event1836_successor import FIELDS as V41_FIELDS
+                is_v41 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v41"
+                          and set(doc) == V41_FIELDS)
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1740,6 +1744,9 @@ class Database:
                     verify_cold_event(self, row, doc, source_transitions)
                 if is_v40:
                     from f139.nci04_v41_hybrid_event1833_successor import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v41:
+                    from f139.nci04_v43_event1836_successor import verify_cold_event
                     verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
