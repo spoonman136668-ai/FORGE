@@ -264,6 +264,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or tree != "eb5dcc4e7aed43fc6f792fdf6bf8a54802206974"):
             raise ValueError("G156_V39_ORIGINAL_OWNER_EXACT_BASE_TREE_REQUIRED")
         return
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v39-event1832-postwrite-canonical-readback-20261115":
+        if (admission != FROZEN
+                or base != "1479f963160001037566e4cef33582c5293fb773"
+                or tree != "7f8a752a2244e00a7617dd113317ff365191b54d"):
+            raise ValueError("G156_V40_ORIGINAL_OWNER_EXACT_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v39-concurrency-isolation-v2-20261115":
         if (admission != FROZEN
                 or base != "f9681850ec008b5d872de960544c46e6f5c7943b"
