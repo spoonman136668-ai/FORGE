@@ -4230,3 +4230,48 @@ jobs:
           Write-Output 'F139_V44_ORIGINAL_TASK_MUTATIONS=ZERO'
           Write-Output 'F139_V44_SOURCE_RELEASE_AUTHORIZED=FALSE'
           Write-Output 'F139_V44_SCIENTIFIC_FIRST_USE=FALSE'
+
+  v46-original-owner-live-install:
+    # Reuse the original Windows owner/task. Explicit new owner intent only.
+    # This is the sole V46 event1836 source cutover, NOT a schedule/consumer.
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V46-LIVE-INSTALL ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      pull-requests: read
+    steps:
+      - name: Checkout exact protected main without retained credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Authenticate and execute one-shot original-owner event1836 source release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: .
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_SHA -cnotmatch '^[a-f0-9]{40}$' -or
+             $env:OPENAI_API_KEY) {
+            throw 'F139_V46_EXACT_ORIGINAL_OWNER_FIRST_ATTEMPT_REQUIRED'
+          }
+          & "$env:GITHUB_WORKSPACE/f139/v46_original_owner_live_install.ps1" -Target '4ccbb84785a43e038453d6f2bda5415ecb364084'
+          if($LASTEXITCODE -ne 0) { throw 'F139_V46_LIVE_SOURCE_RELEASE_NOT_ACCEPTED' }
