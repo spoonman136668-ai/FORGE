@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 import sys
 import os
+import shutil
+import subprocess
 
 from f139.local_controller import Database, GitHub, SingleOwner
 from f139.nci04_native_contract import canonical, digest
@@ -256,6 +258,64 @@ def original_readiness(path, env, event, api):
     }
 
 
+
+def stage_original_candidate(path, target):
+    """Create-only or exact-key reuse of the existing owner's release checkout.
+
+    The V40 activation job later verifies this exact clean local stage before
+    changing the original task. Do not use an arbitrary mutable worktree.
+    """
+    need(sys.platform == "win32" and os.name == "nt"
+         and type(path) is Path and path.is_absolute()
+         and type(target) is str
+         and successor.SHA40.fullmatch(target) is not None
+         and SingleOwner.held(path.with_suffix(".lock")),
+         "ORIGINAL_OWNER_STAGE_MUTEX_REQUIRED")
+    from f139 import nci04_v41_hybrid_cold_bundle as bundles
+    stage_root = path.parent / "release-candidates"
+    stage = stage_root / target
+    original = Path(__file__).resolve().parents[1]
+    git = shutil.which("git")
+    need(git is not None
+         and stage.resolve().parent == stage_root.resolve()
+         and all(bundles._nonlink(p) for p in (
+             path.parent, *path.parents)),
+         "NATIVE_RELEASE_STAGE_PARENT_UNSAFE")
+
+    def run(*cmd):
+        try:
+            receipt = subprocess.run(
+                [git, *cmd], stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                timeout=240, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise Event1833OwnerDenied(
+                "F139_V40_OWNER_STAGE_GIT_UNQUALIFIED") from exc
+        need(receipt.returncode == 0,
+             "NATIVE_RELEASE_STAGE_GIT_FAILED")
+        return receipt.stdout.decode("utf-8").strip()
+
+    # Before staging, authenticate the exact fully committed native checkout.
+    owner._candidate_clean_checkout(target)
+    if not stage.exists() and not stage.is_symlink():
+        need(not stage_root.is_symlink()
+             and not getattr(stage_root, "is_junction", lambda: False)(),
+             "NATIVE_STAGE_PARENT_LINK_DENIED")
+        stage_root.mkdir(parents=True, exist_ok=True)
+        need(not stage.exists() and not stage.is_symlink(),
+             "NATIVE_STAGE_UNKNOWN_COLLISION")
+        run("clone", "--quiet", "--no-hardlinks", "--no-checkout",
+            str(original), str(stage))
+        run("-C", str(stage), "checkout", "--quiet", "--detach", target)
+    need(stage.is_dir() and not stage.is_symlink()
+         and not getattr(stage, "is_junction", lambda: False)(),
+         "NATIVE_STAGE_DIRECTORY_UNQUALIFIED")
+    need(run("-C", str(stage), "rev-parse", "HEAD") == target
+         and run("-C", str(stage), "status", "--porcelain",
+                 "--untracked-files=all") == "",
+         "NATIVE_STAGE_SOURCE_OR_CLEAN_TREE_DRIFT")
+    return True
+
 def original_backup(path, env, event, api):
     """One create-only real event-1832 backup, no source/task/policy mutation."""
     need(sys.platform == "win32" and os.name == "nt"
@@ -281,6 +341,9 @@ def original_backup(path, env, event, api):
     with SingleOwner(path.with_suffix(".lock")):
         with closing(Database.open_readonly(path)) as db:
             before = successor._held_original(db)
+            need(stage_original_candidate(path, target) is True
+                 and held_task() and frozen_release(),
+                 "STAGED_SOURCE_OR_ORIGINAL_HOLD_DRIFT")
             evidence = cold.stage_complete_cold_bundle(
                 db, target=target, run_id=req["backup_run_id"],
                 disabled_owner_witness=held_task,
@@ -306,6 +369,7 @@ def original_backup(path, env, event, api):
             evidence["backup_logical_all_tables_sha256"],
         "expected_proof_sha256": want_hash,
         "detached_restore": evidence,
+        "clean_candidate_staged": True,
         "original_owner_mutations": 0,
         "original_task_still_disabled": True,
         "task_resume_authorized": False,
