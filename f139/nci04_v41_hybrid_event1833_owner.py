@@ -29,8 +29,8 @@ from f139 import nci04_v41_hybrid_successor_release as shared
 
 REPO = "spoonman136668-ai/FORGE"
 OWNER = "spoonman136668-ai"
-PR = 1777
-BRANCH = "engineering/f139-v39-event1832-postwrite-canonical-readback-20261115"
+PR = 1779
+BRANCH = "engineering/f139-v40-stage-path-instance-20261116"
 PREDECESSOR_POSTCOMMIT_COMMENT_ID = 6902549450
 PREDECESSOR_SOURCE_COMMIT_COMMENT_ID = 6902472106
 READINESS = "F139-HYBRID-V40-READINESS "
@@ -48,7 +48,7 @@ def need(ok, reason):
 
 
 def release(get, target):
-    """Only owner PR #1774 after exact merged tree and full main regression."""
+    """Only owner PR #1779 after exact merged tree and full main regression."""
     need(callable(get) and type(target) is str
          and successor.SHA40.fullmatch(target) is not None
          and target != successor.SOURCE,
@@ -75,7 +75,7 @@ def release(get, target):
          and pr["base"].get("ref") == "main"
          and type(pr["base"].get("repo")) is dict
          and pr["base"]["repo"].get("full_name") == REPO,
-         "PR1776_MERGED_PROTECTED_MAIN_REQUIRED")
+         "PR1779_MERGED_PROTECTED_MAIN_REQUIRED")
     cmp = get(base + "compare/" + successor.SOURCE + "..." + target +
               "?per_page=1&page=2")
     need(type(cmp) is dict and cmp.get("status") == "ahead"
@@ -266,7 +266,7 @@ def stage_original_candidate(path, target):
     changing the original task. Do not use an arbitrary mutable worktree.
     """
     need(sys.platform == "win32" and os.name == "nt"
-         and type(path) is Path and path.is_absolute()
+         and isinstance(path, Path) and path.is_absolute()
          and type(target) is str
          and successor.SHA40.fullmatch(target) is not None
          and SingleOwner.held(path.with_suffix(".lock")),
