@@ -40,6 +40,8 @@ class V40OwnerReleaseContractTests(unittest.TestCase):
             owner.original_readiness(None, {}, {}, None)
         with self.assertRaises(owner.Event1833OwnerDenied):
             owner.original_backup(None, {}, {}, None)
+        with self.assertRaises(owner.Event1833OwnerDenied):
+            owner.stage_original_candidate(None, "b"*40)
         with self.assertRaises(commit.Event1833CommitDenied):
             commit.original_source_commit(None, {}, {}, None)
         with self.assertRaises(post.Event1833PostcommitDenied):
@@ -57,6 +59,14 @@ class V40OwnerReleaseContractTests(unittest.TestCase):
             self.assertNotIn("Start-ScheduledTask",source)
             self.assertNotIn("workflow_dispatch",source)
             self.assertNotIn("OPENAI_API_KEY = ",source)
+        source=inspect.getsource(owner.stage_original_candidate)
+        self.assertIn("clone",source)
+        self.assertIn("--no-hardlinks",source)
+        self.assertIn("--detach",source)
+        self.assertIn("release-candidates",source)
+        self.assertIn("SingleOwner.held(",source)
+        self.assertIn("status",source)
+        self.assertIn("NATIVE_STAGE_UNKNOWN_COLLISION",source)
         self.assertIn("SingleOwner(",inspect.getsource(commit))
         self.assertIn("Database.open_readonly",inspect.getsource(post))
         self.assertIn("independent_detached_restore_verified",
