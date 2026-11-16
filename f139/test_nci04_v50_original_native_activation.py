@@ -78,7 +78,6 @@ class V50SourceActivationTests(unittest.TestCase):
         self.assertFalse(receipt["new_controller"])
         self.assertEqual(receipt["new_dispatches"], 0)
         self.assertEqual(receipt["owner_comment_id"], COMMENT)
-        self.assertFalse(self.call) if False else None
 
     def test_actor_comment_and_immutable_prior_failure_closed(self):
         cases = (
@@ -140,7 +139,8 @@ class V50SourceActivationTests(unittest.TestCase):
         self.assertEqual(v50.HEAD_SEQ, 1836)
         self.assertEqual(v50.HEAD_HASH,
                          "dbc4e12862c819812121adf1df905f74023c65633067bcabe906488d37468964")
-        self.assertEqual(v50.SOURCE, v43.ORIGINAL_SOURCE)
+        self.assertEqual(v50.BEFORE, v43.ORIGINAL_SOURCE)
+        self.assertNotEqual(v50.SOURCE, v50.BEFORE)
         self.assertEqual(v50.PREVIOUS_RUN, 43973705548)
 
     def test_live_mutator_is_single_source_locked_and_quiesced(self):
