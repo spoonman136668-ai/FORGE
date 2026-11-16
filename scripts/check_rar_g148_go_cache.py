@@ -133,6 +133,10 @@ def event_mode(head):
         raise ValueError("G148_ONLY_SAME_REPO_MAIN_PR")
     admiss = admit_original_pr(head, git)
     branch = os.environ["GITHUB_HEAD_REF"]
+    if branch == "engineering/f139-v43-event1835-full-cold-backup-20261116":
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G148_V43_ORIGINAL_COLD_BACKUP_EXACT_SCOPE_REQUIRED")
+        return "pr"
     if branch == "engineering/f139-v42-original-host-readonly-bridge-20261116":
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G148_V42_OWNER_READONLY_EXACT_SCOPE_REQUIRED")

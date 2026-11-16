@@ -321,6 +321,20 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # Exact PR1784: one existing original owner create-only cold-backup
+    # route. Source/backup engineering only, never live source permission.
+    "engineering/f139-v43-event1835-full-cold-backup-20261116": (
+        "ac51b464e018b97099c7aa7fad4f6238c64b2500",
+        {
+            ".github/workflows/f139-g54-v9-owner-cutover.yml",
+            "f139/nci04_v43_event1835_cold.py",
+            "f139/nci04_v43_owner_backup_cli.py",
+            "f139/test_nci04_v43_event1835_cold.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Exact original-owner PR1782: add one independently activated read-only
     # diagnostic on the existing G54 owner workflow. No mutation authority.
     "engineering/f139-v42-original-host-readonly-bridge-20261116": (
@@ -2318,6 +2332,23 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v43-event1835-full-cold-backup-20261116":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1784
+                    or type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or git("rev-parse", "ac51b464e018b97099c7aa7fad4f6238c64b2500^{tree}") !=
+                        "bc997acca85b6219cc175267e19bd7faafa3b8e3"
+                    or git("rev-parse",
+                           "ac51b464e018b97099c7aa7fad4f6238c64b2500:" + workflow) !=
+                           "145456e37b097aafd42a3f190e538b71543115a1"
+                    or git("rev-parse", head_sha + ":" + workflow) !=
+                           "b812b308840c6fd20110f3819f843eb4e875602b"):
+                raise ValueError("G145_V43_ORIGINAL_COLD_BACKUP_PR1784_DENIED")
         if branch == "engineering/f139-v42-original-host-readonly-bridge-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
