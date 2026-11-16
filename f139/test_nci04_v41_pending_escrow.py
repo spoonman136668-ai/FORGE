@@ -327,5 +327,89 @@ class V41EscrowTests(unittest.TestCase):
                 db, old, "9"*40), old)
             self.assertEqual(conn.total_changes, before)
 
+    def test_escrowed_native_candidate_never_auto_reissued(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from f139.local_controller import GitHub
+        from f139.nci04_autonomy_feed import candidate_identity
+
+        with closing(self.synthetic_cold_events()) as conn:
+            class Catalog:
+                def __init__(self, connection, source):
+                    self.conn, self.source = connection, source
+                def meta(self):
+                    return {"source_sha": self.source}
+            source = "9" * 40
+            db = Catalog(conn, source)
+            successor = dict(
+                schema="forge.f139.source-transition.v36",
+                from_source_sha=escrow.OWNER_SOURCE,
+                to_source_sha=source,
+                original_head_seq=escrow.OBSERVED_SEQ+1,
+                prior_event_head_sha256="1"*64,
+                pending_1715_escrow_sha256="1"*64,
+                owner_event_id=777)
+            conn.execute("INSERT INTO events VALUES(?,?,?,?,?)",
+                (escrow.OBSERVED_SEQ+2, "SOURCE_TRANSITION_ADMITTED",
+                 "2"*64, "1"*64, event_canonical(successor).decode("ascii")))
+            frozen = self.document()
+            candidate = SimpleNamespace(
+                target_commit=frozen["target_commit"],
+                target_tree_sha=frozen["target_tree_sha"],
+                path="yggdrasil/public_causal_cells.py",
+                after_sha256="f"*64)
+            original = SimpleNamespace(
+                number=1715, issue_id=frozen["issue_id"],
+                source_sha=escrow.OWNER_SOURCE,
+                ticket=frozen["ticket"],
+                issue_body_sha256=frozen["issue_body_sha256"],
+                native_intent_sha256=frozen["native_intent_sha256"],
+                lane="Yggdrasil", candidate=candidate)
+            api = GitHub()
+            historical = {}
+            oldchanges = conn.total_changes
+            with patch("f139.nci04_v41_pending_custody._authenticated_remote_issue",
+                       return_value=original) as read, patch(
+                       "f139.nci04_v41_pending_custody._semantic_identity",
+                       return_value=frozen["semantic_identity_sha256"]) as semantic:
+                identity = escrow.escrowed_native_candidate_identity(
+                    db, api, historical, source)
+                self.assertEqual(identity, candidate_identity(
+                    "Yggdrasil", candidate.target_commit,
+                    candidate.path, candidate.after_sha256))
+                self.assertEqual(conn.total_changes, oldchanges)
+                self.assertEqual(historical, {})
+                read.assert_called_once_with(api, 1715, escrow.OWNER_SOURCE)
+                semantic.assert_called_once()
+                read.return_value = SimpleNamespace(**{
+                    **vars(original), "issue_body_sha256": "0"*64})
+                with self.assertRaisesRegex(
+                        escrow.EscrowDenied, "FEED_CANDIDATE_CUSTODY_DRIFT"):
+                    escrow.escrowed_native_candidate_identity(
+                        db, api, historical, source)
+                read.return_value = original
+                semantic.return_value = "0"*64
+                with self.assertRaisesRegex(
+                        escrow.EscrowDenied, "FEED_CANDIDATE_CUSTODY_DRIFT"):
+                    escrow.escrowed_native_candidate_identity(
+                        db, api, historical, source)
+            with self.assertRaisesRegex(
+                    escrow.EscrowDenied, "CATALOG_SOURCE_OR_PAIR_DRIFT"):
+                escrow.escrowed_native_candidate_identity(
+                    db, api, historical, escrow.OWNER_SOURCE)
+
+    def test_escrowless_autofeed_requires_no_remote_reads(self):
+        from unittest.mock import patch
+        with closing(self.synthetic_cold_events()) as conn:
+            conn.execute("DELETE FROM events WHERE kind=?", (escrow.KIND,))
+            class Catalog:
+                def __init__(self, connection):
+                    self.conn = connection
+            db = Catalog(conn)
+            with patch("f139.nci04_v41_pending_custody._authenticated_remote_issue",
+                       side_effect=AssertionError("unexpected remote call")):
+                self.assertIsNone(escrow.escrowed_native_candidate_identity(
+                    db, None, {}, "9"*40))
+
 if __name__ == "__main__":
     unittest.main()
