@@ -2360,7 +2360,7 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                     or git("rev-parse", "4ccbb84785a43e038453d6f2bda5415ecb364084:" + workflow) !=
                        "b812b308840c6fd20110f3819f843eb4e875602b"
                     or git("rev-parse", head_sha + ":" + workflow) !=
-                       "cd62ad2d933b83b199b1ffb9f4d0c6fe3918bb40"):
+                       "3910158427d1ccd5a4b066f5481fbd9719a4e774"):
                 raise ValueError("G145_V44_ORIGINAL_COPY_REHEARSAL_PR1786_DENIED")
         if branch == "engineering/f139-v43-event1835-full-cold-backup-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
