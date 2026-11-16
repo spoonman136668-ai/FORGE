@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import sys
 
 from f139.local_controller import Database, GitHub, SingleOwner
@@ -189,6 +191,54 @@ def snapshot(db, activated):
     return meta["head_hash"]
 
 
+def original_task_quiesced(db_path):
+    """Independent native guard against direct CLI while original task runs."""
+    cmd = shutil.which("powershell.exe")
+    need(cmd is not None, "NATIVE_POWERSHELL_REQUIRED")
+    ps = r'''
+$ErrorActionPreference='Stop'
+$t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+$who=[Security.Principal.WindowsIdentity]::GetCurrent()
+$sid=''
+try {
+  $sid=(New-Object Security.Principal.NTAccount([string]$t.Principal.UserId)).
+    Translate([Security.Principal.SecurityIdentifier]).Value
+} catch {}
+if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3 -or
+   ([string]$t.Principal.UserId -ine $who.Name -and $sid -cne $who.User.Value) -or
+   [string]$t.State -cne 'Disabled' -or $t.Settings.Enabled -ne $false) {
+  exit 41
+}
+$a=$t.Actions[0]
+if([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe') {exit 42}
+function Arg([string]$name) {
+  $m=[regex]::Match([string]$a.Arguments,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+  if(-not $m.Success){exit 43}
+  return [string]$m.Groups[1].Value
+}
+$source=Arg 'RepositoryRoot'
+$db=Arg 'Database'
+$wrapper=Arg 'File'
+$expected=Join-Path $env:LOCALAPPDATA 'FORGE-F139\release-candidates\4ccbb84785a43e038453d6f2bda5415ecb364084'
+if([IO.Path]::GetFullPath($source) -ine [IO.Path]::GetFullPath($expected) -or
+   [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($env:F139_V50_DB_PATH) -or
+   [IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1') {exit 44}
+$children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+  Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+                $_.CommandLine.Contains($db)})
+if($children.Count -ne 0){exit 45}
+Write-Output 'F139_V50_ORIGINAL_TASK_QUIESCED=PASS'
+'''
+    result = subprocess.run(
+        [cmd, "-NoProfile", "-NonInteractive", "-Command", ps],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env={**os.environ, "F139_V50_DB_PATH": str(db_path.resolve())},
+        stdin=subprocess.DEVNULL, timeout=30, check=False)
+    need(result.returncode == 0 and
+         result.stdout.strip() == b"F139_V50_ORIGINAL_TASK_QUIESCED=PASS",
+         "NATIVE_TASK_NOT_EXCLUSIVELY_QUIESCED")
+
+
 def execute(db_path, mode):
     need(os.name == "nt" and sys.platform == "win32",
          "NATIVE_WINDOWS_ONLY")
@@ -211,7 +261,9 @@ def execute(db_path, mode):
     need(mode == "commit", "UNKNOWN_MODE")
     # PowerShell has already disabled and quiesced the one original task.
     # The original SQLite SingleOwner mutex is the only writer authority.
+    original_task_quiesced(db_path)
     with SingleOwner(db_path.with_suffix(".lock")):
+        original_task_quiesced(db_path)
         db = Database(db_path)
         try:
             snapshot(db, False)
