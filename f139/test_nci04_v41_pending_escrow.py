@@ -366,7 +366,7 @@ class V41EscrowTests(unittest.TestCase):
                 native_intent_sha256=frozen["native_intent_sha256"],
                 lane="Yggdrasil", candidate=candidate)
             api = GitHub()
-            historical = {}
+            historical = escrow.catalog_escrow_exclusion(db, {}, source)
             oldchanges = conn.total_changes
             with patch("f139.nci04_v41_pending_custody._authenticated_remote_issue",
                        return_value=original) as read, patch(
@@ -378,8 +378,12 @@ class V41EscrowTests(unittest.TestCase):
                     "Yggdrasil", candidate.target_commit,
                     candidate.path, candidate.after_sha256))
                 self.assertEqual(conn.total_changes, oldchanges)
-                self.assertEqual(historical, {})
+                self.assertEqual(set(historical), {1715})
                 read.assert_called_once_with(api, 1715, escrow.OWNER_SOURCE)
+                with self.assertRaisesRegex(
+                        escrow.EscrowDenied, "FEED_ESCROW_CATALOG_DRIFT"):
+                    escrow.escrowed_native_candidate_identity(
+                        db, api, {}, source)
                 semantic.assert_called_once()
                 read.return_value = SimpleNamespace(**{
                     **vars(original), "issue_body_sha256": "0"*64})
