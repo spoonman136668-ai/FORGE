@@ -4851,6 +4851,13 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 event["issue_body_sha256"], event["ticket"])
             for event in events
         }
+        # Event 1827 is an escrow, never an admission. Exclude only the
+        # separately verified paired #1715 old-source issue from NEW intake;
+        # the catalog reauthenticates its original remote bytes and target.
+        # Unaccounted-for stale/mutated issues still fail closed.
+        from f139.nci04_v41_pending_escrow import catalog_escrow_exclusion
+        historical_issues = catalog_escrow_exclusion(
+            db, historical_issues, meta["source_sha"])
         eligible = api.native_eligible_issues(
             meta["source_sha"], historical_issues=historical_issues)
         from f139.nci04_partial_publication_custody import custodied_ids
