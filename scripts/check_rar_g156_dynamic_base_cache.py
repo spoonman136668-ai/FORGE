@@ -258,6 +258,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v42-original-host-readonly-bridge-20261116":
+        if (admission != FROZEN
+                or base != "6006942116330ffc579784c88b1610d19b3f73cc"
+                or tree != "1783004aec8c720ad28c47a68175264bad394d8c"):
+            raise ValueError("G156_V42_ORIGINAL_READONLY_EXACT_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v40-stage-path-instance-20261116":
         if (admission != FROZEN
                 or base != "c5d2e94581565ff8e1b66d498d0b9a167e548454"
