@@ -219,5 +219,86 @@ class V43FullBackupTests(unittest.TestCase):
 
 
 
+    def test_head1835_and_last_v40_source1833_are_distinct(self):
+        """Actual original has later owner events after source transition."""
+        from f139.local_controller import Database, canonical as event_canonical
+        from f139 import nci04_v41_hybrid_event1833_successor as v40
+
+        doc = dict.fromkeys(v40.FIELDS)
+        doc.update({
+            "schema": v40.SCHEMA,
+            "to_source_sha": v42.BEFORE,
+            "from_source_sha": v40.SOURCE,
+            "original_head_seq": v40.PREDECESSOR_SEQ,
+            "purpose": v40.PURPOSE,
+            "backup_run_id": 43786907945,
+            "backup_manifest_sha256":
+                "c07539a0cdb598d9d273701d8b4c5e843b9915beb1dbe4dfe6af6893ee42524b",
+            "scientific_first_use": False,
+            "hybrid_admission": False,
+            "new_dispatches": 0,
+            "task_resume_authorized": False,
+            "owner_policy_update_authorized": False,
+        })
+        payload = event_canonical(doc).decode("ascii")
+        head = {"seq": v42.FROZEN_SEQ, "sha": v42.FROZEN_HEAD}
+        latest = {
+            "seq": 1833, "kind": "SOURCE_TRANSITION_ADMITTED",
+            "sha": "d" * 64, "payload": payload,
+        }
+
+        class Result:
+            def __init__(self, row):
+                self.row = row
+            def fetchone(self):
+                return self.row
+
+        class ReadOnlyConnection:
+            total_changes = 0
+            def execute(self, sql, args=()):
+                if sql == "PRAGMA query_only":
+                    return Result((1,))
+                if "FROM events WHERE seq=?" in sql:
+                    self_verify.assertEqual(args, (1835,))
+                    return Result(head)
+                if "WHERE kind='SOURCE_TRANSITION_ADMITTED'" in sql:
+                    self_verify.assertEqual(args, (1835,))
+                    self_verify.assertIn("ORDER BY seq DESC LIMIT 1", sql)
+                    return Result(latest)
+                raise AssertionError("Unapproved SQL")
+
+        self_verify = self
+        db = object.__new__(Database)
+        db._readonly_opened = True
+        db.conn = ReadOnlyConnection()
+        with patch.object(cold, "_frozen_meta",
+                          return_value={"head_hash": v42.FROZEN_HEAD}):
+            self.assertEqual(cold.last_source_transition(db), doc)
+            # Neither a tampered head nor a different latest source can pass.
+            head["sha"] = "0" * 64
+            with self.assertRaisesRegex(
+                    cold.OriginalColdDenied, "FROZEN_LEDGER_HEAD1835"):
+                cold.last_source_transition(db)
+            head["sha"] = v42.FROZEN_HEAD
+            for key, bad in (
+                ("seq", 1835), ("sha", "x" * 64),
+                ("kind", "NATIVE_DEVELOPMENT_ADMITTED")):
+                with self.subTest(field=key):
+                    old = latest[key]
+                    latest[key] = bad
+                    with self.assertRaises(cold.OriginalColdDenied):
+                        cold.last_source_transition(db)
+                    latest[key] = old
+            old = latest["payload"]
+            doc["to_source_sha"] = "b" * 40
+            latest["payload"] = event_canonical(doc).decode("ascii")
+            with self.assertRaisesRegex(
+                    cold.OriginalColdDenied, "LAST_V40_SOURCE_PROOF_DRIFT"):
+                cold.last_source_transition(db)
+            latest["payload"] = old
+        self.assertEqual(db.conn.total_changes, 0)
+
+
+
 if __name__ == "__main__":
     unittest.main()
