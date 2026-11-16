@@ -258,6 +258,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v40-stage-path-instance-20261116":
+        if (admission != FROZEN
+                or base != "c5d2e94581565ff8e1b66d498d0b9a167e548454"
+                or tree != "2329c68909523058669f52ddeed82ff4f8b4f4a5"):
+            raise ValueError("G156_V40_PR1779_BASE_TREE_OR_ADMISSION_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v38-event1831-activation-bridge-20261115":
         if (admission != FROZEN
                 or base != "eae38f6d0af27c41181da10c35685c6a3e8c68b4"

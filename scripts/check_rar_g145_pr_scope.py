@@ -330,6 +330,8 @@ FROZEN_SCOPES = {
             "f139/nci04_v41_hybrid_event1833_owner.py",
             "f139/test_nci04_v41_hybrid_event1833_owner.py",
             "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
     # Exact PR1777: V40 event1832 forward-only recovery plus one qualified
