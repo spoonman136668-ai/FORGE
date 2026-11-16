@@ -3176,7 +3176,20 @@ class GitHub:
                 failure = "GITHUB_API_TRANSIENT"
             else:
                 failure = "GITHUB_API_FAILED"
-            if read_only and failure in ("GITHUB_API_RATE_LIMIT", "GITHUB_API_TRANSIENT") and attempt + 1 < attempts:
+            # A failed source-ancestry GET with no parseable HTTP status is
+            # safe to retry, but only on the exact bounded custody compare
+            # route. V48 observed this failure with exit 1 on the owner host.
+            # Never convert an unknown result into an accepted source witness.
+            opaque_compare_read = (
+                read_only and p.returncode == 1 and status_code is None
+                and failure == "GITHUB_API_FAILED"
+                and args[0].startswith("repos/spoonman136668-ai/FORGE/compare/")
+                and args[0].endswith("?per_page=1&page=2")
+            )
+            if (read_only and attempt + 1 < attempts
+                    and (failure in ("GITHUB_API_RATE_LIMIT",
+                                     "GITHUB_API_TRANSIENT")
+                         or opaque_compare_read)):
                 time.sleep(1 << attempt)
                 continue
             report_terminal_read_failure(
