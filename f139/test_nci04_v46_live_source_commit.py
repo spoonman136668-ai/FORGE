@@ -104,6 +104,64 @@ class LiveV46Tests(unittest.TestCase):
                 with self.assertRaises(live.OriginalV46Denied):
                     self.invoke(env,event,get)
 
+    def test_ref_provision_readonly_exemption_is_never_commit_authority(self):
+        env,event,data,get=self.fake()
+        route=("repos/"+v42.REPO+"/branches/"+
+               live.pin.release_worker_branch(live.TARGET))
+        del data[route]
+        with patch.object(live.sys,"platform","win32"), \
+             patch.object(live.os,"name","nt"), \
+             patch.object(v45,"qualify",return_value={
+                 "v44_original_job_status":"success"}), \
+             patch.object(v42,"release_source",return_value={
+                 "main_qualification_job_count":8,
+                 "main_qualification_run_id":43931735723}):
+            with self.assertRaises(AssertionError):
+                live.request(get,env,event)
+            p=live.request(get,env,event,require_worker_ref=False)
+            self.assertEqual(p["workflow_sha"],env["GITHUB_SHA"])
+            self.assertEqual(p["comment_id"],event["comment"]["id"])
+            with self.assertRaises(live.OriginalV46Denied):
+                live.request(get,env,event,require_worker_ref=None)
+        # The only exemption is the explicit provision-preflight CLI path.
+        source=inspect.getsource(live)
+        self.assertIn("if args.ref_provision_preflight:",source)
+        self.assertIn("require_worker_ref=False",source)
+        self.assertIn("if require_worker_ref:",source)
+        self.assertNotIn("require_worker_ref=False",inspect.getsource(live.commit_original))
+
+    def test_scoped_one_shot_ref_post_is_pre_task_and_not_a_new_controller(self):
+        script=(Path(__file__).resolve().parents[1]/
+                "f139/v46_original_owner_live_install.ps1").read_text(
+                    encoding="utf-8")
+        self.assertEqual(script.count("Invoke-WebRequest -Method Post"),1)
+        self.assertIn("ref-provision-preflight",script)
+        self.assertIn("F139_V46_SCOPED_TOKEN_IMMUTABLE_WORKER_REF=PASS",script)
+        self.assertIn("EXACT_WORKER_REF_ALREADY_PRESENT_OR_PROBE_FAILED",script)
+        self.assertIn("WORKER_REF_RULESET_NOT_IMMUTABLE_HOLD",script)
+        self.assertIn("STRICT_POST_REF_PREFLIGHT_UNQUALIFIED",script)
+        self.assertLess(script.index("Invoke-WebRequest -Method Post"),
+                        script.index("Disable-ScheduledTask -TaskName $name"))
+        self.assertLess(script.index("STRICT_POST_REF_PREFLIGHT_UNQUALIFIED"),
+                        script.index("Disable-ScheduledTask -TaskName $name"))
+        self.assertNotIn("Register-ScheduledTask",script)
+        self.assertNotIn("Set-GitHub",script)
+        self.assertNotIn("workflow_dispatch",script)
+
+    def test_v46_only_g54_workflow_gets_ref_write_permission(self):
+        workflow=(Path(__file__).resolve().parents[1]/
+                  ".github/workflows/f139-g54-v9-owner-cutover.yml").read_text(
+                      encoding="utf-8")
+        head, release=workflow.split("  v46-original-owner-live-install:",1)
+        self.assertEqual(head.count("contents: write"),0)
+        self.assertEqual(release.count("contents: write"),1)
+        self.assertIn("contents: write # V46 only:",release)
+        self.assertIn("GH_TOKEN: ${{ github.token }}",release)
+        self.assertIn("github.event.issue.number == 807",release)
+        self.assertIn("github.actor == 'spoonman136668-ai'",release)
+        self.assertNotIn("schedule:",release)
+        self.assertNotIn("workflow_dispatch:",release)
+
     def test_protected_exact_source_worker_ref_is_mandatory(self):
         route = "repos/"+v42.REPO+"/branches/"+live.pin.release_worker_branch(live.TARGET)
         for bad in (
