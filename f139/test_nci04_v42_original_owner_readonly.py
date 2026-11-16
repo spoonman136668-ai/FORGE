@@ -177,5 +177,72 @@ class V42OriginalOwnerReadOnlyTests(unittest.TestCase):
         self.assertFalse(hasattr(route, "activate"))
 
 
+class V42ExactOriginalCIScopeTests(unittest.TestCase):
+    """Pin exact owner PR/source pair so ordinary PRs cannot edit workflows."""
+    def admit(self, *, pr=1782, owner="spoonman136668-ai",
+              role="OWNER", base="6006942116330ffc579784c88b1610d19b3f73cc",
+              tree="1783004aec8c720ad28c47a68175264bad394d8c",
+              before_blob="b0dfd96bb86cdb834dd908a7518027d12cc9ad95",
+              after_blob="d8bfcad81206d82df7d4c2431bd56a570dbc755a",
+              changes=None):
+        from scripts import check_rar_g145_pr_scope as guard
+        branch = "engineering/f139-v42-original-host-readonly-bridge-20261116"
+        head = "c"*40
+        workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+        frozen = guard.FROZEN_SCOPES[branch][1]
+        paths = sorted(frozen) if changes is None else changes
+        payload = {"pull_request": {
+            "number": pr, "author_association": role,
+            "user": {"login": owner},
+            "head": {"sha": head, "ref": branch,
+                     "repo": {"full_name": guard.REPO}},
+            "base": {"sha": base, "ref": "main",
+                     "repo": {"full_name": guard.REPO}}}}
+        outputs = {
+            ("rev-parse", "6006942116330ffc579784c88b1610d19b3f73cc^{tree}"):
+                tree,
+            ("rev-parse", "6006942116330ffc579784c88b1610d19b3f73cc:"+workflow):
+                before_blob,
+            ("rev-parse", head+":"+workflow): after_blob,
+            ("diff", "--no-renames", "--name-only",
+             "6006942116330ffc579784c88b1610d19b3f73cc", head):
+                "\n".join(paths),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            event_path = Path(tmp) / "event.json"
+            event_path.write_text(json.dumps(payload), encoding="utf-8")
+            with patch.dict(os.environ, {
+                "GITHUB_EVENT_NAME": "pull_request",
+                "GITHUB_EVENT_PATH": str(event_path),
+                "GITHUB_HEAD_REF": branch,
+                "GITHUB_BASE_REF": "main",
+            }):
+                return guard.admit_original_pr(head, lambda *a: outputs[a])
+
+    def test_exact_pr1782_scoped_source_admitted_only_for_ci(self):
+        self.assertEqual(self.admit(),
+                         "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT")
+
+    def test_wrong_owner_scope_or_blobs_fail_closed(self):
+        from scripts import check_rar_g145_pr_scope as guard
+        branch = "engineering/f139-v42-original-host-readonly-bridge-20261116"
+        paths = sorted(guard.FROZEN_SCOPES[branch][1])
+        cases = (
+            {"pr": 1783}, {"role": "CONTRIBUTOR"},
+            {"owner": "other"},
+            {"base": "f"*40}, {"tree": "f"*40},
+            {"before_blob": "f"*40}, {"after_blob": "f"*40},
+            {"changes": paths[:-1]},
+            {"changes": paths + ["f139/local_controller.py"]},
+            {"changes": paths + [paths[0]]},
+        )
+        for kwargs in cases:
+            with self.subTest(**kwargs):
+                with self.assertRaises(ValueError):
+                    self.admit(**kwargs)
+        self.assertFalse(guard.generic_paths_safe(
+            [".github/workflows/f139-g54-v9-owner-cutover.yml"]))
+
+
 if __name__ == "__main__":
     unittest.main()
