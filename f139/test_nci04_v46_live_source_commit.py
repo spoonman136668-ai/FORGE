@@ -47,6 +47,9 @@ class LiveV46Tests(unittest.TestCase):
                         v45.V44_MAIN+" "+live.TARGET+" 6916414055",
                    created_at="2026-11-16T12:55:16Z")
         data = {
+            p+"branches/"+live.pin.release_worker_branch(live.TARGET):
+                dict(name=live.pin.release_worker_branch(live.TARGET),
+                     protected=True,commit={"sha":live.TARGET}),
             p+"issues/comments/"+str(cid):record,
             p+"issues/comments/"+str(v45.V44_COMMENT):old,
             p+"compare/"+live.TARGET+"..."+sha+
@@ -98,6 +101,22 @@ class LiveV46Tests(unittest.TestCase):
                 if kind=="env":env[key]=value
                 elif kind=="event":event[key]=value
                 else:event[kind][key]=value
+                with self.assertRaises(live.OriginalV46Denied):
+                    self.invoke(env,event,get)
+
+    def test_protected_exact_source_worker_ref_is_mandatory(self):
+        route = "repos/"+v42.REPO+"/branches/"+live.pin.release_worker_branch(live.TARGET)
+        for bad in (
+                {"name":"unrelated","protected":True,"commit":{"sha":live.TARGET}},
+                {"name":live.pin.release_worker_branch(live.TARGET),
+                 "protected":False,"commit":{"sha":live.TARGET}},
+                {"name":live.pin.release_worker_branch(live.TARGET),
+                 "protected":True,"commit":{"sha":"b"*40}},
+                {},
+        ):
+            with self.subTest(bad=bad):
+                env,event,data,get=self.fake()
+                data[route]=bad
                 with self.assertRaises(live.OriginalV46Denied):
                     self.invoke(env,event,get)
 
