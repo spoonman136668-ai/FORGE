@@ -81,6 +81,133 @@ class LiveV46Tests(unittest.TestCase):
         self.assertEqual(live.EXPECTED_V44_PROOF,
                          "70474d338d4c379b42362ca3cd24d7d02a0e9ac82b4fb8b018454e7c1822112c")
 
+    def fake_recovery(self):
+        env,event,data,get=self.fake()
+        base="repos/"+v42.REPO+"/"
+        prior_own=event["comment"]
+        data.pop(base+"issues/comments/"+str(prior_own["id"]))
+        timestamp="2026-11-16T21:50:00Z"
+        new_id=live.FAILED_RELEASE_COMMENT+5000
+        event["comment"]=dict(
+            id=new_id,
+            body=live.RECOVERY_PREFIX+env["GITHUB_SHA"]+" "+
+                 live.TARGET+" "+str(live.FAILED_RELEASE_COMMENT)+
+                 " "+str(live.FAILED_RELEASE_RUN),
+            created_at=timestamp, updated_at=timestamp,
+            user={"login":v42.OWNER},author_association="OWNER")
+        data[base+"issues/comments/"+str(new_id)]=dict(
+            **event["comment"],
+            issue_url="https://api.github.com/repos/"+v42.REPO+"/issues/807")
+        data[base+"issues/comments/"+str(live.FAILED_RELEASE_COMMENT)] = dict(
+            id=live.FAILED_RELEASE_COMMENT,
+            body=live.PREFIX+live.FAILED_RELEASE_MAIN+" "+
+                 live.TARGET+" "+str(v45.V44_COMMENT),
+            created_at="2026-11-16T21:21:31Z",
+            user={"login":v42.OWNER},author_association="OWNER",
+            issue_url="https://api.github.com/repos/"+v42.REPO+"/issues/807")
+        data[base+"actions/runs/"+str(live.FAILED_RELEASE_RUN)]=dict(
+            id=live.FAILED_RELEASE_RUN,
+            event="issue_comment",name=live.RECOVERY_WORKFLOW,
+            head_sha=live.FAILED_RELEASE_MAIN,
+            run_attempt=1,status="completed",conclusion="failure",
+            actor={"login":v42.OWNER})
+        data[base+"actions/runs/"+str(live.FAILED_RELEASE_RUN)+
+             "/jobs?per_page=100"]=dict(
+                 total_count=2,
+                 jobs=[dict(id=live.FAILED_RELEASE_JOB,
+                            name=live.RECOVERY_JOB,
+                            status="completed",conclusion="failure"),
+                       dict(id=9,name="other-job",
+                            status="completed",conclusion="skipped")])
+        return env,event,data,get
+
+    def invoke_recovery(self,env,event,get):
+        with patch.object(live.sys,"platform","win32"), \
+             patch.object(live.os,"name","nt"), \
+             patch.object(v45,"qualify",return_value={
+                 "v44_original_job_status":"success"}), \
+             patch.object(v42,"release_source",return_value={
+                 "main_qualification_job_count":8,
+                 "main_qualification_run_id":43958718732}):
+            return live.request(get,env,event,recovery_mode=True)
+
+    def test_distinct_recovery_accepts_only_authenticated_prior_failure(self):
+        env,event,data,get=self.fake_recovery()
+        proof=self.invoke_recovery(env,event,get)
+        self.assertEqual(proof["comment_id"],event["comment"]["id"])
+        self.assertEqual(proof["workflow_sha"],env["GITHUB_SHA"])
+        # A recovery comment cannot be interpreted as a new ref-create event.
+        with self.assertRaises(live.OriginalV46Denied):
+            self.invoke(env,event,get)
+        with patch.object(live.sys,"platform","win32"), \
+             patch.object(live.os,"name","nt"):
+            with self.assertRaises(live.OriginalV46Denied):
+                live.request(get,env,event,require_worker_ref=False,
+                             recovery_mode=True)
+
+    def test_recovery_fails_closed_on_prior_run_and_ref_anomalies(self):
+        base="repos/"+v42.REPO+"/"
+        variants=[
+            ("run","conclusion","success"),
+            ("run","run_attempt",2),
+            ("run","head_sha","0"*40),
+            ("run","actor",{"login":"unrelated"}),
+            ("jobs","total_count",30),
+            ("job","conclusion","success"),
+            ("job","id",-1),
+            ("prior","author_association","CONTRIBUTOR"),
+            ("prior","body","tampered"),
+            ("worker","protected",False),
+            ("worker","commit",{"sha":"0"*40}),
+        ]
+        for table,key,value in variants:
+            with self.subTest(table=table,key=key):
+                env,event,data,get=self.fake_recovery()
+                selected={
+                    "run":data[base+"actions/runs/"+
+                               str(live.FAILED_RELEASE_RUN)],
+                    "jobs":data[base+"actions/runs/"+
+                                str(live.FAILED_RELEASE_RUN)+
+                                "/jobs?per_page=100"],
+                    "job":data[base+"actions/runs/"+
+                               str(live.FAILED_RELEASE_RUN)+
+                               "/jobs?per_page=100"]["jobs"][0],
+                    "prior":data[base+"issues/comments/"+
+                                 str(live.FAILED_RELEASE_COMMENT)],
+                    "worker":data[base+"branches/"+
+                                  live.pin.release_worker_branch(live.TARGET)],
+                }[table]
+                selected[key]=value
+                with self.assertRaises(live.OriginalV46Denied):
+                    self.invoke_recovery(env,event,get)
+
+    def test_recovery_does_not_post_or_gain_content_write_token(self):
+        script=(Path(__file__).resolve().parents[1]/
+                "f139/v46_original_owner_live_install.ps1").read_text(
+                    encoding="utf-8")
+        workflow=(Path(__file__).resolve().parents[1]/
+                  ".github/workflows/f139-g54-v9-owner-cutover.yml").read_text(
+                      encoding="utf-8")
+        self.assertEqual(script.count("Invoke-WebRequest -Method Post"),1)
+        self.assertIn("if($ExistingRefRecovery)",script)
+        self.assertIn("PREEXISTING_WORKER_REF_NOT_FOUND_HOLD",script)
+        self.assertIn("F139_V47_EXISTING_IMMUTABLE_WORKER_REF=PASS",script)
+        self.assertIn("NATIVE_ADMIN_OWNER_IDENTITY_REQUIRED",script)
+        self.assertIn("ADMIN_BYPASS_ACTORS_FIELD_REQUIRED",script)
+        self.assertIn("Remove-Item Env:GH_TOKEN",script)
+        self.assertIn("$env:GH_TOKEN=$workflowToken",script)
+        self.assertIn("F139_V47_EXISTING_REF_RECOVERY",script)
+        self.assertEqual(workflow.count(
+            "  v47-original-owner-existing-ref-recovery:"),1)
+        recovery=workflow.split(
+            "  v47-original-owner-existing-ref-recovery:",1)[1]
+        self.assertIn("contents: read",recovery)
+        self.assertNotIn("contents: write",recovery)
+        self.assertIn("F139-V47-OWNER-RESUME ",recovery)
+        self.assertIn("-ExistingRefRecovery",recovery)
+        self.assertNotIn("workflow_dispatch:",recovery)
+        self.assertNotIn("schedule:",recovery)
+
     def test_forged_owner_and_unsafe_replay_rejected(self):
         variants=[
             ("env","GITHUB_ACTOR","other"),
