@@ -98,7 +98,7 @@ def intent(get, env, event):
 def original_backup(db_path, env, event, api):
     need(sys.platform == "win32" and os.name == "nt"
          and type(api) is GitHub
-         and type(db_path) is Path,
+         and isinstance(db_path, Path),
          "ACTUAL_WINDOWS_OWNER_REQUIRED")
     get = api.native_repo_get
     target, run_id, comment_id = intent(get, env, event)
