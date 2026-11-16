@@ -311,10 +311,40 @@ def commit_original(path, env, event, api):
     }
 
 
+
+def verify_poststart_event1836(path, env, expected_sha):
+    """Read-only immutable event1836 witness, allowing later owner ticks."""
+    need(sys.platform == "win32" and os.name == "nt"
+         and type(expected_sha) is str
+         and successor.SHA64.fullmatch(expected_sha) is not None,
+         "POSTSTART_SHA_OR_HOST_INVALID")
+    path = canonical_db(path, env)
+    with closing(Database.open_readonly(path)) as db:
+        db.verify()
+        current = db.meta()
+        row = db.conn.execute(
+            "SELECT kind,prior_sha,sha,payload FROM events WHERE seq=?",
+            (successor.PREDECESSOR_SEQ + 1,)).fetchone()
+        need(current["source_sha"] == TARGET
+             and current["enabled"] == 1
+             and current["legacy_suspended"] == 1
+             and current["head_seq"] >= successor.PREDECESSOR_SEQ + 1
+             and row is not None
+             and row["kind"] == "SOURCE_TRANSITION_ADMITTED"
+             and row["prior_sha"] == successor.PREDECESSOR_SHA
+             and row["sha"] == expected_sha
+             and type(row["payload"]) is str
+             and db.conn.total_changes == 0,
+             "POSTSTART_IMMUTABLE_EVENT1836_OR_SOURCE_DRIFT")
+    return True
+
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--target",required=True)
     p.add_argument("--preflight-only",action="store_true")
+    p.add_argument("--poststart-readonly",action="store_true")
+    p.add_argument("--event1836-sha")
     args = p.parse_args(argv)
     need(args.target == TARGET, "FROZEN_TARGET_REQUIRED")
     env = dict(os.environ)
@@ -326,6 +356,14 @@ def main(argv=None):
     except (OSError,ValueError,UnicodeError,TypeError) as error:
         raise OriginalV46Denied("F139_V46_OWNER_EVENT_PARSE_FAILED") from error
     db = Path(env.get("LOCALAPPDATA",""))/"FORGE-F139"/"state.sqlite"
+    need(not(args.preflight_only and args.poststart_readonly),
+         "MUTUALLY_EXCLUSIVE_MODES_REQUIRED")
+    if args.poststart_readonly:
+        need(verify_poststart_event1836(db, env, args.event1836_sha),
+             "POSTSTART_SOURCE_OR_EVENT1836_UNVERIFIED")
+        print("F139_V46_LIVE_EVENT1836_ANCHOR=PASS")
+        return 0
+    need(args.event1836_sha is None, "POSTSTART_SHA_ONLY")
     if args.preflight_only:
         req = request(GitHub().native_repo_get,env,event)
         db = canonical_db(db,env)
