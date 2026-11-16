@@ -244,6 +244,36 @@ class V50SourceActivationTests(unittest.TestCase):
         self.assertIn("ad98fa391638b59254534ddfffea1be5c538b958", guard)
         self.assertIn("39f189fde3a6fece791cd3a6ca7dd0517cb6b430", guard)
 
+    def test_live_preflight_receipt_overlap_merges_only_on_agreement(self):
+        # Authentic run 43982189499 failed before any task/SQLite mutation:
+        # remote request() and local execute() both emit scientific_first_use.
+        remote = dict(main_sha="a"*40, source_sha=v50.SOURCE,
+                      scientific_first_use=False, new_dispatches=0,
+                      job_count=8)
+        local = dict(head_sha256=v50.HEAD_HASH, event_seq=1836,
+                     native_development_activated=False,
+                     scientific_first_use=False, original_owner_mutations=0)
+        merged = v50.combine_receipt(remote, local)
+        self.assertEqual(merged["scientific_first_use"], False)
+        self.assertEqual(merged["event_seq"], 1836)
+        self.assertEqual(merged["job_count"], 8)
+        self.assertEqual(len(merged), len(remote) + len(local) - 1)
+        self.assertIn('"scientific_first_use": false',
+                      json.dumps(merged, sort_keys=True))
+        self.assertIn("combine_receipt(proof, report)",
+                      inspect.getsource(v50.main))
+        with self.assertRaises(v50.NativeV50Denied):
+            v50.combine_receipt(remote,
+                                dict(local, scientific_first_use=True))
+        with self.assertRaises(v50.NativeV50Denied):
+            v50.combine_receipt(remote,
+                                dict(local, source_sha="0"*40))
+        for bad in (None, [], "not a receipt"):
+            with self.subTest(bad=repr(bad)):
+                with self.assertRaises(v50.NativeV50Denied):
+                    v50.combine_receipt(bad, local)
+        self.assertFalse(v50.combine_receipt({}, local)["scientific_first_use"])
+
     def test_direct_commit_refused_outside_original_windows(self):
         with self.assertRaises(v50.NativeV50Denied):
             v50.execute(Path("/tmp/not-real-original.sqlite"), "commit")
