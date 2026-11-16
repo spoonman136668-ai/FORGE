@@ -18,7 +18,7 @@ import sys
 
 from f139.local_controller import Database, GitHub, SingleOwner
 from f139.nci04_owner_ledger import (
-    APPROVAL_SCHEMA, ACTIVATION_KIND, activate_native,
+    APPROVAL_SCHEMA, ACTIVATION_FIELDS, ACTIVATION_KIND, ACTIVATION_SCHEMA, activate_native,
     verify_native_activation,
 )
 from f139.nci04_release_pin_continuity import prove_deployed_release_pin
@@ -191,6 +191,48 @@ def snapshot(db, activated):
     return meta["head_hash"]
 
 
+def poststart_snapshot(db):
+    """Read-only source-bound activation proof; tolerate authentic later events.
+
+    The original controller can append event1838+ immediately after restart.
+    The full chain and immutable event1837, not a frozen task census, govern
+    acceptance of that normal development activity.
+    """
+    db.verify()
+    meta = db.meta()
+    need(meta["source_sha"] == SOURCE
+         and type(meta["head_seq"]) is int
+         and meta["head_seq"] >= HEAD_SEQ + 1
+         and meta["enabled"] == 1 and meta["legacy_suspended"] == 1,
+         "POSTSTART_SOURCE_OR_LEDGER_DRIFT")
+    event = db.conn.execute(
+        "SELECT seq,sha,prior_sha,kind,payload FROM events WHERE seq=?",
+        (HEAD_SEQ + 1,)).fetchone()
+    need(event is not None and event["seq"] == HEAD_SEQ + 1
+         and event["kind"] == ACTIVATION_KIND
+         and event["prior_sha"] == HEAD_HASH
+         and isinstance(event["sha"], str)
+         and re.fullmatch(r"[a-f0-9]{64}", event["sha"]) is not None,
+         "POSTSTART_EVENT1837_MISSING_OR_UNSEALED")
+    record = json.loads(event["payload"])
+    need(isinstance(record, dict) and set(record) == ACTIVATION_FIELDS
+         and record["schema"] == ACTIVATION_SCHEMA
+         and record["source_sha"] == SOURCE
+         and record["prior_event_head_sha256"] == HEAD_HASH
+         and record["scientific_first_use"] is False
+         and record["development_only"] is True
+         and record["new_dispatches"] == 0
+         and verify_native_activation(db) is True,
+         "POSTSTART_ACTIVATION_AUTHORITY_DRIFT")
+    return dict(head_sha256=meta["head_hash"],
+                event_seq=meta["head_seq"],
+                activation_event_seq=HEAD_SEQ + 1,
+                activation_event_sha256=event["sha"],
+                native_development_activated=True,
+                scientific_first_use=False,
+                original_owner_mutations=0)
+
+
 def original_task_quiesced(db_path):
     """Independent native guard against direct CLI while original task runs."""
     cmd = shutil.which("powershell.exe")
@@ -246,18 +288,27 @@ def execute(db_path, mode):
          (Path(os.environ["LOCALAPPDATA"]) / "FORGE-F139" /
           "state.sqlite").resolve(),
          "ORIGINAL_DB_PATH_REQUIRED")
-    if mode in ("preflight", "verify"):
+    if mode in ("preflight", "verify", "poststart"):
         db = Database.open_readonly(db_path)
         try:
+            # One consistent SQLite read snapshot while the live writer runs.
+            db.conn.execute("BEGIN")
             before = db.conn.total_changes
-            head = snapshot(db, mode == "verify")
+            if mode == "poststart":
+                report = poststart_snapshot(db)
+            else:
+                head = snapshot(db, mode == "verify")
+                report = dict(head_sha256=head,
+                              event_seq=HEAD_SEQ + int(mode == "verify"),
+                              native_development_activated=(mode == "verify"),
+                              scientific_first_use=False,
+                              original_owner_mutations=0)
             need(db.conn.total_changes == before == 0,
                  "READ_ONLY_CHANGED_DATABASE")
+            return report
         finally:
+            db.conn.rollback()
             db.close()
-        return dict(head_sha256=head, event_seq=HEAD_SEQ + int(mode == "verify"),
-                    native_development_activated=(mode == "verify"),
-                    scientific_first_use=False, original_owner_mutations=0)
     need(mode == "commit", "UNKNOWN_MODE")
     # PowerShell has already disabled and quiesced the one original task.
     # The original SQLite SingleOwner mutex is the only writer authority.
@@ -286,14 +337,18 @@ def execute(db_path, mode):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=("preflight", "commit", "verify"),
+    p.add_argument("--mode", choices=("preflight", "commit", "verify", "poststart"),
                    required=True)
     p.add_argument("--db", type=Path, required=True)
     args = p.parse_args()
     need(args.db.is_absolute() and not args.db.is_symlink()
          and args.db.is_file(), "EXACT_ORIGINAL_DB_REQUIRED")
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text("utf-8"))
-    proof = request(GitHub().native_repo_get, os.environ, event)
+    # A poststart readback has no remote provider dependency: the original
+    # owner comment, release pin and exact CI were already authenticated on
+    # preflight, commit and frozen (pre-restart) verification.
+    proof = ({} if args.mode == "poststart" else
+             request(GitHub().native_repo_get, os.environ, event))
     report = execute(args.db, args.mode)
     print("F139_V50_OWNER_" + args.mode.upper() + "=" +
           json.dumps(dict(**proof, **report), sort_keys=True))

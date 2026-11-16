@@ -166,10 +166,72 @@ class V50SourceActivationTests(unittest.TestCase):
         self.assertIn("Enable-ScheduledTask", script)
         self.assertIn("Start-ScheduledTask", script)
         self.assertIn("F139_V50_FORWARD_ONLY_OWNER_HOLD_NO_REPLAY", script)
+        self.assertLess(script.index("$sealed=InvokeV50 'verify'"),
+                        script.index("Start-ScheduledTask"))
+        self.assertLess(script.index("Start-ScheduledTask"),
+                        script.index("$verified=InvokeV50 'poststart'"))
+        self.assertNotIn("$verified=InvokeV50 'verify'", script)
         self.assertNotIn("New-ScheduledTask", script)
         self.assertNotIn("Register-ScheduledTask", script)
         self.assertNotIn("OPENAI_API_KEY=", script)
         self.assertNotIn("gh api --method POST", script)
+
+    def test_poststart_allows_append_only_progress_without_weakening_anchor(self):
+        from unittest.mock import MagicMock
+        record = dict(schema=native.ACTIVATION_SCHEMA,
+                      source_sha=v50.SOURCE,
+                      prior_event_head_sha256=v50.HEAD_HASH,
+                      sealed_original_prefix_sha256="a"*64,
+                      verified_original_tasks=4, verified_d2k_tasks=2,
+                      new_dispatches=0, scientific_first_use=False,
+                      development_only=True)
+        event = dict(seq=1837, sha="e"*64, prior_sha=v50.HEAD_HASH,
+                     kind=native.ACTIVATION_KIND, payload=json.dumps(record))
+        db = MagicMock()
+        metadata = dict(source_sha=v50.SOURCE, head_seq=1841,
+                        head_hash="f"*64, enabled=1, legacy_suspended=1)
+        db.meta.return_value = metadata
+        db.conn.execute.return_value.fetchone.return_value = event
+        with patch.object(v50, "verify_native_activation", return_value=True):
+            receipt = v50.poststart_snapshot(db)
+            self.assertEqual(receipt["event_seq"], 1841)
+            self.assertEqual(receipt["activation_event_seq"], 1837)
+            self.assertEqual(receipt["activation_event_sha256"], "e"*64)
+            db.verify.assert_called()
+            for key, wrong in (("source_sha", "0"*40),
+                               ("head_seq", 1836), ("enabled", 0)):
+                with self.subTest(key=key):
+                    changed = dict(metadata, **{key: wrong})
+                    db.meta.return_value = changed
+                    with self.assertRaises(v50.NativeV50Denied):
+                        v50.poststart_snapshot(db)
+            db.meta.return_value = metadata
+            event["prior_sha"] = "0"*64
+            with self.assertRaises(v50.NativeV50Denied):
+                v50.poststart_snapshot(db)
+            event["prior_sha"] = v50.HEAD_HASH
+            event["payload"] = json.dumps(dict(record, scientific_first_use=True))
+            with self.assertRaises(v50.NativeV50Denied):
+                v50.poststart_snapshot(db)
+        event["payload"] = json.dumps(record)
+        with patch.object(v50, "verify_native_activation", return_value=False):
+            with self.assertRaises(v50.NativeV50Denied):
+                v50.poststart_snapshot(db)
+
+    def test_v50_workflow_source_scope_is_exact_not_generic(self):
+        from scripts import check_rar_g145_pr_scope as scope
+        branch = "engineering/f139-v50-v41-original-native-activation-20261116"
+        pinned_base, allowed = scope.FROZEN_SCOPES[branch]
+        self.assertEqual(pinned_base, "2567775a9c06b306142812cc8c0e252278f87273")
+        self.assertEqual(len(allowed), 6)
+        self.assertIn("scripts/check_rar_g145_pr_scope.py", allowed)
+        workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+        self.assertIn(workflow, allowed)
+        self.assertFalse(scope.generic_paths_safe([workflow]))
+        guard = inspect.getsource(scope.admit_original_pr)
+        self.assertIn("G145_V50_ORIGINAL_NATIVE_ACTIVATION_SCOPE_DENIED", guard)
+        self.assertIn("ad98fa391638b59254534ddfffea1be5c538b958", guard)
+        self.assertIn("39f189fde3a6fece791cd3a6ca7dd0517cb6b430", guard)
 
     def test_direct_commit_refused_outside_original_windows(self):
         with self.assertRaises(v50.NativeV50Denied):

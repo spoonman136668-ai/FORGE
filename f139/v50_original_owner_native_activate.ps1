@@ -126,6 +126,15 @@ try {
   Need ([string]$held.State -ceq 'Disabled' -and
     $held.Settings.Enabled -eq $false -and
     @(Children).Count -eq 0) 'POSTCOMMIT_TASK_NOT_QUIESCED'
+  # Freeze/read back event1837 BEFORE enabling the original writer.
+  $sealed=InvokeV50 'verify'
+  Need ($sealed.event_seq -eq 1837 -and
+    $sealed.native_development_activated -eq $true -and
+    $sealed.scientific_first_use -eq $false) 'POSTCOMMIT_LEDGER_READBACK_DRIFT'
+  $held=Task
+  Need ([string]$held.State -ceq 'Disabled' -and
+    $held.Settings.Enabled -eq $false -and
+    @(Children).Count -eq 0) 'POSTVERIFY_OWNER_NOT_QUIESCED'
   Enable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
   Start-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
   $originalDisabled=$false
@@ -138,10 +147,13 @@ try {
     Start-Sleep -Seconds 1
   }
   Need $one 'ORIGINAL_OWNER_PROCESS_NOT_LIVE'
-  $verified=InvokeV50 'verify'
-  Need ($verified.event_seq -eq 1837 -and
+  # A live owner may legitimately append event1838+ and change task stages.
+  # Check anchored event1837 and the intact append-only chain instead.
+  $verified=InvokeV50 'poststart'
+  Need ($verified.event_seq -ge 1837 -and
+    $verified.activation_event_seq -eq 1837 -and
     $verified.native_development_activated -eq $true -and
-    $verified.scientific_first_use -eq $false) 'POSTCOMMIT_LEDGER_READBACK_DRIFT'
+    $verified.scientific_first_use -eq $false) 'POSTSTART_ACTIVATION_ANCESTRY_DRIFT'
   ExactSource
   Write-Host 'F139_V50_NATIVE_EVENT1837_COMMITTED=PASS'
   Write-Host 'F139_V50_SAME_ORIGINAL_OWNER_RESTARTED=PASS'
