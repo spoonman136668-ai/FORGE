@@ -80,10 +80,22 @@ class OriginalV39WorkflowTests(unittest.TestCase):
         s=WORKFLOW.read_text("utf-8")
         start=s.index("  hybrid-v39-original-event1831-readiness:")
         stages=s[start:]
-        self.assertEqual(stages.count("    runs-on:"),4)
-        self.assertEqual(stages.count("      issues: read"),4)
+        expected=(
+            "hybrid-v39-original-event1831-readiness",
+            "hybrid-v39-original-event1831-backup",
+            "hybrid-v39-original-event1832-source-commit",
+            "hybrid-v39-original-event1832-postcommit",
+            "hybrid-v40-original-event1832-readiness",
+            "hybrid-v40-original-event1832-backup",
+            "hybrid-v40-original-event1833-source-commit",
+            "hybrid-v40-original-event1833-postcommit",
+        )
+        for name in expected:
+            self.assertEqual(stages.count("  "+name+":"),1)
+        self.assertEqual(stages.count("    runs-on:"),len(expected))
+        self.assertEqual(stages.count("      issues: read"),len(expected))
         self.assertNotIn("      issues: write",stages)
-        self.assertEqual(stages.count("    timeout-minutes:"),4)
+        self.assertEqual(stages.count("    timeout-minutes:"),len(expected))
         self.assertEqual(stages.count("  hybrid-v41-original-source-activate:"),0)
         self.assertIn("  hybrid-v41-original-source-activate:",
                       LEGACY.read_text("utf-8"))

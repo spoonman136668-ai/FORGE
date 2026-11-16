@@ -132,12 +132,12 @@ from pathlib import Path
 from f139.local_controller import GitHub
 from f139.nci04_native_contract import canonical
 from f139.nci04_owner_issue import decode_unique
-from f139 import nci04_v41_hybrid_event1832_postcommit as postcommit
+from f139 import nci04_v41_hybrid_event1833_postcommit as postcommit
 from f139 import nci04_v41_hybrid_forward_readiness as readiness
 
 def need(ok):
     if not ok:
-        raise RuntimeError("F139_HYBRID_V38_ORIGINAL_ACTIVATION_PREFLIGHT_DENIED")
+        raise RuntimeError("F139_HYBRID_V40_ORIGINAL_ACTIVATION_PREFLIGHT_DENIED")
 
 e=json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text("utf-8"),
              object_pairs_hook=decode_unique)
@@ -159,13 +159,13 @@ need(type(prior.get("body")) is str)
 need(prior["body"].startswith(postcommit.PREFIX+target+" "))
 need(readiness._owner_comment(get,postcommit_id,prior["body"])<e["comment"]["created_at"])
 # The forward-postcommit verifier reauthenticates the actual source intent,
-# detached cold bundle, immutable event 1832, task/SID/lease and 153/56 history.
+# detached cold bundle, immutable event 1833, task/SID/lease and 153/56 history.
 # This is read-only. Migration remains a separate owner-only operation below.
 previous={"action":"created","issue":e["issue"],"sender":e["sender"],
           "comment":prior}
 receipt=postcommit.original_postcommit(db,dict(os.environ),previous,api)
 need(receipt["schema"]==postcommit.SCHEMA)
-need(receipt["source_sha"]==target and receipt["event_seq"]==1832)
+need(receipt["source_sha"]==target and receipt["event_seq"]==1833)
 need(receipt["verified_historical_tasks"]==153)
 need(receipt["custodied_negative_tasks"]==56)
 need(receipt["original_owner_mutations"]==0)
@@ -174,8 +174,8 @@ need(receipt["scientific_first_use"] is False)
 need(receipt["task_resume_authorized"] is False)
 need(receipt["original_task_still_disabled"] is True)
 need(receipt["native_activation_performed"] is False)
-print("F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT="+
-      canonical(dict(schema="forge.f139.hybrid-v39.activation-preflight.v1",
+print("F139_HYBRID_V40_EVENT1833_ACTIVATION_PREFLIGHT="+
+      canonical(dict(schema="forge.f139.hybrid-v40.activation-preflight.v1",
        source_sha=target,source_event_seq=receipt["event_seq"],
        source_event_head_sha256=receipt["event_head_sha256"],
        postcommit_comment_id=postcommit_id,
@@ -187,12 +187,12 @@ print("F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT="+
 $env:PYTHONPATH=$env:GITHUB_WORKSPACE
 $pre=@($program|& $python -B - $Target $db)
 Need ($LASTEXITCODE -eq 0 -and $pre.Count -eq 1 -and
-  $pre[0].StartsWith('F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT=',
+  $pre[0].StartsWith('F139_HYBRID_V40_EVENT1833_ACTIVATION_PREFLIGHT=',
     [StringComparison]::Ordinal)) 'AUTHENTIC_HELD_SOURCE_READBACK_REQUIRED'
-$proof=$pre[0].Substring('F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT='.Length)|ConvertFrom-Json
-Need ($proof.schema -ceq 'forge.f139.hybrid-v39.activation-preflight.v1' -and
+$proof=$pre[0].Substring('F139_HYBRID_V40_EVENT1833_ACTIVATION_PREFLIGHT='.Length)|ConvertFrom-Json
+Need ($proof.schema -ceq 'forge.f139.hybrid-v40.activation-preflight.v1' -and
   $proof.source_sha -ceq $Target -and
-  $proof.source_event_seq -eq 1832 -and
+  $proof.source_event_seq -eq 1833 -and
   $proof.verified_historical_tasks -eq 153 -and
   $proof.custodied_negative_tasks -eq 56 -and
   $proof.original_owner_mutations -eq 0 -and
@@ -232,12 +232,51 @@ try {
   try {
     $migration=@(& $python -B -m f139.local_controller --db $db upgrade-hybrid-lane)
   } finally {Pop-Location}
-  Need ($LASTEXITCODE -eq 0 -and $migration.Count -eq 1) 'HYBRID_LANE_MIGRATION_NOT_QUALIFIED'
+  Need ($LASTEXITCODE -eq 0 -and $migration.Count -eq 2 -and
+    $migration[1] -ceq 'F139_COMMAND_COMPLETE') 'HYBRID_LANE_MIGRATION_NOT_QUALIFIED'
   $migrated=$migration[0]|ConvertFrom-Json
   Need ($migrated.hybrid_development_lane_schema_admitted -eq $true -and
     $migrated.source_sha -ceq $Target -and
     $migrated.hybrid_model_training_started -eq $false -and
     $migrated.scientific_first_use -eq $false) 'MIGRATION_RECEIPT_INVALID'
+  # Source-only V40 and lane-schema migration are NOT native activation.
+  # The very same source-qualified original owner must explicitly authorize
+  # the new development-only native activation event BEFORE task restart.
+  # Use a create-only ephemeral approval, no ref changes or owner secrets.
+  Need ($migrated.event_head_sha256 -cmatch '^[a-f0-9]{64}$') 'MIGRATED_NATIVE_HEAD_NOT_AUTHENTIC'
+  $nativeApproval=@{
+    schema='forge.f139.nci04.owner-native-approval.v1'
+    source_sha=$Target
+    expected_event_head_sha256=[string]$migrated.event_head_sha256
+    native_development_approved=$true
+    scientific_first_use=$false
+    create_controller=$false
+    paid_api_calls=0
+  }|ConvertTo-Json -Compress -Depth 4
+  $nativeFile=Join-Path $env:TEMP ('f139-native-v40-'+$Target+'.json')
+  Need (-not (Test-Path -LiteralPath $nativeFile)) 'NATIVE_APPROVAL_UNKNOWN_ATTEMPT_REFUSED'
+  $utf8=New-Object System.Text.UTF8Encoding($false)
+  [IO.File]::WriteAllText($nativeFile,[string]$nativeApproval,$utf8)
+  try {
+    Source $stage $Target
+    Main
+    $env:PYTHONPATH=$stage
+    Push-Location $stage
+    try {
+      $nativeResult=@(& $python -B -m f139.local_controller --db $db activate-native --approval $nativeFile)
+    } finally {Pop-Location}
+    Need ($LASTEXITCODE -eq 0 -and $nativeResult.Count -eq 2 -and
+      $nativeResult[1] -ceq 'F139_COMMAND_COMPLETE') 'ORIGINAL_NATIVE_ACTIVATION_NOT_QUALIFIED'
+    $nativeJSON=@($nativeResult | Where-Object {$_ -cmatch '^\{'})
+    Need ($nativeJSON.Count -eq 1) 'NATIVE_RECEIPT_NOT_UNIQUE'
+    $activated=$nativeJSON[0]|ConvertFrom-Json
+    Need ($activated.native_development_activated -eq $true -and
+      $activated.source_sha -ceq $Target -and
+      $activated.event_head -cmatch '^[a-f0-9]{64}$' -and
+      $activated.scientific_first_use -eq $false) 'ORIGINAL_SOURCE_NATIVE_ACTIVATION_INVALID'
+  } finally {
+    Remove-Item -LiteralPath $nativeFile -Force -ErrorAction SilentlyContinue
+  }
   $null=Disabled
   Main
   Need ((Policy) -ceq $oldPolicy) 'POLICY_CHANGED_BEFORE_COMMIT'
@@ -279,12 +318,14 @@ from contextlib import closing
 from pathlib import Path
 from f139.local_controller import Database
 from f139.hybrid_owner_admission import is_migrated
+from f139.nci04_owner_ledger import verify_native_activation
 with closing(Database.open_readonly(Path(sys.argv[1]))) as db:
     db.verify()
     meta=db.meta()
     assert meta["source_sha"]==sys.argv[2] and meta["enabled"]==1
     assert meta["legacy_suspended"]==1
     assert is_migrated(db)
+    assert verify_native_activation(db)
     assert db.dual_native_schema()
     assert db.conn.execute("PRAGMA query_only").fetchone()[0]==1
     assert db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]>=153
@@ -302,6 +343,7 @@ print("F139_HYBRID_V41_THREE_LANE_COLD_READBACK=PASS")
   Write-Host 'F139_HYBRID_V41_SAME_ORIGINAL_TASK_RESTART=PASS'
   Write-Host 'F139_HYBRID_V41_THREE_LANE_POLICY=PASS'
   Write-Host 'F139_HYBRID_V41_LANE_SCHEMA_MIGRATION=PASS'
+  Write-Host 'F139_HYBRID_V40_ORIGINAL_NATIVE_ACTIVATION=PASS'
   Write-Host 'F139_HYBRID_V41_SCIENTIFIC_FIRST_USE=FALSE'
   Write-Host 'F139_HYBRID_V41_NEW_CONTROLLER=FALSE'
 } catch {

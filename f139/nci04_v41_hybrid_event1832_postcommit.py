@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 import sys
 
-from f139.local_controller import Database, GitHub, SingleOwner
+from f139.local_controller import Database, GitHub, SingleOwner, canonical as event_canonical
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_owner_issue import decode_unique
 from f139 import nci04_v41_hybrid_event1832_owner as owner
@@ -118,7 +118,7 @@ def inspect(db, request):
              request["backup_logical_all_tables_sha256"]
          and doc["to_source_sha"] == request["target_source_sha"]
          and digest(canonical(doc)) == request["expected_proof_sha256"]
-         and row["payload"] == canonical(doc).decode("ascii"),
+         and row["payload"] == event_canonical(doc).decode("ascii"),
          "EVENT1832_COLD_APPROVAL_OR_PROOF_DRIFT")
     verified_cold = committed._fresh_cold(db.filename, request)
     need(verified_cold["original_head_seq"] == successor.PREDECESSOR_SEQ
