@@ -127,6 +127,7 @@ class LiveV46Tests(unittest.TestCase):
                         self.invoke(env,event,get)
 
     def test_disabled_task_readback_fail_closed(self):
+        db_path=Path("/not-a-real-db")
         for code,output in ((1,b""),(0,b"unexpected"),(0,live.ORIGINAL_TASK_MARKER)):
             with self.subTest(code=code):
                 run=lambda *a,**kw: subprocess.CompletedProcess(a,code,output,b"")
@@ -134,10 +135,10 @@ class LiveV46Tests(unittest.TestCase):
                      patch.object(live.os,"name","nt"), \
                      patch.object(live.shutil,"which",return_value="powershell.exe"):
                     if code == 0 and output==live.ORIGINAL_TASK_MARKER:
-                        self.assertTrue(live.disabled_original_task(Path("/not-a-real-db"),runner=run))
+                        self.assertTrue(live.disabled_original_task(db_path,runner=run))
                     else:
                         with self.assertRaises(live.OriginalV46Denied):
-                            live.disabled_original_task(Path("/not-a-real-db"),runner=run)
+                            live.disabled_original_task(db_path,runner=run)
 
     def test_original_task_script_is_guarded_and_single_owner(self):
         script=(Path(__file__).resolve().parents[1]/
