@@ -2,7 +2,10 @@
 # This is a ONE-SHOT owner release, not a new controller or scheduler.
 # Before SQLite commit entry: recover old original only after pristine readback.
 # After commit entry (including uncertainty): HOLD, never restore old SQLite.
-param([Parameter(Mandatory=$true)][string]$Target)
+param(
+  [Parameter(Mandatory=$true)][string]$Target,
+  [switch]$ExistingRefRecovery
+)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $old='af204acc983719b382bc8daf2216ec6733ca3ee7'
@@ -94,7 +97,13 @@ Need ($Target -ceq $targetFrozen -and
   -not $env:OPENAI_API_KEY) 'EXACT_OWNER_FIRST_ATTEMPT_REQUIRED'
 Need ((GitSource $env:GITHUB_WORKSPACE) -ceq $env:GITHUB_SHA) 'WORKFLOW_CHECKOUT_DRIFT'
 $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-$required='F139-V46-LIVE-INSTALL '+$env:GITHUB_SHA+' '+$Target+' 6917006014'
+$required=if($ExistingRefRecovery) {
+  'F139-V47-OWNER-RESUME '+$env:GITHUB_SHA+' '+$Target+' 6929739971 43959273628'
+} else {
+  'F139-V46-LIVE-INSTALL '+$env:GITHUB_SHA+' '+$Target+' 6917006014'
+}
+Need ((-not $ExistingRefRecovery -and -not $env:F139_V47_EXISTING_REF_RECOVERY) -or
+  ($ExistingRefRecovery -and $env:F139_V47_EXISTING_REF_RECOVERY -ceq '1')) 'RELEASE_MODE_DRIFT'
 Need ($event.action -ceq 'created' -and
   $event.issue.number -eq 807 -and
   $null -eq $event.issue.PSObject.Properties['pull_request'] -and
@@ -161,9 +170,11 @@ $env:PYTHONPATH=$env:GITHUB_WORKSPACE
 $env:PYTHONDONTWRITEBYTECODE='1'
 Push-Location $env:GITHUB_WORKSPACE
 try {
-  $pre=@(& $python -B -m f139.nci04_v46_live_source_commit --target $Target --ref-provision-preflight)
+  $preArgs=if($ExistingRefRecovery){'--preflight-only'}else{'--ref-provision-preflight'}
+  $expectedReceipt=if($ExistingRefRecovery){'^F139_V46_PRECOMMIT_PREFLIGHT='}else{'^F139_V46_REF_PROVISION_PREFLIGHT=PASS$'}
+  $pre=@(& $python -B -m f139.nci04_v46_live_source_commit --target $Target $preArgs)
   Need ($LASTEXITCODE -eq 0 -and $pre.Count -eq 1 -and
-    $pre[0] -ceq 'F139_V46_REF_PROVISION_PREFLIGHT=PASS') 'PREPROVISION_CUSTODY_UNQUALIFIED'
+    [string]$pre[0] -cmatch $expectedReceipt) 'PREPROVISION_OR_RECOVERY_CUSTODY_UNQUALIFIED'
 } finally {Pop-Location}
 
 # Create-only exact ancestry stage; never overwrite an unknown partial folder.
@@ -260,19 +271,43 @@ $tokenHeaders=@{
 # HTTP 404 from an authenticated exact branch GET is mandatory. Other HTTP
 # failures HOLD; existing refs are never rewritten, force-pushed or replayed.
 $initial=Invoke-WebRequest -Method Get -Uri $workerUrl -Headers $tokenHeaders -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 25 -ErrorAction Stop
-Need ([int]$initial.StatusCode -eq 404) 'EXACT_WORKER_REF_ALREADY_PRESENT_OR_PROBE_FAILED'
-$createBody=@{ref=$workerRef;sha=$Target}|ConvertTo-Json -Depth 3 -Compress
-# Irreversible remote action: exactly one create-only POST, NO retry on error
-# or uncertain response, even if the ref now exists.
-$created=Invoke-WebRequest -Method Post -Uri $refCreateUrl -Headers $tokenHeaders -ContentType 'application/json' -Body $createBody -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 25 -ErrorAction Stop
-Need ([int]$created.StatusCode -eq 201) 'GITHUB_TOKEN_REF_CREATE_UNCERTAIN_HOLD'
-$createdBody=$created.Content|ConvertFrom-Json -Depth 8
-Need ([string]$createdBody.ref -ceq $workerRef -and
-  [string]$createdBody.object.type -ceq 'commit' -and
-  [string]$createdBody.object.sha -ceq $Target) 'CREATED_WORKER_REF_WRONG_TARGET_HOLD'
+if($ExistingRefRecovery) {
+  # Distinct owner-authenticated recovery: old one-shot created ref.
+  # Never POST, force-update, or replay that consumed remote operation.
+  Need ([int]$initial.StatusCode -eq 200) 'PREEXISTING_WORKER_REF_NOT_FOUND_HOLD'
+  $existing=$initial.Content|ConvertFrom-Json -Depth 8
+  Need ([string]$existing.name -ceq $workerBranch -and
+    [string]$existing.commit.sha -ceq $Target -and
+    $existing.protected -eq $true) 'PREEXISTING_WORKER_REF_IDENTITY_DRIFT'
+} else {
+  Need ([int]$initial.StatusCode -eq 404) 'EXACT_WORKER_REF_ALREADY_PRESENT_OR_PROBE_FAILED'
+  $createBody=@{ref=$workerRef;sha=$Target}|ConvertTo-Json -Depth 3 -Compress
+  # Original one-shot: one POST, never replay on uncertain result.
+  $created=Invoke-WebRequest -Method Post -Uri $refCreateUrl -Headers $tokenHeaders -ContentType 'application/json' -Body $createBody -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 25 -ErrorAction Stop
+  Need ([int]$created.StatusCode -eq 201) 'GITHUB_TOKEN_REF_CREATE_UNCERTAIN_HOLD'
+  $createdBody=$created.Content|ConvertFrom-Json -Depth 8
+  Need ([string]$createdBody.ref -ceq $workerRef -and
+    [string]$createdBody.object.type -ceq 'commit' -and
+    [string]$createdBody.object.sha -ceq $Target) 'CREATED_WORKER_REF_WRONG_TARGET_HOLD'
+}
 # Independently read the active immutability ruleset and exact branch twice.
 # Ruleset #26049392 blocks update/deletion for f139-owner-release-*.
-$immutable=Invoke-RestMethod -Method Get -Uri 'https://api.github.com/repos/spoonman136668-ai/FORGE/rulesets/26049392' -Headers $tokenHeaders -MaximumRedirection 0 -TimeoutSec 25 -ErrorAction Stop
+# Scoped Actions token omits bypass_actors; missing does NOT mean no bypass.
+# Use original owner's native administrator GH read, then restore job token.
+$workflowToken=$env:GH_TOKEN
+try {
+  Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+  $nativeLogin=(& gh api user --jq '.login' | Out-String).Trim()
+  Need ($LASTEXITCODE -eq 0 -and
+    $nativeLogin -ceq 'spoonman136668-ai') 'NATIVE_ADMIN_OWNER_IDENTITY_REQUIRED'
+  $rulesJson=(& gh api repos/spoonman136668-ai/FORGE/rulesets/26049392 | Out-String)
+  Need ($LASTEXITCODE -eq 0 -and
+    -not [string]::IsNullOrWhiteSpace($rulesJson)) 'ADMIN_RULESET_GET_REQUIRED'
+  $immutable=$rulesJson|ConvertFrom-Json -Depth 20
+  Need ($null -ne $immutable.PSObject.Properties['bypass_actors']) 'ADMIN_BYPASS_ACTORS_FIELD_REQUIRED'
+} finally {
+  $env:GH_TOKEN=$workflowToken
+}
 Need ([int]$immutable.id -eq 26049392 -and
   [string]$immutable.enforcement -ceq 'active' -and
   [string]$immutable.target -ceq 'branch' -and
@@ -298,7 +333,11 @@ try {
   Need ($LASTEXITCODE -eq 0 -and $complete.Count -eq 1 -and
     $complete[0] -cmatch '^F139_V46_PRECOMMIT_PREFLIGHT=') 'STRICT_POST_REF_PREFLIGHT_UNQUALIFIED'
 } finally {Pop-Location}
-Write-Output 'F139_V46_SCOPED_TOKEN_IMMUTABLE_WORKER_REF=PASS'
+if($ExistingRefRecovery) {
+  Write-Output 'F139_V47_EXISTING_IMMUTABLE_WORKER_REF=PASS'
+} else {
+  Write-Output 'F139_V46_SCOPED_TOKEN_IMMUTABLE_WORKER_REF=PASS'
+}
 $lastTaskArgs=$originalArgs
 $lease=$null
 try {
