@@ -115,7 +115,7 @@ def _original_meta(db, expected_source):
     previous = [json.loads(r["payload"]) for r in db.conn.execute(
         "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
         "ORDER BY seq")]
-    immutable_head, _ = successor.predecessor(db, previous)
+    immutable_head, _, _ = successor.predecessor(db, previous)
     need(meta["source_sha"] == expected_source
          and meta["head_seq"] == successor.PREDECESSOR_SEQ
          and meta["head_hash"] == immutable_head
@@ -143,6 +143,8 @@ def verify_detached_restore(folder, *, target, run_id, manifest_sha):
         with cold._hashed_private_sqlite_snapshot(
                 sqlite_file, files["state.sqlite"]) as source:
             before = _original_meta(source, successor.SOURCE)
+            need(before["head_hash"] == doc["original_head_sha256"],
+                 "SEALED_EVENT1832_HEAD_NOT_BOUND")
             need(cold.required_negative_custody(source) == negatives
                  and digest(canonical(rollback_view(source.conn))) ==
                      doc["logical_all_tables_sha256"],
