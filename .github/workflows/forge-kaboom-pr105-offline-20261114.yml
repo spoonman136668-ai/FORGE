@@ -89,21 +89,7 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'KABOOM_FINAL_GRAPHIFY_GIT_HASH_FAIL'}
               # The last retrieval benchmark is historical when a source digest advances.
               # Preserve its provenance; it must not mislabel a changed source as FRESH.
-              $seriesCheck=@'
-import json,pathlib,sys
-r=pathlib.Path(sys.argv[1])
-m=json.loads((r/".ice/manifest.json").read_text())
-latest=json.loads((r/"docs/graphify/retrieval-benchmark-latest.json").read_text())
-records=[json.loads(x) for x in (r/"docs/graphify/retrieval-benchmark.jsonl").read_text().splitlines()]
-assert records and latest["source_content_sha256"] == records[-1]["source_content_sha256"]
-assert latest["headline_speedup"] == records[-1]["aggregate"]["speedup"]
-if latest["source_content_sha256"] == m["source_content_sha256"]:
-    assert latest["freshness"] == records[-1]["freshness"] == "FRESH"
-    assert latest["queries_valid"] == latest["queries_total"] > 0
-    print("KABOOM_BENCHMARK=PASS")
-else:
-    print("KABOOM_BENCHMARK=STALE_ADVISORY")
-'@
+              $seriesCheck='import json,pathlib,sys; r=pathlib.Path(sys.argv[1]); m=json.loads((r/".ice/manifest.json").read_text()); latest=json.loads((r/"docs/graphify/retrieval-benchmark-latest.json").read_text()); records=[json.loads(x) for x in (r/"docs/graphify/retrieval-benchmark.jsonl").read_text().splitlines()]; assert records; assert latest["source_content_sha256"]==records[-1]["source_content_sha256"]; assert latest["headline_speedup"]==records[-1]["aggregate"]["speedup"]; same=(latest["source_content_sha256"]==m["source_content_sha256"]); assert not same or (latest["freshness"]==records[-1]["freshness"]=="FRESH" and latest["queries_valid"]==latest["queries_total"]>0); print("KABOOM_BENCHMARK="+("PASS" if same else "STALE_ADVISORY"))'
               & python -B -c $seriesCheck $root
 
               if($LASTEXITCODE -ne 0){throw 'KABOOM_BENCHMARK_RECORD_INCONSISTENT'}
