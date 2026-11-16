@@ -4891,6 +4891,15 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 if isinstance(event.get("native_intent_base64"), str)
             }
             existing_candidates.update(retired_publications)
+            # Event 1827 escrowed #1715 but did not admit or authorize
+            # reissuing it. Exclude only its original fully authenticated
+            # semantic candidate before selecting *new* owner draft PRs.
+            from f139.nci04_v41_pending_escrow import (
+                escrowed_native_candidate_identity)
+            escrow_identity = escrowed_native_candidate_identity(
+                db, api, historical_issues, meta["source_sha"])
+            if escrow_identity is not None:
+                existing_candidates.add(escrow_identity)
             # No unauthenticated owner issue is inferred: the feed policy
             # itself is owner-authored and exact-source pinned, and every PR
             # candidate is independently rebound to an immutable commit/tree.
