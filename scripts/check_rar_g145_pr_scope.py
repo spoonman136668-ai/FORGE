@@ -321,6 +321,21 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # Exact PR1793: original-owner DEV-only source activation. CI admission only.
+    # Live owner, SQLite write, merge and scientific first-use remain separate.
+    "engineering/f139-v50-v41-original-native-activation-20261116": (
+        "2567775a9c06b306142812cc8c0e252278f87273",
+        {
+            ".github/workflows/f139-g54-v9-owner-cutover.yml",
+            "f139/nci04_owner_ledger.py",
+            "f139/nci04_v50_original_native_activation.py",
+            "f139/test_nci04_v50_original_native_activation.py",
+            "f139/v50_original_owner_native_activate.ps1",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Source-only V48 recovery of ORIGINAL held event1835 task after failed
     # authenticated V47; read-only host receipt and separate owner release.
     "engineering/f139-v48-held-original-owner-safe-recovery-20261116": (
@@ -2404,6 +2419,25 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v50-v41-original-native-activation-20261116":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+            base = "2567775a9c06b306142812cc8c0e252278f87273"
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1793
+                    or type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != branch
+                    or request.get("base", {}).get("sha") != base
+                    or git("rev-parse", base + "^{tree}") !=
+                       "ad98fa391638b59254534ddfffea1be5c538b958"
+                    or git("rev-parse", base + ":" + workflow) !=
+                       "72debcd8404e637c44af760f752d9287af0f0738"
+                    or git("rev-parse", head_sha + ":" + workflow) !=
+                       "39f189fde3a6fece791cd3a6ca7dd0517cb6b430"):
+                raise ValueError("G145_V50_ORIGINAL_NATIVE_ACTIVATION_SCOPE_DENIED")
         if branch == "engineering/f139-v48-held-original-owner-safe-recovery-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
