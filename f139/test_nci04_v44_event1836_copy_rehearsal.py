@@ -174,6 +174,8 @@ class V44CopyTests(unittest.TestCase):
         source=workflow.split(marker,1)[1]
         self.assertIn("f139.nci04_v44_owner_copy_cli",source)
         self.assertIn("F139-V44-COPY-REHEARSAL ",source)
+        self.assertIn("$required='F139-V44-COPY-REHEARSAL '+$env:GITHUB_SHA+' "+copy_only.RELEASE_SOURCE+" "+str(owner.PREDECESSOR_COMMENT_ID)+"'",source)
+        self.assertIn("[int64]$event.comment.id -gt "+str(owner.PREDECESSOR_COMMENT_ID),source)
         self.assertIn("github.event_name == 'issue_comment'",source)
         self.assertIn("RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE'",source)
         self.assertIn("GITHUB_RUN_ATTEMPT -ceq '1'",source)
