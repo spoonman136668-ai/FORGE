@@ -4,7 +4,8 @@
 # After commit entry (including uncertainty): HOLD, never restore old SQLite.
 param(
   [Parameter(Mandatory=$true)][string]$Target,
-  [switch]$ExistingRefRecovery
+  [switch]$ExistingRefRecovery,
+  [switch]$HeldRecovery
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -97,13 +98,18 @@ Need ($Target -ceq $targetFrozen -and
   -not $env:OPENAI_API_KEY) 'EXACT_OWNER_FIRST_ATTEMPT_REQUIRED'
 Need ((GitSource $env:GITHUB_WORKSPACE) -ceq $env:GITHUB_SHA) 'WORKFLOW_CHECKOUT_DRIFT'
 $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-$required=if($ExistingRefRecovery) {
+$required=if($HeldRecovery) {
+  'F139-V48-HELD-RESUME '+$env:GITHUB_SHA+' '+$Target+' 6930572563 43965046866'
+} elseif($ExistingRefRecovery) {
   'F139-V47-OWNER-RESUME '+$env:GITHUB_SHA+' '+$Target+' 6929739971 43959273628'
 } else {
   'F139-V46-LIVE-INSTALL '+$env:GITHUB_SHA+' '+$Target+' 6917006014'
 }
 Need ((-not $ExistingRefRecovery -and -not $env:F139_V47_EXISTING_REF_RECOVERY) -or
   ($ExistingRefRecovery -and $env:F139_V47_EXISTING_REF_RECOVERY -ceq '1')) 'RELEASE_MODE_DRIFT'
+Need ((-not $HeldRecovery -and -not $env:F139_V48_HELD_RECOVERY) -or
+  ($HeldRecovery -and $ExistingRefRecovery -and
+   $env:F139_V48_HELD_RECOVERY -ceq '1')) 'HELD_RELEASE_MODE_DRIFT'
 Need ($event.action -ceq 'created' -and
   $event.issue.number -eq 807 -and
   $null -eq $event.issue.PSObject.Properties['pull_request'] -and
@@ -121,8 +127,12 @@ $root=Join-Path $data 'release-candidates'
 $stage=Join-Path $root $Target
 $binary=Join-Path $data ('genenv-source\'+$Target+'\f139-genenv-source.exe')
 $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
-Need ([string]$task.State -cin @('Running','Ready') -and
-  $task.Settings.Enabled -eq $true -and
+$taskPreimageValid=if($HeldRecovery) {
+  [string]$task.State -ceq 'Disabled' -and $task.Settings.Enabled -eq $false
+} else {
+  [string]$task.State -cin @('Running','Ready') -and $task.Settings.Enabled -eq $true
+}
+Need ($taskPreimageValid -and
   @($task.Actions).Count -eq 1 -and
   @($task.Triggers).Count -eq 3 -and
   [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ieq 'powershell.exe') 'ORIGINAL_TASK_IDENTITY'
@@ -350,16 +360,22 @@ try {
   PolicyOld
   RemoteMain
   $disabled=$true
-  Disable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
-  $taskNow=Get-ScheduledTask -TaskName $name -ErrorAction Stop
-  if([string]$taskNow.State -ceq 'Running'){
-    Stop-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
+  if($HeldRecovery) {
+    # Already held by consumed V47 after rejecting auth BEFORE SQLite writes.
+    # Do not replay Disable/Stop or implicitly restart prior source.
+    Held
+  } else {
+    Disable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
+    $taskNow=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+    if([string]$taskNow.State -ceq 'Running'){
+      Stop-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
+    }
+    for($n=0;$n -lt 40;$n++){
+      if(@(OwnerChildren).Count -eq 0){break}
+      Start-Sleep -Seconds 1
+    }
+    Held
   }
-  for($n=0;$n -lt 40;$n++){
-    if(@(OwnerChildren).Count -eq 0){break}
-    Start-Sleep -Seconds 1
-  }
-  Held
   Need ((Ledger $old 1835) -ceq $preimage) 'PRECOMMIT_LEDGER_DRIFT'
   $lease.Dispose();$lease=$null
 
@@ -447,7 +463,7 @@ try {
 } catch {
   $message=$_.Exception.Message
   if($lease){$lease.Dispose();$lease=$null}
-  if($disabled -and -not $commitEntered) {
+  if($disabled -and -not $commitEntered -and -not $HeldRecovery) {
     try {
       Held
       SourceOld
@@ -459,13 +475,18 @@ try {
     } catch {
       Write-Warning 'F139_V46_PRECOMMIT_RECOVERY_UNVERIFIED_HOLD'
     }
-  } elseif($commitEntered -and -not $activated) {
-    # No uncertain replay, automatic rollback or old-source restart.
+  } elseif(($commitEntered -or $HeldRecovery) -and -not $activated) {
+    # A prior consumed V47 has already left this task held; V48 is
+    # strictly forward-only. No uncertain replay or old-source restart.
     try {
       Disable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
       Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue|Out-Null
     } catch {}
-    Write-Warning 'F139_V46_POSTCOMMIT_FORWARD_REPAIR_ONLY_HOLD'
+    if($HeldRecovery) {
+      Write-Warning 'F139_V48_HELD_RECOVERY_FORWARD_ONLY_HOLD'
+    } else {
+      Write-Warning 'F139_V46_POSTCOMMIT_FORWARD_REPAIR_ONLY_HOLD'
+    }
   }
   throw ('F139_V46_INSTALL_NOT_ACCEPTED: '+$message)
 } finally {
