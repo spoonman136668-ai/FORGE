@@ -321,6 +321,19 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # Exact original-owner PR1782: add one independently activated read-only
+    # diagnostic on the existing G54 owner workflow. No mutation authority.
+    "engineering/f139-v42-original-host-readonly-bridge-20261116": (
+        "6006942116330ffc579784c88b1610d19b3f73cc",
+        {
+            ".github/workflows/f139-g54-v9-owner-cutover.yml",
+            "f139/nci04_v42_original_owner_readonly.py",
+            "f139/test_nci04_v42_original_owner_readonly.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Exact PR1779: repair one concrete-path class guard that failed the
     # original V40 backup before stage creation. Independent new owner release
     # must be qualified. No workflow/task/SQLite permission from this scope.
@@ -2305,6 +2318,23 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v42-original-host-readonly-bridge-20261116":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1782
+                    or type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or git("rev-parse", "6006942116330ffc579784c88b1610d19b3f73cc^{tree}") !=
+                        "1783004aec8c720ad28c47a68175264bad394d8c"
+                    or git("rev-parse",
+                           "6006942116330ffc579784c88b1610d19b3f73cc:" + workflow) !=
+                           "b0dfd96bb86cdb834dd908a7518027d12cc9ad95"
+                    or git("rev-parse", head_sha + ":" + workflow) !=
+                           "d8bfcad81206d82df7d4c2431bd56a570dbc755a"):
+                raise ValueError("G145_V42_ORIGINAL_READONLY_PR1782_PROOF_DENIED")
         if branch == "engineering/f139-v40-stage-path-instance-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
