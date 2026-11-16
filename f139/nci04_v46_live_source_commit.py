@@ -24,6 +24,7 @@ from f139 import nci04_v43_event1835_cold as cold
 from f139 import nci04_v43_event1836_successor as successor
 from f139 import nci04_v44_event1836_copy_rehearsal as v44
 from f139 import nci04_v45_original_rehearsal_gate as v45
+from f139 import nci04_release_pin_continuity as pin
 
 SCHEMA = "forge.f139.v46.original-event1836-source-commit-hold.v1"
 PREFIX = "F139-V46-LIVE-INSTALL "
@@ -94,6 +95,21 @@ def request(get, env, event):
          "ORIGINAL_GITHUB_RELEASE_PROVENANCE_REQUIRED")
     source = v45.qualify(get, main_sha=env["GITHUB_SHA"])
     ci = v42.release_source(get, env["GITHUB_SHA"])
+    # A protected exact-source worker branch is required by the EXISTING
+    # deployed_release_continuity check after the live source is activated.
+    # A source-only start without this ref would remain dispatch-blocked.
+    # NEVER create the ref here: creating it triggers legacy V40 workflow
+    # jobs and needs an isolated owner release, not implicit CI authority.
+    worker_name = pin.release_worker_branch(TARGET)
+    worker_route = base + "branches/" + worker_name
+    worker = get(worker_route)
+    need(type(worker) is dict and
+         worker.get("name") == worker_name and
+         worker.get("protected") is True and
+         worker.get("commit", {}).get("sha") == TARGET and
+         pin.verify_release_worker_branch(get, TARGET) == worker_name and
+         get(worker_route) == worker,
+         "EXACT_PROTECTED_WORKER_RELEASE_REF_REQUIRED")
     ancestry = get(base + "compare/" + TARGET + "..." +
                    env["GITHUB_SHA"] + "?per_page=1&page=2")
     need(type(ancestry) is dict
