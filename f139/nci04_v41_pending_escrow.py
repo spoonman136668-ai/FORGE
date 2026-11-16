@@ -188,14 +188,22 @@ def escrowed_native_candidate_identity(db, api, historical_issues, source_sha):
     immutable target Git commit/tree again against its frozen ledger payload.
     This is read-only and cannot produce a dispatch or owner-policy mutation.
     """
-    # NO_ESCROW retains the old feeder behavior with no extra GitHub reads.
-    augmented = catalog_escrow_exclusion(db, historical_issues, source_sha)
-    if augmented is historical_issues:
+    # The catalog call immediately before this feeder has already added
+    # the paired escrow to historical_issues; never treat it as admission.
+    # NO_ESCROW retains legacy behavior without additional provider reads.
+    need(type(historical_issues) is dict and _sha(source_sha, SHA40),
+         "FEED_INPUT")
+    paired = audit_committed_escrow(db)
+    if paired == "NO_ESCROW":
+        need(1715 not in historical_issues, "FEED_UNEXPLAINED_OLD_ISSUE")
         return None
+    need(paired == "PAIRED_V41_TRANSITION"
+         and db.meta()["source_sha"] == source_sha
+         and source_sha != OWNER_SOURCE,
+         "FEED_SOURCE_OR_PAIR_DRIFT")
     from f139.nci04_v41_pending_custody import (
         _authenticated_remote_issue, _semantic_identity)
     from f139.nci04_autonomy_feed import candidate_identity
-    issue = _authenticated_remote_issue(api, 1715, OWNER_SOURCE)
     row = db.conn.execute(
         "SELECT seq,prior_sha,payload FROM events WHERE kind=?", (KIND,)
     ).fetchone()
@@ -205,6 +213,11 @@ def escrowed_native_candidate_identity(db, api, historical_issues, source_sha):
     except (TypeError, ValueError, UnicodeError) as exc:
         raise EscrowDenied("F139_V41_ESCROW_FEED_JSON") from exc
     verify_event_shape({"seq": row["seq"], "prior_sha": row["prior_sha"]}, frozen)
+    need(historical_issues.get(1715) == (
+        frozen["issue_id"], frozen["source_sha"],
+        frozen["issue_body_sha256"], frozen["ticket"]),
+        "FEED_ESCROW_CATALOG_DRIFT")
+    issue = _authenticated_remote_issue(api, 1715, OWNER_SOURCE)
     need(issue.number == 1715
          and issue.issue_id == frozen["issue_id"]
          and issue.source_sha == OWNER_SOURCE
