@@ -200,6 +200,67 @@ def verify_detached_restore(folder, *, target, run_id, manifest_sha):
     }
 
 
+
+
+def last_source_transition(db):
+    """Verify frozen head 1835 and immutable source event 1833 separately.
+
+    The original ledger append-only history contains post-transition owner
+    events. Event 1835 is the current *ledger head*, not the transition.
+    A backup must validate both without rewriting or relabeling either.
+    """
+    need(type(db) is Database
+         and getattr(db, "_readonly_opened", False) is True
+         and db.conn.execute("PRAGMA query_only").fetchone()[0] == 1,
+         "REAL_COLD_SOURCE_QUERY_ONLY_REQUIRED")
+    meta = _frozen_meta(db)
+    anchor = db.conn.execute(
+        "SELECT seq,sha FROM events WHERE seq=?",
+        (v42.FROZEN_SEQ,)).fetchone()
+    need(anchor is not None
+         and anchor["seq"] == v42.FROZEN_SEQ
+         and anchor["sha"] == v42.FROZEN_HEAD
+         and meta["head_hash"] == v42.FROZEN_HEAD,
+         "FROZEN_LEDGER_HEAD1835_DRIFT")
+    row = db.conn.execute(
+        "SELECT seq,kind,sha,payload FROM events "
+        "WHERE kind='SOURCE_TRANSITION_ADMITTED' AND seq<=? "
+        "ORDER BY seq DESC LIMIT 1",
+        (v42.FROZEN_SEQ,)).fetchone()
+    from f139 import nci04_v41_hybrid_event1833_successor as v40
+    need(row is not None
+         and row["seq"] == v40.PREDECESSOR_SEQ + 1
+         and row["kind"] == "SOURCE_TRANSITION_ADMITTED"
+         and type(row["sha"]) is str
+         and successor.SHA64.fullmatch(row["sha"]) is not None
+         and type(row["payload"]) is str,
+         "ORIGINAL_LAST_V40_SOURCE_EVENT_MISSING")
+    try:
+        doc = json.loads(row["payload"])
+    except (ValueError, TypeError, UnicodeError) as exc:
+        raise OriginalColdDenied(
+            "F139_V43_COLD_SOURCE_EVENT_PAYLOAD_UNREADABLE") from exc
+    need(type(doc) is dict and set(doc) == v40.FIELDS
+         and doc.get("schema") == v40.SCHEMA
+         and doc.get("to_source_sha") == v42.BEFORE
+         and doc.get("from_source_sha") == v40.SOURCE
+         and doc.get("original_head_seq") == v40.PREDECESSOR_SEQ
+         and doc.get("purpose") == v40.PURPOSE
+         and type(doc.get("backup_run_id")) is int
+         and doc["backup_run_id"] > 0
+         and type(doc.get("backup_manifest_sha256")) is str
+         and successor.SHA64.fullmatch(
+             doc["backup_manifest_sha256"]) is not None
+         and doc.get("scientific_first_use") is False
+         and doc.get("hybrid_admission") is False
+         and doc.get("new_dispatches") == 0
+         and doc.get("task_resume_authorized") is False
+         and doc.get("owner_policy_update_authorized") is False
+         and canonical(doc).decode("ascii") == row["payload"]
+         and db.conn.total_changes == 0,
+         "ORIGINAL_LAST_V40_SOURCE_PROOF_DRIFT")
+    return doc
+
 def stage_full_backup(original, *, target, run_id,
                       release_witness, original_witness):
     """Create-only backup on the existing Windows owner. No task/SQLite writes.
@@ -223,22 +284,7 @@ def stage_full_backup(original, *, target, run_id,
          "EXACT_OWNER_QUERY_ONLY_AND_RELEASE_REQUIRED")
     initial = v42.original_owner_cold_read(original)
     before = _frozen_meta(original)
-    row = original.conn.execute(
-        "SELECT kind,sha,payload FROM events WHERE seq=?",
-        (v42.FROZEN_SEQ,)).fetchone()
-    need(row is not None and row["kind"] == "SOURCE_TRANSITION_ADMITTED"
-         and row["sha"] == v42.FROZEN_HEAD,
-         "FROZEN_SOURCE_EVENT1835_MISSING")
-    prior_doc = json.loads(row["payload"])
-    need(type(prior_doc) is dict
-         and prior_doc.get("schema") ==
-             "forge.f139.source-transition.v40"
-         and type(prior_doc.get("backup_run_id")) is int
-         and prior_doc["backup_run_id"] > 0
-         and type(prior_doc.get("backup_manifest_sha256")) is str
-         and successor.SHA64.fullmatch(
-             prior_doc["backup_manifest_sha256"]) is not None,
-         "ORIGINAL_PREDECESSOR_SOURCE_PROOF_DRIFT")
+    prior_doc = last_source_transition(original)
     prior_folder = original.filename.parent / (
         "f139-v40-before-" + str(prior_doc["backup_run_id"]))
     prior.verify_detached_restore(
