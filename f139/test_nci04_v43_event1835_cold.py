@@ -221,7 +221,7 @@ class V43FullBackupTests(unittest.TestCase):
 
     def test_head1835_and_last_v40_source1833_are_distinct(self):
         """Actual original has later owner events after source transition."""
-        from f139.local_controller import Database
+        from f139.local_controller import Database, canonical as event_canonical
         from f139 import nci04_v41_hybrid_event1833_successor as v40
 
         doc = dict.fromkeys(v40.FIELDS)
@@ -240,7 +240,7 @@ class V43FullBackupTests(unittest.TestCase):
             "task_resume_authorized": False,
             "owner_policy_update_authorized": False,
         })
-        payload = canonical(doc).decode("ascii")
+        payload = event_canonical(doc).decode("ascii")
         head = {"seq": v42.FROZEN_SEQ, "sha": v42.FROZEN_HEAD}
         latest = {
             "seq": 1833, "kind": "SOURCE_TRANSITION_ADMITTED",
@@ -291,7 +291,7 @@ class V43FullBackupTests(unittest.TestCase):
                     latest[key] = old
             old = latest["payload"]
             doc["to_source_sha"] = "b" * 40
-            latest["payload"] = canonical(doc).decode("ascii")
+            latest["payload"] = event_canonical(doc).decode("ascii")
             with self.assertRaisesRegex(
                     cold.OriginalColdDenied, "LAST_V40_SOURCE_PROOF_DRIFT"):
                 cold.last_source_transition(db)
