@@ -302,6 +302,58 @@ class GitHubCommandTransportTests(unittest.TestCase):
         self.assertNotIn("DO_NOT_LEAK", capture.getvalue())
         self.assertNotIn("private-id", capture.getvalue())
 
+    def test_v49_opaque_compare_get_retries_without_accepting_missing_proof(self):
+        # Live V48 failed a native COMPARE GET with exit 1, no HTTP status.
+        # Retrying read-only evidence is allowed; it never waives the witness.
+        route = ("repos/spoonman136668-ai/FORGE/compare/"
+                 + "a" * 40 + "..." + "b" * 40 + "?per_page=1&page=2")
+        failed = SimpleNamespace(returncode=1, stdout=b"",
+                                 stderr=b"opaque failure DO_NOT_LEAK")
+        ok = SimpleNamespace(returncode=0, stdout=b'{"status":"ahead"}',
+                             stderr=b"")
+        capture = io.StringIO()
+        with redirect_stderr(capture):
+            result, error, run, sleep = self.invoke([route], [failed, ok])
+        self.assertEqual((result, error), (b'{"status":"ahead"}', None))
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [1])
+        self.assertEqual(capture.getvalue(), "")
+
+        capture = io.StringIO()
+        with redirect_stderr(capture):
+            result, error, run, sleep = self.invoke([route], [failed] * 3)
+        self.assertIsNone(result)
+        self.assertEqual(error, "F139_GITHUB_API_FAILED")
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [1, 2])
+        lines = capture.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        report = json.loads(lines[0].split("=", 1)[1])
+        self.assertEqual(report["route_family"], "COMPARE")
+        self.assertEqual(report["failure"], "GITHUB_API_FAILED")
+        self.assertEqual(report["attempts"], 3)
+        self.assertIsNone(report["http_status"])
+        self.assertNotIn("DO_NOT_LEAK", capture.getvalue())
+        self.assertNotIn("a" * 40, capture.getvalue())
+
+        # No retry on explicit HTTP rejection, other GETs, wrong query,
+        # or any mutation, even if the CLI error is unclassified.
+        for status in (401, 403, 404, 422):
+            rejected = SimpleNamespace(returncode=1, stdout=b"",
+                                       stderr=f"HTTP {status}".encode())
+            _, _, run, sleep = self.invoke([route], [rejected] * 3)
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
+        for other in (self.ROUTE, route.split("?", 1)[0]):
+            _, _, run, sleep = self.invoke([other], [failed] * 3)
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
+        for method in ("POST", "PATCH", "PUT", "DELETE"):
+            _, _, run, sleep = self.invoke(
+                ["--method", method, route], [failed] * 3)
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
+
     def test_terminal_timeout_logs_once_after_original_read_retry_budget(self):
         timeout = subprocess.TimeoutExpired(["gh", "api"], 40)
         capture = io.StringIO()
