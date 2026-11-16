@@ -106,6 +106,9 @@ class Event1833InertSourceTests(unittest.TestCase):
             self.assertEqual(proof["original_head_sha256"], self.head)
             self.assertEqual(proof["verified_historical_tasks"], 153)
             self.assertEqual(proof["custodied_negative_tasks"], 56)
+            self.assertEqual(len(proof["custodied_negative_tickets"]), 56)
+            self.assertEqual(proof["custodied_negative_tickets"],
+                             sorted(proof["custodied_negative_tickets"]))
             self.assertEqual(proof["v39_predecessor_proof_sha256"],
                              v40.PREDECESSOR_PROOF_SHA256)
             result = self.action(proof)
@@ -152,6 +155,7 @@ class Event1833InertSourceTests(unittest.TestCase):
                 {"task_resume_authorized": True},
                 {"owner_policy_update_authorized": True},
                 {"terminal_tasks_sha256": "0" * 64},
+                {"custodied_negative_tickets": []},
                 {"v39_predecessor_proof_sha256": "0" * 64},
             ):
                 with self.subTest(delta=delta):
