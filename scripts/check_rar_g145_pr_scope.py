@@ -321,6 +321,17 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # Exact PR1779: repair one concrete-path class guard that failed the
+    # original V40 backup before stage creation. Independent new owner release
+    # must be qualified. No workflow/task/SQLite permission from this scope.
+    "engineering/f139-v40-stage-path-instance-20261116": (
+        "c5d2e94581565ff8e1b66d498d0b9a167e548454",
+        {
+            "f139/nci04_v41_hybrid_event1833_owner.py",
+            "f139/test_nci04_v41_hybrid_event1833_owner.py",
+            "scripts/check_rar_g145_pr_scope.py",
+        },
+    ),
     # Exact PR1777: V40 event1832 forward-only recovery plus one qualified
     # original owner route. Source-only admission is NOT execution authority.
     "engineering/f139-v39-event1832-postwrite-canonical-readback-20261115": (
@@ -2292,6 +2303,19 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v40-stage-path-instance-20261116":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1779
+                    or type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or git("rev-parse", "c5d2e94581565ff8e1b66d498d0b9a167e548454^{tree}") != "2329c68909523058669f52ddeed82ff4f8b4f4a5"
+                    or git("rev-parse",
+                           "c5d2e94581565ff8e1b66d498d0b9a167e548454:f139/nci04_v41_hybrid_event1833_owner.py") !=
+                           "b6b394d600aebd1f878720841827e902b0277b7c"):
+                raise ValueError("G145_V40_PR1779_BASE_AND_OWNER_BINDING_REQUIRED")
         if branch == "engineering/f139-v39-event1832-postwrite-canonical-readback-20261115":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]

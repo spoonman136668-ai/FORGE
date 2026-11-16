@@ -25,15 +25,27 @@ class V40OwnerReleaseContractTests(unittest.TestCase):
                          6902472106)
         self.assertEqual(owner.PREDECESSOR_POSTCOMMIT_COMMENT_ID,
                          6902549450)
-        self.assertEqual(owner.PR, 1777)
+        self.assertEqual(owner.PR, 1779)
         self.assertEqual(
             owner.BRANCH,
-            "engineering/f139-v39-event1832-postwrite-canonical-readback-20261115")
+            "engineering/f139-v40-stage-path-instance-20261116")
         self.assertEqual(commit.BACKUP_JOB,
                          "hybrid-v40-original-event1832-backup")
         self.assertEqual(
             commit.BACKUP_WORKFLOW,
             "FORGE F139 V39 guarded original-owner successor source-only")
+
+    def test_real_pathlib_concrete_path_accepted_by_stage_guard(self):
+        # pathlib.Path(...) is PosixPath or WindowsPath, never type Path.
+        # The old 'type(path) is Path' rejected even the authentic owner.
+        candidate = Path.cwd() / "stage-guard-negative-only" / "state.sqlite"
+        self.assertIsInstance(candidate, Path)
+        self.assertIsNot(type(candidate), Path)
+        source = inspect.getsource(owner.stage_original_candidate)
+        self.assertIn("isinstance(path, Path) and path.is_absolute()", source)
+        self.assertNotIn("type(path) is Path", source)
+        self.assertIn("SingleOwner.held(path.with_suffix", source)
+        self.assertIn("NATIVE_STAGE_UNKNOWN_COLLISION", source)
 
     def test_real_owner_required_for_every_live_source_adapter(self):
         with self.assertRaises(owner.Event1833OwnerDenied):
