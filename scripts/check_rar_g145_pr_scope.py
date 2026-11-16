@@ -332,6 +332,8 @@ FROZEN_SCOPES = {
             "f139/test_nci04_v50_original_native_activation.py",
             "f139/v50_original_owner_native_activate.ps1",
             "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
     # Source-only V48 recovery of ORIGINAL held event1835 task after failed

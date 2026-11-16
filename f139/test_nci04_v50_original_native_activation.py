@@ -223,8 +223,16 @@ class V50SourceActivationTests(unittest.TestCase):
         branch = "engineering/f139-v50-v41-original-native-activation-20261116"
         pinned_base, allowed = scope.FROZEN_SCOPES[branch]
         self.assertEqual(pinned_base, "2567775a9c06b306142812cc8c0e252278f87273")
-        self.assertEqual(len(allowed), 6)
+        self.assertEqual(len(allowed), 8)
         self.assertIn("scripts/check_rar_g145_pr_scope.py", allowed)
+        self.assertIn("scripts/check_rar_g148_go_cache.py", allowed)
+        self.assertIn("scripts/check_rar_g156_dynamic_base_cache.py", allowed)
+        cache = inspect.getsource(__import__(
+            "scripts.check_rar_g148_go_cache", fromlist=["event_mode"]).event_mode)
+        reuse = inspect.getsource(__import__(
+            "scripts.check_rar_g156_dynamic_base_cache", fromlist=["_release_scope"])._release_scope)
+        self.assertIn("G148_V50_ORIGINAL_NATIVE_EXACT_SCOPE_REQUIRED", cache)
+        self.assertIn("G156_V50_ORIGINAL_NATIVE_EXACT_BASE_TREE_REQUIRED", reuse)
         workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
         self.assertIn(workflow, allowed)
         self.assertFalse(scope.generic_paths_safe([workflow]))
