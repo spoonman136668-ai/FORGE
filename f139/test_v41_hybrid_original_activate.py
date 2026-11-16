@@ -65,16 +65,19 @@ class V41HybridCutoverTests(unittest.TestCase):
         for required in (
             "F139-HYBRID-V41-SOURCE-ACTIVATE ",
             "SOURCE-ACTIVATE '+$Target+' [1-9][0-9]*$",
-            "nci04_v41_hybrid_event1832_postcommit as postcommit",
+            "nci04_v41_hybrid_event1833_postcommit as postcommit",
             "postcommit.original_postcommit(db,dict(os.environ),previous,api)",
             'need(receipt["schema"]==postcommit.SCHEMA)',
-            'receipt["event_seq"]==1832',
-            "source_event_seq -eq 1832",
-            "F139_HYBRID_V39_EVENT1832_ACTIVATION_PREFLIGHT=",
+            'receipt["event_seq"]==1833',
+            "source_event_seq -eq 1833",
+            "F139_HYBRID_V40_EVENT1833_ACTIVATION_PREFLIGHT=",
             "Get-ScheduledTask -TaskName $name",
             "Set-ScheduledTask -TaskName $name -Action $newAction",
             "upgrade-hybrid-lane",
             "F139_HYBRID_V41_LANE_SCHEMA_MIGRATION=PASS",
+            "activate-native --approval $nativeFile",
+            "NATIVE_APPROVAL_UNKNOWN_ATTEMPT_REFUSED",
+            "F139_HYBRID_V40_ORIGINAL_NATIVE_ACTIVATION=PASS",
             "$p.lanes=@('Wingless','Yggdrasil','TTT-Hybrid')",
             "New-ScheduledTaskAction",
             "Enable-ScheduledTask -TaskName $name",
@@ -102,11 +105,13 @@ class V41HybridCutoverTests(unittest.TestCase):
 
     def test_activate_requires_distinct_comment_before_any_task_mutation(self):
         script=SCRIPT.read_text("utf-8")
-        self.assertLess(script.index("EVENT1832_ACTIVATION_PREFLIGHT="),
+        self.assertLess(script.index("EVENT1833_ACTIVATION_PREFLIGHT="),
                         script.index("Set-ScheduledTask -TaskName"))
         self.assertLess(script.index("Get-ScheduledTask -TaskName"),
                         script.index("Set-ScheduledTask -TaskName"))
         self.assertLess(script.index("upgrade-hybrid-lane"),
+                        script.index("gh api --method PATCH"))
+        self.assertLess(script.index("activate-native --approval"),
                         script.index("gh api --method PATCH"))
         self.assertLess(script.index("gh api --method PATCH"),
                         script.index("Enable-ScheduledTask -TaskName"))
@@ -114,7 +119,7 @@ class V41HybridCutoverTests(unittest.TestCase):
                         script.index("Start-ScheduledTask -TaskName"))
 
 
-    def test_event1832_bridge_preserves_original_hold_and_rejects_old_preimage(self):
+    def test_event1833_bridge_preserves_original_hold_and_rejects_old_preimage(self):
         s=SCRIPT.read_text("utf-8")
         self.assertIn("Source $root $heldSource",s)
         self.assertIn("'2c7caad5a4502d4b874a11d57207a35cf033eb08'",s)
@@ -129,12 +134,14 @@ class V41HybridCutoverTests(unittest.TestCase):
         self.assertIn("custodied_negative_tasks=56",s)
         self.assertLess(s.index("postcommit.original_postcommit("),
                         s.index("Set-ScheduledTask -TaskName"))
-        self.assertLess(s.index("source_event_seq -eq 1832"),
+        self.assertLess(s.index("source_event_seq -eq 1833"),
                         s.index("Set-ScheduledTask -TaskName"))
         self.assertLess(s.index("upgrade-hybrid-lane"),
+                        s.index("activate-native --approval"))
+        self.assertLess(s.index("activate-native --approval"),
                         s.index("gh api --method PATCH"))
 
-    def test_embedded_v38_preflight_is_syntactically_valid_python(self):
+    def test_embedded_v40_preflight_is_syntactically_valid_python(self):
         script=SCRIPT.read_text("utf-8")
         self.assertEqual(script.count("$program=@'\n"),1)
         embedded=script.split("$program=@'\n",1)[1].split(
@@ -146,7 +153,7 @@ class V41HybridCutoverTests(unittest.TestCase):
             'postcommit_id<current_id',
             'readiness._owner_comment(get,current_id,body)',
             'postcommit.original_postcommit(db,dict(os.environ),previous,api)',
-            'receipt["event_seq"]==1832',
+            'receipt["event_seq"]==1833',
             'receipt["custodied_negative_tasks"]==56',
             'receipt["original_owner_mutations"]==0',
             'receipt["scientific_first_use"] is False',
