@@ -36,10 +36,12 @@ jobs:
           # Isolated owner qualification branch: no product/source/workflow mutation outside
           # the existing workflow file and the reviewed exact-source pin.
           if((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'KABOOM_FORGE_CHECKOUT_DRIFT'}
-          & git merge-base --is-ancestor 'eaa5b0f5c130f7d51cfb5d4fcf1662775de1af13' $env:GITHUB_SHA
-          if($LASTEXITCODE -ne 0){throw 'KABOOM_FORGE_BASELINE_DRIFT'}
-          $changed=@(& git diff --name-only 'eaa5b0f5c130f7d51cfb5d4fcf1662775de1af13' $env:GITHUB_SHA)
-          if($LASTEXITCODE -ne 0 -or @($changed | Where-Object {$_ -cnotin @('.github/workflows/forge-kaboom-pr105-offline-20261114.yml','.github/qualification/kaboom-source-pin.json')}).Count -ne 0){throw 'KABOOM_FORGE_SCOPE_EXCEEDED'}
+          # checkout is deliberately shallow. Verify the isolated cumulative diff
+          # against its known qualified baseline through authenticated read-only API.
+          $cmp=@(& gh api 'repos/spoonman136668-ai/FORGE/compare/eaa5b0f5c130f7d51cfb5d4fcf1662775de1af13...'+$env:GITHUB_SHA --jq '.status,.files[].filename' 2>$null)
+          if($LASTEXITCODE -ne 0 -or $cmp.Count -lt 2 -or $cmp[0] -cne 'ahead'){throw 'KABOOM_FORGE_BASELINE_DRIFT'}
+          $changed=@($cmp | Select-Object -Skip 1)
+          if(@($changed | Where-Object {$_ -cnotin @('.github/workflows/forge-kaboom-pr105-offline-20261114.yml','.github/qualification/kaboom-source-pin.json')}).Count -ne 0){throw 'KABOOM_FORGE_SCOPE_EXCEEDED'}
           if((& git status --porcelain)){throw 'KABOOM_FORGE_DIRTY_WORKTREE'}
           $pin=Get-Content -LiteralPath '.github/qualification/kaboom-source-pin.json' -Raw | ConvertFrom-Json
           if($pin.schema -cne 'forge.kaboom.source-pin.v1' -or
