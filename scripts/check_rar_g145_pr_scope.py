@@ -321,6 +321,20 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # PR1786: copy-only proof of sealed original event1835 and simulated
+    # event1836. Does not authorize live task/source/policy mutations.
+    "engineering/f139-v44-event1836-copy-rehearsal-20261116": (
+        "4ccbb84785a43e038453d6f2bda5415ecb364084",
+        {
+            ".github/workflows/f139-g54-v9-owner-cutover.yml",
+            "f139/nci04_v44_event1836_copy_rehearsal.py",
+            "f139/nci04_v44_owner_copy_cli.py",
+            "f139/test_nci04_v44_event1836_copy_rehearsal.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Exact PR1784: one existing original owner create-only cold-backup
     # route. Source/backup engineering only, never live source permission.
     "engineering/f139-v43-event1835-full-cold-backup-20261116": (
@@ -2332,6 +2346,22 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v44-event1836-copy-rehearsal-20261116":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            workflow = ".github/workflows/f139-g54-v9-owner-cutover.yml"
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1786
+                    or type(request.get("user")) is not dict
+                    or request["user"].get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or git("rev-parse", "4ccbb84785a43e038453d6f2bda5415ecb364084^{tree}") !=
+                       "3c75fc418d1e3d9f6c8a4eb05b480003fe962bb3"
+                    or git("rev-parse", "4ccbb84785a43e038453d6f2bda5415ecb364084:" + workflow) !=
+                       "b812b308840c6fd20110f3819f843eb4e875602b"
+                    or git("rev-parse", head_sha + ":" + workflow) !=
+                       "cd62ad2d933b83b199b1ffb9f4d0c6fe3918bb40"):
+                raise ValueError("G145_V44_ORIGINAL_COPY_REHEARSAL_PR1786_DENIED")
         if branch == "engineering/f139-v43-event1835-full-cold-backup-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
