@@ -194,5 +194,22 @@ Write-Output 'F139_V46_AST_ONLY=PASS'
         self.assertNotIn("restore",inspect.getsource(live.commit_original).lower().replace("sealed_original",""))
 
 
+    def test_existing_g54_one_shot_job_and_no_new_scheduler(self):
+        workflow=(Path(__file__).resolve().parents[1]/
+                  ".github/workflows/f139-g54-v9-owner-cutover.yml").read_text(
+                      encoding="utf-8")
+        marker="\n  v46-original-owner-live-install:\n"
+        self.assertEqual(workflow.count(marker),1)
+        job=workflow.split(marker,1)[1]
+        self.assertIn("F139-V46-LIVE-INSTALL ",job)
+        self.assertIn("github.actor == 'spoonman136668-ai'",job)
+        self.assertIn("github.event.issue.number == 807",job)
+        self.assertIn("runs-on: [self-hosted, Windows, forge-codex-isolated]",job)
+        self.assertIn("f139/v46_original_owner_live_install.ps1",job)
+        self.assertNotIn("schedule:",job)
+        self.assertNotIn("Register-ScheduledTask",job)
+        self.assertNotIn("workflow_dispatch:",job)
+
+
 if __name__ == "__main__":
     unittest.main()
