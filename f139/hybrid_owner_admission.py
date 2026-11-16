@@ -313,16 +313,13 @@ def _qualified_v40_source_hold(db):
             row["sha"] == meta["head_hash"]
             and row["seq"] == meta["head_seq"]
             and doc["to_source_sha"] == meta["source_sha"]
-            and (row["sha"] == meta["head_hash"]
-             and row["seq"] == meta["head_seq"]
-             and doc["to_source_sha"] == meta["source_sha"]
-             and doc["scientific_first_use"] is False
-             and doc["hybrid_admission"] is False
-             and doc["task_resume_authorized"] is False
-             and doc["owner_policy_update_authorized"] is False
-             and doc["new_dispatches"] == 0
-             and verify_native_activation(
-                 db, expected_source=v37.FROM_V41))
+            and doc["scientific_first_use"] is False
+            and doc["hybrid_admission"] is False
+            and doc["task_resume_authorized"] is False
+            and doc["owner_policy_update_authorized"] is False
+            and doc["new_dispatches"] == 0
+            and verify_native_activation(
+                db, expected_source=v37.FROM_V41)
         )
     except (KeyError, TypeError, ValueError):
         return False
