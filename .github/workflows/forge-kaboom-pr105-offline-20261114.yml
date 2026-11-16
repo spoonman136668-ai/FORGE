@@ -38,7 +38,7 @@ jobs:
           if((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'KABOOM_FORGE_CHECKOUT_DRIFT'}
           # checkout is deliberately shallow. Verify the isolated cumulative diff
           # against its known qualified baseline through authenticated read-only API.
-          $cmp=@(& gh api 'repos/spoonman136668-ai/FORGE/compare/eaa5b0f5c130f7d51cfb5d4fcf1662775de1af13...'+$env:GITHUB_SHA --jq '.status,.files[].filename' 2>$null)
+          $cmp=@(& gh api ('repos/spoonman136668-ai/FORGE/compare/eaa5b0f5c130f7d51cfb5d4fcf1662775de1af13...'+$env:GITHUB_SHA) --jq '.status,.files[].filename' 2>$null)
           if($LASTEXITCODE -ne 0 -or $cmp.Count -lt 2 -or $cmp[0] -cne 'ahead'){throw 'KABOOM_FORGE_BASELINE_DRIFT'}
           $changed=@($cmp | Select-Object -Skip 1)
           if(@($changed | Where-Object {$_ -cnotin @('.github/workflows/forge-kaboom-pr105-offline-20261114.yml','.github/qualification/kaboom-source-pin.json')}).Count -ne 0){throw 'KABOOM_FORGE_SCOPE_EXCEEDED'}
