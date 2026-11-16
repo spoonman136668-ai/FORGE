@@ -14,7 +14,7 @@ import shutil
 import sqlite3
 import tempfile
 
-from f139.local_controller import Database, SingleOwner
+from f139.local_controller import Database, SingleOwner, canonical as event_canonical
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_v38_original_owner_transition_cli import rollback_view
 from f139.nci04_v41_cold_copy_verifier import (
@@ -256,7 +256,7 @@ def last_source_transition(db):
          and doc.get("new_dispatches") == 0
          and doc.get("task_resume_authorized") is False
          and doc.get("owner_policy_update_authorized") is False
-         and canonical(doc).decode("ascii") == row["payload"]
+         and event_canonical(doc).decode("ascii") == row["payload"]
          and db.conn.total_changes == 0,
          "ORIGINAL_LAST_V40_SOURCE_PROOF_DRIFT")
     return doc
