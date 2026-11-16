@@ -209,5 +209,15 @@ class V43FullBackupTests(unittest.TestCase):
             self.assertFalse(hasattr(module, "install"))
 
 
+    def test_actual_windows_path_factory_not_rejected_by_type_guard(self):
+        """argparse(type=Path) yields WindowsPath, never type(value) is Path."""
+        source = inspect.getsource(entry.original_backup)
+        self.assertIn("isinstance(db_path, Path)", source)
+        self.assertNotIn("type(db_path) is Path", source)
+        self.assertTrue(isinstance(Path("."), Path))
+        self.assertIsNot(type(Path(".")), Path)
+
+
+
 if __name__ == "__main__":
     unittest.main()
