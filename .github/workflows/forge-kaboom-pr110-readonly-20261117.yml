@@ -1,0 +1,132 @@
+name: FORGE KABOOM PR110 read-only exact-source Windows qualification
+on:
+  push:
+    branches: [qualification/kaboom-pr110-release-main-sync-20261117]
+    paths: [.github/workflows/forge-kaboom-pr110-readonly-20261117.yml]
+permissions:
+  contents: read
+jobs:
+  pr110:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 90
+    steps:
+      - name: Exact Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Bind original private repository exact branch, no execution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr110-release-main-sync-20261117' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'KABOOM_PR110_WRONG_HOST_OR_EVENT'}
+          $ref='engineering/kaboom-20261116-release-main-sync-20261117'
+          $want='1bba3fb14406b325dc10b93c5c1fb5b8f1d7c939'
+          $remote=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$ref) --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KABOOM_PR110_REF_DRIFT'}
+          $temp=Join-Path $env:RUNNER_TEMP ('kaboom-pr110-'+$env:GITHUB_RUN_ID)
+          if(Test-Path $temp){throw 'KABOOM_PR110_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $temp | Out-Null
+          $root=Join-Path $temp 'source'
+          $env:GIT_TERMINAL_PROMPT='0'
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 1 --single-branch --branch $ref *> (Join-Path $temp 'clone.log')
+          if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_PRIVATE_CLONE_FAIL'}
+          if((& git -C $root rev-parse HEAD).Trim() -cne $want -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne '3f1696f0e9a6b7e0231c220919206d003c2366cf'){throw 'KABOOM_PR110_EXACT_RELEASE_TREE_FAIL'}
+          if((& go env GOVERSION).Trim() -cne 'go1.26.5'){throw 'KABOOM_PR110_GO_TOOLCHAIN_DRIFT'}
+          "KABOOM_PR110_ROOT=$root" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "KABOOM_PR110_PINNED_SOURCE=PASS sha=$want"
+      - name: Full native Windows Go tests vet build on exact released core
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:GOTOOLCHAIN='local'; $env:GOTELEMETRY='off'; $env:CGO_ENABLED='0'; $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+          Push-Location (Join-Path $env:KABOOM_PR110_ROOT 'kaboom-core')
+          try {
+            & go test -p 1 -count=1 -timeout 35m ./...
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GO_TEST_FAIL'}
+            & go vet ./...
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GO_VET_FAIL'}
+            & go build ./...
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GO_BUILD_FAIL'}
+          } finally { Pop-Location }
+          Write-Output 'KABOOM_PR110_FULL_NATIVE_WINDOWS=PASS'
+      - name: Verify frozen history and release source, regenerate derived source maps
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          Push-Location $env:KABOOM_PR110_ROOT
+          try {
+            & python -B tools/architecture/verify_source_custody.py
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_CUSTODY_FAIL'}
+            & python -B tools/architecture/generate.py
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GENERATOR_FAIL'}
+            & python -B tools/architecture/generate.py --check
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_MAPS_DRIFT'}
+            $bundle=Join-Path $env:GITHUB_WORKSPACE 'kaboom-pr110-derived'
+            foreach($p in @('.ice/manifest.json','.ice/file-descriptions.json','.ice/source-file-descriptions.ice','.ice/symbol-dependency-map.ice','.ice/code-graph.json','docs/obsidian/KABOOM.md')){
+              $to=Join-Path $bundle $p
+              New-Item -ItemType Directory -Path (Split-Path $to -Parent) -Force | Out-Null
+              Copy-Item -LiteralPath $p -Destination $to -Force
+            }
+            foreach($p in @(Get-ChildItem 'docs/obsidian/Modules' -Filter *.md -File)){
+              $to=Join-Path $bundle ('docs/obsidian/Modules/'+$p.Name)
+              New-Item -ItemType Directory -Path (Split-Path $to -Parent) -Force | Out-Null
+              Copy-Item -LiteralPath $p.FullName -Destination $to -Force
+            }
+            New-Item -ItemType Directory -Path (Join-Path $bundle 'docs/graphify') -Force | Out-Null
+            Write-Output 'KABOOM_PR110_DERIVED_FILES_EXACT=PASS'
+            & python -B tools/architecture/retrieval_benchmark.py --repeat 2 --record
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_RETRIEVAL_FAIL'}
+            foreach($p in @('retrieval-benchmark-latest.json','retrieval-benchmark.jsonl')){
+              Copy-Item -LiteralPath (Join-Path 'docs/graphify' $p) -Destination (Join-Path $bundle ('docs/graphify/'+$p)) -Force
+            }
+            & python -B -m unittest discover -s tools/architecture -p 'test_*.py' -v
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_ARCH_NEGATIVES_FAIL'}
+            Write-Output 'KABOOM_PR110_CUSTODY_ARCH_NEGATIVES=PASS'
+          } finally { Pop-Location }
+      - name: Pinned Graphify code-only analysis, isolated virtualenv
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $venv=Join-Path $env:RUNNER_TEMP 'kaboom-pr110-graphify-venv'
+          & python -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_VENV_FAIL'}
+          $py=Join-Path $venv 'Scripts/python.exe'
+          $wheelDir=Join-Path $env:RUNNER_TEMP 'kaboom-pr110-graphify-wheel'
+          New-Item -ItemType Directory -Path $wheelDir -Force | Out-Null
+          & $py -m pip download --no-deps --only-binary=:all: --dest $wheelDir 'graphifyy==0.9.92'
+          if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_WHEEL_FETCH_FAIL'}
+          $wheel=Join-Path $wheelDir 'graphifyy-0.9.92-py3-none-any.whl'
+          if(-not(Test-Path -LiteralPath $wheel)){throw 'KABOOM_PR110_WHEEL_MISSING'}
+          if((Get-FileHash -LiteralPath $wheel -Algorithm SHA256).Hash.ToLowerInvariant() -cne '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c'){throw 'KABOOM_PR110_WHEEL_HASH_FAIL'}
+          & $py -m pip install --disable-pip-version-check $wheel
+          if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_INSTALL_FAIL'}
+          & $py -c "from importlib.metadata import version; assert version('graphifyy')=='0.9.92'"
+          if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_VERSION_FAIL'}
+          $graph=Join-Path $venv 'Scripts/graphify.exe'
+          Push-Location $env:KABOOM_PR110_ROOT
+          try {
+            & $graph extract . --code-only --max-workers 4
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_EXTRACT_FAIL'}
+            & $graph cluster-only . --no-label
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_CLUSTER_FAIL'}
+            & $py tools/architecture/publish_graphify.py --root . --input graphify-out --output (Join-Path $env:GITHUB_WORKSPACE 'kaboom-pr110-derived/docs/graphify') --source-sha '1bba3fb14406b325dc10b93c5c1fb5b8f1d7c939'
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_REPORT_FAIL'}
+            Write-Output 'KABOOM_PR110_PINNED_CODEONLY_GRAPHIFY=PASS'
+          } finally { Pop-Location }
+      - name: Recheck unmodified candidate ref
+        shell: pwsh
+        run: |
+          $sha=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/engineering/kaboom-20261116-release-main-sync-20261117' --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$sha".Trim() -cne '1bba3fb14406b325dc10b93c5c1fb5b8f1d7c939'){throw 'KABOOM_PR110_POST_CHECK_DRIFT'}
+          Write-Output 'KABOOM_PR110_READONLY_QUALIFICATION=PASS;ORDERS=ZERO;DEPLOYMENT=NONE'
+      - name: Upload read-only source-derived maps, even on independent failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaboom-pr110-derived
+          path: kaboom-pr110-derived/
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 7
