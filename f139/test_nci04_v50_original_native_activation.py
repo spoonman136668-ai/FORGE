@@ -131,13 +131,14 @@ class V50SourceActivationTests(unittest.TestCase):
         with self.assertRaises(v50.NativeV50Denied):
             self.call(env, event, get, pinned=False)
 
-    def test_validator_admits_exact_v41_and_v42_without_relaxing_future_schemas(self):
+    def test_validator_admits_exact_v41_v42_v43_without_relaxing_future_schemas(self):
         source = inspect.getsource(native.activate_native)
         self.assertEqual(source.count('"forge.f139.source-transition.v41"'), 3)
-        # V52 adds precisely the independently replay-verified v42 successor;
-        # v43 is still forbidden, and older V50 activation evidence is immutable.
+        # V53 adds exactly the event1839 successor; historical V50/V52 authority
+        # remains immutable and later source schemas are still forbidden.
         self.assertEqual(source.count('"forge.f139.source-transition.v42"'), 3)
-        self.assertNotIn('"forge.f139.source-transition.v43"', source)
+        self.assertEqual(source.count('"forge.f139.source-transition.v43"'), 3)
+        self.assertNotIn('"forge.f139.source-transition.v44"', source)
         self.assertEqual(v43.SCHEMA, "forge.f139.source-transition.v41")
         self.assertEqual(v50.HEAD_SEQ, 1836)
         self.assertEqual(v50.HEAD_HASH,
