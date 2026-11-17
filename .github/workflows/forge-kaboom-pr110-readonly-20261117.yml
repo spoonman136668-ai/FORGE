@@ -21,7 +21,7 @@ jobs:
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr110-release-main-sync-20261117' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'KABOOM_PR110_WRONG_HOST_OR_EVENT'}
           $ref='engineering/kaboom-20261116-release-main-sync-20261117'
-          $want='1bba3fb14406b325dc10b93c5c1fb5b8f1d7c939'
+          $want='8b644b8809e7a2bb0ee145a942a8d375e9c6cffd'
           $remote=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$ref) --jq '.object.sha' 2>$null)
           if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KABOOM_PR110_REF_DRIFT'}
           $temp=Join-Path $env:RUNNER_TEMP ('kaboom-pr110-'+$env:GITHUB_RUN_ID)
@@ -111,15 +111,58 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_EXTRACT_FAIL'}
             & $graph cluster-only . --no-label
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_CLUSTER_FAIL'}
-            & $py tools/architecture/publish_graphify.py --root . --input graphify-out --output (Join-Path $env:GITHUB_WORKSPACE 'kaboom-pr110-derived/docs/graphify') --source-sha '1bba3fb14406b325dc10b93c5c1fb5b8f1d7c939'
+            & $py tools/architecture/publish_graphify.py --root . --input graphify-out --output (Join-Path $env:GITHUB_WORKSPACE 'kaboom-pr110-derived/docs/graphify') --source-sha '8b644b8809e7a2bb0ee145a942a8d375e9c6cffd'
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_REPORT_FAIL'}
             Write-Output 'KABOOM_PR110_PINNED_CODEONLY_GRAPHIFY=PASS'
           } finally { Pop-Location }
+      - name: Emit exact source-derived artifact fragments for independent PR assembly
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'kaboom-pr110-derived'
+          if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw 'KABOOM_PR110_OUTPUT_MISSING' }
+          $paths=@(Get-ChildItem -LiteralPath $root -File -Recurse | Sort-Object FullName)
+          if ($paths.Count -lt 25 -or $paths.Count -gt 35) { throw 'KABOOM_PR110_OUTPUT_UNEXPECTED_COUNT' }
+          foreach ($file in $paths) {
+            $relative=$file.FullName.Substring($root.Length+1).Replace('\\','/')
+            if ($relative -notmatch '^(?:\\.ice/(?:manifest\\.json|file-descriptions\\.json|source-file-descriptions\\.ice|symbol-dependency-map\\.ice|code-graph\\.json)|docs/obsidian/(?:KABOOM\\.md|Modules/[a-z-]+\\.md)|docs/graphify/(?:graph\\.json|graph\\.html|GRAPH_REPORT\\.md|source-manifest\\.json|retrieval-benchmark-latest\\.json|retrieval-benchmark\\.jsonl))        shell: pwsh
+        run: |
+          $sha=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/engineering/kaboom-20261116-release-main-sync-20261117' --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$sha".Trim() -cne '8b644b8809e7a2bb0ee145a942a8d375e9c6cffd'){throw 'KABOOM_PR110_POST_CHECK_DRIFT'}
+          Write-Output 'KABOOM_PR110_READONLY_QUALIFICATION=PASS;ORDERS=ZERO;DEPLOYMENT=NONE'
+      - name: Upload read-only source-derived maps, even on independent failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaboom-pr110-derived
+          path: kaboom-pr110-derived/
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 7
+) {
+              throw 'KABOOM_PR110_OUTPUT_PATH_NOT_ALLOWLISTED'
+            }
+            $data=[IO.File]::ReadAllBytes($file.FullName)
+            $gitBlob="blob $($data.Length)" + [char]0
+            $header=[Text.Encoding]::ASCII.GetBytes($gitBlob)
+            $sha=[Security.Cryptography.SHA1]::HashData([byte[]]($header+$data))
+            $oid=[Convert]::ToHexString($sha).ToLowerInvariant()
+            $encoded=[Convert]::ToBase64String($data)
+            $parts=[int][Math]::Ceiling($encoded.Length/720.0)
+            Write-Output ('KABOOM_PR110_BLOB_META|'+$relative+'|'+$oid+'|'+$parts)
+            for($i=0; $i -lt $parts; $i++) {
+              $offset=$i*720
+              $text=$encoded.Substring($offset,[Math]::Min(720,$encoded.Length-$offset))
+              Write-Output ('KABOOM_PR110_BLOB_CHUNK|'+$relative+'|'+$i+'|'+$text)
+            }
+          }
+          Write-Output ('KABOOM_PR110_EXPORTED_BLOBS='+$paths.Count)
+
       - name: Recheck unmodified candidate ref
         shell: pwsh
         run: |
           $sha=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/engineering/kaboom-20261116-release-main-sync-20261117' --jq '.object.sha' 2>$null)
-          if($LASTEXITCODE -ne 0 -or "$sha".Trim() -cne '1bba3fb14406b325dc10b93c5c1fb5b8f1d7c939'){throw 'KABOOM_PR110_POST_CHECK_DRIFT'}
+          if($LASTEXITCODE -ne 0 -or "$sha".Trim() -cne '8b644b8809e7a2bb0ee145a942a8d375e9c6cffd'){throw 'KABOOM_PR110_POST_CHECK_DRIFT'}
           Write-Output 'KABOOM_PR110_READONLY_QUALIFICATION=PASS;ORDERS=ZERO;DEPLOYMENT=NONE'
       - name: Upload read-only source-derived maps, even on independent failure
         if: always()
