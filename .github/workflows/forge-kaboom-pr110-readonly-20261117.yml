@@ -21,7 +21,7 @@ jobs:
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr110-release-main-sync-20261117' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'KABOOM_PR110_WRONG_HOST_OR_EVENT'}
           $ref='engineering/kaboom-20261116-release-main-sync-20261117'
-          $want='2d6d098c50ea9c229bc034cd50b5fdb1d6a411c6'
+          $want='598a93aa8418d1dc415f2851fb8fd1468d0116b7'
           $remote=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$ref) --jq '.object.sha' 2>$null)
           if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KABOOM_PR110_REF_DRIFT'}
           $temp=Join-Path $env:RUNNER_TEMP ('kaboom-pr110-'+$env:GITHUB_RUN_ID)
@@ -59,6 +59,9 @@ jobs:
           try {
             & python -B tools/architecture/verify_source_custody.py
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_CUSTODY_FAIL'}
+            # Require the committed, source-derived PR maps to already be fresh.
+            & python -B tools/architecture/generate.py --check
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_COMMITTED_MAPS_STALE'}
             & python -B tools/architecture/generate.py
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GENERATOR_FAIL'}
             & python -B tools/architecture/generate.py --check
@@ -83,6 +86,8 @@ jobs:
             }
             & python -B -m unittest discover -s tools/architecture -p 'test_*.py' -v
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_ARCH_NEGATIVES_FAIL'}
+            & python -B -m unittest discover -s tools/acceptance -p 'test_*.py' -v
+            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_READONLY_ACCEPTANCE_NEGATIVES_FAIL'}
             Write-Output 'KABOOM_PR110_CUSTODY_ARCH_NEGATIVES=PASS'
           } finally { Pop-Location }
       - name: Pinned Graphify code-only analysis, isolated virtualenv
@@ -111,7 +116,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_EXTRACT_FAIL'}
             & $graph cluster-only . --no-label
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_CLUSTER_FAIL'}
-            & $py tools/architecture/publish_graphify.py --root . --input graphify-out --output (Join-Path $env:GITHUB_WORKSPACE 'kaboom-pr110-derived/docs/graphify') --source-sha '2d6d098c50ea9c229bc034cd50b5fdb1d6a411c6'
+            & $py tools/architecture/publish_graphify.py --root . --input graphify-out --output (Join-Path $env:GITHUB_WORKSPACE 'kaboom-pr110-derived/docs/graphify') --source-sha '598a93aa8418d1dc415f2851fb8fd1468d0116b7'
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR110_GRAPHIFY_REPORT_FAIL'}
             Write-Output 'KABOOM_PR110_PINNED_CODEONLY_GRAPHIFY=PASS'
           } finally { Pop-Location }
@@ -142,7 +147,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/engineering/kaboom-20261116-release-main-sync-20261117' --jq '.object.sha' 2>$null)
-          if($LASTEXITCODE -ne 0 -or "$sha".Trim() -cne '2d6d098c50ea9c229bc034cd50b5fdb1d6a411c6'){throw 'KABOOM_PR110_POST_CHECK_DRIFT'}
+          if($LASTEXITCODE -ne 0 -or "$sha".Trim() -cne '598a93aa8418d1dc415f2851fb8fd1468d0116b7'){throw 'KABOOM_PR110_POST_CHECK_DRIFT'}
           Write-Output 'KABOOM_PR110_READONLY_QUALIFICATION=PASS;ORDERS=ZERO;DEPLOYMENT=NONE'
       - name: Upload read-only source-derived maps, even on independent failure
         if: always()
