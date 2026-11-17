@@ -118,6 +118,24 @@ class V54DetachedActivation(unittest.TestCase):
                 self.db,**self.args()))
         self.assertEqual(self.db.meta()["head_seq"],1849)
 
+    def test_no_historical_one_to_one_activation_assumption(self):
+        # Real F139 history need not have one activation per transition.
+        # An extra authenticated predecessor source transition is permitted.
+        predecessor = {
+            "schema": "forge.f139.source-transition.v42",
+            "from_source_sha": "c"*40,
+            "to_source_sha": "2ea68f93cbe6323aa6b0cbe99e47a32f0717b04c",
+            "custodied_negative_tickets": list(self.negatives),
+        }
+        self.db.conn.execute(
+            "INSERT INTO events VALUES(1837,?,?,?,?)",
+            ("SOURCE_TRANSITION_ADMITTED",json.dumps(predecessor),
+             "e"*64,"d"*64))
+        result = self.with_lock(
+            lambda: rehearse_v44_source_and_activation(self.db, **self.args()))
+        self.assertEqual(result["head_seq"], 1849)
+        self.assertEqual(result["source_sha"], TARGET)
+
     def test_cold_commit_error_rolls_back_both_original_event_types(self):
         original = self.db.event
         called=[0]

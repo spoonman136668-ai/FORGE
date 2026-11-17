@@ -77,8 +77,13 @@ def rehearse_v44_source_and_activation(
         "SELECT COUNT(*) FROM events WHERE kind='NATIVE_DEVELOPMENT_ACTIVATED'"
     ).fetchone()[0]
     transitions = len(older)
-    need(count == transitions + 1 and older[-1]["to_source_sha"] == SOURCE
-         and proof["schema"] == SCHEMA,
+    # Historic source transitions and activation receipts are not 1:1.
+    # The existing verifier authenticates every activation's historical source;
+    # require a current original-source activation without inventing receipts.
+    need(1 <= count <= transitions + 1
+         and older[-1]["to_source_sha"] == SOURCE
+         and proof["schema"] == SCHEMA
+         and verify_native_activation(db, expected_source=SOURCE) is True,
          "EXACT_ONE_ACTIVATION_PER_SOURCE_REQUIRED")
     with db.transaction():
         _require_detached(db)
