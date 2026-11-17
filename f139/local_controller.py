@@ -6280,8 +6280,17 @@ def cli(argv=None):
 
 
 if __name__=="__main__":
+    # The original Windows task starts with `python -m f139.local_controller`.
+    # Under -m, this file executes as __main__, but native escrow and owner
+    # custody modules import f139.local_controller by its canonical name.
+    # Calling the shadow __main__.cli() creates different Database/GitHub
+    # class identities and wrongly rejects authentic issue #1715 at intake.
+    # Keep one existing controller: invoke the canonical module's CLI, not a
+    # second controller, process, task, or scheduler.
+    from f139 import local_controller as canonical_controller
     try:
-        cli()
-    except (F139Error,sqlite3.DatabaseError,OSError,ValueError) as exc:
+        canonical_controller.cli()
+    except (canonical_controller.F139Error,
+            sqlite3.DatabaseError,OSError,ValueError) as exc:
         print("F139_FAIL_CLOSED "+str(exc),file=sys.stderr)
         raise SystemExit(1) from exc

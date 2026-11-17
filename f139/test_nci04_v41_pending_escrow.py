@@ -402,6 +402,40 @@ class V41EscrowTests(unittest.TestCase):
                 escrow.escrowed_native_candidate_identity(
                     db, api, historical, escrow.OWNER_SOURCE)
 
+    def test_module_entrypoint_uses_canonical_original_owner_identity(self):
+        """Reproduce the -m class split that broke original Windows V50 tick."""
+        import runpy
+        import sys
+        import warnings
+        from unittest.mock import patch
+        from f139 import local_controller as native
+        from f139.nci04_v41_pending_custody import GitHub as escrow_api
+
+        witnessed = []
+        def assert_same_owner_class():
+            # runpy creates a distinct __main__ copy; it cannot own the API
+            # passed to exact-class source/escrow admission checks.
+            shadow = sys.modules["__main__"].GitHub
+            self.assertIsNot(shadow, native.GitHub)
+            self.assertIs(escrow_api, native.GitHub)
+            witnessed.append(native.GitHub)
+
+        with patch.object(native, "cli",
+                          side_effect=assert_same_owner_class) as call:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                runpy.run_module("f139.local_controller",
+                                 run_name="__main__", alter_sys=True)
+        call.assert_called_once_with()
+        self.assertEqual(witnessed, [native.GitHub])
+
+    def test_escrow_remote_input_requires_canonical_github_class(self):
+        from f139.nci04_v41_pending_custody import (
+            _authenticated_remote_issue, V41PendingDenied, FROM_V40)
+        with self.assertRaisesRegex(
+                V41PendingDenied, "REMOTE_LOOKUP_ARGUMENTS_INVALID"):
+            _authenticated_remote_issue(object(), 1715, FROM_V40)
+
     def test_escrowless_autofeed_requires_no_remote_reads(self):
         from unittest.mock import patch
         with closing(self.synthetic_cold_events()) as conn:
