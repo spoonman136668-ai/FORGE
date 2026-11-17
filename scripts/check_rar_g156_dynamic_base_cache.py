@@ -258,6 +258,11 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v51-original-owner-preflight-20261116":
+        if (admission != FROZEN or base != "e657a0b3f85120b72fcf3e191a0b1c1c289c97cb"
+                or tree != "838d0d9a78df327571efd0030b092721db8b8bc7"):
+            raise ValueError("G156_V51_READONLY_EXACT_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v50-v41-original-native-activation-20261116":
         if (admission != FROZEN
                 or base != "2567775a9c06b306142812cc8c0e252278f87273"
