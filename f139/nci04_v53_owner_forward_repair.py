@@ -22,14 +22,14 @@ FROM_SOURCE = "2ea68f93cbe6323aa6b0cbe99e47a32f0717b04c"
 HEAD_SEQ = 1839
 HEAD_SHA = "376fe4921a41374ff47b1779c7d625bc3677ace91a052d6b64c790e390677c70"
 READONLY_RUN = 44055781358
-MIN_OWNER_COMMENT = 6935011550
+MIN_OWNER_RUN_ID = 44076995053
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 FIELDS = frozenset({
     "schema", "from_source_sha", "to_source_sha",
     "prior_event_head_sha256", "original_activation_sha256",
     "previous_source_transition_sha256",
-    "owner_comment_id", "qualified_main_run_id", "rehearsal_run_id",
+    "owner_run_id", "qualified_main_run_id", "rehearsal_run_id",
     "original_readonly_run_id", "backup_sqlite_sha256",
     "terminal_tasks_sha256", "custodied_negative_tickets",
     "verified_historical_tasks", "custodied_negative_tasks",
@@ -127,8 +127,8 @@ def verify_cold_event(db, row, doc, previous):
          and type(doc.get("previous_source_transition_sha256")) is str
           and SHA64.fullmatch(doc["previous_source_transition_sha256"]) is not None
          and doc.get("original_readonly_run_id") == READONLY_RUN
-         and type(doc.get("owner_comment_id")) is int
-         and doc["owner_comment_id"] > MIN_OWNER_COMMENT
+         and type(doc.get("owner_run_id")) is int
+         and doc["owner_run_id"] > MIN_OWNER_RUN_ID
          and all(type(doc.get(k)) is int and doc[k] > 0
                  for k in ("qualified_main_run_id", "rehearsal_run_id"))
          and doc["rehearsal_run_id"] != doc["qualified_main_run_id"]
@@ -188,7 +188,7 @@ def verify_cold_event(db, row, doc, previous):
     return True
 
 
-def make_proof(db, *, target, owner_comment_id, main_run_id,
+def make_proof(db, *, target, owner_run_id, main_run_id,
                rehearsal_run_id, backup_sha256):
     need(type(db) is Database
          and SingleOwner.held(db.filename.with_suffix(".lock")),
@@ -196,8 +196,8 @@ def make_proof(db, *, target, owner_comment_id, main_run_id,
     old = original_snapshot(db)
     need(type(target) is str and SHA40.fullmatch(target) is not None
          and target != FROM_SOURCE
-         and type(owner_comment_id) is int
-         and owner_comment_id > MIN_OWNER_COMMENT
+         and type(owner_run_id) is int
+         and owner_run_id > MIN_OWNER_RUN_ID
          and type(main_run_id) is int and main_run_id > 0
          and type(rehearsal_run_id) is int and rehearsal_run_id > 0
          and main_run_id != rehearsal_run_id
@@ -215,7 +215,7 @@ def make_proof(db, *, target, owner_comment_id, main_run_id,
         "previous_source_transition_sha256": db.conn.execute(
             "SELECT prior_sha FROM events WHERE seq=?", (HEAD_SEQ,)
         ).fetchone()["prior_sha"],
-        "owner_comment_id": owner_comment_id,
+        "owner_run_id": owner_run_id,
         "qualified_main_run_id": main_run_id,
         "rehearsal_run_id": rehearsal_run_id,
         "original_readonly_run_id": READONLY_RUN,

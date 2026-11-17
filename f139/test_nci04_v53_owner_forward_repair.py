@@ -10,7 +10,7 @@ from f139 import nci04_v41_cold_copy_verifier as cold
 
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_v53_owner_forward_repair import (
-    FIELDS, FROM_SOURCE, HEAD_SEQ, HEAD_SHA, MIN_OWNER_COMMENT,
+    FIELDS, FROM_SOURCE, HEAD_SEQ, HEAD_SHA, MIN_OWNER_RUN_ID,
     PURPOSE, READONLY_RUN, SCHEMA,
     ForwardRepairDenied, verify_cold_event,
 )
@@ -86,7 +86,7 @@ def test_case():
         "prior_event_head_sha256": HEAD_SHA,
         "original_activation_sha256": HEAD_SHA,
         "previous_source_transition_sha256": PREVIOUS_TRANSITION_SHA,
-        "owner_comment_id": MIN_OWNER_COMMENT+1,
+        "owner_run_id": MIN_OWNER_RUN_ID+1,
         "qualified_main_run_id": 43996137366,
         "rehearsal_run_id": 43996174295,
         "original_readonly_run_id": READONLY_RUN,
@@ -126,7 +126,7 @@ class V53Replay(unittest.TestCase):
             ("paid_api_calls",1),
             ("backup_sqlite_sha256","a"),
             ("terminal_tasks_sha256","f"*64),
-            ("owner_comment_id",MIN_OWNER_COMMENT),
+            ("owner_run_id",MIN_OWNER_RUN_ID),
             ("custodied_negative_tasks",55),
             ("rehearsal_run_id",doc["qualified_main_run_id"]),
         ):
@@ -171,6 +171,29 @@ class V53Replay(unittest.TestCase):
         self.assertNotIn("Remove-Item -LiteralPath $binaryDir", script)
         self.assertLess(script.index("EXISTING_BINARY_BYTES_NOT_REPRODUCIBLE"),
                         script.index("Disable-ScheduledTask -TaskName $name"))
+
+    def test_original_owner_authentication_is_workflow_dispatch_only(self):
+        from pathlib import Path
+        cli_source = inspect.getsource(cli.main)
+        script = (Path(__file__).resolve().parent /
+                  "v53_original_owner_repair.ps1").read_text(encoding="utf-8")
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/f139-v53-original-owner-source-repair.yml").read_text(
+                        encoding="utf-8")
+        self.assertIn('"workflow_dispatch"', cli_source)
+        self.assertNotIn('"issue_comment"', cli_source)
+        self.assertIn("GITHUB_RUN_ID", script)
+        self.assertIn("WORKFLOW_RUN_REHEARSAL_NOT_VERIFIED", script)
+        self.assertIn("F139-V53-OWNER-SOURCE-ONLY", script)
+        self.assertIn("github.actor == 'spoonman136668-ai'", workflow)
+        self.assertIn("needs: detached-owner-rehearsal", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("issue_comment:", workflow)
+        self.assertIn("forge-codex-isolated", workflow)
+        self.assertNotIn("schedule:", workflow)
+        self.assertNotIn("New-ScheduledTask ", script)
+        self.assertNotIn("Register-ScheduledTask ", script)
+        self.assertIn("original-owner-forward-repair", script)
 
     def test_detached_copy_preserves_exact_adjacent_negative_custody(self):
         # A standalone SQLite backup lacks the two historically consumed ZIPs;

@@ -321,6 +321,22 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # PR #1802: one owner-authenticated workflow_dispatch successor; no
+    # generic workflow/runner permission bypass or science authorization.
+    "engineering/f139-v53-original-owner-dispatch-20261117": (
+        "a63ea00a9046bf107b59d64b3557ebd78c8f4157",
+        {
+            ".github/workflows/f139-v53-original-owner-source-repair.yml",
+            "docs/F139-V53-ONE-CLICK-OWNER-ROUTE.md",
+            "f139/nci04_v53_owner_forward_repair.py",
+            "f139/nci04_v53_owner_forward_repair_cli.py",
+            "f139/test_nci04_v53_owner_forward_repair.py",
+            "f139/v53_original_owner_repair.ps1",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # Exact PR1793: original-owner DEV-only source activation. CI admission only.
     # Live owner, SQLite write, merge and scientific first-use remain separate.
     "engineering/f139-v50-v41-original-native-activation-20261116": (
@@ -2447,6 +2463,15 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v53-original-owner-dispatch-20261117":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            if (request.get("number") != 1802
+                    or request.get("user", {}).get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != branch
+                    or request.get("base", {}).get("sha") != "a63ea00a9046bf107b59d64b3557ebd78c8f4157"):
+                raise ValueError("G145_V53_EXACT_OWNER_WORKFLOW_PR_DENIED")
         if branch == "engineering/f139-v52-original-owner-forward-repair-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
