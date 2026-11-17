@@ -203,20 +203,59 @@ Need ($release.name -ceq ('f139-owner-release-'+$Main) -and
 $stage=Join-Path $env:LOCALAPPDATA ('FORGE-F139\release-candidates\'+$Main)
 $binaryDir=Join-Path $env:LOCALAPPDATA ('FORGE-F139\genenv-source\'+$Main)
 $binary=Join-Path $binaryDir 'f139-genenv-source.exe'
-Need (-not (Test-Path -LiteralPath $stage) -and
-  -not (Test-Path -LiteralPath $binaryDir)) 'SOURCE_CANDIDATE_ALREADY_STAGED'
+# A previous authorized job can leave create-only staging behind even when
+# original SQLite and the task were never touched. Do not erase or overwrite it.
+# Accept only the exact clean, non-linked pinned source and independently
+# reproduce the exact binary bytes on the original toolchain.
+$hasStage=Test-Path -LiteralPath $stage
+$hasBinaryDir=Test-Path -LiteralPath $binaryDir
 $version=(& go version | Out-String).Trim()
 Need ($LASTEXITCODE -eq 0 -and $version -ceq 'go version go1.23.12 windows/amd64') 'EXACT_GO_TOOLCHAIN'
-& git clone --local --no-hardlinks --quiet $env:GITHUB_WORKSPACE $stage
-Need ($LASTEXITCODE -eq 0 -and (GitSource $stage) -ceq $Main) 'STAGED_SOURCE_NOT_EXACT'
-New-Item -ItemType Directory -Path $binaryDir -Force|Out-Null
+if($hasStage) {
+  $item=Get-Item -LiteralPath $stage -Force -ErrorAction Stop
+  Need ($item.PSIsContainer -and
+    -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+    (GitSource $stage) -ceq $Main) 'EXISTING_STAGE_SOURCE_NOT_EXACT'
+  $untracked=@(& git -C $stage ls-files --others --ignored --exclude-standard)
+  Need ($LASTEXITCODE -eq 0 -and $untracked.Count -eq 0) 'EXISTING_STAGE_IGNORED_OR_UNTRACKED'
+} else {
+  Need (-not $hasBinaryDir) 'ORPHAN_BINARY_WITHOUT_SOURCE'
+  & git clone --local --no-hardlinks --quiet $env:GITHUB_WORKSPACE $stage
+  Need ($LASTEXITCODE -eq 0 -and (GitSource $stage) -ceq $Main) 'STAGED_SOURCE_NOT_EXACT'
+}
+$buildBinary=Join-Path $env:RUNNER_TEMP ('f139-v52-genenv-verify-'+$env:GITHUB_RUN_ID+'.exe')
+Need (-not (Test-Path -LiteralPath $buildBinary)) 'SOURCE_BINARY_TEMP_COLLISION'
 Push-Location $stage
 try {
   $env:GOOS='windows';$env:GOARCH='amd64';$env:CGO_ENABLED='0'
-  & go build -trimpath -buildvcs=false -o $binary ./cmd/f139-genenv-source
-  Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $binary -PathType Leaf) -and
-    (Get-Item $binary).Length -gt 0 -and (Get-Item $binary).Length -le 16000000) 'SOURCE_BINARY_BUILD_FAILED'
+  & go build -trimpath -buildvcs=false -o $buildBinary ./cmd/f139-genenv-source
+  Need ($LASTEXITCODE -eq 0 -and
+    (Test-Path -LiteralPath $buildBinary -PathType Leaf) -and
+    (Get-Item -LiteralPath $buildBinary).Length -gt 0 -and
+    (Get-Item -LiteralPath $buildBinary).Length -le 16000000) 'SOURCE_BINARY_BUILD_FAILED'
 }finally {Pop-Location}
+$verifiedBinaryHash=(Get-FileHash -LiteralPath $buildBinary -Algorithm SHA256 -ErrorAction Stop).Hash
+if($hasBinaryDir) {
+  $dir=Get-Item -LiteralPath $binaryDir -Force -ErrorAction Stop
+  Need ($hasStage -and $dir.PSIsContainer -and
+    -not ($dir.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'EXISTING_BINARY_DIR_INVALID'
+  $entries=@(Get-ChildItem -LiteralPath $binaryDir -Force -ErrorAction Stop)
+  Need ($entries.Count -eq 1 -and
+    $entries[0].Name -ceq 'f139-genenv-source.exe' -and
+    -not ($entries[0].Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+    (Test-Path -LiteralPath $binary -PathType Leaf) -and
+    (Get-Item -LiteralPath $binary).Length -gt 0 -and
+    (Get-Item -LiteralPath $binary).Length -le 16000000 -and
+    (Get-FileHash -LiteralPath $binary -Algorithm SHA256 -ErrorAction Stop).Hash -ceq $verifiedBinaryHash) 'EXISTING_BINARY_BYTES_NOT_REPRODUCIBLE'
+  Remove-Item -LiteralPath $buildBinary -ErrorAction Stop
+} else {
+  New-Item -ItemType Directory -Path $binaryDir -ErrorAction Stop -Force|Out-Null
+  Need (-not (Test-Path -LiteralPath $binary)) 'SOURCE_BINARY_DESTINATION_EXISTS'
+  Move-Item -LiteralPath $buildBinary -Destination $binary -ErrorAction Stop
+  Need ((Get-FileHash -LiteralPath $binary -Algorithm SHA256 -ErrorAction Stop).Hash -ceq $verifiedBinaryHash) 'NEW_SOURCE_BINARY_BYTES_DRIFT'
+}
+Need ((GitSource $stage) -ceq $Main -and
+  (Test-Path -LiteralPath $binary -PathType Leaf)) 'VERIFIED_STAGE_NOT_STABLE'
 Need ((GitSource $stage) -ceq $Main -and
   (SourcePolicy) -ceq $originalPolicy -and
   (OriginalRoute).Settings.Enabled -eq $true) 'PRELIVE_SOURCE_OR_POLICY_MOVED'
