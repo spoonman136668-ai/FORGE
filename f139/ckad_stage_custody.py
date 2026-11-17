@@ -117,7 +117,7 @@ def receipt_digest(receipt):
          "RECEIPT_FIELDS")
     return digest(canonical(receipt))
 
-def audit_chain(plan, receipts):
+def audit_chain(plan, receipts, *, expected_head_receipt_sha256=None):
     """Audit the complete declared digest chain, not native learning quality.
 
     This check cannot prove a stored checkpoint exists without the checkpoint
@@ -160,6 +160,10 @@ def audit_chain(plan, receipts):
              "CHILD_SOURCE_OR_CUSTODY_DRIFT")
         prior = receipt_digest(r)
         state = r["output_checkpoint_sha256"]
+    if expected_head_receipt_sha256 is not None:
+        need(sha_ok(expected_head_receipt_sha256)
+             and prior == expected_head_receipt_sha256,
+             "EXTERNAL_RECEIPT_HEAD_DRIFT")
     return {"schema": "forge.ckad.cumulative-chain-audit.v1",
             "source_commit": CKAD12_SHA,
             "source_tree": CKAD12_TREE,

@@ -18,9 +18,12 @@ evidence mode, seeds, curriculum stages, metric-control and split pins, and
 per-stage resource budgets. `seal_stage` requires the *actual byte sequence*
 at both ends of each stage and the evidence/control/evaluation receipts,
 checks the input against the previous stage output, and returns an inert
-SHA-chained audit record. `audit_chain` checks the full declared chain but
-cannot prove that external checkpoint bytes were genuinely persisted or
-trained; original CKAD custody must independently verify that.
+SHA-chained audit record. `audit_chain` checks the full declared chain and accepts an optional
+`expected_head_receipt_sha256` from independent CKAD custody. Without that
+external head pin, a deliberately substituted *terminal* output hash cannot
+be distinguished from a genuine state by digest chaining alone. It cannot
+prove external checkpoint bytes were persisted or actually trained; original
+CKAD custody must independently verify those facts.
 
 All receipts set `scientific_pass=false`,
 `training_executed_by_forge=false`, `development_custody_only=true`.

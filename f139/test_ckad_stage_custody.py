@@ -75,6 +75,11 @@ class CkadHandoffTests(unittest.TestCase):
         with self.assertRaises(CustodyDenied):
             stage(self.plan,[],b"v1",b"v2",1)
         self.assertEqual(audit_chain(self.plan,[a])["completed_stages"],1)
+        # A stored/pinned receipt head prevents a changed terminal record.
+        self.assertEqual(
+            audit_chain(self.plan,[a],
+                        expected_head_receipt_sha256=receipt_digest(a))
+            ["completed_stages"], 1)
 
     def test_changed_source_tree_seed_budget_control_or_training_authority_denied(self):
         for key,value in (
@@ -110,7 +115,9 @@ class CkadHandoffTests(unittest.TestCase):
         for change in cases:
             item=dict(a,**change)
             with self.subTest(change=change),self.assertRaises(CustodyDenied):
-                audit_chain(self.plan,[item])
+                audit_chain(
+                    self.plan,[item],
+                    expected_head_receipt_sha256=receipt_digest(a))
         with self.assertRaises(CustodyDenied):
             stage(self.plan,[dict(a,**{"output_checkpoint_sha256":"f"*64})],
                   b"v1",b"v2",1)
