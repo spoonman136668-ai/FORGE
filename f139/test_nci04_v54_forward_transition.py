@@ -39,7 +39,9 @@ class V44Replay(unittest.TestCase):
         conn.execute("INSERT INTO events VALUES(1840,'SOURCE_TRANSITION_ADMITTED',?,?,?)",
                      (source_event_sha, "f"*64, json.dumps(self.prior[0])))
         conn.execute("INSERT INTO events VALUES(1841,'NATIVE_DEVELOPMENT_ACTIVATED',?,?,?)",
-                     (activation_sha,source_event_sha,json.dumps({"source_sha":SOURCE})))
+                     (activation_sha,source_event_sha,json.dumps({
+                         "schema":"forge.f139.nci04.owner-native-activation.v1",
+                         "source_sha":SOURCE})))
         conn.execute("INSERT INTO events VALUES(1847,'PROVIDER_VERIFIED_TERMINAL',?,?,?)",
                      (ANCHOR_SHA,"9"*64,"{}"))
         # Full history used for the source-custody negative; no unreviewed tasks.
@@ -151,6 +153,38 @@ class V44Replay(unittest.TestCase):
         self.doc["prior_event_head_sha256"]="e"*64
         self.assertTrue(verify_cold_event(
             self.db,self.row,self.doc,self.prior))
+
+    def test_cold_replay_after_separate_future_activation(self):
+        # The historical v44 predecessor is still source-locked when a
+        # later fully authenticated current activation moves to target.
+        target = self.doc["to_source_sha"]
+        self.conn.execute(
+            "INSERT INTO events VALUES(1848,'SOURCE_TRANSITION_ADMITTED',?,?,?)",
+            ("c"*64, ANCHOR_SHA, json.dumps(self.doc)))
+        self.conn.execute(
+            "INSERT INTO events VALUES(1849,'NATIVE_DEVELOPMENT_ACTIVATED',?,?,?)",
+            ("d"*64, "c"*64, json.dumps({
+                "schema":"forge.f139.nci04.owner-native-activation.v1",
+                "source_sha":target,
+            })))
+        with patch("f139.nci04_v54_forward_transition.verify_native_activation",
+                   side_effect=lambda db, *, expected_source:
+                       expected_source == target) as check:
+            self.assertTrue(verify_cold_event(
+                self.db, self.row, self.doc, self.prior))
+            check.assert_called_once_with(self.db, expected_source=target)
+        with patch("f139.nci04_v54_forward_transition.verify_native_activation",
+                   return_value=False):
+            with self.assertRaises(ForwardTransitionDenied):
+                verify_cold_event(self.db, self.row, self.doc, self.prior)
+
+    def test_cold_replay_rejects_unauthenticated_original_predecessor(self):
+        self.conn.execute(
+            "UPDATE events SET payload=? WHERE seq=1841",
+            (json.dumps({"source_sha":SOURCE,
+                         "schema":"not-an-original-activation"}),))
+        with self.assertRaises(ForwardTransitionDenied):
+            verify_cold_event(self.db, self.row, self.doc, self.prior)
 
     def test_no_deployment_or_source_verifier_bypass(self):
         from f139 import local_controller, nci04_owner_ledger

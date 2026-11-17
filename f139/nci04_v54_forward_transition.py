@@ -98,6 +98,21 @@ def witness(db, row, previous):
         "WHERE kind='NATIVE_DEVELOPMENT_ACTIVATED' AND seq < ? "
         "ORDER BY seq DESC LIMIT 1", (row["seq"],)
     ).fetchone()
+    # Cold replay may run after a separately authorized later activation.
+    # Verify ALL genuine activation events against the actual last activation,
+    # but continue to bind this v44 proof to the original pre-v44 event below.
+    # Assuming SOURCE is always the last activation would fail legitimate
+    # post-transition cold reads and strand the one original owner.
+    last_activation = db.conn.execute(
+        "SELECT payload FROM events WHERE kind='NATIVE_DEVELOPMENT_ACTIVATED'"
+        " ORDER BY seq DESC LIMIT 1"
+    ).fetchone()
+    last_source = (json.loads(last_activation["payload"]).get("source_sha")
+                   if last_activation is not None else None)
+    need(type(last_source) is str
+         and SHA40.fullmatch(last_source) is not None
+         and verify_native_activation(db, expected_source=last_source) is True,
+         "ACTIVATION_HISTORY_INVALID")
     need(prior is not None and prior["sha"] == row["prior_sha"]
          and anchor is not None
          and anchor["kind"] == "PROVIDER_VERIFIED_TERMINAL"
@@ -108,7 +123,8 @@ def witness(db, row, previous):
          and activation is not None
          and json.loads(activation["payload"]).get("source_sha") == SOURCE
          and activation["seq"] < row["seq"]
-         and verify_native_activation(db, expected_source=SOURCE) is True,
+         and json.loads(activation["payload"]).get("schema")
+             == "forge.f139.nci04.owner-native-activation.v1",
          "ORIGINAL_EVENT1847_OR_ACTIVATION_DRIFT")
     return transition, activation
 
