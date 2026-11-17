@@ -119,9 +119,9 @@ function OriginalRoute {
   Need (@(Children).Count -le 1) 'MULTIPLE_ORIGINAL_CONTROLLERS'
   return $task
 }
-function InvokeNative([string[]]$args,[string]$prefix) {
+function InvokeNative([string[]]$cliArgs,[string]$prefix) {
   $env:PYTHONPATH=$env:GITHUB_WORKSPACE
-  $lines=@(& $python -B -m f139.nci04_v52_owner_forward_repair_cli @args)
+  $lines=@(& $python -B -m f139.nci04_v52_owner_forward_repair_cli --mode @cliArgs)
   Need ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and
     [string]$lines[0] -clike ($prefix+'*')) 'NATIVE_ORIGINAL_REPAIR_DENIED'
   return ([string]$lines[0]).Substring($prefix.Length)|ConvertFrom-Json -Depth 20
@@ -307,7 +307,8 @@ from pathlib import Path
 from f139.local_controller import Database
 from f139.nci04_owner_ledger import verify_native_activation
 p=Path(sys.argv[1]).resolve()
-with Database.open_readonly(p) as db:
+db=Database.open_readonly(p)
+try:
     m=db.meta()
     assert m["source_sha"]==sys.argv[2] and m["head_seq"]>=1839
     assert m["enabled"]==1 and m["legacy_suspended"]==1
@@ -316,6 +317,8 @@ with Database.open_readonly(p) as db:
     assert rows[1]["kind"]=="NATIVE_DEVELOPMENT_ACTIVATED"
     assert verify_native_activation(db) is True
     print("F139_V52_POSTSTART="+json.dumps({"source_sha":m["source_sha"],"head_seq":m["head_seq"],"head_hash":m["head_hash"],"native_development_activated":True,"scientific_first_use":False},sort_keys=True))
+finally:
+    db.close()
 '@
   $output=@($check|& $python -B - $database $Main)
   Need ($LASTEXITCODE -eq 0 -and $output.Count -eq 1 -and
