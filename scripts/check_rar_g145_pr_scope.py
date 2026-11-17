@@ -718,6 +718,23 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
+    # PR #1797: exact original-owner source-only forward repair; CI scope only.
+    "engineering/f139-v52-original-owner-forward-repair-20261116": (
+        "d4e588f0fbd8486e1d34754ddcf0f540c2895590",
+        {
+            ".github/workflows/f139-v52-original-owner-source-repair.yml",
+            "f139/local_controller.py",
+            "f139/nci04_owner_ledger.py",
+            "f139/nci04_v52_owner_forward_repair.py",
+            "f139/nci04_v52_owner_forward_repair_cli.py",
+            "f139/test_nci04_v50_original_native_activation.py",
+            "f139/test_nci04_v52_owner_forward_repair.py",
+            "f139/v52_original_owner_repair.ps1",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # PR #1796: one exact original-owner read-only V51 witness route.
     # Does not authorize runtime mutation, scientific first-use, or a release.
     "engineering/f139-v51-original-owner-preflight-20261116": (
@@ -2430,6 +2447,20 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v52-original-owner-forward-repair-20261116":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            workflow = ".github/workflows/f139-v52-original-owner-source-repair.yml"
+            base = "d4e588f0fbd8486e1d34754ddcf0f540c2895590"
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1797
+                    or request.get("user", {}).get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != branch
+                    or request.get("base", {}).get("sha") != base
+                    or git("rev-parse", base + "^{tree}") != "b0a8cab352374b37eb774af0eefce5b43460e58a"
+                    or git("rev-parse", head_sha + ":" + workflow) != "b850aff66736af77ddd2744fb22725a11add64e7"):
+                raise ValueError("G145_V52_OWNER_REPAIR_FROZEN_SCOPE_DENIED")
         if branch == "engineering/f139-v51-original-owner-preflight-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
