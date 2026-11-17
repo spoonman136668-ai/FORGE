@@ -158,14 +158,21 @@ def verify_cold_event(db, row, doc, previous):
          and older.get("custodied_negative_tasks") == 56,
          "V41_SOURCE_PREDECESSOR_CHANGED")
     anchor = db.conn.execute(
-        "SELECT seq,kind,sha,prior_sha FROM events WHERE seq=?",
+        "SELECT seq,kind,sha,prior_sha,payload FROM events WHERE seq=?",
         (HEAD_SEQ,)).fetchone()
+    original_activation = (json.loads(anchor["payload"])
+                           if anchor is not None else {})
     need(anchor is not None and
          anchor["seq"] == HEAD_SEQ and
          anchor["kind"] == "NATIVE_DEVELOPMENT_ACTIVATED" and
          anchor["sha"] == HEAD_SHA and
          anchor["prior_sha"] == PREVIOUS_TRANSITION_SHA and
-         verify_native_activation(db, expected_source=FROM_SOURCE),
+         original_activation.get("schema") ==
+             "forge.f139.nci04.owner-native-activation.v1" and
+         original_activation.get("source_sha") == FROM_SOURCE and
+         original_activation.get("development_only") is True and
+         original_activation.get("scientific_first_use") is False and
+         original_activation.get("new_dispatches") == 0,
          "V50_ACTIVATION_ANCESTRY_MISSING")
     history, sources = _history(db, previous)
     ticket_list = sorted(t["ticket"] for t in history
