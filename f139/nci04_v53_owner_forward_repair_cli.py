@@ -19,7 +19,7 @@ from f139.local_controller import Database, SingleOwner
 from f139 import nci04_v41_cold_copy_verifier as cold
 from f139.nci04_v50_original_native_activation import original_task_quiesced
 from f139.nci04_v53_owner_forward_repair import (
-    FROM_SOURCE, HEAD_SEQ, HEAD_SHA, need, original_snapshot,
+    FROM_SOURCE, HEAD_SEQ, HEAD_SHA, MIN_OWNER_RUN_ID, need, original_snapshot,
     make_proof, apply_copy_or_original,
 )
 
@@ -133,7 +133,7 @@ def main(argv=None):
          db_path.parent.name=="FORGE-F139" and
          os.environ.get("GITHUB_REPOSITORY")=="spoonman136668-ai/FORGE"
          and os.environ.get("RUNNER_NAME")=="FORGE-CODEX-REMOTE"
-         and os.environ.get("GITHUB_EVENT_NAME")=="workflow_dispatch"
+         and os.environ.get("GITHUB_EVENT_NAME")=="issues"
          and os.environ.get("GITHUB_ACTOR")=="spoonman136668-ai"
          and os.environ.get("GITHUB_RUN_ATTEMPT")=="1"
          and os.environ.get("GITHUB_RUN_ID","").isdigit()
@@ -144,7 +144,7 @@ def main(argv=None):
         print("F139_V53_PREFLIGHT="+json.dumps(frozen,sort_keys=True))
         return 0
     need(args.target == os.environ.get("GITHUB_SHA") and
-         args.owner_run_id and args.owner_run_id > 6935011550 and
+         args.owner_run_id and args.owner_run_id > MIN_OWNER_RUN_ID and
          args.main_run_id and args.main_run_id > 0 and
          args.rehearsal_run_id and args.rehearsal_run_id > 0,
          "SOURCE_TARGET_OR_OWNER_RECEIPT_MISSING")

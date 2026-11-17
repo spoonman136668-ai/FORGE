@@ -1,5 +1,5 @@
 # V53 source-only forward repair for the ONE original Windows F139 task.
-# Authenticated workflow_dispatch and exact CI identify owner intent.
+# Authenticated one-time issue assignment and exact CI identify owner intent.
 # Detached rehearsal is nonmutating. Live is one-shot; after event1840
 # any uncertainty is HOLD. No duplicate controller or scheduler.
 param([Parameter(Mandatory=$true)][ValidateSet('Rehearse','Live')][string]$Mode,
@@ -60,13 +60,17 @@ function OwnerIntent {
   Need ([int64]$remote.id -eq [int64]$env:GITHUB_RUN_ID -and
     $remote.name -ceq 'FORGE F139 V53 original owner source-only recovery' -and
     $remote.path -ceq '.github/workflows/f139-v53-original-owner-source-repair.yml' -and
-    $remote.event -ceq 'workflow_dispatch' -and
+    $remote.event -ceq 'issues' -and
     $remote.actor.login -ceq 'spoonman136668-ai' -and
     $remote.head_branch -ceq 'main' -and
     $remote.head_sha -ceq $Main -and
     $remote.run_attempt -eq 1 -and
     $remote.status -ceq 'in_progress' -and
     $null -eq $remote.conclusion) 'ORIGINAL_OWNER_WORKFLOW_RUN_NOT_AUTHENTIC'
+  $issue=GetJson 'repos/spoonman136668-ai/FORGE/issues/807'
+  Need ($issue.state -ceq 'open' -and
+    @($issue.assignees).Count -eq 1 -and
+    $issue.assignees[0].login -ceq 'spoonman136668-ai') 'ORIGINAL_OWNER_ASSIGNMENT_NOT_CURRENT'
 }
 function SourcePolicy {
   $p=GetJson 'repos/spoonman136668-ai/FORGE/issues/807'
@@ -134,7 +138,7 @@ function InvokeNative([string[]]$cliArgs,[string]$prefix) {
 # authenticated OWNER event and full main qualification.
 Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
   $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
-  $env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch' -and
+  $env:GITHUB_EVENT_NAME -ceq 'issues' -and
   $env:GITHUB_WORKFLOW_REF -ceq 'spoonman136668-ai/FORGE/.github/workflows/f139-v53-original-owner-source-repair.yml@refs/heads/main' -and
   ($env:GITHUB_JOB -ceq 'detached-owner-rehearsal' -or $env:GITHUB_JOB -ceq 'original-owner-forward-repair') -and
   $env:GITHUB_REF -ceq 'refs/heads/main' -and
@@ -146,13 +150,15 @@ Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
 $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json -Depth 20
 $priorRehearsal=[int64]$env:GITHUB_RUN_ID
 Need ($priorRehearsal -gt 44076995053 -and
+  $event.action -ceq 'assigned' -and
   $event.repository.full_name -ceq 'spoonman136668-ai/FORGE' -and
-  $event.ref -ceq 'refs/heads/main' -and
-  [string]$event.inputs.target_sha -ceq $Main -and
-  [string]$event.inputs.original_head_sha256 -ceq $existingHead -and
-  [string]$event.inputs.authorization -ceq 'F139-V53-OWNER-SOURCE-ONLY' -and
+  $event.issue.number -eq 807 -and
+  $event.issue.user.login -ceq 'spoonman136668-ai' -and
+  $event.issue.state -ceq 'open' -and
+  $event.assignee.login -ceq 'spoonman136668-ai' -and
+  $event.sender.login -ceq 'spoonman136668-ai' -and
   (($Mode -ceq 'Rehearse' -and $env:GITHUB_JOB -ceq 'detached-owner-rehearsal') -or
-   ($Mode -ceq 'Live' -and $env:GITHUB_JOB -ceq 'original-owner-forward-repair'))) 'FRESH_SOURCE_BOUND_OWNER_WORKFLOW_INTENT'
+   ($Mode -ceq 'Live' -and $env:GITHUB_JOB -ceq 'original-owner-forward-repair'))) 'FRESH_SOURCE_BOUND_OWNER_ASSIGNMENT'
 $who=[Security.Principal.WindowsIdentity]::GetCurrent()
 Need ([Security.Principal.WindowsPrincipal]::new($who).IsInRole(
   [Security.Principal.WindowsBuiltInRole]::Administrator)) 'ORIGINAL_ADMIN_OWNER'
