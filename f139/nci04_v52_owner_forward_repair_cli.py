@@ -81,11 +81,15 @@ def backed_up(source, copy_path):
             negatives = cold.required_negative_custody(verified_source)
             need(verified_source.conn.total_changes == 0,
                  "SOURCE_CUSTODY_READ_WROTE")
-        need(not (copy_path.parent / "native-negative").exists()
-             and not (copy_path.parent / "native-negative").is_symlink(),
-             "DETACHED_NEGATIVE_CUSTODY_ALREADY_PRESENT")
+        adjunct = copy_path.parent / "native-negative"
+        need(not adjunct.is_symlink(), "DETACHED_NEGATIVE_CUSTODY_SYMLINK")
+        # GitHub's self-hosted RUNNER_TEMP can persist across two distinct
+        # owner-authenticated jobs. Recheck every original and copied SHA if
+        # already staged; otherwise create files once, with exclusive 'xb'.
+        # An incomplete or altered prior copy fails closed, never overwritten.
         cold.copy_negative_custody(
-            source.parent, copy_path.parent, negatives, copy_files=True)
+            source.parent, copy_path.parent, negatives,
+            copy_files=not adjunct.exists())
     copied = read_frozen(copy_path)
     after = read_frozen(source)
     need(before == copied == after and
