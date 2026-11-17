@@ -165,7 +165,9 @@ class V44Replay(unittest.TestCase):
         self.assertIn('if is_v44:',controller)
         self.assertIn("v54_forward_transition import verify_cold_event",
                       controller)
-        self.assertIn("forge.f139.source-transition.v44",activation)
+        # The V50 native activation freeze must remain unchanged.
+        # V44 is cold-replay development ONLY; no owner cutover authority.
+        self.assertNotIn("forge.f139.source-transition.v44",activation)
         self.assertIn("SingleOwner.held",original)
 
 

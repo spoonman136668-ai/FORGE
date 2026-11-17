@@ -460,7 +460,7 @@ def activate_native(db, approval: dict) -> bool:
                     "forge.f139.source-transition.v29", "forge.f139.source-transition.v30",
                     "forge.f139.source-transition.v31", "forge.f139.source-transition.v32",
                      "forge.f139.source-transition.v33", "forge.f139.source-transition.v34", "forge.f139.source-transition.v35", "forge.f139.source-transition.v36",
-                    "forge.f139.source-transition.v37", "forge.f139.source-transition.v38", "forge.f139.source-transition.v40", "forge.f139.source-transition.v41", "forge.f139.source-transition.v42", "forge.f139.source-transition.v43", "forge.f139.source-transition.v44")]
+                    "forge.f139.source-transition.v37", "forge.f139.source-transition.v38", "forge.f139.source-transition.v40", "forge.f139.source-transition.v41", "forge.f139.source-transition.v42", "forge.f139.source-transition.v43")]
             provider_failures=db.verified_native_provider_failures()
             from f139.nci04_g49_prepost_negative import (
                 verify_g49_custody, TICKET as PREPOST)
@@ -488,12 +488,12 @@ def activate_native(db, approval: dict) -> bool:
                     "forge.f139.source-transition.v29", "forge.f139.source-transition.v30",
                     "forge.f139.source-transition.v31", "forge.f139.source-transition.v32",
                      "forge.f139.source-transition.v33", "forge.f139.source-transition.v34", "forge.f139.source-transition.v35", "forge.f139.source-transition.v36",
-                     "forge.f139.source-transition.v37", "forge.f139.source-transition.v38", "forge.f139.source-transition.v40", "forge.f139.source-transition.v41", "forge.f139.source-transition.v42", "forge.f139.source-transition.v43", "forge.f139.source-transition.v44")):
+                     "forge.f139.source-transition.v37", "forge.f139.source-transition.v38", "forge.f139.source-transition.v40", "forge.f139.source-transition.v41", "forge.f139.source-transition.v42", "forge.f139.source-transition.v43")):
                 from f139.local_controller import g54_original_canonical
                 v11_ambiguous.add(g54_original_canonical(db)["ticket"])
             if negative_successors and negative_successors[-1]["schema"] in ("forge.f139.source-transition.v31", "forge.f139.source-transition.v32",
                      "forge.f139.source-transition.v33", "forge.f139.source-transition.v34", "forge.f139.source-transition.v35", "forge.f139.source-transition.v36",
-                     "forge.f139.source-transition.v37", "forge.f139.source-transition.v38", "forge.f139.source-transition.v40", "forge.f139.source-transition.v41", "forge.f139.source-transition.v42", "forge.f139.source-transition.v43", "forge.f139.source-transition.v44"):
+                     "forge.f139.source-transition.v37", "forge.f139.source-transition.v38", "forge.f139.source-transition.v40", "forge.f139.source-transition.v41", "forge.f139.source-transition.v42", "forge.f139.source-transition.v43"):
                 from f139.nci04_v36_source_transition import i1464_negative_anchor
                 v11_ambiguous.add(i1464_negative_anchor(db, db.meta()["head_seq"]+1))
             all_certified=({NEGATIVE_TICKET,SECOND_TICKET}
