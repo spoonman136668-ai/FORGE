@@ -727,6 +727,7 @@ FROZEN_SCOPES = {
             "f139/nci04_owner_ledger.py",
             "f139/nci04_v52_owner_forward_repair.py",
             "f139/nci04_v52_owner_forward_repair_cli.py",
+            "f139/test_nci04_v50_original_native_activation.py",
             "f139/test_nci04_v52_owner_forward_repair.py",
             "f139/v52_original_owner_repair.ps1",
             "scripts/check_rar_g145_pr_scope.py",
