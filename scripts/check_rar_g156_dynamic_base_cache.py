@@ -258,6 +258,11 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v53-precommit-original-owner-restore-20261117":
+        if (admission != FROZEN or base != "918a7a10a3f47e30b2ecd6d3d443ff16428b9c0b"
+                or tree != "7cf0362401e92c31698d0184fd7fdb40a4bf0c48"):
+            raise ValueError("G156_V53_PRECOMMIT_RESTORE_EXACT_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v53-owner-assignment-recovery-20261117":
         if (admission != FROZEN or base != "09d0f6639d1e9bc54e0c909ccd9fb7bfaaea87f8"
                 or tree != "1749fb89c2ea6fc8bad194f6271acc20aee510e4"):

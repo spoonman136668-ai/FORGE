@@ -13,11 +13,11 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import subprocess
 import sys
 
 from f139.local_controller import Database, SingleOwner
 from f139 import nci04_v41_cold_copy_verifier as cold
-from f139.nci04_v50_original_native_activation import original_task_quiesced
 from f139.nci04_v53_owner_forward_repair import (
     FROM_SOURCE, HEAD_SEQ, HEAD_SHA, MIN_OWNER_RUN_ID, need, original_snapshot,
     make_proof, apply_copy_or_original,
@@ -116,6 +116,60 @@ def rehearsal(copy_path, args, backup_sha):
     return outcome
 
 
+def original_v53_task_quiesced(db_path):
+    """Verify original quiescence against the frozen V53 predecessor source.
+
+    V50's historical helper still pins 4ccbb847 and must not be reused
+    after the authentic original V52 owner source transition.
+    """
+    need(os.name == "nt" and sys.platform == "win32",
+         "V53_ORIGINAL_WINDOWS_ONLY")
+    cmd = shutil.which("powershell.exe")
+    need(cmd is not None, "V53_ORIGINAL_POWERSHELL_REQUIRED")
+    ps = r'''
+$ErrorActionPreference='Stop'
+$t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+$who=[Security.Principal.WindowsIdentity]::GetCurrent()
+$sid=''
+try {
+  $sid=(New-Object Security.Principal.NTAccount([string]$t.Principal.UserId)).
+    Translate([Security.Principal.SecurityIdentifier]).Value
+} catch {}
+if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3 -or
+   ([string]$t.Principal.UserId -ine $who.Name -and $sid -cne $who.User.Value) -or
+   [string]$t.State -cne 'Disabled' -or $t.Settings.Enabled -ne $false) {
+  exit 41
+}
+$a=$t.Actions[0]
+if([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe') {exit 42}
+function Arg([string]$name) {
+  $m=[regex]::Match([string]$a.Arguments,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+  if(-not $m.Success){exit 43}
+  return [string]$m.Groups[1].Value
+}
+$source=Arg 'RepositoryRoot'
+$db=Arg 'Database'
+$wrapper=Arg 'File'
+$expected=Join-Path $env:LOCALAPPDATA ('FORGE-F139\release-candidates\'+'__EXPECTED_V53_SOURCE__')
+if([IO.Path]::GetFullPath($source) -ine [IO.Path]::GetFullPath($expected) -or
+   [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($env:F139_V53_DB_PATH) -or
+   [IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1') {exit 44}
+$children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+  Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+                $_.CommandLine.Contains($db)})
+if($children.Count -ne 0){exit 45}
+Write-Output 'F139_V53_ORIGINAL_TASK_QUIESCED=PASS'
+'''.replace("__EXPECTED_V53_SOURCE__", FROM_SOURCE)
+    result = subprocess.run(
+        [cmd, "-NoProfile", "-NonInteractive", "-Command", ps],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env={**os.environ, "F139_V53_DB_PATH": str(db_path.resolve())},
+        stdin=subprocess.DEVNULL, timeout=30, check=False)
+    need(result.returncode == 0 and
+         result.stdout.strip() == b"F139_V53_ORIGINAL_TASK_QUIESCED=PASS",
+         "V53_ORIGINAL_TASK_NOT_EXCLUSIVELY_QUIESCED")
+
+
 def main(argv=None):
     p=argparse.ArgumentParser()
     p.add_argument("--mode", choices=("preflight","rehearse","backup","commit"),
@@ -165,11 +219,11 @@ def main(argv=None):
     need(os.name=="nt" and sys.platform=="win32"
          and os.environ.get("F139_V53_NATIVE_LIVE_AUTHENTICATED")=="1",
          "LIVE_AUTHENTICATED_WINDOWS_ONLY")
-    original_task_quiesced(db_path)
+    original_v53_task_quiesced(db_path)
     if args.mode=="backup":
         copy_path=require_owner_path(args.copy,must_exist=False)
         backup_sha=backed_up(db_path,copy_path)
-        original_task_quiesced(db_path)
+        original_v53_task_quiesced(db_path)
         print("F139_V53_COLD_BACKUP="+json.dumps({
             "backup_sha256":backup_sha,"original":frozen,
             "source_mutations":0},sort_keys=True))
@@ -188,11 +242,11 @@ def main(argv=None):
     need(read_frozen(test_path) == frozen,
          "BACKUP_LOGICAL_CUSTODY_CHANGED")
     rehearsal(test_path,args,rehearsal_hash)
-    original_task_quiesced(db_path)
+    original_v53_task_quiesced(db_path)
     need(read_frozen(db_path)==frozen,
          "ORIGINAL_CHANGED_PRECOMMIT")
     with SingleOwner(db_path.with_suffix(".lock")):
-        original_task_quiesced(db_path)
+        original_v53_task_quiesced(db_path)
         with closing(Database(db_path)) as db:
             proof=make_proof(db,target=args.target,
                 owner_run_id=args.owner_run_id,
@@ -200,7 +254,7 @@ def main(argv=None):
                 rehearsal_run_id=args.rehearsal_run_id,
                 backup_sha256=args.backup_sha)
             result=apply_copy_or_original(db,proof)
-    original_task_quiesced(db_path)
+    original_v53_task_quiesced(db_path)
     with closing(Database.open_readonly(db_path)) as verified:
         verified.verify()
         need(verified.meta()["source_sha"]==args.target and

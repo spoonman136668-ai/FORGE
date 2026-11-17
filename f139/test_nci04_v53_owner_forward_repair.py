@@ -201,6 +201,49 @@ class V53Replay(unittest.TestCase):
         self.assertNotIn("Register-ScheduledTask ", script)
         self.assertIn("original-owner-forward-repair", script)
 
+    def test_v53_quiescence_verifier_keeps_original_v50_immutable(self):
+        from pathlib import Path
+        guard = inspect.getsource(cli.original_v53_task_quiesced)
+        calls = inspect.getsource(cli.main)
+        self.assertIn("__EXPECTED_V53_SOURCE__", guard)
+        self.assertIn("FROM_SOURCE", guard)
+        self.assertIn("FORGE-F139-UnifiedController", guard)
+        self.assertIn("F139_V53_ORIGINAL_TASK_QUIESCED=PASS", guard)
+        self.assertIn("V53_ORIGINAL_TASK_NOT_EXCLUSIVELY_QUIESCED", guard)
+        self.assertIn("original_v53_task_quiesced(db_path)", calls)
+        self.assertNotIn("original_task_quiesced(db_path)", calls)
+        self.assertNotIn("4ccbb84785a43e038453d6f2bda5415ecb364084", guard)
+
+    def test_precommit_restore_is_exact_owner_only_and_no_source_replay(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1]
+        script = (root/"f139/v53_precommit_owner_restore.ps1").read_text(
+            encoding="utf-8")
+        workflow = (root/".github/workflows/f139-v53-precommit-owner-restore.yml").read_text(
+            encoding="utf-8")
+        self.assertIn("types: [unassigned]", workflow)
+        self.assertIn("github.actor == 'spoonman136668-ai'", workflow)
+        self.assertIn("github.event.issue.number == 807", workflow)
+        self.assertIn("forge-codex-isolated", workflow)
+        self.assertNotIn("workflow_dispatch:", workflow)
+        self.assertNotIn("schedule:", workflow)
+        self.assertNotIn("issue_comment:", workflow)
+        self.assertIn("FAILED_PRECOMMIT_RUN_IDENTITY", script)
+        self.assertIn("EVENT1839_PRECOMMIT_DRIFT", script)
+        self.assertIn("F139_V53_PREFLIGHT=", script)
+        self.assertIn("ORIGINAL_POLICY_PRECOMMIT", script)
+        self.assertIn("ORIGINAL_OWNER_RUNNER_AUTHORITY", script)
+        self.assertIn("Enable-ScheduledTask -TaskName $name", script)
+        self.assertIn("Start-ScheduledTask -TaskName $name", script)
+        self.assertIn("F139_V53_SAME_ORIGINAL_OWNER_RESTORED=PASS", script)
+        self.assertIn("F139_V53_ORIGINAL_SOURCE_TRANSITION_REPLAY=FALSE", script)
+        for forbidden in ("New-ScheduledTask ", "Register-ScheduledTask ",
+                          "Set-ScheduledTask ", "Disable-ScheduledTask ",
+                          "gh api --method POST", "gh api --method PATCH"):
+            self.assertNotIn(forbidden, script)
+        self.assertLess(script.index("EVENT1839_PRECOMMIT_DRIFT"),
+                        script.index("Enable-ScheduledTask -TaskName $name"))
+
     def test_detached_copy_preserves_exact_adjacent_negative_custody(self):
         # A standalone SQLite backup lacks the two historically consumed ZIPs;
         # verify V53 reuses the already-qualified hash-bound copy primitive.

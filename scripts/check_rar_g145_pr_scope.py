@@ -321,6 +321,21 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # PR #1804: restore exact original owner after proved V53 precommit
+    # failure, and fix the stale V50 guard without altering old schemas.
+    "engineering/f139-v53-precommit-original-owner-restore-20261117": (
+        "918a7a10a3f47e30b2ecd6d3d443ff16428b9c0b",
+        {
+            ".github/workflows/f139-v53-precommit-owner-restore.yml",
+            "docs/F139-V53-PRECOMMIT-ORIGINAL-OWNER-RESTORE.md",
+            "f139/nci04_v53_owner_forward_repair_cli.py",
+            "f139/test_nci04_v53_owner_forward_repair.py",
+            "f139/v53_precommit_owner_restore.ps1",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # PR #1803: exact 8-file one-shot owner assignment recovery;
     # CI admission does not permit owner/SQLite mutation or science.
     "engineering/f139-v53-owner-assignment-recovery-20261117": (
@@ -2478,6 +2493,15 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v53-precommit-original-owner-restore-20261117":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            if (request.get("number") != 1804
+                    or request.get("user", {}).get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != branch
+                    or request.get("base", {}).get("sha") != "918a7a10a3f47e30b2ecd6d3d443ff16428b9c0b"):
+                raise ValueError("G145_V53_EXACT_PRECOMMIT_OWNER_RESTORE_DENIED")
         if branch == "engineering/f139-v53-owner-assignment-recovery-20261117":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
