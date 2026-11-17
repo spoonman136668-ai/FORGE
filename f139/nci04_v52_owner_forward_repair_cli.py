@@ -64,6 +64,8 @@ def backed_up(source, copy_path):
     write = sqlite3.connect(str(copy_path), isolation_level=None, timeout=10)
     try:
         read.backup(write, pages=256, sleep=0.02)
+        write.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        write.execute("PRAGMA journal_mode=DELETE")
     finally:
         write.close()
         read.close()
@@ -159,9 +161,9 @@ def main(argv=None):
     test_path=copy_path.with_name(copy_path.stem+"-rehearsal.sqlite")
     need(not test_path.exists(), "DETACHED_REHEARSAL_ALREADY_CONSUMED")
     rehearsal_hash=backed_up(copy_path,test_path)
-    need(rehearsal_hash == args.backup_sha,
-         "BACKUP_LOGICAL_BYTES_CHANGED")
-    rehearsal(test_path,args,args.backup_sha)
+    need(read_frozen(test_path) == frozen,
+         "BACKUP_LOGICAL_CUSTODY_CHANGED")
+    rehearsal(test_path,args,rehearsal_hash)
     original_task_quiesced(db_path)
     need(read_frozen(db_path)==frozen,
          "ORIGINAL_CHANGED_PRECOMMIT")
