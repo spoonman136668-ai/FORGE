@@ -149,6 +149,27 @@ class V52Replay(unittest.TestCase):
         with self.assertRaises(ForwardRepairDenied):
             verify_cold_event(db,row,doc,prev)
 
+    def test_live_staging_only_accepts_exact_source_and_reproducible_binary(self):
+        # Static negative-control coverage for owner-only PowerShell: these
+        # checks are NOT a substitute for original Windows-owner rehearsal.
+        from pathlib import Path
+        script = (Path(__file__).resolve().parent /
+                  "v52_original_owner_repair.ps1").read_text(encoding="utf-8")
+        self.assertNotIn("SOURCE_CANDIDATE_ALREADY_STAGED", script)
+        self.assertIn("(GitSource $stage) -ceq $Main", script)
+        self.assertIn("EXISTING_STAGE_SOURCE_NOT_EXACT", script)
+        self.assertIn("EXISTING_STAGE_IGNORED_OR_UNTRACKED", script)
+        self.assertIn("EXISTING_BINARY_DIR_INVALID", script)
+        self.assertIn("EXISTING_BINARY_BYTES_NOT_REPRODUCIBLE", script)
+        self.assertIn("Get-FileHash -LiteralPath $buildBinary -Algorithm SHA256", script)
+        self.assertIn("SOURCE_BINARY_TEMP_COLLISION", script)
+        self.assertIn("ORPHAN_BINARY_WITHOUT_SOURCE", script)
+        self.assertIn("Move-Item -LiteralPath $buildBinary -Destination $binary", script)
+        self.assertNotIn("Remove-Item -LiteralPath $stage", script)
+        self.assertNotIn("Remove-Item -LiteralPath $binaryDir", script)
+        self.assertLess(script.index("EXISTING_BINARY_BYTES_NOT_REPRODUCIBLE"),
+                        script.index("Disable-ScheduledTask -TaskName $name"))
+
     def test_detached_copy_preserves_exact_adjacent_negative_custody(self):
         # A standalone SQLite backup lacks the two historically consumed ZIPs;
         # verify V52 reuses the already-qualified hash-bound copy primitive.
