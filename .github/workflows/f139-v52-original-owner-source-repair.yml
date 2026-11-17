@@ -1,0 +1,69 @@
+name: FORGE F139 V52 original owner source-only recovery
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+concurrency:
+  group: forge-f139-v52-original-owner
+  cancel-in-progress: false
+jobs:
+  detached-owner-rehearsal:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V52-REHEARSE ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact protected source with complete local ancestry
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rehearse both ledger events on detached SQLite, no owner mutations
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & "$env:GITHUB_WORKSPACE/f139/v52_original_owner_repair.ps1" -Mode Rehearse -Main $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0){throw 'F139_V52_DETACHED_REHEARSAL_DENIED'}
+  original-owner-forward-repair:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V52-LIVE ')
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact protected source and immutable worker assets
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pinned Go source-generator toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.12'
+          cache: false
+      - name: Guarded forward-only V52 repair on the SAME original owner
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & "$env:GITHUB_WORKSPACE/f139/v52_original_owner_repair.ps1" -Mode Live -Main $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0){throw 'F139_V52_ORIGINAL_LIVE_REPAIR_DENIED'}
