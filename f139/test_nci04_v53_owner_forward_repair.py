@@ -172,7 +172,7 @@ class V53Replay(unittest.TestCase):
         self.assertLess(script.index("EXISTING_BINARY_BYTES_NOT_REPRODUCIBLE"),
                         script.index("Disable-ScheduledTask -TaskName $name"))
 
-    def test_original_owner_authentication_is_workflow_dispatch_only(self):
+    def test_original_owner_authentication_is_assignment_only(self):
         from pathlib import Path
         cli_source = inspect.getsource(cli.main)
         script = (Path(__file__).resolve().parent /
@@ -180,14 +180,20 @@ class V53Replay(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/f139-v53-original-owner-source-repair.yml").read_text(
                         encoding="utf-8")
-        self.assertIn('"workflow_dispatch"', cli_source)
+        self.assertIn('"issues"', cli_source)
+        self.assertNotIn('"workflow_dispatch"', cli_source)
         self.assertNotIn('"issue_comment"', cli_source)
         self.assertIn("GITHUB_RUN_ID", script)
         self.assertIn("WORKFLOW_RUN_REHEARSAL_NOT_VERIFIED", script)
-        self.assertIn("F139-V53-OWNER-SOURCE-ONLY", script)
+        self.assertIn("FRESH_SOURCE_BOUND_OWNER_ASSIGNMENT", script)
+        self.assertIn("ORIGINAL_OWNER_ASSIGNMENT_NOT_CURRENT", script)
         self.assertIn("github.actor == 'spoonman136668-ai'", workflow)
         self.assertIn("needs: detached-owner-rehearsal", workflow)
-        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("issues:", workflow)
+        self.assertIn("types: [assigned]", workflow)
+        self.assertIn("github.event.issue.number == 807", workflow)
+        self.assertIn("github.event.assignee.login == 'spoonman136668-ai'", workflow)
+        self.assertNotIn("workflow_dispatch:", workflow)
         self.assertNotIn("issue_comment:", workflow)
         self.assertIn("forge-codex-isolated", workflow)
         self.assertNotIn("schedule:", workflow)
