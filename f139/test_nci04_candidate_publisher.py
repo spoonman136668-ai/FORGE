@@ -76,7 +76,7 @@ class FakeOriginalOwner:
                 {"ref": self.reference, "object": {"sha": self.parent}}]
         if route == f"repos/{self.repo}/pulls?state=all&per_page=100&page=1":
             return [] if self.pr is None else [self.pr]
-        if route == f"repos/{self.repo}/pulls?state=open&per_page=100&page=1":
+        if route == f"repos/{self.repo}/pulls?state=open&per_page=50&page=1":
             return [] if self.pr is None else [self.pr]
         if route == f"repos/{self.repo}/pulls/488":
             return self.pr
