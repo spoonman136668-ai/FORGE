@@ -364,9 +364,28 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
     # Owner policy explicitly opts Hybrid in; old two-lane policy unchanged.
     for lane in (x for x in policy["lanes"] if x in REPOS):
         repo = REPOS[lane][0]
-        docs = get("repos/" + repo + "/pulls?state=open&per_page=100&page=1")
-        require(isinstance(docs, list) and len(docs) <= 100,
-                "PR_CATALOG_INVALID")
+        # Preserve the original bounded first-100 PR catalog. A single
+        # 100-item response can exceed the existing 2.1 MB GitHub transport
+        # ceiling for public Yggdrasil/Hybrid PR bodies. Splitting the same
+        # window changes neither eligibility nor the max-two selection.
+        docs = []
+        for page in (1, 2):
+            batch = get("repos/" + repo +
+                        "/pulls?state=open&per_page=50&page=" + str(page))
+            require(isinstance(batch, list) and len(batch) <= 50,
+                    "PR_CATALOG_INVALID")
+            docs.extend(batch)
+            if len(batch) < 50:
+                break
+        require(len(docs) <= 100, "PR_CATALOG_INVALID")
+        # Offset pagination is not atomic. Reject a repeated PR identity
+        # from concurrent page drift rather than considering it twice.
+        seen_numbers = set()
+        for pr in docs:
+            if isinstance(pr, dict) and type(pr.get("number")) is int:
+                require(pr["number"] not in seen_numbers,
+                        "PR_CATALOG_PAGE_DRIFT")
+                seen_numbers.add(pr["number"])
         for pr in docs:
             if not (isinstance(pr, dict)
                     and isinstance(pr.get("title"), str)
