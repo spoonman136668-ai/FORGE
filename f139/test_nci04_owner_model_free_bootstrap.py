@@ -79,7 +79,7 @@ class LocalG29OriginalOwnerTests(unittest.TestCase):
         self.assertEqual(self.publish()["disposition"], "MODEL_DRAFT_AUTHENTICATED")
         def get(route):
             if route == ("repos/spoonman136668-ai/Wingless/"
-                         "pulls?state=open&per_page=100&page=1"):
+                         "pulls?state=open&per_page=50&page=1"):
                 return []
             return self.owner.get(route)
         result = prepare_feed(get, source_sha=MAIN,
