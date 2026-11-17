@@ -5007,8 +5007,11 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                         db, api, db_path, source_sha=meta["source_sha"],
                         owner_witness=lambda:
                             native_original_running_publisher_profile(db_path))
-                except (F139Error, ValueError, OSError):
+                except (F139Error, ValueError, OSError) as exc:
+                    from f139.nci04_model_free_failure import (
+                        classify_model_free_failure)
                     result = {"disposition": "MODEL_FREE_SEARCH_BLOCKED_FAIL_CLOSED",
+                              "failure_code": classify_model_free_failure(exc),
                               "scientific_first_use": False,
                               "worker_dispatched": False, "model_calls": 0,
                               "paid_model_calls": 0}
