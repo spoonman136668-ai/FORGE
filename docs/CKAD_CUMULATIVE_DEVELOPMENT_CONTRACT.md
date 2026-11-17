@@ -5,13 +5,13 @@ CKAD-authored Yggdrasil training. This is neither a trainer nor a release
 route. Yggdrasil/CKAD remains the scientific source owner.
 
 Exact source baseline: Yggdrasil main `5e74f8db85b2f5839c42148c0dfba69a88b1a2c9`,
-CKAD draft PR #1182 candidate `5df8dbf506027b914f66e19441376d1347a3e09d`
-(tree `52e54277d155f8ab683ef34e02e4a0d599e54037`).
+CKAD13 integrated draft PR #1207 candidate `8eb49bdb8f6d6886d05d6e3e67c0994aa6ebac2e`
+(tree `2786140a50ec26a025760f771aeeb82573c10dd3`).
 
-The existing CKAD component APIs `NativeContextBasis.checkpoint()`,
-`NativePropertyKnowledge.checkpoint()`, and their restore methods already
-yield native checkpoint bytes and hashes; this adapter handles supplied bytes
-and requires exact identity, not an LLM-generated answer.
+The CKAD13 owner provides one integrated `NativeCumulativeLearner.checkpoint()`/
+`restore()` format spanning A-F. FORGE accepts its supplied raw byte
+identity, not separate incompatible component checkpoints or language-model
+predictions. Source-bound results remain development evidence only.
 
 `plan_digest` freezes source SHA/tree, tokenless architecture, synthetic-only
 evidence mode, seeds, curriculum stages, metric-control and split pins, and
@@ -31,9 +31,8 @@ This code has no runner, network, provider, controller, scheduler, database
 writer, promotion, source first-use, or training execution.
 
 **Next experiment is CKAD-owned, NOT silently started by this contract:**
-one source-qualified integrated trainer that continues the exact native
-checkpoint across knowledge, causal-fit and contradiction/retention stages,
-with frozen conventional and independent symbolic controls, cold restart,
-unfamiliar transfer and whole-process cost. This schema is ready to
+qualification of the existing CKAD13 integrated A-F trainer on exact source,
+then independently authorized new original-source scientific exposure and
+matched controls. No FORGE action may create a new scientific training run. This schema is ready to
 validate its handoff only when CKAD supplies authentic checkpoints and
 approved original source admission.

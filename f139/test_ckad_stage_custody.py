@@ -5,15 +5,15 @@ import hashlib
 import unittest
 
 from f139.ckad_stage_custody import (
-    SCHEMA, SOURCE_REPO, SOURCE_MAIN, CKAD12_SHA, CKAD12_TREE,
+    SCHEMA, SOURCE_REPO, SOURCE_MAIN, CKAD13_SHA, CKAD13_TREE,
     CustodyDenied, audit_chain, digest, plan_digest, receipt_digest, seal_stage,
 )
 
 def mock_plan(initial):
     return {
         "schema": SCHEMA, "source_repo": SOURCE_REPO,
-        "accepted_main": SOURCE_MAIN, "candidate_sha": CKAD12_SHA,
-        "candidate_tree": CKAD12_TREE,
+        "accepted_main": SOURCE_MAIN, "candidate_sha": CKAD13_SHA,
+        "candidate_tree": CKAD13_TREE,
         "native_architecture": "yggdrasil-native-tokenless",
         "source_mode": "previously-consumed-synthetic-only",
         "initial_checkpoint_sha256": digest(initial),
@@ -23,15 +23,15 @@ def mock_plan(initial):
         "seeds": [101, 202, 303],
         "stages": [
             {"id": "learn-a", "phase": "learn",
-             "component": "yggdrasil.native_context_basis.NativeContextBasis",
+             "component": "yggdrasil.native_cumulative_learner.NativeCumulativeLearner",
              "max_observations": 512, "max_interventions": 0,
              "max_cpu_seconds": 120},
             {"id": "evaluate-b", "phase": "evaluate",
-             "component": "yggdrasil.native_context_basis.NativeContextBasis",
+             "component": "yggdrasil.native_cumulative_learner.NativeCumulativeLearner",
              "max_observations": 512, "max_interventions": 0,
              "max_cpu_seconds": 120},
             {"id": "repair-c", "phase": "repair",
-             "component": "yggdrasil.native_intervention_repair.NativeInterventionRepair",
+             "component": "yggdrasil.native_cumulative_learner.NativeCumulativeLearner",
              "max_observations": 64, "max_interventions": 16,
              "max_cpu_seconds": 120},
         ], "scientific_first_use": False,
@@ -121,6 +121,49 @@ class CkadHandoffTests(unittest.TestCase):
         with self.assertRaises(CustodyDenied):
             stage(self.plan,[dict(a,**{"output_checkpoint_sha256":"f"*64})],
                   b"v1",b"v2",1)
+
+    def test_ckad13_six_stage_checkpoint_continuity(self):
+        # One composite checkpoint traverses all A-F stages, never switches
+        # to incompatible per-component state or resets learned evidence.
+        stages = [
+            ("ckad13-a", "observe", 100_000),
+            ("ckad13-b", "learn", 256),
+            ("ckad13-c", "learn", 256),
+            ("ckad13-d", "quarantine", 256),
+            ("ckad13-e", "evaluate", 256),
+            ("ckad13-f", "resume", 2688),
+        ]
+        plan = copy.deepcopy(self.plan)
+        component = "yggdrasil.native_cumulative_learner.NativeCumulativeLearner"
+        plan["stages"] = [
+            {"id": name, "phase": phase, "component": component,
+             "max_observations": count, "max_interventions": 0,
+             "max_cpu_seconds": 600}
+            for name, phase, count in stages
+        ]
+        previous = self.initial
+        records = []
+        for i in range(6):
+            current = ("integrated-native-stage-%s"%i).encode()
+            receipt = seal_stage(
+                plan, records, stage_index=i, checkpoint_input=previous,
+                checkpoint_output=current,
+                evidence_bytes=("ckad13-evidence-%s"%i).encode(),
+                control_receipt_bytes=b"frozen-symbolic-v1",
+                evaluation_receipt_bytes=b"held-cold-evaluation-v1",
+                observations=4, interventions=0, cpu_seconds=9)
+            records.append(receipt)
+            previous = current
+        audit = audit_chain(
+            plan, records,
+            expected_head_receipt_sha256=receipt_digest(records[-1]))
+        self.assertEqual(audit["completed_stages"],6)
+        self.assertEqual(audit["current_checkpoint_sha256"],digest(previous))
+        tampered = copy.deepcopy(records)
+        tampered[3]["output_checkpoint_sha256"] = "0"*64
+        with self.assertRaises(CustodyDenied):
+            audit_chain(plan,tampered,
+                        expected_head_receipt_sha256=receipt_digest(records[-1]))
 
     def test_custody_bytes_are_hashed_and_not_embedded(self):
         a=stage(self.plan,[],self.initial,b"v1",0)
