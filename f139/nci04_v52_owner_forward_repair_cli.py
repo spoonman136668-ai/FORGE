@@ -16,6 +16,7 @@ import sqlite3
 import sys
 
 from f139.local_controller import Database, SingleOwner
+from f139 import nci04_v41_cold_copy_verifier as cold
 from f139.nci04_v50_original_native_activation import original_task_quiesced
 from f139.nci04_v52_owner_forward_repair import (
     FROM_SOURCE, HEAD_SEQ, HEAD_SHA, need, original_snapshot,
@@ -69,6 +70,26 @@ def backed_up(source, copy_path):
     finally:
         write.close()
         read.close()
+    # A detached SQLite database is not a complete cold restore by itself.
+    # Database.verify() also checks the original historical negative ZIPs
+    # relative to db.filename.parent. Reuse the existing hash-bound,
+    # create-only two-artifact copier; never symlink, download or regenerate.
+    # Nested live-rehearsal copies within one verified custody directory
+    # already share those adjuncts and must not overwrite them.
+    if source.parent.resolve() != copy_path.parent.resolve():
+        with closing(Database.open_readonly(source)) as verified_source:
+            negatives = cold.required_negative_custody(verified_source)
+            need(verified_source.conn.total_changes == 0,
+                 "SOURCE_CUSTODY_READ_WROTE")
+        adjunct = copy_path.parent / "native-negative"
+        need(not adjunct.is_symlink(), "DETACHED_NEGATIVE_CUSTODY_SYMLINK")
+        # GitHub's self-hosted RUNNER_TEMP can persist across two distinct
+        # owner-authenticated jobs. Recheck every original and copied SHA if
+        # already staged; otherwise create files once, with exclusive 'xb'.
+        # An incomplete or altered prior copy fails closed, never overwritten.
+        cold.copy_negative_custody(
+            source.parent, copy_path.parent, negatives,
+            copy_files=not adjunct.exists())
     copied = read_frozen(copy_path)
     after = read_frozen(source)
     need(before == copied == after and

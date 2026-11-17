@@ -3,6 +3,10 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+import inspect
+
+from f139 import nci04_v52_owner_forward_repair_cli as cli
+from f139 import nci04_v41_cold_copy_verifier as cold
 
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_v52_owner_forward_repair import (
@@ -144,6 +148,22 @@ class V52Replay(unittest.TestCase):
         db.conn.tasks[4]["stage"]="QUARANTINED"
         with self.assertRaises(ForwardRepairDenied):
             verify_cold_event(db,row,doc,prev)
+
+    def test_detached_copy_preserves_exact_adjacent_negative_custody(self):
+        # A standalone SQLite backup lacks the two historically consumed ZIPs;
+        # verify V52 reuses the already-qualified hash-bound copy primitive.
+        source = inspect.getsource(cli.backed_up)
+        self.assertIn("source.parent.resolve() != copy_path.parent.resolve()", source)
+        self.assertIn("cold.required_negative_custody(verified_source)", source)
+        self.assertIn("cold.copy_negative_custody(", source)
+        self.assertIn("copy_files=not adjunct.exists()", source)
+        self.assertIn("DETACHED_NEGATIVE_CUSTODY_SYMLINK", source)
+        self.assertIn("read_frozen(copy_path)", source)
+        self.assertIn("read_frozen(source)", source)
+        self.assertNotIn("symlink_to(", source)
+        helper = inspect.getsource(cold.copy_negative_custody)
+        self.assertIn("digest(payload) == wanted", helper)
+        self.assertIn('destination.open("xb")', helper)
 
 if __name__ == "__main__":
     unittest.main()
