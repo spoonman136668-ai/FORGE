@@ -133,6 +133,10 @@ def event_mode(head):
         raise ValueError("G148_ONLY_SAME_REPO_MAIN_PR")
     admiss = admit_original_pr(head, git)
     branch = os.environ["GITHUB_HEAD_REF"]
+    if branch == "engineering/f139-v53-original-owner-dispatch-20261117":
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G148_V53_OWNER_ROUTE_FROZEN_SCOPE_REQUIRED")
+        return "pr"
     if branch == "engineering/f139-v52-original-owner-forward-repair-20261116":
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G148_V52_OWNER_REPAIR_FROZEN_SCOPE_REQUIRED")

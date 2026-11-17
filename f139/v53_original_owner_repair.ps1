@@ -1,6 +1,7 @@
 # V53 source-only forward repair for the ONE original Windows F139 task.
-# Owner-issue event and exact CI identify authority. Detached rehearsal is
-# nonmutating. Live is one-shot; after event1838 any uncertainty is HOLD.
+# Authenticated workflow_dispatch and exact CI identify owner intent.
+# Detached rehearsal is nonmutating. Live is one-shot; after event1840
+# any uncertainty is HOLD. No duplicate controller or scheduler.
 param([Parameter(Mandatory=$true)][ValidateSet('Rehearse','Live')][string]$Mode,
       [Parameter(Mandatory=$true)][string]$Main)
 $ErrorActionPreference='Stop'
@@ -55,14 +56,17 @@ function GitSource([string]$path) {
   return $sha
 }
 function OwnerIntent {
-  $remote=GetJson ('repos/spoonman136668-ai/FORGE/issues/comments/'+$event.comment.id)
-  Need ($remote.id -eq $event.comment.id -and
-    $remote.user.login -ceq 'spoonman136668-ai' -and
-    $remote.author_association -ceq 'OWNER' -and
-    $remote.issue_url -ceq 'https://api.github.com/repos/spoonman136668-ai/FORGE/issues/807' -and
-    $remote.created_at -ceq $event.comment.created_at -and
-    $remote.updated_at -ceq $event.comment.updated_at -and
-    [string]$remote.body -ceq $required) 'REMOTE_OWNER_INTENT_MOVED'
+  $remote=GetJson ('repos/spoonman136668-ai/FORGE/actions/runs/'+$env:GITHUB_RUN_ID)
+  Need ([int64]$remote.id -eq [int64]$env:GITHUB_RUN_ID -and
+    $remote.name -ceq 'FORGE F139 V53 original owner source-only recovery' -and
+    $remote.path -ceq '.github/workflows/f139-v53-original-owner-source-repair.yml' -and
+    $remote.event -ceq 'workflow_dispatch' -and
+    $remote.actor.login -ceq 'spoonman136668-ai' -and
+    $remote.head_branch -ceq 'main' -and
+    $remote.head_sha -ceq $Main -and
+    $remote.run_attempt -eq 1 -and
+    $remote.status -ceq 'in_progress' -and
+    $null -eq $remote.conclusion) 'ORIGINAL_OWNER_WORKFLOW_RUN_NOT_AUTHENTIC'
 }
 function SourcePolicy {
   $p=GetJson 'repos/spoonman136668-ai/FORGE/issues/807'
@@ -130,32 +134,25 @@ function InvokeNative([string[]]$cliArgs,[string]$prefix) {
 # authenticated OWNER event and full main qualification.
 Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
   $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
-  $env:GITHUB_EVENT_NAME -ceq 'issue_comment' -and
+  $env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch' -and
+  $env:GITHUB_WORKFLOW_REF -ceq 'spoonman136668-ai/FORGE/.github/workflows/f139-v53-original-owner-source-repair.yml@refs/heads/main' -and
+  ($env:GITHUB_JOB -ceq 'detached-owner-rehearsal' -or $env:GITHUB_JOB -ceq 'original-owner-forward-repair') -and
   $env:GITHUB_REF -ceq 'refs/heads/main' -and
   $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
   $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
   $env:GITHUB_SHA -ceq $Main -and
   $Main -cmatch '^[a-f0-9]{40}$' -and
   -not $env:OPENAI_API_KEY) 'EXACT_FIRST_ATTEMPT_ORIGINAL_RUNNER'
-$event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json
-$parts=([string]$event.comment.body).Split(' ')
-$priorRehearsal=if($Mode -ceq 'Live' -and $parts.Count -eq 4) {
-  [int64]::Parse($parts[2])}else{0L}
-$required=if($Mode -ceq 'Rehearse') {
-  'F139-V53-REHEARSE '+$Main+' 44055781358'
-}else{
-  'F139-V53-LIVE '+$Main+' '+$priorRehearsal+' 44055781358'
-}
-Need ($event.action -ceq 'created' -and
-  $event.issue.number -eq 807 -and
-  $null -eq $event.issue.PSObject.Properties['pull_request'] -and
-  $event.issue.user.login -ceq 'spoonman136668-ai' -and
-  $event.sender.login -ceq 'spoonman136668-ai' -and
-  $event.comment.user.login -ceq 'spoonman136668-ai' -and
-  $event.comment.author_association -ceq 'OWNER' -and
-  [int64]$event.comment.id -gt 6935011550 -and
-  [string]$event.comment.body -ceq $required -and
-  [string]$event.comment.created_at -ceq [string]$event.comment.updated_at) 'FRESH_SOURCE_BOUND_OWNER_INTENT'
+$event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json -Depth 20
+$priorRehearsal=[int64]$env:GITHUB_RUN_ID
+Need ($priorRehearsal -gt 44076995053 -and
+  $event.repository.full_name -ceq 'spoonman136668-ai/FORGE' -and
+  $event.ref -ceq 'refs/heads/main' -and
+  [string]$event.inputs.target_sha -ceq $Main -and
+  [string]$event.inputs.original_head_sha256 -ceq $existingHead -and
+  [string]$event.inputs.authorization -ceq 'F139-V53-OWNER-SOURCE-ONLY' -and
+  (($Mode -ceq 'Rehearse' -and $env:GITHUB_JOB -ceq 'detached-owner-rehearsal') -or
+   ($Mode -ceq 'Live' -and $env:GITHUB_JOB -ceq 'original-owner-forward-repair'))) 'FRESH_SOURCE_BOUND_OWNER_WORKFLOW_INTENT'
 $who=[Security.Principal.WindowsIdentity]::GetCurrent()
 Need ([Security.Principal.WindowsPrincipal]::new($who).IsInRole(
   [Security.Principal.WindowsBuiltInRole]::Administrator)) 'ORIGINAL_ADMIN_OWNER'
@@ -167,12 +164,12 @@ $originalPolicy=SourcePolicy
 $task=OriginalRoute
 $pref=InvokeNative @('preflight','--db',$database) 'F139_V53_PREFLIGHT='
 Need ($pref.source_sha -ceq $old -and $pref.head_seq -eq 1839 -and
-  $pref.head_sha256 -ceq $existingHead) 'ORIGINAL_EVENT1837_NOT_FROZEN'
+  $pref.head_sha256 -ceq $existingHead) 'ORIGINAL_EVENT1839_NOT_FROZEN'
 if($Mode -ceq 'Rehearse') {
   $copy=Join-Path $env:RUNNER_TEMP ('f139-v53-original-rehearsal-'+$env:GITHUB_RUN_ID+'.sqlite')
   Need (-not (Test-Path -LiteralPath $copy)) 'REHEARSAL_COPY_ALREADY_USED'
   $r=InvokeNative @('rehearse','--db',$database,'--copy',$copy,
-      '--target',$Main,'--owner-comment-id',([string]$event.comment.id),
+      '--target',$Main,'--owner-run-id',([string]$env:GITHUB_RUN_ID),
       '--main-run-id',([string]$mainRun),
       '--rehearsal-run-id',([string]$env:GITHUB_RUN_ID)) 'F139_V53_DETACHED_REHEARSAL='
   Need ($r.head_seq -eq 1841 -and $r.original_mutations -eq 0 -and
@@ -185,21 +182,19 @@ if($Mode -ceq 'Rehearse') {
   Write-Output 'F139_V53_ORIGINAL_MUTATIONS=ZERO'
   return
 }
-# Live mode: independently prove a separate successful detached rehearsal run.
-Need ($priorRehearsal -gt 0 -and [int64]$env:GITHUB_RUN_ID -ne $priorRehearsal) 'MISSING_DISTINCT_REHEARSAL'
-$run=GetJson ('repos/spoonman136668-ai/FORGE/actions/runs/'+$priorRehearsal)
-Need ($run.id -eq $priorRehearsal -and
-  $run.name -ceq 'FORGE F139 V53 original owner source-only recovery' -and
-  $run.head_sha -ceq $Main -and $run.event -ceq 'issue_comment' -and
-  $run.run_attempt -eq 1 -and $run.status -ceq 'completed' -and
-  $run.conclusion -ceq 'success' -and
-  $run.actor.login -ceq 'spoonman136668-ai') 'PREVIOUS_REHEARSAL_RUN_NOT_QUALIFIED'
+# Same authenticated owner run, two distinct jobs. Live may only follow a
+# COMPLETED detached rehearsal on the original Windows runner.
+OwnerIntent
 $jobs=GetJson ('repos/spoonman136668-ai/FORGE/actions/runs/'+$priorRehearsal+'/jobs?per_page=100')
+Need ($jobs.total_count -eq 2 -and @($jobs.jobs).Count -eq 2) 'EXACT_OWNER_RUN_JOB_SET'
 $copyJob=@($jobs.jobs|Where-Object {$_.name -ceq 'detached-owner-rehearsal'})
-Need ($copyJob.Count -eq 1 -and $copyJob[0].conclusion -ceq 'success') 'REHEARSAL_JOB_MISSING'
-$release=GetJson ('repos/spoonman136668-ai/FORGE/branches/f139-owner-release-'+$Main)
-Need ($release.name -ceq ('f139-owner-release-'+$Main) -and
-  $release.commit.sha -ceq $Main) 'EXACT_RELEASE_BRANCH_MISSING'
+$liveJob=@($jobs.jobs|Where-Object {$_.name -ceq 'original-owner-forward-repair'})
+Need ($copyJob.Count -eq 1 -and $liveJob.Count -eq 1 -and
+  $copyJob[0].status -ceq 'completed' -and
+  $copyJob[0].conclusion -ceq 'success' -and
+  $copyJob[0].runner_name -ceq 'FORGE-CODEX-REMOTE' -and
+  $liveJob[0].status -ceq 'in_progress' -and
+  $liveJob[0].runner_name -ceq 'FORGE-CODEX-REMOTE') 'WORKFLOW_RUN_REHEARSAL_NOT_VERIFIED'
 $stage=Join-Path $env:LOCALAPPDATA ('FORGE-F139\release-candidates\'+$Main)
 $binaryDir=Join-Path $env:LOCALAPPDATA ('FORGE-F139\genenv-source\'+$Main)
 $binary=Join-Path $binaryDir 'f139-genenv-source.exe'
@@ -263,13 +258,23 @@ OwnerIntent
 RemoteMain
 $preview=Join-Path $env:RUNNER_TEMP ('f139-v53-live-practice-'+$env:GITHUB_RUN_ID+'.sqlite')
 $r=InvokeNative @('rehearse','--db',$database,'--copy',$preview,
-      '--target',$Main,'--owner-comment-id',([string]$event.comment.id),
+      '--target',$Main,'--owner-run-id',([string]$env:GITHUB_RUN_ID),
       '--main-run-id',([string]$mainRun),
       '--rehearsal-run-id',([string]$priorRehearsal)) 'F139_V53_DETACHED_REHEARSAL='
 Need ($r.head_seq -eq 1841 -and $r.original_mutations -eq 0) 'LIVE_REHEARSAL_NOT_PASS'
+# Provision exactly one source-addressed owner release ref after qualified
+# detached rehearsal, source checks and byte-reproducible local binary.
+OwnerIntent
+RemoteMain
+$releaseRef='refs/heads/f139-owner-release-'+$Main
+& gh api --method POST repos/spoonman136668-ai/FORGE/git/refs -f ('ref='+$releaseRef) -f ('sha='+$Main) --silent
+Need ($LASTEXITCODE -eq 0) 'CREATE_ONLY_OWNER_RELEASE_REF_DENIED'
+$release=GetJson ('repos/spoonman136668-ai/FORGE/branches/f139-owner-release-'+$Main)
+Need ($release.name -ceq ('f139-owner-release-'+$Main) -and
+  $release.commit.sha -ceq $Main) 'EXACT_RELEASE_REF_READBACK_DRIFT'
 $backups=Join-Path $env:LOCALAPPDATA 'FORGE-F139\recovery-backups'
 New-Item -ItemType Directory -Path $backups -Force | Out-Null
-$backupPath=Join-Path $backups ('v53-event1837-'+$env:GITHUB_RUN_ID+'.sqlite')
+$backupPath=Join-Path $backups ('v53-event1839-'+$env:GITHUB_RUN_ID+'.sqlite')
 Need (-not (Test-Path -LiteralPath $backupPath)) 'COLD_BACKUP_COLLISION'
 try {
   Disable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
@@ -286,7 +291,7 @@ try {
   Need $quiesced 'ORIGINAL_TASK_NOT_STOPPED'
   $env:F139_V53_NATIVE_LIVE_AUTHENTICATED='1'
   $b=InvokeNative @('backup','--db',$database,'--copy',$backupPath,
-      '--target',$Main,'--owner-comment-id',([string]$event.comment.id),
+      '--target',$Main,'--owner-run-id',([string]$env:GITHUB_RUN_ID),
       '--main-run-id',([string]$mainRun),
       '--rehearsal-run-id',([string]$priorRehearsal)) 'F139_V53_COLD_BACKUP='
   Need ($b.backup_sha256 -cmatch '^[a-f0-9]{64}$' -and
@@ -297,11 +302,11 @@ try {
     (GitSource $root) -ceq $old -and (GitSource $stage) -ceq $Main) 'PRECOMMIT_SOURCE_OR_POLICY_MOVED'
   $committedOrUncertain=$true
   $receipt=InvokeNative @('commit','--db',$database,'--copy',$backupPath,
-      '--target',$Main,'--owner-comment-id',([string]$event.comment.id),
+      '--target',$Main,'--owner-run-id',([string]$env:GITHUB_RUN_ID),
       '--main-run-id',([string]$mainRun),
       '--rehearsal-run-id',([string]$priorRehearsal),
-      '--backup-sha',([string]$b.backup_sha256)) 'F139_V53_ORIGINAL_EVENT1839='
-  Need ($receipt.head_seq -eq 1841 -and $receipt.target_source_sha -ceq $Main) 'EVENT1839_COMMIT_UNVERIFIED'
+      '--backup-sha',([string]$b.backup_sha256)) 'F139_V53_ORIGINAL_EVENT1841='
+  Need ($receipt.head_seq -eq 1841 -and $receipt.target_source_sha -ceq $Main) 'EVENT1841_COMMIT_UNVERIFIED'
   $replaceCount=$originalPolicy.Split(@($old),[StringSplitOptions]::None).Count
   Need ($replaceCount -eq 2) 'ORIGINAL_POLICY_SOURCE_NOT_UNIQUE'
   $changed=$originalPolicy.Replace($old,$Main)

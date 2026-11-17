@@ -106,13 +106,13 @@ def rehearsal(copy_path, args, backup_sha):
     with SingleOwner(path.with_suffix(".lock")):
         with closing(Database(path)) as db:
             proof = make_proof(db, target=args.target,
-                owner_comment_id=args.owner_comment_id,
+                owner_run_id=args.owner_run_id,
                 main_run_id=args.main_run_id,
                 rehearsal_run_id=args.rehearsal_run_id,
                 backup_sha256=backup_sha)
             outcome = apply_copy_or_original(db, proof)
     need(outcome["head_seq"] == HEAD_SEQ+2,
-         "DETACHED_EVENT1839_MISSING")
+         "DETACHED_EVENT1841_MISSING")
     return outcome
 
 
@@ -123,7 +123,7 @@ def main(argv=None):
     p.add_argument("--db",required=True)
     p.add_argument("--copy")
     p.add_argument("--target")
-    p.add_argument("--owner-comment-id",type=int)
+    p.add_argument("--owner-run-id",type=int)
     p.add_argument("--main-run-id",type=int)
     p.add_argument("--rehearsal-run-id",type=int)
     p.add_argument("--backup-sha")
@@ -133,9 +133,10 @@ def main(argv=None):
          db_path.parent.name=="FORGE-F139" and
          os.environ.get("GITHUB_REPOSITORY")=="spoonman136668-ai/FORGE"
          and os.environ.get("RUNNER_NAME")=="FORGE-CODEX-REMOTE"
-         and os.environ.get("GITHUB_EVENT_NAME")=="issue_comment"
+         and os.environ.get("GITHUB_EVENT_NAME")=="workflow_dispatch"
          and os.environ.get("GITHUB_ACTOR")=="spoonman136668-ai"
          and os.environ.get("GITHUB_RUN_ATTEMPT")=="1"
+         and os.environ.get("GITHUB_RUN_ID","").isdigit()
          and not os.environ.get("OPENAI_API_KEY"),
          "EXACT_ORIGINAL_OWNER_ENVIRONMENT_REQUIRED")
     frozen=read_frozen(db_path)
@@ -143,10 +144,12 @@ def main(argv=None):
         print("F139_V53_PREFLIGHT="+json.dumps(frozen,sort_keys=True))
         return 0
     need(args.target == os.environ.get("GITHUB_SHA") and
-         args.owner_comment_id and args.owner_comment_id > 6935011550 and
+         args.owner_run_id and args.owner_run_id > 6935011550 and
          args.main_run_id and args.main_run_id > 0 and
          args.rehearsal_run_id and args.rehearsal_run_id > 0,
          "SOURCE_TARGET_OR_OWNER_RECEIPT_MISSING")
+    need(args.owner_run_id == int(os.environ["GITHUB_RUN_ID"]),
+         "ORIGINAL_OWNER_WORKFLOW_RUN_MISMATCH")
     if args.mode=="rehearse":
         copy_path=require_owner_path(args.copy,must_exist=False)
         backup_sha=backed_up(db_path,copy_path)
@@ -192,7 +195,7 @@ def main(argv=None):
         original_task_quiesced(db_path)
         with closing(Database(db_path)) as db:
             proof=make_proof(db,target=args.target,
-                owner_comment_id=args.owner_comment_id,
+                owner_run_id=args.owner_run_id,
                 main_run_id=args.main_run_id,
                 rehearsal_run_id=args.rehearsal_run_id,
                 backup_sha256=args.backup_sha)
@@ -204,7 +207,7 @@ def main(argv=None):
              verified.meta()["head_seq"]==HEAD_SEQ+2 and
              verified.meta()["head_hash"]==result["head_sha256"],
              "POSTCOMMIT_ORIGINAL_SOURCE_DRIFT")
-    print("F139_V53_ORIGINAL_EVENT1839="+json.dumps(result,sort_keys=True))
+    print("F139_V53_ORIGINAL_EVENT1841="+json.dumps(result,sort_keys=True))
     return 0
 
 if __name__=="__main__":

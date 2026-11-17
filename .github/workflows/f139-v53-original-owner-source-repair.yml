@@ -1,0 +1,83 @@
+name: FORGE F139 V53 original owner source-only recovery
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: 'Qualified protected main SHA (40 lowercase hex chars)'
+        required: true
+        type: string
+      original_head_sha256:
+        description: 'Original SQLite event1839 SHA-256 (64 lowercase hex chars)'
+        required: true
+        type: string
+      authorization:
+        description: 'Type F139-V53-OWNER-SOURCE-ONLY for one-time original owner recovery'
+        required: true
+        type: string
+permissions:
+  contents: read
+  issues: read
+  actions: read
+concurrency:
+  group: forge-f139-v53-original-owner
+  cancel-in-progress: false
+jobs:
+  detached-owner-rehearsal:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.target_sha == github.sha &&
+      inputs.original_head_sha256 == '376fe4921a41374ff47b1779c7d625bc3677ace91a052d6b64c790e390677c70' &&
+      inputs.authorization == 'F139-V53-OWNER-SOURCE-ONLY'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source with complete local ancestry
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rehearse event1840 and event1841 on detached original SQLite
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & "$env:GITHUB_WORKSPACE/f139/v53_original_owner_repair.ps1" -Mode Rehearse -Main $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0){throw 'F139_V53_DETACHED_REHEARSAL_DENIED'}
+  original-owner-forward-repair:
+    needs: detached-owner-rehearsal
+    if: >-
+      success() &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.target_sha == github.sha &&
+      inputs.original_head_sha256 == '376fe4921a41374ff47b1779c7d625bc3677ace91a052d6b64c790e390677c70' &&
+      inputs.authorization == 'F139-V53-OWNER-SOURCE-ONLY'
+    permissions:
+      contents: write
+      issues: write
+      actions: read
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact protected source and immutable original custody
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pinned Go source-generator toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.12'
+          cache: false
+      - name: One forward-only source update of SAME original owner
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & "$env:GITHUB_WORKSPACE/f139/v53_original_owner_repair.ps1" -Mode Live -Main $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0){throw 'F139_V53_ORIGINAL_LIVE_REPAIR_HOLD'}
