@@ -61,9 +61,9 @@ class FakeProvider:
     def get(self, route):
         if route == "repos/spoonman136668-ai/FORGE/issues/807":
             return self.issue()
-        if route == "repos/spoonman136668-ai/Wingless/pulls?state=open&per_page=100&page=1":
+        if route == "repos/spoonman136668-ai/Wingless/pulls?state=open&per_page=50&page=1":
             return [self.pr]
-        if route == "repos/spoonman136668-ai/Yggdrasil/pulls?state=open&per_page=100&page=1":
+        if route == "repos/spoonman136668-ai/Yggdrasil/pulls?state=open&per_page=50&page=1":
             return []
         if route == "repos/spoonman136668-ai/Wingless/pulls/383":
             return self.pr
@@ -111,7 +111,7 @@ class FakePublicHybridProvider(FakeProvider):
         wingless = "repos/spoonman136668-ai/Wingless"
         if route == hybrid:
             return self.metadata
-        if route == wingless + "/pulls?state=open&per_page=100&page=1":
+        if route == wingless + "/pulls?state=open&per_page=50&page=1":
             return []
         if route.startswith(hybrid + "/"):
             return super().get(wingless + route[len(hybrid):])
@@ -119,6 +119,73 @@ class FakePublicHybridProvider(FakeProvider):
 
 
 class NativeAutonomyFeedTests(unittest.TestCase):
+    def test_bounded_pages_preserve_exact_first_hundred_candidates(self):
+        class Paged(FakeProvider):
+            def __init__(self):
+                super().__init__()
+                self.calls = []
+                self.pages = {
+                    1: [{"number": 2000-i, "title": "ordinary"} for i in range(50)],
+                    2: ([{"number": 1950-i, "title": "ordinary"} for i in range(49)]
+                        + [self.pr]),
+                }
+            def get(self, route):
+                prefix = ("repos/spoonman136668-ai/Wingless/"
+                          "pulls?state=open&per_page=50&page=")
+                if route.startswith(prefix):
+                    page = int(route[len(prefix):])
+                    self.calls.append(page)
+                    return self.pages[page]
+                return super().get(route)
+
+        p = Paged()
+        result = prepare_feed(p.get, source_sha=p.source,
+                              existing_candidate_identities=set())
+        self.assertEqual(p.calls, [1, 2])
+        self.assertEqual([c["pr_number"] for c in result["candidates"]], [383])
+        self.assertEqual(result["rejected"], [])
+
+    def test_bounded_page_replay_and_oversize_fail_closed(self):
+        class Paged(FakeProvider):
+            def __init__(self, second):
+                super().__init__()
+                self.second = second
+            def get(self, route):
+                prefix = ("repos/spoonman136668-ai/Wingless/"
+                          "pulls?state=open&per_page=50&page=")
+                if route == prefix + "1":
+                    return [{"number": 2000-i, "title": "ordinary"}
+                            for i in range(50)]
+                if route == prefix + "2":
+                    return self.second
+                return super().get(route)
+
+        for second, reason in (
+            ([{"number": 1951, "title": "ordinary"}], "PR_CATALOG_PAGE_DRIFT"),
+            ([{"number": 1900-i, "title": "ordinary"}
+              for i in range(51)], "PR_CATALOG_INVALID"),
+        ):
+            p = Paged(second)
+            with self.subTest(reason=reason), self.assertRaisesRegex(
+                    NativeFeedDenied, reason):
+                prepare_feed(p.get, source_sha=p.source,
+                             existing_candidate_identities=set())
+
+    def test_short_first_page_requires_no_extra_pr_reads(self):
+        p = FakeProvider()
+        seen = []
+        def get(route):
+            if "/pulls?state=open&" in route:
+                seen.append(route)
+            return p.get(route)
+        result = prepare_feed(get, source_sha=p.source,
+                              existing_candidate_identities=set())
+        self.assertEqual(len(result["candidates"]), 1)
+        self.assertEqual(seen, [
+            "repos/spoonman136668-ai/Wingless/pulls?state=open&per_page=50&page=1",
+            "repos/spoonman136668-ai/Yggdrasil/pulls?state=open&per_page=50&page=1",
+        ])
+
     def test_enabled_owner_single_commit_source_candidate_compiles_v1_issue(self):
         p = FakeProvider()
         report = prepare_feed(p.get, source_sha=p.source,
