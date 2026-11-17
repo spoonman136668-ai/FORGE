@@ -718,6 +718,17 @@ FROZEN_SCOPES = {
             "scripts/check_rar_g156_dynamic_base_cache.py",
         },
     ),
+    # PR #1796: one exact original-owner read-only V51 witness route.
+    # Does not authorize runtime mutation, scientific first-use, or a release.
+    "engineering/f139-v51-original-owner-preflight-20261116": (
+        "e657a0b3f85120b72fcf3e191a0b1c1c289c97cb",
+        {
+            ".github/workflows/f139-v51-original-owner-readonly.yml",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
 }
 
 
@@ -2419,6 +2430,20 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v51-original-owner-preflight-20261116":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            workflow = ".github/workflows/f139-v51-original-owner-readonly.yml"
+            base = "e657a0b3f85120b72fcf3e191a0b1c1c289c97cb"
+            if (type(request.get("number")) is not int
+                    or request["number"] != 1796
+                    or request.get("user", {}).get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != branch
+                    or request.get("base", {}).get("sha") != base
+                    or git("rev-parse", base + "^{tree}") != "838d0d9a78df327571efd0030b092721db8b8bc7"
+                    or git("rev-parse", head_sha + ":" + workflow) != "9b0dd9544c36c00161779accac477002f2e79b8e"):
+                raise ValueError("G145_V51_READONLY_FROZEN_OWNER_SCOPE_DENIED")
         if branch == "engineering/f139-v50-v41-original-native-activation-20261116":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
