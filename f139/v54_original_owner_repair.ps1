@@ -17,9 +17,30 @@ function Need([bool]$ok,[string]$code) {
 }
 function GetJson([string]$route) {
   Need ($route.StartsWith('repos/spoonman136668-ai/FORGE/')) 'GITHUB_ROUTE'
-  $lines=@(& gh api $route)
-  Need ($LASTEXITCODE -eq 0 -and $lines.Count -gt 0) 'GITHUB_GET_FAILED'
-  return (($lines -join "`n")|ConvertFrom-Json -Depth 32)
+  # GitHub's original Windows runner may experience short API TCP resets.
+  # Only repeat idempotent GETs; never retry owner writes, job admission,
+  # first-use, SQLite commits or task mutations.  Exhaustion fails closed.
+  for($attempt=1;$attempt -le 3;$attempt++) {
+    $lines=@()
+    $code=-1
+    try {
+      $lines=@(& gh api --method GET $route 2>$null)
+      $code=$LASTEXITCODE
+    } catch {
+      $code=-1
+    }
+    if($code -eq 0 -and $lines.Count -gt 0) {
+      try {
+        return (($lines -join "`n")|ConvertFrom-Json -Depth 32 -ErrorAction Stop)
+      } catch {
+        Need $false 'GITHUB_GET_INVALID_JSON'
+      }
+    }
+    if($attempt -lt 3) {
+      Start-Sleep -Seconds (2*$attempt)
+    }
+  }
+  Need $false 'GITHUB_GET_FAILED'
 }
 function Field($task,[string]$key) {
   $match=[regex]::Match([string]$task.Actions[0].Arguments,
