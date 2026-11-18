@@ -6,6 +6,29 @@ param([Parameter(Mandatory=$true)][ValidateSet('Rehearse','Live')][string]$Mode,
       [Parameter(Mandatory=$true)][string]$Main)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+# A distinct V55-authenticated successor uses the SAME original V54
+# issue-comment workflow, not a new runner, scheduler or workflow admission.
+# The old V54 event and release remain immutable. Only the exact new
+# source-bound suffix may enter V55. Its implementation re-verifies owner,
+# runner, protected main, CI, original task, and historic ledger custody.
+$bridgeEvent=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw -ErrorAction Stop | ConvertFrom-Json -Depth 20
+$bridgeBody=[string]$bridgeEvent.comment.body
+if($bridgeBody -ceq ('F139-V54-OWNER-RELEASE '+$Main+' V55')) {
+  if($env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+     $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+     $bridgeEvent.action -cne 'created' -or
+     $bridgeEvent.issue.number -ne 807 -or
+     $bridgeEvent.comment.user.login -cne 'spoonman136668-ai' -or
+     $bridgeEvent.comment.author_association -cne 'OWNER' -or
+     $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+     $env:GITHUB_SHA -cne $Main -or
+     $env:GITHUB_RUN_ATTEMPT -cne '1') {
+     throw 'F139_V55_BRIDGE_AUTHENTICATION_HOLD'
+  }
+  & (Join-Path $PSScriptRoot 'v55_original_owner_repair.ps1') -Mode $Mode -Main $Main
+  if(-not $?) {throw 'F139_V55_BRIDGE_DELEGATION_HOLD'}
+  return
+}
 $old='2d6ca3ea8852f6c70ee0981da3f222d0b982c279'
 $name='FORGE-F139-UnifiedController'
 $existingHead='d80f375d450495d5897e2510c6fac0d07309f4ef4986690e77fdfedb79ffe2dd'

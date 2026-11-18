@@ -79,8 +79,8 @@ function GitSource([string]$path) {
 function OwnerIntent {
   $remote=GetJson ('repos/spoonman136668-ai/FORGE/actions/runs/'+$env:GITHUB_RUN_ID)
   Need ([int64]$remote.id -eq [int64]$env:GITHUB_RUN_ID -and
-    $remote.name -ceq 'FORGE F139 V55 original owner model-free source recovery' -and
-    $remote.path -ceq '.github/workflows/f139-v55-original-owner-release.yml' -and
+    $remote.name -ceq 'FORGE F139 V54 original owner model-free source recovery' -and
+    $remote.path -ceq '.github/workflows/f139-v54-original-owner-release.yml' -and
     $remote.event -ceq 'issue_comment' -and
     $remote.actor.login -ceq 'spoonman136668-ai' -and
     $remote.head_branch -ceq 'main' -and
@@ -194,7 +194,7 @@ function TemporaryBinary([string]$checkout) {
 Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
   $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
   $env:GITHUB_EVENT_NAME -ceq 'issue_comment' -and
-  $env:GITHUB_WORKFLOW_REF -ceq 'spoonman136668-ai/FORGE/.github/workflows/f139-v55-original-owner-release.yml@refs/heads/main' -and
+  $env:GITHUB_WORKFLOW_REF -ceq 'spoonman136668-ai/FORGE/.github/workflows/f139-v54-original-owner-release.yml@refs/heads/main' -and
   ($env:GITHUB_JOB -ceq 'detached-owner-rehearsal' -or $env:GITHUB_JOB -ceq 'original-owner-forward-repair') -and
   $env:GITHUB_REF -ceq 'refs/heads/main' -and
   $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
@@ -213,7 +213,7 @@ Need ($priorRehearsal -gt 44076995053 -and
   $event.comment.user.login -ceq 'spoonman136668-ai' -and
   $event.comment.author_association -ceq 'OWNER' -and
   $null -eq $event.issue.PSObject.Properties['pull_request'] -and
-  [string]$event.comment.body -ceq ('F139-V55-OWNER-RELEASE '+$Main) -and
+  [string]$event.comment.body -ceq ('F139-V54-OWNER-RELEASE '+$Main+' V55') -and
   $event.sender.login -ceq 'spoonman136668-ai' -and
   (($Mode -ceq 'Rehearse' -and $env:GITHUB_JOB -ceq 'detached-owner-rehearsal') -or
    ($Mode -ceq 'Live' -and $env:GITHUB_JOB -ceq 'original-owner-forward-repair'))) 'FRESH_SOURCE_BOUND_OWNER_ASSIGNMENT'

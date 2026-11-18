@@ -141,6 +141,21 @@ class OriginalV55SourceReleaseTests(unittest.TestCase):
         self.assertEqual(got["terminal_tasks_sha256"], "f"*64)
         fake.close.assert_called_once()
 
+    def test_original_workflow_only_admits_fresh_v55_suffix_through_guarded_bridge(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1]
+        launcher = (root/"f139/v54_original_owner_repair.ps1").read_text(encoding="utf-8")
+        successor = (root/"f139/v55_original_owner_repair.ps1").read_text(encoding="utf-8")
+        workflow = (root/".github/workflows/f139-v54-original-owner-release.yml").read_text(encoding="utf-8")
+        self.assertIn("F139-V54-OWNER-RELEASE '+$Main+' V55", launcher)
+        self.assertIn("F139_V55_BRIDGE_AUTHENTICATION_HOLD", launcher)
+        self.assertIn("v55_original_owner_repair.ps1", launcher)
+        self.assertIn("F139-V54-OWNER-RELEASE '+$Main+' V55", successor)
+        self.assertIn("F139_V55_FORWARD_ONLY_HOLD_NO_REPLAY", successor)
+        self.assertIn("f139-v54-original-owner-release.yml", successor)
+        self.assertIn("startsWith(github.event.comment.body, 'F139-V54-OWNER-RELEASE ')", workflow)
+        self.assertNotIn("Register-ScheduledTask", launcher)
+
     def test_release_shell_invokes_existing_cli_and_binds_backup_pins(self):
         from pathlib import Path
         script = (Path(__file__).with_name(
