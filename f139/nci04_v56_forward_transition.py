@@ -290,10 +290,16 @@ def carried_v46_source(db, ticket):
     if len(rows) != 1:
         return None
     doc = rows[0]
+    try:
+        sealed_identity = _sealed_ticket(db)
+    except (V46TransitionDenied, ValueError, KeyError, TypeError):
+        # An altered native admission cannot acquire carry authority.
+        # Database.verify independently rejects the underlying corruption.
+        return None
     if (set(doc) != FIELDS
             or doc.get("from_source_sha") != SOURCE
             or doc.get("to_source_sha") != db.meta()["source_sha"]
-            or doc.get("original_ready_identity_sha256") != _sealed_ticket(db)
+            or doc.get("original_ready_identity_sha256") != sealed_identity
             or doc.get("original_ready_ticket") != TICKET):
         return None
     return SOURCE
