@@ -227,7 +227,7 @@ OwnerIntent
 $originalPolicy=SourcePolicy
 $task=OriginalRoute
 $pref=InvokeNative @('preflight','--db',$database) 'F139_V55_PREFLIGHT='
-Need ($pref.source_sha -ceq $old -and $pref.head_seq -ge 1849 -and
+Need ($pref.source_sha -ceq $old -and $pref.head_seq -eq 1849 -and
   $pref.verified_historical_tasks -ge 154 -and
   $pref.custodied_negative_tasks -ge 56) 'ORIGINAL_EVENT1849_HISTORY_NOT_AUTHENTICATED'
 if($Mode -ceq 'Rehearse') {
@@ -369,7 +369,7 @@ try {
       '--rehearsal-run-id',([string]$priorRehearsal),
       '--binary-sha',$binarySha,'--mechanism-sha',$mechanismSha) 'F139_V55_COLD_BACKUP='
   Need ($b.backup_sha256 -cmatch '^[a-f0-9]{64}$' -and
-    $b.original.head_seq -ge 1849 -and
+    $b.original.head_seq -eq 1849 -and
     $b.original.source_sha -ceq $old) 'COLD_BACKUP_OR_HEAD_INVALID'
   OwnerIntent
   RemoteMain
@@ -434,9 +434,9 @@ try:
     m=db.meta()
     assert m["source_sha"]==sys.argv[2] and m["head_seq"]>=1851
     assert m["enabled"]==1 and m["legacy_suspended"]==1
-    rows=list(db.conn.execute("SELECT seq,kind FROM events ORDER BY seq DESC LIMIT 2"))
-    assert len(rows)==2 and rows[0]["kind"]=="NATIVE_DEVELOPMENT_ACTIVATED"
-    assert rows[1]["kind"]=="SOURCE_TRANSITION_ADMITTED"
+    rows=list(db.conn.execute("SELECT seq,kind FROM events WHERE seq IN (1850,1851) ORDER BY seq"))
+    assert len(rows)==2 and rows[0]["seq"]==1850 and rows[0]["kind"]=="SOURCE_TRANSITION_ADMITTED"
+    assert rows[1]["seq"]==1851 and rows[1]["kind"]=="NATIVE_DEVELOPMENT_ACTIVATED"
     assert verify_native_activation(db) is True
     print("F139_V55_POSTSTART="+json.dumps({"source_sha":m["source_sha"],"head_seq":m["head_seq"],"head_hash":m["head_hash"],"native_development_activated":True,"scientific_first_use":False},sort_keys=True))
 finally:

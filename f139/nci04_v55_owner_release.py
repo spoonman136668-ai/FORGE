@@ -30,7 +30,7 @@ def original_snapshot(db: Database) -> dict:
     m = db.meta()
     need(m["source_sha"] == SOURCE
          and m["enabled"] == 1 and m["legacy_suspended"] == 1
-         and m["head_seq"] >= ANCHOR_SEQ
+         and m["head_seq"] == ANCHOR_SEQ
          and db.ready() is None and not db.actives()
          and verify_native_activation(db, expected_source=SOURCE) is True,
          "ORIGINAL_SOURCE_OR_ACTIVATION_DRIFT")
@@ -47,7 +47,7 @@ def original_snapshot(db: Database) -> dict:
     ]
     need(bool(prior) and prior[-1]["schema"] == PREVIOUS
          and prior[-1]["to_source_sha"] == SOURCE,
-         "PREDECESSOR_V43_SOURCE_DRIFT")
+         "PREDECESSOR_V44_SOURCE_DRIFT")
     tasks, counts, negatives = terminal_rows(db, prior)
     return {
         "source_sha": m["source_sha"],

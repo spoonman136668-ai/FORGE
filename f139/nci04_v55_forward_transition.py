@@ -200,7 +200,7 @@ def make_proof(db: Database, *, target: str, owner_run_id: int,
     m = db.meta()
     need(m["source_sha"] == SOURCE
          and m["enabled"] == 1 and m["legacy_suspended"] == 1
-         and m["head_seq"] >= ANCHOR_SEQ
+         and m["head_seq"] == ANCHOR_SEQ
          and db.ready() is None and not db.actives(),
          "ORIGINAL_OWNER_SOURCE_OR_PENDING_DRIFT")
     prev = [
