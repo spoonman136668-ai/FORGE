@@ -142,6 +142,7 @@ class V50SourceActivationTests(unittest.TestCase):
         self.assertEqual(source.count('"forge.f139.source-transition.v44"'), 3)
         self.assertEqual(source.count('"forge.f139.source-transition.v45"'), 3)
         self.assertEqual(source.count('"forge.f139.source-transition.v46"'), 3)
+        self.assertEqual(source.count('"forge.f139.source-transition.v47"'), 3)
         self.assertIn('failed_tickets==all_certified', source)
         self.assertIn('verify_original_negative_custody(db)', source)
         self.assertIn('verify_second_negative_custody(db)', source)

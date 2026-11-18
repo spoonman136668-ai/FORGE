@@ -117,7 +117,7 @@ def journal_native_assignment(db, ticket, timestamp):
         from f139.nci04_v56_original_pending_preflight import (
             SOURCE as V46_OLD_SOURCE, TICKET as V46_ORIGINAL_TICKET,
         )
-        from f139.nci04_v56_forward_transition import carried_v46_source
+        from f139.nci04_v30_source_transition import carried_source
         carried = (
             len(menu) == 1 and len(ready) == 1
             and ticket == V46_ORIGINAL_TICKET
@@ -126,7 +126,7 @@ def journal_native_assignment(db, ticket, timestamp):
             and menu[0]["owner_source_sha"] == V46_OLD_SOURCE
             and ready[0]["source_sha"] == V46_OLD_SOURCE
             and meta["source_sha"] != V46_OLD_SOURCE
-            and carried_v46_source(db, ticket) == V46_OLD_SOURCE
+            and carried_source(db, ticket) == V46_OLD_SOURCE
         )
         need(carried, "SOURCE_DRIFT")
     payload = _envelope(menu, ticket, timestamp, meta["head_hash"])
