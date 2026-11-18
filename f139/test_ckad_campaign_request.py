@@ -143,18 +143,36 @@ class SpecifiedTrainingRequestTests(unittest.TestCase):
 
     def test_stage_limit_and_budgets_stop_extra_training(self):
         c = campaign()
-        c["max_stages"] = 2
-        c["max_total_cpu_seconds"] = 20
-        c["max_total_observations"] = 20
+        c["plan"]["stages"].append({
+            "id": "resume-04", "phase": "resume",
+            "component": c["plan"]["stages"][2]["component"],
+            "max_observations": 10, "max_interventions": 0,
+            "max_cpu_seconds": 10})
+        c["max_stages"] = 3  # Still requires an evaluation after learning.
         a = result(c, [], b"native-start", b"native-v1")
         b = result(c, [a], b"native-v1", b"native-v2",
                    external=receipt_digest(a))
-        end = next_stage(c, [a, b],
-                         independently_pinned_head=receipt_digest(b))
+        d = result(c, [a, b], b"native-v2", b"native-v3",
+                   external=receipt_digest(b))
+        end = next_stage(c, [a, b, d],
+                         independently_pinned_head=receipt_digest(d))
         self.assertIsNone(end["next_stage"])
         with self.assertRaises(CampaignDenied):
-            next_stage(c, [a, b, b],
-                       independently_pinned_head=receipt_digest(b))
+            next_stage(c, [a, b, d, d],
+                       independently_pinned_head=receipt_digest(d))
+
+    def test_cannot_claim_completion_without_post_learning_evaluation(self):
+        c = campaign()
+        c["max_stages"] = 2
+        c["max_total_cpu_seconds"] = 20
+        c["max_total_observations"] = 20
+        with self.assertRaises(CampaignDenied):
+            validate_campaign(c)
+        c = campaign()
+        c["plan"]["stages"][1]["phase"] = "evaluate"
+        c["plan"]["stages"][2]["phase"] = "learn"
+        with self.assertRaises(CampaignDenied):
+            validate_campaign(c)
 
 
 if __name__ == "__main__":

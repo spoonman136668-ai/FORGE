@@ -86,6 +86,10 @@ def validate_campaign(campaign):
          and sum(x["max_cpu_seconds"] for x in stages[:campaign["max_stages"]])
                 <= campaign["max_total_cpu_seconds"],
          "GLOBAL_BUDGET_INSUFFICIENT")
+    phases = [s["phase"] for s in stages[:campaign["max_stages"]]]
+    need("learn" in phases and "evaluate" in phases
+         and phases.index("learn") < phases.index("evaluate"),
+         "EVALUATION_MUST_FOLLOW_LEARNING_WITHIN_STAGE_CAP")
     raw = canonical(campaign)
     need(len(raw) <= 32768, "REQUEST_OVERSIZE")
     return {"campaign_sha256": digest(raw), "plan_sha256": pin}
