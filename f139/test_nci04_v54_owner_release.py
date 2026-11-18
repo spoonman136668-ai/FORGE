@@ -119,6 +119,45 @@ class OriginalV54SourceReleaseTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     cli.main(["--mode","preflight","--db",str(db)])
 
+    def test_preflight_reports_cold_verified_terminal_counts_to_shell(self):
+        from unittest.mock import MagicMock
+        snapshot = {
+            "verified_historical_tasks": 154,
+            "custodied_negative_tasks": 56,
+            "terminal_tasks_sha256": "f"*64,
+        }
+        fake = MagicMock()
+        fake.meta.return_value = {
+            "source_sha": SOURCE,
+            "head_seq": 1847,
+            "head_hash": "e"*64,
+        }
+        with patch.object(cli.Database, "open_readonly", return_value=fake), \
+             patch.object(cli, "original_snapshot", return_value=snapshot):
+            got = cli.read_frozen(self.path)
+        self.assertEqual(got["verified_historical_tasks"], 154)
+        self.assertEqual(got["custodied_negative_tasks"], 56)
+        self.assertEqual(got["head_seq"], 1847)
+        self.assertEqual(got["terminal_tasks_sha256"], "f"*64)
+        fake.close.assert_called_once()
+
+    def test_release_shell_invokes_existing_cli_and_binds_backup_pins(self):
+        from pathlib import Path
+        script = (Path(__file__).with_name(
+            "v54_original_owner_repair.ps1")).read_text(encoding="utf-8")
+        self.assertEqual(script.count(
+            "& $python -B -m f139.nci04_v54_owner_release_cli --mode @cliArgs"
+        ), 1)
+        self.assertNotIn("f139.nci04_v54_owner_forward_repair_cli", script)
+        self.assertEqual(script.count("$b=InvokeNative @('backup'"), 1)
+        backup = script.split("$b=InvokeNative @('backup'", 1)[1].split(
+            "'F139_V54_COLD_BACKUP='", 1)[0]
+        self.assertIn("'--binary-sha',$binarySha", backup)
+        self.assertIn("'--mechanism-sha',$mechanismSha", backup)
+        self.assertIn("'--rehearsal-run-id',([string]$priorRehearsal)", backup)
+        self.assertIn("$pref.verified_historical_tasks -ge 153", script)
+        self.assertIn("$pref.custodied_negative_tasks -ge 56", script)
+
     def test_no_new_scheduler_or_runner_interface_in_release_module(self):
         source = inspect.getsource(release)
         self.assertIn("activate_native(db, approval)", source)
