@@ -100,7 +100,7 @@ class V45Replay(unittest.TestCase):
     def test_corrupted_authentication_release_or_science_denied(self):
         examples=[
             ("to_source_sha",SOURCE),
-            ("to_source_sha","2ea68f93cbe6323aa6b0cbe99e47a32f0717b04c"),
+            ("to_source_sha","2d6ca3ea8852f6c70ee0981da3f222d0b982c279"),
             ("prior_event_head_sha256","0"*64),
             ("event1849_ancestor_sha256","0"*64),
             ("prior_source_transition_sha256","0"*64),
@@ -182,7 +182,7 @@ class V45Replay(unittest.TestCase):
 
     def test_cold_replay_rejects_unauthenticated_original_predecessor(self):
         self.conn.execute(
-            "UPDATE events SET payload=? WHERE seq=1841",
+            "UPDATE events SET payload=? WHERE seq=1849",
             (json.dumps({"source_sha":SOURCE,
                          "schema":"not-an-original-activation"}),))
         with self.assertRaises(ForwardTransitionDenied):
