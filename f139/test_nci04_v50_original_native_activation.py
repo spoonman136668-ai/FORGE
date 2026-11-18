@@ -131,14 +131,22 @@ class V50SourceActivationTests(unittest.TestCase):
         with self.assertRaises(v50.NativeV50Denied):
             self.call(env, event, get, pinned=False)
 
-    def test_validator_admits_exact_v41_v42_v43_without_relaxing_future_schemas(self):
+    def test_validator_admits_exact_v41_v42_v43_v44_with_original_negative_custody(self):
         source = inspect.getsource(native.activate_native)
         self.assertEqual(source.count('"forge.f139.source-transition.v41"'), 3)
-        # V53 adds exactly the event1839 successor; historical V50/V52 authority
-        # remains immutable and later source schemas are still forbidden.
+        # New v44 requires a distinct verified source transition, the exact
+        # original negative ticket set, and the same explicit native approval.
+        # All earlier per-source activation and sealed negative checks persist.
         self.assertEqual(source.count('"forge.f139.source-transition.v42"'), 3)
         self.assertEqual(source.count('"forge.f139.source-transition.v43"'), 3)
-        self.assertNotIn('"forge.f139.source-transition.v44"', source)
+        self.assertEqual(source.count('"forge.f139.source-transition.v44"'), 3)
+        self.assertEqual(source.count('"forge.f139.source-transition.v45"'), 3)
+        self.assertNotIn('"forge.f139.source-transition.v46"', source)
+        self.assertIn('failed_tickets==all_certified', source)
+        self.assertIn('verify_original_negative_custody(db)', source)
+        self.assertIn('verify_second_negative_custody(db)', source)
+        self.assertIn('approval["native_development_approved"] is True', source)
+        self.assertIn('approval["scientific_first_use"] is False', source)
         self.assertEqual(v43.SCHEMA, "forge.f139.source-transition.v41")
         self.assertEqual(v50.HEAD_SEQ, 1836)
         self.assertEqual(v50.HEAD_HASH,

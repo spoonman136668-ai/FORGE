@@ -13,6 +13,38 @@ import subprocess
 from typing import Callable
 
 REPO = "spoonman136668-ai/FORGE"
+# Exactly one owner-authored V54 release-source PR, never a generic CI bypass.
+V54_RELEASE_PR = 1807
+V54_RELEASE_BASE = "2d6ca3ea8852f6c70ee0981da3f222d0b982c279"
+V54_RELEASE_BASE_TREE = "b9f2b3ce315545bda38f3920d4e6c03e43094e48"
+V54_RELEASE_GUARD_BEFORE = "9f88107db9788eb9dd21f5921d97393ce80fa761"
+V54_RELEASE_BRANCH = "research/f139-v54-original-owner-readonly-preflight-20261117"
+V54_RELEASE_GUARD = "scripts/check_rar_g145_pr_scope.py"
+V54_RELEASE_PINNED = {
+    ".github/workflows/f139-v54-original-owner-release.yml": "1efeae45523a6e9f75120fba6cdcac8692455652",
+    "f139/local_controller.py": "cc06b6c2eea143498a30ea9478b9a8af1ffa7cf8",
+    "f139/nci04_genenv_owner_backend.py": "ea4574f04e13ee711765ed86ef5274253636f7de",
+    "f139/nci04_model_free_failure.py": "ef09d3dfa4b2c1aebb5839024b0f358955cbe290",
+    "f139/nci04_model_owner_bridge.py": "cf5f7fcb6f661d9f0ad6b9ab9f1d44d544d57fde",
+    "f139/nci04_owner_ledger.py": "cc4e89408f3fbbc1df2d57ef261ea930268d16c0",
+    "f139/nci04_v54_detached_activation.py": "e66c3f239f334f09e571ef69f3216525b6f7ea15",
+    "f139/nci04_v54_forward_transition.py": "418dfd7df785200449d068627db67d517e110441",
+    "f139/nci04_v54_original_owner_readonly_preflight.py": "98d853bdd27e26ed38708c1237229cf9f429d3cc",
+    "f139/nci04_v54_owner_release_cli.py": "54d7f0620397b62fb8cbd8aa71a47727ae1c2e3d",
+    "f139/nci04_v54_owner_release.py": "0831ef9cd74dc01ef0070ca8f1bf7533bffdf4f0",
+    "f139/test_nci04_genenv_owner_backend.py": "cc8c41918a454778ef69a4e34efe502ae2c1e545",
+    "f139/test_nci04_model_free_failure.py": "89fb00e8adf325286785531dfab971fe753c483a",
+    "f139/test_nci04_model_owner_bridge.py": "c796f4069c938f13603cb2b197dbb31286f117ca",
+    "f139/test_nci04_v50_original_native_activation.py": "d059cc4286bae7c0372e1fe3aa848254a4d53eec",
+    "f139/test_nci04_v54_detached_activation.py": "8fe09532e321dc06a13d4a54fa65596265014bab",
+    "f139/test_nci04_v54_forward_transition.py": "e47e4f58e431f4576df39b08ce25e2bb1b38bc90",
+    "f139/test_nci04_v54_original_owner_readonly_preflight.py": "756369492d08cf1d2d86d0b312ed185356bba34c",
+    "f139/test_nci04_v54_owner_release.py": "0c066c2a6d96e82bbed084950b5a9662868f12b3",
+    "f139/v54_original_owner_repair.ps1": "e8b68984255cc4e8f2be669c52c6e8552f863732",
+    "scripts/check_rar_g148_go_cache.py": "5b2311417e12faba7acf6f776ee9707e59b8bb6b",
+    "scripts/check_rar_g156_dynamic_base_cache.py": "7442c1b4bdb0311f09bcfbbfef990b03e5f2be67",
+}
+
 HYBRID_RELEASE_BRANCH = "release/f139-hybrid-qualified-worker-governance-20261109"
 HYBRID_RELEASE_PR = 1642
 HYBRID_RELEASE_ANCHOR = "0e122eb8e571ddddee1dea4168cf18cfc7dc019d"
@@ -2072,6 +2104,7 @@ def negative_controls() -> None:
     v41_status_negative_controls()
     v41_backup_negative_controls()
     v41_pause_negative_controls()
+    v54_owner_release_negative_controls()
 
 
 def admit_hybrid_workflow_release(head_sha: str, base_sha: str,
@@ -2412,12 +2445,132 @@ def github_event_base(head_sha: str) -> str:
     return base_sha
 
 
+def admit_v54_owner_release(head_sha, base_sha, request, git):
+    """Source-only CI exception for exactly PR1807's pinned Windows workflow."""
+    if (type(request) is not dict or type(request.get("number")) is not int
+            or request["number"] != V54_RELEASE_PR
+            or request.get("state") != "open"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("author_association") != "OWNER"
+            or request.get("head", {}).get("ref") != V54_RELEASE_BRANCH
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO
+            or base_sha != V54_RELEASE_BASE):
+        raise ValueError("G145_V54_AUTHENTIC_OWNER_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        base_tree = git("rev-parse", base_sha + "^{tree}")
+        guard_before = git("rev-parse", base_sha + ":" + V54_RELEASE_GUARD)
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        pinned = {p: git("rev-parse", head_sha + ":" + p)
+                  for p in V54_RELEASE_PINNED}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V54_EXACT_SOURCE_UNAVAILABLE") from exc
+    expected = set(V54_RELEASE_PINNED) | {V54_RELEASE_GUARD}
+    if (ancestor != base_sha
+            or base_tree != V54_RELEASE_BASE_TREE
+            or guard_before != V54_RELEASE_GUARD_BEFORE
+            or len(changed) != len(expected) or set(changed) != expected
+            or pinned != V54_RELEASE_PINNED):
+        raise ValueError("G145_V54_EXACT_SOURCE_OR_WORKFLOW_BLOB_DRIFT")
+    return "EXACT_PR1807_V54_OWNER_RELEASE_CI_ONLY"
+
+
+def v54_owner_release_negative_controls():
+    """Reject foreign PRs, moved source blobs and unrelated workflow edits."""
+    head = "b" * 40
+    request = {
+        "number": V54_RELEASE_PR,
+        "state": "open",
+        "user": {"login": "spoonman136668-ai"},
+        "author_association": "OWNER",
+        "head": {"ref": V54_RELEASE_BRANCH, "sha": head,
+                 "repo": {"full_name": REPO}},
+        "base": {"ref": "main", "sha": V54_RELEASE_BASE,
+                 "repo": {"full_name": REPO}},
+    }
+    def git(*args):
+        if args[0] == "merge-base":
+            return V54_RELEASE_BASE
+        if args[:2] == ("rev-parse", V54_RELEASE_BASE + "^{tree}"):
+            return V54_RELEASE_BASE_TREE
+        if args[:2] == ("rev-parse",
+                        V54_RELEASE_BASE + ":" + V54_RELEASE_GUARD):
+            return V54_RELEASE_GUARD_BEFORE
+        if args[0] == "diff":
+            return "\n".join(sorted(set(V54_RELEASE_PINNED)
+                                    | {V54_RELEASE_GUARD}))
+        if args[0] == "rev-parse" and args[1].startswith(head + ":"):
+            return V54_RELEASE_PINNED.get(args[1][len(head) + 1:], "0"*40)
+        raise ValueError("unexpected git read")
+    if admit_v54_owner_release(head, V54_RELEASE_BASE, request, git) != (
+            "EXACT_PR1807_V54_OWNER_RELEASE_CI_ONLY"):
+        raise ValueError("G145_V54_NEGATIVE_CONTROL_FALSE_PASS")
+    variants = (
+        {"number": 1808},
+        {"author_association": "CONTRIBUTOR"},
+        {"user": {"login": "attacker"}},
+        {"head": {**request["head"], "ref": "unrelated"}},
+        {"base": {**request["base"], "sha": "0"*40}},
+    )
+    for changes in variants:
+        try:
+            admit_v54_owner_release(head, V54_RELEASE_BASE,
+                                    {**request, **changes}, git)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("G145_V54_FOREIGN_PR_ACCEPTED")
+    def moved(*args):
+        if args[:2] == ("rev-parse",
+                        head + ":.github/workflows/f139-v54-original-owner-release.yml"):
+            return "0"*40
+        return git(*args)
+    try:
+        admit_v54_owner_release(head, V54_RELEASE_BASE, request, moved)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("G145_V54_MOVED_WORKFLOW_ACCEPTED")
+    def moved_g148(*args):
+        if args[:2] == ("rev-parse",
+                        head + ":scripts/check_rar_g148_go_cache.py"):
+            return "0"*40
+        return git(*args)
+    try:
+        admit_v54_owner_release(head, V54_RELEASE_BASE, request, moved_g148)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("G145_V54_MOVED_COMPILER_GUARD_ACCEPTED")
+    def moved_dynamic_cache(*args):
+        if args[:2] == ("rev-parse",
+                        head + ":scripts/check_rar_g156_dynamic_base_cache.py"):
+            return "0"*40
+        return git(*args)
+    try:
+        admit_v54_owner_release(
+            head, V54_RELEASE_BASE, request, moved_dynamic_cache)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("G145_V54_MOVED_DYNAMIC_CACHE_GUARD_ACCEPTED")
+
+
 def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
     """Engineering CI admission only; never research, merge or FSA authority."""
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or not callable(git):
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == V54_RELEASE_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_v54_owner_release(head_sha, base_sha, request, git)
     if branch == V38_FORWARD_V2_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]

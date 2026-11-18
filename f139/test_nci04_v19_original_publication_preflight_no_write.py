@@ -62,7 +62,7 @@ class OriginalDraftPreflightTests(unittest.TestCase):
             }
         if "/git/matching-refs/heads/f139/auto-model-" in route:
             return [{"ref": "occupied"}] if self.branch_taken else []
-        if "/pulls?state=all&per_page=100&page=1" in route:
+        if "/pulls?state=all&per_page=50&page=1" in route:
             return []
         raise AssertionError("Unexpected remote read " + route)
 
@@ -195,7 +195,7 @@ class OriginalDraftPreflightTests(unittest.TestCase):
         saved = self.stage_candidate()
         seen = []
         def reader(route):
-            if route.endswith("/pulls?state=all&per_page=100&page=1"):
+            if route.endswith("/pulls?state=all&per_page=50&page=1"):
                 seen.append(route)
                 if len(seen) == 2:
                     return [{"number": 999,

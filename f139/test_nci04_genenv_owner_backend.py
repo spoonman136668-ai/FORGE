@@ -30,7 +30,8 @@ class SourceUseRequestTests(unittest.TestCase):
             verified=[]
             db=SimpleNamespace(conn=conn,filename=Path(temp)/'state.sqlite',
                 verify=lambda:verified.append(True),meta=lambda:{'source_sha':source})
-            for schema, accepted in (('v32',True),('v33',True),('v34',True),('v35',False)):
+            for schema, accepted in (('v32',True),('v33',True),('v34',True),
+                                     ('v35',False),('v44',True)):
                 conn.execute('DELETE FROM events')
                 doc=dict(schema='forge.f139.source-transition.'+schema,
                          to_source_sha=source,genenv_executable_sha256=digest(raw),
@@ -44,7 +45,7 @@ class SourceUseRequestTests(unittest.TestCase):
                         backend.executable_custody(db,source)
                     with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_RELEASE_NOT_BOUND'):
                         backend.typed_generation_custody(db,source,digest(backend.generation_mechanism()))
-            self.assertEqual(len(verified),8)
+            self.assertEqual(len(verified),10)
             doc['schema']='forge.f139.source-transition.v34'
             conn.execute('UPDATE events SET payload=?',(json.dumps(doc),))
             with self.assertRaisesRegex(backend.BackendUnavailable,'TYPED_MECHANISM_DRIFT'):

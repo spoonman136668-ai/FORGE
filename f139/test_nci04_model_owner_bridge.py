@@ -102,6 +102,96 @@ class OriginalOwnerModelBridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "PREVIOUSLY_CONSUMED"):
             self.respond(snapshot["session"], source=repeated)
 
+    def _two_original_quarantined_issues_same_candidate(self):
+        """Real isolated append-only admissions, distinct tickets and receipts."""
+        from f139.nci04_owner_issue import inspect_owner_issue
+        from test_nci04_owner_issue import issue as make_issue, TARGET, TREE
+        self.assertTrue(admit_native_issue(
+            self.db, self.fixture.native, "2026-10-27T09:00:00Z"))
+        first = self.fixture.native.ticket
+        self.db.claim(first, "2026-10-27T09:01:00Z")
+        self.db.quarantine(first, "EXPERIMENT_FAILED")
+        raw = make_issue()
+        raw["number"], raw["id"] = 703, 5951234568
+        second = inspect_owner_issue(
+            raw, protected_main=MAIN,
+            authenticated_target_commit=TARGET,
+            authenticated_target_tree=TREE)
+        self.assertNotEqual(first, second.ticket)
+        self.assertTrue(admit_native_issue(
+            self.db, second, "2026-10-27T09:03:00Z"))
+        self.db.claim(second.ticket, "2026-10-27T09:04:00Z")
+        self.db.quarantine(second.ticket, "EXPERIMENT_FAILED")
+        self.db.verify()
+        return first, second.ticket
+
+    def test_repeated_authentic_candidate_history_retains_both_negative_tickets(self):
+        from f139.nci04_owner_ledger import native_events
+        from f139.nci04_native_contract import canonical, digest
+        first, second = self._two_original_quarantined_issues_same_candidate()
+        events = native_events(self.db)
+        self.assertEqual(len(events), 2)
+        self.assertEqual({x["ticket"] for x in events}, {first, second})
+        original = self.db.meta()
+        h = owner_history(self.db)
+        self.assertEqual(len(h["history"]), 1)
+        self.assertEqual(h["history"][0]["outcome"], "QUARANTINED")
+        self.assertIn("2 distinct issues", h["history"][0]["summary"])
+        self.assertEqual(len(h["consumed_candidates"]), 1)
+        self.assertEqual(len(h["consumed_after_hashes"]), 1)
+        # Every ticket survives, in original append-only order, in the
+        # source-bound history identity. Grouping changes only advisor view.
+        full = [
+            {"candidate_identity": h["history"][0]["candidate_identity"],
+             "after_sha256": x["after_sha256"], "outcome": "QUARANTINED",
+             "ticket": x["ticket"]} for x in events
+        ]
+        self.assertEqual(h["history_sha256"], digest(canonical({
+            "schema": "forge.f139.owner-model-retained-history.v1",
+            "head_seq": original["head_seq"], "head_hash": original["head_hash"],
+            "all_original_native_outcomes": full,
+        })))
+        self.assertEqual(self.db.meta(), original)
+        self.assertEqual(self.begin()["request"]["history"], h["history"])
+        with self.assertRaisesRegex(ValueError, "PREVIOUSLY_CONSUMED"):
+            self.respond(self.begin()["session"],
+                         source=self.fixture.native.candidate.after_bytes.decode("utf-8"))
+
+    def test_duplicate_ticket_and_conflicting_after_hash_still_fail_closed(self):
+        from f139.nci04_owner_ledger import native_events
+        first, second = self._two_original_quarantined_issues_same_candidate()
+        events = native_events(self.db)
+        with patch("f139.nci04_model_owner_bridge.native_events",
+                   return_value=events + [events[0]]):
+            with self.assertRaisesRegex(OwnerModelDenied,
+                                        "REPEATED_OR_INVALID_CANDIDATE"):
+                owner_history(self.db)
+        forged = dict(events[1], after_sha256="0"*64)
+        with patch("f139.nci04_model_owner_bridge.native_events",
+                   return_value=[events[0], forged]):
+            with self.assertRaisesRegex(OwnerModelDenied,
+                                        "REPEATED_OR_INVALID_CANDIDATE"):
+                owner_history(self.db)
+        self.db.verify()
+
+    def test_conflicting_synthetic_outcomes_are_mixed_not_verified(self):
+        # The original ledger itself remains immutable in production. This
+        # isolated fixture models an authenticated mixed outcome projection;
+        # only the synthetic Database.verify call is patched here.
+        from f139.nci04_owner_ledger import native_events
+        first, second = self._two_original_quarantined_issues_same_candidate()
+        self.db.conn.execute(
+            "UPDATE tasks SET stage='VERIFIED',run_id=123456,"
+            "evidence_sha=? WHERE ticket=?", ("d"*64, second))
+        with patch.object(type(self.db), "verify", return_value=None):
+            h = owner_history(self.db)
+        self.assertEqual(len(h["history"]), 1)
+        self.assertEqual(h["history"][0]["outcome"], "MIXED")
+        self.assertIn("QUARANTINED", h["history"][0]["summary"])
+        self.assertIn("VERIFIED", h["history"][0]["summary"])
+        self.assertEqual(len(h["consumed_candidates"]), 1)
+        self.assertEqual(len(h["consumed_after_hashes"]), 1)
+
     def test_new_original_event_invalidates_outstanding_model_response(self):
         prepared = self.begin()
         with self.db.transaction():
