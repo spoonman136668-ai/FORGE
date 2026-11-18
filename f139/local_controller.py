@@ -823,14 +823,18 @@ class Database:
                 is_v43 = (isinstance(doc, dict)
                           and doc.get("schema") == "forge.f139.source-transition.v43"
                           and set(doc) == V43_FIELDS)
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41 or is_v42 or is_v43,
+                from f139.nci04_v54_forward_transition import FIELDS as V44_FIELDS
+                is_v44 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v44"
+                          and set(doc) == V44_FIELDS)
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41 or is_v42 or is_v43 or is_v44,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41 or is_v42 or is_v43)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41 or is_v42 or is_v43 or is_v44)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1761,6 +1765,9 @@ class Database:
                     verify_cold_event(self, row, doc, source_transitions)
                 if is_v43:
                     from f139.nci04_v53_owner_forward_repair import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v44:
+                    from f139.nci04_v54_forward_transition import verify_cold_event
                     verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
@@ -5007,8 +5014,11 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                         db, api, db_path, source_sha=meta["source_sha"],
                         owner_witness=lambda:
                             native_original_running_publisher_profile(db_path))
-                except (F139Error, ValueError, OSError):
+                except (F139Error, ValueError, OSError) as exc:
+                    from f139.nci04_model_free_failure import (
+                        classify_model_free_failure)
                     result = {"disposition": "MODEL_FREE_SEARCH_BLOCKED_FAIL_CLOSED",
+                              "failure_code": classify_model_free_failure(exc),
                               "scientific_first_use": False,
                               "worker_dispatched": False, "model_calls": 0,
                               "paid_model_calls": 0}

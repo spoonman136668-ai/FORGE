@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 
 from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negative_controls,
+    V54_RELEASE_BRANCH, V54_RELEASE_BASE, V54_RELEASE_BASE_TREE,
     V41_STATUS_BRANCH, V41_STATUS_RESULT, V41_STATUS_BASE,
     V41_BACKUP_BRANCH, V41_BACKUP_RESULT, V41_BACKUP_BASE,
     V41_PAUSE_BRANCH, V41_PAUSE_RESULT, V41_PAUSE_BASE,
@@ -258,6 +259,15 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    # V54 is only eligible after G145 validates PR1807's owner identity,
+    # protected main ancestry and every pinned source blob, including G156.
+    # This derives an optional compiler cache key; it cannot run owner tasks.
+    if os.environ.get("GITHUB_HEAD_REF") == V54_RELEASE_BRANCH:
+        if (admission != "EXACT_PR1807_V54_OWNER_RELEASE_CI_ONLY"
+                or base != V54_RELEASE_BASE
+                or tree != V54_RELEASE_BASE_TREE):
+            raise ValueError("G156_V54_EXACT_OWNER_SOURCE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v53-precommit-original-owner-restore-20261117":
         if (admission != FROZEN or base != "918a7a10a3f47e30b2ecd6d3d443ff16428b9c0b"
                 or tree != "7cf0362401e92c31698d0184fd7fdb40a4bf0c48"):
