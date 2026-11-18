@@ -229,7 +229,7 @@ $task=OriginalRoute
 $pref=InvokeNative @('preflight','--db',$database) 'F139_V55_PREFLIGHT='
 Need ($pref.source_sha -ceq $old -and $pref.head_seq -ge 1849 -and
   $pref.verified_historical_tasks -ge 154 -and
-  $pref.custodied_negative_tasks -ge 56) 'ORIGINAL_EVENT1847_HISTORY_NOT_AUTHENTICATED'
+  $pref.custodied_negative_tasks -ge 56) 'ORIGINAL_EVENT1849_HISTORY_NOT_AUTHENTICATED'
 if($Mode -ceq 'Rehearse') {
   $binarySha=TemporaryBinary $env:GITHUB_WORKSPACE
   $mechanismSha=MechanismHash $env:GITHUB_WORKSPACE
@@ -345,7 +345,7 @@ Need ($release.name -ceq ('f139-owner-release-'+$Main) -and
   $release.commit.sha -ceq $Main) 'EXACT_RELEASE_REF_READBACK_DRIFT'
 $backups=Join-Path $env:LOCALAPPDATA 'FORGE-F139\recovery-backups'
 New-Item -ItemType Directory -Path $backups -Force | Out-Null
-$backupPath=Join-Path $backups ('v55-event1847-'+$env:GITHUB_RUN_ID+'.sqlite')
+$backupPath=Join-Path $backups ('v55-event1849-'+$env:GITHUB_RUN_ID+'.sqlite')
 Need (-not (Test-Path -LiteralPath $backupPath)) 'COLD_BACKUP_COLLISION'
 try {
   Disable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
@@ -369,7 +369,7 @@ try {
       '--rehearsal-run-id',([string]$priorRehearsal),
       '--binary-sha',$binarySha,'--mechanism-sha',$mechanismSha) 'F139_V55_COLD_BACKUP='
   Need ($b.backup_sha256 -cmatch '^[a-f0-9]{64}$' -and
-    $b.original.head_seq -ge 1847 -and
+    $b.original.head_seq -ge 1849 -and
     $b.original.source_sha -ceq $old) 'COLD_BACKUP_OR_HEAD_INVALID'
   OwnerIntent
   RemoteMain
@@ -383,7 +383,7 @@ try {
       '--main-run-id',([string]$mainRun),
       '--rehearsal-run-id',([string]$priorRehearsal),
       '--backup-sha',([string]$b.backup_sha256),
-      '--binary-sha',$binarySha,'--mechanism-sha',$mechanismSha) 'F139_V55_ORIGINAL_EVENT1849='
+      '--binary-sha',$binarySha,'--mechanism-sha',$mechanismSha) 'F139_V55_ORIGINAL_EVENT1851='
   Need ($receipt.head_seq -eq ($b.original.head_seq+2) -and $receipt.target_source_sha -ceq $Main) 'V45_ACTIVATION_COMMIT_UNVERIFIED'
   $replaceCount=$originalPolicy.Split(@($old),[StringSplitOptions]::None).Count
   Need ($replaceCount -eq 2) 'ORIGINAL_POLICY_SOURCE_NOT_UNIQUE'

@@ -127,7 +127,7 @@ def witness(db, row, previous):
          and activation["seq"] == ANCHOR_SEQ
          and json.loads(activation["payload"]).get("schema")
              == "forge.f139.nci04.owner-native-activation.v1",
-         "ORIGINAL_EVENT1847_OR_ACTIVATION_DRIFT")
+         "ORIGINAL_EVENT1849_OR_ACTIVATION_DRIFT")
     return transition, activation
 
 

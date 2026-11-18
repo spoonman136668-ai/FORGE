@@ -38,7 +38,7 @@ def original_snapshot(db: Database) -> dict:
         "SELECT kind,sha FROM events WHERE seq=?", (ANCHOR_SEQ,)
     ).fetchone()
     need(anchor is not None and anchor["kind"] == "NATIVE_DEVELOPMENT_ACTIVATED"
-         and anchor["sha"] == ANCHOR_SHA, "ORIGINAL_EVENT1847_MISSING")
+         and anchor["sha"] == ANCHOR_SHA, "ORIGINAL_EVENT1849_MISSING")
     prior = [
         json.loads(row["payload"]) for row in db.conn.execute(
             "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
