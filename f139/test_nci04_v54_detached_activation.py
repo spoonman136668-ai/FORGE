@@ -93,7 +93,9 @@ class V54DetachedActivation(unittest.TestCase):
         return dict(target=TARGET, owner_run_id=MIN_OWNER_RUN+17,
                     qualified_main_run_id=44191737221,
                     rehearsal_run_id=44191739204,
-                    backup_sqlite_sha256="e"*64)
+                    backup_sqlite_sha256="e"*64,
+                    genenv_executable_sha256="6"*64,
+                    generation_mechanism_sha256="7"*64)
 
     def with_lock(self, op):
         with SingleOwner(self.path.with_suffix(".lock")):

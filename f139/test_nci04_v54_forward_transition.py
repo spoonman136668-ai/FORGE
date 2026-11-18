@@ -74,6 +74,8 @@ class V44Replay(unittest.TestCase):
             "qualified_main_run_id":44179547958,
             "rehearsal_run_id":44179547712,
             "backup_sqlite_sha256":"5"*64,
+            "genenv_executable_sha256":"6"*64,
+            "generation_mechanism_sha256":"7"*64,
             "terminal_tasks_sha256":digest(canonical(history)),
             "verified_historical_tasks":153,
             "custodied_negative_tasks":56,
@@ -109,6 +111,8 @@ class V44Replay(unittest.TestCase):
             ("qualified_main_run_id",0),
             ("rehearsal_run_id",self.doc["qualified_main_run_id"]),
             ("backup_sqlite_sha256","invalid"),
+            ("genenv_executable_sha256","invalid"),
+            ("generation_mechanism_sha256","invalid"),
             ("terminal_tasks_sha256","0"*64),
             ("custodied_negative_tickets",[]),
             ("verified_historical_tasks",152),
@@ -199,9 +203,9 @@ class V44Replay(unittest.TestCase):
         self.assertIn('if is_v44:',controller)
         self.assertIn("v54_forward_transition import verify_cold_event",
                       controller)
-        # The V50 native activation freeze must remain unchanged.
-        # V44 is cold-replay development ONLY; no owner cutover authority.
-        self.assertNotIn("forge.f139.source-transition.v44",activation)
+        # V44 still requires separate owner release and source-bound
+        # executable custody; this test supplies neither authority.
+        self.assertIn("forge.f139.source-transition.v44",activation)
         self.assertIn("SingleOwner.held",original)
 
 

@@ -30,6 +30,7 @@ FIELDS = frozenset({
     "prior_source_transition_sha256", "prior_activation_sha256",
     "owner_run_id", "qualified_main_run_id", "rehearsal_run_id",
     "backup_sqlite_sha256", "terminal_tasks_sha256",
+    "genenv_executable_sha256", "generation_mechanism_sha256",
     "custodied_negative_tickets", "verified_historical_tasks",
     "custodied_negative_tasks", "source_transition_purpose",
     "native_development_approved", "scientific_first_use",
@@ -156,7 +157,8 @@ def verify_cold_event(db, row, doc, previous):
          and doc["qualified_main_run_id"] != doc["rehearsal_run_id"]
          and all(type(doc.get(k)) is str
                  and SHA64.fullmatch(doc[k]) is not None
-                 for k in ("backup_sqlite_sha256", "terminal_tasks_sha256"))
+                 for k in ("backup_sqlite_sha256", "terminal_tasks_sha256",
+                           "genenv_executable_sha256", "generation_mechanism_sha256"))
          and doc.get("native_development_approved") is True
          and doc.get("scientific_first_use") is False
          and type(doc.get("new_dispatches")) is int
@@ -181,7 +183,9 @@ def verify_cold_event(db, row, doc, previous):
 
 def make_proof(db: Database, *, target: str, owner_run_id: int,
                qualified_main_run_id: int, rehearsal_run_id: int,
-               backup_sqlite_sha256: str) -> dict:
+               backup_sqlite_sha256: str,
+               genenv_executable_sha256: str,
+               generation_mechanism_sha256: str) -> dict:
     """Construct inert proof while an authenticated original mutex is held.
 
     This function NEVER writes to the database. It is NOT permission to
@@ -222,6 +226,8 @@ def make_proof(db: Database, *, target: str, owner_run_id: int,
         "qualified_main_run_id": qualified_main_run_id,
         "rehearsal_run_id": rehearsal_run_id,
         "backup_sqlite_sha256": backup_sqlite_sha256,
+        "genenv_executable_sha256": genenv_executable_sha256,
+        "generation_mechanism_sha256": generation_mechanism_sha256,
         "terminal_tasks_sha256": digest(canonical(tasks)),
         "verified_historical_tasks": counts["VERIFIED"],
         "custodied_negative_tasks": counts["QUARANTINED"],

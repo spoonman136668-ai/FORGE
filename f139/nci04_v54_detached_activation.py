@@ -2,7 +2,8 @@
 
 Exercises the genuine Database.event/transaction and existing SHA verifier
 without adding ANY live owner entrypoint, task change, schedule, queue or
-native first-use. The original V50 activate_native function stays frozen.
+native first-use. The production activate_native function remains the only source activation
+authority, and v44 compatibility requires a separately authenticated release.
 
 Passing this simulation DOES NOT authorize a source cutover: a later
 independently authenticated owner-owned release must bind protected-main
@@ -48,7 +49,8 @@ def _require_detached(db):
 
 def rehearse_v44_source_and_activation(
         db, *, target, owner_run_id, qualified_main_run_id,
-        rehearsal_run_id, backup_sqlite_sha256):
+        rehearsal_run_id, backup_sqlite_sha256,
+        genenv_executable_sha256, generation_mechanism_sha256):
     """Commit both simulated owner events as ONE rollback-safe transaction.
 
     This function cannot run on the real original 'state.sqlite', outside
@@ -63,6 +65,8 @@ def rehearse_v44_source_and_activation(
         qualified_main_run_id=qualified_main_run_id,
         rehearsal_run_id=rehearsal_run_id,
         backup_sqlite_sha256=backup_sqlite_sha256,
+        genenv_executable_sha256=genenv_executable_sha256,
+        generation_mechanism_sha256=generation_mechanism_sha256,
     )
     before = db.meta()
     need(before["source_sha"] == SOURCE and
