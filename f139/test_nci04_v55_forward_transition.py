@@ -113,7 +113,7 @@ class V45Replay(unittest.TestCase):
             ("generation_mechanism_sha256","invalid"),
             ("terminal_tasks_sha256","0"*64),
             ("custodied_negative_tickets",[]),
-            ("verified_historical_tasks",153,
+            ("verified_historical_tasks",153),
             ("custodied_negative_tasks",55),
             ("source_transition_purpose","promote-science"),
             ("native_development_approved",False),

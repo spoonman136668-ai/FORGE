@@ -50,6 +50,11 @@ class V55DetachedActivation(unittest.TestCase):
         conn.execute("INSERT INTO events VALUES(1848,?,?,?,?)",
                      ("SOURCE_TRANSITION_ADMITTED",json.dumps(predecessor),
                       "f"*64,"1"*64))
+        conn.execute("INSERT INTO events VALUES(1849,?,?,?,?)",
+                     ("NATIVE_DEVELOPMENT_ACTIVATED", json.dumps({
+                         "schema":"forge.f139.nci04.owner-native-activation.v1",
+                         "source_sha":SOURCE,
+                     }),"1"*64,ANCHOR_SHA))
         for i in range(154):
             conn.execute("INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?,?,?)",
                          (f"p{i:04d}","Wingless",SOURCE,"VERIFIED",

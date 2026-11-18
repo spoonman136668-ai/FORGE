@@ -43,7 +43,7 @@ class OriginalV55SourceReleaseTests(unittest.TestCase):
         self.assertEqual(first, release.original_snapshot(self.db))
         self.assertEqual(first["source_sha"], SOURCE)
         self.assertEqual(first["head_seq"], 1849)
-        self.assertEqual(first["verified_historical_tasks"], 153)
+        self.assertEqual(first["verified_historical_tasks"], 154)
         self.assertEqual(first["custodied_negative_tasks"], 56)
         self.assertEqual(len(first["custodied_negative_tickets"]), 56)
         self.assertEqual(before, self.db.conn.total_changes)
@@ -155,7 +155,7 @@ class OriginalV55SourceReleaseTests(unittest.TestCase):
         self.assertIn("'--binary-sha',$binarySha", backup)
         self.assertIn("'--mechanism-sha',$mechanismSha", backup)
         self.assertIn("'--rehearsal-run-id',([string]$priorRehearsal)", backup)
-        self.assertIn("$pref.verified_historical_tasks -ge 153", script)
+        self.assertIn("$pref.verified_historical_tasks -ge 154", script)
         self.assertIn("$pref.custodied_negative_tasks -ge 56", script)
 
     def test_original_owner_github_get_retry_is_bounded_and_read_only(self):
