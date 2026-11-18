@@ -13,6 +13,25 @@ Set-StrictMode -Version Latest
 # runner, protected main, CI, original task, and historic ledger custody.
 $bridgeEvent=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw -ErrorAction Stop | ConvertFrom-Json -Depth 20
 $bridgeBody=[string]$bridgeEvent.comment.body
+# V56 reuses the already-authenticated original V54 workflow only.
+# The legacy V55 route remains intact; this specific suffix selects the
+# original READY-preserving V46 transition, never a new job or queue.
+if($bridgeBody -ceq ('F139-V54-OWNER-RELEASE '+$Main+' V56')) {
+  if($env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+     $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+     $bridgeEvent.action -cne 'created' -or
+     $bridgeEvent.issue.number -ne 807 -or
+     $bridgeEvent.comment.user.login -cne 'spoonman136668-ai' -or
+     $bridgeEvent.comment.author_association -cne 'OWNER' -or
+     $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+     $env:GITHUB_SHA -cne $Main -or
+     $env:GITHUB_RUN_ATTEMPT -cne '1') {
+     throw 'F139_V56_BRIDGE_AUTHENTICATION_HOLD'
+  }
+  & (Join-Path $PSScriptRoot 'v56_original_owner_repair.ps1') -Mode $Mode -Main $Main
+  if(-not $?) {throw 'F139_V56_BRIDGE_DELEGATION_HOLD'}
+  return
+}
 if($bridgeBody -ceq ('F139-V54-OWNER-RELEASE '+$Main+' V55')) {
   if($env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
      $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
