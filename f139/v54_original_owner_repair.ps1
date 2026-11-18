@@ -129,7 +129,7 @@ function OriginalRoute {
 }
 function InvokeNative([string[]]$cliArgs,[string]$prefix) {
   $env:PYTHONPATH=$env:GITHUB_WORKSPACE
-  $lines=@(& $python -B -m f139.nci04_v54_owner_forward_repair_cli --mode @cliArgs)
+  $lines=@(& $python -B -m f139.nci04_v54_owner_release_cli --mode @cliArgs)
   Need ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and
     [string]$lines[0] -clike ($prefix+'*')) 'NATIVE_ORIGINAL_REPAIR_DENIED'
   return ([string]$lines[0]).Substring($prefix.Length)|ConvertFrom-Json -Depth 20
@@ -340,10 +340,13 @@ try {
   }
   Need $quiesced 'ORIGINAL_TASK_NOT_STOPPED'
   $env:F139_V54_NATIVE_LIVE_AUTHENTICATED='1'
+  # The owner CLI authenticates executable and mechanism pins even in
+  # backup mode; never reach live quiescence with missing required flags.
   $b=InvokeNative @('backup','--db',$database,'--copy',$backupPath,
       '--target',$Main,'--owner-run-id',([string]$env:GITHUB_RUN_ID),
       '--main-run-id',([string]$mainRun),
-      '--rehearsal-run-id',([string]$priorRehearsal)) 'F139_V54_COLD_BACKUP='
+      '--rehearsal-run-id',([string]$priorRehearsal),
+      '--binary-sha',$binarySha,'--mechanism-sha',$mechanismSha) 'F139_V54_COLD_BACKUP='
   Need ($b.backup_sha256 -cmatch '^[a-f0-9]{64}$' -and
     $b.original.head_seq -ge 1847 -and
     $b.original.source_sha -ceq $old) 'COLD_BACKUP_OR_HEAD_INVALID'
