@@ -4524,8 +4524,35 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                 db.verify()
                 g54_original_canonical(db)
                 modern = verify_g49_custody(db)
-        if not ((v7 or v8 or v9 or v10 or v11 or v12 or v13 or v14 or v15 or v16 or v17 or v18 or modern) and event.get("to_source_sha")==source_sha
-                and event.get("v2_receipt_authorized") is False):
+        # V55's authenticated V45 forward release uses a development-only
+        # scope packet, not the retired v2_receipt_authorized field. Accept
+        # only its exact replay-verified field inventory and negative controls.
+        # The original signed V2 claim and G38 terminal audit remain mandatory.
+        sealed_v45 = False
+        if event.get("schema") == "forge.f139.source-transition.v45":
+            from f139.nci04_v55_forward_transition import (
+                FIELDS as V45_FIELDS, SOURCE as V45_SOURCE,
+                PURPOSE as V45_PURPOSE,
+            )
+            if (set(event) == V45_FIELDS
+                    and event.get("from_source_sha") == V45_SOURCE
+                    and event.get("source_transition_purpose") == V45_PURPOSE
+                    and event.get("native_development_approved") is True
+                    and event.get("scientific_first_use") is False
+                    and type(event.get("new_dispatches")) is int
+                    and event["new_dispatches"] == 0
+                    and event.get("new_controller") is False
+                    and event.get("new_scheduler") is False
+                    and event.get("new_queue") is False
+                    and type(event.get("paid_api_calls")) is int
+                    and event["paid_api_calls"] == 0):
+                db.verify()
+                g54_original_canonical(db)
+                sealed_v45 = verify_g49_custody(db)
+        if not ((v7 or v8 or v9 or v10 or v11 or v12 or v13 or v14 or v15 or v16 or v17 or v18 or modern or sealed_v45)
+                and event.get("to_source_sha") == source_sha
+                and (event.get("v2_receipt_authorized") is False
+                     or sealed_v45)):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
         return verify_native_activation(db)
