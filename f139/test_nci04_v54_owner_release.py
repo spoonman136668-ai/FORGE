@@ -158,6 +158,94 @@ class OriginalV54SourceReleaseTests(unittest.TestCase):
         self.assertIn("$pref.verified_historical_tasks -ge 153", script)
         self.assertIn("$pref.custodied_negative_tasks -ge 56", script)
 
+    def test_original_owner_github_get_retry_is_bounded_and_read_only(self):
+        """Execute real PowerShell GET helper with isolated, mocked transport."""
+        from pathlib import Path
+        import shutil
+        import subprocess
+        script = Path(__file__).with_name("v54_original_owner_repair.ps1").read_text(
+            encoding="utf-8"
+        )
+        function_source = script.split("function Need(", 1)[1].split(
+            "\nfunction Field(", 1
+        )[0]
+        function_source = "function Need(" + function_source
+        self.assertEqual(function_source.count("gh api --method GET"), 1)
+        self.assertNotIn("gh api --method POST", function_source)
+        self.assertNotIn("gh api --method PATCH", function_source)
+        self.assertIn("$attempt -le 3", function_source)
+        self.assertIn("GITHUB_GET_FAILED", function_source)
+        pwsh = shutil.which("pwsh")
+        if not pwsh:
+            self.skipTest("PowerShell integration runs on Windows qualification")
+        body = r'''
+$ErrorActionPreference='Stop'
+$script:n=0
+$script:delays=0
+function Start-Sleep {param([int]$Seconds) $script:delays+=$Seconds}
+function gh {
+  param([Parameter(ValueFromRemainingArguments=$true)][string[]]$p)
+  if($p.Count -ne 4 -or $p[0] -cne 'api' -or
+     $p[1] -cne '--method' -or $p[2] -cne 'GET' -or
+     $p[3] -cne 'repos/spoonman136668-ai/FORGE/issues/807') {
+    throw 'TEST_UNEXPECTED_NON_GET_OR_ROUTE'
+  }
+  $script:n++
+  if($script:n -lt 3) { $global:LASTEXITCODE=1; return }
+  $global:LASTEXITCODE=0
+  return '{"ok":true}'
+}
+$x=GetJson 'repos/spoonman136668-ai/FORGE/issues/807'
+if(-not $x.ok -or $script:n -ne 3 -or $script:delays -ne 6){
+  throw 'TEST_READ_RETRY_BEHAVIOR'
+}
+$script:n=0
+$script:delays=0
+function gh {
+  param([Parameter(ValueFromRemainingArguments=$true)][string[]]$p)
+  if($p[2] -cne 'GET') {throw 'TEST_NOT_GET'}
+  $script:n++
+  $global:LASTEXITCODE=1
+}
+try {
+  $null=GetJson 'repos/spoonman136668-ai/FORGE/issues/807'
+  throw 'TEST_UNEXPECTED_ACCEPT'
+} catch {
+  if($_.Exception.Message -notlike '*F139_V54_REPAIR_GITHUB_GET_FAILED*'){
+    throw
+  }
+}
+if($script:n -ne 3 -or $script:delays -ne 6){
+  throw 'TEST_EXHAUSTION_NOT_BOUNDED'
+}
+$script:n=0
+function gh {
+  param([Parameter(ValueFromRemainingArguments=$true)][string[]]$p)
+  $script:n++
+  $global:LASTEXITCODE=0
+  return '{invalid'
+}
+try {
+  $null=GetJson 'repos/spoonman136668-ai/FORGE/issues/807'
+  throw 'TEST_UNEXPECTED_JSON_ACCEPT'
+} catch {
+  if($_.Exception.Message -notlike '*F139_V54_REPAIR_GITHUB_GET_INVALID_JSON*'){
+    throw
+  }
+}
+if($script:n -ne 1){throw 'TEST_INVALID_JSON_RETRIED'}
+Write-Output 'F139_V54_TRANSPORT_NEGATIVES_PASS'
+'''
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-NonInteractive", "-Command", "-"],
+            input=function_source + "\n" + body + "\n",
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=30, check=False,
+        )
+        self.assertEqual(result.returncode, 0,
+                         result.stdout[-1000:] + result.stderr[-2000:])
+        self.assertIn("F139_V54_TRANSPORT_NEGATIVES_PASS", result.stdout)
+
     def test_no_new_scheduler_or_runner_interface_in_release_module(self):
         source = inspect.getsource(release)
         self.assertIn("activate_native(db, approval)", source)
