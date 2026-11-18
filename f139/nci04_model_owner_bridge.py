@@ -54,6 +54,11 @@ def owner_history(db: Database) -> dict:
     originals = native_events(db)
     need(len(originals) <= MAX_CONSUMED, "HISTORY_CAPACITY_EXCEEDED")
     histories, candidates, after_hashes, full = [], set(), set(), []
+    # Distinct original owner issues may have independently admitted identical
+    # candidate bytes. Keep every authenticated ticket in the history digest,
+    # but send at most one summary per candidate to the bounded advisor.
+    history_positions, candidate_after, seen_tickets = {}, {}, set()
+    outcomes_by_candidate, sightings = {}, {}
     for event in originals:
         ticket = event["ticket"]
         task = db.conn.execute(
@@ -73,18 +78,41 @@ def owner_history(db: Database) -> dict:
         candidate = candidate_identity_from_intent_base64(
             event["native_intent_base64"])
         after = event["after_sha256"]
-        need(candidate not in candidates
-             and isinstance(after, str) and SHA64.fullmatch(after) is not None,
+        need(isinstance(after, str) and SHA64.fullmatch(after) is not None
+             and ticket not in seen_tickets
+             and (candidate not in candidate_after
+                  or candidate_after[candidate] == after),
              "REPEATED_OR_INVALID_CANDIDATE")
+        seen_tickets.add(ticket)
+        candidate_after[candidate] = after
         candidates.add(candidate)
         after_hashes.add(after)
         outcome = stage if stage in {"VERIFIED", "QUARANTINED"} else "INDETERMINATE"
-        row = {"candidate_identity": candidate, "outcome": outcome,
-               "summary": "Original owner issue #" + str(event["issue_number"]) +
-                          " stage " + stage}
-        histories.append(row)
+        # The full cryptographic projection is append-only, including every
+        # negative and both outcomes of a repeated candidate. The compact
+        # advisor history is not an admission/learning signal.
         full.append({"candidate_identity": candidate, "after_sha256": after,
                      "outcome": outcome, "ticket": ticket})
+        if candidate not in history_positions:
+            history_positions[candidate] = len(histories)
+            outcomes_by_candidate[candidate] = {outcome}
+            sightings[candidate] = 1
+            histories.append({
+                "candidate_identity": candidate, "outcome": outcome,
+                "summary": "Original owner issue #" + str(event["issue_number"]) +
+                           " stage " + stage})
+        else:
+            outcomes_by_candidate[candidate].add(outcome)
+            sightings[candidate] += 1
+            row = histories[history_positions[candidate]]
+            # A VERIFIED receipt must not erase a conflicting historical
+            # QUARANTINED/INDETERMINATE result; mixed stays mandatory.
+            row["outcome"] = (outcome if len(outcomes_by_candidate[candidate]) == 1
+                              else "MIXED")
+            row["summary"] = (
+                "Original owner candidate in " + str(sightings[candidate]) +
+                " distinct issues; outcomes " +
+                ",".join(sorted(outcomes_by_candidate[candidate])))
     mandatory = [i for i, item in enumerate(histories)
                  if item["outcome"] != "VERIFIED"]
     need(len(mandatory) <= MAX_HISTORY, "NEGATIVE_HISTORY_TOO_LARGE")
