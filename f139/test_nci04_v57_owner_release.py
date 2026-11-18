@@ -12,13 +12,21 @@ from f139.nci04_v57_forward_transition import V47TransitionDenied
 ROOT=Path(__file__).resolve().parents[1]
 
 
-class V57OriginalOwnerRouteTests(V57OriginalCarriedTicketFixture):
+class V57OriginalOwnerRouteTests(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        fixture=V57OriginalCarriedTicketFixture(
+            "test_exact_current_source_preflight_is_read_only")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.db,self.conn,self.path=fixture.db,fixture.conn,fixture.path
+        self.fixture=fixture
         p=patch("f139.nci04_v57_owner_release.verify_native_activation",
                 return_value=True)
         p.start()
         self.addCleanup(p.stop)
+
+    def make_proof(self):
+        return self.fixture.make_proof()
 
     def test_frozen_owner_source_receipt_has_no_writes(self):
         before=self.conn.total_changes
