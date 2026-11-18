@@ -54,7 +54,7 @@ class V45Replay(unittest.TestCase):
                           "e"*64,None,None,None,"kept"))
             self.prior[0]["custodied_negative_tickets"].append(ticket)
         # Rebind historic JSON payload to final frozen predecessor packet.
-        conn.execute("UPDATE events SET payload=? WHERE seq=1840",
+        conn.execute("UPDATE events SET payload=? WHERE seq=1848",
                      (json.dumps(self.prior[0]),))
         self.db = type("FakeDB",(),{"conn":conn})()
         self.row = dict(seq=ANCHOR_SEQ+1,prior_sha=ANCHOR_SHA)
