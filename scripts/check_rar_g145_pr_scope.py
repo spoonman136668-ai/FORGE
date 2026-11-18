@@ -30,7 +30,7 @@ V54_RELEASE_PINNED = {
     "f139/nci04_v54_detached_activation.py": "e66c3f239f334f09e571ef69f3216525b6f7ea15",
     "f139/nci04_v54_forward_transition.py": "418dfd7df785200449d068627db67d517e110441",
     "f139/nci04_v54_original_owner_readonly_preflight.py": "98d853bdd27e26ed38708c1237229cf9f429d3cc",
-    "f139/nci04_v54_owner_release_cli.py": "afeabaf09b8abc2c89b199ee1959cb74b7b65236",
+    "f139/nci04_v54_owner_release_cli.py": "54d7f0620397b62fb8cbd8aa71a47727ae1c2e3d",
     "f139/nci04_v54_owner_release.py": "0831ef9cd74dc01ef0070ca8f1bf7533bffdf4f0",
     "f139/test_nci04_genenv_owner_backend.py": "cc8c41918a454778ef69a4e34efe502ae2c1e545",
     "f139/test_nci04_model_free_failure.py": "89fb00e8adf325286785531dfab971fe753c483a",
@@ -39,8 +39,8 @@ V54_RELEASE_PINNED = {
     "f139/test_nci04_v54_detached_activation.py": "8fe09532e321dc06a13d4a54fa65596265014bab",
     "f139/test_nci04_v54_forward_transition.py": "e47e4f58e431f4576df39b08ce25e2bb1b38bc90",
     "f139/test_nci04_v54_original_owner_readonly_preflight.py": "756369492d08cf1d2d86d0b312ed185356bba34c",
-    "f139/test_nci04_v54_owner_release.py": "94bd7f69873a0a3aa99c3e43110fead18c1a4174",
-    "f139/v54_original_owner_repair.ps1": "5009ed33c1fae61523d8c9542a531a8cf4c713d2",
+    "f139/test_nci04_v54_owner_release.py": "0c066c2a6d96e82bbed084950b5a9662868f12b3",
+    "f139/v54_original_owner_repair.ps1": "e8b68984255cc4e8f2be669c52c6e8552f863732",
     "scripts/check_rar_g148_go_cache.py": "5b2311417e12faba7acf6f776ee9707e59b8bb6b",
 }
 
