@@ -117,7 +117,13 @@ def carried_source(db, ticket):
     """
     from f139.nci04_v56_original_pending_preflight import TICKET as V56_TICKET
     if ticket == V56_TICKET:
+        from f139.nci04_v57_forward_transition import carried_v47_source
         from f139.nci04_v56_forward_transition import carried_v46_source
+        # Exact original READY may cross only its own replay-sealed source
+        # transitions. V47 supersedes V46 only when its real event exists.
+        after_v47 = carried_v47_source(db, ticket)
+        if after_v47 is not None:
+            return after_v47
         return carried_v46_source(db, ticket)
     if ticket != TICKET:
         return None
