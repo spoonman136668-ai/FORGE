@@ -15,12 +15,12 @@ from f139.local_controller import (
 from f139.nci04_v55_detached_activation import (
     rehearse_v45_source_and_activation,
 )
-from f139.test_nci04_v55_detached_activation import V55DetachedActivation
+from f139 import test_nci04_v55_detached_activation as v55_fixture
 
 
 class V45V2DispatchGuardTests(unittest.TestCase):
     def setUp(self):
-        fixture = V55DetachedActivation(
+        fixture = v55_fixture.V55DetachedActivation(
             "test_detached_transition_and_activation_are_atomic_and_once_only"
         )
         fixture.setUp()
