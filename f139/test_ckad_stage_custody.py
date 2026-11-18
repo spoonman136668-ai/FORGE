@@ -81,6 +81,48 @@ class CkadHandoffTests(unittest.TestCase):
                         expected_head_receipt_sha256=receipt_digest(a))
             ["completed_stages"], 1)
 
+    def test_actual_dev_campaign_source_sha_and_tree_is_separately_pinned(self):
+        from f139.ckad_stage_custody import CKAD25_DEV_SHA, CKAD25_DEV_TREE
+        plan=copy.deepcopy(self.plan)
+        plan["candidate_sha"]=CKAD25_DEV_SHA
+        plan["candidate_tree"]=CKAD25_DEV_TREE
+        first=seal_stage(plan,[],stage_index=0,
+                         checkpoint_input=self.initial,
+                         checkpoint_output=b"native-next",
+                         evidence_bytes=b"persisted-witness",
+                         control_receipt_bytes=b"frozen-control",
+                         evaluation_receipt_bytes=b"frozen-evaluation",
+                         observations=4,interventions=0,cpu_seconds=1)
+        self.assertEqual(first["source_commit"],CKAD25_DEV_SHA)
+        self.assertEqual(first["source_tree"],CKAD25_DEV_TREE)
+        self.assertEqual(audit_chain(plan,[first])["completed_stages"],1)
+        changed=copy.deepcopy(plan)
+        changed["candidate_sha"]=CKAD13_SHA
+        with self.assertRaises(CustodyDenied):plan_digest(changed)
+
+    def test_recent_qualified_dev_source_pinned_and_old_source_preserved(self):
+        from f139.ckad_stage_custody import CKAD24_DEV_SHA, CKAD24_DEV_TREE
+        plan=copy.deepcopy(self.plan)
+        plan["candidate_sha"]=CKAD24_DEV_SHA
+        plan["candidate_tree"]=CKAD24_DEV_TREE
+        first=seal_stage(plan, [], stage_index=0,
+                         checkpoint_input=self.initial,
+                         checkpoint_output=b"native-learning-next",
+                         evidence_bytes=b"public-synthetic-witness",
+                         control_receipt_bytes=b"frozen-matched-control",
+                         evaluation_receipt_bytes=b"held-out-control",
+                         observations=4, interventions=0, cpu_seconds=8)
+        self.assertEqual(first["source_commit"], CKAD24_DEV_SHA)
+        self.assertEqual(first["source_tree"], CKAD24_DEV_TREE)
+        self.assertEqual(audit_chain(plan,[first])["completed_stages"],1)
+        altered=copy.deepcopy(plan)
+        altered["candidate_tree"]=self.plan["candidate_tree"]
+        with self.assertRaises(CustodyDenied):
+            plan_digest(altered)
+        with self.assertRaises(CustodyDenied):
+            audit_chain(self.plan, [first])
+        self.assertEqual(plan_digest(self.plan), plan_digest(mock_plan(self.initial)))
+
     def test_changed_source_tree_seed_budget_control_or_training_authority_denied(self):
         for key,value in (
                 ("candidate_tree","0"*40),

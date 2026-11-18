@@ -16,6 +16,17 @@ SOURCE_REPO = "spoonman136668-ai/Yggdrasil"
 SOURCE_MAIN = "5e74f8db85b2f5839c42148c0dfba69a88b1a2c9"
 CKAD13_SHA = "8eb49bdb8f6d6886d05d6e3e67c0994aa6ebac2e"
 CKAD13_TREE = "2786140a50ec26a025760f771aeeb82573c10dd3"
+# Source-specific development receipt qualified on both Linux and Windows.
+# An allowlisted source is NOT permission to execute it or use first-use data.
+CKAD24_DEV_SHA = "9384822292c8d338ac60e026e63941c5b4ebae80"
+CKAD24_DEV_TREE = "9d6faf99b4b011ef4999ade68fda75c5ee193f40"
+# Real two-stage developer campaign, exact source and tree, qualified with
+# cross-OS byte-identical artifacts. No dispatch or scientific permit.
+CKAD25_DEV_SHA = "ebfb1365cef805eb17f244964b68779ec10539a1"
+CKAD25_DEV_TREE = "f375bbeffdfc58d1b57ded3c53d1c097a4994539"
+DEV_PINS = frozenset(((CKAD13_SHA, CKAD13_TREE),
+                       (CKAD24_DEV_SHA, CKAD24_DEV_TREE),
+                       (CKAD25_DEV_SHA, CKAD25_DEV_TREE)))
 # The CKAD13 owner has ONE integrated checkpoint type; switching to
 # independent component snapshots would create a false continuity claim.
 COMPONENTS = frozenset((
@@ -71,8 +82,7 @@ def plan_digest(plan):
     need(type(plan) is dict and set(plan) == PLAN_FIELDS, "PLAN_FIELDS")
     need(plan["schema"] == SCHEMA and plan["source_repo"] == SOURCE_REPO
          and plan["accepted_main"] == SOURCE_MAIN
-         and plan["candidate_sha"] == CKAD13_SHA
-         and plan["candidate_tree"] == CKAD13_TREE
+         and (plan["candidate_sha"], plan["candidate_tree"]) in DEV_PINS
          and plan["native_architecture"] == "yggdrasil-native-tokenless"
          and plan["source_mode"] == "previously-consumed-synthetic-only"
          and plan["scientific_first_use"] is False
@@ -136,8 +146,8 @@ def audit_chain(plan, receipts, *, expected_head_receipt_sha256=None):
              and type(r["stage_index"]) is int and r["stage_index"] == i
              and r["stage_id"] == s["id"] and r["phase"] == s["phase"]
              and r["component"] == s["component"]
-             and r["source_commit"] == CKAD13_SHA
-             and r["source_tree"] == CKAD13_TREE
+             and r["source_commit"] == plan["candidate_sha"]
+             and r["source_tree"] == plan["candidate_tree"]
              and r["prior_receipt_sha256"] == prior
              and r["input_checkpoint_sha256"] == state
              and all(sha_ok(r[k]) for k in (
@@ -164,8 +174,8 @@ def audit_chain(plan, receipts, *, expected_head_receipt_sha256=None):
              and prior == expected_head_receipt_sha256,
              "EXTERNAL_RECEIPT_HEAD_DRIFT")
     return {"schema": "forge.ckad.cumulative-chain-audit.v1",
-            "source_commit": CKAD13_SHA,
-            "source_tree": CKAD13_TREE,
+            "source_commit": plan["candidate_sha"],
+            "source_tree": plan["candidate_tree"],
             "plan_sha256": pin,
             "completed_stages": len(receipts),
             "current_checkpoint_sha256": state,
@@ -191,7 +201,7 @@ def seal_stage(plan, prior_receipts, *, stage_index, checkpoint_input,
     doc = {
         "schema": RECEIPT, "plan_sha256": previous["plan_sha256"],
         "stage_index": stage_index, "stage_id": s["id"], "phase": s["phase"],
-        "source_commit": CKAD13_SHA, "source_tree": CKAD13_TREE,
+        "source_commit": plan["candidate_sha"], "source_tree": plan["candidate_tree"],
         "component": s["component"],
         "prior_receipt_sha256": previous["last_receipt_sha256"],
         "input_checkpoint_sha256": digest(checkpoint_input),
