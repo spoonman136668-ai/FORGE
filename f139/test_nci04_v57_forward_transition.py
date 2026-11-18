@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from f139.local_controller import SingleOwner
-from f139.test_nci04_v56_forward_transition import V46SyntheticReadyCarry
+from f139 import test_nci04_v56_forward_transition as v46_fixture
 from f139.nci04_v56_forward_transition import make_proof as v46_make_proof
 from f139.nci04_v57_original_pending_preflight import (
     SOURCE, ORIGINAL_SOURCE, TICKET, ANCHOR_SEQ, ANCHOR_SHA,
@@ -28,7 +28,7 @@ TARGET = "e" * 40
 
 class V57OriginalCarriedTicketFixture(unittest.TestCase):
     def setUp(self):
-        fixture = V46SyntheticReadyCarry(
+        fixture = v46_fixture.V46SyntheticReadyCarry(
             "test_exact_source_and_ready_custody_are_inert")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from f139.test_nci04_v57_forward_transition import V57OriginalCarriedTicketFixture
+from f139 import test_nci04_v57_forward_transition as v57_fixture
 from f139.nci04_v57_original_pending_preflight import SOURCE,TICKET
 from f139.nci04_v57_owner_release import original_snapshot,apply_copy_or_original
 from f139.nci04_v57_forward_transition import V47TransitionDenied
@@ -14,7 +14,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class V57OriginalOwnerRouteTests(unittest.TestCase):
     def setUp(self):
-        fixture=V57OriginalCarriedTicketFixture(
+        fixture=v57_fixture.V57OriginalCarriedTicketFixture(
             "test_exact_current_source_preflight_is_read_only")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
