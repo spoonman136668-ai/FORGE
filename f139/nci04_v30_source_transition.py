@@ -115,6 +115,10 @@ def carried_source(db, ticket):
     Callers must already have verified the complete database chain. Database's
     own verifier uses this only after it has validated every transition event.
     """
+    from f139.nci04_v56_original_pending_preflight import TICKET as V56_TICKET
+    if ticket == V56_TICKET:
+        from f139.nci04_v56_forward_transition import carried_v46_source
+        return carried_v46_source(db, ticket)
     if ticket != TICKET:
         return None
     rows = [dict(r) for r in db.conn.execute(

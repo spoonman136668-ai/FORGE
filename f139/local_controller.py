@@ -831,14 +831,18 @@ class Database:
                 is_v45 = (isinstance(doc, dict)
                           and doc.get("schema") == "forge.f139.source-transition.v45"
                           and set(doc) == V45_FIELDS)
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41 or is_v42 or is_v43 or is_v44 or is_v45,
+                from f139.nci04_v56_forward_transition import FIELDS as V46_FIELDS
+                is_v46 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v46"
+                          and set(doc) == V46_FIELDS)
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41 or is_v42 or is_v43 or is_v44 or is_v45 or is_v46,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41 or is_v42 or is_v43 or is_v44 or is_v45)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12 or is_v13 or is_v14 or is_v15 or is_v16 or is_v17 or is_v18 or is_v19 or is_v20 or is_v21 or is_v22 or is_v23 or is_v24 or is_v25 or is_v26 or is_v27 or is_v28 or is_v29 or is_v30 or is_v31 or is_v32 or is_v33 or is_v34 or is_v35 or is_v36 or is_v37 or is_v38 or is_v39 or is_v40 or is_v41 or is_v42 or is_v43 or is_v44 or is_v45 or is_v46)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -1775,6 +1779,9 @@ class Database:
                     verify_cold_event(self, row, doc, source_transitions)
                 if is_v45:
                     from f139.nci04_v55_forward_transition import verify_cold_event
+                    verify_cold_event(self, row, doc, source_transitions)
+                if is_v46:
+                    from f139.nci04_v56_forward_transition import verify_cold_event
                     verify_cold_event(self, row, doc, source_transitions)
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
@@ -4549,11 +4556,34 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                 db.verify()
                 g54_original_canonical(db)
                 sealed_v45 = verify_g49_custody(db)
+        sealed_v46 = False
+        if event.get("schema") == "forge.f139.source-transition.v46":
+            from f139.nci04_v56_forward_transition import (
+                FIELDS as V46_FIELDS, SOURCE as V46_SOURCE,
+                PURPOSE as V46_PURPOSE,
+            )
+            if (set(event) == V46_FIELDS
+                    and event.get("from_source_sha") == V46_SOURCE
+                    and event.get("source_transition_purpose") == V46_PURPOSE
+                    and event.get("original_ready_ticket") ==
+                        "f139-nci04-i1812-1e3a3b7d63d7-cd0ee29f"
+                    and event.get("native_development_approved") is True
+                    and event.get("scientific_first_use") is False
+                    and type(event.get("new_dispatches")) is int
+                    and event["new_dispatches"] == 0
+                    and event.get("new_controller") is False
+                    and event.get("new_scheduler") is False
+                    and event.get("new_queue") is False
+                    and type(event.get("paid_api_calls")) is int
+                    and event["paid_api_calls"] == 0):
+                db.verify()
+                g54_original_canonical(db)
+                sealed_v46 = verify_g49_custody(db)
         # Preserve the prior explicit V7-V36 receipt policy unchanged.
         old_receipt_authorized = (
             (v7 or v8 or v9 or v10 or v11 or v12 or v13 or v14 or v15 or v16 or v17 or v18 or modern)
             and event.get("v2_receipt_authorized") is False)
-        if not ((old_receipt_authorized or sealed_v45)
+        if not ((old_receipt_authorized or sealed_v45 or sealed_v46)
                 and event.get("to_source_sha") == source_sha):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
