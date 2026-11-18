@@ -42,6 +42,7 @@ V54_RELEASE_PINNED = {
     "f139/test_nci04_v54_owner_release.py": "0c066c2a6d96e82bbed084950b5a9662868f12b3",
     "f139/v54_original_owner_repair.ps1": "e8b68984255cc4e8f2be669c52c6e8552f863732",
     "scripts/check_rar_g148_go_cache.py": "5b2311417e12faba7acf6f776ee9707e59b8bb6b",
+    "scripts/check_rar_g156_dynamic_base_cache.py": "7442c1b4bdb0311f09bcfbbfef990b03e5f2be67",
 }
 
 HYBRID_RELEASE_BRANCH = "release/f139-hybrid-qualified-worker-governance-20261109"
@@ -2546,6 +2547,18 @@ def v54_owner_release_negative_controls():
         pass
     else:
         raise ValueError("G145_V54_MOVED_COMPILER_GUARD_ACCEPTED")
+    def moved_dynamic_cache(*args):
+        if args[:2] == ("rev-parse",
+                        head + ":scripts/check_rar_g156_dynamic_base_cache.py"):
+            return "0"*40
+        return git(*args)
+    try:
+        admit_v54_owner_release(
+            head, V54_RELEASE_BASE, request, moved_dynamic_cache)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("G145_V54_MOVED_DYNAMIC_CACHE_GUARD_ACCEPTED")
 
 
 def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
