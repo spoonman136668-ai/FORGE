@@ -138,6 +138,71 @@ class V54Preflight(unittest.TestCase):
         with self.assertRaises(ReadonlyPreflightDenied):
             inspect_owner(self.db,proposed_source=TARGET)
 
+    def test_v51_existing_owner_readonly_qualifies_growing_terminal_history(self):
+        """Exercise the actual V51 embedded Python against event1847 counts.
+
+        A fresh native provider terminal must not turn the historic 153/56
+        floor into a false corruption alarm. No original owner is accessed.
+        """
+        from pathlib import Path
+        import subprocess
+        import sys
+        import tempfile
+        from textwrap import dedent
+
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/f139-v51-original-owner-readonly.yml")
+        source = workflow.read_text(encoding="utf-8")
+        self.assertEqual(source.count("$code=@'"), 1)
+        self.assertEqual(source.count("\n          '@"), 1)
+        python_source = dedent(
+            source.split("$code=@'", 1)[1].split("\n          '@", 1)[0]
+        )
+
+        with tempfile.TemporaryDirectory(prefix="f139-v51-growth-") as tmp:
+            dbpath = Path(tmp) / "owner-fixture.sqlite"
+            c = sqlite3.connect(str(dbpath), isolation_level=None)
+            try:
+                c.execute("CREATE TABLE meta(id INTEGER PRIMARY KEY,"
+                          "source_sha TEXT,enabled INTEGER,legacy_suspended INTEGER,"
+                          "head_seq INTEGER,head_hash TEXT)")
+                c.execute("CREATE TABLE events(seq INTEGER PRIMARY KEY,"
+                          "kind TEXT,sha TEXT,prior_sha TEXT)")
+                c.execute("CREATE TABLE tasks(stage TEXT)")
+                c.execute("INSERT INTO meta VALUES(1,?,?,?,?,?)",
+                          (SOURCE, 1, 1, ANCHOR_SEQ, ANCHOR_SHA))
+                c.execute("INSERT INTO events VALUES(1836,?,?,?)",
+                          ("SOURCE_TRANSITION_ADMITTED", "a"*64, "0"*64))
+                c.execute("INSERT INTO events VALUES(1837,?,?,?)",
+                          ("NATIVE_DEVELOPMENT_ACTIVATED", "b"*64, "a"*64))
+                c.executemany("INSERT INTO tasks VALUES(?)",
+                              [("VERIFIED",)]*153 + [("QUARANTINED",)]*56)
+
+                def check(expected_success):
+                    result = subprocess.run(
+                        [sys.executable, "-B", "-", str(dbpath)],
+                        input=python_source, text=True, capture_output=True,
+                        timeout=15, check=False,
+                    )
+                    self.assertEqual(result.returncode == 0, expected_success,
+                                     result.stderr)
+                    if expected_success:
+                        self.assertIn("F139_V51_LEDGER=", result.stdout)
+
+                check(True)     # historical floor
+                c.execute("INSERT INTO tasks VALUES('VERIFIED')")
+                check(True)     # observed real 154 VERIFIED / 56 QUARANTINED
+                c.execute("INSERT INTO tasks VALUES('QUARANTINED')")
+                check(True)     # later original native negatives are preserved
+                c.execute("INSERT INTO tasks VALUES('READY')")
+                check(False)    # no inference of owner idleness from counts
+                c.execute("DELETE FROM tasks WHERE stage='READY'")
+                c.execute("DELETE FROM tasks WHERE stage='VERIFIED'")
+                c.execute("DELETE FROM tasks WHERE stage='VERIFIED'")
+                check(False)    # historical verified floor cannot be reduced
+            finally:
+                c.close()
+
     def test_no_live_owner_write_or_new_scheduler_interface(self):
         import inspect
         from f139 import nci04_v54_original_owner_readonly_preflight as m
