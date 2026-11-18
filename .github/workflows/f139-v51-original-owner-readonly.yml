@@ -92,7 +92,11 @@ jobs:
           stages={str(x["stage"]):int(x["n"]) for x in con.execute("SELECT stage,COUNT(*) AS n FROM tasks GROUP BY stage")}
           assert m["head_seq"]>=1837 and len(e)==2 and e[0]["seq"]==1836 and e[1]["seq"]==1837
           assert e[0]["kind"]=="SOURCE_TRANSITION_ADMITTED" and e[1]["prior_sha"]==e[0]["sha"]
-          assert stages.get("VERIFIED")==153 and stages.get("QUARANTINED")==56
+          # This read-only witness is reusable after genuine owner progress.
+          # V51's original 153/56 task counts are historical lower bounds,
+          # not the current full ledger: event1847 already has 154 verified.
+          # Never interpret later terminal provider receipts as corruption.
+          assert stages.get("VERIFIED",0)>=153 and stages.get("QUARANTINED",0)>=56
           assert set(stages)=={"VERIFIED","QUARANTINED"}
           assert m["enabled"]==1 and m["legacy_suspended"]==1
           print("F139_V51_LEDGER="+json.dumps({"meta":m,"events":e,"stages":stages},sort_keys=True,separators=(",",":")))
