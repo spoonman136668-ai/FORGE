@@ -131,5 +131,103 @@ class ProspectiveJournalTests(unittest.TestCase):
         self.assertEqual(observed, [self.native.ticket])
 
 
+
+class ProspectiveV46OriginalYggdrasilCarryTests(unittest.TestCase):
+    """Separate Yggdrasil fixture; do not change historic Wingless tests."""
+    def setUp(self):
+        fixture = owner_fixture.LedgerTests(
+            "test_admit_exactly_once_and_verify_original_ledger")
+        self.addCleanup(fixture.doCleanups)
+        fixture.setUp()
+        self.fixture = fixture
+        self.db, self.path = fixture.db, fixture.path
+        self.native = inspect(issue("Yggdrasil"))
+        activate_native(self.db, fixture.approval())
+        admit_native_issue(self.db, self.native, NOW)
+
+    def capture(self):
+        self.db.claim(self.native.ticket, NOW, archive_native_decision=True)
+        return self.db.conn.execute(
+            "SELECT * FROM events WHERE kind=?", (KIND,)).fetchone()
+
+    def test_v46_original_ready_carry_preserves_pre_transition_assignment(self):
+        """V46 migration may carry one exact old admission, never relabel it."""
+        old_source = self.db.meta()["source_sha"]
+        new_source = "e" * 40
+        self.assertNotEqual(old_source, new_source)
+        # Synthetic source change without owner mutation or V46 release: the
+        # genuine replay protection is independently exercised by V46 tests.
+        self.db.conn.execute("UPDATE meta SET source_sha=? WHERE id=1",
+                             (new_source,))
+        with (
+            patch("f139.nci04_v56_original_pending_preflight.SOURCE",
+                  old_source),
+            patch("f139.nci04_v56_original_pending_preflight.TICKET",
+                  self.native.ticket),
+            patch("f139.nci04_v56_forward_transition.carried_v46_source",
+                  return_value=old_source) as carried,
+        ):
+            row = self.capture()
+        payload = json.loads(row["payload"])
+        self.assertEqual(payload["assignment"]["owner_source_sha"], old_source)
+        self.assertEqual(payload["eligible_native_ready"][0]["owner_source_sha"],
+                         old_source)
+        self.assertEqual(payload["assignment"]["ticket"], self.native.ticket)
+        self.assertTrue(audit_assignment_event(self.db, row)["local_prestart_order_verified"])
+        self.assertFalse(payload["dispatch_authorized"])
+        self.assertFalse(payload["scientific_first_use"])
+        carried.assert_called_once_with(self.db, self.native.ticket)
+
+    def test_v46_carry_is_required_before_any_new_source_native_claim(self):
+        old_source = self.db.meta()["source_sha"]
+        self.db.conn.execute("UPDATE meta SET source_sha=? WHERE id=1",
+                             ("e" * 40,))
+        before = self.db.meta()
+        cases = [None, "f" * 40]
+        for alleged in cases:
+            with self.subTest(alleged=alleged):
+                with (
+                    patch("f139.nci04_v56_original_pending_preflight.SOURCE",
+                          old_source),
+                    patch("f139.nci04_v56_original_pending_preflight.TICKET",
+                          self.native.ticket),
+                    patch("f139.nci04_v56_forward_transition.carried_v46_source",
+                          return_value=alleged),
+                ):
+                    with self.assertRaisesRegex(ValueError, "SOURCE_DRIFT"):
+                        self.capture()
+                self.assertEqual(self.db.meta(), before)
+                self.assertEqual(
+                    self.db.conn.execute(
+                        "SELECT stage FROM tasks WHERE ticket=?",
+                        (self.native.ticket,)).fetchone()[0],
+                    "READY",
+                )
+                self.assertEqual(
+                    self.db.conn.execute(
+                        "SELECT COUNT(*) FROM events WHERE kind=?",
+                        (KIND,)).fetchone()[0], 0)
+
+    def test_v46_carry_denied_for_non_original_ready_identity(self):
+        old_source = self.db.meta()["source_sha"]
+        self.db.conn.execute("UPDATE meta SET source_sha=? WHERE id=1",
+                             ("e" * 40,))
+        before = self.db.meta()
+        with (
+            patch("f139.nci04_v56_original_pending_preflight.SOURCE",
+                  old_source),
+            patch("f139.nci04_v56_original_pending_preflight.TICKET",
+                  "f139-nci04-wrong-original"),
+            patch("f139.nci04_v56_forward_transition.carried_v46_source",
+                  return_value=old_source) as carried,
+        ):
+            with self.assertRaisesRegex(ValueError, "SOURCE_DRIFT"):
+                self.capture()
+        carried.assert_not_called()
+        self.assertEqual(self.db.meta(), before)
+        self.assertEqual(self.db.ready()["ticket"], self.native.ticket)
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -107,8 +107,28 @@ def journal_native_assignment(db, ticket, timestamp):
           for r in actual] ==
          [(r["ticket"], r["lane"], r["owner_source_sha"], r["manifest_sha256"])
           for r in menu], "READY_MENU_HISTORY_MISMATCH")
-    need(bool(menu) and menu[0]["owner_source_sha"] == meta["source_sha"],
-         "SOURCE_DRIFT")
+    # A V46 original-owner release intentionally preserves the exact old
+    # admission-source identity on its one unclaimed Yggdrasil READY ticket.
+    # The new owner source controls dispatch, but must not rewrite what was
+    # originally admitted. Only that event1855 ticket, proven by its sealed
+    # V46 carry receipt and unchanged manifest, may cross this boundary.
+    current_source = bool(menu) and menu[0]["owner_source_sha"] == meta["source_sha"]
+    if not current_source:
+        from f139.nci04_v56_original_pending_preflight import (
+            SOURCE as V46_OLD_SOURCE, TICKET as V46_ORIGINAL_TICKET,
+        )
+        from f139.nci04_v56_forward_transition import carried_v46_source
+        carried = (
+            len(menu) == 1 and len(ready) == 1
+            and ticket == V46_ORIGINAL_TICKET
+            and menu[0]["ticket"] == V46_ORIGINAL_TICKET
+            and menu[0]["lane"] == "Yggdrasil"
+            and menu[0]["owner_source_sha"] == V46_OLD_SOURCE
+            and ready[0]["source_sha"] == V46_OLD_SOURCE
+            and meta["source_sha"] != V46_OLD_SOURCE
+            and carried_v46_source(db, ticket) == V46_OLD_SOURCE
+        )
+        need(carried, "SOURCE_DRIFT")
     payload = _envelope(menu, ticket, timestamp, meta["head_hash"])
     db.event(KIND, payload)
     return payload
