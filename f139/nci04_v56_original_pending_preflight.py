@@ -38,7 +38,7 @@ def need(ok: bool, code: str) -> None:
         raise V56ReadOnlyDenied("F139_V56_" + code)
 
 
-def original_pending_snapshot(db: Database) -> dict:
+def original_pending_snapshot(db: Database, *, require_mutex: bool = True) -> dict:
     """Attest the exact *unclaimed* original ticket. No state mutation.
 
     The caller must already own the original controller mutex, or work on a
@@ -46,9 +46,11 @@ def original_pending_snapshot(db: Database) -> dict:
     anchor or ticket state invalidates this snapshot rather than permitting a
     stale launch or an ambiguous-effect replay.
     """
-    need(type(db) is Database, "DATABASE_IDENTITY")
-    need(SingleOwner.held(db.filename.with_suffix(".lock")),
-         "EXCLUSIVE_OWNER_OR_DETACHED_MUTEX_REQUIRED")
+    need(type(db) is Database and type(require_mutex) is bool,
+         "DATABASE_IDENTITY")
+    if require_mutex:
+        need(SingleOwner.held(db.filename.with_suffix(".lock")),
+             "EXCLUSIVE_OWNER_OR_DETACHED_MUTEX_REQUIRED")
     db.verify()
     m = db.meta()
     need(m["source_sha"] == SOURCE and m["enabled"] == 1
