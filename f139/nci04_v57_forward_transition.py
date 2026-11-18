@@ -16,7 +16,8 @@ from f139.nci04_owner_ledger import verify_native_activation
 from f139.nci04_v57_original_pending_preflight import (
     SOURCE, ORIGINAL_SOURCE, TICKET, ANCHOR_SEQ, ANCHOR_SHA,
     ADMISSION_SHA, INTAKE_SHA,
-    NATIVE_ACTIVATION_SHA, READY_SOURCE_TRANSITION_SHA,
+    NATIVE_ACTIVATION_SEQ, NATIVE_ACTIVATION_SHA,
+    READY_SOURCE_TRANSITION_SEQ, READY_SOURCE_TRANSITION_SHA,
     original_pending_snapshot,
 )
 
