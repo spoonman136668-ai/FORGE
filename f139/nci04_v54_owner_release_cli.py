@@ -49,6 +49,10 @@ def read_frozen(path):
             "source_sha": db.meta()["source_sha"],
             "head_seq": db.meta()["head_seq"],
             "head_sha256": db.meta()["head_hash"],
+            # These verified counts are consumed by the original release
+            # PowerShell preflight before staging or stopping the owner.
+            "verified_historical_tasks": prior["verified_historical_tasks"],
+            "custodied_negative_tasks": prior["custodied_negative_tasks"],
             "terminal_tasks_sha256": prior["terminal_tasks_sha256"],
         }
 
