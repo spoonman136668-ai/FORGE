@@ -1,6 +1,6 @@
 # V54 source-only forward repair for the ONE original Windows F139 task.
 # Authenticated one-time issue assignment and exact CI identify owner intent.
-# Detached rehearsal is nonmutating. Live is one-shot; after event1840
+# Detached rehearsal is nonmutating. Live is one-shot; after v44 source admission
 # any uncertainty is HOLD. No duplicate controller or scheduler.
 param([Parameter(Mandatory=$true)][ValidateSet('Rehearse','Live')][string]$Mode,
       [Parameter(Mandatory=$true)][string]$Main)
@@ -324,7 +324,7 @@ Need ($release.name -ceq ('f139-owner-release-'+$Main) -and
   $release.commit.sha -ceq $Main) 'EXACT_RELEASE_REF_READBACK_DRIFT'
 $backups=Join-Path $env:LOCALAPPDATA 'FORGE-F139\recovery-backups'
 New-Item -ItemType Directory -Path $backups -Force | Out-Null
-$backupPath=Join-Path $backups ('v54-event1839-'+$env:GITHUB_RUN_ID+'.sqlite')
+$backupPath=Join-Path $backups ('v54-event1847-'+$env:GITHUB_RUN_ID+'.sqlite')
 Need (-not (Test-Path -LiteralPath $backupPath)) 'COLD_BACKUP_COLLISION'
 try {
   Disable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null

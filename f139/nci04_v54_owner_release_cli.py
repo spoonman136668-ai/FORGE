@@ -281,7 +281,7 @@ def main(argv=None):
              verified.meta()["head_seq"]==frozen["head_seq"]+2 and
              verified.meta()["head_hash"]==result["head_sha256"],
              "POSTCOMMIT_ORIGINAL_SOURCE_DRIFT")
-    print("F139_V54_ORIGINAL_EVENT1841="+json.dumps(result,sort_keys=True))
+    print("F139_V54_ORIGINAL_EVENT1849="+json.dumps(result,sort_keys=True))
     return 0
 
 if __name__=="__main__":
