@@ -130,6 +130,26 @@ class ProspectiveJournalTests(unittest.TestCase):
         self.assertEqual(result["disposition"], "DEVELOPMENT_DISPATCHED_ONCE")
         self.assertEqual(observed, [self.native.ticket])
 
+
+
+class ProspectiveV46OriginalYggdrasilCarryTests(unittest.TestCase):
+    """Separate Yggdrasil fixture; do not change historic Wingless tests."""
+    def setUp(self):
+        fixture = owner_fixture.LedgerTests(
+            "test_admit_exactly_once_and_verify_original_ledger")
+        self.addCleanup(fixture.doCleanups)
+        fixture.setUp()
+        self.fixture = fixture
+        self.db, self.path = fixture.db, fixture.path
+        self.native = inspect(issue("Yggdrasil"))
+        activate_native(self.db, fixture.approval())
+        admit_native_issue(self.db, self.native, NOW)
+
+    def capture(self):
+        self.db.claim(self.native.ticket, NOW, archive_native_decision=True)
+        return self.db.conn.execute(
+            "SELECT * FROM events WHERE kind=?", (KIND,)).fetchone()
+
     def test_v46_original_ready_carry_preserves_pre_transition_assignment(self):
         """V46 migration may carry one exact old admission, never relabel it."""
         old_source = self.db.meta()["source_sha"]
