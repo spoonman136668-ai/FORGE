@@ -74,7 +74,10 @@ class FakeOriginalOwner:
         if route.startswith(f"repos/{self.repo}/git/matching-refs/heads/"):
             return [] if self.reference is None else [
                 {"ref": self.reference, "object": {"sha": self.parent}}]
-        if route == f"repos/{self.repo}/pulls?state=all&per_page=100&page=1":
+        if route in (
+            f"repos/{self.repo}/pulls?state=all&per_page=100&page=1",
+            f"repos/{self.repo}/pulls?state=all&per_page=50&page=1",
+        ):
             return [] if self.pr is None else [self.pr]
         if route == f"repos/{self.repo}/pulls?state=open&per_page=50&page=1":
             return [] if self.pr is None else [self.pr]

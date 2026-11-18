@@ -89,13 +89,17 @@ def _publication_history(db: Database, candidate_id: str,
 
 
 def _unique_branch(get: Callable, repository: str, branch: str) -> None:
-    # Exactly the bounded original G2 history scan. No ref or PR writes here.
+    # Preserve the original at-most-1200 owner PR identity scan, including
+    # all previously used, closed and negative candidate refs. GitHub's public
+    # Yggdrasil 100-item PR bodies now exceed the fixed 2.1 MB transport cap.
+    # Two 50-item pages cover each historic 100-item window; never raise the
+    # global cap, weaken replay custody, or use read errors as exhaustion.
     refs = get(f"repos/{repository}/git/matching-refs/heads/{branch}")
     need(type(refs) is list and len(refs) == 0, "REF_ALREADY_EXISTS")
     first, seen, previous = None, set(), None
-    for page in range(1, 13):
-        rows = get(f"repos/{repository}/pulls?state=all&per_page=100&page={page}")
-        need(type(rows) is list and len(rows) <= 100, "PR_HISTORY_INVALID")
+    for page in range(1, 25):
+        rows = get(f"repos/{repository}/pulls?state=all&per_page=50&page={page}")
+        need(type(rows) is list and len(rows) <= 50, "PR_HISTORY_INVALID")
         identities = []
         for item in rows:
             need(type(item) is dict and type(item.get("number")) is int
@@ -112,8 +116,8 @@ def _unique_branch(get: Callable, repository: str, branch: str) -> None:
             identities.append((num, ref))
         if first is None:
             first = identities
-        if len(rows) < 100:
-            fresh = get(f"repos/{repository}/pulls?state=all&per_page=100&page=1")
+        if len(rows) < 50:
+            fresh = get(f"repos/{repository}/pulls?state=all&per_page=50&page=1")
             need(type(fresh) is list and len(fresh) == len(first)
                  and all(type(row) is dict
                          and type(row.get("number")) is int
