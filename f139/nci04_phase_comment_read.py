@@ -165,3 +165,56 @@ def inspect_pending_owner_intents(*, provider, installed_source_sha: str,
         "accepted_ref_mutation": False,
         "new_controller": False,
     }
+
+
+def inspect_original_owner_pending_intents(*, db, db_path, provider,
+                                            protected_main_sha: str) -> dict:
+    """Lock/ledger-bound GET-only snapshot of *candidate* manual commands.
+
+    Runs only under the original owner SingleOwner mutex and uses the canonical
+    database/provider classes. This is deliberately uncalled from run_once:
+    observing GitHub is not authority to commit a mode, change a task, or poll.
+    """
+    from pathlib import Path
+    from f139.local_controller import Database, GitHub, SingleOwner
+    from f139.nci04_phase_mode_replay import read_original_owner_mode
+
+    require(type(db) is Database and type(provider) is GitHub,
+            "CANONICAL_ORIGINAL_HANDLES_REQUIRED")
+    try:
+        path = Path(db.filename).resolve(strict=True)
+        expected = Path(db_path).resolve(strict=True)
+    except (OSError, TypeError, ValueError) as exc:
+        raise PhaseCommentReadDenied(
+            "F139_PHASE_COMMENT_ORIGINAL_PATH_UNVERIFIED") from exc
+    require(path == expected and SingleOwner.held(expected.with_suffix(".lock")),
+            "ORIGINAL_OWNER_LOCK_OR_PATH_MISMATCH")
+    db.verify()
+    before = db.meta()
+    require(type(protected_main_sha) is str
+            and protected_main_sha == before["source_sha"],
+            "ORIGINAL_PROTECTED_MAIN_DRIFT")
+    original = read_original_owner_mode(
+        db=db, installed_source_sha=before["source_sha"],
+        protected_main_sha=protected_main_sha,
+        owner_epoch=before["epoch"])
+    report = inspect_pending_owner_intents(
+        provider=provider,
+        installed_source_sha=before["source_sha"],
+        protected_main_sha=protected_main_sha,
+        owner_epoch=before["epoch"],
+        consumed_comment_ids=original["consumed_comment_ids"])
+    db.verify()
+    after = db.meta()
+    require(after == before and SingleOwner.held(expected.with_suffix(".lock")),
+            "ORIGINAL_LEDGER_CHANGED_DURING_PROVIDER_READ")
+    # No extra actuation pathway: caller must separately reauthenticate the
+    # exact selected comment and obtain original-owner admission authority.
+    return dict(report,
+                original_owner_ledger_verified=True,
+                original_owner_lock_verified=True,
+                original_head_seq=before["head_seq"],
+                original_head_sha256=before["head_hash"],
+                last_persisted_mode=original["mode"],
+                last_persisted_mode_comment_id=original["last_comment_id"],
+                owner_admitted=False, dispatch_authorized=False)
