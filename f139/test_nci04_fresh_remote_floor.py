@@ -102,10 +102,15 @@ class FreshCutoverFloorTests(unittest.TestCase):
             "f139.nci04_fresh_remote_floor.audit_frozen_original_readonly",
             return_value=self.original)
         self.mutex = patch.object(SingleOwner, "held", return_value=True)
+        self.original_exclusions = patch(
+            "f139.nci04_fresh_remote_floor.freeze_original_exclusions",
+            return_value=self.exclusions)
         self.auditor.start()
         self.mutex.start()
+        self.original_exclusions.start()
         self.addCleanup(self.auditor.stop)
         self.addCleanup(self.mutex.stop)
+        self.addCleanup(self.original_exclusions.stop)
 
     def get(self, route):
         self.read_calls.append(route)
@@ -200,6 +205,15 @@ class FreshCutoverFloorTests(unittest.TestCase):
                 self.assert_prewrite_failure(
                     "ORIGINAL_EXCLUSION_PREIMAGE_INVALID",
                     consumed_exclusions={**self.exclusions, key: bad})
+
+    def test_frozen_issue_history_must_be_independently_reproduced(self):
+        fake = {**self.exclusions,
+                "old_issue_numbers": [687]}  # copied authentic head, missing old work
+        with patch(
+            "f139.nci04_fresh_remote_floor.freeze_original_exclusions",
+            return_value=fake):
+            self.assert_prewrite_failure(
+                "HISTORICAL_EXCLUSIONS_NOT_REPRODUCED")
 
     def test_original_head_changed_rejected(self):
         with patch(
