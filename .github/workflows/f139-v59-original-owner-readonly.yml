@@ -1,0 +1,141 @@
+name: FORGE F139 V59 authenticated original-owner read-only cold preflight
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+concurrency:
+  group: forge-f139-v54-original-owner
+  cancel-in-progress: false
+jobs:
+  v59-original-owner-readonly:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.action == 'created' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V59-ORIGINAL-READONLY ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact protected source without retained credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Authenticate and read original event1864 without mutations
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: .
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$why) {
+            if(-not $ok){ throw ('F139_V59_ORIGINAL_READONLY_'+$why) }
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:GITHUB_EVENT_NAME -ceq 'issue_comment' -and
+            $env:GITHUB_REF -ceq 'refs/heads/main' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            $env:GITHUB_SHA -cmatch '^[a-f0-9]{40}$' -and
+            -not $env:OPENAI_API_KEY) 'ORIGINAL_RUNNER_IDENTITY_REQUIRED'
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json
+          $expected='F139-V59-ORIGINAL-READONLY '+$env:GITHUB_SHA+' 1864'
+          Need ($event.action -ceq 'created' -and
+            $event.issue.number -eq 807 -and
+            $null -eq $event.issue.PSObject.Properties['pull_request'] -and
+            $event.issue.user.login -ceq 'spoonman136668-ai' -and
+            $event.sender.login -ceq 'spoonman136668-ai' -and
+            $event.comment.user.login -ceq 'spoonman136668-ai' -and
+            $event.comment.author_association -ceq 'OWNER' -and
+            [string]$event.comment.body -ceq $expected -and
+            [int64]$event.comment.id -gt 7013003282) 'FRESH_EXACT_OWNER_COMMENT_REQUIRED'
+          $remote=(& gh api ('repos/spoonman136668-ai/FORGE/issues/comments/'+[string]$event.comment.id)|ConvertFrom-Json)
+          Need ($LASTEXITCODE -eq 0 -and
+            [int64]$remote.id -eq [int64]$event.comment.id -and
+            $remote.user.login -ceq 'spoonman136668-ai' -and
+            $remote.author_association -ceq 'OWNER' -and
+            [string]$remote.body -ceq $expected -and
+            [string]$remote.created_at -ceq [string]$event.comment.created_at) 'OWNER_COMMENT_REMOTE_READBACK_DRIFT'
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main|ConvertFrom-Json)
+          Need ($LASTEXITCODE -eq 0 -and $main.protected -eq $true -and
+            [string]$main.commit.sha -ceq $env:GITHUB_SHA -and
+            (& git rev-parse HEAD|Out-String).Trim() -ceq $env:GITHUB_SHA -and
+            @(& git status --porcelain --untracked-files=all).Count -eq 0) 'PROTECTED_MAIN_SOURCE_DRIFT'
+          $issue=(& gh api repos/spoonman136668-ai/FORGE/issues/807|ConvertFrom-Json)
+          $policy=[string]$issue.body|ConvertFrom-Json
+          Need ($LASTEXITCODE -eq 0 -and $issue.state -ceq 'open' -and
+            $policy.source_sha -ceq 'c06403c8b6035c6c7013866a7ea08cef1244b507' -and
+            $policy.scientific_first_use -eq $false -and
+            $policy.paid_model_calls -eq 0 -and
+            $policy.new_controller -eq $false -and
+            $policy.new_scheduler -eq $false -and
+            $policy.new_queue -eq $false) 'ORIGINAL_OWNER_POLICY_DRIFT'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          Need ([Security.Principal.WindowsPrincipal]::new($who).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)) 'ORIGINAL_ADMIN_REQUIRED'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $sid=''
+          try {
+            $sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).
+              Translate([Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          Need ([string]$task.State -cin @('Running','Ready') -and
+            $task.Settings.Enabled -eq $true -and
+            @($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3 -and
+            ([string]$task.Principal.UserId -ieq $who.Name -or $sid -ceq $who.User.Value) -and
+            [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ieq 'powershell.exe') 'ORIGINAL_TASK_IDENTITY_DRIFT'
+          function Arg([string]$key){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            Need $m.Success ('ORIGINAL_TASK_ARG_'+$key)
+            return [string]$m.Groups[1].Value
+          }
+          $db=Arg 'Database'
+          $root=Arg 'RepositoryRoot'
+          $python=Arg 'PythonExe'
+          $wrapper=Arg 'File'
+          $expectedDb=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $expectedRoot=Join-Path $env:LOCALAPPDATA 'FORGE-F139\release-candidates\c06403c8b6035c6c7013866a7ea08cef1244b507'
+          Need ([IO.Path]::GetFullPath($db) -ieq [IO.Path]::GetFullPath($expectedDb) -and
+            [IO.Path]::GetFullPath($root) -ieq [IO.Path]::GetFullPath($expectedRoot) -and
+            [IO.Path]::GetFileName($wrapper) -ceq 'Run-FORGE-F139.ps1' -and
+            (Test-Path -LiteralPath $db -PathType Leaf) -and
+            (Test-Path -LiteralPath $python -PathType Leaf) -and
+            (Test-Path -LiteralPath $wrapper -PathType Leaf)) 'ORIGINAL_PATH_DRIFT'
+          $installed=(& git -C $root rev-parse HEAD|Out-String).Trim()
+          $dirty=@(& git -C $root status --porcelain --untracked-files=all)
+          Need ($LASTEXITCODE -eq 0 -and
+            $installed -ceq 'c06403c8b6035c6c7013866a7ea08cef1244b507' -and
+            $dirty.Count -eq 0) 'ORIGINAL_INSTALLED_SOURCE_DRIFT'
+          $code=@'
+          import json, sys
+          from pathlib import Path
+          from contextlib import closing
+          from f139.local_controller import Database
+          from f139.nci04_v59_owner_forward_readiness import audit_frozen_original_readonly
+          with closing(Database.open_readonly(Path(sys.argv[1]))) as db:
+              before = db.conn.total_changes
+              report = audit_frozen_original_readonly(db)
+              if before != 0 or db.conn.total_changes != 0:
+                  raise ValueError("F139_V59_ORIGINAL_READONLY_MUTATED")
+              if report["source_transition_authorized"] is not False or report["owner_mutations"] != 0:
+                  raise ValueError("F139_V59_ORIGINAL_READONLY_AUTHORITY_DRIFT")
+              print("F139_V59_ORIGINAL_READONLY="+json.dumps(report,sort_keys=True))
+          '@
+          & $python -B -c $code $db
+          Need ($LASTEXITCODE -eq 0) 'ORIGINAL_FROZEN_LEDGER_REJECTED'
+          $after=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Need ($after.Settings.Enabled -eq $true -and
+            @($after.Actions).Count -eq 1 -and @($after.Triggers).Count -eq 3 -and
+            [string]$after.Actions[0].Arguments -ceq [string]$task.Actions[0].Arguments) 'ORIGINAL_TASK_MOVED'
+          Write-Output 'F139_V59_ORIGINAL_READONLY=PASS'
+          Write-Output 'F139_V59_SOURCE_TRANSITION_AUTHORIZED=FALSE'
+          Write-Output 'F139_V59_OWNER_TASK_MUTATIONS=ZERO'

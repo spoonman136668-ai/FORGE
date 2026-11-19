@@ -11,6 +11,7 @@ import sys
 
 from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negative_controls,
     V54_RELEASE_BRANCH, V54_RELEASE_BASE, V54_RELEASE_BASE_TREE,
+    V59_READONLY_BRANCH, V59_READONLY_BASE, V59_READONLY_BASE_TREE,
     V41_STATUS_BRANCH, V41_STATUS_RESULT, V41_STATUS_BASE,
     V41_BACKUP_BRANCH, V41_BACKUP_RESULT, V41_BACKUP_BASE,
     V41_PAUSE_BRANCH, V41_PAUSE_RESULT, V41_PAUSE_BASE,
@@ -267,6 +268,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or base != "c06403c8b6035c6c7013866a7ea08cef1244b507"
                 or tree != "b7abf26f618654f330b55f510bfcc34d8916848a"):
             raise ValueError("G156_V58_EXACT_MAIN_BASE_TREE_REQUIRED")
+        return
+    if os.environ.get("GITHUB_HEAD_REF") == V59_READONLY_BRANCH:
+        if (admission != FROZEN
+                or base != V59_READONLY_BASE
+                or tree != V59_READONLY_BASE_TREE):
+            raise ValueError("G156_V59_EXACT_MAIN_BASE_TREE_REQUIRED")
         return
     if os.environ.get("GITHUB_HEAD_REF") == V54_RELEASE_BRANCH:
         if (admission != "EXACT_PR1807_V54_OWNER_RELEASE_CI_ONLY"
