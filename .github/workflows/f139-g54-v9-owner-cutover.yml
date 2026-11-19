@@ -3575,6 +3575,13 @@ jobs:
           $dbReport | & $python -B - $db $deployedSource
           if($LASTEXITCODE -ne 0){throw 'F139_G54_STATUS_SQLITE_READ_FAILED'}
           $log=Join-Path (Split-Path $db -Parent) (Join-Path 'logs' 'controller.log')
+          # The owner emits only bounded classifier codes, never raw exception
+          # messages. Reconstruct the exact classifier allowlist from trusted
+          # protected-main source; do not expose arbitrary historical log text.
+          $failureCodeAllowlist=@(& $python -B -c 'from f139.nci04_model_free_failure import SAFE_CODES; print("\n".join(sorted(SAFE_CODES | {"OS_ERROR_NO_DETAILS","UNCLASSIFIED_F139_ERROR","UNCLASSIFIED_VALUE_ERROR","UNCLASSIFIED_FAILURE"})))')
+          if($LASTEXITCODE -ne 0 -or $failureCodeAllowlist.Count -lt 10) {
+            throw 'F139_G54_FAILURE_CODE_ALLOWLIST_UNVERIFIED'
+          }
           function OptionalField($object,[string]$name) {
             $property=$object.PSObject.Properties[$name]
             if($null -eq $property){return $null}
@@ -3585,9 +3592,17 @@ jobs:
             foreach($line in (Get-Content -LiteralPath $log | Select-Object -Last 2000)) {
               if(-not $line.StartsWith('{')){continue}
               try {$e=$line | ConvertFrom-Json}catch{continue}
+              $rawCode=OptionalField $e 'failure_code'
+              $safeCode='NONE'
+              if($null -ne $rawCode -and [string]$rawCode -cne '') {
+                $safeCode=if([string]$rawCode -cin $failureCodeAllowlist) {
+                  [string]$rawCode
+                } else {'UNCLASSIFIED_REDACTED'}
+              }
               $entries += [pscustomobject]@{
                 timestamp=(OptionalField $e 'at')
                 disposition=(OptionalField $e 'disposition')
+                failure_code=$safeCode
                 blocked=(OptionalField $e 'blocked')
                 error=(OptionalField $e 'error')
                 reason=(OptionalField $e 'reason')
@@ -3636,8 +3651,11 @@ jobs:
           Write-Host ('F139_G54_DEPLOYED_SOURCE_SHA=' + $deployedSource)
           Write-Host 'F139_G54_STATUS_READ_ONLY=PASS'
 
+      # Historical V41 ledger shape is valid only when V41 is current main.
+      # Never misclassify a qualified successor owner as source drift merely
+      # because an obsolete read-only check expects V41's original SHA.
       - name: V41 original-owner locked issue/ledger read-only preflight
-        if: ${{ github.event_name == 'issue_comment' && startsWith(github.event.comment.body, 'F139-V9-STATUS ') }}
+        if: ${{ github.event_name == 'issue_comment' && startsWith(github.event.comment.body, 'F139-V9-STATUS ') && github.sha == '2c7caad5a4502d4b874a11d57207a35cf033eb08' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3687,6 +3705,11 @@ jobs:
           & $python -B -m f139.nci04_v41_original_owner_status --db $database --target $env:GITHUB_SHA
           if($LASTEXITCODE -ne 0){throw 'F139_V41_OWNER_READONLY_CUSTODY_FAILED'}
           Write-Host 'F139_V41_ORIGINAL_HOST_READONLY_CUSTODY=PASS'
+
+      - name: Mark obsolete V41 check not applicable to protected successors
+        if: ${{ github.event_name == 'issue_comment' && startsWith(github.event.comment.body, 'F139-V9-STATUS ') && github.sha != '2c7caad5a4502d4b874a11d57207a35cf033eb08' }}
+        shell: bash
+        run: echo 'F139_V41_LEGACY_CHECK=NOT_APPLICABLE_NEWER_SOURCE'
 
   v40-invocation-qualification:
     if: ${{ github.actor == 'spoonman136668-ai' && github.event_name == 'issue_comment' && github.event.issue.number == 807 && (startsWith(github.event.comment.body, 'F139-V40-READONLY ') || startsWith(github.event.comment.body, 'F139-V40-QUALIFY-COPY ')) }}
