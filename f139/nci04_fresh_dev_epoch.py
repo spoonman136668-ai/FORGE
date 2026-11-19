@@ -27,8 +27,8 @@ from f139.nci04_v59_cold_backup_verify import (
 
 SCHEMA = "forge.f139.fresh-development-epoch-inert.v1"
 ARCHIVE_SCHEMA = "forge.f139.v59.original-cold-createonly.v1"
-SHA40 = re.compile(r"[0-9a-f]{40}\\Z")
-SHA64 = re.compile(r"[0-9a-f]{64}\\Z")
+SHA40 = re.compile(r"[0-9a-f]{40}\Z")
+SHA64 = re.compile(r"[0-9a-f]{64}\Z")
 
 
 class FreshDevelopmentDenied(ValueError):
