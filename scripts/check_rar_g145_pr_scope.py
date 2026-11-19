@@ -353,6 +353,19 @@ HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
 FROZEN_SCOPES = {
+    # V58: one owner-authored, exact-base read-only status projection.
+    # No workflow triggers, original task, admission, SQLite or science changed.
+    "engineering/f139-v58-model-free-status-readonly-20261119": (
+        "c06403c8b6035c6c7013866a7ea08cef1244b507",
+        {
+            ".github/workflows/f139-g54-v9-owner-cutover.yml",
+            "f139/test_nci04_v58_model_free_status_projection.py",
+            "docs/F139-V58-MODEL-FREE-STATUS-READONLY.md",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # PR #1804: restore exact original owner after proved V53 precommit
     # failure, and fix the stale V50 guard without altering old schemas.
     "engineering/f139-v53-precommit-original-owner-restore-20261117": (
@@ -2646,6 +2659,16 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == "engineering/f139-v58-model-free-status-readonly-20261119":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            if (request.get("user", {}).get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != branch
+                    or request.get("base", {}).get("sha") != "c06403c8b6035c6c7013866a7ea08cef1244b507"
+                    or git("rev-parse", "c06403c8b6035c6c7013866a7ea08cef1244b507:.github/workflows/f139-g54-v9-owner-cutover.yml") != "39f189fde3a6fece791cd3a6ca7dd0517cb6b430"
+                    or git("rev-parse", head_sha + ":.github/workflows/f139-g54-v9-owner-cutover.yml") != "20f74fada139ce8d96d9f416752a728160a79b23"):
+                raise ValueError("G145_V58_EXACT_READONLY_WORKFLOW_DENIED")
         if branch == "engineering/f139-v53-precommit-original-owner-restore-20261117":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
