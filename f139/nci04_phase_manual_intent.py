@@ -88,9 +88,14 @@ def inspect_comment(*, comment: dict, installed_source_sha: str,
     require(_utc_stamp(created) and comment.get("updated_at") == created,
             "EDITED_OR_MALFORMED_COMMENT")
     body = comment.get("body")
-    require(type(body) is str and body.startswith(PREFIX)
-            and len(body.encode("utf-8")) <= MAX_BODY and "\x00" not in body,
+    require(type(body) is str and len(body) <= MAX_BODY
+            and body.startswith(PREFIX) and "\x00" not in body,
             "BODY_NOT_EXACT_INTENT")
+    try:
+        raw_body = body.encode("utf-8", "strict")
+    except UnicodeError as exc:
+        raise ManualPhaseDenied("F139_PHASE_MANUAL_BODY_UTF8_INVALID") from exc
+    require(len(raw_body) <= MAX_BODY, "BODY_NOT_EXACT_INTENT")
     try:
         payload = json.loads(body[len(PREFIX):], object_pairs_hook=_unique_object)
     except (ValueError, TypeError) as exc:
@@ -111,7 +116,7 @@ def inspect_comment(*, comment: dict, installed_source_sha: str,
         "schema": SCHEMA, "comment_id": comment["id"],
         "owner_source_sha": installed_source_sha, "owner_epoch": owner_epoch,
         "mode": mode, "lane": lane, "comment_created_at": created,
-        "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        "body_sha256": hashlib.sha256(raw_body).hexdigest(),
         "advisory_only": True, "owner_admitted": False,
         "dispatch_authorized": False, "scientific_first_use": False,
         "self_source_mutation": False, "checkpoint_mutation": False,
