@@ -134,3 +134,66 @@ def read_original_owner_mode(*, db, installed_source_sha: str,
     return project_verified_events(
         events=events, current_source_sha=installed_source_sha,
         current_epoch=owner_epoch)
+
+
+def gate_original_owner_new_admissions(*, db, db_path,
+                                       protected_main_sha: str) -> dict:
+    """Source-only original-owner *new-intake* gate, not a dispatch permit.
+
+    Run only at the existing F139 idle intake boundary, after reconciling
+    already active jobs. Accepts the already imported __main__.Database used
+    by python -m (unlike read_original_owner_mode, whose canonical class
+    identity is intentionally strict). Original lock, exact path and
+    independently read protected main must match. No provider writes.
+    """
+    from pathlib import Path
+    from f139.local_controller import SingleOwner
+
+    try:
+        actual = Path(db.filename).resolve(strict=True)
+        expected = Path(db_path).resolve(strict=True)
+    except (AttributeError, OSError, TypeError, ValueError) as exc:
+        raise ModeReplayDenied("F139_PHASE_REPLAY_OWNER_PATH_UNVERIFIED") from exc
+    need(actual == expected
+         and SingleOwner.held(expected.with_suffix(".lock")),
+         "ORIGINAL_OWNER_LOCK_OR_PATH_MISMATCH")
+    db.verify()
+    meta = db.meta()
+    need(type(protected_main_sha) is str
+         and meta["source_sha"] == protected_main_sha,
+         "PROTECTED_MAIN_SOURCE_DRIFT")
+    rows = list(db.conn.execute(
+        "SELECT seq,prior_sha,sha,payload FROM events "
+        "WHERE kind=? ORDER BY seq", (KIND,)))
+    need(len(rows) <= MAX_EVENTS, "EVENT_COUNT_INVALID")
+    events = tuple({
+        "seq": r["seq"], "prior_sha": r["prior_sha"],
+        "sha": r["sha"], "payload": json.loads(r["payload"])
+    } for r in rows)
+    history = project_verified_events(
+        events=events, current_source_sha=meta["source_sha"],
+        current_epoch=meta["epoch"])
+    mode, lane = history["mode"], history["lane"]
+    # Only existing research development is currently implemented by F139.
+    # HOLD stops new admissions, not reconciliation or already READY tasks.
+    # TRAIN/SELF_IMPROVE and lane-pinned routing cannot be silently mapped to
+    # old development feeder work. Their native permits/adapters do not exist.
+    if mode == "HOLD":
+        disposition = "PHASE_HOLD_NO_NEW_ADMISSIONS"
+    elif mode in ("TRAIN", "SELF_IMPROVE"):
+        disposition = "PHASE_EXECUTION_ADAPTER_NOT_QUALIFIED"
+    elif lane is not None:
+        disposition = "PHASE_LANE_SCOPING_NOT_QUALIFIED"
+    else:
+        disposition = "PHASE_EXISTING_RESEARCH_INTAKE"
+    return {
+        "schema": "forge.f139.owner-new-admission-mode-guard.v1",
+        "mode": mode, "lane": lane, "disposition": disposition,
+        "last_comment_id": history["last_comment_id"],
+        "last_mode_event_seq": history["last_mode_event_seq"],
+        "allow_existing_intake": disposition == "PHASE_EXISTING_RESEARCH_INTAKE",
+        "original_owner_lock_verified": True,
+        "advisory_only": True, "dispatch_authorized": False,
+        "scientific_first_use": False, "self_source_mutation": False,
+        "checkpoint_mutation": False, "accepted_ref_mutation": False,
+    }
