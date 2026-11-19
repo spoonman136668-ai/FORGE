@@ -2008,6 +2008,22 @@ class Database:
         # Preserve RSI R12-G verification while cold-auditing Hybrid tasks.
         from f139.hybrid_owner_admission import audit_hybrid_lane
         audit_hybrid_lane(self)
+        # Future mode admissions are part of the SAME original event chain.
+        # Cold verification rejects forged/stale manual HOLD and mode replay
+        # even when a reader never calls the optional steering preview.
+        from f139.nci04_phase_mode_replay import (
+            KIND as PHASE_KIND, project_verified_events)
+        phase_rows = list(self.conn.execute(
+            "SELECT seq,prior_sha,sha,payload FROM events "
+            "WHERE kind=? ORDER BY seq", (PHASE_KIND,)))
+        if phase_rows:
+            project_verified_events(
+                events=tuple({
+                    "seq": row["seq"], "prior_sha": row["prior_sha"],
+                    "sha": row["sha"], "payload": json.loads(row["payload"]),
+                } for row in phase_rows),
+                current_source_sha=meta["source_sha"],
+                current_epoch=meta["epoch"])
 
     @contextlib.contextmanager
     def transaction(self):
@@ -4787,9 +4803,113 @@ def original_owner_v3_eligible(db, db_path: Path, source_sha: str) -> bool:
         return False
 
 
-def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
+def admit_original_phase_once_canonical(db, api, db_path: Path, *,
+                                        comment_id: int,
+                                        expected_head_sha256: str):
+    """Bounded source-only manual command seam in the EXISTING owner tick.
+
+    Caller retains the original F139 mutex and reconciles existing work first.
+    Python -m uses __main__ classes; the strict writer requires canonical
+    f139.local_controller class identity. Reopen the SAME original SQLite,
+    never a copied ledger or an independent controller.
+    """
+    from f139.local_controller import (
+        Database as CanonicalDatabase, GitHub as CanonicalGitHub)
+    from f139.nci04_phase_original_admission import (
+        admit_original_owner_mode_once)
+    require(type(comment_id) is int and comment_id > 0
+            and type(expected_head_sha256) is str
+            and re.fullmatch(r"[0-9a-f]{64}", expected_head_sha256) is not None,
+            "PHASE_MANUAL_ONCE_ONLY_ARGUMENTS_INVALID")
+    path = Path(db_path).resolve(strict=True)
+    require(Path(db.filename).resolve(strict=True) == path
+            and SingleOwner.held(path.with_suffix(".lock")),
+            "PHASE_MANUAL_ORIGINAL_DB_LOCK_DRIFT")
+    original = db.meta()
+    canonical_db = (db if type(db) is CanonicalDatabase
+                    else CanonicalDatabase(path))
+    fresh_handle = canonical_db is not db
+    canonical_api = (api if type(api) is CanonicalGitHub
+                     else CanonicalGitHub())
+    try:
+        canonical_db.verify()
+        now = canonical_db.meta()
+        require(all(now[k] == original[k] for k in (
+                    "source_sha", "head_seq", "head_hash", "epoch",
+                    "enabled", "legacy_suspended"))
+                and now["head_hash"] == expected_head_sha256,
+                "PHASE_MANUAL_CANONICAL_LEDGER_HEAD_DRIFT")
+        return admit_original_owner_mode_once(
+            db=canonical_db, db_path=path, provider=canonical_api,
+            selected_comment_id=comment_id,
+            expected_owner_head_sha256=expected_head_sha256)
+    finally:
+        if fresh_handle:
+            canonical_db.close()
+
+
+def phase_comment_poll_due(cycle: int, every: int) -> bool:
+    """Pure cadence within the EXISTING owner loop; zero disables all GETs."""
+    require(type(cycle) is int and cycle >= 0
+            and type(every) is int
+            and (every == 0 or 5 <= every <= 240),
+            "PHASE_COMMENT_POLL_FREQUENCY_UNQUALIFIED")
+    return every > 0 and cycle % every == 0
+
+
+def discover_original_phase_candidate_canonical(db, api, db_path: Path, *,
+                                                 protected_main_sha: str):
+    """GET-only admission preview under the original F139 owner mutex.
+
+    Reopens the exact SQLite ledger only to normalize legacy __main__
+    class identity; always leaves selected comment unconsumed. The writer
+    independently rechecks the entire original issue/comment/policy history.
+    """
+    from f139.local_controller import (
+        Database as CanonicalDatabase, GitHub as CanonicalGitHub)
+    from f139.nci04_phase_comment_read import (
+        inspect_original_owner_pending_intents)
+    path = Path(db_path).resolve(strict=True)
+    require(Path(db.filename).resolve(strict=True) == path
+            and SingleOwner.held(path.with_suffix(".lock")),
+            "PHASE_COMMENT_ORIGINAL_OWNER_LOCK_REQUIRED")
+    canonical_db = (db if type(db) is CanonicalDatabase
+                    else CanonicalDatabase(path))
+    fresh_handle = canonical_db is not db
+    canonical_api = (api if type(api) is CanonicalGitHub
+                     else CanonicalGitHub())
+    try:
+        report = inspect_original_owner_pending_intents(
+            db=canonical_db, db_path=path, provider=canonical_api,
+            protected_main_sha=protected_main_sha)
+        pending = report["pending"]
+        return pending[0]["comment_id"] if pending else None
+    finally:
+        if fresh_handle:
+            canonical_db.close()
+
+
+def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *,
+             now=None, manual_phase_comment_id=None,
+             expected_phase_head_sha256=None,
+             scan_pending_phase_comments=False):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
+    # Existing scheduled loop passes neither argument, preserving exact
+    # legacy behavior. An explicit pair is strictly once-only and never a
+    # second owner, controller, queue, worker or GitHub write. There is no
+    # CLI/scheduler binding or automatic comment poll in this candidate.
+    manual_phase = manual_phase_comment_id is not None
+    require((not manual_phase and expected_phase_head_sha256 is None)
+            or (type(manual_phase_comment_id) is int
+                and manual_phase_comment_id > 0
+                and type(expected_phase_head_sha256) is str
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 expected_phase_head_sha256) is not None),
+            "PHASE_MANUAL_EXPLICIT_PAIR_REQUIRED")
+    require(type(scan_pending_phase_comments) is bool
+            and not (scan_pending_phase_comments and manual_phase),
+            "PHASE_COMMENT_SCAN_INCOMPATIBLE_WITH_EXPLICIT_PAIR")
     db.verify()
     from f139.nci04_owner_ledger import verify_native_activation
     # Original Tick/Loop now recognizes only a genuine append-only owner
@@ -4945,6 +5065,29 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 "protected_main_sha":protected_now,
                 "active_tickets":[row["ticket"] for row in remaining],
                 "scientific_first_use":False}
+    if scan_pending_phase_comments:
+        # Optional single-owner poll. NEVER enabled by the default CLI.
+        # Inspect only via provider GET, without adding a second loop or
+        # dispatcher; admission still requires a fresh exact-comment GET
+        # and the real original Windows running-owner witness.
+        pending_id = discover_original_phase_candidate_canonical(
+            db, api, db_path, protected_main_sha=protected_now)
+        if pending_id is not None:
+            admit_original_phase_once_canonical(
+                db, api, db_path, comment_id=pending_id,
+                expected_head_sha256=db.meta()["head_hash"])
+            db.verify()
+    if manual_phase:
+        # Existing in-flight provider effects have ALREADY been reconciled.
+        # A genuine original Windows running-owner witness and a fresh,
+        # source-bound GitHub operator comment are mandatory in the writer.
+        # This is an explicit source-only entry point, NOT an automatic poll.
+        # The original owner lock remains held throughout the atomic append.
+        admit_original_phase_once_canonical(
+            db, api, db_path,
+            comment_id=manual_phase_comment_id,
+            expected_head_sha256=expected_phase_head_sha256)
+        db.verify()
     if len(remaining) >= 2:
         return {"disposition":"TWO_NATIVE_WORKERS_ACTIVE_NO_REDISPATCH",
                 "tickets":[row["ticket"] for row in remaining]}
@@ -4953,6 +5096,23 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                     remaining[0]["ticket"],"WORKER_RUNNING_NO_REDISPATCH"),
                 "ticket":remaining[0]["ticket"]}
     ready=db.ready()
+    if (ready is None and db.conn.execute(
+            "SELECT 1 FROM events WHERE kind='PHASE_MODE_ADMITTED' "
+            "LIMIT 1").fetchone() is not None):
+        # Reconcile existing workers FIRST, then consult the original
+        # persistent manual mode at the existing new-admission boundary.
+        # A committed HOLD cannot disappear on restart; unsupported native
+        # TRAIN/SELF_IMPROVE modes are never mistaken for research permits.
+        from f139.nci04_phase_mode_replay import (
+            gate_original_owner_new_admissions)
+        phase = gate_original_owner_new_admissions(
+            db=db, db_path=db_path, protected_main_sha=protected_now)
+        if not phase["allow_existing_intake"]:
+            return {"disposition": phase["disposition"],
+                    "mode": phase["mode"], "lane": phase["lane"],
+                    "last_mode_event_seq": phase["last_mode_event_seq"],
+                    "scientific_first_use": False,
+                    "worker_dispatched": False, "self_source_mutation": False}
     if ready is None and db.admit_d2j_succession():
         ready=db.ready()
     if ready is None and db.active() is None and db.meta()["head_seq"] >= 23:
@@ -5270,6 +5430,9 @@ def cli(argv=None):
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
     loop=sub.add_parser("loop");loop.add_argument("--seconds",type=int,default=45)
+    # Opt-in ONLY for the existing F139 owner loop, never a new task/runner.
+    # Zero means no issue-comment GETs; no active operator deployment here.
+    loop.add_argument("--phase-comment-poll-every",type=int,default=0)
     args=parser.parse_args(argv)
     if args.verb=="init":
         db=Database.initialize(args.db,args.source_sha)
@@ -6387,13 +6550,43 @@ def cli(argv=None):
                 print(json.dumps(result,sort_keys=True))
         elif args.verb=="loop":
             require(15<=args.seconds<=300,"POLL_FREQUENCY_UNSAFE")
+            # Only typed invalid owner-mode requests are recoverable here.
+            # Unknown SQLite, source-ledger or custody errors remain fatal
+            # rather than silently authorizing new work.
+            from f139.nci04_phase_comment_read import PhaseCommentReadDenied
+            from f139.nci04_phase_original_admission import OriginalModeAdmissionDenied
+            # Existing owner loop cadence, opt-in only; no new scheduler,
+            # scheduled task, periodic worker or alternate lock authority.
+            phase_comment_poll_due(0,args.phase_comment_poll_every)
+            cycle=0
             while True:
+                due=phase_comment_poll_due(cycle,args.phase_comment_poll_every)
+                cycle+=1
                 try:
                     with SingleOwner(args.db.with_suffix(".lock")):
-                        result=run_once(db,GitHub(),args.db,os.environ.get("F139_WORKER_HMAC_KEY",""))
+                        if due:
+                            result=run_once(
+                                db,GitHub(),args.db,
+                                os.environ.get("F139_WORKER_HMAC_KEY",""),
+                                scan_pending_phase_comments=True)
+                        else:
+                            result=run_once(db,GitHub(),args.db,
+                                os.environ.get("F139_WORKER_HMAC_KEY",""))
                         print(json.dumps({"at":utc_now(),**result},sort_keys=True),flush=True)
+                except (PhaseCommentReadDenied,
+                        OriginalModeAdmissionDenied) as exc:
+                    # These denials happen before admission (or roll back
+                    # inside SQLite transaction). Do not retry this tick.
+                    print(json.dumps({"at":utc_now(),"blocked":str(exc),
+                                      "science_authorized":False,
+                                      "manual_request_admitted":False}),
+                          file=sys.stderr,flush=True)
                 except F139Error as exc:
-                    print(json.dumps({"at":utc_now(),"blocked":str(exc),"science_authorized":False}),
+                    # Preserve historical error semantics: an unrelated
+                    # downstream failure does not prove that an earlier
+                    # mode append did or did not commit.
+                    print(json.dumps({"at":utc_now(),"blocked":str(exc),
+                                      "science_authorized":False}),
                           file=sys.stderr,flush=True)
                 time.sleep(args.seconds)
         print(json.dumps({"status":db.status()},default=str,sort_keys=True) if args.verb=="status" else "F139_COMMAND_COMPLETE")
