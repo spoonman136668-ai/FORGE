@@ -38,6 +38,19 @@ class FreshCutoverFloorTests(unittest.TestCase):
         database.close()
         self.old = Database.open_readonly(filename)
         self.addCleanup(self.old.close)
+        # Only the read-only V59 original audit and its 1,864-event ledger
+        # are substituted in this synthetic test. Production checks both.
+        # Never forge an on-disk 1,864-event preimage as test evidence.
+        meta = self.old.meta()
+        self.meta_mock = patch.object(
+            self.old, "meta",
+            return_value={**meta, "source_sha": SOURCE,
+                          "head_seq": HEAD_SEQ, "head_hash": HEAD_SHA256})
+        self.verify_mock = patch.object(self.old, "verify", return_value=None)
+        self.meta_mock.start()
+        self.verify_mock.start()
+        self.addCleanup(self.meta_mock.stop)
+        self.addCleanup(self.verify_mock.stop)
         self.original = {
             "source_sha": SOURCE, "head_seq": HEAD_SEQ,
             "head_sha256": HEAD_SHA256,
@@ -128,7 +141,8 @@ class FreshCutoverFloorTests(unittest.TestCase):
         with self.assertRaisesRegex(FreshRemoteCutoverDenied, reason):
             self.prove(**kwargs)
         self.assertEqual(self.old.conn.total_changes, 0)
-        self.assertEqual(self.old.meta()["head_seq"], 0)
+        self.assertEqual(self.old.conn.execute(
+            "SELECT head_seq FROM meta").fetchone()[0], 0)
 
     def test_bounded_authenticated_cutoff_is_negative_only(self):
         before = self.old.meta()
