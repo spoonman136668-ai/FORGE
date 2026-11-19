@@ -40,7 +40,7 @@ def frozen_backup_destination(original: Path, backup: Path,
     """Accept only an existing, canonical, single-run original-root backup."""
     need(type(owner_run_id) is int and owner_run_id > MIN_RUN,
          "OWNER_RUN_INVALID")
-    need(type(original) is Path and type(backup) is Path
+    need(isinstance(original, Path) and isinstance(backup, Path)
          and original.is_absolute() and backup.is_absolute()
          and original.name == "state.sqlite"
          and original.parent.name == "FORGE-F139"
