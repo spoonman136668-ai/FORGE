@@ -8,10 +8,12 @@ from f139.nci04_phase_steering import PhaseSteeringDenied, preview
 
 class PhaseSteeringPreviewTests(unittest.TestCase):
     def select(self, mode="AUTO", lane=None, research=(), training=(),
-               admissions=(), outcomes=()):
+               admissions=(), outcomes=(), self_ready=False, phase_history=()):
         return preview(mode=mode, lane=lane, research_ready=research,
                        training_ready=training, admitted_lanes=admissions,
-                       recent_training_outcomes=outcomes)
+                       recent_training_outcomes=outcomes,
+                       self_improvement_ready=self_ready,
+                       admitted_phases=phase_history)
 
     def test_auto_prefers_ready_training(self):
         actual = self.select(research=("Yggdrasil",), training=("Yggdrasil",))
@@ -75,6 +77,61 @@ class PhaseSteeringPreviewTests(unittest.TestCase):
                       "checkpoint_mutation", "accepted_ref_mutation", "new_controller"):
             self.assertIs(actual[field], False)
 
+    def test_manual_forge_self_improvement_ready(self):
+        actual = self.select(mode="SELF_IMPROVE", self_ready=True)
+        self.assertEqual(actual["phase"], "SELF_IMPROVE")
+        self.assertEqual(actual["selected_lane"], "FORGE-self")
+        self.assertFalse(actual["self_source_mutation"])
+        self.assertFalse(actual["rsi_proven"])
+        self.assertFalse(actual["deployment_authorized"])
+
+    def test_self_improvement_requires_existing_source_readiness(self):
+        actual = self.select(mode="SELF_IMPROVE")
+        self.assertIsNone(actual["phase"])
+        self.assertEqual(actual["status"], "MANUAL_NO_ELIGIBLE_SELF_IMPROVE")
+
+    def test_self_improvement_rejects_independent_lane_takeover(self):
+        with self.assertRaises(PhaseSteeringDenied):
+            self.select(mode="SELF_IMPROVE", lane="Wingless", self_ready=True)
+
+    def test_auto_still_defaults_to_model_training(self):
+        actual = self.select(research=("Yggdrasil",), training=("Yggdrasil",),
+                             self_ready=True)
+        self.assertEqual(actual["phase"], "TRAIN")
+
+    def test_auto_rotates_to_self_improvement_after_other_phases(self):
+        actual = self.select(research=("Wingless",), training=("Yggdrasil",),
+                             self_ready=True,
+                             phase_history=("TRAIN", "RESEARCH"))
+        self.assertEqual(actual["phase"], "SELF_IMPROVE")
+        self.assertEqual(actual["selected_lane"], "FORGE-self")
+
+    def test_auto_rotates_back_to_native_research_after_self_improvement(self):
+        actual = self.select(research=("Wingless",), training=("Yggdrasil",),
+                             self_ready=True,
+                             phase_history=("SELF_IMPROVE", "TRAIN"))
+        self.assertEqual(actual["phase"], "RESEARCH")
+        self.assertEqual(actual["selected_lane"], "Wingless")
+
+    def test_lane_pinned_auto_does_not_take_forge_self_work(self):
+        actual = self.select(lane="Wingless", self_ready=True)
+        self.assertEqual(actual["status"], "AUTO_NO_ELIGIBLE_WORK")
+        self.assertIsNone(actual["phase"])
+
+    def test_self_improvement_alternative_to_stalled_training(self):
+        actual = self.select(training=("Yggdrasil",), self_ready=True,
+                             outcomes=(("Yggdrasil", "NO_GAIN"),
+                                       ("Yggdrasil", "REGRESSED")))
+        self.assertEqual(actual["phase"], "SELF_IMPROVE")
+
+    def test_self_improvement_source_mutation_never_authorized_by_preview(self):
+        actual = self.select(mode="SELF_IMPROVE", self_ready=True)
+        for key in ("dispatch_authorized", "scientific_first_use",
+                    "self_source_mutation", "checkpoint_mutation",
+                    "rsi_proven", "deployment_authorized",
+                    "accepted_ref_mutation", "new_controller"):
+            self.assertIs(actual[key], False)
+
     def test_untrusted_data_rejected(self):
         cases = (
             dict(mode="train"), dict(mode="SCIENCE"), dict(lane="FORGE"),
@@ -84,6 +141,9 @@ class PhaseSteeringPreviewTests(unittest.TestCase):
             dict(recent_training_outcomes=(("Yggdrasil", "PASS"),)),
             dict(recent_training_outcomes=(("Yggdrasil", "NO_GAIN", "X"),)),
             dict(admitted_lanes=("forged",)),
+            dict(self_improvement_ready="yes"),
+            dict(admitted_phases=("TRAIN", "FORGE-self")),
+            dict(admitted_phases=["TRAIN"]),
         )
         defaults = {"mode": "AUTO", "lane": None,
                     "research_ready": (), "training_ready": ()}
