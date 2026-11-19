@@ -1,7 +1,7 @@
 # V58 original-owner model-free failure-code projection (source-only)
 
 Frozen main: `c06403c8b6035c6c7013866a7ea08cef1244b507` / Git tree `b7abf26f618654f330b55f510bfcc34d8916848a`.
-Original workflow blob `39f189fde3a6fece791cd3a6ca7dd0517cb6b430`, proposed blob `20f74fada139ce8d96d9f416752a728160a79b23`.
+Original workflow blob `39f189fde3a6fece791cd3a6ca7dd0517cb6b430`, proposed blob `da2abe072131358e411a82df170aa66b7f59b724`.
 Engineering branch: `engineering/f139-v58-model-free-status-readonly-20261119`.
 
 ## Incident

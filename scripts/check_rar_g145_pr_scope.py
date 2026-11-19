@@ -2667,7 +2667,7 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                     or request.get("head", {}).get("ref") != branch
                     or request.get("base", {}).get("sha") != "c06403c8b6035c6c7013866a7ea08cef1244b507"
                     or git("rev-parse", "c06403c8b6035c6c7013866a7ea08cef1244b507:.github/workflows/f139-g54-v9-owner-cutover.yml") != "39f189fde3a6fece791cd3a6ca7dd0517cb6b430"
-                    or git("rev-parse", head_sha + ":.github/workflows/f139-g54-v9-owner-cutover.yml") != "20f74fada139ce8d96d9f416752a728160a79b23"):
+                    or git("rev-parse", head_sha + ":.github/workflows/f139-g54-v9-owner-cutover.yml") != "da2abe072131358e411a82df170aa66b7f59b724"):
                 raise ValueError("G145_V58_EXACT_READONLY_WORKFLOW_DENIED")
         if branch == "engineering/f139-v53-precommit-original-owner-restore-20261117":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])

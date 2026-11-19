@@ -43,6 +43,8 @@ class V58ReadOnlyStatusTests(unittest.TestCase):
 
     def test_codes_are_exact_allowlist_not_raw_log_values(self):
         self.assertIn("from f139.nci04_model_free_failure import SAFE_CODES", self.status)
+        self.assertIn("$allowlistScript | & $python -B -", self.status)
+        self.assertNotIn(" & $python -B -c ", self.status)
         self.assertIn("$allowedModelFreeCodes -ccontains $code", self.status)
         self.assertIn("$fallbackModelFreeCodes -ccontains $code", self.status)
         self.assertIn("return 'REDACTED_OR_MISSING'", self.status)

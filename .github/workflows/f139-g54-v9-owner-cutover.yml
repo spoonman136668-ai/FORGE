@@ -3582,7 +3582,12 @@ jobs:
           }
           # All classifications originate in original, immutable F139 source.
           # Raw exception text, unreviewed codes and log paths never leave this status job.
-          $allowedModelFreeCodes=@(& $python -B -c 'from f139.nci04_model_free_failure import SAFE_CODES; print("\n".join(sorted(SAFE_CODES)))')
+          $allowlistScript=@'
+          from f139.nci04_model_free_failure import SAFE_CODES
+          for code in sorted(SAFE_CODES):
+              print(code)
+          '@
+          $allowedModelFreeCodes=@($allowlistScript | & $python -B -)
           if($LASTEXITCODE -ne 0 -or @($allowedModelFreeCodes).Count -lt 20) {
             throw 'F139_G54_MODEL_FREE_ALLOWLIST_UNAVAILABLE'
           }
