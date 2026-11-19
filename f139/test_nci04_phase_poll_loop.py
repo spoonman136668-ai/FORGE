@@ -189,5 +189,45 @@ class OriginalLoopPhaseCommentTests(unittest.TestCase):
             tmp.cleanup()
 
 
+    def test_bad_mode_comment_does_not_terminate_original_loop(self):
+        from f139.nci04_phase_original_admission import (
+            OriginalModeAdmissionDenied)
+        import io
+        tmp, path, db = self.fixture()
+        db.close()
+
+        class StopLoop(Exception):
+            pass
+
+        try:
+            for rejection in (
+                    PhaseCommentReadDenied("F139_PHASE_COMMENT_TEST_DENIED"),
+                    OriginalModeAdmissionDenied("F139_PHASE_OWNER_TEST_DENIED")):
+                with self.subTest(kind=type(rejection).__name__):
+                    seen = []
+
+                    def fake_tick(*args, **kwargs):
+                        seen.append(kwargs)
+                        if len(seen) == 1:
+                            raise rejection
+                        raise StopLoop()
+
+                    with patch("f139.local_controller.run_once",
+                               side_effect=fake_tick), \
+                         patch("f139.local_controller.time.sleep",
+                               return_value=None), \
+                         patch("f139.local_controller.sys.stderr", io.StringIO()) as err:
+                        with self.assertRaises(StopLoop):
+                            cli(["--db", str(path), "loop",
+                                 "--seconds", "45",
+                                 "--phase-comment-poll-every", "5"])
+                        self.assertIn("manual_mode_committed", err.getvalue())
+                    self.assertEqual(
+                        [x.get("scan_pending_phase_comments", False)
+                         for x in seen], [True, False])
+        finally:
+            tmp.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

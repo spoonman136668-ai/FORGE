@@ -6550,6 +6550,11 @@ def cli(argv=None):
                 print(json.dumps(result,sort_keys=True))
         elif args.verb=="loop":
             require(15<=args.seconds<=300,"POLL_FREQUENCY_UNSAFE")
+            # Only typed invalid owner-mode requests are recoverable here.
+            # Unknown SQLite, source-ledger or custody errors remain fatal
+            # rather than silently authorizing new work.
+            from f139.nci04_phase_comment_read import PhaseCommentReadDenied
+            from f139.nci04_phase_original_admission import OriginalModeAdmissionDenied
             # Existing owner loop cadence, opt-in only; no new scheduler,
             # scheduled task, periodic worker or alternate lock authority.
             phase_comment_poll_due(0,args.phase_comment_poll_every)
@@ -6568,8 +6573,14 @@ def cli(argv=None):
                             result=run_once(db,GitHub(),args.db,
                                 os.environ.get("F139_WORKER_HMAC_KEY",""))
                         print(json.dumps({"at":utc_now(),**result},sort_keys=True),flush=True)
-                except F139Error as exc:
-                    print(json.dumps({"at":utc_now(),"blocked":str(exc),"science_authorized":False}),
+                except (F139Error, PhaseCommentReadDenied,
+                        OriginalModeAdmissionDenied) as exc:
+                    # A malicious/stale GitHub comment fails only this tick.
+                    # The owner can continue normal reconciliation on the
+                    # next tick; no extra intake happens in the failed tick.
+                    print(json.dumps({"at":utc_now(),"blocked":str(exc),
+                                      "science_authorized":False,
+                                      "manual_mode_committed":False}),
                           file=sys.stderr,flush=True)
                 time.sleep(args.seconds)
         print(json.dumps({"status":db.status()},default=str,sort_keys=True) if args.verb=="status" else "F139_COMMAND_COMPLETE")
