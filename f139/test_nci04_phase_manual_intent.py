@@ -140,6 +140,12 @@ class ManualPhaseIntentTests(unittest.TestCase):
                 with self.assertRaises(ManualPhaseDenied):
                     inspect(raw)
 
+    def test_malformed_unicode_is_classified_fail_closed(self):
+        raw = comment()
+        raw["body"] = PREFIX + "\\ud800"
+        with self.assertRaises(ManualPhaseDenied):
+            inspect(raw)
+
     def test_malformed_epoch_and_consumed_ids_denied(self):
         raw = comment()
         for args in ({"epoch": True}, {"consumed": frozenset({True})},
