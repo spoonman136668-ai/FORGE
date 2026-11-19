@@ -24,6 +24,7 @@ from f139.nci04_v59_owner_forward_readiness import (
 from f139.nci04_v59_cold_backup_verify import (
     MIN_RUN, verify_original_cold_backup,
 )
+from f139.nci04_v59_cold_backup_stage import inventory
 
 SCHEMA = "forge.f139.fresh-development-epoch-inert.v1"
 ARCHIVE_SCHEMA = "forge.f139.v59.original-cold-createonly.v1"
@@ -119,11 +120,24 @@ def prepare_inert_epoch(
          and manifest.get("original_head_sha256") == HEAD_SHA256
          and manifest.get("source_transition_authorized") is False
          and manifest.get("scientific_first_use") is False
-         and manifest.get("original_owner_mutations", 0) == 0
+         and manifest.get("owner_mutations") == 0
          and type(manifest.get("files_sha256")) is dict,
          "ARCHIVE_MANIFEST_PREIMAGE_INVALID")
+    files = manifest["files_sha256"]
+    need(inventory(archive) == set(files) | {"manifest.sha256.json"},
+         "ARCHIVE_INVENTORY_DRIFT")
+    for relative, wanted in files.items():
+        need(type(relative) is str and relative != "manifest.sha256.json"
+             and "\\\\" not in relative and ":" not in relative
+             and all(part not in ("", ".", "..") for part in relative.split("/"))
+             and type(wanted) is str and SHA64.fullmatch(wanted) is not None,
+             "ARCHIVE_FILE_IDENTITY_INVALID")
+        file = archive.joinpath(*relative.split("/"))
+        need(file.is_file() and not file.is_symlink()
+             and hash_file(file) == wanted,
+             "ARCHIVE_FILE_BYTES_DRIFT")
     backup_sha = hash_file(backup)
-    need(manifest["files_sha256"].get("state.sqlite") == backup_sha
+    need(files.get("state.sqlite") == backup_sha
          and SHA64.fullmatch(backup_sha) is not None,
          "BACKUP_BYTES_DRIFT")
     verified = verify_original_cold_backup(
