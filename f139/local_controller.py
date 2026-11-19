@@ -4803,9 +4803,68 @@ def original_owner_v3_eligible(db, db_path: Path, source_sha: str) -> bool:
         return False
 
 
-def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
+def admit_original_phase_once_canonical(db, api, db_path: Path, *,
+                                        comment_id: int,
+                                        expected_head_sha256: str):
+    """Bounded source-only manual command seam in the EXISTING owner tick.
+
+    Caller retains the original F139 mutex and reconciles existing work first.
+    Python -m uses __main__ classes; the strict writer requires canonical
+    f139.local_controller class identity. Reopen the SAME original SQLite,
+    never a copied ledger or an independent controller.
+    """
+    from f139.local_controller import (
+        Database as CanonicalDatabase, GitHub as CanonicalGitHub)
+    from f139.nci04_phase_original_admission import (
+        admit_original_owner_mode_once)
+    require(type(comment_id) is int and comment_id > 0
+            and type(expected_head_sha256) is str
+            and re.fullmatch(r"[0-9a-f]{64}", expected_head_sha256) is not None,
+            "PHASE_MANUAL_ONCE_ONLY_ARGUMENTS_INVALID")
+    path = Path(db_path).resolve(strict=True)
+    require(Path(db.filename).resolve(strict=True) == path
+            and SingleOwner.held(path.with_suffix(".lock")),
+            "PHASE_MANUAL_ORIGINAL_DB_LOCK_DRIFT")
+    original = db.meta()
+    canonical_db = (db if type(db) is CanonicalDatabase
+                    else CanonicalDatabase(path))
+    fresh_handle = canonical_db is not db
+    canonical_api = (api if type(api) is CanonicalGitHub
+                     else CanonicalGitHub())
+    try:
+        canonical_db.verify()
+        now = canonical_db.meta()
+        require(all(now[k] == original[k] for k in (
+                    "source_sha", "head_seq", "head_hash", "epoch",
+                    "enabled", "legacy_suspended"))
+                and now["head_hash"] == expected_head_sha256,
+                "PHASE_MANUAL_CANONICAL_LEDGER_HEAD_DRIFT")
+        return admit_original_owner_mode_once(
+            db=canonical_db, db_path=path, provider=canonical_api,
+            selected_comment_id=comment_id,
+            expected_owner_head_sha256=expected_head_sha256)
+    finally:
+        if fresh_handle:
+            canonical_db.close()
+
+
+def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *,
+             now=None, manual_phase_comment_id=None,
+             expected_phase_head_sha256=None):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
+    # Existing scheduled loop passes neither argument, preserving exact
+    # legacy behavior. An explicit pair is strictly once-only and never a
+    # second owner, controller, queue, worker or GitHub write. There is no
+    # CLI/scheduler binding or automatic comment poll in this candidate.
+    manual_phase = manual_phase_comment_id is not None
+    require((not manual_phase and expected_phase_head_sha256 is None)
+            or (type(manual_phase_comment_id) is int
+                and manual_phase_comment_id > 0
+                and type(expected_phase_head_sha256) is str
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 expected_phase_head_sha256) is not None),
+            "PHASE_MANUAL_EXPLICIT_PAIR_REQUIRED")
     db.verify()
     from f139.nci04_owner_ledger import verify_native_activation
     # Original Tick/Loop now recognizes only a genuine append-only owner
@@ -4961,6 +5020,17 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 "protected_main_sha":protected_now,
                 "active_tickets":[row["ticket"] for row in remaining],
                 "scientific_first_use":False}
+    if manual_phase:
+        # Existing in-flight provider effects have ALREADY been reconciled.
+        # A genuine original Windows running-owner witness and a fresh,
+        # source-bound GitHub operator comment are mandatory in the writer.
+        # This is an explicit source-only entry point, NOT an automatic poll.
+        # The original owner lock remains held throughout the atomic append.
+        admit_original_phase_once_canonical(
+            db, api, db_path,
+            comment_id=manual_phase_comment_id,
+            expected_head_sha256=expected_phase_head_sha256)
+        db.verify()
     if len(remaining) >= 2:
         return {"disposition":"TWO_NATIVE_WORKERS_ACTIVE_NO_REDISPATCH",
                 "tickets":[row["ticket"] for row in remaining]}
