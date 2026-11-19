@@ -25,6 +25,7 @@ from f139.nci04_v59_cold_backup_verify import (
     MIN_RUN, verify_original_cold_backup,
 )
 from f139.nci04_v59_cold_backup_stage import inventory
+from f139.nci04_fresh_dev_exclusions import freeze_original_exclusions
 
 SCHEMA = "forge.f139.fresh-development-epoch-inert.v1"
 ARCHIVE_SCHEMA = "forge.f139.v59.original-cold-createonly.v1"
@@ -160,6 +161,16 @@ def prepare_inert_epoch(
          and hash_file(backup) == backup_sha,
          "PREPARATION_PREIMAGE_MOVED")
 
+    # Every consumed local ticket/issue/candidate identity is snapshot-bound
+    # to the independently cold-verified original; none is made runnable.
+    exclusions = freeze_original_exclusions(original)
+    exclusions_bytes = canonical(exclusions)
+    exclusions_sha = digest(exclusions_bytes)
+    need(exclusions.get("release_qualified") is False
+         and exclusions.get("fresh_activation_authorized") is False
+         and exclusions.get("original_head_seq") == HEAD_SEQ
+         and exclusions.get("original_head_sha256") == HEAD_SHA256,
+         "CONSUMED_HISTORY_NOT_FROZEN")
     # Never rename, delete, overwrite, initialize or retarget the live original.
     fresh.mkdir(mode=0o700, exist_ok=False)
     state = fresh / "state.sqlite"
@@ -183,8 +194,16 @@ def prepare_inert_epoch(
          and hash_file(backup) == backup_sha,
          "ORIGINAL_OR_BACKUP_DRIFT_AFTER_STAGING")
     state_sha = hash_file(state)
+    exclusion_path = fresh / "consumed-development-identities.json"
+    with exclusion_path.open("xb") as f:
+        f.write(exclusions_bytes)
+    need(exclusion_path.read_bytes() == exclusions_bytes,
+         "CONSUMED_HISTORY_READBACK_DRIFT")
     receipt = {
         "schema": SCHEMA, "owner_run_id": owner_run_id,
+        "historical_consumed_exclusions_sha256": exclusions_sha,
+        "historical_consumed_exclusions_path":
+            exclusion_path.relative_to(root).as_posix(),
         "previous_source_sha": SOURCE,
         "target_source_sha": target,
         "historical_head_seq": HEAD_SEQ,
@@ -212,6 +231,8 @@ def prepare_inert_epoch(
     path = fresh / "fresh-dev-manifest.sha256.json"
     with path.open("xb") as f:
         f.write(encoded)
-    need(path.read_bytes() == encoded and hash_file(state) == state_sha,
+    need(path.read_bytes() == encoded and hash_file(state) == state_sha
+         and exclusion_path.read_bytes() == exclusions_bytes
+         and digest(exclusion_path.read_bytes()) == exclusions_sha,
          "INERT_MANIFEST_READBACK_DRIFT")
     return dict(receipt, manifest_sha256=digest(encoded))
