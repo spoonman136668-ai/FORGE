@@ -14,7 +14,7 @@ import subprocess
 import sys
 
 from check_rar_g145_pr_scope import (admit_original_pr, negative_controls,
-    V54_RELEASE_BRANCH,
+    V54_RELEASE_BRANCH, V59_READONLY_BRANCH,
     V41_STATUS_BRANCH, V41_STATUS_RESULT,
     V41_BACKUP_BRANCH, V41_BACKUP_RESULT,
     V41_PAUSE_BRANCH, V41_PAUSE_RESULT,
@@ -137,6 +137,14 @@ def event_mode(head):
     # G145 has already authenticated PR1807, its exact protected-main
     # ancestry and EVERY source blob (including this G148 guard). This is
     # compiler-input CI qualification only, never original-owner authority.
+    if branch == "engineering/f139-v58-model-free-status-readonly-20261119":
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G148_V58_READONLY_SCOPE_REQUIRED")
+        return "pr"
+    if branch == V59_READONLY_BRANCH:
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G148_V59_EXACT_OWNER_READONLY_SCOPE_REQUIRED")
+        return "pr"
     if branch == V54_RELEASE_BRANCH:
         if admiss != "EXACT_PR1807_V54_OWNER_RELEASE_CI_ONLY":
             raise ValueError("G148_V54_EXACT_OWNER_SOURCE_REQUIRED")

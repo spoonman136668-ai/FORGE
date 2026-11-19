@@ -352,7 +352,36 @@ HYBRID_OWNER_WORKFLOW = ".github/workflows/f139-v41-original-owner-live-install.
 HYBRID_OWNER_WORKFLOW_BEFORE = "b7abc3a9118a5c69dd24b4f351bf5697bfdf52f3"
 HYBRID_OWNER_WORKFLOW_AFTER = "ff11352d1d298361e97b1e7422338f608d4b2a70"
 
+V59_READONLY_BRANCH = "engineering/f139-v59-original-cold-readonly-once-20261119"
+V59_READONLY_BASE = "d620479254755e3fe375ecb293b38f97a6bebdba"
+V59_READONLY_BASE_TREE = "4ac7e84573d9b4c9eb3ddbd811c52dd730f3db18"
+V59_READONLY_WORKFLOW = ".github/workflows/f139-v59-original-owner-readonly.yml"
+V59_READONLY_WORKFLOW_BLOB = "33d616f53bdc4cbe1a26f42f8e8f456907a7d625"
+V59_READONLY_PATHS = frozenset((
+    V59_READONLY_WORKFLOW,
+    "f139/test_v59_original_owner_readonly_scope.py",
+    "docs/F139-V59-ORIGINAL-OWNER-READONLY.md",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
 FROZEN_SCOPES = {
+    V59_READONLY_BRANCH: (V59_READONLY_BASE, V59_READONLY_PATHS),
+    # V58: one owner-authored, exact-base read-only status projection.
+    # No workflow triggers, original task, admission, SQLite or science changed.
+    "engineering/f139-v58-model-free-status-readonly-20261119": (
+        "c06403c8b6035c6c7013866a7ea08cef1244b507",
+        {
+            ".github/workflows/f139-g54-v9-owner-cutover.yml",
+            "f139/test_nci04_v58_model_free_status_projection.py",
+            "f139/test_v40_readonly_workflow_scope.py",
+            "docs/F139-V58-MODEL-FREE-STATUS-READONLY.md",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        },
+    ),
     # PR #1804: restore exact original owner after proved V53 precommit
     # failure, and fix the stale V50 guard without altering old schemas.
     "engineering/f139-v53-precommit-original-owner-restore-20261117": (
@@ -2105,6 +2134,8 @@ def negative_controls() -> None:
     v41_backup_negative_controls()
     v41_pause_negative_controls()
     v54_owner_release_negative_controls()
+    if generic_paths_safe([V59_READONLY_WORKFLOW]):
+        raise ValueError('G145_V59_WORKFLOW_GENERIC_SCOPE_BYPASS')
 
 
 def admit_hybrid_workflow_release(head_sha: str, base_sha: str,
@@ -2646,6 +2677,30 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == V59_READONLY_BRANCH:
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            if (request.get("user", {}).get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != V59_READONLY_BRANCH
+                    or request.get("head", {}).get("sha") != head_sha
+                    or request.get("base", {}).get("sha") != V59_READONLY_BASE
+                    or request.get("base", {}).get("ref") != "main"
+                    or git("rev-parse", V59_READONLY_BASE + "^{tree}")
+                       != V59_READONLY_BASE_TREE
+                    or git("rev-parse", head_sha + ":" + V59_READONLY_WORKFLOW)
+                       != V59_READONLY_WORKFLOW_BLOB):
+                raise ValueError("G145_V59_ORIGINAL_READONLY_EXACT_SOURCE_DENIED")
+        if branch == "engineering/f139-v58-model-free-status-readonly-20261119":
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            if (request.get("user", {}).get("login") != "spoonman136668-ai"
+                    or request.get("author_association") != "OWNER"
+                    or request.get("head", {}).get("ref") != branch
+                    or request.get("base", {}).get("sha") != "c06403c8b6035c6c7013866a7ea08cef1244b507"
+                    or git("rev-parse", "c06403c8b6035c6c7013866a7ea08cef1244b507:.github/workflows/f139-g54-v9-owner-cutover.yml") != "39f189fde3a6fece791cd3a6ca7dd0517cb6b430"
+                    or git("rev-parse", head_sha + ":.github/workflows/f139-g54-v9-owner-cutover.yml") != "da2abe072131358e411a82df170aa66b7f59b724"):
+                raise ValueError("G145_V58_EXACT_READONLY_WORKFLOW_DENIED")
         if branch == "engineering/f139-v53-precommit-original-owner-restore-20261117":
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
