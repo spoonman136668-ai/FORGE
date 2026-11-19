@@ -65,9 +65,19 @@ def require_detached_paths(original: Database, detached: Database,
          and not Path(raw_root).is_symlink()
          and not getattr(Path(raw_root), "is_junction", lambda: False)(),
          "DETACHED_RUNNER_ROOT_UNVERIFIED")
+    # The detached RUNNER_TEMP must be neither the original owner root nor
+    # one of its ancestors/descendants. Environment values alone cannot
+    # grant isolation; normalize filesystem locations before any copy write.
+    runner_root = Path(raw_root).resolve()
+    owner_root = origin.parent.resolve()
+    need(runner_root != owner_root
+         and runner_root not in owner_root.parents
+         and owner_root not in runner_root.parents,
+         "DETACHED_RUNNER_ROOT_OVERLAPS_ORIGINAL")
     target = (Path(raw_root) / ("f139-v59-detached-" + str(owner_run_id))
               / "state.sqlite")
-    need(copy.resolve() == target.resolve()
+    need(copy.parent.parent.resolve() == runner_root
+         and copy.resolve() == target.resolve()
          and copy.resolve() != origin.resolve()
          and copy.parent.parent.resolve() != origin.parent.resolve()
          and copy.parent.name == "f139-v59-detached-" + str(owner_run_id),
@@ -136,7 +146,17 @@ def rehearse_detached_v48(
          and proof["schema"] == SCHEMA
          and proof["from_source_sha"] == SOURCE
          and proof["to_source_sha"] == target
-         and proof["backup_sqlite_sha256"] == backup_sqlite_sha256,
+         and proof["owner_run_id"] == owner_run_id
+         and proof["qualified_main_run_id"] == qualified_main_run_id
+         and proof["rehearsal_run_id"] == rehearsal_run_id
+         and proof["backup_sqlite_sha256"] == backup_sqlite_sha256
+         and proof["genenv_executable_sha256"] == genenv_executable_sha256
+         and proof["generation_mechanism_sha256"] == generation_mechanism_sha256
+         and proof["scientific_first_use"] is False
+         and proof["new_dispatches"] == 0
+         and proof["new_controller"] is False
+         and proof["new_scheduler"] is False
+         and proof["new_queue"] is False,
          "DETACHED_V48_PREWRITE_PROOF_INVALID")
     # The only source change below is within a writable *copy*.
     with detached.transaction():
@@ -170,12 +190,23 @@ def rehearse_detached_v48(
          and digest(canonical(rollback_view(original.conn))) == original_hash,
          "ORIGINAL_MOVED_DURING_DETACHED_REHEARSAL")
     return {
-        "schema": "forge.f139.v59.detached-v48-rehearsal.v1",
+        "schema": "forge.f139.v59.detached-v48-rehearsal.v2",
         "target_source_sha": updated["source_sha"],
         "detached_event_head_seq": updated["head_seq"],
         "detached_event_head_sha256": updated["head_hash"],
         "original_head_seq": HEAD_SEQ,
         "original_head_sha256": HEAD_SHA256,
+        # Explicit cross-receipt custody keys: every item is source-derived
+        # and can be compared with independently authenticated backup/CI
+        # receipts. Presence alone never authenticates an owner witness.
+        "original_logical_sha256": original_hash,
+        "detached_prewrite_logical_sha256": copy_hash,
+        "owner_run_id": owner_run_id,
+        "qualified_main_run_id": qualified_main_run_id,
+        "rehearsal_run_id": rehearsal_run_id,
+        "backup_sqlite_sha256": backup_sqlite_sha256,
+        "genenv_executable_sha256": genenv_executable_sha256,
+        "generation_mechanism_sha256": generation_mechanism_sha256,
         "original_mutations": 0,
         "detached_source_transition_verified": True,
         "detached_native_activation_verified": True,

@@ -170,6 +170,13 @@ class V59DetachedSourceTests(unittest.TestCase):
             "schema": v.SCHEMA, "from_source_sha": v.SOURCE,
             "to_source_sha": self.args["target"],
             "backup_sqlite_sha256": self.args["backup_sqlite_sha256"],
+            "owner_run_id": self.args["owner_run_id"],
+            "qualified_main_run_id": self.args["qualified_main_run_id"],
+            "rehearsal_run_id": self.args["rehearsal_run_id"],
+            "genenv_executable_sha256": self.args["genenv_executable_sha256"],
+            "generation_mechanism_sha256": self.args["generation_mechanism_sha256"],
+            "scientific_first_use": False, "new_dispatches": 0,
+            "new_controller": False, "new_scheduler": False, "new_queue": False,
         })
         def activate(copy, approval):
             self.assertIs(copy, self.copy)
@@ -189,6 +196,14 @@ class V59DetachedSourceTests(unittest.TestCase):
             receipt = v.rehearse_detached_v48(
                 self.original, self.copy, **self.args)
         self.assertEqual(receipt["detached_event_head_seq"], v.EVENT_SEQ + 1)
+        self.assertEqual(receipt["schema"], "forge.f139.v59.detached-v48-rehearsal.v2")
+        self.assertEqual(receipt["owner_run_id"], self.run)
+        for field in ("qualified_main_run_id", "rehearsal_run_id",
+                      "backup_sqlite_sha256", "genenv_executable_sha256",
+                      "generation_mechanism_sha256"):
+            self.assertEqual(receipt[field], self.args[field])
+        self.assertEqual(receipt["original_logical_sha256"],
+                         receipt["detached_prewrite_logical_sha256"])
         self.assertEqual(self.copy.meta()["source_sha"], self.args["target"])
         self.assertEqual(self.copy.events,
                          ["SOURCE_TRANSITION_ADMITTED",
@@ -211,6 +226,55 @@ class V59DetachedSourceTests(unittest.TestCase):
                                         "PREWRITE_PROOF_INVALID"):
                 v.rehearse_detached_v48(
                     self.original, self.copy, **self.args)
+        self.assertEqual(self.copy.txns, 0)
+        self.assertEqual(self.original.conn.total_changes, 0)
+
+
+    def test_reject_runner_root_inside_original_owner_tree(self):
+        # The old exact-copy-name check could accept RUNNER_TEMP placed under
+        # the original FORGE-F139 owner directory. Refuse this before writes.
+        inside = self.owner / "injected-runner-temp"
+        inside.mkdir()
+        folder = inside / ("f139-v59-detached-" + str(self.run))
+        folder.mkdir()
+        file = folder / "state.sqlite"
+        file.write_bytes(b"injected-copy")
+        with patch.dict(os.environ, {"RUNNER_TEMP": str(inside)}):
+            self.copy.filename = file
+            with self.assertRaisesRegex(v.V59DetachedRehearsalDenied,
+                                        "ROOT_OVERLAPS_ORIGINAL"):
+                v.require_detached_paths(self.original, self.copy, self.run)
+        self.assertEqual(self.original.filename.read_bytes(), self.prior_original)
+
+    def test_reject_runner_root_ancestor_of_original_owner(self):
+        ancestor = self.root
+        folder = ancestor / ("f139-v59-detached-" + str(self.run))
+        folder.mkdir()
+        file = folder / "state.sqlite"
+        file.write_bytes(b"ancestor-copy")
+        with patch.dict(os.environ, {"RUNNER_TEMP": str(ancestor)}):
+            self.copy.filename = file
+            with self.assertRaisesRegex(v.V59DetachedRehearsalDenied,
+                                        "ROOT_OVERLAPS_ORIGINAL"):
+                v.require_detached_paths(self.original, self.copy, self.run)
+        self.assertEqual(self.original.filename.read_bytes(), self.prior_original)
+
+    def test_reject_detached_proof_with_wrong_owner_or_custody_input(self):
+        pre = {"source_sha": v.SOURCE, "head_seq": v.HEAD_SEQ,
+               "head_sha256": v.HEAD_SHA256}
+        bound = dict.fromkeys(v.FIELDS, False)
+        bound.update({"schema": v.SCHEMA, "from_source_sha": v.SOURCE,
+                      "to_source_sha": self.args["target"],
+                      "backup_sqlite_sha256": self.args["backup_sqlite_sha256"],
+                      "owner_run_id": self.args["owner_run_id"] + 1})
+        with patch.object(v, "audit_frozen_original_readonly", return_value=pre), \
+             patch.object(v, "rollback_view", return_value={"rows": 1}), \
+             patch.object(v, "_read_copy_proof",
+                          return_value=(pre, bound,
+                                        v.digest(v.canonical({"rows": 1})))):
+            with self.assertRaisesRegex(v.V59DetachedRehearsalDenied,
+                                        "PREWRITE_PROOF_INVALID"):
+                v.rehearse_detached_v48(self.original, self.copy, **self.args)
         self.assertEqual(self.copy.txns, 0)
         self.assertEqual(self.original.conn.total_changes, 0)
 
