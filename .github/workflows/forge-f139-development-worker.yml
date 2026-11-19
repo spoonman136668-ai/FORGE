@@ -53,7 +53,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   execute:
-    if: ${{ !startsWith(inputs.ticket, 'f139-nci04-') }}
+    # Non-D2K advisory unchanged; D2K uses a separate secret-free process VM.
+    if: ${{ !startsWith(inputs.ticket, 'f139-nci04-') && !startsWith(inputs.ticket, 'f139-d2k-') }}
     strategy:
       fail-fast: false
       matrix:
@@ -120,34 +121,6 @@ jobs:
           Write-Host 'F139_BOUNDED_REAL_CPU_DEVELOPMENT=PASS'
           Write-Host 'F139_AUTONOMOUS_DEV_EXECUTION_POINT=PASS'
           Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
-      - name: Execute bounded authenticated D2K package diagnostic
-        if: ${{ startsWith(inputs.ticket, 'f139-d2k-') }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $folder = Join-Path $env:RUNNER_TEMP 'f139-development'
-          New-Item -ItemType Directory -Path $folder -Force | Out-Null
-          $diagnostic = Join-Path $folder 'f139-diagnostic.json'
-          python -B -m f139.issue_diagnostic --output $diagnostic
-          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_DIAGNOSTIC_FAILED_CLOSED' }
-          python -B -m f139.verify_ticket --diagnostic $diagnostic --output-dir $folder
-          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_RECEIPT_FAILED_CLOSED' }
-          # The existing signed issue authorizes this bounded *development* run.
-          # It does not alter the D2K diagnostic receipt or grant scientific use.
-          $generation = [int](([long]$env:GITHUB_RUN_ID % 100000) + 1)
-          python -B -m f139.dev_learning --lane $env:F139_LANE --generation $generation --source-sha $env:GITHUB_SHA --output (Join-Path $folder 'f139-dev-learning.json')
-          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_PRIVATE_DEV_LEARNING_FAILED' }
-          $proof = Get-Content -Raw -LiteralPath (Join-Path $folder 'f139-dev-learning.json') | ConvertFrom-Json
-          if ($proof.schema -cne 'forge.f139.private-cognition-development.v1' -or
-              $proof.source_sha -cne $env:GITHUB_SHA -or
-              -not $proof.real_cpu_training_executed -or
-              $proof.protected_first_use -or $proof.scientific_originals_dispatched -ne 0 -or
-              $proof.optimizer_policy_mutations -ne 0 -or $proof.paid_api_calls -ne 0) {
-              throw 'F139_D2K_DEV_EVIDENCE_INVALID'
-          }
-          Write-Host 'F139_D2K_SOURCE_BOUND_DIAGNOSTIC=PASS'
-          Write-Host 'F139_D2K_REAL_DEV_CPU_TRAINING=PASS'
-          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -169,6 +142,196 @@ jobs:
           if-no-files-found: error
           retention-days: 21
 
+
+
+  d2k-admit:
+    # HMAC-only authorization on a separate ephemeral GitHub-hosted VM.
+    if: ${{ startsWith(inputs.ticket, 'f139-d2k-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      authorization: ${{ steps.admit.outputs.authorization }}
+    env:
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_EPOCH: ${{ inputs.epoch }}
+      F139_SIGNATURE: ${{ inputs.signature }}
+      F139_RUNNER_OS: ubuntu-latest
+      F139_ISSUE_NUMBER: ${{ inputs.issue_number }}
+      F139_ISSUE_ID: ${{ inputs.issue_id }}
+      F139_BODY_SHA256: ${{ inputs.body_sha256 }}
+      F139_TARGET_PACKAGE: ${{ inputs.target_package }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate signed original D2K ticket and return bound job receipt
+        id: admit
+        shell: pwsh
+        env:
+          F139_WORKER_HMAC_KEY: ${{ secrets.F139_WORKER_HMAC_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $claim = & python -B -m f139.d2k_job_claim authorize
+          if ($LASTEXITCODE -ne 0 -or @($claim).Count -ne 1 -or $claim -cnotmatch '^[a-f0-9]{64}$') {
+            throw 'F139_D2K_ORIGINAL_SIGNED_ADMISSION_REJECTED'
+          }
+          "authorization=$claim" >> $env:GITHUB_OUTPUT
+          Write-Host 'F139_D2K_ORIGINAL_TICKET=VERIFIED'
+          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+
+  d2k-execute:
+    # Existing workflow endpoint; credential-free source-run on separate OS VMs.
+    needs: d2k-admit
+    if: ${{ startsWith(inputs.ticket, 'f139-d2k-') && needs.d2k-admit.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_EPOCH: ${{ inputs.epoch }}
+      F139_SIGNATURE: ${{ inputs.signature }}
+      F139_RUNNER_OS: ${{ matrix.os }}
+      F139_ISSUE_NUMBER: ${{ inputs.issue_number }}
+      F139_ISSUE_ID: ${{ inputs.issue_id }}
+      F139_BODY_SHA256: ${{ inputs.body_sha256 }}
+      F139_TARGET_PACKAGE: ${{ inputs.target_package }}
+      F139_D2K_AUTHORIZATION_SHA256: ${{ needs.d2k-admit.outputs.authorization }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original admission without HMAC or other credentials
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:F139_WORKER_HMAC_KEY -or $env:GH_TOKEN -or
+              $env:GITHUB_TOKEN -or $env:OPENAI_API_KEY) {
+            throw 'F139_D2K_SOURCE_JOB_CREDENTIAL_EXPOSURE'
+          }
+          python -B -m f139.d2k_job_claim verify
+          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_TRUSTED_ADMISSION_OUTPUT_REJECTED' }
+      - name: Execute bounded authenticated D2K package diagnostic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:RUNNER_TEMP 'f139-development'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          $diagnostic = Join-Path $folder 'f139-diagnostic.json'
+          python -B -m f139.issue_diagnostic --output $diagnostic
+          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_DIAGNOSTIC_FAILED_CLOSED' }
+          # The existing signed issue authorizes this bounded *development* run.
+          # It does not alter the D2K diagnostic receipt or grant scientific use.
+          $generation = [int](([long]$env:GITHUB_RUN_ID % 100000) + 1)
+          python -B -m f139.dev_learning --lane $env:F139_LANE --generation $generation --source-sha $env:GITHUB_SHA --output (Join-Path $folder 'f139-dev-learning.json')
+          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_PRIVATE_DEV_LEARNING_FAILED' }
+          $proof = Get-Content -Raw -LiteralPath (Join-Path $folder 'f139-dev-learning.json') | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.f139.private-cognition-development.v1' -or
+              $proof.source_sha -cne $env:GITHUB_SHA -or
+              -not $proof.real_cpu_training_executed -or
+              $proof.protected_first_use -or $proof.scientific_originals_dispatched -ne 0 -or
+              $proof.optimizer_policy_mutations -ne 0 -or $proof.paid_api_calls -ne 0) {
+              throw 'F139_D2K_DEV_EVIDENCE_INVALID'
+          }
+          Write-Host 'F139_D2K_CREDENTIAL_FREE_SOURCE_DIAGNOSTIC=PASS'
+          Write-Host 'F139_D2K_REAL_DEV_CPU_TRAINING=PASS'
+          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f139-d2k-raw-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-development/f139-diagnostic.json
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f139-cpu-development-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-development/f139-dev-learning.json
+          if-no-files-found: error
+          retention-days: 21
+
+  d2k-receipt:
+    # Isolated HMAC-bearing receipt parser never runs diagnostic Go source.
+    needs: [d2k-admit, d2k-execute]
+    if: ${{ startsWith(inputs.ticket, 'f139-d2k-') && needs.d2k-admit.result == 'success' && needs.d2k-execute.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_EPOCH: ${{ inputs.epoch }}
+      F139_SIGNATURE: ${{ inputs.signature }}
+      F139_RUNNER_OS: ${{ matrix.os }}
+      F139_ISSUE_NUMBER: ${{ inputs.issue_number }}
+      F139_ISSUE_ID: ${{ inputs.issue_id }}
+      F139_BODY_SHA256: ${{ inputs.body_sha256 }}
+      F139_TARGET_PACKAGE: ${{ inputs.target_package }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-f139-d2k-raw-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-development
+      - name: Verify signed source receipt without executing diagnostic Go
+        shell: pwsh
+        env:
+          F139_WORKER_HMAC_KEY: ${{ secrets.F139_WORKER_HMAC_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:RUNNER_TEMP 'f139-development'
+          $diagnostic = Join-Path $folder 'f139-diagnostic.json'
+          if (-not (Test-Path -LiteralPath $diagnostic -PathType Leaf)) {
+            throw 'F139_D2K_SOURCE_DIAGNOSTIC_MISSING'
+          }
+          python -B -m f139.verify_ticket --diagnostic $diagnostic --output-dir $folder
+          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_SIGNED_RECEIPT_REJECTED' }
+          Write-Host 'F139_D2K_ORIGINAL_SIGNED_RECEIPT=VERIFIED'
+          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f139-dev-receipt-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f139-development/f139-receipt.json
+            ${{ runner.temp }}/f139-development/f139-receipt.sha256
+            ${{ runner.temp }}/f139-development/f139-diagnostic.json
+          if-no-files-found: error
+          retention-days: 90
 
   native-authorize:
     # Existing single F139 workflow endpoint. Secret never enters native code.
