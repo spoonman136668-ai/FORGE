@@ -99,8 +99,11 @@ def read_yggdrasil_research_boundary(get: Callable[[str], object]) -> dict:
              and pr.get("merged_at") is None
              and isinstance(pr.get("head"), dict)
              and pr["head"].get("sha") == expected
-             and pr["head"].get("repo", {}).get("full_name") == YGG
-             and pr.get("base", {}).get("repo", {}).get("full_name") == YGG,
+             and isinstance(pr["head"].get("repo"), dict)
+             and pr["head"]["repo"].get("full_name") == YGG
+             and isinstance(pr.get("base"), dict)
+             and isinstance(pr["base"].get("repo"), dict)
+             and pr["base"]["repo"].get("full_name") == YGG,
              "DRAFT_RESEARCH_OWNER_OR_HEAD_DRIFT")
         compare = get(BASE + "/compare/" + ACCEPTED + "..." + expected)
         need(isinstance(compare, dict)
@@ -205,7 +208,15 @@ def preflight_new_yggdrasil_development_issue(
              "worker_dispatched",
          }
          and research_boundary["schema"] == RECEIPT_SCHEMA
+         and research_boundary["repository"] == YGG
          and research_boundary["accepted_main_source_sha"] == ACCEPTED
+         and research_boundary["accepted_native_path"] == ACCEPTED_NATIVE_PATH
+         and research_boundary["accepted_native_blob_sha"] == ACCEPTED_NATIVE_BLOB
+         and research_boundary["amalgam_pr"] == AMALGAM_PR
+         and research_boundary["lineage_pr"] == LINEAGE_PR
+         and type(research_boundary["lineage_archived_receipt_sha256"]) is str
+         and SHA64.fullmatch(
+             research_boundary["lineage_archived_receipt_sha256"]) is not None
          and research_boundary["amalgam_draft_head_sha"] == AMALGAM_HEAD
          and research_boundary["lineage_draft_head_sha"] == LINEAGE_HEAD
          and research_boundary["lineage_archived_receipt_blob_sha"] ==
