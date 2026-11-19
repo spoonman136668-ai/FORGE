@@ -62,10 +62,12 @@ class V59OriginalReadOnlyWorkflowScopeTests(unittest.TestCase):
         self.assertIn(BASE,s145)
         self.assertIn(TREE,s145)
         self.assertIn("V59_READONLY_WORKFLOW_BLOB",s145)
-        self.assertIn(BRANCH,s148)
-        self.assertIn(BRANCH,s156)
-        self.assertIn(BASE,s156)
-        self.assertIn(TREE,s156)
+        # These guards import the frozen branch/base/tree symbols instead
+        # of copying literal values. Keep their shared names intact.
+        self.assertIn("V59_READONLY_BRANCH",s148)
+        self.assertIn("V59_READONLY_BRANCH",s156)
+        self.assertIn("V59_READONLY_BASE",s156)
+        self.assertIn("V59_READONLY_BASE_TREE",s156)
 
 if __name__=="__main__":
     unittest.main()
