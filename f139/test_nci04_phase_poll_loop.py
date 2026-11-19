@@ -221,10 +221,44 @@ class OriginalLoopPhaseCommentTests(unittest.TestCase):
                             cli(["--db", str(path), "loop",
                                  "--seconds", "45",
                                  "--phase-comment-poll-every", "5"])
-                        self.assertIn("manual_mode_committed", err.getvalue())
+                        self.assertIn('"manual_request_admitted": false',
+                                      err.getvalue())
                     self.assertEqual(
                         [x.get("scan_pending_phase_comments", False)
                          for x in seen], [True, False])
+        finally:
+            tmp.cleanup()
+
+    def test_generic_original_controller_error_keeps_old_log_contract(self):
+        import io
+        tmp, path, db = self.fixture()
+        db.close()
+
+        class StopLoop(Exception):
+            pass
+
+        seen = []
+
+        def fake_tick(*args, **kwargs):
+            seen.append(kwargs)
+            if len(seen) == 1:
+                raise F139Error("F139_EXISTING_UNRELATED_ERROR")
+            raise StopLoop()
+
+        try:
+            with patch("f139.local_controller.run_once",
+                       side_effect=fake_tick), \
+                 patch("f139.local_controller.time.sleep",
+                       return_value=None), \
+                 patch("f139.local_controller.sys.stderr",
+                       io.StringIO()) as err:
+                with self.assertRaises(StopLoop):
+                    cli(["--db", str(path), "loop", "--seconds", "45",
+                         "--phase-comment-poll-every", "5"])
+                logged = err.getvalue()
+                self.assertIn("F139_EXISTING_UNRELATED_ERROR", logged)
+                self.assertNotIn("manual_request_admitted", logged)
+                self.assertNotIn("manual_mode_committed", logged)
         finally:
             tmp.cleanup()
 

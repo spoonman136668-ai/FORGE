@@ -6573,14 +6573,20 @@ def cli(argv=None):
                             result=run_once(db,GitHub(),args.db,
                                 os.environ.get("F139_WORKER_HMAC_KEY",""))
                         print(json.dumps({"at":utc_now(),**result},sort_keys=True),flush=True)
-                except (F139Error, PhaseCommentReadDenied,
+                except (PhaseCommentReadDenied,
                         OriginalModeAdmissionDenied) as exc:
-                    # A malicious/stale GitHub comment fails only this tick.
-                    # The owner can continue normal reconciliation on the
-                    # next tick; no extra intake happens in the failed tick.
+                    # These denials happen before admission (or roll back
+                    # inside SQLite transaction). Do not retry this tick.
                     print(json.dumps({"at":utc_now(),"blocked":str(exc),
                                       "science_authorized":False,
-                                      "manual_mode_committed":False}),
+                                      "manual_request_admitted":False}),
+                          file=sys.stderr,flush=True)
+                except F139Error as exc:
+                    # Preserve historical error semantics: an unrelated
+                    # downstream failure does not prove that an earlier
+                    # mode append did or did not commit.
+                    print(json.dumps({"at":utc_now(),"blocked":str(exc),
+                                      "science_authorized":False}),
                           file=sys.stderr,flush=True)
                 time.sleep(args.seconds)
         print(json.dumps({"status":db.status()},default=str,sort_keys=True) if args.verb=="status" else "F139_COMMAND_COMPLETE")
