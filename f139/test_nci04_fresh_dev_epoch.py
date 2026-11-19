@@ -35,6 +35,11 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         x.close()
         self.orig = Database.open_readonly(self.old)
         self.addCleanup(self.orig.close)
+        # open_readonly intentionally resolves the original SQLite path.
+        # Windows temporary-directory aliases need its canonical root when
+        # constructing the same-owner, sibling archive identity.
+        self.root = self.orig.filename.parent
+        self.old = self.orig.filename
         self.before_old_hash = hash_file(self.old)
         self.archive = self.root / ("f139-v59-before-" + str(RUN))
         self.archive.mkdir()
