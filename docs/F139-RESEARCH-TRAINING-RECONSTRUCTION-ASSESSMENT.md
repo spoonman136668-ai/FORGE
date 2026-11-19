@@ -38,3 +38,15 @@ Manual lane selection cannot silently redirect to another lane. `FORGE-self` is 
 6. **Exact-source qualification and measured autonomy:** focused/negative/interface tests; mandatory final full Linux/Windows regression and build; separately authorized live-owner acceptance with real research→training→evaluate→Forge-self engineering→research progression, persisted native state and measured time/cost. Engineering PASS is not scientific improvement.
 
 **Architecture decision:** reconstruct the owner-facing intake/selection seam incrementally, *not* wipe databases/checkpoints, restart independent research, copy CKB-plane, or replace the original F139 owner. Nothing here authorizes deployment or original scientific first-use.
+
+## Next gate: source/epoch-bound manual intent (inert)
+
+`f139/nci04_phase_manual_intent.py` defines an exact, bounded `F139-STEER-V1 ` GitHub issue-comment shape **for future authenticated operator steering** on the already-existing F139 policy issue #807. It permits only `AUTO | RESEARCH | TRAIN | SELF_IMPROVE | HOLD`; only native research/training/auto modes may specify a native model lane. The body is tightly allowlisted with `schema`, `owner_source_sha`, `owner_epoch`, `mode`, `lane`; additional execution/first-use/merge fields are invalid.
+
+The helper rejects a wrong issue, GitHub metadata with a non-owner identity, edited comments, malformed or duplicate-key JSON, source or owner epoch drift, and pre-consumed comment IDs. It returns only a read-only candidate and its body SHA-256, **never** an accepted control instruction, a dispatch, a scientific authorization, a stored mode, or a change to any in-flight work. The test fixture `f139/test_nci04_phase_manual_intent.py` uses synthetic metadata and exercises failure cases; it cannot prove remote author identity.
+
+Before runtime consumption, the **existing** F139 SingleOwner must independently authenticate the GitHub response, current issue identity, original installed owner source, protected main, real owner epoch, comment order and complete replay history from its verified SQLite chain, and atomically record accepted mode transitions under the original owner lock. Do not trust a caller-supplied `consumed_comment_ids` set as proof, and do not infer AUTO from missing/unreachable comments when a persisted manual HOLD could exist. The existing owner controls all decisions; no new control plane, GitHub Actions-triggered dispatch, secret, task or policy mutation is introduced in this PR.
+
+### Prerequisite to activating a mode
+
+Manual intent only determines the **requested priority**. Every selected RESEARCH, TRAIN or SELF_IMPROVE candidate still requires its independently verified original lane/source credentials and eligibility. HOLD prevents **new** owner admissions only; it does not revoke existing leases or abandon already-started work. Source changes, missing comments, missing owner readback, ambiguous effects and scientific first-use stay fail closed. Full final exact-head Linux/Windows regression, required source admission, controlled dry-run and separate original-owner acceptance are required before merge and deployment.
