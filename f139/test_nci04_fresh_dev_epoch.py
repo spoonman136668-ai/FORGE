@@ -77,7 +77,17 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         self.verifier = patch(
             PREFIX + ".verify_original_cold_backup",
             return_value=self.verified)
-        for p in (self.locks, self.auditor, self.verifier):
+        self.exclusions = {
+            "schema": "forge.f139.fresh-development-consumed-exclusions.v1",
+            "source_sha": SOURCE, "original_head_seq": HEAD_SEQ,
+            "original_head_sha256": HEAD_SHA256,
+            "old_issue_numbers": [687], "old_tickets": ["prior-ticket"],
+            "release_qualified": False, "fresh_activation_authorized": False,
+        }
+        self.history = patch(
+            PREFIX + ".freeze_original_exclusions",
+            return_value=self.exclusions)
+        for p in (self.locks, self.auditor, self.verifier, self.history):
             p.start()
             self.addCleanup(p.stop)
 
@@ -129,6 +139,28 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         receipt = json.loads(disk)
         self.assertEqual(disk, canonical(receipt))
         self.assertFalse(receipt["owner_task_rebind_authorized"])
+        prior = (self.fresh() / "consumed-development-identities.json")
+        self.assertEqual(prior.read_bytes(), canonical(self.exclusions))
+        from f139.nci04_native_contract import digest
+        self.assertEqual(receipt["historical_consumed_exclusions_sha256"],
+                         digest(prior.read_bytes()))
+        self.assertFalse(json.loads(prior.read_bytes())["release_qualified"])
+
+    def test_unqualified_history_never_creates_fresh(self):
+        with patch(PREFIX + ".freeze_original_exclusions",
+                   return_value={**self.exclusions,
+                                 "fresh_activation_authorized": True}):
+            with self.assertRaisesRegex(FreshDevelopmentDenied,
+                                        "CONSUMED_HISTORY_NOT_FROZEN"):
+                self.prepare()
+        self.assertFalse(self.fresh().exists())
+
+    def test_history_freezer_failure_never_creates_fresh(self):
+        with patch(PREFIX + ".freeze_original_exclusions",
+                   side_effect=ValueError("F139_OLD_CUSTODY_MISSING")):
+            with self.assertRaisesRegex(ValueError, "OLD_CUSTODY_MISSING"):
+                self.prepare()
+        self.assertFalse(self.fresh().exists())
 
     def test_second_prepare_denied_without_overwrite(self):
         first = self.prepare()
