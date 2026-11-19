@@ -109,6 +109,37 @@ class OriginalPhaseIntakeSeamTests(unittest.TestCase):
             db.close()
             temp.cleanup()
 
+    def test_auto_and_unscoped_research_use_only_existing_owner_intake(self):
+        for mode in ("AUTO", "RESEARCH"):
+            with self.subTest(mode=mode):
+                temp, path, db = self.fixture(mode)
+                try:
+                    p = FakeReadOnlyProvider()
+                    with SingleOwner(path.with_suffix(".lock")):
+                        report = self.invoke(db, path, p)
+                    self.assertEqual(report["disposition"],
+                                     "QUEUE_EMPTY_NO_SCIENCE")
+                    self.assertEqual(p.events, ["protected_main"])
+                    self.assertEqual(db.conn.execute(
+                        "SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
+                finally:
+                    db.close()
+                    temp.cleanup()
+
+    def test_lane_pinned_auto_does_not_dispatch_unrelated_research(self):
+        temp, path, db = self.fixture("AUTO", "Wingless")
+        try:
+            p = FakeReadOnlyProvider()
+            with SingleOwner(path.with_suffix(".lock")):
+                report = self.invoke(db, path, p)
+            self.assertEqual(report["disposition"],
+                             "PHASE_LANE_SCOPING_NOT_QUALIFIED")
+            self.assertEqual(report["lane"], "Wingless")
+            self.assertEqual(p.events, ["protected_main"])
+        finally:
+            db.close()
+            temp.cleanup()
+
     def test_existing_ready_ticket_continues_under_hold_without_new_admission(self):
         temp, path, db = self.fixture("HOLD", ready=True)
         try:
