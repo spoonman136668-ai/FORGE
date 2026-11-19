@@ -11,7 +11,8 @@ from f139.nci04_phase_comment_read import (
     inspect_original_owner_pending_intents,
 )
 from f139.nci04_phase_mode_replay import KIND
-from f139.test_nci04_phase_comment_read import provider, steering, SOURCE
+from f139.test_nci04_phase_comment_read import provider, SOURCE
+from f139.test_nci04_phase_manual_intent import comment, intent
 from f139.test_nci04_phase_mode_replay import admission
 
 
@@ -21,12 +22,20 @@ def read(db, path, provider_, *, source=SOURCE):
         protected_main_sha=source)
 
 
+def owner_comment(comment_id=111, mode="HOLD"):
+    # Database.initialize creates epoch=1; do not weaken the authenticated
+    # request's strict source/epoch match to make a fixture pass.
+    raw = comment(intent(mode=mode, source=SOURCE, epoch=1))
+    raw["id"] = comment_id
+    return raw
+
+
 class OriginalOwnerPhaseCommentReadTests(unittest.TestCase):
     def test_original_lock_and_cold_database_read_do_not_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state.sqlite"
             db = Database.initialize(path, SOURCE)
-            p, calls = provider()
+            p, calls = provider(pages=[[owner_comment()]])
             try:
                 old = db.meta()
                 with SingleOwner(path.with_suffix(".lock")):
@@ -52,8 +61,8 @@ class OriginalOwnerPhaseCommentReadTests(unittest.TestCase):
                         mode="HOLD", comment_id=110,
                         prior=db.meta()["head_hash"]))
                 db.verify()
-                p, _ = provider(pages=[[steering(110),
-                                        steering(111, "AUTO")]])
+                p, _ = provider(pages=[[owner_comment(110),
+                                        owner_comment(111, "AUTO")]])
                 with SingleOwner(path.with_suffix(".lock")):
                     result = read(db, path, p)
                 self.assertEqual(result["last_persisted_mode"], "HOLD")
@@ -95,7 +104,7 @@ class OriginalOwnerPhaseCommentReadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state.sqlite"
             db = Database.initialize(path, SOURCE)
-            p, calls = provider()
+            p, calls = provider(pages=[[owner_comment()]])
             original_runner = p.runner
             once = [False]
 
