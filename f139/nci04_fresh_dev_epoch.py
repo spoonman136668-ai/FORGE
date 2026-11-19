@@ -128,7 +128,7 @@ def prepare_inert_epoch(
          "ARCHIVE_INVENTORY_DRIFT")
     for relative, wanted in files.items():
         need(type(relative) is str and relative != "manifest.sha256.json"
-             and "\\\\" not in relative and ":" not in relative
+             and "\\" not in relative and ":" not in relative
              and all(part not in ("", ".", "..") for part in relative.split("/"))
              and type(wanted) is str and SHA64.fullmatch(wanted) is not None,
              "ARCHIVE_FILE_IDENTITY_INVALID")
