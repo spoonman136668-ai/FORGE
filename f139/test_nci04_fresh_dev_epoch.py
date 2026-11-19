@@ -87,7 +87,21 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         self.history = patch(
             PREFIX + ".freeze_original_exclusions",
             return_value=self.exclusions)
-        for p in (self.locks, self.auditor, self.verifier, self.history):
+        from f139.nci04_fresh_yggdrasil_boundary import (
+            ACCEPTED, AMALGAM_HEAD, LINEAGE_HEAD,
+        )
+        self.lineage = {
+            "accepted_main_source_sha": ACCEPTED,
+            "amalgam_draft_head_sha": AMALGAM_HEAD,
+            "lineage_draft_head_sha": LINEAGE_HEAD,
+            "checkpoint_imported": False,
+            "model_continuation_authorized": False,
+            "release_qualified": False,
+        }
+        self.ygg = patch(
+            PREFIX + ".read_yggdrasil_research_boundary",
+            return_value=self.lineage)
+        for p in (self.locks, self.auditor, self.verifier, self.history, self.ygg):
             p.start()
             self.addCleanup(p.stop)
 
@@ -98,6 +112,7 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         arguments = {
             "target": TARGET, "owner_run_id": RUN,
             "task_quiescence_witness": lambda: True,
+            "yggdrasil_readonly_get": lambda route: {},
         }
         arguments.update(kw)
         return prepare_inert_epoch(self.orig, self.archive, **arguments)
@@ -145,6 +160,30 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         self.assertEqual(receipt["historical_consumed_exclusions_sha256"],
                          digest(prior.read_bytes()))
         self.assertFalse(json.loads(prior.read_bytes())["release_qualified"])
+        ygg = (self.fresh() / "yggdrasil-research-lineage.json")
+        self.assertEqual(ygg.read_bytes(), canonical(self.lineage))
+        self.assertEqual(receipt["yggdrasil_research_boundary_sha256"],
+                         digest(ygg.read_bytes()))
+        self.assertEqual(
+            receipt["yggdrasil_accepted_main_sha"],
+            self.lineage["accepted_main_source_sha"])
+        self.assertFalse(receipt["yggdrasil_checkpoint_imported"])
+        self.assertFalse(receipt["yggdrasil_owner_continuation_authorized"])
+
+    def test_missing_yggdrasil_reader_never_stages_state(self):
+        with self.assertRaisesRegex(FreshDevelopmentDenied,
+                                    "YGGDRASIL_GITHUB_READONLY_READER_REQUIRED"):
+            self.prepare(yggdrasil_readonly_get=None)
+        self.assertFalse(self.fresh().exists())
+
+    def test_research_draft_reclassified_as_accepted_denies_state(self):
+        with patch(PREFIX + ".read_yggdrasil_research_boundary",
+                   return_value={
+                       **self.lineage, "checkpoint_imported": True}):
+            with self.assertRaisesRegex(FreshDevelopmentDenied,
+                                        "YGGDRASIL_MODEL_OR_SOURCE_CUSTODY_INVALID"):
+                self.prepare()
+        self.assertFalse(self.fresh().exists())
 
     def test_unqualified_history_never_creates_fresh(self):
         with patch(PREFIX + ".freeze_original_exclusions",
