@@ -270,6 +270,10 @@ class FreshCutoverFloorTests(unittest.TestCase):
                 "ISSUE_DETAIL_RACE_OR_IDENTITY_DRIFT",
                 get=changed_detail)
             self.issue = original
+        # The preceding negative already consumed a first-page read.
+        # Model a *new* cutover attempt: first index is unchanged, while
+        # the second index read moves after the exact detail GET.
+        self.reads = 0
         self.mutator = {**self.issue, "id": self.issue["id"] + 1}
         self.assert_prewrite_failure(
             "ISSUE_CATALOG_MOVED_DURING_CUTOVER_READ")
