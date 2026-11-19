@@ -4848,9 +4848,51 @@ def admit_original_phase_once_canonical(db, api, db_path: Path, *,
             canonical_db.close()
 
 
+def phase_comment_poll_due(cycle: int, every: int) -> bool:
+    """Pure cadence within the EXISTING owner loop; zero disables all GETs."""
+    require(type(cycle) is int and cycle >= 0
+            and type(every) is int
+            and (every == 0 or 5 <= every <= 240),
+            "PHASE_COMMENT_POLL_FREQUENCY_UNQUALIFIED")
+    return every > 0 and cycle % every == 0
+
+
+def discover_original_phase_candidate_canonical(db, api, db_path: Path, *,
+                                                 protected_main_sha: str):
+    """GET-only admission preview under the original F139 owner mutex.
+
+    Reopens the exact SQLite ledger only to normalize legacy __main__
+    class identity; always leaves selected comment unconsumed. The writer
+    independently rechecks the entire original issue/comment/policy history.
+    """
+    from f139.local_controller import (
+        Database as CanonicalDatabase, GitHub as CanonicalGitHub)
+    from f139.nci04_phase_comment_read import (
+        inspect_original_owner_pending_intents)
+    path = Path(db_path).resolve(strict=True)
+    require(Path(db.filename).resolve(strict=True) == path
+            and SingleOwner.held(path.with_suffix(".lock")),
+            "PHASE_COMMENT_ORIGINAL_OWNER_LOCK_REQUIRED")
+    canonical_db = (db if type(db) is CanonicalDatabase
+                    else CanonicalDatabase(path))
+    fresh_handle = canonical_db is not db
+    canonical_api = (api if type(api) is CanonicalGitHub
+                     else CanonicalGitHub())
+    try:
+        report = inspect_original_owner_pending_intents(
+            db=canonical_db, db_path=path, provider=canonical_api,
+            protected_main_sha=protected_main_sha)
+        pending = report["pending"]
+        return pending[0]["comment_id"] if pending else None
+    finally:
+        if fresh_handle:
+            canonical_db.close()
+
+
 def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *,
              now=None, manual_phase_comment_id=None,
-             expected_phase_head_sha256=None):
+             expected_phase_head_sha256=None,
+             scan_pending_phase_comments=False):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
     # Existing scheduled loop passes neither argument, preserving exact
@@ -4865,6 +4907,9 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *,
                 and re.fullmatch(r"[0-9a-f]{64}",
                                  expected_phase_head_sha256) is not None),
             "PHASE_MANUAL_EXPLICIT_PAIR_REQUIRED")
+    require(type(scan_pending_phase_comments) is bool
+            and not (scan_pending_phase_comments and manual_phase),
+            "PHASE_COMMENT_SCAN_INCOMPATIBLE_WITH_EXPLICIT_PAIR")
     db.verify()
     from f139.nci04_owner_ledger import verify_native_activation
     # Original Tick/Loop now recognizes only a genuine append-only owner
@@ -5020,6 +5065,18 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *,
                 "protected_main_sha":protected_now,
                 "active_tickets":[row["ticket"] for row in remaining],
                 "scientific_first_use":False}
+    if scan_pending_phase_comments:
+        # Optional single-owner poll. NEVER enabled by the default CLI.
+        # Inspect only via provider GET, without adding a second loop or
+        # dispatcher; admission still requires a fresh exact-comment GET
+        # and the real original Windows running-owner witness.
+        pending_id = discover_original_phase_candidate_canonical(
+            db, api, db_path, protected_main_sha=protected_now)
+        if pending_id is not None:
+            admit_original_phase_once_canonical(
+                db, api, db_path, comment_id=pending_id,
+                expected_head_sha256=db.meta()["head_hash"])
+            db.verify()
     if manual_phase:
         # Existing in-flight provider effects have ALREADY been reconciled.
         # A genuine original Windows running-owner witness and a fresh,
@@ -5373,6 +5430,9 @@ def cli(argv=None):
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
     loop=sub.add_parser("loop");loop.add_argument("--seconds",type=int,default=45)
+    # Opt-in ONLY for the existing F139 owner loop, never a new task/runner.
+    # Zero means no issue-comment GETs; no active operator deployment here.
+    loop.add_argument("--phase-comment-poll-every",type=int,default=0)
     args=parser.parse_args(argv)
     if args.verb=="init":
         db=Database.initialize(args.db,args.source_sha)
@@ -6490,10 +6550,23 @@ def cli(argv=None):
                 print(json.dumps(result,sort_keys=True))
         elif args.verb=="loop":
             require(15<=args.seconds<=300,"POLL_FREQUENCY_UNSAFE")
+            # Existing owner loop cadence, opt-in only; no new scheduler,
+            # scheduled task, periodic worker or alternate lock authority.
+            phase_comment_poll_due(0,args.phase_comment_poll_every)
+            cycle=0
             while True:
+                due=phase_comment_poll_due(cycle,args.phase_comment_poll_every)
+                cycle+=1
                 try:
                     with SingleOwner(args.db.with_suffix(".lock")):
-                        result=run_once(db,GitHub(),args.db,os.environ.get("F139_WORKER_HMAC_KEY",""))
+                        if due:
+                            result=run_once(
+                                db,GitHub(),args.db,
+                                os.environ.get("F139_WORKER_HMAC_KEY",""),
+                                scan_pending_phase_comments=True)
+                        else:
+                            result=run_once(db,GitHub(),args.db,
+                                os.environ.get("F139_WORKER_HMAC_KEY",""))
                         print(json.dumps({"at":utc_now(),**result},sort_keys=True),flush=True)
                 except F139Error as exc:
                     print(json.dumps({"at":utc_now(),"blocked":str(exc),"science_authorized":False}),
