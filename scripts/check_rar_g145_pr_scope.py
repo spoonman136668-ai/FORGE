@@ -360,6 +360,7 @@ FROZEN_SCOPES = {
         {
             ".github/workflows/f139-g54-v9-owner-cutover.yml",
             "f139/test_nci04_v58_model_free_status_projection.py",
+            "f139/test_v40_readonly_workflow_scope.py",
             "docs/F139-V58-MODEL-FREE-STATUS-READONLY.md",
             "scripts/check_rar_g145_pr_scope.py",
             "scripts/check_rar_g148_go_cache.py",
