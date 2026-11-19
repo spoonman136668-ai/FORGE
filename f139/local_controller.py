@@ -2008,6 +2008,22 @@ class Database:
         # Preserve RSI R12-G verification while cold-auditing Hybrid tasks.
         from f139.hybrid_owner_admission import audit_hybrid_lane
         audit_hybrid_lane(self)
+        # Future mode admissions are part of the SAME original event chain.
+        # Cold verification rejects forged/stale manual HOLD and mode replay
+        # even when a reader never calls the optional steering preview.
+        from f139.nci04_phase_mode_replay import (
+            KIND as PHASE_KIND, project_verified_events)
+        phase_rows = list(self.conn.execute(
+            "SELECT seq,prior_sha,sha,payload FROM events "
+            "WHERE kind=? ORDER BY seq", (PHASE_KIND,)))
+        if phase_rows:
+            project_verified_events(
+                events=tuple({
+                    "seq": row["seq"], "prior_sha": row["prior_sha"],
+                    "sha": row["sha"], "payload": json.loads(row["payload"]),
+                } for row in phase_rows),
+                current_source_sha=meta["source_sha"],
+                current_epoch=meta["epoch"])
 
     @contextlib.contextmanager
     def transaction(self):
@@ -4953,6 +4969,23 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                     remaining[0]["ticket"],"WORKER_RUNNING_NO_REDISPATCH"),
                 "ticket":remaining[0]["ticket"]}
     ready=db.ready()
+    if (ready is None and db.conn.execute(
+            "SELECT 1 FROM events WHERE kind='PHASE_MODE_ADMITTED' "
+            "LIMIT 1").fetchone() is not None):
+        # Reconcile existing workers FIRST, then consult the original
+        # persistent manual mode at the existing new-admission boundary.
+        # A committed HOLD cannot disappear on restart; unsupported native
+        # TRAIN/SELF_IMPROVE modes are never mistaken for research permits.
+        from f139.nci04_phase_mode_replay import (
+            gate_original_owner_new_admissions)
+        phase = gate_original_owner_new_admissions(
+            db=db, db_path=db_path, protected_main_sha=protected_now)
+        if not phase["allow_existing_intake"]:
+            return {"disposition": phase["disposition"],
+                    "mode": phase["mode"], "lane": phase["lane"],
+                    "last_mode_event_seq": phase["last_mode_event_seq"],
+                    "scientific_first_use": False,
+                    "worker_dispatched": False, "self_source_mutation": False}
     if ready is None and db.admit_d2j_succession():
         ready=db.ready()
     if ready is None and db.active() is None and db.meta()["head_seq"] >= 23:
