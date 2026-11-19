@@ -16,7 +16,9 @@ from f139.nci04_native_contract import canonical, digest
 from f139.nci04_v59_owner_forward_readiness import (
     SOURCE, HEAD_SEQ, HEAD_SHA256, audit_frozen_original_readonly,
 )
-from f139.nci04_fresh_dev_exclusions import SCHEMA as EXCLUSIONS_SCHEMA
+from f139.nci04_fresh_dev_exclusions import (
+    SCHEMA as EXCLUSIONS_SCHEMA, freeze_original_exclusions,
+)
 from f139.nci04_autonomy_feed import inspect_policy, NativeFeedDenied
 
 REPO = "spoonman136668-ai/FORGE"
@@ -127,6 +129,12 @@ def prove_fresh_native_issue_cutover_floor(
          and meta["head_seq"] == HEAD_SEQ
          and meta["head_hash"] == HEAD_SHA256,
          "ORIGINAL_EVENT_HEAD_DRIFT")
+    # Re-derive the *whole* consumed identity set from the original verified
+    # SQLite rather than trusting a user-supplied dictionary whose SHA/head
+    # fields can be copied while old issue/ticket entries are omitted.
+    frozen = freeze_original_exclusions(original)
+    need(canonical(frozen) == canonical(consumed_exclusions),
+         "HISTORICAL_EXCLUSIONS_NOT_REPRODUCED")
     _head(get, target_source_sha)
     owner_policy = get(ROOT + "/issues/" + str(POLICY_ISSUE))
     try:
