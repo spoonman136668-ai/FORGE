@@ -142,7 +142,7 @@ class ManualPhaseIntentTests(unittest.TestCase):
 
     def test_malformed_unicode_is_classified_fail_closed(self):
         raw = comment()
-        raw["body"] = PREFIX + "\\ud800"
+        raw["body"] = PREFIX + "\ud800"
         with self.assertRaises(ManualPhaseDenied):
             inspect(raw)
 
