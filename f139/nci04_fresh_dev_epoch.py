@@ -26,6 +26,12 @@ from f139.nci04_v59_cold_backup_verify import (
 )
 from f139.nci04_v59_cold_backup_stage import inventory
 from f139.nci04_fresh_dev_exclusions import freeze_original_exclusions
+from f139.nci04_fresh_yggdrasil_boundary import (
+    read_yggdrasil_research_boundary,
+    ACCEPTED as YGG_ACCEPTED,
+    AMALGAM_HEAD as YGG_AMALGAM,
+    LINEAGE_HEAD as YGG_LINEAGE,
+)
 
 SCHEMA = "forge.f139.fresh-development-epoch-inert.v1"
 ARCHIVE_SCHEMA = "forge.f139.v59.original-cold-createonly.v1"
@@ -57,6 +63,7 @@ def prepare_inert_epoch(
     target: str,
     owner_run_id: int,
     task_quiescence_witness,
+    yggdrasil_readonly_get,
 ) -> dict:
     """Create only a *disabled*, separate SQLite. Never retarget the owner task.
 
@@ -65,6 +72,8 @@ def prepare_inert_epoch(
     checked both before and after staging, but is not an independent proof.
     Nothing from this return value is source, first-use or launch authority.
     """
+    need(callable(yggdrasil_readonly_get),
+         "YGGDRASIL_GITHUB_READONLY_READER_REQUIRED")
     need(type(original) is Database
          and getattr(original, "_readonly_opened", False) is True
          and original.conn.execute("PRAGMA query_only").fetchone()[0] == 1
@@ -171,6 +180,18 @@ def prepare_inert_epoch(
          and exclusions.get("original_head_seq") == HEAD_SEQ
          and exclusions.get("original_head_sha256") == HEAD_SHA256,
          "CONSUMED_HISTORY_NOT_FROZEN")
+    # Exact source and draft research classification, GET-only. This neither
+    # imports an archived model nor authorizes the central research owner.
+    lineage = read_yggdrasil_research_boundary(yggdrasil_readonly_get)
+    lineage_bytes = canonical(lineage)
+    lineage_sha = digest(lineage_bytes)
+    need(lineage.get("accepted_main_source_sha") == YGG_ACCEPTED
+         and lineage.get("amalgam_draft_head_sha") == YGG_AMALGAM
+         and lineage.get("lineage_draft_head_sha") == YGG_LINEAGE
+         and lineage.get("checkpoint_imported") is False
+         and lineage.get("model_continuation_authorized") is False
+         and lineage.get("release_qualified") is False,
+         "YGGDRASIL_MODEL_OR_SOURCE_CUSTODY_INVALID")
     # Never rename, delete, overwrite, initialize or retarget the live original.
     fresh.mkdir(mode=0o700, exist_ok=False)
     state = fresh / "state.sqlite"
@@ -199,8 +220,21 @@ def prepare_inert_epoch(
         f.write(exclusions_bytes)
     need(exclusion_path.read_bytes() == exclusions_bytes,
          "CONSUMED_HISTORY_READBACK_DRIFT")
+    lineage_path = fresh / "yggdrasil-research-lineage.json"
+    with lineage_path.open("xb") as f:
+        f.write(lineage_bytes)
+    need(lineage_path.read_bytes() == lineage_bytes,
+         "YGGDRASIL_LINEAGE_READBACK_DRIFT")
     receipt = {
         "schema": SCHEMA, "owner_run_id": owner_run_id,
+        "yggdrasil_research_boundary_sha256": lineage_sha,
+        "yggdrasil_research_boundary_path":
+            lineage_path.relative_to(root).as_posix(),
+        "yggdrasil_accepted_main_sha": YGG_ACCEPTED,
+        "yggdrasil_amalgam_draft_head_sha": YGG_AMALGAM,
+        "yggdrasil_lineage_draft_head_sha": YGG_LINEAGE,
+        "yggdrasil_checkpoint_imported": False,
+        "yggdrasil_owner_continuation_authorized": False,
         "historical_consumed_exclusions_sha256": exclusions_sha,
         "historical_consumed_exclusions_path":
             exclusion_path.relative_to(root).as_posix(),
@@ -233,6 +267,8 @@ def prepare_inert_epoch(
         f.write(encoded)
     need(path.read_bytes() == encoded and hash_file(state) == state_sha
          and exclusion_path.read_bytes() == exclusions_bytes
-         and digest(exclusion_path.read_bytes()) == exclusions_sha,
+         and digest(exclusion_path.read_bytes()) == exclusions_sha
+         and lineage_path.read_bytes() == lineage_bytes
+         and digest(lineage_path.read_bytes()) == lineage_sha,
          "INERT_MANIFEST_READBACK_DRIFT")
     return dict(receipt, manifest_sha256=digest(encoded))
