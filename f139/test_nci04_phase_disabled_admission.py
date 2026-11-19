@@ -131,8 +131,8 @@ class DisabledAtomicModeAdmissionTests(unittest.TestCase):
                 db.conn.execute(
                     "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) "
                     "VALUES (?,?,?,?,?)",
-                    ("fixture-nonempty", "Wingless", SOURCE,
-                     "QUARANTINED", "a" * 64))
+                    ("f139-fixture-nonempty", "Wingless", SOURCE,
+                     "READY", "a" * 64))
             before = db.meta()
             with self.assertRaises(DevelopmentAdmissionDenied):
                 commit(db, request())
