@@ -19,7 +19,8 @@ import shutil
 import subprocess
 import sys
 
-from f139.local_controller import Database, SingleOwner, ZERO
+from f139.local_controller import (Database, SingleOwner, ZERO,
+                                   canonical as event_canonical, hash_bytes)
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_fresh_native_activation import (
     ACTIVATION_KIND, ACTIVATION_SCHEMA, OWNER_RELEASE_SCHEMA,
@@ -272,7 +273,7 @@ def write_fresh_native_activation_once(
     release_bytes = canonical(release)
     # Compute the exact first event SHA before doing any writes, allowing the
     # existing receipt verifier to reject a malformed record in advance.
-    first_hash = digest(canonical({
+    first_hash = hash_bytes(event_canonical({
         "seq": 1, "prior_sha": ZERO, "kind": "CUTOVER_ACTIVATED",
         "payload": {"source_sha": target},
     }))
