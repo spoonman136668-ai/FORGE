@@ -27,7 +27,7 @@ BRANCH="engineering/rar-g137-dual-os-parallel-qualification-20261108"
 PROFILE_SHA256="bebc42823ae0a002bd174d8a710a16ec8bc136d7c4e9509fedb1ef7c1188225f"
 MIN_GAIN=1.15
 MIN_PAIR=1.05
-MAX_ARM=420
+MAX_ARM=540
 MAX_MEMORY=4*1024**3
 MAX_REL_MEMORY=2.50
 # Historical Windows profile, source pinned to run #42417473730, 1435 cases.
@@ -145,7 +145,16 @@ def child(mode,shard,output):
         unexpected_successes=[t.id() for t in result.unexpectedSuccesses],
         errors=[t.id() for t,_ in result.errors],
         failures=[t.id() for t,_ in result.failures],
-        successful=result.wasSuccessful(),tests_run=result.testsRun)
+        successful=result.wasSuccessful(),tests_run=result.testsRun,
+        # Only publish the exception CLASS, never its message/command/stdout.
+        error_classes={
+            t.id(): (
+                type_name if len(type_name)<=80 and
+                all(c.isalnum() or c in "._" for c in type_name)
+                else "UNCLASSIFIED")
+            for t,trace in result.errors
+            for type_name in [trace.strip().splitlines()[-1].split(":",1)[0]]
+        })
     output.write_text(json.dumps(data,sort_keys=True),encoding="utf-8")
     print("FORGE_G137_CHILD="+json.dumps({k:data[k] for k in
           ("mode","shard","seconds","tests_run","successful")}),flush=True)
@@ -318,6 +327,11 @@ def arm(mode,ids,bins):
                                     and all(c.isalnum() or c in "._" for c in v)]
                                 item[field+"_count"]=len(names)
                             item["successful"]=data.get("successful")
+                            item["error_classes"]={
+                                k:v for k,v in data.get("error_classes",{}).items()
+                                if k in item.get("errors",[]) and len(v)<=80
+                                and all(ch.isalnum() or ch in "._" for ch in v)
+                            }
                         diagnostics.append(item)
                     print("FORGE_G137_FAILED_SHARDS="+json.dumps(
                         diagnostics,sort_keys=True),flush=True)
