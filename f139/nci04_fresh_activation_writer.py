@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -112,6 +113,42 @@ def need(ok: bool, code: str) -> None:
         raise FreshActivationWriteDenied("F139_FRESH_WRITE_" + code)
 
 
+def authenticate_source_bound_owner_comment(event: dict,
+                                            target: str) -> None:
+    """Owner comment is authored *before* GitHub allocates the run ID.
+
+    Source SHA, unique GitHub comment identity and creator are pre-event
+    facts. The eventual run ID is separately verified against the genuine
+    GitHub Actions environment, never demanded in an impossible comment.
+    This helper validates event metadata; host task release stays separate.
+    """
+    need(type(target) is str and
+         re.fullmatch(r"[0-9a-f]{40}", target) is not None,
+         "APPROVAL_TARGET_SHA_INVALID")
+    need(type(event) is dict
+         and event.get("action") == "created"
+         and type(event.get("repository")) is dict
+         and event["repository"].get("full_name") == REPO
+         and type(event.get("issue")) is dict
+         and event["issue"].get("number") == APPROVAL_ISSUE
+         and event["issue"].get("state") == "open"
+         and type(event["issue"].get("user")) is dict
+         and event["issue"]["user"].get("login") == OWNER
+         and type(event.get("sender")) is dict
+         and event["sender"].get("login") == OWNER
+         and type(event.get("comment")) is dict
+         and type(event["comment"].get("id")) is int
+         and event["comment"]["id"] > 0
+         and event["comment"].get("url") ==
+             ("https://api.github.com/repos/" + REPO + "/issues/comments/" +
+              str(event["comment"]["id"]))
+         and type(event["comment"].get("user")) is dict
+         and event["comment"]["user"].get("login") == OWNER
+         and event["comment"].get("body") ==
+             f"{APPROVAL_PREFIX} {target}",
+         "OWNER_SOURCE_BOUND_APPROVAL_NOT_AUTHENTICATED")
+
+
 def _owner_windows_quiesced(original_path: Path, target: str,
                             owner_run_id: int) -> bool:
     """Actual task/SID/process check; no caller-supplied Boolean witness."""
@@ -140,23 +177,7 @@ def _owner_windows_quiesced(original_path: Path, target: str,
     except (ValueError, UnicodeError) as exc:
         raise FreshActivationWriteDenied(
             "F139_FRESH_WRITE_OWNER_ISSUE_EVENT_INVALID") from exc
-    need(type(event) is dict
-         and event.get("action") == "created"
-         and type(event.get("repository")) is dict
-         and event["repository"].get("full_name") == REPO
-         and type(event.get("issue")) is dict
-         and event["issue"].get("number") == APPROVAL_ISSUE
-         and event["issue"].get("state") == "open"
-         and type(event["issue"].get("user")) is dict
-         and event["issue"]["user"].get("login") == OWNER
-         and type(event.get("sender")) is dict
-         and event["sender"].get("login") == OWNER
-         and type(event.get("comment")) is dict
-         and type(event["comment"].get("user")) is dict
-         and event["comment"]["user"].get("login") == OWNER
-         and event["comment"].get("body") ==
-             f"{APPROVAL_PREFIX} {target} {owner_run_id}",
-         "OWNER_RUN_BOUND_APPROVAL_NOT_AUTHENTICATED")
+    authenticate_source_bound_owner_comment(event, target)
     powershell = shutil.which("powershell.exe")
     need(powershell is not None, "ORIGINAL_POWERSHELL_REQUIRED")
     probe = _WINDOWS_READONLY_PROBE.replace("__FROZEN_SOURCE__", SOURCE)

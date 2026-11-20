@@ -177,6 +177,45 @@ class OneShotActivationWriterTests(unittest.TestCase):
                 self.commit()
         self.assert_still_inert()
 
+    def test_owner_approval_does_not_require_unavailable_future_run_id(self):
+        from f139.nci04_fresh_activation_writer import (
+            authenticate_source_bound_owner_comment, APPROVAL_PREFIX,
+        )
+        base = {
+            "action": "created",
+            "repository": {"full_name": "spoonman136668-ai/FORGE"},
+            "issue": {"number": 1830, "state": "open",
+                      "user": {"login": "spoonman136668-ai"}},
+            "sender": {"login": "spoonman136668-ai"},
+            "comment": {
+                "id": 9234567890,
+                "url": ("https://api.github.com/repos/"
+                        "spoonman136668-ai/FORGE/issues/comments/9234567890"),
+                "user": {"login": "spoonman136668-ai"},
+                "body": APPROVAL_PREFIX + " " + TARGET,
+            },
+        }
+        # This body can be posted *before* GitHub assigns GITHUB_RUN_ID.
+        self.assertIsNone(
+            authenticate_source_bound_owner_comment(base, TARGET))
+        for key, mutation in (
+            ("predictive_run_id", {"comment": {
+                **base["comment"], "body":
+                APPROVAL_PREFIX + " " + TARGET + " 44584522737"}}),
+            ("different_actor", {"sender": {"login": "other"}}),
+            ("unverified_comment_id", {"comment": {
+                **base["comment"], "id": 0}}),
+            ("different_issue", {"issue": {
+                **base["issue"], "number": 807}}),
+            ("different_target", {"comment": {
+                **base["comment"], "body":
+                APPROVAL_PREFIX + " " + ("0" * 40)}}),
+        ):
+            with self.subTest(case=key), self.assertRaisesRegex(
+                    FreshActivationWriteDenied, "OWNER_SOURCE_BOUND_APPROVAL"):
+                authenticate_source_bound_owner_comment(
+                    {**base, **mutation}, TARGET)
+
     def test_windows_probe_explicitly_has_no_task_mutation(self):
         for forbidden in (
             "Stop-ScheduledTask", "Start-ScheduledTask",
