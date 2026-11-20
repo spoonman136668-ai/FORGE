@@ -2119,6 +2119,54 @@ def v38_readonly_negative_controls() -> None:
                     "a" * 40))
 
 
+# Single owner-authored workflow addition. CI admission only: never a
+# Windows controller, live ticket, first-use, dispatch or acceptance grant.
+FRESH_OWNER_ADMIT_BRANCH = "engineering/f139-fresh-original-owner-admission-20261120"
+FRESH_OWNER_ADMIT_PR = 1845
+FRESH_OWNER_ADMIT_BASE = "cd5e9a783f574577bb468b6d46b19abd8f40e666"
+FRESH_OWNER_ADMIT_TREE = "74084114dd1ce166be4ac7ae012d728d239c382c"
+FRESH_OWNER_ADMIT_WORKFLOW = ".github/workflows/f139-fresh-original-owner-admission.yml"
+FRESH_OWNER_ADMIT_BLOB = "46bbf3ae4f9150c684cda138826c8ea8e88021a1"
+FRESH_OWNER_ADMIT_FILES = frozenset({
+    FRESH_OWNER_ADMIT_WORKFLOW,
+    "f139/nci04_fresh_original_owner_admission_cli.py",
+    "f139/test_nci04_fresh_original_owner_admission_cli.py",
+    "scripts/check_rar_g145_pr_scope.py",
+})
+
+
+def admit_fresh_owner_admission(head_sha: str, base_sha: str, request: dict,
+                                git: Callable[..., str]) -> str:
+    """Exact-branch owner-only CI exception, not a generic workflow waiver."""
+    if (not is_sha(head_sha)
+            or base_sha != FRESH_OWNER_ADMIT_BASE
+            or type(request) is not dict
+            or request.get("number") != FRESH_OWNER_ADMIT_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != FRESH_OWNER_ADMIT_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("sha") != FRESH_OWNER_ADMIT_BASE
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_OWNER_EXACT_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        base_tree = git("rev-parse", base_sha + "^{tree}")
+        actual_blob = git("rev-parse", head_sha + ":" + FRESH_OWNER_ADMIT_WORKFLOW)
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_FRESH_OWNER_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or base_tree != FRESH_OWNER_ADMIT_TREE
+            or actual_blob != FRESH_OWNER_ADMIT_BLOB
+            or len(changed) != len(FRESH_OWNER_ADMIT_FILES)
+            or set(changed) != FRESH_OWNER_ADMIT_FILES):
+        raise ValueError("G145_FRESH_OWNER_FROZEN_SCOPE_DENIED")
+    return "EXACT_PR1845_F139_FRESH_OWNER_ADMISSION_CI_ONLY"
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -2895,6 +2943,11 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_OWNER_ADMIT_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                           .read_text(encoding="utf-8"))
+        return admit_fresh_owner_admission(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == V54_RELEASE_BRANCH:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]
