@@ -115,7 +115,7 @@ Need ([IO.Path]::GetFullPath($oldRoot) -ieq
   [IO.Path]::GetFileName($oldWrapper) -ceq 'Run-FORGE-F139.ps1' -and
   (Test-Path -LiteralPath $oldPy -PathType Leaf) -and
   (Test-Path -LiteralPath $oldDb -PathType Leaf)) 'OLD_OWNER_INSTALL_PATH_CHANGED'
-CheckSource $oldRoot $Old 'd6a0aabb8226d46bc61c9eeb72e96b15aac3f2fe'
+CheckSource $oldRoot $Old 'b7abf26f618654f330b55f510bfcc34d8916848a'
 Need (@(Controllers).Count -eq 0) 'ACTIVE_OR_FOREIGN_CONTROLLER'
 $freshDb=Join-Path $profile ('FORGE-F139\f139-fresh-dev-'+[string]$FreshRun+'\state.sqlite')
 Need (Test-Path -LiteralPath $freshDb -PathType Leaf) 'ACTIVATED_FRESH_SQLITE_NOT_FOUND'
@@ -178,11 +178,11 @@ print("F139_FRESH_OLD_1864_AND_NEW_READY_EVENT4=PASS")
   CheckSource $stage $Fresh $FreshTree
   Need ((& git -C $stage remote | Out-String).Trim() -ceq '' -and
     (Test-Path -LiteralPath (Join-Path $stage 'scripts/Run-FORGE-F139.ps1') -PathType Leaf)) 'EXACT_STAGED_SOURCE_INCOMPLETE'
-  $args=[string]$task.Actions[0].Arguments
-  Need ($args.Split(@($oldRoot),[StringSplitOptions]::None).Count -eq 3 -and
-    $args.Split(@($oldDb),[StringSplitOptions]::None).Count -eq 2) 'ORIGINAL_ACTION_NOT_EXACTLY_REPLACEABLE'
-  $newArgs=$args.Replace($oldRoot,$stage).Replace($oldDb,$freshDb)
-  Need ($newArgs -cne $args -and
+  $originalArguments=[string]$task.Actions[0].Arguments
+  Need ($originalArguments.Split(@($oldRoot),[StringSplitOptions]::None).Count -eq 3 -and
+    $originalArguments.Split(@($oldDb),[StringSplitOptions]::None).Count -eq 2) 'ORIGINAL_ACTION_NOT_EXACTLY_REPLACEABLE'
+  $newArgs=$originalArguments.Replace($oldRoot,$stage).Replace($oldDb,$freshDb)
+  Need ($newArgs -cne $originalArguments -and
     $newArgs.Contains($freshDb) -and $newArgs.Contains($stage) -and
     -not $newArgs.Contains($oldDb) -and -not $newArgs.Contains($oldRoot)) 'REBOUND_ACTION_NOT_EXACT'
   $oldAction=$task.Actions[0]
