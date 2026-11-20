@@ -1,0 +1,107 @@
+name: FORGE KABOOM PR114 exact-main reproducible binary reference only
+on:
+  push:
+    branches: [qualification/kaboom-pr114-offline-custody-20261120]
+    paths: [.github/workflows/forge-kaboom-pr114-binary-reference-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  binary-reference:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - name: Verify pre-existing isolated source-only runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr114-offline-custody-20261120' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows') { throw 'KABOOM_PR114_REFERENCE_WRONG_RUNNER' }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if([Environment]::GetEnvironmentVariable($key)) { throw 'KABOOM_PR114_REFERENCE_BROKER_ENV_BLOCKED' }
+          }
+          Write-Output 'KABOOM_PR114_REFERENCE_RUNNER=PASS;LIVE_ORDERS=ZERO'
+      - name: Provision exact Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Exact accepted main clone and independent double-build SHA256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:GOTOOLCHAIN='local'
+          $env:GOTELEMETRY='off'
+          $env:CGO_ENABLED='0'
+          $env:GOFLAGS='-p=2'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $ref='de2fb899d802f428da938ebced624df23f011527'
+          $coreTree='bbd095b3c7e932db16fb22d1390d951fba96ad92'
+          if((& go env GOVERSION).Trim() -cne 'go1.26.5') { throw 'KABOOM_PR114_REFERENCE_GO_TOOLCHAIN_DRIFT' }
+          $remote=(& gh api repos/Kboomllc/K-Terminal/branches/main --jq '.commit.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or $remote.Trim() -cne $ref) { throw 'KABOOM_PR114_REFERENCE_MAIN_DRIFT' }
+          $scratch=Join-Path $env:RUNNER_TEMP ('kaboom-pr114-ref-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch) { throw 'KABOOM_PR114_REFERENCE_SCRATCH_COLLISION' }
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $root=Join-Path $scratch 'source'
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 1 --branch main *> (Join-Path $scratch 'clone.log')
+          if($LASTEXITCODE -ne 0 -or (& git -C $root rev-parse HEAD).Trim() -cne $ref -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne $coreTree) { throw 'KABOOM_PR114_REFERENCE_CLONE_DRIFT' }
+          if(@(& git -C $root status --porcelain --untracked-files=all).Count) { throw 'KABOOM_PR114_REFERENCE_SOURCE_DIRTY' }
+          $programs=@('kaboom-engine','kaboom-chart','kaboom-ledger','kaboom-perp')
+          $shas=@{}
+          for($pass=1;$pass -le 2;$pass++) {
+            $buildRoot=Join-Path $scratch ('build'+$pass)
+            $env:GOCACHE=Join-Path $scratch ('cache'+$pass)
+            New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
+            Push-Location (Join-Path $root 'kaboom-core')
+            try {
+              foreach($p in $programs) {
+                $output=Join-Path $buildRoot ($p+'.exe')
+                & go build -trimpath -ldflags='-s -w' -buildvcs=false -o $output ('./cmd/'+$p)
+                if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $output -PathType Leaf)) { throw ('KABOOM_PR114_REFERENCE_BUILD_FAIL_'+$p) }
+                $h=(Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+                if($h -notmatch '^[0-9a-f]{64}$') { throw 'KABOOM_PR114_REFERENCE_BAD_HASH' }
+                if($pass -eq 1) { $shas[$p+'.exe']=$h }
+                elseif($shas[$p+'.exe'] -cne $h) { throw ('KABOOM_PR114_REFERENCE_NONREPRODUCIBLE_'+$p) }
+              }
+            } finally { Pop-Location }
+          }
+          $dst=Join-Path $env:RUNNER_TEMP 'kaboom-pr114-binary-reference'
+          if(Test-Path -LiteralPath $dst) { throw 'KABOOM_PR114_REFERENCE_OUTPUT_COLLISION' }
+          New-Item -ItemType Directory -Path $dst | Out-Null
+          $bin=[ordered]@{}
+          foreach($p in $programs) { $bin[$p+'.exe']=$shas[$p+'.exe'] }
+          $manifest=[ordered]@{
+            schema='kaboom.binary-reference.v1'
+            repository='Kboomllc/K-Terminal'
+            source_core_tree_sha=$coreTree
+            binaries=$bin
+          }
+          $receipt=[ordered]@{
+            schema='kaboom.binary-reference-build.v1'
+            repository='Kboomllc/K-Terminal'
+            source_commit_sha=$ref
+            source_core_tree_sha=$coreTree
+            go_version='go1.26.5'
+            target='windows/amd64'
+            cgo_enabled=0
+            goflags='-p=2'
+            build_flags='go build -trimpath -ldflags=-s -w -buildvcs=false'
+            independent_build_directories=2
+            independent_go_caches=2
+            matching_executable_count=4
+            reference_is_authoritative_runtime_proof=$false
+            orders_submitted=0
+            deployed=$false
+          }
+          [IO.File]::WriteAllText((Join-Path $dst 'reference.json'),($manifest|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText((Join-Path $dst 'build-receipt.json'),($receipt|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
+          $refObj=Get-Content (Join-Path $dst 'reference.json') -Raw|ConvertFrom-Json
+          if($refObj.source_core_tree_sha -cne $coreTree -or @($refObj.binaries.PSObject.Properties).Count -ne 4) { throw 'KABOOM_PR114_REFERENCE_MANIFEST_INVALID' }
+          Write-Output 'KABOOM_PR114_BINARY_REPRODUCIBILITY=PASS;FILES=4;INDEPENDENT_BUILDS=2;LIVE_ORDERS=ZERO;DEPLOYMENT=NONE'
+      - name: Upload only source-derived binary hash reference, no executables or runtime data
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaboom-pr114-binary-reference
+          path: ${{ runner.temp }}/kaboom-pr114-binary-reference/
+          retention-days: 7
+          if-no-files-found: error
