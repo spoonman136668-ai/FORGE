@@ -172,5 +172,62 @@ class FreshOwnerActivationEntryTests(unittest.TestCase):
             run.assert_not_called()
 
 
+    def test_owner_pr_source_scope_and_mutation_negatives(self):
+        from scripts.check_rar_g145_pr_scope import (
+            FRESH_ACTIVATION_BASE, FRESH_ACTIVATION_BLOB,
+            FRESH_ACTIVATION_BRANCH, FRESH_ACTIVATION_FILES,
+            FRESH_ACTIVATION_TREE, FRESH_ACTIVATION_WORKFLOW,
+            admit_fresh_owner_activation_bridge, generic_paths_safe,
+        )
+        head = "b" * 40
+        base = FRESH_ACTIVATION_BASE
+        request = {
+            "number": 1847,
+            "author_association": "OWNER",
+            "user": {"login": "spoonman136668-ai"},
+            "head": {"sha": head, "ref": FRESH_ACTIVATION_BRANCH,
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+            "base": {"sha": base, "ref": "main",
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+        }
+        files = sorted(FRESH_ACTIVATION_FILES)
+        answers = {
+            ("merge-base", base, head): base,
+            ("rev-parse", base + "^{tree}"): FRESH_ACTIVATION_TREE,
+            ("rev-parse", head + ":" + FRESH_ACTIVATION_WORKFLOW):
+                FRESH_ACTIVATION_BLOB,
+            ("diff", "--no-renames", "--name-only", base, head):
+                "\n".join(files),
+        }
+        git = lambda *args: answers[args]
+        self.assertFalse(generic_paths_safe(files))
+        self.assertEqual(
+            admit_fresh_owner_activation_bridge(head, base, request, git),
+            "EXACT_PR1847_FRESH_NATIVE_OWNER_ACTIVATION_CI_ONLY")
+        for wrong in (
+            dict(request, number=1846),
+            dict(request, author_association="COLLABORATOR"),
+            dict(request, user={"login": "not-owner"}),
+            dict(request, head=dict(request["head"], ref="wrong-branch")),
+            dict(request, base=dict(request["base"], sha="c" * 40)),
+        ):
+            with self.subTest(input=wrong):
+                with self.assertRaises(ValueError):
+                    admit_fresh_owner_activation_bridge(head, base, wrong, git)
+        for item, bad in (
+            (("merge-base", base, head), "0" * 40),
+            (("rev-parse", base + "^{tree}"), "0" * 40),
+            (("rev-parse", head + ":" + FRESH_ACTIVATION_WORKFLOW), "0" * 40),
+            (("diff", "--no-renames", "--name-only", base, head),
+             "\n".join(files) + "\n.github/workflows/other.yml"),
+        ):
+            with self.subTest(item=item):
+                bad_answers = dict(answers)
+                bad_answers[item] = bad
+                with self.assertRaisesRegex(ValueError, "EXACT_SCOPE_DENIED"):
+                    admit_fresh_owner_activation_bridge(
+                        head, base, request, lambda *args: bad_answers[args])
+
+
 if __name__ == "__main__":
     unittest.main()
