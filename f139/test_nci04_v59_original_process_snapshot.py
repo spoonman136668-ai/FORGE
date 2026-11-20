@@ -81,6 +81,68 @@ class OriginalV59ProcessSnapshotSourceTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, src)
 
+
+    @staticmethod
+    def _powershell_from_workflow(source: str) -> str:
+        """Extract the real run block with its YAML indentation removed."""
+        marker = "        run: |\n"
+        if source.count(marker) != 1:
+            raise AssertionError("Expected exactly one original owner run block")
+        block = source.split(marker, 1)[1]
+        rows = block.splitlines()
+        return "\n".join(row[10:] if row.startswith("          ") else ""
+                         for row in rows).strip() + "\n"
+
+    @staticmethod
+    def _parse_powershell(script: str):
+        import shutil
+        import subprocess
+
+        pwsh = shutil.which("pwsh")
+        if pwsh is None:
+            raise AssertionError("Native Windows qualification requires pwsh")
+        parse = (
+            "$text=[Console]::In.ReadToEnd();"
+            "$tokens=$null;$errors=$null;"
+            "[void][System.Management.Automation.Language.Parser]::ParseInput("
+            "$text,[ref]$tokens,[ref]$errors);"
+            "if($errors.Count -gt 0){"
+            "[Console]::Error.WriteLine(($errors|ForEach-Object "
+            "{ $_.ErrorId }) -join ',');exit 1};exit 0"
+        )
+        return subprocess.run(
+            [pwsh, "-NoLogo", "-NoProfile", "-NonInteractive",
+             "-Command", parse],
+            input=script, capture_output=True, text=True,
+            timeout=45, check=False,
+        )
+
+    def test_real_workflow_powershell_parses_and_detects_old_regression(self):
+        import sys
+
+        if sys.platform != "win32":
+            self.skipTest("Actual PowerShell AST parse runs on native Windows")
+        script = self._powershell_from_workflow(self.source)
+        safe = self._parse_powershell(script)
+        self.assertEqual(safe.returncode, 0, safe.stderr[-1000:])
+        one_line = ("Get-CimInstance Win32_Process -Filter "
+                    "\"Name='python.exe' OR Name='pythonw.exe'\" "
+                    "-ErrorAction Stop |")
+        self.assertIn(one_line, script)
+        # The previous merged release passed static tests but PowerShell
+        # rejected this exact broken linebreak on the genuine owner runner.
+        broken = script.replace(
+            one_line,
+            "Get-CimInstance Win32_Process -Filter\n"
+            "  \"Name='python.exe' OR Name='pythonw.exe'\" "
+            "-ErrorAction Stop |",
+            1,
+        )
+        self.assertNotEqual(broken, script)
+        rejected = self._parse_powershell(broken)
+        self.assertNotEqual(rejected.returncode, 0,
+                            "Regression fixture must remain parser-invalid")
+
     def test_output_never_prints_process_command_line_or_pid(self):
         src = self.source
         output = src[src.index("          $witness=@{"):
