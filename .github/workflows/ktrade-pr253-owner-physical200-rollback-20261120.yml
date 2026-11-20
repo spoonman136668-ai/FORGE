@@ -1,4 +1,4 @@
-name: KTRADE PR253 W194 restore original physical 150 percent display
+name: KTRADE PR253 W195 restore original physical 150 percent display
 on:
   push:
     branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
@@ -36,16 +36,16 @@ jobs:
              $env:KTRADE_EXPECTED_SOURCE -cne '07d7e41063a0c1506a290d1497f84de8173da292' -or
              $env:KTRADE_LIVE_TRADING -cne 'false' -or
              $env:KTRADE_PROMOTION_ALLOWED -cne '0'){
-            throw 'KTRADE_W194_OWNER_RUNNER_AUTHORITY_REFUSED'
+            throw 'KTRADE_W195_OWNER_RUNNER_AUTHORITY_REFUSED'
           }
           if(@(Get-Process -Name ktrade,ktrade-engine -ErrorAction SilentlyContinue).Count -ne 0){
-            throw 'KTRADE_W194_INSTALLED_APP_RUNNING_REFUSED'
+            throw 'KTRADE_W195_INSTALLED_APP_RUNNING_REFUSED'
           }
           $reg=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
           if([string]$reg.ScreenSaveActive -cne '1' -or
              [string]$reg.ScreenSaveTimeOut -cne '1200' -or
              [string]$reg.ScreenSaverIsSecure -cne '0'){
-            throw 'KTRADE_W194_MANUAL_SAVER_CONTRACT_DRIFT_REFUSED'
+            throw 'KTRADE_W195_MANUAL_SAVER_CONTRACT_DRIFT_REFUSED'
           }
           Add-Type -AssemblyName UIAutomationClient
           Add-Type -AssemblyName UIAutomationTypes
@@ -54,7 +54,7 @@ jobs:
           using System.Collections.Generic;
           using System.Runtime.InteropServices;
           using System.Text;
-          public static class KtradeW194Native {
+          public static class KtradeW195Native {
             [StructLayout(LayoutKind.Sequential)] public struct Rect {
               public int left,top,right,bottom;
             }
@@ -75,28 +75,28 @@ jobs:
             }
             public static string ReadDpi(){
               var old=SetThreadDpiAwarenessContext(new IntPtr(-4));
-              if(old==IntPtr.Zero)throw new Exception("W194_DPI_READ_CONTEXT_REQUIRED");
+              if(old==IntPtr.Zero)throw new Exception("W195_DPI_READ_CONTEXT_REQUIRED");
               try{
                 var a=new List<string>();
                 MonitorCallback cb=(IntPtr m,IntPtr dc,ref Rect r,IntPtr data)=>{
                   uint x,y;int hr=GetDpiForMonitor(m,0,out x,out y);
-                  if(hr!=0)throw new Exception("W194_GET_DPI_FAILED");
+                  if(hr!=0)throw new Exception("W195_GET_DPI_FAILED");
                   a.Add(x+":"+y);return true;
                 };
                 if(!EnumDisplayMonitors(IntPtr.Zero,IntPtr.Zero,cb,IntPtr.Zero) || a.Count!=1)
-                  throw new Exception("W194_SINGLE_MONITOR_REQUIRED");
+                  throw new Exception("W195_SINGLE_MONITOR_REQUIRED");
                 return a[0];
               }finally{if(SetThreadDpiAwarenessContext(old)==IntPtr.Zero)
-                throw new Exception("W194_DPI_READ_CONTEXT_RESTORE_FAILED");}
+                throw new Exception("W195_DPI_READ_CONTEXT_RESTORE_FAILED");}
             }
           }
           '@
-          if([KtradeW194Native]::Desktop() -cne 'Default'){
-            throw 'KTRADE_W194_DEFAULT_DESKTOP_REQUIRED'
+          if([KtradeW195Native]::Desktop() -cne 'Default'){
+            throw 'KTRADE_W195_DEFAULT_DESKTOP_REQUIRED'
           }
-          $before=[KtradeW194Native]::ReadDpi()
-          if($before -cnotin @('120:120','144:144')){throw ('KTRADE_W194_UNEXPECTED_DPI_REFUSED_ACTUAL='+$before)}
-          $priorForeground=[KtradeW194Native]::GetForegroundWindow()
+          $before=[KtradeW195Native]::ReadDpi()
+          if($before -cnotin @('120:120','144:144')){throw ('KTRADE_W195_UNEXPECTED_DPI_REFUSED_ACTUAL='+$before)}
+          $priorForeground=[KtradeW195Native]::GetForegroundWindow()
           $ownedSettings=(@(Get-Process -Name SystemSettings -ErrorAction SilentlyContinue).Count -eq 0)
           $attemptedRestore=$false
           $reverted=$false
@@ -120,7 +120,7 @@ jobs:
                 }
               }
             }
-            if($found.Count -ne 1){throw 'W194_SINGLE_LABELED_SCALE_COMBO_REQUIRED'}
+            if($found.Count -ne 1){throw 'W195_SINGLE_LABELED_SCALE_COMBO_REQUIRED'}
             return $found[0]
           }
           function Get-Choices([int]$target){
@@ -136,7 +136,7 @@ jobs:
             foreach($i in $items){
               if([string]$i.Current.Name -match ('^\s*'+$target+'\s*%(\s|$)')){$matched+=,$i}
             }
-            if($matched.Count -ne 1){throw ('W194_TARGET_LIST_ITEM_UNAVAILABLE_'+$target)}
+            if($matched.Count -ne 1){throw ('W195_TARGET_LIST_ITEM_UNAVAILABLE_'+$target)}
             return $matched[0]
           }
           function Choose-Scale([int]$target){
@@ -146,49 +146,57 @@ jobs:
           }
           function Confirm-Dpi([string]$wanted){
             for($i=0;$i -lt 30;$i++){
-              if([KtradeW194Native]::ReadDpi() -ceq $wanted){return $true}
+              if([KtradeW195Native]::ReadDpi() -ceq $wanted){return $true}
               Start-Sleep -Milliseconds 300
             }
             return $false
           }
           try{
-            # W194 recovery after W192 step timeout. No KTRADE launch.
+            # W195 recovery after W192 step timeout. No KTRADE launch.
             # Only accept measured 125% or already-normal 150%. All other states refuse.
             if($before -ceq '120:120'){
               Start-Process -FilePath explorer.exe -ArgumentList 'ms-settings:display' -ErrorAction Stop
-              Start-Sleep -Milliseconds 500
-              [void](Get-Choices 125)
-              [void](Get-Choices 150)
+              Start-Sleep -Milliseconds 700
+              # Discover target without changing the current 125% setting.
+              # A bounded readiness recheck is allowed; never replay selection.
+              $targetItem=$null
+              for($scan=0;$scan -lt 6;$scan++){
+                try{
+                  $targetItem=Get-Choices 150
+                  break
+                }catch{
+                  if($scan -eq 5){throw 'W195_TARGET_150_UI_CHOICE_UNAVAILABLE'}
+                  Start-Sleep -Milliseconds 250
+                }
+              }
+              if(!$targetItem){throw 'W195_TARGET_150_NOT_FOUND'}
               $attemptedRestore=$true
-              Choose-Scale 150
+              $targetItem.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
               $observed150=Confirm-Dpi '144:144'
-              if(!$observed150){throw 'W194_PHYSICAL_150_NOT_RESTORED'}
-              Write-Host 'KTRADE_W194_RECOVERY_125_TO_150=PASS;before=120:120;after=144:144'
+              if(!$observed150){throw 'W195_PHYSICAL_150_NOT_RESTORED'}
+              Write-Host 'KTRADE_W195_RECOVERY_125_TO_150=PASS;before=120:120;after=144:144'
             }else{
               $observed150=$true
-              Write-Host 'KTRADE_W194_ORIGINAL_150_ALREADY_PRESENT=PASS;before=144:144;settings_changed=false'
+              Write-Host 'KTRADE_W195_ORIGINAL_150_ALREADY_PRESENT=PASS;before=144:144;settings_changed=false'
             }
-          }finally{
-            if($attemptedRestore){
-              try{
-                Choose-Scale 150
-                $reverted=Confirm-Dpi '144:144'
+          }catch{
+            $safe=if($_.Exception.Message -cmatch '^W195_[A-Z0-9_]+
               }catch{
-                Write-Host ('KTRADE_W194_ROLLBACK_ATTEMPT_ERROR='+$_.Exception.GetType().Name)
+                Write-Host ('KTRADE_W195_ROLLBACK_ATTEMPT_ERROR='+$_.Exception.GetType().Name)
               }
             }else{
-              $reverted=([KtradeW194Native]::ReadDpi() -ceq '144:144')
+              $reverted=([KtradeW195Native]::ReadDpi() -ceq '144:144')
             }
-            $after=[KtradeW194Native]::ReadDpi()
+            $after=[KtradeW195Native]::ReadDpi()
             if($after -ceq '144:144'){$reverted=$true}
             if($priorForeground -ne [IntPtr]::Zero){
-              $fg=[KtradeW194Native]::SetForegroundWindow($priorForeground)
-              Write-Host ('KTRADE_W194_FOREGROUND_RESTORE='+$(if($fg){'PASS'}else{'UNVERIFIED'}))
+              $fg=[KtradeW195Native]::SetForegroundWindow($priorForeground)
+              Write-Host ('KTRADE_W195_FOREGROUND_RESTORE='+$(if($fg){'PASS'}else{'UNVERIFIED'}))
             }
             $regAfter=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
             $saverStable=([string]$regAfter.ScreenSaveTimeOut -ceq '1200' -and
                           [string]$regAfter.ScreenSaveActive -ceq '1')
-            Write-Host ('KTRADE_W194_DPI_RESTORATION='+(@{
+            Write-Host ('KTRADE_W195_DPI_RESTORATION='+(@{
               physical_150_observed=$observed150
               before_dpi=$before;after_dpi=$after
               restored_150=$reverted
@@ -198,5 +206,40 @@ jobs:
               broker_disarmed=$true
               scheduled_tasks_created=$false
             }|ConvertTo-Json -Compress))
-            if(!$reverted -or !$saverStable){throw 'W194_OWNER_DESKTOP_RESTORE_FAILED'}
+            if(!$reverted -or !$saverStable){throw 'W195_OWNER_DESKTOP_RESTORE_FAILED'}
+          }
+){$_.Exception.Message}else{$_.Exception.GetType().Name}
+            Write-Host ('KTRADE_W195_RECOVERY_CAUSE='+$safe)
+            throw
+          }finally{
+            if($attemptedRestore){
+              try{
+                if([KtradeW195Native]::ReadDpi() -ceq '144:144'){$reverted=$true}
+                else{Choose-Scale 150;$reverted=Confirm-Dpi '144:144'}
+              }catch{
+                Write-Host ('KTRADE_W195_ROLLBACK_ATTEMPT_ERROR='+$_.Exception.GetType().Name)
+              }
+            }else{
+              $reverted=([KtradeW195Native]::ReadDpi() -ceq '144:144')
+            }
+            $after=[KtradeW195Native]::ReadDpi()
+            if($after -ceq '144:144'){$reverted=$true}
+            if($priorForeground -ne [IntPtr]::Zero){
+              $fg=[KtradeW195Native]::SetForegroundWindow($priorForeground)
+              Write-Host ('KTRADE_W195_FOREGROUND_RESTORE='+$(if($fg){'PASS'}else{'UNVERIFIED'}))
+            }
+            $regAfter=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+            $saverStable=([string]$regAfter.ScreenSaveTimeOut -ceq '1200' -and
+                          [string]$regAfter.ScreenSaveActive -ceq '1')
+            Write-Host ('KTRADE_W195_DPI_RESTORATION='+(@{
+              physical_150_observed=$observed150
+              before_dpi=$before;after_dpi=$after
+              restored_150=$reverted
+              screen_saver_unchanged=$saverStable
+              product_source_unchanged=$true
+              installed_profile_untouched=$true
+              broker_disarmed=$true
+              scheduled_tasks_created=$false
+            }|ConvertTo-Json -Compress))
+            if(!$reverted -or !$saverStable){throw 'W195_OWNER_DESKTOP_RESTORE_FAILED'}
           }
