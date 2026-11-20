@@ -14,6 +14,7 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
     FRESH_OWNER_ADMIT_BRANCH, FRESH_OWNER_ADMIT_BASE, FRESH_OWNER_ADMIT_TREE,
     FRESH_CONCURRENCY_BRANCH, FRESH_CONCURRENCY_BASE, FRESH_CONCURRENCY_TREE,
     FRESH_ACTIVATION_BRANCH, FRESH_ACTIVATION_BASE, FRESH_ACTIVATION_TREE,
+    FRESH_STANDDOWN_BRANCH, FRESH_STANDDOWN_BASE, FRESH_STANDDOWN_TREE,
     V59_READONLY_BRANCH, V59_READONLY_BASE, V59_READONLY_BASE_TREE,
     V60_PROCESS_BRANCH, V60_PROCESS_BASE, V60_PROCESS_BASE_TREE,
     V61_PROCESS_FIX_BRANCH, V61_PROCESS_FIX_BASE, V61_PROCESS_FIX_BASE_TREE,
@@ -265,6 +266,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == FRESH_STANDDOWN_BRANCH:
+        if (admission != "EXACT_PR1848_F139_STANDDOWN_SOURCE_CI_ONLY"
+                or base != FRESH_STANDDOWN_BASE
+                or tree != FRESH_STANDDOWN_TREE):
+            raise ValueError("G156_FRESH_STANDDOWN_EXACT_SOURCE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == FRESH_ACTIVATION_BRANCH:
         if (admission != "EXACT_PR1847_FRESH_NATIVE_OWNER_ACTIVATION_CI_ONLY"
                 or base != FRESH_ACTIVATION_BASE

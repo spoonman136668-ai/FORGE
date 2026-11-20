@@ -2285,6 +2285,59 @@ def admit_fresh_owner_activation_bridge(head_sha: str, base_sha: str,
     return "EXACT_PR1847_FRESH_NATIVE_OWNER_ACTIVATION_CI_ONLY"
 
 
+# One original-owner-scoped standdown candidate. Engineering CI ONLY;
+# never grants a live Windows stop, release, restart or scientific first-use.
+FRESH_STANDDOWN_BRANCH = "engineering/f139-fresh-owner-standdown-20261120"
+FRESH_STANDDOWN_PR = 1848
+FRESH_STANDDOWN_BASE = "0727068e534c18ce73cf2de173f9b2a231556ff7"
+FRESH_STANDDOWN_TREE = "e89a8ad7c5e16d9db385403910c50d691475d8d5"
+FRESH_STANDDOWN_WORKFLOW = ".github/workflows/f139-fresh-original-owner-standdown.yml"
+FRESH_STANDDOWN_SCRIPT = "f139/nci04_fresh_owner_standdown.ps1"
+FRESH_STANDDOWN_TEST = "f139/test_nci04_fresh_owner_standdown_source.py"
+FRESH_STANDDOWN_BLOBS = {
+    FRESH_STANDDOWN_WORKFLOW: "13ee12816e0b0e4a94604a2e53c5072485de39ed",
+    FRESH_STANDDOWN_SCRIPT: "0702b728e18cccdb6f5bf74d16845f09f1090035",
+}
+FRESH_STANDDOWN_FILES = frozenset((
+    *FRESH_STANDDOWN_BLOBS, FRESH_STANDDOWN_TEST,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+
+def admit_fresh_original_standdown(head_sha: str, base_sha: str,
+                                  request: dict, git: Callable[..., str]) -> str:
+    """Exact owner/main/source admission; never a task-control permission."""
+    if (not is_sha(head_sha) or base_sha != FRESH_STANDDOWN_BASE
+            or type(request) is not dict
+            or request.get("number") != FRESH_STANDDOWN_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != FRESH_STANDDOWN_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("sha") != FRESH_STANDDOWN_BASE
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_STANDDOWN_OWNER_SOURCE_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        parent_tree = git("rev-parse", base_sha + "^{tree}")
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        blobs = {p: git("rev-parse", head_sha + ":" + p)
+                 for p in FRESH_STANDDOWN_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_FRESH_STANDDOWN_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or parent_tree != FRESH_STANDDOWN_TREE
+            or len(changed) != len(FRESH_STANDDOWN_FILES)
+            or set(changed) != FRESH_STANDDOWN_FILES
+            or blobs != FRESH_STANDDOWN_BLOBS):
+        raise ValueError("G145_FRESH_STANDDOWN_SOURCE_OR_BLOB_DRIFT")
+    return "EXACT_PR1848_F139_STANDDOWN_SOURCE_CI_ONLY"
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -3061,6 +3114,11 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_STANDDOWN_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                           .read_text(encoding="utf-8"))
+        return admit_fresh_original_standdown(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_ACTIVATION_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                            .read_text(encoding="utf-8"))
