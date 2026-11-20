@@ -137,10 +137,9 @@ jobs:
             Write-Host 'KTRADE_W186_UIA_CAPABILITY=BLOCKED_OWNER_APP_RUNNING;display_changed=false'
             return
           }
-          if(@(Get-Process -Name SystemSettings -ErrorAction SilentlyContinue).Count -gt 0){
-            Write-Host 'KTRADE_W186_UIA_CAPABILITY=BLOCKED_EXISTING_OWNER_SETTINGS;display_changed=false'
-            return
-          }
+          # Existing Windows Settings is read-only eligible: do not relaunch,
+          # navigate, close, or steal focus from the owner-owned window.
+          $existingSettings=(@(Get-Process -Name SystemSettings -ErrorAction SilentlyContinue).Count -gt 0)
           Add-Type -AssemblyName UIAutomationClient
           Add-Type -AssemblyName UIAutomationTypes
           Add-Type -TypeDefinition @'
@@ -175,8 +174,12 @@ jobs:
           try {
             # Only open the Windows Settings DISPLAY page. Do not click, select,
             # expand a control, inject input or change any display setting.
-            Start-Process -FilePath 'explorer.exe' -ArgumentList 'ms-settings:display' -ErrorAction Stop
-            $ownedSettings=$true
+            if(!$existingSettings){
+              Start-Process -FilePath 'explorer.exe' -ArgumentList 'ms-settings:display' -ErrorAction Stop
+              $ownedSettings=$true
+            }else{
+              Write-Host 'KTRADE_W187_EXISTING_SETTINGS_READ_ONLY=true;no_navigation=true'
+            }
             $root=[System.Windows.Automation.AutomationElement]::RootElement
             $windowFilter=[System.Windows.Automation.PropertyCondition]::new(
               [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
