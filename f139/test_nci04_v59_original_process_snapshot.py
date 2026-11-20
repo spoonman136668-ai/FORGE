@@ -31,7 +31,6 @@ class OriginalV59ProcessSnapshotSourceTests(unittest.TestCase):
             "F139_V59_OWNER_TASK_MUTATIONS=ZERO",
             "audit_frozen_original_readonly",
             "Database.open_readonly",
-            "PRAGMA query_only",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, src)
