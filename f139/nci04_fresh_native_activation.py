@@ -66,18 +66,19 @@ def audit_fresh_native_activation(db) -> dict | None:
     all_events = list(db.conn.execute(
         "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"))
     meta = db.meta()
-    need(len(activated) == 1 and len(all_events) == 2
+    need(len(activated) == 1 and len(all_events) in (2, 4)
          and len(rows) == 2 and all_events[0]["kind"] == "CUTOVER_ACTIVATED"
          and all_events[0]["seq"] == 1
          and all_events[1]["kind"] == ACTIVATION_KIND
          and all_events[1]["seq"] == 2
          and all_events[1]["prior_sha"] == all_events[0]["sha"]
-         and meta["head_seq"] == 2
-         and meta["head_hash"] == all_events[1]["sha"]
+         and meta["head_seq"] == len(all_events)
+         and meta["head_hash"] == all_events[-1]["sha"]
          and meta["enabled"] == 1
          and meta["legacy_suspended"] == 1
          and meta["epoch"] == 1
-         and not db.conn.execute("SELECT 1 FROM tasks LIMIT 1").fetchone(),
+         and (len(all_events) == 4 or not db.conn.execute(
+             "SELECT 1 FROM tasks LIMIT 1").fetchone()),
          "LOCAL_ACTIVATION_EVENT_SEQUENCE_INVALID")
     try:
         first = json.loads(all_events[0]["payload"])
@@ -114,6 +115,9 @@ def audit_fresh_native_activation(db) -> dict | None:
              "new_controller", "new_scheduler", "new_queue",
              "worker_dispatch_authorized", "model_continuation_authorized")),
          "LOCAL_ACTIVATION_EVENT_FIELDS_INVALID")
+    if len(all_events) == 4:
+        from f139.nci04_fresh_native_intake import audit_one_ready_tail
+        audit_one_ready_tail(db, record, all_events[2:])
     return record
 
 
