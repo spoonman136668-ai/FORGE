@@ -90,7 +90,11 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         from f139.nci04_fresh_yggdrasil_boundary import (
             ACCEPTED, AMALGAM_HEAD, LINEAGE_HEAD,
         )
+        from f139.nci04_fresh_yggdrasil_boundary import (
+            RECEIPT_SCHEMA as YGG_SCHEMA,
+        )
         self.lineage = {
+            "schema": YGG_SCHEMA,
             "accepted_main_source_sha": ACCEPTED,
             "amalgam_draft_head_sha": AMALGAM_HEAD,
             "lineage_draft_head_sha": LINEAGE_HEAD,
@@ -271,6 +275,106 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
             self.prepare()
         self.assertFalse(self.fresh().exists())
 
+
+    def test_fresh_disabled_epoch_routes_before_any_original_feed_or_remote(self):
+        self.prepare()
+        from f139.local_controller import run_once
+        from f139.nci04_fresh_native_owner_route import SCHEMA as ROUTE_SCHEMA
+        newdb = Database(self.fresh() / "state.sqlite")
+        class ForbiddenProvider:
+            def __getattribute__(self, name):
+                raise AssertionError("FRESH_DISABLED_MUST_NEVER_FETCH_" + name)
+        try:
+            before = newdb.meta()
+            result = run_once(
+                newdb, ForbiddenProvider(), self.fresh() / "state.sqlite",
+                "synthetic-local-only-" + "x" * 44)
+            self.assertEqual(result["schema"], ROUTE_SCHEMA)
+            self.assertEqual(
+                result["disposition"],
+                "FRESH_DEVELOPMENT_STAGED_DISABLED_NO_DISPATCH")
+            self.assertEqual(result["staged_owner_run_id"], RUN)
+            self.assertEqual(result["source_sha"], TARGET)
+            self.assertEqual(result["original_head_seq"], HEAD_SEQ)
+            self.assertFalse(result["fresh_native_activation_authorized"])
+            self.assertFalse(result["original_task_rebind_authorized"])
+            self.assertFalse(result["fresh_work_admitted"])
+            self.assertFalse(result["worker_dispatched"])
+            self.assertFalse(result["yggdrasil_checkpoint_loaded"])
+            self.assertFalse(result["scientific_first_use"])
+            self.assertEqual(result["paid_model_calls"], 0)
+            self.assertEqual(newdb.meta(), before)
+            self.assertEqual(
+                newdb.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0], 0)
+            self.assertEqual(
+                newdb.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
+        finally:
+            newdb.close()
+        self.assertEqual(hash_file(self.old), self.before_old_hash)
+
+    def test_fresh_route_rejects_provenance_byte_tamper_without_dispatch(self):
+        self.prepare()
+        from f139.nci04_fresh_native_owner_route import (
+            FreshNativeRouteDenied, inspect_staged_fresh_native_mode,
+        )
+        file = self.fresh() / "consumed-development-identities.json"
+        parsed = json.loads(file.read_bytes())
+        parsed["old_issue_numbers"] = [1000001]
+        file.write_bytes(canonical(parsed))
+        newdb = Database(self.fresh() / "state.sqlite")
+        try:
+            with self.assertRaisesRegex(
+                    FreshNativeRouteDenied, "PROVENANCE_DIGEST_DRIFT"):
+                inspect_staged_fresh_native_mode(
+                    newdb, self.fresh() / "state.sqlite")
+            self.assertEqual(newdb.meta()["enabled"], 0)
+            self.assertEqual(newdb.meta()["head_seq"], 0)
+        finally:
+            newdb.close()
+
+    def test_fresh_route_fails_closed_on_locally_forged_activation_event(self):
+        self.prepare()
+        from f139.nci04_fresh_native_owner_route import (
+            FreshNativeRouteDenied, inspect_staged_fresh_native_mode,
+        )
+        newdb = Database(self.fresh() / "state.sqlite")
+        try:
+            with newdb.transaction():
+                newdb.event("FRESH_NATIVE_DEVELOPMENT_ACTIVATED", {
+                    "claim": "untrusted synthetic activation",
+                    "scientific_first_use": False,
+                })
+            with self.assertRaisesRegex(
+                    FreshNativeRouteDenied, "FRESH_DB_NOT_DISABLED_AND_EMPTY"):
+                inspect_staged_fresh_native_mode(
+                    newdb, self.fresh() / "state.sqlite")
+        finally:
+            newdb.close()
+
+    def test_original_database_is_not_classified_as_fresh(self):
+        from f139.nci04_fresh_native_owner_route import (
+            inspect_staged_fresh_native_mode,
+        )
+        self.assertIsNone(
+            inspect_staged_fresh_native_mode(self.orig, self.old))
+
+    def test_fresh_staging_manifest_tamper_cannot_route(self):
+        self.prepare()
+        from f139.nci04_fresh_native_owner_route import (
+            FreshNativeRouteDenied, inspect_staged_fresh_native_mode,
+        )
+        path = self.fresh() / "fresh-dev-manifest.sha256.json"
+        record = json.loads(path.read_bytes())
+        record["source_transition_authorized"] = True
+        path.write_bytes(canonical(record))
+        newdb = Database(self.fresh() / "state.sqlite")
+        try:
+            with self.assertRaisesRegex(
+                    FreshNativeRouteDenied, "STAGE_MANIFEST_NOT_DISABLED"):
+                inspect_staged_fresh_native_mode(
+                    newdb, self.fresh() / "state.sqlite")
+        finally:
+            newdb.close()
 
 if __name__ == "__main__":
     unittest.main()
