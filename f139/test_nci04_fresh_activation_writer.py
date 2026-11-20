@@ -267,7 +267,7 @@ class OneShotActivationWriterTests(unittest.TestCase):
 
         broken = _WINDOWS_READONLY_PROBE.replace(
             valid,
-            'Get-CimInstance Win32_Process -Filter\\n'
+            'Get-CimInstance Win32_Process -Filter\n'
             '  "Name=\'python.exe\' OR Name=\'pythonw.exe\'" '
             '-ErrorAction Stop |',
             1,
