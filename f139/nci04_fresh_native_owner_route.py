@@ -66,7 +66,11 @@ def inspect_staged_fresh_native_mode(db: Database, db_path: Path) -> dict | None
     stage, provenance file or live state differs from its disabled stage.
     This routine has no provider client and deliberately never creates one.
     """
-    need(type(db) is Database and isinstance(db_path, (Path, str)),
+    # Legacy F139 test discovery can load local_controller via the
+    # unqualified module alias, producing a distinct Python class object.
+    # Do not apply fresh-only class/custody restrictions to NON-fresh DBs:
+    # the existing historical run_once path must remain byte-compatible.
+    need(isinstance(db_path, (Path, str)),
          "DATABASE_ARGUMENT_INVALID")
     path = Path(db_path)
     folder = path.parent
@@ -75,6 +79,7 @@ def inspect_staged_fresh_native_mode(db: Database, db_path: Path) -> dict | None
         need(not folder.name.startswith("f139-fresh-dev-"),
              "FRESH_DIRECTORY_NAME_INVALID")
         return None
+    need(type(db) is Database, "FRESH_DATABASE_CLASS_INVALID")
     run_id = int(run_match.group(1))
     need(path.name == "state.sqlite" and path.is_file()
          and not path.is_symlink() and not folder.is_symlink()
