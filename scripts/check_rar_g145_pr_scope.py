@@ -2169,6 +2169,56 @@ def admit_fresh_owner_admission(head_sha: str, base_sha: str, request: dict,
     return "EXACT_PR1845_F139_FRESH_OWNER_ADMISSION_CI_ONLY"
 
 
+# Exact owner-authored PR #1846 changes ONLY the already-merged fresh
+# admission job's concurrency scope. CI only; never an owner/process grant.
+FRESH_CONCURRENCY_BRANCH = "engineering/f139-fresh-admission-job-concurrency-20261120"
+FRESH_CONCURRENCY_PR = 1846
+FRESH_CONCURRENCY_BASE = "30e9b49138e7e0bf359d34da91450ee9f228b2bf"
+FRESH_CONCURRENCY_TREE = "ded71db9d6a416c846500cf1394ae5b279b3d36a"
+FRESH_CONCURRENCY_WORKFLOW = ".github/workflows/f139-fresh-original-owner-admission.yml"
+FRESH_CONCURRENCY_BLOB = "e5d2c7ac03f5281c60642db6701bb4a7893e8a63"
+FRESH_CONCURRENCY_FILES = frozenset({
+    FRESH_CONCURRENCY_WORKFLOW,
+    "f139/test_nci04_fresh_admission_job_concurrency.py",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
+
+def admit_fresh_admission_job_concurrency(head_sha: str, base_sha: str,
+                                          request: dict,
+                                          git: Callable[..., str]) -> str:
+    """No generic workflow waiver. One exact owner PR and complete file set."""
+    if (not is_sha(head_sha)
+            or base_sha != FRESH_CONCURRENCY_BASE
+            or type(request) is not dict
+            or request.get("number") != FRESH_CONCURRENCY_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != FRESH_CONCURRENCY_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("sha") != FRESH_CONCURRENCY_BASE
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_CONCURRENCY_EXACT_OWNER_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        base_tree = git("rev-parse", base_sha + "^{tree}")
+        actual_blob = git("rev-parse", head_sha + ":" + FRESH_CONCURRENCY_WORKFLOW)
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_FRESH_CONCURRENCY_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or base_tree != FRESH_CONCURRENCY_TREE
+            or actual_blob != FRESH_CONCURRENCY_BLOB
+            or len(changed) != len(FRESH_CONCURRENCY_FILES)
+            or set(changed) != FRESH_CONCURRENCY_FILES):
+        raise ValueError("G145_FRESH_CONCURRENCY_EXACT_SCOPE_DENIED")
+    return "EXACT_PR1846_FRESH_ADMISSION_JOB_CONCURRENCY_CI_ONLY"
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -2945,6 +2995,11 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_CONCURRENCY_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                           .read_text(encoding="utf-8"))
+        return admit_fresh_admission_job_concurrency(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_OWNER_ADMIT_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                            .read_text(encoding="utf-8"))
