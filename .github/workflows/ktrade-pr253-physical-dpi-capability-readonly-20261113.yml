@@ -117,3 +117,125 @@ jobs:
             app_launched=$false
             physical_matrix_125_150_200_qualified=$false
           }|ConvertTo-Json -Compress -Depth 6))
+      - name: Read-only 200 percent Settings UIA capability with foreground restoration
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar' -or
+             [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 1){
+            throw 'KTRADE_W186_UIA_OWNER_SCOPE_REFUSED'
+          }
+          if(@(Get-Process -Name ktrade,ktrade-engine -ErrorAction SilentlyContinue).Count -gt 0){
+            Write-Host 'KTRADE_W186_UIA_CAPABILITY=BLOCKED_OWNER_APP_RUNNING;display_changed=false'
+            return
+          }
+          if(@(Get-Process -Name SystemSettings -ErrorAction SilentlyContinue).Count -gt 0){
+            Write-Host 'KTRADE_W186_UIA_CAPABILITY=BLOCKED_EXISTING_OWNER_SETTINGS;display_changed=false'
+            return
+          }
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class KtradeW186Desktop {
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int i,StringBuilder b,uint size,out uint needed);
+            public static string Desktop(){
+              var h=OpenInputDesktop(0,false,1);
+              if(h==IntPtr.Zero)return "UNAVAILABLE";
+              try {
+                var b=new StringBuilder(128);uint needed;
+                return GetUserObjectInformation(h,2,b,(uint)(b.Capacity*2),out needed)?
+                  b.ToString():"UNAVAILABLE";
+              } finally{CloseDesktop(h);}
+            }
+          }
+          '@
+          if([KtradeW186Desktop]::Desktop() -cne 'Default'){
+            Write-Host 'KTRADE_W186_UIA_CAPABILITY=BLOCKED_SECURE_OR_SAVER_DESKTOP;display_changed=false'
+            return
+          }
+          $priorForeground=[KtradeW186Desktop]::GetForegroundWindow()
+          $settingsWindow=$null
+          $ownedSettings=$false
+          try {
+            # Only open the Windows Settings DISPLAY page. Do not click, select,
+            # expand a control, inject input or change any display setting.
+            Start-Process -FilePath 'explorer.exe' -ArgumentList 'ms-settings:display' -ErrorAction Stop
+            $ownedSettings=$true
+            $root=[System.Windows.Automation.AutomationElement]::RootElement
+            $windowFilter=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+              [System.Windows.Automation.ControlType]::Window)
+            for($try=0;$try -lt 24;$try++){
+              $windows=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$windowFilter)
+              foreach($w in $windows){
+                if([string]$w.Current.Name -match '(?i)(^| - )settings$'){
+                  $settingsWindow=$w
+                  break
+                }
+              }
+              if($null -ne $settingsWindow){break}
+              Start-Sleep -Milliseconds 250
+            }
+            if($null -eq $settingsWindow){
+              Write-Host 'KTRADE_W186_UIA_CAPABILITY=BLOCKED_SETTINGS_WINDOW_UNOBSERVED;display_changed=false'
+            }else{
+              $comboFilter=[System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::ComboBox)
+              $combos=$settingsWindow.FindAll([System.Windows.Automation.TreeScope]::Descendants,$comboFilter)
+              $scale=@()
+              foreach($item in $combos){
+                if([string]$item.Current.Name -match '(?i)\bscale\b'){
+                  $patterns=@($item.GetSupportedPatterns()|ForEach-Object {$_.Id})
+                  $scale+=([ordered]@{
+                    supported_expand_collapse=($patterns -contains [System.Windows.Automation.ExpandCollapsePattern]::Pattern.Id)
+                    supported_selection=($patterns -contains [System.Windows.Automation.SelectionPattern]::Pattern.Id)
+                    supported_value=($patterns -contains [System.Windows.Automation.ValuePattern]::Pattern.Id)
+                  })
+                }
+              }
+              Write-Host ('KTRADE_W186_UIA_CAPABILITY='+([ordered]@{
+                schema='ktrade.pr253.w186.windows-settings-scale-readonly.v1'
+                result=if($scale.Count -eq 1){'SINGLE_LABELED_SCALE_SELECTOR'}else{'NO_UNAMBIGUOUS_SCALE_SELECTOR'}
+                visible_combo_count=$combos.Count
+                matching_scale_controls=$scale.Count
+                patterns=$scale
+                windows_scale_changed=$false
+                registry_or_saved_settings_modified=$false
+                keyboard_or_mouse_input_injected=$false
+                user_data_touched=$false
+                physical_200_percent_accepted=$false
+              }|ConvertTo-Json -Compress -Depth 5))
+            }
+          }finally{
+            # Never close a pre-existing owner Settings process. The preflight
+            # refused that state before launching its own Settings page.
+            if($ownedSettings -and $null -ne $settingsWindow){
+              $pat=$null
+              if($settingsWindow.TryGetCurrentPattern(
+                [System.Windows.Automation.WindowPattern]::Pattern,[ref]$pat)){
+                try{$pat.Close()}catch{Write-Host 'KTRADE_W186_SETTINGS_CLOSE_REFUSED'}
+              }else{Write-Host 'KTRADE_W186_SETTINGS_CLOSE_UNAVAILABLE'}
+            }
+            if($priorForeground -ne [IntPtr]::Zero){
+              $restored=[KtradeW186Desktop]::SetForegroundWindow($priorForeground)
+              Write-Host ('KTRADE_W186_FOREGROUND_RESTORE='+$(if($restored){'PASS'}else{'UNVERIFIED'}))
+            }
+            Write-Host 'KTRADE_W186_NO_SCALING_MUTATION=true;scheduled_tasks_created=false;live_disarmed=true'
+          }
