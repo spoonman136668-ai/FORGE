@@ -177,6 +177,7 @@ class FreshOwnerActivationEntryTests(unittest.TestCase):
             FRESH_ACTIVATION_BASE, FRESH_ACTIVATION_BLOB,
             FRESH_ACTIVATION_BRANCH, FRESH_ACTIVATION_FILES,
             FRESH_ACTIVATION_TREE, FRESH_ACTIVATION_WORKFLOW,
+            FRESH_ACTIVATION_NATIVE_WORKFLOW, FRESH_ACTIVATION_NATIVE_BLOB,
             admit_fresh_owner_activation_bridge, generic_paths_safe,
         )
         head = "b" * 40
@@ -196,6 +197,8 @@ class FreshOwnerActivationEntryTests(unittest.TestCase):
             ("rev-parse", base + "^{tree}"): FRESH_ACTIVATION_TREE,
             ("rev-parse", head + ":" + FRESH_ACTIVATION_WORKFLOW):
                 FRESH_ACTIVATION_BLOB,
+            ("rev-parse", head + ":" + FRESH_ACTIVATION_NATIVE_WORKFLOW):
+                FRESH_ACTIVATION_NATIVE_BLOB,
             ("diff", "--no-renames", "--name-only", base, head):
                 "\n".join(files),
         }
@@ -218,6 +221,7 @@ class FreshOwnerActivationEntryTests(unittest.TestCase):
             (("merge-base", base, head), "0" * 40),
             (("rev-parse", base + "^{tree}"), "0" * 40),
             (("rev-parse", head + ":" + FRESH_ACTIVATION_WORKFLOW), "0" * 40),
+            (("rev-parse", head + ":" + FRESH_ACTIVATION_NATIVE_WORKFLOW), "0" * 40),
             (("diff", "--no-renames", "--name-only", base, head),
              "\n".join(files) + "\n.github/workflows/other.yml"),
         ):
