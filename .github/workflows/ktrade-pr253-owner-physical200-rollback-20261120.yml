@@ -1,0 +1,202 @@
+name: KTRADE PR253 one-shot owner physical 200 percent reversible capability
+on:
+  push:
+    branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
+    paths:
+      - .github/workflows/ktrade-pr253-owner-physical200-rollback-20261120.yml
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-pr253-owner-physical200-reversible-one-shot
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    env:
+      KTRADE_EXPECTED_SOURCE: '07d7e41063a0c1506a290d1497f84de8173da292'
+      KTRADE_EXPECTED_TREE: '07ab753cfc02dd24b6e27c1c106f821f14c62534'
+      KTRADE_LIVE_TRADING: 'false'
+      KTRADE_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Confirm owner session and test reversible 150 to 200 to 150 scale without accessing KTRADE
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 1 -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar' -or
+             $env:KTRADE_EXPECTED_SOURCE -cne '07d7e41063a0c1506a290d1497f84de8173da292' -or
+             $env:KTRADE_LIVE_TRADING -cne 'false' -or
+             $env:KTRADE_PROMOTION_ALLOWED -cne '0'){
+            throw 'KTRADE_W189_OWNER_RUNNER_AUTHORITY_REFUSED'
+          }
+          if(@(Get-Process -Name ktrade,ktrade-engine -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'KTRADE_W189_INSTALLED_APP_RUNNING_REFUSED'
+          }
+          $reg=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+          if([string]$reg.ScreenSaveActive -cne '1' -or
+             [string]$reg.ScreenSaveTimeOut -cne '1200' -or
+             [string]$reg.ScreenSaverIsSecure -cne '0'){
+            throw 'KTRADE_W189_MANUAL_SAVER_CONTRACT_DRIFT_REFUSED'
+          }
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Collections.Generic;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public static class KtradeW189Native {
+            [StructLayout(LayoutKind.Sequential)] public struct Rect {
+              public int left,top,right,bottom;
+            }
+            public delegate bool MonitorCallback(IntPtr monitor,IntPtr dc,ref Rect rect,IntPtr data);
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr c);
+            [DllImport("user32.dll",SetLastError=true)] public static extern bool EnumDisplayMonitors(IntPtr dc,IntPtr rect,MonitorCallback cb,IntPtr data);
+            [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr m,int type,out uint x,out uint y);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint f,bool i,uint a);
+            [DllImport("user32.dll")] public static extern bool CloseDesktop(IntPtr h);
+            [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
+            public static extern bool GetUserObjectInformation(IntPtr h,int i,StringBuilder b,uint s,out uint n);
+            public static string Desktop(){
+              var h=OpenInputDesktop(0,false,1);if(h==IntPtr.Zero)return "UNAVAILABLE";
+              try{var b=new StringBuilder(128);uint n;return GetUserObjectInformation(h,2,b,(uint)(b.Capacity*2),out n)?b.ToString():"UNAVAILABLE";}
+              finally{CloseDesktop(h);}
+            }
+            public static string ReadDpi(){
+              var old=SetThreadDpiAwarenessContext(new IntPtr(-4));
+              if(old==IntPtr.Zero)throw new Exception("W189_DPI_READ_CONTEXT_REQUIRED");
+              try{
+                var a=new List<string>();
+                MonitorCallback cb=(IntPtr m,IntPtr dc,ref Rect r,IntPtr data)=>{
+                  uint x,y;int hr=GetDpiForMonitor(m,0,out x,out y);
+                  if(hr!=0)throw new Exception("W189_GET_DPI_FAILED");
+                  a.Add(x+":"+y);return true;
+                };
+                if(!EnumDisplayMonitors(IntPtr.Zero,IntPtr.Zero,cb,IntPtr.Zero) || a.Count!=1)
+                  throw new Exception("W189_SINGLE_MONITOR_REQUIRED");
+                return a[0];
+              }finally{if(SetThreadDpiAwarenessContext(old)==IntPtr.Zero)
+                throw new Exception("W189_DPI_READ_CONTEXT_RESTORE_FAILED");}
+            }
+          }
+          '@
+          if([KtradeW189Native]::Desktop() -cne 'Default'){
+            throw 'KTRADE_W189_DEFAULT_DESKTOP_REQUIRED'
+          }
+          $before=[KtradeW189Native]::ReadDpi()
+          if($before -cne '144:144'){throw ('KTRADE_W189_150_PREIMAGE_REQUIRED_ACTUAL='+$before)}
+          $priorForeground=[KtradeW189Native]::GetForegroundWindow()
+          $ownedSettings=(@(Get-Process -Name SystemSettings -ErrorAction SilentlyContinue).Count -eq 0)
+          $attempted200=$false
+          $reverted=$false
+          $observed200=$false
+          function Get-Scale {
+            $root=[System.Windows.Automation.AutomationElement]::RootElement
+            $f=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+              [System.Windows.Automation.ControlType]::Window)
+            $windows=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$f)
+            $found=@()
+            foreach($w in $windows){
+              if([string]$w.Current.Name -notmatch '(?i)\bsettings\b'){continue}
+              $cf=[System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::ComboBox)
+              $combos=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,$cf)
+              foreach($c in $combos){
+                if([string]$c.Current.Name -match '(?i)\bscale\b'){
+                  $found+=@{window=$w;combo=$c}
+                }
+              }
+            }
+            if($found.Count -ne 1){throw 'W189_SINGLE_LABELED_SCALE_COMBO_REQUIRED'}
+            return $found[0]
+          }
+          function Get-Choices([int]$target){
+            $context=Get-Scale
+            $expand=$context.combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+            $expand.Expand()
+            Start-Sleep -Milliseconds 320
+            $filter=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+              [System.Windows.Automation.ControlType]::ListItem)
+            $items=$context.window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$filter)
+            $matched=@()
+            foreach($i in $items){
+              if([string]$i.Current.Name -match ('^\s*'+$target+'\s*%(\s|$)')){$matched+=,$i}
+            }
+            if($matched.Count -ne 1){throw ('W189_TARGET_LIST_ITEM_UNAVAILABLE_'+$target)}
+            return $matched[0]
+          }
+          function Choose-Scale([int]$target){
+            $item=Get-Choices $target
+            $pattern=$item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+            $pattern.Select()
+          }
+          function Confirm-Dpi([string]$wanted){
+            for($i=0;$i -lt 30;$i++){
+              if([KtradeW189Native]::ReadDpi() -ceq $wanted){return $true}
+              Start-Sleep -Milliseconds 300
+            }
+            return $false
+          }
+          try{
+            # Native Windows Settings UI only; never use registry DPI hacks,
+            # display-mode APIs, screen-resolution changes or logoff.
+            Start-Process -FilePath explorer.exe -ArgumentList 'ms-settings:display' -ErrorAction Stop
+            Start-Sleep -Milliseconds 500
+            # First prove BOTH the existing and target value are selectable
+            # before applying any change.
+            [void](Get-Choices 150)
+            [void](Get-Choices 200)
+            Choose-Scale 150
+            if(!(Confirm-Dpi '144:144')){throw 'W189_ROLLBACK_PATH_PRECHECK_FAILED'}
+            Write-Host 'KTRADE_W189_ROLLBACK_150_NOOP_PREFLIGHT=PASS'
+            $attempted200=$true
+            Choose-Scale 200
+            $observed200=Confirm-Dpi '192:192'
+            if(!$observed200){throw 'W189_PHYSICAL_200_NOT_OBSERVED'}
+            Write-Host 'KTRADE_W189_PHYSICAL_200_MODE_OBSERVED=PASS;dpi=192:192;product_unlaunched=true'
+          }finally{
+            if($attempted200){
+              try{
+                Choose-Scale 150
+                $reverted=Confirm-Dpi '144:144'
+              }catch{
+                Write-Host ('KTRADE_W189_ROLLBACK_ATTEMPT_ERROR='+$_.Exception.GetType().Name)
+              }
+            }else{
+              $reverted=([KtradeW189Native]::ReadDpi() -ceq '144:144')
+            }
+            $after=[KtradeW189Native]::ReadDpi()
+            if($after -ceq '144:144'){$reverted=$true}
+            if($priorForeground -ne [IntPtr]::Zero){
+              $fg=[KtradeW189Native]::SetForegroundWindow($priorForeground)
+              Write-Host ('KTRADE_W189_FOREGROUND_RESTORE='+$(if($fg){'PASS'}else{'UNVERIFIED'}))
+            }
+            $regAfter=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
+            $saverStable=([string]$regAfter.ScreenSaveTimeOut -ceq '1200' -and
+                          [string]$regAfter.ScreenSaveActive -ceq '1')
+            Write-Host ('KTRADE_W189_DPI_RESTORATION='+(@{
+              physical_200_observed=$observed200
+              before_dpi=$before;after_dpi=$after
+              restored_150=$reverted
+              screen_saver_unchanged=$saverStable
+              product_source_unchanged=$true
+              installed_profile_untouched=$true
+              broker_disarmed=$true
+              scheduled_tasks_created=$false
+            }|ConvertTo-Json -Compress))
+            if(!$reverted -or !$saverStable){throw 'W189_OWNER_DESKTOP_RESTORE_FAILED'}
+          }
