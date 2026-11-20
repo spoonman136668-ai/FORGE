@@ -126,5 +126,62 @@ class OwnerAdmissionCLIControls(unittest.TestCase):
                     find_one_activated(root, SOURCE)
 
 
+    def test_g145_exact_owner_only_workflow_scope(self):
+        from scripts.check_rar_g145_pr_scope import (
+            FRESH_OWNER_ADMIT_BASE, FRESH_OWNER_ADMIT_BLOB,
+            FRESH_OWNER_ADMIT_BRANCH, FRESH_OWNER_ADMIT_FILES,
+            FRESH_OWNER_ADMIT_TREE, FRESH_OWNER_ADMIT_WORKFLOW,
+            admit_fresh_owner_admission, generic_paths_safe,
+        )
+        head = "b" * 40
+        base = FRESH_OWNER_ADMIT_BASE
+        request = {
+            "number": 1845, "author_association": "OWNER",
+            "user": {"login": "spoonman136668-ai"},
+            "head": {"sha": head, "ref": FRESH_OWNER_ADMIT_BRANCH,
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+            "base": {"sha": base, "ref": "main",
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+        }
+        paths = list(sorted(FRESH_OWNER_ADMIT_FILES))
+        answers = {
+            ("merge-base", base, head): base,
+            ("rev-parse", base + "^{tree}"): FRESH_OWNER_ADMIT_TREE,
+            ("rev-parse", head + ":" + FRESH_OWNER_ADMIT_WORKFLOW):
+                FRESH_OWNER_ADMIT_BLOB,
+            ("diff", "--no-renames", "--name-only", base, head):
+                "\n".join(paths),
+        }
+
+        def git(*args):
+            return answers[args]
+
+        self.assertFalse(generic_paths_safe(paths))
+        self.assertEqual(
+            admit_fresh_owner_admission(head, base, request, git),
+            "EXACT_PR1845_F139_FRESH_OWNER_ADMISSION_CI_ONLY")
+        for candidate in (
+            dict(request, number=1846),
+            dict(request, author_association="CONTRIBUTOR"),
+            dict(request, user={"login": "other"}),
+            dict(request, head=dict(request["head"], ref="other-branch")),
+            dict(request, base=dict(request["base"], sha="c" * 40)),
+        ):
+            with self.assertRaises(ValueError):
+                admit_fresh_owner_admission(head, base, candidate, git)
+        wrong = dict(answers)
+        wrong[("rev-parse", head + ":" + FRESH_OWNER_ADMIT_WORKFLOW)] = "c" * 40
+        with self.assertRaisesRegex(ValueError, "FROZEN_SCOPE_DENIED"):
+            admit_fresh_owner_admission(
+                head, base, request, lambda *args: wrong[args])
+        wrong = dict(answers)
+        wrong[("diff", "--no-renames", "--name-only", base, head)] += (
+            "\n.github/workflows/unrelated.yml")
+        with self.assertRaisesRegex(ValueError, "FROZEN_SCOPE_DENIED"):
+            admit_fresh_owner_admission(
+                head, base, request, lambda *args: wrong[args])
+
+
+
 if __name__ == "__main__":
     unittest.main()
