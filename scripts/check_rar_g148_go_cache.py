@@ -15,6 +15,7 @@ import sys
 
 from check_rar_g145_pr_scope import (admit_original_pr, negative_controls,
     V54_RELEASE_BRANCH, V59_READONLY_BRANCH, V60_PROCESS_BRANCH,
+    FRESH_OWNER_ADMIT_BRANCH,
     V61_PROCESS_FIX_BRANCH,
     V41_STATUS_BRANCH, V41_STATUS_RESULT,
     V41_BACKUP_BRANCH, V41_BACKUP_RESULT,
@@ -135,6 +136,10 @@ def event_mode(head):
         raise ValueError("G148_ONLY_SAME_REPO_MAIN_PR")
     admiss = admit_original_pr(head, git)
     branch = os.environ["GITHUB_HEAD_REF"]
+    if branch == FRESH_OWNER_ADMIT_BRANCH:
+        if admiss != "EXACT_PR1845_F139_FRESH_OWNER_ADMISSION_CI_ONLY":
+            raise ValueError("G148_FRESH_OWNER_EXACT_ADMISSION_REQUIRED")
+        return "pr"
     # G145 has already authenticated PR1807, its exact protected-main
     # ancestry and EVERY source blob (including this G148 guard). This is
     # compiler-input CI qualification only, never original-owner authority.

@@ -11,6 +11,7 @@ import sys
 
 from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negative_controls,
     V54_RELEASE_BRANCH, V54_RELEASE_BASE, V54_RELEASE_BASE_TREE,
+    FRESH_OWNER_ADMIT_BRANCH, FRESH_OWNER_ADMIT_BASE, FRESH_OWNER_ADMIT_TREE,
     V59_READONLY_BRANCH, V59_READONLY_BASE, V59_READONLY_BASE_TREE,
     V60_PROCESS_BRANCH, V60_PROCESS_BASE, V60_PROCESS_BASE_TREE,
     V61_PROCESS_FIX_BRANCH, V61_PROCESS_FIX_BASE, V61_PROCESS_FIX_BASE_TREE,
@@ -262,6 +263,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == FRESH_OWNER_ADMIT_BRANCH:
+        if (admission != "EXACT_PR1845_F139_FRESH_OWNER_ADMISSION_CI_ONLY"
+                or base != FRESH_OWNER_ADMIT_BASE
+                or tree != FRESH_OWNER_ADMIT_TREE):
+            raise ValueError("G156_FRESH_OWNER_EXACT_SOURCE_REQUIRED")
+        return
     # V54 is only eligible after G145 validates PR1807's owner identity,
     # protected main ancestry and every pinned source blob, including G156.
     # This derives an optional compiler cache key; it cannot run owner tasks.
