@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import sqlite3
 
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_fresh_dev_epoch import (
@@ -79,7 +80,20 @@ def inspect_staged_fresh_native_mode(db: Database, db_path: Path) -> dict | None
         need(not folder.name.startswith("f139-fresh-dev-"),
              "FRESH_DIRECTORY_NAME_INVALID")
         return None
-    need(type(db) is Database, "FRESH_DATABASE_CLASS_INVALID")
+    # python -m f139.local_controller executes that source as __main__, and
+    # unittest discovery also uses local_controller; those are DISTINCT
+    # Python class objects from an imported f139.local_controller.Database.
+    # Validate the actual SQLite object and known module aliases instead of
+    # rejecting the one genuine Windows CLI production entrypoint.
+    cls = type(db)
+    need(cls.__name__ == "Database"
+         and cls.__module__ in (
+             "f139.local_controller", "local_controller", "__main__")
+         and isinstance(getattr(db, "filename", None), Path)
+         and isinstance(getattr(db, "conn", None), sqlite3.Connection)
+         and callable(getattr(db, "verify", None))
+         and callable(getattr(db, "meta", None)),
+         "FRESH_DATABASE_CLASS_INVALID")
     run_id = int(run_match.group(1))
     need(path.name == "state.sqlite" and path.is_file()
          and not path.is_symlink() and not folder.is_symlink()
