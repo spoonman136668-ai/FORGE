@@ -1,10 +1,10 @@
 """Inert fresh F139 native-development route inside the EXISTING controller.
 
 This is a source-only, non-mutating classifier for a separately staged F139
-development SQLite. It prevents the original legacy/native tick, D2K feed,
-G3/G29 publication fallback, and worker dispatch from accidentally operating
-on the empty new ledger. It is NOT a versioned owner activation, release,
-scientific first-use, new learner, training run, or task handoff.
+development SQLite, including a future versioned local activation event.
+It prevents original legacy/native tick, D2K feed, G3/G29 publication and
+worker dispatch under BOTH staged states. The existence of an activation
+event is NOT original-host release, science or model-continuation authority.
 
 Later versioned activation must be a distinct, independently authenticated
 original-Windows-owner transition, not a reinterpretation of this result.
@@ -149,15 +149,8 @@ def inspect_staged_fresh_native_mode(db: Database, db_path: Path) -> dict | None
                           manifest["target_source_sha"]) is not None
          and manifest["target_source_sha"] != SOURCE
          and source["source_sha"] == manifest["target_source_sha"]
-         and source["epoch"] == 1
-         and source["enabled"] == 0
-         and source["legacy_suspended"] == 0
-         and source["head_seq"] == 0
-         and source["head_hash"] == ZERO,
-         "FRESH_DB_NOT_DISABLED_AND_EMPTY")
-    need(not db.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone()
-         and not db.conn.execute("SELECT 1 FROM tasks LIMIT 1").fetchone(),
-         "NEW_WORK_OR_ACTIVATION_WITHOUT_OWNER_RELEASE")
+         and source["epoch"] == 1,
+         "FRESH_DB_SOURCE_OR_EPOCH_INVALID")
     need(exclusions.get("schema") == EXCLUSIONS_SCHEMA
          and exclusions.get("source_sha") == SOURCE
          and exclusions.get("original_head_seq") == HEAD_SEQ
@@ -199,12 +192,54 @@ def inspect_staged_fresh_native_mode(db: Database, db_path: Path) -> dict | None
          and archived.get("files_sha256", {}).get("state.sqlite") ==
              manifest["historical_sqlite_sha256"],
          "HISTORICAL_ARCHIVE_CUSTODY_DRIFT")
+    # Local activation is a separately versioned record, never original v1
+    # historical event23. A malformed fake is rejected before any provider GET.
+    from f139.nci04_fresh_native_activation import (
+        FreshActivationDenied, audit_fresh_native_activation,
+        authenticate_fresh_activation_receipts,
+    )
+    try:
+        activation = audit_fresh_native_activation(db)
+    except FreshActivationDenied as exc:
+        raise FreshNativeRouteDenied(
+            "F139_FRESH_NATIVE_ROUTE_FRESH_DB_NOT_DISABLED_AND_EMPTY") from exc
+    if activation is None:
+        need(source["enabled"] == 0 and source["legacy_suspended"] == 0
+             and source["head_seq"] == 0 and source["head_hash"] == ZERO,
+             "FRESH_DB_NOT_DISABLED_AND_EMPTY")
+        need(not db.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone()
+             and not db.conn.execute("SELECT 1 FROM tasks LIMIT 1").fetchone(),
+             "NEW_WORK_OR_ACTIVATION_WITHOUT_OWNER_RELEASE")
+        disposition = "FRESH_DEVELOPMENT_STAGED_DISABLED_NO_DISPATCH"
+        floor = None
+    else:
+        need(activation["owner_run_id"] == run_id
+             and activation["source_sha"] == source["source_sha"]
+             and not db.conn.execute("SELECT 1 FROM tasks LIMIT 1").fetchone(),
+             "FRESH_ACTIVATION_OWNER_OR_TASK_INVALID")
+        floor, floor_bytes = _sealed_json(
+            folder / "remote-issue-cutover-floor.json")
+        owner, owner_bytes = _sealed_json(
+            folder / "original-task-release.json")
+        authenticate_fresh_activation_receipts(
+            activation, stage=manifest, consumed=exclusions,
+            yggdrasil_boundary=lineage, remote_floor=floor,
+            owner_release=owner, manifest_bytes=encoded,
+            consumed_bytes=exclusions_bytes, yggdrasil_bytes=lineage_bytes,
+            floor_bytes=floor_bytes, release_bytes=owner_bytes)
+        # A cold SQLite file and a matching local release document alone
+        # cannot independently attest Windows SID/process or provider state
+        # at this moment. This branch is still worker-dispatch INERT.
+        disposition = "FRESH_ACTIVATION_RECORDED_DISPATCH_BLOCKED"
     # Archived DB is not reopened/modified here: the V59 original cold
     # verifier and original task quiescence must run at the actual handoff.
     # This receipt grants *no rights* even when all synthetic bytes match.
     return {
         "schema": SCHEMA,
-        "disposition": "FRESH_DEVELOPMENT_STAGED_DISABLED_NO_DISPATCH",
+        "disposition": disposition,
+        "activation_event_recorded": activation is not None,
+        "owner_release_independently_verified_runtime": False,
+        "native_issue_admission_authorized": False,
         "source_sha": source["source_sha"],
         "original_source_sha": SOURCE,
         "original_head_seq": HEAD_SEQ,
