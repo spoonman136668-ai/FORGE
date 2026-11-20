@@ -50,6 +50,7 @@ $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 Need ([Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
   [Security.Principal.WindowsBuiltInRole]::Administrator)) 'OWNER_ADMIN_REQUIRED'
 $task=Get-ScheduledTask -TaskName $Name -ErrorAction Stop
+$OriginalArguments=[string]$task.Actions[0].Arguments
 $sid=''
 try {$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).
   Translate([Security.Principal.SecurityIdentifier]).Value} catch {}
@@ -100,7 +101,8 @@ finally:
     $ledgerBefore[0] -cmatch '^F139_STANDDOWN_ORIGINAL_LEDGER=') 'ORIGINAL_LEDGER_PREFLIGHT'
   $task=Get-ScheduledTask -TaskName $Name -ErrorAction Stop
   Need ($task.Settings.Enabled -eq $true -and
-    [string]$task.Actions[0].Arguments -ceq [string]$task.Actions[0].Arguments) 'TASK_MOVED'
+    @($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3 -and
+    [string]$task.Actions[0].Arguments -ceq $OriginalArguments) 'TASK_MOVED'
   Disable-ScheduledTask -TaskName $Name -ErrorAction Stop | Out-Null
   if([string]$task.State -ceq 'Running') {
     Stop-ScheduledTask -TaskName $Name -ErrorAction Stop | Out-Null
