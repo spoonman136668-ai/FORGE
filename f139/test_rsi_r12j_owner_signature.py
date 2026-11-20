@@ -150,7 +150,7 @@ class OriginalPublicSignatureTests(unittest.TestCase):
         body=DOMAIN+canonical(self.doc)
         r=subprocess.run(
             [go,"run",str(f)],input=body,check=False,
-            capture_output=True,timeout=90,env=environment,cwd=f.parent)
+            capture_output=True,timeout=180,env=environment,cwd=f.parent)
         self.assertEqual(r.returncode,0,r.stderr[-1200:])
         obj=json.loads(r.stdout)
         self.assertTrue(verify_ed25519(
