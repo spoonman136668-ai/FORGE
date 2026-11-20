@@ -44,8 +44,7 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
         ):
             with self.subTest(term=term):
                 self.assertIn(term, self.script)
-        self.assertIn("new database", self.script.lower() if False else
-                      "new_database_path", self.script)
+        self.assertIn("new_database_path", self.script)
 
     def test_rebind_is_once_only_and_no_autostart_or_dispatch(self):
         script = self.script
@@ -62,8 +61,7 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
             script.index("Set-ScheduledTask -TaskName $TaskName"))
         self.assertLess(
             script.index("Set-ScheduledTask -TaskName $TaskName"),
-            script.index("fresh-owner-task-rebind.json") if False
-            else script.index("F139_FRESH_EXISTING_DISABLED_TASK_REBIND=PASS"))
+            script.index("F139_FRESH_EXISTING_DISABLED_TASK_REBIND=PASS"))
         for forbidden in (
             "Enable-ScheduledTask", "Start-ScheduledTask",
             "Register-ScheduledTask", "Unregister-ScheduledTask",
