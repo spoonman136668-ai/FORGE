@@ -3574,36 +3574,94 @@ jobs:
           '@
           $dbReport | & $python -B - $db $deployedSource
           if($LASTEXITCODE -ne 0){throw 'F139_G54_STATUS_SQLITE_READ_FAILED'}
+          $genenvProbe=@'
+          import hashlib
+          import json
+          from pathlib import Path
+          import re
+          import sqlite3
+          import stat
+          import sys
+          
+          # Read-only owner observation, no execution of the generator or provider GETs.
+          old = "c06403c8b6035c6c7013866a7ea08cef1244b507"
+          head = "e10be7151e19f2104ef2659ae04bef89b2711eea1659decb1477fd7354ff24ec"
+          path = Path(sys.argv[1]).resolve(strict=True)
+          assert sys.argv[2] == old and path.name == "state.sqlite"
+          with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
+              conn.row_factory = sqlite3.Row
+              conn.execute("PRAGMA query_only=ON")
+              assert conn.execute("PRAGMA query_only").fetchone()[0] == 1
+              meta = conn.execute(
+                  "SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1"
+              ).fetchone()
+              assert meta is not None and meta["source_sha"] == old
+              assert meta["head_seq"] == 1864 and meta["head_hash"] == head
+              row = conn.execute(
+                  "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' "
+                  "ORDER BY seq DESC LIMIT 1"
+              ).fetchone()
+              doc = json.loads(row["payload"]) if row else {}
+              assert type(doc) is dict
+              bound = (doc.get("schema") == "forge.f139.source-transition.v47"
+                       and doc.get("to_source_sha") == old)
+              pin = doc.get("genenv_executable_sha256")
+              mechanism = doc.get("generation_mechanism_sha256")
+              sha = re.compile(r"[0-9a-f]{64}\Z")
+              binary_pin = type(pin) is str and sha.fullmatch(pin) is not None
+              typed_pin = (type(mechanism) is str
+                           and sha.fullmatch(mechanism) is not None)
+              state = "SOURCE_RELEASE_UNBOUND"
+              if bound:
+                  if not binary_pin:
+                      state = "BINARY_PIN_UNBOUND"
+                  elif not typed_pin:
+                      state = "TYPED_MECHANISM_PIN_UNBOUND"
+                  else:
+                      exe = path.parent / "genenv-source" / old / "f139-genenv-source.exe"
+                      try:
+                          ancestors = (exe.parent.parent, exe.parent, exe)
+                          if any(p.is_symlink() or getattr(
+                                  p, "is_junction", lambda: False)() for p in ancestors):
+                              state = "UNSAFE_BINARY_PATH"
+                          elif not exe.exists():
+                              state = "BINARY_MISSING"
+                          else:
+                              info = exe.stat()
+                              if not stat.S_ISREG(info.st_mode):
+                                  state = "BINARY_NOT_REGULAR"
+                              elif not (0 < info.st_size <= 16000000):
+                                  state = "BINARY_SIZE_UNQUALIFIED"
+                              elif hashlib.sha256(exe.read_bytes()).hexdigest() != pin:
+                                  state = "BINARY_DIGEST_MISMATCH"
+                              elif exe.stat().st_size != info.st_size:
+                                  state = "BINARY_CHANGED_DURING_READ"
+                              else:
+                                  state = "BINARY_PIN_MATCH_READONLY"
+                      except OSError:
+                          state = "BINARY_READ_UNAVAILABLE"
+              print("F139_V62_GENENV_READONLY=" + json.dumps({
+                  "schema": "forge.f139.v62.genenv-original-readonly.v1",
+                  "original_event_head": 1864,
+                  "source_release_bound": bool(bound),
+                  "binary_pin_present": bool(binary_pin),
+                  "typed_mechanism_pin_present": bool(typed_pin),
+                  "binary_custody": state,
+                  "backend_failure_cause_proven": False,
+                  "provider_gets": 0,
+                  "generator_invocations": 0,
+                  "original_mutations": 0,
+                  "worker_dispatched": False,
+                  "scientific_first_use": False,
+              }, sort_keys=True, separators=(",", ":")))
+          '@
+          $genenvProbe | & $python -B - $db $deployedSource
+          if($LASTEXITCODE -ne 0){throw 'F139_V62_GENENV_READONLY_SOURCE_DENIED'}
           $log=Join-Path (Split-Path $db -Parent) (Join-Path 'logs' 'controller.log')
           function OptionalField($object,[string]$name) {
             $property=$object.PSObject.Properties[$name]
             if($null -eq $property){return $null}
             return $property.Value
-          }
-          # All classifications originate in original, immutable F139 source.
-          # Raw exception text, unreviewed codes and log paths never leave this status job.
-          $allowlistScript=@'
-          from f139.nci04_model_free_failure import SAFE_CODES
-          for code in sorted(SAFE_CODES):
-              print(code)
-          '@
-          $allowedModelFreeCodes=@($allowlistScript | & $python -B -)
-          if($LASTEXITCODE -ne 0 -or @($allowedModelFreeCodes).Count -lt 20) {
-            throw 'F139_G54_MODEL_FREE_ALLOWLIST_UNAVAILABLE'
-          }
-          $fallbackModelFreeCodes=@('OS_ERROR_NO_DETAILS','UNCLASSIFIED_F139_ERROR',
-            'UNCLASSIFIED_VALUE_ERROR','UNCLASSIFIED_FAILURE')
-          function SafeModelFreeFailureCode($record) {
-            if((OptionalField $record 'disposition') -cne 'MODEL_FREE_SEARCH_BLOCKED_FAIL_CLOSED') {
-              return $null
-            }
-            $code=OptionalField $record 'failure_code'
-            if($code -is [string] -and
-               (($allowedModelFreeCodes -ccontains $code) -or
-                ($fallbackModelFreeCodes -ccontains $code))) {
-              return $code
-            }
-            return 'REDACTED_OR_MISSING'
           }
           if(Test-Path -LiteralPath $log) {
             $entries=@()
@@ -3613,7 +3671,6 @@ jobs:
               $entries += [pscustomobject]@{
                 timestamp=(OptionalField $e 'at')
                 disposition=(OptionalField $e 'disposition')
-                failure_code=(SafeModelFreeFailureCode $e)
                 blocked=(OptionalField $e 'blocked')
                 error=(OptionalField $e 'error')
                 reason=(OptionalField $e 'reason')
@@ -3663,7 +3720,7 @@ jobs:
           Write-Host 'F139_G54_STATUS_READ_ONLY=PASS'
 
       - name: V41 original-owner locked issue/ledger read-only preflight
-        if: ${{ github.event_name == 'issue_comment' && startsWith(github.event.comment.body, 'F139-V9-STATUS ') }}
+        if: ${{ github.event_name == 'issue_comment' && startsWith(github.event.comment.body, 'F139-V9-STATUS ') && github.sha == '2c7caad5a4502d4b874a11d57207a35cf033eb08' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
