@@ -1,0 +1,104 @@
+name: FORGE KABOOM code-only historical chart binary hash triage
+on:
+  push:
+    branches: [qualification/kaboom-pr114-offline-custody-20261120]
+    paths: [.github/workflows/forge-kaboom-chart-historical-hash-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  historical-chart:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    steps:
+      - name: Verify existing isolated source runner and no broker identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr114-offline-custody-20261120' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'KABOOM_CHART_TRIAGE_WRONG_RUNNER' }
+          foreach ($name in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if ([Environment]::GetEnvironmentVariable($name)) { throw 'KABOOM_CHART_TRIAGE_BROKER_AUTH_BLOCKED' }
+          }
+          Write-Output 'KABOOM_CHART_TRIAGE_ISOLATION=PASS;BROKER_ACTIONS=ZERO'
+      - name: Setup pinned Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Build only historical chart executables, no applications launched
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $env:GOTOOLCHAIN='local'
+          $env:GOTELEMETRY='off'
+          $env:CGO_ENABLED='0'
+          $env:GOFLAGS='-p=2'
+          if ((& go env GOVERSION).Trim() -cne 'go1.26.5') { throw 'KABOOM_CHART_TRIAGE_TOOLCHAIN_DRIFT' }
+          $latest='4627752ae7df752d3ff1eaa506e6a8143e57fc5b'
+          $remote=(& gh api repos/Kboomllc/K-Terminal/branches/kaboom --jq '.commit.sha' 2>$null)
+          if ($LASTEXITCODE -ne 0 -or $remote.Trim() -cne $latest) { throw 'KABOOM_CHART_TRIAGE_REMOTE_DRIFT' }
+          $scratch=Join-Path $env:RUNNER_TEMP ('kaboom-chart-hist-'+$env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $scratch) { throw 'KABOOM_CHART_TRIAGE_SCRATCH_COLLISION' }
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $root=Join-Path $scratch 'source'
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 8 --single-branch --branch kaboom *> (Join-Path $scratch 'clone.log')
+          if ($LASTEXITCODE -ne 0 -or (& git -C $root rev-parse HEAD).Trim() -cne $latest) { throw 'KABOOM_CHART_TRIAGE_PRIVATE_SOURCE_FAIL' }
+          $revisions=@(
+            @{label='nov16-release'; sha='6a0436a0741053916409662abd44b79c2b09543a'; tree='55858232ade0ec54d6d56b41d3e5c4dd9d34756d'},
+            @{label='nov17-evening'; sha='65016a74fa925d7743b7f0a93df455ac6facb1bf'; tree='bf8a5ad582d68e4f490cbb76da584f315b315835'},
+            @{label='nov17-late'; sha='b87c330ff73d2ad42cf37ee77011ab8e1acf7ddd'; tree='c02447cf9429e823475c417ff749d437a86b3c33'},
+            @{label='nov19-morning'; sha='b106ab678b234ae506abc9bb86c85381bb449c72'; tree='dad5b5457df8a66625892d7b838bc0ea66f51270'},
+            @{label='nov19-evening'; sha='4627752ae7df752d3ff1eaa506e6a8143e57fc5b'; tree='68438c59507292b49acda787542ce341ad04cf8d'}
+          )
+          $rows=@()
+          foreach ($rev in $revisions) {
+            & git -C $root checkout --force --detach $rev.sha *> (Join-Path $scratch ('checkout-'+$rev.label+'.log'))
+            if ($LASTEXITCODE -ne 0 -or (& git -C $root rev-parse HEAD).Trim() -cne $rev.sha -or
+                (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne $rev.tree -or
+                @(& git -C $root status --porcelain --untracked-files=all).Count) { throw ('KABOOM_CHART_TRIAGE_REVISION_DRIFT_'+$rev.label) }
+            $out=Join-Path $scratch ($rev.label+'.exe')
+            Push-Location (Join-Path $root 'kaboom-core')
+            try {
+              & go build -trimpath -ldflags='-s -w' -buildvcs=false -o $out ./cmd/kaboom-chart
+              if ($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $out -PathType Leaf)) { throw ('KABOOM_CHART_TRIAGE_BUILD_FAIL_'+$rev.label) }
+            } finally { Pop-Location }
+            $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($hash -cnotmatch '^[0-9a-f]{64}$') { throw 'KABOOM_CHART_TRIAGE_BAD_HASH' }
+            $rows+=@{label=$rev.label;source_commit=$rev.sha;source_tree=$rev.tree;sha256=$hash;reported_chart_prefix_match=$hash.StartsWith('949539fc')}
+            Write-Output ('KABOOM_CHART_TRIAGE_BUILT='+$rev.label+';PREFIX='+$hash.Substring(0,8)+';REPORT_MATCH='+$hash.StartsWith('949539fc'))
+          }
+          $last=$rows[$rows.Count-1]
+          if (-not $last.sha256.StartsWith('63256cb0')) { throw 'KABOOM_CHART_TRIAGE_LATEST_REFERENCE_DRIFT' }
+          $n=@($rows|Where-Object {$_.reported_chart_prefix_match}).Count
+          $evidence=[ordered]@{
+            schema='kaboom.chart-historical-hash-triage.v1'
+            observation='operator_report_2026-11-19'
+            reported_chart_sha256_prefix='949539fc'
+            reproducible_current_chart_sha256_prefix='63256cb0'
+            go_version='go1.26.5'
+            goflags='-p=2'
+            build_flags='go build -trimpath -ldflags=-s -w -buildvcs=false'
+            historical_source_commits=$rows
+            matching_historical_revisions=$n
+            current_binary_reference_control='PASS'
+            installed_file_or_process_observed=$false
+            installation_source_provenance_proved=$false
+            broker_actions=0
+            deployment=$false
+          }
+          $dst=Join-Path $env:RUNNER_TEMP 'kaboom-chart-historical-evidence'
+          New-Item -ItemType Directory -Path $dst | Out-Null
+          [IO.File]::WriteAllText((Join-Path $dst 'historical-hash-triage.json'),($evidence|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+          Write-Output ('KABOOM_CHART_TRIAGE_COMPLETE=PASS;REVISIONS=5;OLDER_MATCHES='+$n+';INSTALLED=UNVERIFIED;BROKER_ACTIONS=0')
+      - name: Preserve sanitized historical hashes only, never compiled programs
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaboom-chart-historical-hash-triage
+          path: ${{ runner.temp }}/kaboom-chart-historical-evidence/historical-hash-triage.json
+          retention-days: 7
+          if-no-files-found: error
