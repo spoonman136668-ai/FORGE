@@ -226,6 +226,57 @@ class OneShotActivationWriterTests(unittest.TestCase):
         self.assertIn("Get-ScheduledTask", _WINDOWS_READONLY_PROBE)
         self.assertIn("Get-CimInstance", _WINDOWS_READONLY_PROBE)
 
+    def test_windows_owner_quiescence_probe_real_powershell_ast_and_negative(self):
+        """Parse the exact embedded owner preflight; reject the old line break.
+
+        This is a source test only: it does not query or mutate a Windows task,
+        process, owner database or original development state.
+        """
+        import shutil
+        import subprocess
+        import sys
+
+        if sys.platform != "win32":
+            self.skipTest("Owner probe AST is verified by native Windows CI")
+        powershell = shutil.which("powershell.exe")
+        self.assertIsNotNone(powershell)
+        command = (
+            "$source=[Console]::In.ReadToEnd();"
+            "$tokens=$null;$errors=$null;"
+            "[void][System.Management.Automation.Language.Parser]::ParseInput("
+            "$source,[ref]$tokens,[ref]$errors);"
+            "if($errors.Count -ne 0){"
+            "[Console]::Error.WriteLine(($errors|ForEach-Object "
+            "{ $_.ErrorId }) -join ',');exit 1};exit 0"
+        )
+
+        def parse(script: str):
+            return subprocess.run(
+                [powershell, "-NoProfile", "-NonInteractive",
+                 "-Command", command],
+                input=script, text=True, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, timeout=30, check=False,
+            )
+
+        valid = ('Get-CimInstance Win32_Process -Filter '
+                 '"Name=\'python.exe\' OR Name=\'pythonw.exe\'" '
+                 '-ErrorAction Stop |')
+        self.assertIn(valid, _WINDOWS_READONLY_PROBE)
+        parsed = parse(_WINDOWS_READONLY_PROBE)
+        self.assertEqual(parsed.returncode, 0, parsed.stderr[-1200:])
+
+        broken = _WINDOWS_READONLY_PROBE.replace(
+            valid,
+            'Get-CimInstance Win32_Process -Filter\\n'
+            '  "Name=\'python.exe\' OR Name=\'pythonw.exe\'" '
+            '-ErrorAction Stop |',
+            1,
+        )
+        self.assertNotEqual(broken, _WINDOWS_READONLY_PROBE)
+        rejected = parse(broken)
+        self.assertNotEqual(rejected.returncode, 0,
+                            "Original owner parser regression must fail")
+
     def test_real_windows_host_guard_fails_closed_off_owner(self):
         with patch("f139.nci04_fresh_activation_writer.sys.platform",
                    "linux"), self.assertRaisesRegex(
