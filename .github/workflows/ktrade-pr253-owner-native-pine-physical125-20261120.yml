@@ -1013,7 +1013,7 @@ jobs:
             }|ConvertTo-Json -Compress))
             if(!$reverted -or !$saverStable){throw 'W189_OWNER_DESKTOP_RESTORE_FAILED'}
           }
-      # W199: preserve the existing independently proven W196 125%-to-150% recovery.
+      # W199: source-verified existing W196 independent physical-DPI recovery.
       - name: Restore the original 150 percent DPI before reporting acceptance
         if: always()
         shell: pwsh
@@ -1175,44 +1175,7 @@ jobs:
             }
           }catch{
             $reason=$_.Exception.Message
-            $safe=if($reason -cmatch '^W196_[A-Z0-9_]+
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-pr253-owner-native-readonly-20261113' -or
-             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
-             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
-             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
-            throw 'KTRADE_MANUAL20_INDEPENDENT_SCOPE_REFUSED'
-          }
-          Add-Type -TypeDefinition @'
-          using System;
-          using System.Runtime.InteropServices;
-          public static class KtradeManual20Independent {
-            [DllImport("user32.dll",SetLastError=true)]
-            public static extern bool SystemParametersInfo(uint action,uint param,ref uint value,uint flags);
-            public static uint Read(){
-              uint v=0;
-              if(!SystemParametersInfo(0x000E,0,ref v,0))
-                throw new Exception("MANUAL20_SAVER_READ_FAILED");
-              return v;
-            }
-          }
-          '@
-          $seconds=[KtradeManual20Independent]::Read()
-          $reg=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
-          Write-Host ('KTRADE_OWNER_MANUAL20_INDEPENDENT_OBSERVED='+(@{
-            effective_timeout_seconds=$seconds
-            registry_timeout_seconds=[string]$reg.ScreenSaveTimeOut
-            settings_changed_by_job=$false
-          }|ConvertTo-Json -Compress))
-          if($seconds -ne 1200 -or [string]$reg.ScreenSaveTimeOut -cne '1200'){
-            throw 'KTRADE_OWNER_MANUAL20_SETTINGS_CHANGED'
-          }
-          Write-Host 'KTRADE_OWNER_MANUAL20_INDEPENDENT_READBACK=PASS;effective_seconds=1200;registry_seconds=1200;settings_changed=false;scheduled_tasks_created=false'
-){$reason}else{$_.Exception.GetType().Name}
+            $safe=if($reason -cmatch '^W196_[A-Z0-9_]+$'){$reason}else{$_.Exception.GetType().Name}
             Write-Host ('KTRADE_W196_RECOVERY_CAUSE='+$safe)
             throw
           }finally{
