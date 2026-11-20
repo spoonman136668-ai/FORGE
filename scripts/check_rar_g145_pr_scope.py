@@ -366,7 +366,26 @@ V59_READONLY_PATHS = frozenset((
     "scripts/check_rar_g156_dynamic_base_cache.py",
 ))
 
+# V60: one owner-authored, exact-PR, read-only original Windows process
+# census. The generic workflow/harness-edit ban remains unchanged. This is
+# an engineering CI admission only, NOT live original-owner release authority.
+V60_PROCESS_BRANCH = "engineering/f139-v60-owner-process-census-exact-20261120"
+V60_PROCESS_PR = 1840
+V60_PROCESS_BASE = "56feee68a02add2a6cc75529496d1ab3d9643225"
+V60_PROCESS_BASE_TREE = "613e580a6bdb5a9ad1dcaab57e9f20690f79d31d"
+V60_PROCESS_WORKFLOW = ".github/workflows/f139-v59-original-owner-readonly.yml"
+V60_PROCESS_WORKFLOW_BEFORE = "33d616f53bdc4cbe1a26f42f8e8f456907a7d625"
+V60_PROCESS_WORKFLOW_AFTER = "d50d606e70b985e7245141724097bd4a4aeb82d6"
+V60_PROCESS_PATHS = frozenset((
+    V60_PROCESS_WORKFLOW,
+    "f139/test_nci04_v59_original_process_snapshot.py",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
 FROZEN_SCOPES = {
+    V60_PROCESS_BRANCH: (V60_PROCESS_BASE, V60_PROCESS_PATHS),
     V59_READONLY_BRANCH: (V59_READONLY_BASE, V59_READONLY_PATHS),
     # V58: one owner-authored, exact-base read-only status projection.
     # No workflow triggers, original task, admission, SQLite or science changed.
@@ -2099,6 +2118,138 @@ def generic_paths_safe(paths: list[str]) -> bool:
     return True
 
 
+
+def admit_v60_owner_process_census(
+    head_sha: str, base_sha: str, request: dict,
+    git: Callable[..., str],
+) -> str:
+    """Exactly scoped read-only owner-workflow *CI* admission, no host writes.
+
+    The owner-authored PR number, protected base tree, old/new workflow blobs
+    and entire diff are frozen. No generic workflow or harness exemption.
+    """
+    if (
+        not is_sha(head_sha)
+        or base_sha != V60_PROCESS_BASE
+        or type(request) is not dict
+        or type(request.get("number")) is not int
+        or request["number"] != V60_PROCESS_PR
+        or request.get("author_association") != "OWNER"
+        or type(request.get("user")) is not dict
+        or request["user"].get("login") != "spoonman136668-ai"
+        or type(request.get("head")) is not dict
+        or request["head"].get("sha") != head_sha
+        or request["head"].get("ref") != V60_PROCESS_BRANCH
+        or type(request["head"].get("repo")) is not dict
+        or request["head"]["repo"].get("full_name") != REPO
+        or type(request.get("base")) is not dict
+        or request["base"].get("sha") != V60_PROCESS_BASE
+        or request["base"].get("ref") != "main"
+        or type(request["base"].get("repo")) is not dict
+        or request["base"]["repo"].get("full_name") != REPO
+    ):
+        raise ValueError("G145_V60_EXACT_OWNER_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        old_tree = git("rev-parse", base_sha + "^{tree}")
+        before_blob = git("rev-parse", base_sha + ":" + V60_PROCESS_WORKFLOW)
+        after_blob = git("rev-parse", head_sha + ":" + V60_PROCESS_WORKFLOW)
+        changed = git(
+            "diff", "--no-renames", "--name-only", base_sha, head_sha
+        ).splitlines()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_V60_FROZEN_SOURCE_UNAVAILABLE") from exc
+    if (
+        ancestor != base_sha
+        or old_tree != V60_PROCESS_BASE_TREE
+        or before_blob != V60_PROCESS_WORKFLOW_BEFORE
+        or after_blob != V60_PROCESS_WORKFLOW_AFTER
+        or set(changed) != V60_PROCESS_PATHS
+        or len(changed) != len(V60_PROCESS_PATHS)
+    ):
+        raise ValueError("G145_V60_READONLY_SCOPE_OR_SOURCE_CHANGED")
+    return "G145_V60_FROZEN_OWNER_READONLY_PROCESS_CENSUS_CI_ONLY"
+
+
+def v60_process_census_negative_controls() -> None:
+    """Prove the narrow exception rejects PR, source and path substitutions."""
+    head = "f" * 40
+    base = V60_PROCESS_BASE
+    request = {
+        "number": V60_PROCESS_PR,
+        "author_association": "OWNER",
+        "user": {"login": "spoonman136668-ai"},
+        "head": {
+            "sha": head, "ref": V60_PROCESS_BRANCH,
+            "repo": {"full_name": REPO},
+        },
+        "base": {
+            "sha": base, "ref": "main",
+            "repo": {"full_name": REPO},
+        },
+    }
+    paths = sorted(V60_PROCESS_PATHS)
+    expected = {
+        ("merge-base", base, head): base,
+        ("rev-parse", base + "^{tree}"): V60_PROCESS_BASE_TREE,
+        ("rev-parse", base + ":" + V60_PROCESS_WORKFLOW):
+            V60_PROCESS_WORKFLOW_BEFORE,
+        ("rev-parse", head + ":" + V60_PROCESS_WORKFLOW):
+            V60_PROCESS_WORKFLOW_AFTER,
+        ("diff", "--no-renames", "--name-only", base, head):
+            "\n".join(paths),
+    }
+
+    def fake_git(*args: str) -> str:
+        if args not in expected:
+            raise AssertionError("G145_V60_UNEXPECTED_GIT_ROUTE")
+        return expected[args]
+
+    if (admit_v60_owner_process_census(head, base, request, fake_git)
+            != "G145_V60_FROZEN_OWNER_READONLY_PROCESS_CENSUS_CI_ONLY"):
+        raise ValueError("G145_V60_POSITIVE_NEGATIVE_CONTROL_FAILED")
+
+    invalid_requests = (
+        {**request, "number": V60_PROCESS_PR + 1},
+        {**request, "author_association": "CONTRIBUTOR"},
+        {**request, "user": {"login": "other"}},
+        {**request, "head": {**request["head"], "ref": "main"}},
+        {**request, "head": {**request["head"], "sha": "a" * 40}},
+        {**request, "head": {**request["head"],
+                            "repo": {"full_name": "foreign/FORGE"}}},
+        {**request, "base": {**request["base"], "ref": "test"}},
+        {**request, "base": {**request["base"], "sha": "b" * 40}},
+        {**request, "base": {**request["base"],
+                            "repo": {"full_name": "foreign/FORGE"}}},
+    )
+    for bad in invalid_requests:
+        try:
+            admit_v60_owner_process_census(head, base, bad, fake_git)
+        except ValueError:
+            continue
+        raise ValueError("G145_V60_OWNER_PR_NEGATIVE_CONTROL_FAILED")
+    for args, bad_value in (
+        (("merge-base", base, head), "0" * 40),
+        (("rev-parse", base + "^{tree}"), "1" * 40),
+        (("rev-parse", base + ":" + V60_PROCESS_WORKFLOW), "2" * 40),
+        (("rev-parse", head + ":" + V60_PROCESS_WORKFLOW), "3" * 40),
+        (("diff", "--no-renames", "--name-only", base, head),
+         "\n".join(paths + [".github/workflows/foreign.yml"])),
+        (("diff", "--no-renames", "--name-only", base, head),
+         "\n".join(paths[:-1])),
+    ):
+        def bad_git(*parts: str) -> str:
+            return bad_value if parts == args else fake_git(*parts)
+
+        try:
+            admit_v60_owner_process_census(head, base, request, bad_git)
+        except ValueError:
+            continue
+        raise ValueError("G145_V60_SOURCE_NEGATIVE_CONTROL_FAILED")
+    if (generic_paths_safe([V60_PROCESS_WORKFLOW])
+            or generic_paths_safe(["scripts/check_rar_g145_pr_scope.py"])):
+        raise ValueError("G145_V60_GENERIC_SCOPE_BYPASS")
+
 def negative_controls() -> None:
     valid = ["docs/EUREKA.md", "nativediscovery/f6_repair.go"]
     invalid = [
@@ -2134,6 +2285,7 @@ def negative_controls() -> None:
     v41_backup_negative_controls()
     v41_pause_negative_controls()
     v54_owner_release_negative_controls()
+    v60_process_census_negative_controls()
     if generic_paths_safe([V59_READONLY_WORKFLOW]):
         raise ValueError('G145_V59_WORKFLOW_GENERIC_SCOPE_BYPASS')
 
@@ -2677,6 +2829,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
     if branch in FROZEN_SCOPES:
+        if branch == V60_PROCESS_BRANCH:
+            request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                                 .read_text(encoding="utf-8"))["pull_request"]
+            admit_v60_owner_process_census(head_sha, base_sha, request, git)
         if branch == V59_READONLY_BRANCH:
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                                  .read_text(encoding="utf-8"))["pull_request"]
