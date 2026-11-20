@@ -98,3 +98,54 @@ For each prospective test: **freeze the hypothesis, thresholds, seeds, splits, p
 - [Mind-Palace direct retrieval/bootstrap contract](https://github.com/spoonman136668-ai/Mind-Palace/blob/1a399c0a73127826b98f3d2a6a4c33f8a5879343/CHATGPT_BOOTSTRAP.md)
 
 **One-line handoff to another agent:** *Help build independent native, low-compute, tokenless cognitive systems that learn causal relationships cumulatively; prioritize Yggdrasil's single persistent learner and functional retention, preserve Wingless/Hybrid isolation, prove unfamiliar transfer against strong controls, treat FORGE as scoped research infrastructure and Mind-Palace as read-only context, and never confuse working code with demonstrated intelligence.*
+
+
+## Research operating portfolio — verified November 20, 2026 snapshot
+
+This is an **operator-facing priority index**, not another canonical tracker, approval
+queue or automatic integration route. The project PRs and issues linked here
+remain the authoritative evidence. Statuses are a point-in-time snapshot,
+not claims that training is currently running. Preserve independent experiments
+and their negative findings when the chat that initiated them is archived.
+
+**Primary operational blocker:** [FORGE owner issue #1830](https://github.com/spoonman136668-ai/FORGE/issues/1830)
+and original [owner policy #807](https://github.com/spoonman136668-ai/FORGE/issues/807).
+At authenticated [read-only owner run #44741726707](https://github.com/spoonman136668-ai/FORGE/actions/runs/44741726707),
+the genuine Windows F139 task was **Running**, installed source
+`c06403c8b6035c6c7013866a7ea08cef1244b507`, historical event
+**1864** intact, versus protected `main`
+`ece9ac168377c32d7a7cd4b694a57cc99dd0314d`.
+The current 30-entry log tail had **28**
+`MODEL_FREE_SEARCH_BLOCKED_FAIL_CLOSED/UNCLASSIFIED_VALUE_ERROR`
+and **one** `UNCLASSIFIED_F139_ERROR`; selected authenticated
+candidate count **0**. The contemporary V9 read-only portion
+**PASS**, but its subsequent historical V41-only source pin is obsolete
+and fails the overall workflow. Generic ValueError is not a proven
+backend root cause; distinct GitHub API 403 rate-limit diagnostics
+do not establish causality for all blocked entries.
+
+| Owner / research track | Frozen question or mechanism | Current source / evidence | Scientific or operational status | Next qualified work / interface |
+| --- | --- | --- | --- | --- |
+| **FORGE F139 owner** | One original controller, authenticated issue intake, one worker, durable terminal outcome and restart | [#807](https://github.com/spoonman136668-ai/FORGE/issues/807), [#1830](https://github.com/spoonman136668-ai/FORGE/issues/1830), [read-only #44741726707](https://github.com/spoonman136668-ai/FORGE/actions/runs/44741726707) | **BLOCKED**: original alive but source differs from protected main; no new eligible candidate or worker advancement demonstrated | Diagnose actual model-free failure and establish independently authenticated source transition/worker admission. Do not replay existing tickets |
+| **FORGE failure telemetry** | Safely count known model-free failures without leaking raw logs | [PR #1820](https://github.com/spoonman136668-ai/FORGE/pull/1820), merged at `ece9ac168377c32d7a7cd4b694a57cc99dd0314d` | **ENGINEERING COMPLETE**, original live backend failure still unknown | Reuse the existing V9 sanitized log rather than making a parallel diagnostic service; source-only module is not installed |
+| **FORGE fresh development intake** | Single Yggdrasil READY candidate with cold custody, no replay | [PR #1844](https://github.com/spoonman136668-ai/FORGE/pull/1844), source head `9149d7bc1f94dbd67582b7f61e66d0507d91a40c` | **DRAFT / DISPATCH BLOCKED**; simulated READY is not real worker execution | Do not merge as proof of operations; requires independently authorized original owner release and the existing worker adapter |
+| **FORGE research/training steering** | Compare manual and autonomous RESEARCH, TRAIN and self-improvement admissions | [PR #1818](https://github.com/spoonman136668-ai/FORGE/pull/1818), head `dae1e3846ad93deeb18c5e1df12a3a2fe27af9d0` | **DRAFT / SOURCE ONLY**; TRAIN adapter intentionally refuses execution | Reconcile onto qualified owner source only after one real development work path succeeds; no unqualified training mode |
+| **FORGE → Yggdrasil CKAD** | Preserve exact learned checkpoint through staged cumulative update | [PR #1808](https://github.com/spoonman136668-ai/FORGE/pull/1808), head `22b6f61997f57244f8bb8413b6245f4fe527bf27` | **SCIENCE NOT PASS**: custody checks are not demonstrated transfer or retention; reported held answers 0/4 | Recheck producer-source lineage, matched fully trained controls and cold retention before scientific first-use |
+| **Yggdrasil sole Amalgam owner** | One cumulative native learner, trained specialist and checkpoint continuation, without duplicating canonical state | [Amalgam PR #1278](https://github.com/spoonman136668-ai/Yggdrasil/pull/1278) at `86264b41a08d49f558418c0fba367f3a2636befa`; [lineage #1322](https://github.com/spoonman136668-ai/Yggdrasil/pull/1322) at `6ab65282c3bd85ef1fd9571287aa88404a62d791`; [retention #1329](https://github.com/spoonman136668-ai/Yggdrasil/pull/1329) at `f6c92619ff985dd78a324884b6765d1ca1702205` | **DRAFT / NO ACCEPTED CUMULATIVE SCIENCE RESULT** established here | Only the existing Amalgam integration owner can admit qualified learned state. Test old-skill retention, causal gain, unfamiliar transfer and cold reload |
+| **Wingless independent native learning** | Reward-aware versus least-sampled exploration at matched public actions, information and compute | [PR #416](https://github.com/spoonman136668-ai/Wingless/pull/416), head `ea772824f4462257782fc866a770b5f397bd142e`; original [FORGE intake issue #1065](https://github.com/spoonman136668-ai/FORGE/issues/1065) | **DEVELOPMENT DRAFT**, already has a historical Forge feed issue; never reissue it blindly | Independently qualify matched controls, native retention and unfamiliar transfer; keep Wingless accepted ownership |
+| **TTT-Hybrid independent causal probing** | Information-targeted causal probing versus random/existing controls | [R115 PR #311](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/pull/311), head `89adbdb916b9fb21ab4e383cfd2577eaf12f9d77`; [R113 #309](https://github.com/spoonman136668-ai/TTT-Hybrid-Lab/pull/309), head `2910f2974da86bcd74c1b3411784d821b1d002f9` | **PRESERVE NEGATIVES**: R115 reports feedback-benefit NO-GO; R113 cross-platform score parity FAIL | Hold promotion; isolate repeatability and comparator effects on its project-owned GPU lane |
+
+**Consolidation rule:** An independent contributor should link a source-pinned
+experiment and falsifiable comparison in the **owning repository**, not
+create another chat-owned training owner. Reuse existing PR/issue identities.
+Keep rejected or incomplete experiments visible and distinguish CI from
+scientific qualification. The single FORGE owner may coordinate *eligible
+engineering research*, never appropriate another project's accepted learner.
+
+**Required operational proof before claiming FORGE is productive:** an
+authenticated **new** issue or qualified candidate, deterministic source and
+history selection, permitted existing-worker execution, independent terminal
+receipt, crash/cold recovery, and next-ticket progression **without** resetting
+historic work. Only after that, run a frozen Yggdrasil cumulative learning
+comparison with controls, retention and transfer tests. At this snapshot
+those proofs are **UNVERIFIED**.

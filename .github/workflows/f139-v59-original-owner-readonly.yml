@@ -115,6 +115,25 @@ jobs:
           Need ($LASTEXITCODE -eq 0 -and
             $installed -ceq 'c06403c8b6035c6c7013866a7ea08cef1244b507' -and
             $dirty.Count -eq 0) 'ORIGINAL_INSTALLED_SOURCE_DRIFT'
+          # Read the host's Python controller population without stopping or
+          # restarting anything. A 0-process observation is NOT task release.
+          # A foreign or duplicate F139 controller on this owner host denies
+          # release readiness; never expose command lines or credentials.
+          function OriginalControllerCount {
+            $members=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+              Where-Object {
+                $cmd=[string]$_.CommandLine
+                $cmd -match 'f139[.]local_controller'
+              })
+            $matched=@($members | Where-Object {
+              $cmd=[string]$_.CommandLine
+              $cmd.IndexOf($db,[StringComparison]::OrdinalIgnoreCase) -ge 0
+            })
+            Need ($members.Count -eq $matched.Count -and
+              $matched.Count -le 1) 'DUPLICATE_OR_FOREIGN_CONTROLLER_PROCESS'
+            return [int]$matched.Count
+          }
+          $processesBefore=OriginalControllerCount
           $code=@'
           import json, sys
           from pathlib import Path
@@ -136,6 +155,26 @@ jobs:
           Need ($after.Settings.Enabled -eq $true -and
             @($after.Actions).Count -eq 1 -and @($after.Triggers).Count -eq 3 -and
             [string]$after.Actions[0].Arguments -ceq [string]$task.Actions[0].Arguments) 'ORIGINAL_TASK_MOVED'
+          $processesAfter=OriginalControllerCount
+          $witness=@{
+            schema='forge.f139.v59.original-owner-process-snapshot.v1'
+            original_source_sha=$installed
+            original_head_seq=1864
+            owner_task_name='FORGE-F139-UnifiedController'
+            task_state=[string]$after.State
+            task_enabled=[bool]$after.Settings.Enabled
+            matching_original_database_controllers_before=$processesBefore
+            matching_original_database_controllers_after=$processesAfter
+            foreign_or_duplicate_controller_processes=0
+            original_task_mutations=0
+            owner_task_release_authorized=$false
+            fresh_activation_authorized=$false
+            worker_dispatch_authorized=$false
+            scientific_first_use=$false
+            new_controller=$false
+            new_scheduler=$false
+          }
+          Write-Output ('F139_V59_ORIGINAL_PROCESS_SNAPSHOT='+($witness | ConvertTo-Json -Compress))
           Write-Output 'F139_V59_ORIGINAL_READONLY=PASS'
           Write-Output 'F139_V59_SOURCE_TRANSITION_AUTHORIZED=FALSE'
           Write-Output 'F139_V59_OWNER_TASK_MUTATIONS=ZERO'

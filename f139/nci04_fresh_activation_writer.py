@@ -95,8 +95,7 @@ $head=(& git -C $root rev-parse HEAD | Out-String).Trim()
 $dirty=@(& git -C $root status --porcelain --untracked-files=all)
 if ($LASTEXITCODE -ne 0 -or $head -cne '__FROZEN_SOURCE__' -or
     $dirty.Count -ne 0) {exit 55}
-$children=@(Get-CimInstance Win32_Process -Filter
-  "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+$children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
   Where-Object {$_.CommandLine -and
     $_.CommandLine.Contains('f139.local_controller')})
 if ($children.Count -ne 0) {exit 56}
