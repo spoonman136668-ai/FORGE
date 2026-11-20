@@ -451,6 +451,17 @@ jobs:
             $pattern=$item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
             $pattern.Select()
           }
+          # W199: reuse W198's bounded Settings readiness instead of a
+          # single too-early scale-combo lookup (no alternative DPI authority).
+          function Find-ScaleChoice([int]$choice){
+            for($scan=0;$scan -lt 6;$scan++){
+              try{return Get-Choices $choice}catch{
+                if($scan -eq 5){throw ('W199_SCALE_UI_CHOICE_UNAVAILABLE_'+$choice)}
+                Start-Sleep -Milliseconds 350
+              }
+            }
+            throw ('W199_SCALE_UI_UNAVAILABLE_'+$choice)
+          }
           function Confirm-Dpi([string]$wanted){
             for($i=0;$i -lt 30;$i++){
               if([KtradeW189Native]::ReadDpi() -ceq $wanted){return $true}
@@ -465,13 +476,14 @@ jobs:
             Start-Sleep -Milliseconds 500
             # First prove BOTH the existing and target value are selectable
             # before applying any change.
-            [void](Get-Choices 150)
-            [void](Get-Choices 125)
-            Choose-Scale 150
+            $same=Find-ScaleChoice 150
+            [void](Find-ScaleChoice 125)
+            $same.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
             if(!(Confirm-Dpi '144:144')){throw 'W189_ROLLBACK_PATH_PRECHECK_FAILED'}
-            Write-Host 'KTRADE_W189_ROLLBACK_150_NOOP_PREFLIGHT=PASS'
+            Write-Host 'KTRADE_W199_ROLLBACK_150_NOOP_PREFLIGHT=PASS'
+            $target=Find-ScaleChoice 125
             $attempted125=$true
-            Choose-Scale 125
+            $target.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
             $observed125=Confirm-Dpi '120:120'
             if(!$observed125){throw 'W189_PHYSICAL_125_NOT_OBSERVED'}
             Write-Host 'KTRADE_W199_PHYSICAL_125_MODE_OBSERVED=PASS;dpi=120:120;pine_acceptance_pending=true'
