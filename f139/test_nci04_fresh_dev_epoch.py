@@ -362,6 +362,27 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         self.assertIsNone(
             inspect_staged_fresh_native_mode(object(), self.old))
 
+    def test_actual_windows_module_entrypoint_alias_is_accepted(self):
+        self.prepare()
+        from f139.nci04_fresh_native_owner_route import (
+            inspect_staged_fresh_native_mode,
+        )
+        # Python -m f139.local_controller defines Database in __main__,
+        # even though the fresh guard imports f139.local_controller.
+        # This exercises the real SQLite class shape and known CLI alias.
+        alias = type("Database", (Database,), {"__module__": "__main__"})
+        db = alias(self.fresh() / "state.sqlite")
+        try:
+            result = inspect_staged_fresh_native_mode(
+                db, self.fresh() / "state.sqlite")
+            self.assertEqual(
+                result["disposition"],
+                "FRESH_DEVELOPMENT_STAGED_DISABLED_NO_DISPATCH")
+            self.assertFalse(result["worker_dispatched"])
+            self.assertFalse(result["fresh_native_activation_authorized"])
+        finally:
+            db.close()
+
     def test_fresh_path_rejects_foreign_database_object(self):
         self.prepare()
         from f139.nci04_fresh_native_owner_route import (
