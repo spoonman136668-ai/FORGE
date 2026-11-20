@@ -100,10 +100,25 @@ class V40ReadonlyWorkflowScopeTests(unittest.TestCase):
         self.assertNotIn("Start-ScheduledTask", appended)
         self.assertNotIn("workflow_dispatch", appended)
         self.assertEqual(old[-2:], "\n\n")
-        # This insertion consumes the separator newline originally adjacent
-        # to the next job. Hash the exact immutable V40 prefix only.
-        self.assertEqual(hashlib.sha256(old[:-1].encode()).hexdigest(),
+        # V58 adds one *exactly bounded* safe-code projection within the
+        # historical V40 read-only prefix. Prove that deleting only this
+        # additive projection restores the original immutable V40 byte hash.
+        # Any unrelated change still fails this original backwards contract.
+        v58_start = '          # All classifications originate in original, immutable F139 source.\n'
+        v58_end = '          if(Test-Path -LiteralPath $log) {\n'
+        self.assertEqual(old.count(v58_start), 1)
+        self.assertEqual(old.count(v58_end), 1)
+        a = old.index(v58_start)
+        b = old.index(v58_end, a)
+        self.assertLess(b - a, 1700)
+        self.assertIn('SafeModelFreeFailureCode', old[a:b])
+        v58_field = "                failure_code=(SafeModelFreeFailureCode $e)\n"
+        self.assertEqual(old.count(v58_field), 1)
+        restored = (old[:a] + old[b:]).replace(v58_field, '', 1)
+        self.assertEqual(hashlib.sha256(restored[:-1].encode()).hexdigest(),
                          '679e152e9be86b7399c75d247b31966f972a8d2196538b5729f8cf459d4ba063')
+        self.assertEqual(hashlib.sha256(old[:-1].encode()).hexdigest(),
+                         'b18d13cb82ddc7702117a215f251860fe2d2f4fd3b577c56a7cb775209d232e6')
         native = addition.split('\n  v40-owner-readonly:', 1)[1]
         self.assertIn('needs: v40-invocation-qualification', native)
         self.assertIn('permissions:\n      contents: read\n      issues: read\n      actions: read', native)
