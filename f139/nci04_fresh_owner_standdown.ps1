@@ -18,6 +18,7 @@ function Controllers {
 }
 Need ($env:GITHUB_REPOSITORY -ceq $Repo -and $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
   $env:GITHUB_EVENT_NAME -ceq 'issue_comment' -and $env:GITHUB_REF -ceq 'refs/heads/main' -and
+  $env:GITHUB_WORKFLOW_REF -ceq ($Repo+'/.github/workflows/f139-fresh-original-owner-standdown.yml@refs/heads/main') -and
   $env:GITHUB_RUN_ATTEMPT -ceq '1' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
   $Target -cmatch '^[a-f0-9]{40}$' -and $Target -ceq $env:GITHUB_SHA -and
   -not $env:OPENAI_API_KEY -and $env:GH_TOKEN) 'OWNER_RUNNER_AUTHORITY'
@@ -35,6 +36,10 @@ Need ($LASTEXITCODE -eq 0 -and [int64]$remote.id -eq [int64]$event.comment.id -a
   $remote.user.login -ceq 'spoonman136668-ai' -and
   $remote.author_association -ceq 'OWNER' -and $remote.body -ceq $expected -and
   $remote.created_at -ceq $event.comment.created_at) 'OWNER_COMMENT_REMOTE_DRIFT'
+$remoteIssue=(& gh api ('repos/'+$Repo+'/issues/1830') | ConvertFrom-Json)
+Need ($LASTEXITCODE -eq 0 -and $remoteIssue.state -ceq 'open' -and
+  $remoteIssue.user.login -ceq 'spoonman136668-ai' -and
+  $remoteIssue.number -eq 1830) 'OWNER_ISSUE_PROVIDER_DRIFT'
 $main=(& gh api ('repos/'+$Repo+'/branches/main') | ConvertFrom-Json)
 Need ($LASTEXITCODE -eq 0 -and $main.protected -eq $true -and
   $main.commit.sha -ceq $Target -and
@@ -43,14 +48,17 @@ Need ($LASTEXITCODE -eq 0 -and $main.protected -eq $true -and
 $policyIssue=(& gh api ('repos/'+$Repo+'/issues/807') | ConvertFrom-Json)
 $policy=[string]$policyIssue.body | ConvertFrom-Json
 Need ($LASTEXITCODE -eq 0 -and $policyIssue.state -ceq 'open' -and
-  $policy.source_sha -ceq $Old -and $policy.scientific_first_use -eq $false -and
-  $policy.paid_model_calls -eq 0 -and $policy.new_controller -eq $false -and
+  $policy.source_sha -ceq $Old -and $policy.enabled -eq $true -and
+  $policy.scientific_first_use -eq $false -and $policy.paid_model_calls -eq 0 -and
+  $policy.new_controller -eq $false -and $policy.new_queue -eq $false -and
   $policy.new_scheduler -eq $false) 'ORIGINAL_POLICY_DRIFT'
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 Need ([Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
   [Security.Principal.WindowsBuiltInRole]::Administrator)) 'OWNER_ADMIN_REQUIRED'
 $task=Get-ScheduledTask -TaskName $Name -ErrorAction Stop
 $OriginalArguments=[string]$task.Actions[0].Arguments
+$OriginalExecute=[string]$task.Actions[0].Execute
+$OriginalPrincipal=[string]$task.Principal.UserId
 $sid=''
 try {$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).
   Translate([Security.Principal.SecurityIdentifier]).Value} catch {}
@@ -102,7 +110,9 @@ finally:
   $task=Get-ScheduledTask -TaskName $Name -ErrorAction Stop
   Need ($task.Settings.Enabled -eq $true -and
     @($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3 -and
-    [string]$task.Actions[0].Arguments -ceq $OriginalArguments) 'TASK_MOVED'
+    [string]$task.Actions[0].Arguments -ceq $OriginalArguments -and
+    [string]$task.Actions[0].Execute -ceq $OriginalExecute -and
+    [string]$task.Principal.UserId -ceq $OriginalPrincipal) 'TASK_MOVED'
   Disable-ScheduledTask -TaskName $Name -ErrorAction Stop | Out-Null
   if([string]$task.State -ceq 'Running') {
     Stop-ScheduledTask -TaskName $Name -ErrorAction Stop | Out-Null
