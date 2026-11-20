@@ -357,6 +357,20 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         )
         self.assertIsNone(
             inspect_staged_fresh_native_mode(self.orig, self.old))
+        # A legacy imported class alias or thin test stand-in cannot be
+        # rejected by a fresh-epoch-only identity check.
+        self.assertIsNone(
+            inspect_staged_fresh_native_mode(object(), self.old))
+
+    def test_fresh_path_rejects_foreign_database_object(self):
+        self.prepare()
+        from f139.nci04_fresh_native_owner_route import (
+            FreshNativeRouteDenied, inspect_staged_fresh_native_mode,
+        )
+        with self.assertRaisesRegex(
+                FreshNativeRouteDenied, "FRESH_DATABASE_CLASS_INVALID"):
+            inspect_staged_fresh_native_mode(
+                object(), self.fresh() / "state.sqlite")
 
     def test_fresh_staging_manifest_tamper_cannot_route(self):
         self.prepare()
