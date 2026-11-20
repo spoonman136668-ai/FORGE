@@ -380,6 +380,8 @@ V60_PROCESS_PATHS = frozenset((
     V60_PROCESS_WORKFLOW,
     "f139/test_nci04_v59_original_process_snapshot.py",
     "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
 ))
 
 FROZEN_SCOPES = {
