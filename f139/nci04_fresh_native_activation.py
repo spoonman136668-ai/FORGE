@@ -146,6 +146,11 @@ def authenticate_fresh_activation_receipts(
          and consumed.get("original_head_sha256") == HEAD_SHA256
          and consumed.get("fresh_activation_authorized") is False
          and consumed.get("previous_work_replay_authorized") is False
+         and type(consumed.get("old_issue_numbers")) is list
+         and all(type(n) is int and n > 0
+                 for n in consumed["old_issue_numbers"])
+         and len(set(consumed["old_issue_numbers"])) ==
+             len(consumed["old_issue_numbers"])
          and yggdrasil_boundary.get("schema") == YGG_SCHEMA
          and yggdrasil_boundary.get("accepted_main_source_sha") == ACCEPTED
          and yggdrasil_boundary.get("checkpoint_imported") is False
@@ -160,6 +165,9 @@ def authenticate_fresh_activation_receipts(
              activation["consumed_exclusions_sha256"]
          and remote_floor.get("remote_cutover_issue_number_floor") ==
              activation["remote_issue_number_floor"]
+         and type(remote_floor.get("remote_cutover_issue_number_floor")) is int
+         and remote_floor["remote_cutover_issue_number_floor"] >= max(
+             consumed["old_issue_numbers"], default=0)
          and remote_floor.get("remote_cutover_issue_provider_verified") is True
          and remote_floor.get("fresh_activation_authorized") is False
          and remote_floor.get("owner_task_rebind_authorized") is False
