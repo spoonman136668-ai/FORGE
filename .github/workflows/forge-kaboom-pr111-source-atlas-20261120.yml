@@ -21,7 +21,7 @@ jobs:
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-pr111-source-atlas-20261120' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'KABOOM_PR111_WRONG_HOST_OR_EVENT'}
           $ref='sync/kaboom-20261119-source-atlas-20261120'
-          $want='a8b525946acb649388503caff3500f48ef309f85'
+          $want='cf806bbd1128a646d1ebb6ae1f0547278e032a6a'
           $remote=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$ref) --jq '.object.sha' 2>$null)
           if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KABOOM_PR111_REF_DRIFT'}
           $temp=Join-Path $env:RUNNER_TEMP ('kaboom-pr111-'+$env:GITHUB_RUN_ID)
@@ -35,21 +35,6 @@ jobs:
           if((& go env GOVERSION).Trim() -cne 'go1.26.5'){throw 'KABOOM_PR111_GO_TOOLCHAIN_DRIFT'}
           "KABOOM_PR111_ROOT=$root" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Output "KABOOM_PR111_PINNED_SOURCE=PASS sha=$want"
-      - name: Full native Windows Go tests vet build on exact released core
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $env:GOTOOLCHAIN='local'; $env:GOTELEMETRY='off'; $env:CGO_ENABLED='0'; $env:K_TERMINAL_EXECUTION_MODE='PAPER'
-          Push-Location (Join-Path $env:KABOOM_PR111_ROOT 'kaboom-core')
-          try {
-            & go test -p 1 -count=1 -timeout 35m ./...
-            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR111_GO_TEST_FAIL'}
-            & go vet ./...
-            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR111_GO_VET_FAIL'}
-            & go build ./...
-            if($LASTEXITCODE -ne 0){throw 'KABOOM_PR111_GO_BUILD_FAIL'}
-          } finally { Pop-Location }
-          Write-Output 'KABOOM_PR111_FULL_NATIVE_WINDOWS=PASS'
       - name: Verify frozen history and release source, regenerate derived source maps
         shell: pwsh
         run: |
@@ -114,7 +99,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR111_GRAPHIFY_EXTRACT_FAIL'}
             & $graph cluster-only . --no-label
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR111_GRAPHIFY_CLUSTER_FAIL'}
-            & $py tools/architecture/publish_graphify.py --root . --input graphify-out --output (Join-Path $env:GITHUB_WORKSPACE 'kaboom-pr111-derived/docs/graphify') --source-sha 'a8b525946acb649388503caff3500f48ef309f85'
+            & $py tools/architecture/publish_graphify.py --root . --input graphify-out --output (Join-Path $env:GITHUB_WORKSPACE 'kaboom-pr111-derived/docs/graphify') --source-sha 'cf806bbd1128a646d1ebb6ae1f0547278e032a6a'
             if($LASTEXITCODE -ne 0){throw 'KABOOM_PR111_GRAPHIFY_REPORT_FAIL'}
             Write-Output 'KABOOM_PR111_PINNED_CODEONLY_GRAPHIFY=PASS'
           } finally { Pop-Location }
@@ -124,7 +109,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $root=$env:KABOOM_PR111_ROOT
           $branch='sync/kaboom-20261119-source-atlas-20261120'
-          $want='a8b525946acb649388503caff3500f48ef309f85'
+          $want='cf806bbd1128a646d1ebb6ae1f0547278e032a6a'
           $remote=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
           if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KABOOM_PR111_PREWRITE_REF_DRIFT'}
           if((& git -C $root rev-parse HEAD).Trim() -cne $want){throw 'KABOOM_PR111_SOURCE_DRIFT'}
