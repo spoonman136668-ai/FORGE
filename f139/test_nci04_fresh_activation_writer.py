@@ -188,8 +188,8 @@ class OneShotActivationWriterTests(unittest.TestCase):
         self.assertIn("Get-CimInstance", _WINDOWS_READONLY_PROBE)
 
     def test_real_windows_host_guard_fails_closed_off_owner(self):
-        with patch("f139.nci04_fresh_activation_writer.os.name",
-                   "posix"), self.assertRaisesRegex(
+        with patch("f139.nci04_fresh_activation_writer.sys.platform",
+                   "linux"), self.assertRaisesRegex(
                        FreshActivationWriteDenied,
                        "ORIGINAL_WINDOWS_AUTHENTICATED_WORKFLOW_REQUIRED"):
             _owner_windows_quiesced(Path("/tmp/does-not-exist"), TARGET,
