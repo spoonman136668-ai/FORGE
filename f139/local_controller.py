@@ -2015,6 +2015,14 @@ class Database:
         # Preserve RSI R12-G verification while cold-auditing Hybrid tasks.
         from f139.hybrid_owner_admission import audit_hybrid_lane
         audit_hybrid_lane(self)
+        # A separately staged F139 epoch may record a versioned, two-event
+        # native activation after a future original-Windows-owner release.
+        # It is NEVER the historical v1 event23 activation, and cannot
+        # independently authorize worker dispatch or scientific first use.
+        from f139.nci04_fresh_native_activation import (
+            audit_fresh_native_activation,
+        )
+        audit_fresh_native_activation(self)
 
     @contextlib.contextmanager
     def transaction(self):
