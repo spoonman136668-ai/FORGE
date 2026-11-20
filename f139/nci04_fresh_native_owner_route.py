@@ -215,8 +215,7 @@ def inspect_staged_fresh_native_mode(db: Database, db_path: Path) -> dict | None
     else:
         need(activation["owner_run_id"] == run_id
              and activation["source_sha"] == source["source_sha"]
-             and not db.conn.execute("SELECT 1 FROM tasks LIMIT 1").fetchone(),
-             "FRESH_ACTIVATION_OWNER_OR_TASK_INVALID")
+             , "FRESH_ACTIVATION_OWNER_OR_TASK_INVALID")
         floor, floor_bytes = _sealed_json(
             folder / "remote-issue-cutover-floor.json")
         owner, owner_bytes = _sealed_json(
@@ -230,7 +229,10 @@ def inspect_staged_fresh_native_mode(db: Database, db_path: Path) -> dict | None
         # A cold SQLite file and a matching local release document alone
         # cannot independently attest Windows SID/process or provider state
         # at this moment. This branch is still worker-dispatch INERT.
-        disposition = "FRESH_ACTIVATION_RECORDED_DISPATCH_BLOCKED"
+        admitted = db.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        need(admitted in (0, 1), "FRESH_INTAKE_COUNT_INVALID")
+        disposition = ("FRESH_DEVELOPMENT_INTAKE_READY_DISPATCH_BLOCKED"
+                       if admitted else "FRESH_ACTIVATION_RECORDED_DISPATCH_BLOCKED")
     # Archived DB is not reopened/modified here: the V59 original cold
     # verifier and original task quiescence must run at the actual handoff.
     # This receipt grants *no rights* even when all synthetic bytes match.
@@ -255,7 +257,8 @@ def inspect_staged_fresh_native_mode(db: Database, db_path: Path) -> dict | None
         "new_controller": False,
         "new_scheduler": False,
         "worker_dispatched": False,
-        "fresh_work_admitted": False,
+        "fresh_work_admitted": (
+            disposition == "FRESH_DEVELOPMENT_INTAKE_READY_DISPATCH_BLOCKED"),
         "yggdrasil_checkpoint_loaded": False,
         "no_replay": True,
     }
