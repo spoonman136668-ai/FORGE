@@ -300,8 +300,27 @@ def arm(mode,ids,bins):
                 tree_peak=job.peak()
             finally:
                 meter.close()
-            for p in processes:
+            for name,p in zip(shards,processes):
                 if p.wait(timeout=15)!=0:
+                    # Preserve every failed test, but publish only whitelisted
+                    # test identities from the isolated worker's JSON receipt.
+                    # Never echo raw worker stdout/stderr or fixture secrets.
+                    diagnostics=[]
+                    for shard in shards:
+                        report=root/("report"+shard+".json")
+                        item={"shard":shard,"report_present":report.is_file()}
+                        if report.is_file():
+                            data=json.loads(report.read_text(encoding="utf-8"))
+                            for field in ("errors","failures","unexpected_successes"):
+                                names=data.get(field,[])
+                                item[field]=[v for v in names[:20]
+                                    if isinstance(v,str) and len(v)<=240
+                                    and all(c.isalnum() or c in "._" for c in v)]
+                                item[field+"_count"]=len(names)
+                            item["successful"]=data.get("successful")
+                        diagnostics.append(item)
+                    print("FORGE_G137_FAILED_SHARDS="+json.dumps(
+                        diagnostics,sort_keys=True),flush=True)
                     raise ValueError("G137_ORIGINAL_TESTS_FAILED")
             if direct_peak<=0 or tree_peak<=0:
                 raise ValueError("G137_MEMORY_UNMEASURED")
