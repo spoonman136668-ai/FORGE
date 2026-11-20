@@ -2338,6 +2338,60 @@ def admit_fresh_original_standdown(head_sha: str, base_sha: str,
     return "EXACT_PR1848_F139_STANDDOWN_SOURCE_CI_ONLY"
 
 
+
+# One exact original-owner single-task rebind candidate, source CI only.
+# This does not approve or execute a host task change, worker or science.
+FRESH_REBIND_BRANCH = "engineering/f139-fresh-original-task-rebind-20261120"
+FRESH_REBIND_PR = 1851
+FRESH_REBIND_BASE = "e8aebb5347f693c11c57092fe05406937dab80d0"
+FRESH_REBIND_TREE = "4ea1b37fdda87f28d49f5d8f895cf57de4a802e6"
+FRESH_REBIND_WORKFLOW = ".github/workflows/f139-fresh-original-owner-rebind.yml"
+FRESH_REBIND_SCRIPT = "f139/nci04_fresh_owner_rebind.ps1"
+FRESH_REBIND_TEST = "f139/test_nci04_fresh_owner_rebind_source.py"
+FRESH_REBIND_BLOBS = {
+    FRESH_REBIND_WORKFLOW: "e90e12d2eae3aabb774a7ae568df42d0b3d0beb3",
+    FRESH_REBIND_SCRIPT: "468c73f9b80a23ac44297650d5f39cf4fae135d8",
+}
+FRESH_REBIND_FILES = frozenset((
+    *FRESH_REBIND_BLOBS, FRESH_REBIND_TEST,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+
+def admit_fresh_original_rebind(head_sha: str, base_sha: str,
+                                request: dict, git: Callable[..., str]) -> str:
+    """Exact source/owner/PR admissibility for CI, not execution authority."""
+    if (not is_sha(head_sha) or base_sha != FRESH_REBIND_BASE
+            or type(request) is not dict
+            or request.get("number") != FRESH_REBIND_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != FRESH_REBIND_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("sha") != FRESH_REBIND_BASE
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_REBIND_OWNER_MAIN_SOURCE_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        parent_tree = git("rev-parse", base_sha + "^{tree}")
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        blobs = {path: git("rev-parse", head_sha + ":" + path)
+                 for path in FRESH_REBIND_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_FRESH_REBIND_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or parent_tree != FRESH_REBIND_TREE
+            or len(changed) != len(FRESH_REBIND_FILES)
+            or set(changed) != FRESH_REBIND_FILES
+            or blobs != FRESH_REBIND_BLOBS):
+        raise ValueError("G145_FRESH_REBIND_SOURCE_OR_BLOB_DRIFT")
+    return "EXACT_PR1851_F139_FRESH_DISABLED_TASK_REBIND_CI_ONLY"
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -3114,6 +3168,11 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_REBIND_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                           .read_text(encoding="utf-8"))
+        return admit_fresh_original_rebind(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_STANDDOWN_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                            .read_text(encoding="utf-8"))
