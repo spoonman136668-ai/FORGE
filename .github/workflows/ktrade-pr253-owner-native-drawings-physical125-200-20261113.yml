@@ -1,4 +1,4 @@
-name: KTRADE PR253 genuine native drawings at physical 200 percent with restore
+name: KTRADE PR253 genuine native drawings at physical 125 percent with restore
 on:
   push:
     branches: [qualification/ktrade-pr253-owner-native-readonly-20261113]
@@ -24,7 +24,7 @@ jobs:
       KTRADE_PAPER_CUSTODY_REVIEW_ROOT: ''
       KTRADE_PROMOTION_ALLOWED: '0'
     steps:
-      - name: Verify exact source and execute original Win32 drawing acceptance at 200 percent with rollback
+      - name: Verify exact source and execute original Win32 drawing acceptance at 125 percent with rollback
         shell: pwsh
         timeout-minutes: 4
         run: |
@@ -103,9 +103,9 @@ jobs:
           if($before -cne '144:144'){throw ('KTRADE_W189_150_PREIMAGE_REQUIRED_ACTUAL='+$before)}
           $priorForeground=[KtradeW189Native]::GetForegroundWindow()
           $ownedSettings=(@(Get-Process -Name SystemSettings -ErrorAction SilentlyContinue).Count -eq 0)
-          $attempted200=$false
+          $attempted125=$false
           $reverted=$false
-          $observed200=$false
+          $observed125=$false
           function Get-Scale {
             $root=[System.Windows.Automation.AutomationElement]::RootElement
             $f=[System.Windows.Automation.PropertyCondition]::new(
@@ -164,15 +164,15 @@ jobs:
             # First prove BOTH the existing and target value are selectable
             # before applying any change.
             [void](Get-Choices 150)
-            [void](Get-Choices 200)
+            [void](Get-Choices 125)
             Choose-Scale 150
             if(!(Confirm-Dpi '144:144')){throw 'W189_ROLLBACK_PATH_PRECHECK_FAILED'}
             Write-Host 'KTRADE_W189_ROLLBACK_150_NOOP_PREFLIGHT=PASS'
-            $attempted200=$true
-            Choose-Scale 200
-            $observed200=Confirm-Dpi '192:192'
-            if(!$observed200){throw 'W189_PHYSICAL_200_NOT_OBSERVED'}
-            Write-Host 'KTRADE_W190_PHYSICAL_200_MODE_OBSERVED=PASS;dpi=192:192;native_product_acceptance_pending=true'
+            $attempted125=$true
+            Choose-Scale 125
+            $observed125=Confirm-Dpi '120:120'
+            if(!$observed125){throw 'W189_PHYSICAL_125_NOT_OBSERVED'}
+            Write-Host 'KTRADE_W192_PHYSICAL_125_MODE_OBSERVED=PASS;dpi=120:120;native_product_acceptance_pending=true'
           $ErrorActionPreference='Stop'
           Set-StrictMode -Version 3.0
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
@@ -286,10 +286,10 @@ jobs:
           }
           '@
           $beforeDpi=@([KTradeOwnedDesktop]::PhysicalDpi())
-          if($beforeDpi.Count -ne 1 -or $beforeDpi[0] -cne '192:192'){
-            throw ('KTRADE_OWNER_NATIVE_PHYSICAL_200_DPI_REQUIRED_OBSERVED='+($beforeDpi -join ','))
+          if($beforeDpi.Count -ne 1 -or $beforeDpi[0] -cne '120:120'){
+            throw ('KTRADE_OWNER_NATIVE_PHYSICAL_125_DPI_REQUIRED_OBSERVED='+($beforeDpi -join ','))
           }
-          Write-Host ('KTRADE_OWNER_NATIVE_PHYSICAL_200_DPI_CONFIRMED='+($beforeDpi -join ','))
+          Write-Host ('KTRADE_OWNER_NATIVE_PHYSICAL_125_DPI_CONFIRMED='+($beforeDpi -join ','))
           if(-not [KTradeOwnedDesktop]::InputDesktopIsDefault()){
             throw 'KTRADE_OWNER_NATIVE_INPUT_DESKTOP_NOT_DEFAULT'
           }
@@ -416,14 +416,14 @@ jobs:
               throw 'KTRADE_PR253_W160_DPI_WITNESS_HARNESS_DRIFT'
             }
             $dpiType=@'
-           Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class KTradeW160Dpi200 { [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd); }'
+           Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class KTradeW160Dpi125 { [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd); }'
            for($phase=0;$phase -lt 2;$phase++){
           '@
             $windowProof=@'
             [void](Window)
-            $nativeWinDpi=[KTradeW160Dpi200]::GetDpiForWindow($proc.MainWindowHandle)
-            Require ($nativeWinDpi -eq 192) 'W160_NATIVE_WINDOW_DPI_200_REQUIRED'
-            Write-Host ('W160_NATIVE_WINDOW_DPI_200=PASS;dpi='+$nativeWinDpi)
+            $nativeWinDpi=[KTradeW160Dpi125]::GetDpiForWindow($proc.MainWindowHandle)
+            Require ($nativeWinDpi -eq 120) 'W160_NATIVE_WINDOW_DPI_125_REQUIRED'
+            Write-Host ('W160_NATIVE_WINDOW_DPI_125=PASS;dpi='+$nativeWinDpi)
           '@
             $adjusted=$adjusted.Replace($loopAnchor,$dpiType)
             $adjusted=$adjusted.Replace($windowAnchor,$windowProof)
@@ -441,7 +441,7 @@ jobs:
               throw 'KTRADE_OWNER_NATIVE_INPUT_CHANGED_DURING_SOURCE_PREPARATION'
             }
             Write-Host ('KTRADE_OWNER_NATIVE_STAGE='+(@{
-              schema='ktrade.pr253.owner-native-physical-150dpi.v1'
+              schema='ktrade.pr253.owner-native-physical-125dpi.v1'
               source_sha=$head;tree_sha=$tree;dpi=$beforeDpi
               owner_session=$session;monotonic_input_stable=$true
               test_harness='W160_owner_scoped_guard_plus_window_dpi_witness'
@@ -493,10 +493,10 @@ jobs:
             if(!$restored){throw 'KTRADE_OWNER_NATIVE_DPI_POSTTEST_RESTORATION_FAILED'}
           }
           if(!$succeeded){throw 'KTRADE_OWNER_NATIVE_NOT_ACCEPTED'}
-          Write-Host 'KTRADE_PR253_NATIVE_W160_PHYSICAL_200_PERCENT=PASS'
-            Write-Host 'KTRADE_W190_NATIVE_DRAWINGS_AT_PHYSICAL_200=PASS'
+          Write-Host 'KTRADE_PR253_NATIVE_W160_PHYSICAL_125_PERCENT=PASS'
+            Write-Host 'KTRADE_W192_NATIVE_DRAWINGS_AT_PHYSICAL_125=PASS'
           }finally{
-            if($attempted200){
+            if($attempted125){
               try{
                 Choose-Scale 150
                 $reverted=Confirm-Dpi '144:144'
@@ -516,7 +516,7 @@ jobs:
             $saverStable=([string]$regAfter.ScreenSaveTimeOut -ceq '1200' -and
                           [string]$regAfter.ScreenSaveActive -ceq '1')
             Write-Host ('KTRADE_W189_DPI_RESTORATION='+(@{
-              physical_200_observed=$observed200
+              physical_125_observed=$observed125
               before_dpi=$before;after_dpi=$after
               restored_150=$reverted
               screen_saver_unchanged=$saverStable
@@ -527,7 +527,7 @@ jobs:
             }|ConvertTo-Json -Compress))
             if(!$reverted -or !$saverStable){throw 'W189_OWNER_DESKTOP_RESTORE_FAILED'}
           }
-      - name: Independently verify owner's 20 minute screen saver remains unchanged after physical 200 restore
+      - name: Independently verify owner's 20 minute screen saver remains unchanged after physical 125 restore
         if: always()
         shell: pwsh
         run: |
