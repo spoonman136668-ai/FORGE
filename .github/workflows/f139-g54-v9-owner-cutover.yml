@@ -3580,6 +3580,31 @@ jobs:
             if($null -eq $property){return $null}
             return $property.Value
           }
+          # All classifications originate in original, immutable F139 source.
+          # Raw exception text, unreviewed codes and log paths never leave this status job.
+          $allowlistScript=@'
+          from f139.nci04_model_free_failure import SAFE_CODES
+          for code in sorted(SAFE_CODES):
+              print(code)
+          '@
+          $allowedModelFreeCodes=@($allowlistScript | & $python -B -)
+          if($LASTEXITCODE -ne 0 -or @($allowedModelFreeCodes).Count -lt 20) {
+            throw 'F139_G54_MODEL_FREE_ALLOWLIST_UNAVAILABLE'
+          }
+          $fallbackModelFreeCodes=@('OS_ERROR_NO_DETAILS','UNCLASSIFIED_F139_ERROR',
+            'UNCLASSIFIED_VALUE_ERROR','UNCLASSIFIED_FAILURE')
+          function SafeModelFreeFailureCode($record) {
+            if((OptionalField $record 'disposition') -cne 'MODEL_FREE_SEARCH_BLOCKED_FAIL_CLOSED') {
+              return $null
+            }
+            $code=OptionalField $record 'failure_code'
+            if($code -is [string] -and
+               (($allowedModelFreeCodes -ccontains $code) -or
+                ($fallbackModelFreeCodes -ccontains $code))) {
+              return $code
+            }
+            return 'REDACTED_OR_MISSING'
+          }
           if(Test-Path -LiteralPath $log) {
             $entries=@()
             foreach($line in (Get-Content -LiteralPath $log | Select-Object -Last 2000)) {
@@ -3588,6 +3613,7 @@ jobs:
               $entries += [pscustomobject]@{
                 timestamp=(OptionalField $e 'at')
                 disposition=(OptionalField $e 'disposition')
+                failure_code=(SafeModelFreeFailureCode $e)
                 blocked=(OptionalField $e 'blocked')
                 error=(OptionalField $e 'error')
                 reason=(OptionalField $e 'reason')
