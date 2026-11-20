@@ -66,5 +66,61 @@ class FreshOwnerJobConcurrencyTests(unittest.TestCase):
                     qualify(mutant)
 
 
+    def test_exact_owner_pr_ci_exception_is_narrow(self):
+        from scripts.check_rar_g145_pr_scope import (
+            FRESH_CONCURRENCY_BASE, FRESH_CONCURRENCY_BLOB,
+            FRESH_CONCURRENCY_BRANCH, FRESH_CONCURRENCY_FILES,
+            FRESH_CONCURRENCY_TREE, FRESH_CONCURRENCY_WORKFLOW,
+            admit_fresh_admission_job_concurrency, generic_paths_safe,
+        )
+        head = "b" * 40
+        base = FRESH_CONCURRENCY_BASE
+        pr = {
+            "number": 1846,
+            "author_association": "OWNER",
+            "user": {"login": "spoonman136668-ai"},
+            "head": {"sha": head, "ref": FRESH_CONCURRENCY_BRANCH,
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+            "base": {"sha": base, "ref": "main",
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+        }
+        files = sorted(FRESH_CONCURRENCY_FILES)
+        answers = {
+            ("merge-base", base, head): base,
+            ("rev-parse", base + "^{tree}"): FRESH_CONCURRENCY_TREE,
+            ("rev-parse", head + ":" + FRESH_CONCURRENCY_WORKFLOW):
+                FRESH_CONCURRENCY_BLOB,
+            ("diff", "--no-renames", "--name-only", base, head):
+                "\n".join(files),
+        }
+        git = lambda *args: answers[args]
+        self.assertFalse(generic_paths_safe(files))
+        self.assertEqual(
+            admit_fresh_admission_job_concurrency(head, base, pr, git),
+            "EXACT_PR1846_FRESH_ADMISSION_JOB_CONCURRENCY_CI_ONLY")
+        for wrong in (
+            dict(pr, number=1845),
+            dict(pr, user={"login": "other"}),
+            dict(pr, author_association="CONTRIBUTOR"),
+            dict(pr, head=dict(pr["head"], ref="other")),
+            dict(pr, base=dict(pr["base"], sha="c" * 40)),
+        ):
+            with self.subTest(keys=repr(wrong)):
+                with self.assertRaises(ValueError):
+                    admit_fresh_admission_job_concurrency(head, base, wrong, git)
+        for key, bad_value in (
+            (("rev-parse", base + "^{tree}"), "0" * 40),
+            (("rev-parse", head + ":" + FRESH_CONCURRENCY_WORKFLOW), "0" * 40),
+            (("diff", "--no-renames", "--name-only", base, head),
+             "\n".join(files) + "\n.github/workflows/unrelated.yml"),
+        ):
+            with self.subTest(key=key):
+                wrong_answers = dict(answers, **{})
+                wrong_answers[key] = bad_value
+                with self.assertRaisesRegex(ValueError, "EXACT_SCOPE_DENIED"):
+                    admit_fresh_admission_job_concurrency(
+                        head, base, pr, lambda *args: wrong_answers[args])
+
+
 if __name__ == "__main__":
     unittest.main()
