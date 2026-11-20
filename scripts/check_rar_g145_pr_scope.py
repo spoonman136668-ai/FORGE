@@ -2228,8 +2228,11 @@ FRESH_ACTIVATION_BASE = "4744d0c7a37a600f9451c20ed717cd5623cbc0d6"
 FRESH_ACTIVATION_TREE = "c2118fd05602fe92907d43ae2c92d581f5b10d01"
 FRESH_ACTIVATION_WORKFLOW = ".github/workflows/f139-fresh-original-owner-activation.yml"
 FRESH_ACTIVATION_BLOB = "b1eb94037716aa8084c02affe66da33288e3680c"
+FRESH_ACTIVATION_NATIVE_WORKFLOW = ".github/workflows/forge-f139-source-qualification.yml"
+FRESH_ACTIVATION_NATIVE_BLOB = "1d831004eed4df6227517d941ab561d2e2f59010"
 FRESH_ACTIVATION_FILES = frozenset({
     FRESH_ACTIVATION_WORKFLOW,
+    FRESH_ACTIVATION_NATIVE_WORKFLOW,
     "f139/nci04_fresh_owner_activation_cli.py",
     "f139/test_nci04_fresh_owner_activation_cli.py",
     "scripts/check_rar_g145_pr_scope.py",
@@ -2258,12 +2261,14 @@ def admit_fresh_owner_activation_bridge(head_sha: str, base_sha: str,
         ancestor = git("merge-base", base_sha, head_sha)
         base_tree = git("rev-parse", base_sha + "^{tree}")
         actual_blob = git("rev-parse", head_sha + ":" + FRESH_ACTIVATION_WORKFLOW)
+        native_blob = git("rev-parse", head_sha + ":" + FRESH_ACTIVATION_NATIVE_WORKFLOW)
         changed = git("diff", "--no-renames", "--name-only",
                       base_sha, head_sha).splitlines()
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         raise ValueError("G145_FRESH_ACTIVATION_SOURCE_UNAVAILABLE") from exc
     if (ancestor != base_sha or base_tree != FRESH_ACTIVATION_TREE
             or actual_blob != FRESH_ACTIVATION_BLOB
+            or native_blob != FRESH_ACTIVATION_NATIVE_BLOB
             or len(changed) != len(FRESH_ACTIVATION_FILES)
             or set(changed) != FRESH_ACTIVATION_FILES):
         raise ValueError("G145_FRESH_ACTIVATION_EXACT_SCOPE_DENIED")
