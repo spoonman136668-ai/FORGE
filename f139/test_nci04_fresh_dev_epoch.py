@@ -83,6 +83,7 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
             "original_head_sha256": HEAD_SHA256,
             "old_issue_numbers": [687], "old_tickets": ["prior-ticket"],
             "release_qualified": False, "fresh_activation_authorized": False,
+            "previous_work_replay_authorized": False,
         }
         self.history = patch(
             PREFIX + ".freeze_original_exclusions",
@@ -410,6 +411,179 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
                     newdb, self.fresh() / "state.sqlite")
         finally:
             newdb.close()
+
+    def make_synthetic_activation(self, *,
+                                  release_override=None,
+                                  floor_override=None):
+        """Synthetic SQLite ONLY; no Windows task or GitHub API is invoked."""
+        from f139.nci04_native_contract import digest
+        from f139.nci04_fresh_native_activation import (
+            ACTIVATION_KIND, ACTIVATION_SCHEMA, OWNER_RELEASE_SCHEMA,
+        )
+        from f139.nci04_fresh_remote_floor import SCHEMA as FLOOR_SCHEMA
+        from f139.nci04_fresh_yggdrasil_boundary import ACCEPTED
+        self.prepare()
+        path = self.fresh() / "state.sqlite"
+        stage_raw = (self.fresh() / "fresh-dev-manifest.sha256.json").read_bytes()
+        exclusions_raw = (
+            self.fresh() / "consumed-development-identities.json").read_bytes()
+        lineage_raw = (
+            self.fresh() / "yggdrasil-research-lineage.json").read_bytes()
+        floor = {
+            "schema": FLOOR_SCHEMA,
+            "original_source_sha": SOURCE,
+            "original_head_seq": HEAD_SEQ,
+            "original_head_sha256": HEAD_SHA256,
+            "target_forge_source_sha": TARGET,
+            "consumed_exclusions_sha256": digest(exclusions_raw),
+            "remote_cutover_issue_number_floor": 1835,
+            "remote_cutover_issue_provider_verified": True,
+            "fresh_activation_authorized": False,
+            "owner_task_rebind_authorized": False,
+            "release_qualified": False,
+            "scientific_first_use": False,
+        }
+        if floor_override:
+            floor.update(floor_override)
+        floor_raw = canonical(floor)
+        (self.fresh() / "remote-issue-cutover-floor.json").write_bytes(
+            floor_raw)
+        release = {
+            "schema": OWNER_RELEASE_SCHEMA,
+            "owner_task_name": "FORGE-F139-UnifiedController",
+            "target_forge_source_sha": TARGET,
+            "owner_run_id": RUN,
+            "original_source_sha": SOURCE,
+            "original_head_seq": HEAD_SEQ,
+            "original_head_sha256": HEAD_SHA256,
+            "remote_cutover_receipt_sha256": digest(floor_raw),
+            "original_task_quiesced": True,
+            "original_process_absent": True,
+            "original_mutex_held": True,
+            "original_sid_independently_verified": True,
+            "single_task_rebind_authorized": True,
+            "new_controller": False,
+            "new_scheduler": False,
+            "scientific_first_use": False,
+        }
+        if release_override:
+            release.update(release_override)
+        release_raw = canonical(release)
+        (self.fresh() / "original-task-release.json").write_bytes(
+            release_raw)
+        db = Database(path)
+        db.enable(legacy_suspended=True)
+        record = {
+            "schema": ACTIVATION_SCHEMA,
+            "source_sha": TARGET,
+            "prior_event_head_sha256": db.meta()["head_hash"],
+            "owner_run_id": RUN,
+            "original_source_sha": SOURCE,
+            "original_head_seq": HEAD_SEQ,
+            "original_head_sha256": HEAD_SHA256,
+            "stage_manifest_sha256": digest(stage_raw),
+            "consumed_exclusions_sha256": digest(exclusions_raw),
+            "yggdrasil_research_boundary_sha256": digest(lineage_raw),
+            "remote_cutover_receipt_sha256": digest(floor_raw),
+            "original_task_release_receipt_sha256": digest(release_raw),
+            "remote_issue_number_floor": floor["remote_cutover_issue_number_floor"],
+            "accepted_yggdrasil_main_sha": ACCEPTED,
+            "development_only": True,
+            "scientific_first_use": False,
+            "paid_model_calls": 0,
+            "new_controller": False,
+            "new_scheduler": False,
+            "new_queue": False,
+            "worker_dispatch_authorized": False,
+            "model_continuation_authorized": False,
+        }
+        with db.transaction():
+            db.event(ACTIVATION_KIND, record)
+        return db, record
+
+    def test_versioned_activation_is_audited_but_still_cannot_dispatch(self):
+        from f139.local_controller import run_once
+        from f139.nci04_fresh_native_activation import (
+            audit_fresh_native_activation,
+        )
+        from f139.nci04_fresh_native_owner_route import (
+            inspect_staged_fresh_native_mode,
+        )
+        db, record = self.make_synthetic_activation()
+        try:
+            db.verify()
+            self.assertEqual(audit_fresh_native_activation(db), record)
+            before = db.meta()
+            class ForbiddenProvider:
+                def __getattribute__(self, name):
+                    raise AssertionError("PROVIDER_ACCESS_DURING_FRESH_" + name)
+            outcome = run_once(
+                db, ForbiddenProvider(), self.fresh() / "state.sqlite",
+                "dev-only-hmac-not-used-" + "a" * 32)
+            self.assertEqual(
+                outcome["disposition"],
+                "FRESH_ACTIVATION_RECORDED_DISPATCH_BLOCKED")
+            self.assertTrue(outcome["activation_event_recorded"])
+            self.assertFalse(outcome["owner_release_independently_verified_runtime"])
+            self.assertFalse(outcome["native_issue_admission_authorized"])
+            self.assertFalse(outcome["fresh_native_activation_authorized"])
+            self.assertFalse(outcome["worker_dispatched"])
+            self.assertFalse(outcome["yggdrasil_checkpoint_loaded"])
+            self.assertEqual(db.meta(), before)
+            self.assertEqual(db.conn.execute(
+                "SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
+        finally:
+            db.close()
+        self.assertEqual(hash_file(self.old), self.before_old_hash)
+
+    def test_missing_original_host_release_never_grants_activation_dispatch(self):
+        from f139.nci04_fresh_native_owner_route import (
+            FreshNativeRouteDenied, inspect_staged_fresh_native_mode,
+        )
+        db, record = self.make_synthetic_activation()
+        try:
+            (self.fresh() / "original-task-release.json").unlink()
+            db.verify()
+            with self.assertRaisesRegex(
+                    FreshNativeRouteDenied, "PROVENANCE_FILE_NOT_SEALED"):
+                inspect_staged_fresh_native_mode(
+                    db, self.fresh() / "state.sqlite")
+        finally:
+            db.close()
+
+    def test_unqualified_release_and_floor_fail_closed(self):
+        from f139.nci04_fresh_native_activation import FreshActivationDenied
+        from f139.nci04_fresh_native_owner_route import (
+            inspect_staged_fresh_native_mode,
+        )
+        db, record = self.make_synthetic_activation(
+            release_override={"original_sid_independently_verified": False})
+        try:
+            with self.assertRaisesRegex(
+                    FreshActivationDenied, "ORIGINAL_WINDOWS_OWNER_RELEASE"):
+                inspect_staged_fresh_native_mode(
+                    db, self.fresh() / "state.sqlite")
+        finally:
+            db.close()
+
+    def test_duplicate_or_mutated_activation_event_is_rejected_on_cold_verify(self):
+        from f139.nci04_fresh_native_activation import (
+            ACTIVATION_KIND, FreshActivationDenied,
+        )
+        db, record = self.make_synthetic_activation()
+        try:
+            with db.transaction():
+                db.event(ACTIVATION_KIND, record)
+            with self.assertRaisesRegex(
+                    FreshActivationDenied, "LOCAL_ACTIVATION_EVENT_SEQUENCE_INVALID"):
+                db.verify()
+        finally:
+            db.close()
+
+    def test_original_nonfresh_activation_audit_never_requires_fresh_receipts(self):
+        from f139.nci04_fresh_native_activation import audit_fresh_native_activation
+        self.assertIsNone(audit_fresh_native_activation(self.orig))
+        self.assertEqual(hash_file(self.old), self.before_old_hash)
 
 if __name__ == "__main__":
     unittest.main()
