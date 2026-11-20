@@ -480,40 +480,7 @@ jobs:
               source_sha=$env:KTRADE_EXPECTED_SOURCE;acceptance_passed=$succeeded
             }|ConvertTo-Json -Compress))
             if($root -and (Test-Path -LiteralPath $root -PathType Container) -and
-               [IO.Path]::GetFileName($root) -cmatch '^ktrade-pr253-real-native-[a-f0-9]{32}
-          }finally{
-            if($attempted200){
-              try{
-                Choose-Scale 150
-                $reverted=Confirm-Dpi '144:144'
-              }catch{
-                Write-Host ('KTRADE_W189_ROLLBACK_ATTEMPT_ERROR='+$_.Exception.GetType().Name)
-              }
-            }else{
-              $reverted=([KtradeW189Native]::ReadDpi() -ceq '144:144')
-            }
-            $after=[KtradeW189Native]::ReadDpi()
-            if($after -ceq '144:144'){$reverted=$true}
-            if($priorForeground -ne [IntPtr]::Zero){
-              $fg=[KtradeW189Native]::SetForegroundWindow($priorForeground)
-              Write-Host ('KTRADE_W189_FOREGROUND_RESTORE='+$(if($fg){'PASS'}else{'UNVERIFIED'}))
-            }
-            $regAfter=Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -ErrorAction Stop
-            $saverStable=([string]$regAfter.ScreenSaveTimeOut -ceq '1200' -and
-                          [string]$regAfter.ScreenSaveActive -ceq '1')
-            Write-Host ('KTRADE_W189_DPI_RESTORATION='+(@{
-              physical_200_observed=$observed200
-              before_dpi=$before;after_dpi=$after
-              restored_150=$reverted
-              screen_saver_unchanged=$saverStable
-              product_source_unchanged=$true
-              installed_profile_untouched=$true
-              broker_disarmed=$true
-              scheduled_tasks_created=$false
-            }|ConvertTo-Json -Compress))
-            if(!$reverted -or !$saverStable){throw 'W189_OWNER_DESKTOP_RESTORE_FAILED'}
-          }
- -and
+               [IO.Path]::GetFileName($root) -cmatch '^ktrade-pr253-real-native-[a-f0-9]{32}$' -and
                [IO.Path]::GetDirectoryName($root).TrimEnd('\') -ceq ([IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\'))){
               Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
             }
