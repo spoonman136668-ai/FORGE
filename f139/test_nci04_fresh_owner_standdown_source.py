@@ -113,7 +113,7 @@ class OriginalStanddownSourceTests(unittest.TestCase):
             if args == ("rev-parse", base + "^{tree}"):
                 return scope.FRESH_STANDDOWN_TREE
             if args == ("diff", "--no-renames", "--name-only", base, head):
-                return "\\n".join(sorted(scope.FRESH_STANDDOWN_FILES))
+                return "\n".join(sorted(scope.FRESH_STANDDOWN_FILES))
             if args[0] == "rev-parse" and args[1].startswith(head + ":"):
                 return scope.FRESH_STANDDOWN_BLOBS.get(
                     args[1][len(head) + 1:], "0" * 40)
