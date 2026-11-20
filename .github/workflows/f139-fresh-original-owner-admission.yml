@@ -6,11 +6,9 @@ permissions:
   contents: read
   issues: read
   actions: read
-# Share the existing original-owner exclusion group; never create a
-# competing controller or let an admission overlap another owner route.
-concurrency:
-  group: forge-f139-v54-original-owner
-  cancel-in-progress: false
+# An unrelated issue_comment must not reserve or cancel an owner queue slot.
+# Only an admitted job gets a concurrency group; the existing kernel owner
+# locks and original-host SID/process checks still reject overlapping work.
 jobs:
   fresh-one-ready:
     if: >-
@@ -26,6 +24,9 @@ jobs:
       !github.event.issue.pull_request &&
       startsWith(github.event.comment.body, 'F139-FRESH-DEV-ADMIT ')
     runs-on: [self-hosted, Windows, forge-codex-isolated]
+    concurrency:
+      group: forge-f139-fresh-owner-admission
+      cancel-in-progress: false
     timeout-minutes: 20
     steps:
       - name: Checkout pinned main without retained credentials
