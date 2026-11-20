@@ -160,19 +160,27 @@ jobs:
             # Native Windows Settings UI only; never use registry DPI hacks,
             # display-mode APIs, screen-resolution changes or logoff.
             Start-Process -FilePath explorer.exe -ArgumentList 'ms-settings:display' -ErrorAction Stop
-            Start-Sleep -Milliseconds 500
-            # First prove BOTH the existing and target value are selectable
-            # before applying any change.
-            [void](Get-Choices 150)
-            [void](Get-Choices 125)
-            Choose-Scale 150
-            if(!(Confirm-Dpi '144:144')){throw 'W189_ROLLBACK_PATH_PRECHECK_FAILED'}
-            Write-Host 'KTRADE_W189_ROLLBACK_150_NOOP_PREFLIGHT=PASS'
+            Start-Sleep -Milliseconds 700
+            # W198: bounded readiness discovery, not repeated scale selections.
+            function Find-ScaleChoice([int]$choice){
+              for($scan=0;$scan -lt 6;$scan++){
+                try{return Get-Choices $choice}catch{
+                  if($scan -eq 5){throw ('W198_SCALE_UI_CHOICE_UNAVAILABLE_'+$choice)}
+                  Start-Sleep -Milliseconds 350
+                }
+              }
+              throw ('W198_SCALE_UI_UNAVAILABLE_'+$choice)
+            }
+            $same=Find-ScaleChoice 150
+            $same.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+            if(!(Confirm-Dpi '144:144')){throw 'W198_ROLLBACK_PATH_PRECHECK_FAILED'}
+            Write-Host 'KTRADE_W198_ROLLBACK_150_NOOP_PREFLIGHT=PASS'
+            $target=Find-ScaleChoice 125
             $attempted125=$true
-            Choose-Scale 125
+            $target.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
             $observed125=Confirm-Dpi '120:120'
-            if(!$observed125){throw 'W189_PHYSICAL_125_NOT_OBSERVED'}
-            Write-Host 'KTRADE_W192_PHYSICAL_125_MODE_OBSERVED=PASS;dpi=120:120;native_product_acceptance_pending=true'
+            if(!$observed125){throw 'W198_PHYSICAL_125_NOT_OBSERVED'}
+            Write-Host 'KTRADE_W198_PHYSICAL_125_MODE_OBSERVED=PASS;dpi=120:120;native_product_acceptance_pending=true'
           $ErrorActionPreference='Stop'
           Set-StrictMode -Version 3.0
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
