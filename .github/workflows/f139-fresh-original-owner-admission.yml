@@ -1,0 +1,59 @@
+name: FORGE F139 fresh original-owner one-ticket admission
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+# Share the existing original-owner exclusion group; never create a
+# competing controller or let an admission overlap another owner route.
+concurrency:
+  group: forge-f139-v54-original-owner
+  cancel-in-progress: false
+jobs:
+  fresh-one-ready:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.action == 'created' &&
+      github.event.issue.number == 1830 &&
+      github.event.issue.state == 'open' &&
+      github.event.issue.user.login == 'spoonman136668-ai' &&
+      github.event.comment.user.login == 'spoonman136668-ai' &&
+      github.event.comment.author_association == 'OWNER' &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-FRESH-DEV-ADMIT ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pinned main without retained credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reverify original owner and stage one READY ticket only
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: .
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+              $env:GITHUB_REF -cne 'refs/heads/main' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $env:OPENAI_API_KEY) {
+            throw 'F139_FRESH_ORIGINAL_OWNER_RUNNER_UNQUALIFIED'
+          }
+          python -B -m f139.nci04_fresh_original_owner_admission_cli
+          if ($LASTEXITCODE -ne 0) {
+            throw 'F139_FRESH_ONE_TICKET_ADMISSION_DENIED'
+          }
+          Write-Output 'F139_FRESH_ONE_READY_ADMISSION=PASS'
+          Write-Output 'F139_WORKER_DISPATCH_AUTHORIZED=FALSE'
+          Write-Output 'F139_SCIENTIFIC_FIRST_USE=FALSE'
