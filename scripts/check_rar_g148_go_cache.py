@@ -15,6 +15,7 @@ import sys
 
 from check_rar_g145_pr_scope import (admit_original_pr, negative_controls,
     V54_RELEASE_BRANCH, V59_READONLY_BRANCH, V60_PROCESS_BRANCH,
+    V61_PROCESS_FIX_BRANCH,
     V41_STATUS_BRANCH, V41_STATUS_RESULT,
     V41_BACKUP_BRANCH, V41_BACKUP_RESULT,
     V41_PAUSE_BRANCH, V41_PAUSE_RESULT,
@@ -140,6 +141,10 @@ def event_mode(head):
     if branch == "engineering/f139-v58-model-free-status-readonly-20261119":
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
             raise ValueError("G148_V58_READONLY_SCOPE_REQUIRED")
+        return "pr"
+    if branch == V61_PROCESS_FIX_BRANCH:
+        if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
+            raise ValueError("G148_V61_EXACT_OWNER_PARSER_FIX_REQUIRED")
         return "pr"
     if branch == V60_PROCESS_BRANCH:
         if admiss != "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT":
