@@ -2230,9 +2230,12 @@ FRESH_ACTIVATION_WORKFLOW = ".github/workflows/f139-fresh-original-owner-activat
 FRESH_ACTIVATION_BLOB = "b1eb94037716aa8084c02affe66da33288e3680c"
 FRESH_ACTIVATION_NATIVE_WORKFLOW = ".github/workflows/forge-f139-source-qualification.yml"
 FRESH_ACTIVATION_NATIVE_BLOB = "1d831004eed4df6227517d941ab561d2e2f59010"
+FRESH_ACTIVATION_G137 = "scripts/check_rar_g137_f139_shards.py"
+FRESH_ACTIVATION_G137_BLOB = "5e7a0123e0e4e2b201258b2ce42fb6b80c8cb7ea"
 FRESH_ACTIVATION_FILES = frozenset({
     FRESH_ACTIVATION_WORKFLOW,
     FRESH_ACTIVATION_NATIVE_WORKFLOW,
+    FRESH_ACTIVATION_G137,
     "f139/nci04_fresh_owner_activation_cli.py",
     "f139/test_nci04_fresh_owner_activation_cli.py",
     "scripts/check_rar_g145_pr_scope.py",
@@ -2244,7 +2247,7 @@ FRESH_ACTIVATION_FILES = frozenset({
 def admit_fresh_owner_activation_bridge(head_sha: str, base_sha: str,
                                         request: dict,
                                         git: Callable[..., str]) -> str:
-    """Exactly PR1847 owner provenance, protected ancestor, blob and six paths."""
+    """Exactly PR1847 owner provenance, protected ancestor, blob and eight paths."""
     if (not is_sha(head_sha) or base_sha != FRESH_ACTIVATION_BASE
             or type(request) is not dict
             or request.get("number") != FRESH_ACTIVATION_PR
@@ -2262,6 +2265,7 @@ def admit_fresh_owner_activation_bridge(head_sha: str, base_sha: str,
         base_tree = git("rev-parse", base_sha + "^{tree}")
         actual_blob = git("rev-parse", head_sha + ":" + FRESH_ACTIVATION_WORKFLOW)
         native_blob = git("rev-parse", head_sha + ":" + FRESH_ACTIVATION_NATIVE_WORKFLOW)
+        g137_blob = git("rev-parse", head_sha + ":" + FRESH_ACTIVATION_G137)
         changed = git("diff", "--no-renames", "--name-only",
                       base_sha, head_sha).splitlines()
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
@@ -2269,6 +2273,7 @@ def admit_fresh_owner_activation_bridge(head_sha: str, base_sha: str,
     if (ancestor != base_sha or base_tree != FRESH_ACTIVATION_TREE
             or actual_blob != FRESH_ACTIVATION_BLOB
             or native_blob != FRESH_ACTIVATION_NATIVE_BLOB
+            or g137_blob != FRESH_ACTIVATION_G137_BLOB
             or len(changed) != len(FRESH_ACTIVATION_FILES)
             or set(changed) != FRESH_ACTIVATION_FILES):
         raise ValueError("G145_FRESH_ACTIVATION_EXACT_SCOPE_DENIED")
