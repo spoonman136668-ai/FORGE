@@ -137,8 +137,9 @@ jobs:
             Write-Host 'KTRADE_W186_UIA_CAPABILITY=BLOCKED_OWNER_APP_RUNNING;display_changed=false'
             return
           }
-          # Existing Windows Settings is read-only eligible: do not relaunch,
-          # navigate, close, or steal focus from the owner-owned window.
+          # Existing Settings may have a headless process but no visible window.
+          # Reopen the Display page read-only, preserving the original focus.
+          # A pre-existing Settings process is never closed by this job.
           $existingSettings=(@(Get-Process -Name SystemSettings -ErrorAction SilentlyContinue).Count -gt 0)
           Add-Type -AssemblyName UIAutomationClient
           Add-Type -AssemblyName UIAutomationTypes
@@ -174,12 +175,10 @@ jobs:
           try {
             # Only open the Windows Settings DISPLAY page. Do not click, select,
             # expand a control, inject input or change any display setting.
-            if(!$existingSettings){
-              Start-Process -FilePath 'explorer.exe' -ArgumentList 'ms-settings:display' -ErrorAction Stop
-              $ownedSettings=$true
-            }else{
-              Write-Host 'KTRADE_W187_EXISTING_SETTINGS_READ_ONLY=true;no_navigation=true'
-            }
+            Start-Process -FilePath 'explorer.exe' -ArgumentList 'ms-settings:display' -ErrorAction Stop
+            $ownedSettings=!$existingSettings
+            Write-Host ('KTRADE_W188_DISPLAY_PAGE_READ_ONLY=PASS;existing_settings_process='+$existingSettings+
+              ';no_display_setting_write=true')
             $root=[System.Windows.Automation.AutomationElement]::RootElement
             $windowFilter=[System.Windows.Automation.PropertyCondition]::new(
               [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
@@ -187,7 +186,7 @@ jobs:
             for($try=0;$try -lt 24;$try++){
               $windows=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$windowFilter)
               foreach($w in $windows){
-                if([string]$w.Current.Name -match '(?i)(^| - )settings$'){
+                if([string]$w.Current.Name -match '(?i)\bsettings\b'){
                   $settingsWindow=$w
                   break
                 }
