@@ -18,14 +18,12 @@ from f139.nci04_fresh_worker_release_gate import (
     WORKER_PATH, TARGET, TARGET_TREE, TICKET_ISSUE, SCHEMA,
     FreshWorkerReleaseDenied, inspect_fresh_worker_release,
 )
-from f139.test_nci04_fresh_native_provider_issue import (
-    FreshProviderPreflightTests,
-)
+from f139 import test_nci04_fresh_native_provider_issue as fixture_module
 
 
 class FreshWorkerReleaseGateTests(unittest.TestCase):
     def setUp(self):
-        fixture = FreshProviderPreflightTests(
+        fixture = fixture_module.FreshProviderPreflightTests(
             "test_provider_candidate_preflight_is_inert_and_rechecks_all")
         fixture.setUp()
         candidate = deepcopy(fixture.intent)
