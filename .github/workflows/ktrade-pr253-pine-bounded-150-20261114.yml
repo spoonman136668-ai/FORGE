@@ -250,20 +250,41 @@ jobs:
             $env:KTRADE_W13_QUALIFICATION_ONLY='1'
             $env:KTRADE_W41_QUALIFICATION_ONLY='1'
             try{
+              # W185: capture one exact-source build with deterministic, bounded
+              # classified evidence. No network replay, no private output.
+              $buildClock=[Diagnostics.Stopwatch]::StartNew()
               & (Join-Path $source 'windows/Build-KTRADE-WailsPortable.ps1') -OutputRoot $pkg -ExpectedSourceSha $head -W13QualificationFixture -W41ColdFixture *> $log
               if($LASTEXITCODE -ne 0){throw 'W169_PACKAGE_BUILD_FAILED'}
+              Write-Host ('W185_SOURCE_PINNED_BUILD=PASS;seconds='+[int]$buildClock.Elapsed.TotalSeconds+
+                ';previous_failed_run_class=FETCH_OBSERVED_FAILURE_CAUSE_UNVERIFIED;private_output_withheld=true')
             }catch{
-              # Keep private Go source and error text out of public FORGE logs.
-              # Emit only a bounded diagnostic class from the disposable log.
+              # Original private diagnostic source remains only under RUNNER_TEMP.
+              # No source paths, module names, Go errors or owner information
+              # are exported into the public FORGE job logs.
               $tail=@(Get-Content -LiteralPath $log -Tail 250 -ErrorAction SilentlyContinue)
               $message=($tail -join ' ')
               $kind=if($message -match '(?i)no space left|disk full|not enough space'){'DISK'}
                 elseif($message -match '(?i)out of memory|cannot allocate memory|signal: killed'){'MEMORY'}
-                elseif($message -match '(?i)(connection reset|proxyconnect|TLS handshake|network is unreachable|connection refused|timeout|no such host|unexpected EOF|dial tcp|i/o timeout)'){'NETWORK'}
-                elseif($message -match '(?i)go: downloading|go: download'){'FETCH_OBSERVED_FAILURE_CAUSE_UNVERIFIED'}
+                elseif($message -match '(?i)(connection reset|proxyconnect|TLS handshake|network is unreachable|connection refused|timeout|no such host|unexpected EOF|dial tcp|i/o timeout|HTTP 5[0-9][0-9]|HTTP 429)'){'NETWORK'}
                 elseif($message -match '(?i)(undefined:|cannot use|syntax error|build constraints exclude|import cycle|does not implement)'){'SOURCE_COMPILE'}
                 elseif($message -match '(?i)(access is denied|permission denied|cannot access the file|sharing violation)'){'WINDOWS_FILE_ACCESS'}
+                elseif($message -match '(?i)go: downloading|go: download'){'FETCH_OBSERVED_FAILURE_CAUSE_UNVERIFIED'}
                 else{'UNCLASSIFIED'}
+              $failedStage=if($message -match 'W03_NATIVE_ENGINE_BUILD_FAILED'){'ENGINE_COMPILE'}
+                elseif($message -match 'W03_WAILS_SHELL_BUILD_FAILED'){'WAILS_COMPILE'}
+                elseif($message -match 'W03_VENDOR_ASSET_MISSING'){'ASSET_STAGE'}
+                else{'UNKNOWN'}
+              $fetchCount=@($tail|Where-Object {$_ -match '^go: downloading '}).Count
+              $networkErrorCount=@($tail|Where-Object {$_ -match '(?i)(connection reset|proxyconnect|TLS handshake|network is unreachable|timeout|no such host|dial tcp|HTTP 5[0-9][0-9]|HTTP 429)'}).Count
+              $compileErrorCount=@($tail|Where-Object {$_ -match '(?i)(undefined:|cannot use|syntax error|build constraints exclude|does not implement)'}).Count
+              $fetchStatus=if($message -match '(?i)\b(?:HTTP |status:?)\s*(401|403|404|408|429|500|502|503|504)\b'){$Matches[1]}else{'NONE'}
+              $sourceCache=if(Test-Path -LiteralPath $env:GOMODCACHE){'PRESENT'}else{'ABSENT'}
+              Write-Host ('W185_PREBUILD_DIAG=FAIL;stage='+$failedStage+';class='+$kind+
+                ';fetch_lines='+$fetchCount+';network_error_lines='+$networkErrorCount+
+                ';compile_error_lines='+$compileErrorCount+';http_status='+$fetchStatus+
+                ';isolated_modcache='+$sourceCache+
+                ';seconds='+[int]$buildClock.Elapsed.TotalSeconds+
+                ';no_replay=true;user_files_unchanged=true;desktop_not_entered=true')
               Write-Host ('W169_BUILD_FAILURE_CLASS='+$kind+';private_build_log_lines='+$tail.Count+';user_files_unchanged=true;desktop_not_entered=true')
               throw 'W169_PACKAGE_BUILD_FAILED'
             }
