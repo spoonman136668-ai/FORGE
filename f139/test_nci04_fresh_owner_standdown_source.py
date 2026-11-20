@@ -30,6 +30,7 @@ class OriginalStanddownSourceTests(unittest.TestCase):
         for required in (
             "FORGE-F139-UnifiedController", SOURCE, HEAD,
             "$env:GITHUB_SHA", "$env:GITHUB_EVENT_PATH",
+            "$env:GITHUB_WORKFLOW_REF", "OWNER_ISSUE_PROVIDER_DRIFT",
             "$env:GITHUB_RUN_ATTEMPT -ceq '1'",
             "$env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE'",
             "comment.author_association -ceq 'OWNER'",
@@ -39,6 +40,7 @@ class OriginalStanddownSourceTests(unittest.TestCase):
             "OWNER_ADMIN_REQUIRED",
             "F139OriginalOwnerMutex", "Database.open_readonly",
             "audit_frozen_original_readonly", "head_seq",
+            "OriginalExecute", "OriginalPrincipal",
             "ORIGINAL_LEDGER_CHANGED", "$OriginalArguments",
             "ORIGINAL_EVENT1864_PRESERVED=PASS",
         ):
