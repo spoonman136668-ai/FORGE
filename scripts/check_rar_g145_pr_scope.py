@@ -2219,6 +2219,72 @@ def admit_fresh_admission_job_concurrency(head_sha: str, base_sha: str,
     return "EXACT_PR1846_FRESH_ADMISSION_JOB_CONCURRENCY_CI_ONLY"
 
 
+# Exact owner-authored PR #1847 wires existing, separately qualified fresh
+# activation after the old Windows task is independently DISABLED.
+# This only qualifies CI/source; not host task release or scientific first use.
+FRESH_ACTIVATION_BRANCH = "engineering/f139-fresh-native-owner-activation-entry-20261120"
+FRESH_ACTIVATION_PR = 1847
+FRESH_ACTIVATION_BASE = "4744d0c7a37a600f9451c20ed717cd5623cbc0d6"
+FRESH_ACTIVATION_TREE = "c2118fd05602fe92907d43ae2c92d581f5b10d01"
+FRESH_ACTIVATION_WORKFLOW = ".github/workflows/f139-fresh-original-owner-activation.yml"
+FRESH_ACTIVATION_BLOB = "b1eb94037716aa8084c02affe66da33288e3680c"
+FRESH_ACTIVATION_NATIVE_WORKFLOW = ".github/workflows/forge-f139-source-qualification.yml"
+FRESH_ACTIVATION_NATIVE_BLOB = "1d831004eed4df6227517d941ab561d2e2f59010"
+FRESH_ACTIVATION_G137 = "scripts/check_rar_g137_f139_shards.py"
+FRESH_ACTIVATION_G137_BLOB = "ee04c866aaa4522e9c490014b252f2953940dc2e"
+FRESH_ACTIVATION_CRYPTO_TEST = "f139/test_rsi_r12j_owner_signature.py"
+FRESH_ACTIVATION_CRYPTO_BLOB = "5ed53c5a81452b871f36662d0b49412c5e3e178d"
+FRESH_ACTIVATION_FILES = frozenset({
+    FRESH_ACTIVATION_WORKFLOW,
+    FRESH_ACTIVATION_NATIVE_WORKFLOW,
+    FRESH_ACTIVATION_G137,
+    FRESH_ACTIVATION_CRYPTO_TEST,
+    "f139/nci04_fresh_owner_activation_cli.py",
+    "f139/test_nci04_fresh_owner_activation_cli.py",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
+
+def admit_fresh_owner_activation_bridge(head_sha: str, base_sha: str,
+                                        request: dict,
+                                        git: Callable[..., str]) -> str:
+    """Exactly PR1847 owner provenance, protected ancestor, blob and nine paths."""
+    if (not is_sha(head_sha) or base_sha != FRESH_ACTIVATION_BASE
+            or type(request) is not dict
+            or request.get("number") != FRESH_ACTIVATION_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != FRESH_ACTIVATION_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("sha") != FRESH_ACTIVATION_BASE
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_ACTIVATION_OWNER_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        base_tree = git("rev-parse", base_sha + "^{tree}")
+        actual_blob = git("rev-parse", head_sha + ":" + FRESH_ACTIVATION_WORKFLOW)
+        native_blob = git("rev-parse", head_sha + ":" + FRESH_ACTIVATION_NATIVE_WORKFLOW)
+        g137_blob = git("rev-parse", head_sha + ":" + FRESH_ACTIVATION_G137)
+        crypto_blob = git("rev-parse", head_sha + ":" + FRESH_ACTIVATION_CRYPTO_TEST)
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_FRESH_ACTIVATION_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or base_tree != FRESH_ACTIVATION_TREE
+            or actual_blob != FRESH_ACTIVATION_BLOB
+            or native_blob != FRESH_ACTIVATION_NATIVE_BLOB
+            or g137_blob != FRESH_ACTIVATION_G137_BLOB
+            or crypto_blob != FRESH_ACTIVATION_CRYPTO_BLOB
+            or len(changed) != len(FRESH_ACTIVATION_FILES)
+            or set(changed) != FRESH_ACTIVATION_FILES):
+        raise ValueError("G145_FRESH_ACTIVATION_EXACT_SCOPE_DENIED")
+    return "EXACT_PR1847_FRESH_NATIVE_OWNER_ACTIVATION_CI_ONLY"
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -2995,6 +3061,11 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_ACTIVATION_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                           .read_text(encoding="utf-8"))
+        return admit_fresh_owner_activation_bridge(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_CONCURRENCY_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                            .read_text(encoding="utf-8"))

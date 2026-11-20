@@ -16,6 +16,7 @@ import sys
 from check_rar_g145_pr_scope import (admit_original_pr, negative_controls,
     V54_RELEASE_BRANCH, V59_READONLY_BRANCH, V60_PROCESS_BRANCH,
     FRESH_OWNER_ADMIT_BRANCH, FRESH_CONCURRENCY_BRANCH,
+    FRESH_ACTIVATION_BRANCH,
     V61_PROCESS_FIX_BRANCH,
     V41_STATUS_BRANCH, V41_STATUS_RESULT,
     V41_BACKUP_BRANCH, V41_BACKUP_RESULT,
@@ -136,6 +137,10 @@ def event_mode(head):
         raise ValueError("G148_ONLY_SAME_REPO_MAIN_PR")
     admiss = admit_original_pr(head, git)
     branch = os.environ["GITHUB_HEAD_REF"]
+    if branch == FRESH_ACTIVATION_BRANCH:
+        if admiss != "EXACT_PR1847_FRESH_NATIVE_OWNER_ACTIVATION_CI_ONLY":
+            raise ValueError("G148_FRESH_ACTIVATION_EXACT_SOURCE_REQUIRED")
+        return "pr"
     if branch == FRESH_CONCURRENCY_BRANCH:
         if admiss != "EXACT_PR1846_FRESH_ADMISSION_JOB_CONCURRENCY_CI_ONLY":
             raise ValueError("G148_FRESH_CONCURRENCY_EXACT_SCOPE_REQUIRED")
