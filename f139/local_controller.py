@@ -4798,6 +4798,15 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
     db.verify()
+    # A new empty development epoch is NOT the original 23-event+D2K owner.
+    # Route it before provider reads, legacy D2K, native feed or G3/G29.
+    # This GET-free classification never grants activation or worker dispatch.
+    from f139.nci04_fresh_native_owner_route import (
+        inspect_staged_fresh_native_mode,
+    )
+    fresh_staging = inspect_staged_fresh_native_mode(db, db_path)
+    if fresh_staging is not None:
+        return fresh_staging
     from f139.nci04_owner_ledger import verify_native_activation
     # Original Tick/Loop now recognizes only a genuine append-only owner
     # activation event, not an issue label, environment toggle or auto-setup.
