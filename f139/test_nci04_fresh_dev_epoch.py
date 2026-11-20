@@ -566,6 +566,23 @@ class SyntheticFreshDevelopmentTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_fresh_cutover_floor_cannot_replay_known_original_issue(self):
+        from f139.nci04_fresh_native_activation import FreshActivationDenied
+        from f139.nci04_fresh_native_owner_route import (
+            inspect_staged_fresh_native_mode,
+        )
+        db, record = self.make_synthetic_activation(
+            floor_override={"remote_cutover_issue_number_floor": 1})
+        try:
+            with self.assertRaisesRegex(
+                    FreshActivationDenied, "ORIGINAL_PROVIDER_FLOOR"):
+                inspect_staged_fresh_native_mode(
+                    db, self.fresh() / "state.sqlite")
+            self.assertEqual(db.conn.execute(
+                "SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
+        finally:
+            db.close()
+
     def test_duplicate_or_mutated_activation_event_is_rejected_on_cold_verify(self):
         from f139.nci04_fresh_native_activation import (
             ACTIVATION_KIND, FreshActivationDenied,
