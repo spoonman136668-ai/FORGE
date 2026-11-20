@@ -2133,6 +2133,7 @@ FRESH_OWNER_ADMIT_FILES = frozenset({
     "f139/test_nci04_fresh_original_owner_admission_cli.py",
     "scripts/check_rar_g145_pr_scope.py",
     "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
 })
 
 
