@@ -5,6 +5,7 @@ import base64
 from copy import deepcopy
 import hashlib
 import hmac
+import json
 import tempfile
 from pathlib import Path
 import unittest
@@ -18,7 +19,7 @@ from f139.nci04_v59_owner_forward_readiness import (
 )
 from f139.nci04_fresh_lifecycle import (
     RELEASE_KIND, RELEASE_SCHEMA, RELEASE_DOMAIN, FreshLifecycleDenied,
-    reserve_claim, acknowledge_post, read_lifecycle, settle_provider,
+    reserve_claim, acknowledge_post, read_lifecycle, settle_provider, admit_next_successor,
 )
 from f139.nci04_fresh_worker_protocol import (
     SOURCE, TARGET, FRESH_RUN, OS, REPO, WORKFLOW, PREFIX, admission_for_run,
@@ -41,6 +42,18 @@ class FreshLifecycleTests(unittest.TestCase):
         self.db = Database.initialize(self.path, SOURCE)
         self.addCleanup(lambda: self.db.close())
         self.db.enable(legacy_suspended=True)
+        from f139.test_nci04_fresh_native_provider_issue import FreshProviderPreflightTests
+        provenance = FreshProviderPreflightTests("test_provider_candidate_preflight_is_inert_and_rechecks_all")
+        provenance.setUp()
+        self.consumed = deepcopy(provenance.consumed)
+        self.boundary = deepcopy(provenance.boundary)
+        self.floor = deepcopy(provenance.floor)
+        self.floor.update(target_forge_source_sha=SOURCE, remote_cutover_issue_number_floor=1830,
+                          consumed_exclusions_sha256=digest(canonical(self.consumed)))
+        for filename, doc in (("consumed-development-identities.json", self.consumed),
+                              ("yggdrasil-research-lineage.json", self.boundary),
+                              ("remote-issue-cutover-floor.json", self.floor)):
+            (root / filename).write_bytes(canonical(doc))
         act = {
             "schema": ACTIVATION_SCHEMA, "source_sha": SOURCE,
             "prior_event_head_sha256": self.db.meta()["head_hash"],
@@ -55,6 +68,9 @@ class FreshLifecycleTests(unittest.TestCase):
             "new_controller": False, "new_scheduler": False, "new_queue": False,
             "worker_dispatch_authorized": False, "model_continuation_authorized": False,
         }
+        act.update(consumed_exclusions_sha256=digest(canonical(self.consumed)),
+                   yggdrasil_research_boundary_sha256=digest(canonical(self.boundary)),
+                   remote_cutover_receipt_sha256=digest(canonical(self.floor)))
         native = self.fixture.issue
         with self.db.transaction():
             self.db.event(ACTIVATION_KIND, act)
@@ -94,6 +110,8 @@ class FreshLifecycleTests(unittest.TestCase):
     def get(self, route):
         self.api_calls.append(route)
         return deepcopy(self.routes[route])
+
+    native_repo_get = get
 
     def candidates_for_source(self, ticket, started_at, source):
         self.assertEqual(ticket, self.fixture.issue.ticket)
@@ -209,9 +227,51 @@ class FreshLifecycleTests(unittest.TestCase):
                 settle_provider(self.db, self, self.key, run_id=self.rid, now=self.finished)
             with self.assertRaises(FreshLifecycleDenied):
                 reserve_claim(self.db, self, self.key, now=self.now)
+            with self.assertRaises(FreshLifecycleDenied):
+                admit_next_successor(self.db, self, self.key)
         self.reopen()
         self.assertEqual(self.db.meta()["head_seq"], 7)
         self.assertEqual(self.db.conn.execute("SELECT stage FROM tasks").fetchone()[0], "WAIT_PROVIDER")
+
+
+    def test_successor_admission_uses_distinct_original_issue_and_no_replay(self):
+        from f139.nci04_owner_issue import LABEL
+        self.install_synthetic_release()
+        with SingleOwner(self.path.with_suffix(".lock")):
+            claim, raw = reserve_claim(self.db, self, self.key, now=self.now)
+            self.prepare_provider(claim, raw)
+            settle_provider(self.db, self, self.key, run_id=self.rid, now=self.finished)
+            original = deepcopy(self.fixture.raw_issue)
+            # An owner-authored new issue with identical candidate bytes is
+            # consumed semantically even if it has a fresh issue number.
+            duplicate = dict(original, number=1850, id=91850,
+                             url="https://api.github.com/repos/" + REPO + "/issues/1850")
+            candidate = json.loads(raw)
+            data = b"# synthetic distinct successor candidate\n"
+            candidate["after_sha256"] = digest(data)
+            candidate["after_base64"] = base64.b64encode(data).decode("ascii")
+            body = json.loads(original["body"])
+            body["intent_base64"] = base64.b64encode(canonical(candidate)).decode("ascii")
+            successor = dict(original, number=1851, id=91851,
+                             url="https://api.github.com/repos/" + REPO + "/issues/1851",
+                             body=json.dumps(body, sort_keys=True))
+            prefix = "repos/" + REPO
+            self.routes[prefix + "/issues/1850"] = duplicate
+            self.routes[prefix + "/issues/1851"] = successor
+            self.routes[prefix + "/issues?state=open&labels=" + LABEL +
+                        "&per_page=100&page=1"] = [successor, original, duplicate]
+            record = admit_next_successor(self.db, self, self.key)
+            self.assertEqual(record["issue_number"], 1851)
+            self.assertEqual(self.db.ready()["ticket"], record["ticket"])
+            with self.assertRaises(FreshLifecycleDenied):
+                admit_next_successor(self.db, self, self.key)
+        self.reopen()
+        self.assertEqual(self.db.meta()["head_seq"], 10)
+        self.assertEqual([r["stage"] for r in self.db.conn.execute(
+            "SELECT stage FROM tasks ORDER BY ticket")], ["VERIFIED", "READY"])
+        self.assertEqual([(r["seq"], r["sha"]) for r in self.db.conn.execute(
+            "SELECT seq,sha FROM events WHERE seq<=4 ORDER BY seq")], self.prefix)
+
 
 
 if __name__ == "__main__":

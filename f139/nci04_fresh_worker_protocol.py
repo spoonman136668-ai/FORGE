@@ -347,7 +347,7 @@ def qualify_provider_terminal(api, key, claim, raw, *, run_id, started_at):
     from f139.nci04_original_v3_terminal import qualified_original_github_run
     signature = sign_claim(key, claim, raw)
     commitment = verify_signature(key, claim, raw, signature)
-    authenticate_provider(claim, raw, api.get)
+    authenticate_provider(claim, raw, api.native_repo_get)
     admissions = {
         label: admission_for_run(claim, raw, commitment=commitment,
                                  run_id=run_id, oslabel=label)

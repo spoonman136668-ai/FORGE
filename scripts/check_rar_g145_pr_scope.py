@@ -3377,14 +3377,14 @@ FRESH_FUNCTIONAL_BRANCH = "engineering/f139-fresh-functional-integration-2026112
 FRESH_FUNCTIONAL_BASE = "8a4cee175aea05b57625d413e00493a93a027d92"
 FRESH_FUNCTIONAL_TREE = "a3a5929728f06ae3a0641bd2bcc875d768f8e313"
 FRESH_FUNCTIONAL_BLOBS = {
-    "f139/nci04_fresh_worker_protocol.py": "3a0c6ad2d1f9dbeb424215ce9ccd696ae076841b",
+    "f139/nci04_fresh_worker_protocol.py": "5cf117f3525f44fdbf2098ddbf26c45ac365b12c",
     "f139/test_nci04_fresh_worker_protocol.py": "404c904205ec7e567c41b05294d65a099fcdb81e",
     "f139/nci04_original_v3_terminal.py": "09210bf184eb628b565d172b6281a128c94fdd6c",
     ".github/workflows/forge-f139-development-worker.yml": "75e53278b067d9749f367dc4e6028de7783b834d",
     "f139/nci04_fresh_native_intake.py": "adc1c0c8baca882d846980f3215e6e0441c2b7de",
     "f139/nci04_fresh_native_activation.py": "725b2533969b7a8c0a2131817873f57b22311c1f",
-    "f139/nci04_fresh_lifecycle.py": "6859baf532793d4da14dc8d62b1867bbba1905ec",
-    "f139/test_nci04_fresh_lifecycle.py": "6219db7352e5a2e650d28640fc1ba5cf066699f3",
+    "f139/nci04_fresh_lifecycle.py": "bb82634531dc408b993115341a5412cb6281e7b7",
+    "f139/test_nci04_fresh_lifecycle.py": "194e0765f80d0004062c43326eadd39a4f7beb49",
     "f139/nci04_fresh_native_owner_route.py": "72804619c3d4eb4d03e39502d4c7d541fa8ad16e",
 }
 FRESH_FUNCTIONAL_FILES = frozenset((*FRESH_FUNCTIONAL_BLOBS, "scripts/check_rar_g145_pr_scope.py", "scripts/check_rar_g148_go_cache.py", "scripts/check_rar_g156_dynamic_base_cache.py"))

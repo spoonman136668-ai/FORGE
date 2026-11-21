@@ -23,6 +23,7 @@ from f139.nci04_fresh_worker_protocol import (
 from f139.nci04_original_v3_terminal import inner_zip
 from f139.local_controller import (
     Database, SingleOwner, LIMIT_PER_DAY, parse_time, store_evidence,
+    canonical as ledger_canonical,
 )
 
 RELEASE_KIND = "FRESH_WORKER_RELEASE_AUTHENTICATED"
@@ -172,8 +173,8 @@ def audit_archives(db, entry, release, custody):
     path = folder / "manifest.json"
     need(path.is_file() and not path.is_symlink()
          and path.stat().st_size <= 64000
-         and path.read_bytes() == canonical(manifest)
-         and digest(canonical(manifest)) == custody["evidence_manifest_sha256"],
+         and path.read_bytes() == ledger_canonical(manifest)
+         and digest(ledger_canonical(manifest)) == custody["evidence_manifest_sha256"],
          "COLD_EVIDENCE_MANIFEST_DRIFT")
 
 
@@ -317,8 +318,8 @@ def reserve_claim(db, api, key, *, now):
                          release_tree=release["worker_release_tree"],
                          admission_seq=entry["admission"]["seq"],
                          admission_sha=entry["admission"]["sha"],
-                         claim_seq=event["seq"], claim_sha=digest(canonical(event)))
-    authenticate_provider(preview, issue.intent_raw, api.get)
+                         claim_seq=event["seq"], claim_sha=digest(ledger_canonical(event)))
+    authenticate_provider(preview, issue.intent_raw, api.native_repo_get)
     db.claim(issue.ticket, now)
     release, entries = read_lifecycle(db, key)
     actual, raw = committed_claim(entries[-1], release)
@@ -372,3 +373,152 @@ def settle_provider(db, api, key, *, run_id, now):
         db.event(CUSTODY_KIND, doc)
         db.verify()
     return doc
+
+
+def admit_next_successor(db, api, key):
+    """Admit at most one independently eligible owner issue after a terminal.
+
+    The original immutable epoch/source, research boundary and exclusions
+    remain sealed. The current authorized executable release is separate.
+    No issue publication, worker POST, accepted-ref change or model access.
+    A missing eligible issue is an idle result, never a fabricated successor.
+    """
+    from f139.nci04_fresh_native_owner_route import _sealed_json
+    from f139.nci04_fresh_native_intake import SCHEMA as INTAKE_SCHEMA
+    from f139.nci04_fresh_native_activation import audit_fresh_native_activation
+    from f139.nci04_fresh_dev_exclusions import candidate_violates_frozen_exclusions
+    from f139.nci04_fresh_yggdrasil_boundary import preflight_new_yggdrasil_development_issue
+    from f139.nci04_owner_issue import inspect_owner_issue, LABEL, OWNER
+    from f139.nci04_fresh_worker_protocol import REPO, PREFIX
+    release, entries = read_lifecycle(db, key)
+    if entries[-1]["stage"] != "VERIFIED":
+        raise FreshLifecycleDenied("F139_FRESH_LIFECYCLE_SUCCESSOR_BEFORE_TERMINAL")
+    activation = audit_fresh_native_activation(db)
+    root = db.filename.parent
+    consumed, consumed_bytes = _sealed_json(root / "consumed-development-identities.json")
+    boundary, boundary_bytes = _sealed_json(root / "yggdrasil-research-lineage.json")
+    floor, floor_bytes = _sealed_json(root / "remote-issue-cutover-floor.json")
+    need(digest(consumed_bytes) == activation["consumed_exclusions_sha256"]
+         and digest(boundary_bytes) == activation["yggdrasil_research_boundary_sha256"]
+         and digest(floor_bytes) == activation["remote_cutover_receipt_sha256"]
+         and floor.get("target_forge_source_sha") == SOURCE
+         and floor.get("remote_cutover_issue_number_floor") == activation["remote_issue_number_floor"]
+         and floor.get("remote_cutover_issue_provider_verified") is True
+         and floor.get("worker_dispatch_authorized") is False,
+         "SUCCESSOR_SEALED_PROVENANCE_DRIFT")
+    cutoff = parse_time(floor["remote_cutover_issue_created_at"])
+    used = [e["record"] for e in entries]
+    number_floor = max(r["issue_number"] for r in used)
+    seen_numbers, seen_ids = set(), set()
+    records = []
+    for page in range(1, 34):
+        docs = api.get("repos/" + REPO + "/issues?state=open&labels="
+                       + LABEL + "&per_page=100&page=" + str(page))
+        need(type(docs) is list and len(docs) <= 100, "SUCCESSOR_CATALOG_INVALID")
+        if page == 33:
+            need(not docs, "SUCCESSOR_CATALOG_TRUNCATED")
+            break
+        for doc in docs:
+            need(type(doc) is dict and pos(doc.get("number")) and pos(doc.get("id"))
+                 and doc["number"] not in seen_numbers and doc["id"] not in seen_ids,
+                 "SUCCESSOR_CATALOG_IDENTITY_DRIFT")
+            seen_numbers.add(doc["number"])
+            seen_ids.add(doc["id"])
+            if (doc["number"] <= number_floor or "pull_request" in doc
+                    or doc.get("user", {}).get("login") != OWNER
+                    or doc.get("author_association") != "OWNER"):
+                continue
+            try:
+                body = json.loads(doc.get("body", ""))
+            except (ValueError, TypeError):
+                continue
+            if (type(body) is dict and body.get("source_sha") == SOURCE
+                    and body.get("lane") == "Yggdrasil"):
+                records.append(doc)
+        if len(docs) < 100:
+            break
+    for doc in sorted(records, key=lambda x: x["number"]):
+        route = "repos/" + REPO + "/issues/" + str(doc["number"])
+        current = api.get(route)
+        need(current.get("id") == doc["id"] and current.get("body") == doc.get("body")
+             and current.get("number") == doc["number"]
+             and current.get("url") == "https://api.github.com/" + route
+             and current.get("repository_url") == "https://api.github.com/repos/" + REPO
+             and parse_time(current["created_at"]) >= cutoff,
+             "SUCCESSOR_ISSUE_IDENTITY_DRIFT")
+        native = inspect_owner_issue(current, protected_main=SOURCE,
+                                     authenticated_target_commit=TARGET,
+                                     authenticated_target_tree=TARGET_TREE)
+        if (native.issue_id in {r["issue_id"] for r in used}
+                or native.candidate.after_sha256 in {r["after_sha256"] for r in used}
+                or native.native_intent_sha256 in {r["native_intent_sha256"] for r in used}
+                or candidate_violates_frozen_exclusions(
+                    consumed, issue_number=native.number, issue_id=native.issue_id,
+                    ticket=native.ticket, lane=native.lane,
+                    target_commit=native.candidate.target_commit, path=native.candidate.path,
+                    after_sha256=native.candidate.after_sha256,
+                    authenticated_remote_issue_floor=activation["remote_issue_number_floor"])):
+            continue
+        preflight_new_yggdrasil_development_issue(
+            native, controller_source_sha=SOURCE, consumed_history=consumed,
+            research_boundary=boundary,
+            authenticated_remote_issue_floor=activation["remote_issue_number_floor"])
+        # GET-only release/target proof: never fabricate a future claim hash.
+        # The actual claim is created only after this admission transaction.
+        m = db.meta()
+        base = "repos/" + REPO
+        branch_route = base + "/branches/" + PREFIX + release["worker_release_sha"]
+        original_route = base + "/branches/" + PREFIX + SOURCE
+        target_route = "repos/spoonman136668-ai/Yggdrasil/branches/main"
+        b, old, target = (api.native_repo_get(r) for r in
+                          (branch_route, original_route, target_route))
+        commit = api.native_repo_get(base + "/git/commits/" + release["worker_release_sha"])
+        native_commit = api.native_repo_get(
+            "repos/spoonman136668-ai/Yggdrasil/git/commits/" + TARGET)
+        need(b.get("protected") is True and b.get("name") == PREFIX + release["worker_release_sha"]
+             and b.get("commit", {}).get("sha") == release["worker_release_sha"]
+             and old.get("protected") is True and old.get("name") == PREFIX + SOURCE
+             and old.get("commit", {}).get("sha") == SOURCE
+             and commit.get("sha") == release["worker_release_sha"]
+             and commit.get("tree", {}).get("sha") == release["worker_release_tree"]
+             and target.get("protected") is True and target.get("name") == "main"
+             and target.get("commit", {}).get("sha") == TARGET
+             and native_commit.get("sha") == TARGET
+             and native_commit.get("tree", {}).get("sha") == TARGET_TREE,
+             "SUCCESSOR_RELEASE_OR_TARGET_DRIFT")
+        need(api.native_repo_get(branch_route) == b
+             and api.native_repo_get(original_route) == old
+             and api.native_repo_get(target_route) == target,
+             "SUCCESSOR_PROVIDER_READBACK_DRIFT")
+        head = db.conn.execute("SELECT sha FROM events WHERE seq=2").fetchone()["sha"]
+        record = {
+            "schema": INTAKE_SCHEMA, "owner_run_id": activation["owner_run_id"],
+            "source_sha": SOURCE, "activation_sha256": head,
+            "ticket": native.ticket, "lane": native.lane, "issue_number": native.number,
+            "issue_id": native.issue_id, "issue_body_sha256": native.issue_body_sha256,
+            "native_intent_sha256": native.native_intent_sha256,
+            "qualification_key": native.qualification_key,
+            "native_target_commit": native.candidate.target_commit,
+            "native_target_tree": native.candidate.target_tree_sha,
+            "native_path": native.candidate.path, "before_sha256": native.candidate.before_sha256,
+            "after_sha256": native.candidate.after_sha256,
+            "native_intent_base64": base64.b64encode(native.intent_raw).decode("ascii"),
+            "remote_issue_number_floor": activation["remote_issue_number_floor"],
+            "scientific_first_use": False, "paid_model_calls": 0,
+            "worker_dispatch_authorized": False, "model_continuation_authorized": False,
+        }
+        record["manifest_sha256"] = digest(canonical(record))
+        with db.transaction():
+            db.verify()
+            need(db.meta()["head_hash"] == m["head_hash"] and db.ready() is None
+                 and not db.actives() and api.get(route) == current,
+                 "SUCCESSOR_HEAD_OR_PROVIDER_CHANGED")
+            db.event(KIND, record)
+            db.conn.execute(
+                "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) VALUES(?,?,?,'READY',?)",
+                (native.ticket, native.lane, SOURCE, record["manifest_sha256"]))
+            db.event("TASK_INTAKE", {"ticket": native.ticket, "lane": native.lane,
+                                     "manifest_sha": record["manifest_sha256"]})
+            db.verify()
+        return record
+    return None
