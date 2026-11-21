@@ -80,6 +80,19 @@ class FreshOwnerWorkerReleaseTests(unittest.TestCase):
                 finally:
                     self.routes[route][field] = old
 
+    def test_genuine_pr_workflow_run_with_empty_pr_array(self):
+        # REST returns [] for all three actual PR1856 successful workflows.
+        for row in self.routes[self.run_route]["workflow_runs"]:
+            row["pull_requests"] = []
+        self.assertEqual(qualify_release(self.get, self.target, self.tree), self.head)
+        row = self.routes[self.run_route]["workflow_runs"][0]
+        row["pull_requests"] = [{"number": PR + 1}]
+        with self.assertRaises(OwnerReleaseDenied):
+            qualify_release(self.get, self.target, self.tree)
+        row["pull_requests"] = None
+        with self.assertRaises(OwnerReleaseDenied):
+            qualify_release(self.get, self.target, self.tree)
+
     def test_final_suite_failure_or_old_sha_denied(self):
         run = self.routes[self.run_route]["workflow_runs"][0]
         for field, v in (("head_sha", "d"*40), ("conclusion", "failure"),
