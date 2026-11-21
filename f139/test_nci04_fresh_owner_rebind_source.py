@@ -100,7 +100,7 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
 
     def test_owner_host_shell_is_builtin_powershell_not_absent_pwsh(self):
         text = self.workflow
-        self.assertIn("        shell: powershell\\n", text)
+        self.assertIn("        shell: powershell\n", text)
         self.assertEqual(text.count("        shell: powershell"), 1)
         self.assertNotIn("        shell: pwsh", text)
         self.assertIn("powershell.exe -NoProfile -NonInteractive", text)
@@ -129,7 +129,7 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
             if args == ("rev-parse", base + "^{tree}"):
                 return scope.FRESH_SHELL_TREE
             if args == ("diff", "--no-renames", "--name-only", base, head):
-                return "\\n".join(sorted(scope.FRESH_SHELL_FILES))
+                return "\n".join(sorted(scope.FRESH_SHELL_FILES))
             if args[0] == "rev-parse" and args[1].startswith(head + ":"):
                 return scope.FRESH_SHELL_BLOBS.get(
                     args[1][len(head) + 1:], "0" * 40)
