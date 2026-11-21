@@ -2444,6 +2444,59 @@ def admit_fresh_owner_shell_fix(head_sha: str, base_sha: str,
     return "EXACT_PR1852_F139_NATIVE_POWERSHELL_HOST_FIX_CI_ONLY"
 
 
+
+# Exact correction for owner run #44844005419, cancelled before any step
+# by pending-slot replacement from unrelated legacy issue-comment workflows.
+# Single-source CI ONLY; not a new scheduler, owner or task permission.
+FRESH_REBIND_CANCEL_BRANCH = "engineering/f139-fresh-rebind-concurrency-20261120"
+FRESH_REBIND_CANCEL_PR = 1853
+FRESH_REBIND_CANCEL_BASE = "6f46998de6c5a5046d9364cfc39504b29a762680"
+FRESH_REBIND_CANCEL_TREE = "3378894810c36e68ad72c6089905641dae2de879"
+FRESH_REBIND_CANCEL_WORKFLOW = ".github/workflows/f139-fresh-original-owner-rebind.yml"
+FRESH_REBIND_CANCEL_TEST = "f139/test_nci04_fresh_owner_rebind_source.py"
+FRESH_REBIND_CANCEL_BLOBS = {
+    FRESH_REBIND_CANCEL_WORKFLOW: "d1d65d0515b65af54f7791efee600e3d7c4c260c",
+}
+FRESH_REBIND_CANCEL_FILES = frozenset((
+    *FRESH_REBIND_CANCEL_BLOBS, FRESH_REBIND_CANCEL_TEST,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+
+def admit_fresh_rebind_pending_collision_fix(head_sha: str, base_sha: str,
+                                              request: dict, git: Callable[..., str]) -> str:
+    """No broad workflow exception; only this exact cancelled-run correction."""
+    if (not is_sha(head_sha) or base_sha != FRESH_REBIND_CANCEL_BASE
+            or type(request) is not dict
+            or request.get("number") != FRESH_REBIND_CANCEL_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != FRESH_REBIND_CANCEL_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("sha") != FRESH_REBIND_CANCEL_BASE
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_REBIND_CANCEL_OWNER_SOURCE_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        parent_tree = git("rev-parse", base_sha + "^{tree}")
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        blobs = {path: git("rev-parse", head_sha + ":" + path)
+                 for path in FRESH_REBIND_CANCEL_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_FRESH_REBIND_CANCEL_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or parent_tree != FRESH_REBIND_CANCEL_TREE
+            or len(changed) != len(FRESH_REBIND_CANCEL_FILES)
+            or set(changed) != FRESH_REBIND_CANCEL_FILES
+            or blobs != FRESH_REBIND_CANCEL_BLOBS):
+        raise ValueError("G145_FRESH_REBIND_CANCEL_SOURCE_OR_BLOB_DRIFT")
+    return "EXACT_PR1853_F139_FRESH_OWNER_PENDING_CANCEL_FIX_CI_ONLY"
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -3220,6 +3273,11 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_REBIND_CANCEL_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                           .read_text(encoding="utf-8"))
+        return admit_fresh_rebind_pending_collision_fix(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_SHELL_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                            .read_text(encoding="utf-8"))
