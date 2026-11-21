@@ -217,5 +217,124 @@ class FreshWorkerReleaseGateTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+    def rebound_receipt(self):
+        from f139.nci04_fresh_worker_release_gate import (
+            REBIND_SCHEMA, REBIND_MERGE, REBIND_RUN_ID,
+            REBIND_FRESH_RUN_ID, REBIND_FRESH_HEAD,
+        )
+        return {
+            "schema": REBIND_SCHEMA,
+            "source_sha": SOURCE,
+            "owner_workflow_source_sha": REBIND_MERGE,
+            "owner_run_id": REBIND_RUN_ID,
+            "fresh_activation_run_id": REBIND_FRESH_RUN_ID,
+            "new_database_path": "C:\\Users\\runner\\AppData\\Local\\FORGE-F139\\f139-fresh-dev-44831323193\\state.sqlite",
+            "task_name": "FORGE-F139-UnifiedController",
+            "original_head_seq": 1864,
+            "fresh_head_seq": 4,
+            "fresh_head_sha256": REBIND_FRESH_HEAD,
+            "existing_task_only": True,
+            "task_disabled": True,
+            "worker_dispatched": False,
+            "scientific_first_use": False,
+            "model_continuation_authorized": False,
+            "paid_model_calls": 0,
+            "original_sqlite_mutations": 0,
+        }
+
+    def rebound_provider(self):
+        from f139.nci04_fresh_worker_release_gate import (
+            REBIND_MERGE, REBIND_RUN_ID, REBIND_JOB_ID, REBIND_COMMENT_ID,
+            REBIND_FRESH_RUN_ID,
+        )
+        self.run_route = FORGE + "/actions/runs/" + str(REBIND_RUN_ID)
+        self.comment_route = FORGE + "/issues/comments/" + str(REBIND_COMMENT_ID)
+        self.routes[self.run_route] = {
+            "id": REBIND_RUN_ID, "event": "issue_comment",
+            "run_attempt": 1, "status": "completed",
+            "conclusion": "success", "head_sha": REBIND_MERGE,
+            "path": ".github/workflows/f139-fresh-original-owner-rebind.yml",
+            "actor": {"login": "spoonman136668-ai"},
+            "repository": {"full_name": "spoonman136668-ai/FORGE"},
+        }
+        self.routes[self.run_route + "/jobs?per_page=100"] = {
+            "total_count": 1,
+            "jobs": [{
+                "id": REBIND_JOB_ID, "name": "rebind-disabled-original-task",
+                "runner_name": "FORGE-CODEX-REMOTE", "status": "completed",
+                "conclusion": "success", "steps": [{
+                    "name": "Independently rebind existing disabled original task once",
+                    "conclusion": "success",
+                }],
+            }],
+        }
+        self.routes[self.comment_route] = {
+            "id": REBIND_COMMENT_ID,
+            "body": "F139-FRESH-DEV-TASK-REBIND " + REBIND_MERGE
+                    + " " + str(REBIND_FRESH_RUN_ID),
+            "author_association": "OWNER",
+            "user": {"login": "spoonman136668-ai"},
+        }
+
+    def inspect_rebound(self, receipt=None):
+        from f139.nci04_fresh_worker_release_gate import inspect_rebound_disabled_source
+        return inspect_rebound_disabled_source(
+            self.activation, self.intake,
+            self.rebound_receipt() if receipt is None else receipt, get=self.get)
+
+    def test_rebound_original_provider_source_positive_is_still_inert(self):
+        self.rebound_provider()
+        proof = self.inspect_rebound()
+        self.assertTrue(proof["original_rebind_run_verified"])
+        self.assertTrue(proof["owner_comment_verified"])
+        self.assertTrue(proof["rebind_receipt_source_consistent"])
+        self.assertFalse(proof["live_windows_task_state_verified"])
+        self.assertFalse(proof["worker_dispatch_authorized"])
+        self.assertEqual(self.calls.count(self.run_route), 2)
+        self.assertEqual(self.calls.count(self.comment_route), 2)
+
+    def test_rebound_local_custody_tampering_denied_before_get(self):
+        for key, value in (
+            ("task_disabled", False),
+            ("worker_dispatched", True),
+            ("source_sha", "a" * 40),
+            ("original_sqlite_mutations", 1),
+            ("fresh_head_seq", 5),
+            ("new_database_path", "C:\\bad\\..\\state.sqlite"),
+            ("owner_run_id", 44852932512),
+        ):
+            with self.subTest(field=key):
+                self.calls.clear()
+                receipt = self.rebound_receipt()
+                receipt[key] = value
+                with self.assertRaises(FreshWorkerReleaseDenied):
+                    self.inspect_rebound(receipt)
+                self.assertEqual(self.calls, [])
+
+    def test_rebound_wrong_original_run_or_comment_fails_closed(self):
+        for route_suffix, field, value in (
+            ("run", "conclusion", "failure"),
+            ("run", "head_sha", "a" * 40),
+            ("run", "run_attempt", 2),
+            ("job", "runner_name", "foreign"),
+            ("comment", "author_association", "CONTRIBUTOR"),
+        ):
+            with self.subTest(source=route_suffix, field=field):
+                self.calls.clear()
+                self.rebound_provider()
+                route = {
+                    "run": self.run_route,
+                    "job": self.run_route + "/jobs?per_page=100",
+                    "comment": self.comment_route,
+                }[route_suffix]
+                doc = self.routes[route]
+                target = doc["jobs"][0] if route_suffix == "job" else doc
+                saved = target[field]
+                target[field] = value
+                with self.assertRaises(FreshWorkerReleaseDenied):
+                    self.inspect_rebound()
+                target[field] = saved
+
+
 if __name__ == "__main__":
     unittest.main()

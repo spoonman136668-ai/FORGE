@@ -3321,12 +3321,67 @@ def v54_owner_release_negative_controls():
         raise ValueError("G145_V54_MOVED_DYNAMIC_CACHE_GUARD_ACCEPTED")
 
 
+
+# Exact-source post-rebind read-only admission (no worker dispatch, no new owner).
+FRESH_REBOUND_BRANCH = "engineering/f139-fresh-rebound-receipt-proof-20261120"
+FRESH_REBOUND_BASE = "0f37922c8ccd9b218ef82987ef62d80087374937"
+FRESH_REBOUND_TREE = "7e974a911083c73f4d75ba0947b6836583b303ed"
+FRESH_REBOUND_BLOBS = {
+    "f139/nci04_fresh_worker_release_gate.py": "c3606d7a1f8dd5f9405f6d14ac9e74f8a373db0e",
+    "f139/test_nci04_fresh_worker_release_gate.py": "27e05ccc4dc788103b8542e6d5d79fa22ab5ae00",
+}
+FRESH_REBOUND_FILES = frozenset((
+    *FRESH_REBOUND_BLOBS,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+
+def admit_fresh_rebound_readonly(head_sha: str, base_sha: str,
+                                request: dict, git: Callable[..., str]) -> str:
+    """Admission is CI-only; no owner mutation, dispatch or first use."""
+    if (not is_sha(head_sha) or base_sha != FRESH_REBOUND_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] <= 1854
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("ref") != FRESH_REBOUND_BRANCH
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("sha") != FRESH_REBOUND_BASE
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_REBOUND_OWNER_MAIN_SOURCE_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        tree = git("rev-parse", base_sha + "^{tree}")
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        blobs = {path: git("rev-parse", head_sha + ":" + path)
+                 for path in FRESH_REBOUND_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_FRESH_REBOUND_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or tree != FRESH_REBOUND_TREE
+            or len(changed) != len(FRESH_REBOUND_FILES)
+            or set(changed) != FRESH_REBOUND_FILES
+            or blobs != FRESH_REBOUND_BLOBS):
+        raise ValueError("G145_FRESH_REBOUND_SOURCE_OR_BLOB_DRIFT")
+    return "EXACT_F139_FRESH_REBOUND_READONLY_PROOF_CI_ONLY"
+
+
 def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
     """Engineering CI admission only; never research, merge or FSA authority."""
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or not callable(git):
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_REBOUND_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                           .read_text(encoding="utf-8"))
+        return admit_fresh_rebound_readonly(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_POLICY_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                            .read_text(encoding="utf-8"))

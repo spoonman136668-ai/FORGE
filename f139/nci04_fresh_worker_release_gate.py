@@ -161,3 +161,122 @@ def inspect_fresh_worker_release(
         "scientific_first_use": False,
         "paid_model_calls": 0,
     }
+
+
+# Actual owner rebind was separately executed on the original Windows host.
+# This read-only provider cross-check does NOT authenticate caller-supplied
+# local bytes as a live Task Scheduler snapshot, nor grant worker dispatch.
+REBIND_SCHEMA = "forge.f139.fresh-existing-task-rebound-disabled.v1"
+REBIND_MERGE = "0f37922c8ccd9b218ef82987ef62d80087374937"
+REBIND_RUN_ID = 44852932511
+REBIND_JOB_ID = 136688296118
+REBIND_COMMENT_ID = 7055483732
+REBIND_FRESH_RUN_ID = 44831323193
+REBIND_FRESH_HEAD = "b099aba6750a4ae323ffd5291ea0ae940b1403b4063aa89f34521fe513383337"
+REBIND_FIELDS = frozenset((
+    "schema", "source_sha", "owner_workflow_source_sha", "owner_run_id",
+    "fresh_activation_run_id", "new_database_path", "task_name",
+    "original_head_seq", "fresh_head_seq", "fresh_head_sha256",
+    "existing_task_only", "task_disabled", "worker_dispatched",
+    "scientific_first_use", "model_continuation_authorized",
+    "paid_model_calls", "original_sqlite_mutations",
+))
+
+
+def inspect_rebound_disabled_source(activation: dict, intake: dict,
+                                    local_receipt: dict, *,
+                                    get: Callable[[str], dict]) -> dict:
+    """Independently re-read original owner run and immutable issue source.
+
+    The passed local JSON is untrusted input: this function verifies its exact
+    format and source consistency but CANNOT verify current Windows SID/task
+    state or grant dispatch authority. No GET here mutates SQLite or tasks.
+    """
+    import ntpath
+    need(type(local_receipt) is dict
+         and set(local_receipt) == REBIND_FIELDS,
+         "REBIND_RECEIPT_FIELDS_DRIFT")
+    p = local_receipt.get("new_database_path")
+    need(type(p) is str and len(p) < 512
+         and ntpath.isabs(p)
+         and not any(part in (".", "..") for part in p.replace("/", "\\").split("\\"))
+         and ntpath.normpath(p).lower().endswith(
+             "\\forge-f139\\f139-fresh-dev-" + str(REBIND_FRESH_RUN_ID)
+             + "\\state.sqlite"),
+         "REBIND_LOCAL_PATH_INVALID")
+    need(local_receipt.get("schema") == REBIND_SCHEMA
+         and local_receipt.get("source_sha") == SOURCE
+         and local_receipt.get("owner_workflow_source_sha") == REBIND_MERGE
+         and type(local_receipt.get("owner_run_id")) is int
+         and local_receipt["owner_run_id"] == REBIND_RUN_ID
+         and type(local_receipt.get("fresh_activation_run_id")) is int
+         and local_receipt["fresh_activation_run_id"] == REBIND_FRESH_RUN_ID
+         and local_receipt.get("task_name") == "FORGE-F139-UnifiedController"
+         and type(local_receipt.get("original_head_seq")) is int
+         and local_receipt["original_head_seq"] == 1864
+         and type(local_receipt.get("fresh_head_seq")) is int
+         and local_receipt["fresh_head_seq"] == 4
+         and local_receipt.get("fresh_head_sha256") == REBIND_FRESH_HEAD
+         and local_receipt.get("existing_task_only") is True
+         and local_receipt.get("task_disabled") is True
+         and local_receipt.get("worker_dispatched") is False
+         and local_receipt.get("scientific_first_use") is False
+         and local_receipt.get("model_continuation_authorized") is False
+         and type(local_receipt.get("paid_model_calls")) is int
+         and local_receipt["paid_model_calls"] == 0
+         and type(local_receipt.get("original_sqlite_mutations")) is int
+         and local_receipt["original_sqlite_mutations"] == 0,
+         "REBIND_RECEIPT_UNTRUSTED_OR_MUTATED")
+    release = inspect_fresh_worker_release(activation, intake, get=get)
+    run_route = FORGE + "/actions/runs/" + str(REBIND_RUN_ID)
+    run = _read(get, run_route)
+    need(run.get("id") == REBIND_RUN_ID
+         and run.get("event") == "issue_comment"
+         and run.get("run_attempt") == 1
+         and run.get("status") == "completed"
+         and run.get("conclusion") == "success"
+         and run.get("head_sha") == REBIND_MERGE
+         and run.get("path") ==
+             ".github/workflows/f139-fresh-original-owner-rebind.yml"
+         and run.get("actor", {}).get("login") == "spoonman136668-ai"
+         and run.get("repository", {}).get("full_name") ==
+             "spoonman136668-ai/FORGE",
+         "REBIND_ORIGINAL_OWNER_RUN_NOT_PROVEN")
+    jobs_route = run_route + "/jobs?per_page=100"
+    jobs = _read(get, jobs_route)
+    rows = jobs.get("jobs")
+    need(jobs.get("total_count") == 1
+         and type(rows) is list and len(rows) == 1
+         and rows[0].get("id") == REBIND_JOB_ID
+         and rows[0].get("name") == "rebind-disabled-original-task"
+         and rows[0].get("runner_name") == "FORGE-CODEX-REMOTE"
+         and rows[0].get("status") == "completed"
+         and rows[0].get("conclusion") == "success"
+         and any(step.get("name") ==
+                 "Independently rebind existing disabled original task once"
+                 and step.get("conclusion") == "success"
+                 for step in rows[0].get("steps", [])),
+         "REBIND_ORIGINAL_WINDOWS_JOB_NOT_PROVEN")
+    comment_route = FORGE + "/issues/comments/" + str(REBIND_COMMENT_ID)
+    comment = _read(get, comment_route)
+    need(comment.get("id") == REBIND_COMMENT_ID
+         and comment.get("body") ==
+             "F139-FRESH-DEV-TASK-REBIND " + REBIND_MERGE
+             + " " + str(REBIND_FRESH_RUN_ID)
+         and comment.get("author_association") == "OWNER"
+         and comment.get("user", {}).get("login") == "spoonman136668-ai",
+         "REBIND_OWNER_COMMENT_NOT_AUTHENTICATED")
+    need(_read(get, run_route) == run
+         and _read(get, comment_route) == comment,
+         "REBIND_PROVIDER_CHANGED_DURING_READ")
+    return {
+        **release,
+        "schema": "forge.f139.fresh-post-rebind-source-preflight.v1",
+        "original_rebind_run_verified": True,
+        "owner_comment_verified": True,
+        "rebind_receipt_source_consistent": True,
+        "live_windows_task_state_verified": False,
+        "owner_task_rebind_authorized": False,
+        "worker_dispatch_authorized": False,
+        "scientific_first_use": False,
+    }

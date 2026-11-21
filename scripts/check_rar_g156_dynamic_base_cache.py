@@ -19,6 +19,7 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
     FRESH_SHELL_BRANCH, FRESH_SHELL_BASE, FRESH_SHELL_TREE,
     FRESH_REBIND_CANCEL_BRANCH, FRESH_REBIND_CANCEL_BASE, FRESH_REBIND_CANCEL_TREE,
     FRESH_POLICY_BRANCH, FRESH_POLICY_BASE, FRESH_POLICY_TREE,
+    FRESH_REBOUND_BRANCH, FRESH_REBOUND_BASE, FRESH_REBOUND_TREE,
     V59_READONLY_BRANCH, V59_READONLY_BASE, V59_READONLY_BASE_TREE,
     V60_PROCESS_BRANCH, V60_PROCESS_BASE, V60_PROCESS_BASE_TREE,
     V61_PROCESS_FIX_BRANCH, V61_PROCESS_FIX_BASE, V61_PROCESS_FIX_BASE_TREE,
@@ -270,6 +271,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == FRESH_REBOUND_BRANCH:
+        if (admission != "EXACT_F139_FRESH_REBOUND_READONLY_PROOF_CI_ONLY"
+                or base != FRESH_REBOUND_BASE
+                or tree != FRESH_REBOUND_TREE):
+            raise ValueError("G156_FRESH_REBOUND_EXACT_SOURCE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == FRESH_POLICY_BRANCH:
         if (admission != "EXACT_PR1854_F139_FRESH_OWNER_PROCESS_POLICY_FIX_CI_ONLY"
                 or base != FRESH_POLICY_BASE
