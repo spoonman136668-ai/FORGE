@@ -51,10 +51,11 @@ def need(value: bool, why: str) -> None:
         raise FreshIntakeDenied("F139_FRESH_INTAKE_" + why)
 
 
-def audit_one_ready_tail(db, activation: dict, tail: list) -> dict:
-    """Exactly one signed-source READY admission after activation events 1+2."""
-    need(len(tail) == 2 and tail[0]["seq"] == 3
-         and tail[0]["kind"] == KIND and tail[1]["seq"] == 4
+def audit_admission_pair(db, activation: dict, tail: list) -> dict:
+    """Validate the immutable admission/intake pair independently of later state."""
+    need(len(tail) == 2 and tail[0]["seq"] >= 3
+         and tail[0]["kind"] == KIND
+         and tail[1]["seq"] == tail[0]["seq"] + 1
          and tail[1]["kind"] == "TASK_INTAKE",
          "UNEXPECTED_POSTACTIVATION_EVENTS")
     try:
@@ -65,9 +66,8 @@ def audit_one_ready_tail(db, activation: dict, tail: list) -> dict:
     m = db.meta()
     a = db.conn.execute("SELECT sha FROM events WHERE seq=2").fetchone()
     need(a is not None and type(r) is dict and set(r) == FIELDS
-         and tail[0]["prior_sha"] == a["sha"]
+         and (tail[0]["seq"] != 3 or tail[0]["prior_sha"] == a["sha"])
          and tail[1]["prior_sha"] == tail[0]["sha"]
-         and m["head_seq"] == 4 and m["head_hash"] == tail[1]["sha"]
          and r["schema"] == SCHEMA
          and r["source_sha"] == activation["source_sha"]
          and r["owner_run_id"] == activation["owner_run_id"]
@@ -118,6 +118,16 @@ def audit_one_ready_tail(db, activation: dict, tail: list) -> dict:
     need(companion == {"ticket": r["ticket"], "lane": "Yggdrasil",
                        "manifest_sha": r["manifest_sha256"]},
          "TASK_INTAKE_EVENT_MISMATCH")
+    return r
+
+
+def audit_one_ready_tail(db, activation: dict, tail: list) -> dict:
+    """Historical inert READY contract stays exact; never grants dispatch."""
+    r = audit_admission_pair(db, activation, tail)
+    m = db.meta()
+    need(tail[0]["seq"] == 3 and m["head_seq"] == 4
+         and m["head_hash"] == tail[1]["sha"],
+         "UNEXPECTED_POSTACTIVATION_EVENTS")
     tasks = list(db.conn.execute("SELECT * FROM tasks"))
     need(len(tasks) == 1 and tasks[0]["ticket"] == r["ticket"]
          and tasks[0]["source_sha"] == r["source_sha"]

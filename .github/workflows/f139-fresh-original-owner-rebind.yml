@@ -54,3 +54,71 @@ jobs:
           Write-Output 'F139_FRESH_EXISTING_OWNER_TASK_REBOUND_DISABLED=PASS'
           Write-Output 'F139_WORKER_DISPATCH_AUTHORIZED=FALSE'
           Write-Output 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+  release-existing-fresh-task:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.action == 'created' &&
+      github.event.issue.number == 1830 &&
+      github.event.issue.state == 'open' &&
+      github.event.issue.user.login == 'spoonman136668-ai' &&
+      github.event.comment.user.login == 'spoonman136668-ai' &&
+      github.event.comment.author_association == 'OWNER' &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-FRESH-DEV-WORKER-RELEASE ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    concurrency:
+      group: forge-f139-fresh-existing-disabled-task-rebind
+      cancel-in-progress: false
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact protected main and no retained credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Independently qualify and release the existing original owner task once
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:OPENAI_API_KEY -or $env:CLOUDFLARE_API_TOKEN) {
+            throw 'F139_FRESH_RELEASE_OWNER_CONTEXT_DENIED'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($task.State -ne 'Disabled' -or $task.Settings.Enabled -ne $false -or
+             @($task.Actions).Count -ne 1 -or
+             ([string]$task.Principal.UserId -ine $who.Name -and $sid -cne $who.User.Value)){
+            throw 'F139_FRESH_RELEASE_EXISTING_OWNER_DENIED'
+          }
+          $a=[string]$task.Actions[0].Arguments
+          $key=[regex]::Match($a,'(?i)(?:^|\s)-EncryptedKeyFile\s+"([^"]+)"')
+          $py=[regex]::Match($a,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if(-not $key.Success -or -not $py.Success -or
+             -not(Test-Path -LiteralPath $key.Groups[1].Value -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $py.Groups[1].Value -PathType Leaf)){
+            throw 'F139_FRESH_RELEASE_EXISTING_DPAPI_ROUTE_DENIED'
+          }
+          $secure=Import-Clixml -LiteralPath $key.Groups[1].Value
+          if(-not($secure -is [Security.SecureString])){throw 'F139_FRESH_RELEASE_DPAPI_TYPE'}
+          $ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+          try{$env:F139_WORKER_HMAC_KEY=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}
+          finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
+          try {
+            & $py.Groups[1].Value -B -m f139.nci04_fresh_owner_worker_release
+            if($LASTEXITCODE -ne 0){throw 'F139_FRESH_RELEASE_BLOCKED_NO_REPLAY'}
+          } finally {
+            Remove-Item Env:F139_WORKER_HMAC_KEY -ErrorAction SilentlyContinue
+          }

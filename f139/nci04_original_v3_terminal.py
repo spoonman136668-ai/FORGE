@@ -92,7 +92,8 @@ def admission_for_original(db, ticket, run_id, owner_key):
     return issue, admissions, a[0][0],c[0][0]
 
 
-def inner_zip(raw,meta,admission):
+def inner_zip(raw,meta,admission, *, fresh=False):
+    need(type(fresh) is bool, "PROVIDER_PROTOCOL_INVALID")
     need(type(meta) is dict and type(raw) is bytes
          and 0<len(raw)<MAX_BYTES
          and meta.get("size_in_bytes")==len(raw)
@@ -122,6 +123,8 @@ def inner_zip(raw,meta,admission):
          and report.get("schema")==REPORT_SCHEMA
          and receipt.get("schema")==RECEIPT_SCHEMA,
          "SIGNED_PROVIDER_SCHEMA_OR_CANONICAL_BYTES_DRIFT")
+    need(not fresh or "candidate_rate_oracle" in report,
+         "FRESH_WORKER_RATE_ORACLE_REQUIRED")
     expected=receipt_v3(admission,report)
     need(receipt==expected and receipt.get("native_qualified") is True
          and receipt.get("development_only") is True
@@ -132,7 +135,13 @@ def inner_zip(raw,meta,admission):
             "report_sha256":digest(blobs["f139-v3-native-report.json"])}
 
 
-def qualified_original_github_run(api,run_id,ticket,source,started_at,admissions):
+def qualified_original_github_run(api,run_id,ticket,source,started_at,admissions, *, fresh=False):
+    """Reuse exact provider ZIP verification; fresh has distinct job/ref identity."""
+    need(type(fresh) is bool, "PROVIDER_PROTOCOL_INVALID")
+    suffix = "fresh" if fresh else "v3"
+    artifact_prefix = "forge-f139-" + suffix + "-native-receipt-"
+    auth_name = "native-authorize-" + suffix
+    execute_prefix = "native-execute-" + suffix + " ("
     path="repos/"+REPO+"/actions/runs/"+str(run_id)
     run=api.get(path)
     from f139.local_controller import parse_time
@@ -144,7 +153,9 @@ def qualified_original_github_run(api,run_id,ticket,source,started_at,admissions
          and run.get("workflow_id")==WORKFLOW_ID
          and run.get("path")==".github/workflows/"+WORKFLOW
          and run.get("head_sha")==source
-         and run.get("head_branch") in ("main","f139-owner-release-"+source)
+         and run.get("head_branch") in (
+             ("f139-owner-release-"+source,) if fresh else
+             ("main","f139-owner-release-"+source))
          and run.get("run_attempt")==1
          and run.get("status")=="completed"
          and run.get("conclusion")=="success"
@@ -161,8 +172,7 @@ def qualified_original_github_run(api,run_id,ticket,source,started_at,admissions
          and type(artifacts) is list and len(artifacts)==2
          and arts.get("total_count")==len(artifacts),
          "GITHUB_PROVIDER_JOB_AND_ARTIFACT_INVENTORY_DRIFT")
-    live={"native-authorize-v3"} | {
-        "native-execute-v3 ("+x+")" for x in OS}
+    live={auth_name} | {execute_prefix+x+")" for x in OS}
     need(len(set(j.get("name") for j in rows))==len(rows)
          and all((j.get("name") in live and j.get("conclusion")=="success"
                   and j.get("status")=="completed")
@@ -172,14 +182,14 @@ def qualified_original_github_run(api,run_id,ticket,source,started_at,admissions
                  for j in rows)
          and {j.get("name") for j in rows if j.get("conclusion")=="success"}==live,
          "V1_V2_OR_UNAUTHORIZED_JOB_EXECUTED")
-    auth=[j for j in rows if j.get("name")=="native-authorize-v3"]
+    auth=[j for j in rows if j.get("name")==auth_name]
     need(len(auth)==1 and type(auth[0].get("id")) is int and auth[0]["id"]>0,
          "ORIGINAL_SIGNED_AUTHORIZER_JOB_MISSING")
     proof,archives={},{}
     for label in OS:
-        name="forge-f139-v3-native-receipt-"+label
+        name=artifact_prefix+label
         matches=[x for x in artifacts if x.get("name")==name]
-        job=[x for x in rows if x.get("name")=="native-execute-v3 ("+label+")"]
+        job=[x for x in rows if x.get("name")==execute_prefix+label+")"]
         need(len(matches)==len(job)==1
              and type(matches[0].get("id")) is int and matches[0]["id"]>0
              and type(job[0].get("id")) is int and job[0]["id"]>0
@@ -187,7 +197,7 @@ def qualified_original_github_run(api,run_id,ticket,source,started_at,admissions
              and matches[0].get("workflow_run",{}).get("head_sha")==source,
              "EXACT_TWO_PROVIDER_ARTIFACTS_OR_JOBS_REQUIRED")
         raw=api.artifact(matches[0]["id"])
-        verified=inner_zip(raw,matches[0],admissions[label])
+        verified=inner_zip(raw,matches[0],admissions[label],fresh=fresh)
         archives[label]=raw
         proof[label]=dict(
             verified,job_id=job[0]["id"],artifact_id=matches[0]["id"],

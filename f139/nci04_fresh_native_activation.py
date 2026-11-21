@@ -66,7 +66,7 @@ def audit_fresh_native_activation(db) -> dict | None:
     all_events = list(db.conn.execute(
         "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"))
     meta = db.meta()
-    need(len(activated) == 1 and len(all_events) in (2, 4)
+    need(len(activated) == 1 and (len(all_events) == 2 or len(all_events) >= 4)
          and len(rows) == 2 and all_events[0]["kind"] == "CUTOVER_ACTIVATED"
          and all_events[0]["seq"] == 1
          and all_events[1]["kind"] == ACTIVATION_KIND
@@ -77,7 +77,7 @@ def audit_fresh_native_activation(db) -> dict | None:
          and meta["enabled"] == 1
          and meta["legacy_suspended"] == 1
          and meta["epoch"] == 1
-         and (len(all_events) == 4 or not db.conn.execute(
+         and (len(all_events) >= 4 or not db.conn.execute(
              "SELECT 1 FROM tasks LIMIT 1").fetchone()),
          "LOCAL_ACTIVATION_EVENT_SEQUENCE_INVALID")
     try:
@@ -118,6 +118,9 @@ def audit_fresh_native_activation(db) -> dict | None:
     if len(all_events) == 4:
         from f139.nci04_fresh_native_intake import audit_one_ready_tail
         audit_one_ready_tail(db, record, all_events[2:])
+    elif len(all_events) > 4:
+        from f139.nci04_fresh_lifecycle import audit_execution_tail
+        audit_execution_tail(db, record, all_events[2:])
     return record
 
 
