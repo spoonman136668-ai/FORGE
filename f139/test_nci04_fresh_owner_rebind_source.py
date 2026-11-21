@@ -126,6 +126,7 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
         self.assertIn("F139-FRESH-DEV-RELEASE-CUSTODY-READONLY ", audit)
         self.assertNotIn("F139-FRESH-DEV-WORKER-RELEASE ", audit)
         self.assertNotIn("F139-FRESH-DEV-TASK-REBIND ", audit)
+        self.assertIn("$sid -ceq $who.User.Value)) 'ORIGINAL_SID'", audit)
         self.assertIn("PRAGMA query_only=ON", audit)
         self.assertIn("F139_FRESH_CUSTODY_READONLY_V1=", audit)
         self.assertIn("F139_FRESH_CUSTODY_READONLY_MUTATIONS=0", audit)

@@ -3425,8 +3425,8 @@ FRESH_CUSTODY_AUDIT_BRANCH = "engineering/f139-owner-custody-readonly-20261121"
 FRESH_CUSTODY_AUDIT_BASE = "dce4c672078d6b293286e13f051fdc9a0e54f1da"
 FRESH_CUSTODY_AUDIT_TREE = "4cdf235280cc379102e0f2205a9a68d13dafc060"
 FRESH_CUSTODY_AUDIT_BLOBS = {
-    ".github/workflows/f139-fresh-original-owner-rebind.yml": "030559284661330816ce65b4775e0e67d9cda4f8",
-    "f139/test_nci04_fresh_owner_rebind_source.py": "1334a87c10ebd33bda1c7870381ea38f891fc10b",
+    ".github/workflows/f139-fresh-original-owner-rebind.yml": "28cc3bf32afaa257c5c60d0c26a368dcd3da821f",
+    "f139/test_nci04_fresh_owner_rebind_source.py": "472ee8f9e33ffdaa6d5c6ffcddf472a738f0e5de",
 }
 FRESH_CUSTODY_AUDIT_FILES = frozenset((
     *FRESH_CUSTODY_AUDIT_BLOBS,
