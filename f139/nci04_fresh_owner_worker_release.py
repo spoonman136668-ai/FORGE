@@ -35,7 +35,7 @@ from f139.nci04_fresh_lifecycle import (
 
 OWNER = "spoonman136668-ai"
 ROOT = "repos/" + REPO
-PR = 0  # Draft only; bind to the actual new PR number before CI admission.
+PR = 1858
 BASE = "5d9c10039dcd2155fc30764c068e804666e4e5a8"
 BRANCH = "engineering/f139-fresh-release-run-metadata-20261121"
 QUALIFICATION = {
