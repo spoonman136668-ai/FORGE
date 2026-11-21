@@ -147,7 +147,7 @@ class FreshOwnerPublicationTests(unittest.TestCase):
                 self.assertEqual(
                     entries[-1]["publication_attempt"]["after_sha256"],
                     plan["after_sha256"])
-                self.assertIsNone(publish_one(fixture.db, fixture.key))
+                self.assertIsNone(publish_one(fixture.db, fixture, fixture.key))
                 self.assertEqual(fixture.db.meta()["head_seq"], original_head + 1)
                 self.assertEqual(fixture.db.conn.execute(
                     "SELECT COUNT(*) FROM events WHERE kind=?", (PUBLISH_KIND,)
