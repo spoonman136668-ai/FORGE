@@ -72,6 +72,23 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, script)
 
+    def test_rebind_source_pr_merge_is_pinned_ancestor_not_current_head(self):
+        # Current protected main necessarily advances after the rebind source PR.
+        self.assertIn(
+            "$SourceRebindMerge='e23b39a558b84b230f6bf9d9e37d2ade7aaf3b3a'",
+            self.script)
+        self.assertIn("$pr.merge_commit_sha -ceq $SourceRebindMerge", self.script)
+        self.assertNotIn("$pr.merge_commit_sha -ceq $Target", self.script)
+        self.assertIn(
+            "& git merge-base --is-ancestor $SourceRebindMerge $Target | Out-Null",
+            self.script)
+        self.assertIn(
+            "Need ($LASTEXITCODE -eq 0) 'QUALIFIED_OWNER_SOURCE_NOT_ANCESTOR'",
+            self.script)
+        self.assertLess(
+            self.script.index("QUALIFIED_OWNER_SOURCE_NOT_ANCESTOR"),
+            self.script.index("Set-ScheduledTask -TaskName $TaskName"))
+
     def test_owner_workflow_is_exact_comment_and_same_runner_only(self):
         text = self.workflow
         self.assertEqual(text.count("\non:\n  issue_comment:\n    types: [created]\n"), 1)
@@ -100,8 +117,11 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
 
     def test_owner_host_shell_is_builtin_powershell_not_absent_pwsh(self):
         text = self.workflow
-        self.assertIn("        shell: powershell\n", text)
-        self.assertEqual(text.count("        shell: powershell"), 1)
+        self.assertIn("        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}\n", text)
+        self.assertEqual(text.count("        shell: powershell -NoProfile"), 1)
+        self.assertNotIn("        shell: powershell\n", text)
+        self.assertNotIn("        shell: powershell.exe -NoProfile", text)
+        self.assertNotIn("Set-ExecutionPolicy", text)
         self.assertNotIn("        shell: pwsh", text)
         self.assertIn("powershell.exe -NoProfile -NonInteractive", text)
         self.assertIn("F139_FRESH_OWNER_TASK_REBIND_FAILED_CUSTODY_HOLD", text)
@@ -127,6 +147,60 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
                 original = (ROOT / filename).read_text(encoding="utf-8")
                 self.assertIn(legacy_group, original)
                 self.assertNotIn(rebind_group, original)
+
+    def test_exact_g145_owner_process_policy_launcher_fix(self):
+        from scripts import check_rar_g145_pr_scope as scope
+        head = "e" * 40
+        base = scope.FRESH_POLICY_BASE
+        request = {
+            "number": scope.FRESH_POLICY_PR,
+            "author_association": "OWNER",
+            "user": {"login": "spoonman136668-ai"},
+            "head": {
+                "ref": scope.FRESH_POLICY_BRANCH,
+                "sha": head,
+                "repo": {"full_name": scope.REPO},
+            },
+            "base": {
+                "ref": "main", "sha": base,
+                "repo": {"full_name": scope.REPO},
+            },
+        }
+        def git(*args):
+            if args == ("merge-base", base, head):
+                return base
+            if args == ("rev-parse", base + "^{tree}"):
+                return scope.FRESH_POLICY_TREE
+            if args == ("diff", "--no-renames", "--name-only", base, head):
+                return "\n".join(sorted(scope.FRESH_POLICY_FILES))
+            if args[0] == "rev-parse" and args[1].startswith(head + ":"):
+                return scope.FRESH_POLICY_BLOBS.get(
+                    args[1][len(head) + 1:], "0" * 40)
+            raise AssertionError("unexpected git call")
+        self.assertEqual(
+            scope.admit_fresh_owner_process_policy_fix(
+                head, base, request, git),
+            "EXACT_PR1854_F139_FRESH_OWNER_PROCESS_POLICY_FIX_CI_ONLY")
+        for override in (
+            {"number": 1853},
+            {"author_association": "CONTRIBUTOR"},
+            {"user": {"login": "foreign"}},
+            {"head": {**request["head"], "ref": "unrelated"}},
+            {"base": {**request["base"], "sha": "0" * 40}},
+        ):
+            with self.subTest(override=override):
+                with self.assertRaises(ValueError):
+                    scope.admit_fresh_owner_process_policy_fix(
+                        head, base, {**request, **override}, git)
+        for drift_path in (scope.FRESH_POLICY_WORKFLOW, scope.FRESH_POLICY_SCRIPT):
+            def changed(*args):
+                if args == ("rev-parse", head + ":" + drift_path):
+                    return "0" * 40
+                return git(*args)
+            with self.subTest(drift_path=drift_path):
+                with self.assertRaisesRegex(ValueError, "SOURCE_OR_BLOB_DRIFT"):
+                    scope.admit_fresh_owner_process_policy_fix(
+                        head, base, request, changed)
 
     def test_exact_g145_fresh_rebind_concurrency_cancellation_fix(self):
         from scripts import check_rar_g145_pr_scope as scope

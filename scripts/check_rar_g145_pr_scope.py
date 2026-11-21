@@ -2497,6 +2497,60 @@ def admit_fresh_rebind_pending_collision_fix(head_sha: str, base_sha: str,
     return "EXACT_PR1853_F139_FRESH_OWNER_PENDING_CANCEL_FIX_CI_ONLY"
 
 
+
+# Exact Windows PowerShell execution-policy refusal on original owner run
+# #44848840279. Source CI only; neither task nor runner-wide policy authority.
+FRESH_POLICY_BRANCH = "engineering/f139-fresh-rebind-executionpolicy-process-20261120"
+FRESH_POLICY_PR = 1854
+FRESH_POLICY_BASE = "5186697bde5d45f7ae695c57e914a211a1d3a3b3"
+FRESH_POLICY_TREE = "6622b0bac3f0e53b9e93dba795198f7c72cceccf"
+FRESH_POLICY_WORKFLOW = ".github/workflows/f139-fresh-original-owner-rebind.yml"
+FRESH_POLICY_SCRIPT = "f139/nci04_fresh_owner_rebind.ps1"
+FRESH_POLICY_TEST = "f139/test_nci04_fresh_owner_rebind_source.py"
+FRESH_POLICY_BLOBS = {
+    FRESH_POLICY_WORKFLOW: "82443bd4dfd55a15f5ea12328afedafc515a0b99",
+    FRESH_POLICY_SCRIPT: "e7cbfa1373c5517a936060ef8fe62c6bfe917b7f",
+}
+FRESH_POLICY_FILES = frozenset((
+    *FRESH_POLICY_BLOBS, FRESH_POLICY_TEST,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+
+def admit_fresh_owner_process_policy_fix(head_sha: str, base_sha: str,
+                                         request: dict, git: Callable[..., str]) -> str:
+    """Admit solely the failed original-owner process policy launcher correction."""
+    if (not is_sha(head_sha) or base_sha != FRESH_POLICY_BASE
+            or type(request) is not dict
+            or request.get("number") != FRESH_POLICY_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != FRESH_POLICY_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("sha") != FRESH_POLICY_BASE
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_POLICY_OWNER_MAIN_SOURCE_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        parent_tree = git("rev-parse", base_sha + "^{tree}")
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        blobs = {path: git("rev-parse", head_sha + ":" + path)
+                 for path in FRESH_POLICY_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_FRESH_POLICY_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or parent_tree != FRESH_POLICY_TREE
+            or len(changed) != len(FRESH_POLICY_FILES)
+            or set(changed) != FRESH_POLICY_FILES
+            or blobs != FRESH_POLICY_BLOBS):
+        raise ValueError("G145_FRESH_POLICY_SOURCE_OR_BLOB_DRIFT")
+    return "EXACT_PR1854_F139_FRESH_OWNER_PROCESS_POLICY_FIX_CI_ONLY"
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -3273,6 +3327,11 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_POLICY_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                           .read_text(encoding="utf-8"))
+        return admit_fresh_owner_process_policy_fix(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_REBIND_CANCEL_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                            .read_text(encoding="utf-8"))

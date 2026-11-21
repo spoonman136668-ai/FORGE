@@ -8,6 +8,7 @@ $Old='c06403c8b6035c6c7013866a7ea08cef1244b507'
 $Fresh='408139c0a10fd4836a22422c8df041aa64dfa001'
 $FreshTree='4f35d3965bfd2d8688586600926445008e16f5b9'
 $FreshRun=44831323193
+$SourceRebindMerge='e23b39a558b84b230f6bf9d9e37d2ade7aaf3b3a'
 $FreshHead='b099aba6750a4ae323ffd5291ea0ae940b1403b4063aa89f34521fe513383337'
 $TaskName='FORGE-F139-UnifiedController'
 $Prefix='F139-FRESH-DEV-TASK-REBIND '
@@ -77,10 +78,12 @@ Need ($LASTEXITCODE -eq 0 -and $main.protected -eq $true -and
   @(& git status --porcelain --untracked-files=all).Count -eq 0) 'PROTECTED_MAIN_OR_CHECKOUT_DRIFT'
 $pr=(& gh api ('repos/'+$Repo+'/pulls/1851') | ConvertFrom-Json)
 Need ($LASTEXITCODE -eq 0 -and $pr.merged -eq $true -and
-  $pr.state -ceq 'closed' -and $pr.merge_commit_sha -ceq $Target -and
+  $pr.state -ceq 'closed' -and $pr.merge_commit_sha -ceq $SourceRebindMerge -and
   $pr.head.ref -ceq 'engineering/f139-fresh-original-task-rebind-20261120' -and
   $pr.base.repo.full_name -ceq $Repo -and
   $pr.user.login -ceq 'spoonman136668-ai') 'QUALIFIED_OWNER_SOURCE_PR_REQUIRED'
+& git merge-base --is-ancestor $SourceRebindMerge $Target | Out-Null
+Need ($LASTEXITCODE -eq 0) 'QUALIFIED_OWNER_SOURCE_NOT_ANCESTOR'
 $release=(& gh api ('repos/'+$Repo+'/branches/f139-owner-release-'+$Fresh) | ConvertFrom-Json)
 Need ($LASTEXITCODE -eq 0 -and $release.protected -eq $true -and
   $release.commit.sha -ceq $Fresh) 'IMMUTABLE_WORKER_RELEASE_NOT_PRESENT'
