@@ -2392,6 +2392,58 @@ def admit_fresh_original_rebind(head_sha: str, base_sha: str,
     return "EXACT_PR1851_F139_FRESH_DISABLED_TASK_REBIND_CI_ONLY"
 
 
+
+# Exact Windows runner shell correction. Hosted jobs have pwsh; original
+# Windows owner presently does not. CI source admission is not owner release.
+FRESH_SHELL_BRANCH = "engineering/f139-fresh-rebind-windows-shell-20261120"
+FRESH_SHELL_PR = 1852
+FRESH_SHELL_BASE = "e23b39a558b84b230f6bf9d9e37d2ade7aaf3b3a"
+FRESH_SHELL_TREE = "ef73d60881b6aed69e825d3b2aade89a26aa4909"
+FRESH_SHELL_WORKFLOW = ".github/workflows/f139-fresh-original-owner-rebind.yml"
+FRESH_SHELL_TEST = "f139/test_nci04_fresh_owner_rebind_source.py"
+FRESH_SHELL_BLOBS = {
+    FRESH_SHELL_WORKFLOW: "6f6944fefe2b589d0ea9e459e38af24c54c249a3",
+}
+FRESH_SHELL_FILES = frozenset((
+    *FRESH_SHELL_BLOBS, FRESH_SHELL_TEST,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+
+def admit_fresh_owner_shell_fix(head_sha: str, base_sha: str,
+                                request: dict, git: Callable[..., str]) -> str:
+    """Admit exactly one native owner shell fix for CI; no live task authority."""
+    if (not is_sha(head_sha) or base_sha != FRESH_SHELL_BASE
+            or type(request) is not dict
+            or request.get("number") != FRESH_SHELL_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != FRESH_SHELL_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("sha") != FRESH_SHELL_BASE
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_SHELL_OWNER_MAIN_SOURCE_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        parent_tree = git("rev-parse", base_sha + "^{tree}")
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        blobs = {path: git("rev-parse", head_sha + ":" + path)
+                 for path in FRESH_SHELL_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_FRESH_SHELL_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or parent_tree != FRESH_SHELL_TREE
+            or len(changed) != len(FRESH_SHELL_FILES)
+            or set(changed) != FRESH_SHELL_FILES
+            or blobs != FRESH_SHELL_BLOBS):
+        raise ValueError("G145_FRESH_SHELL_SOURCE_OR_BLOB_DRIFT")
+    return "EXACT_PR1852_F139_NATIVE_POWERSHELL_HOST_FIX_CI_ONLY"
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -3168,6 +3220,11 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_SHELL_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                           .read_text(encoding="utf-8"))
+        return admit_fresh_owner_shell_fix(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_REBIND_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                            .read_text(encoding="utf-8"))
