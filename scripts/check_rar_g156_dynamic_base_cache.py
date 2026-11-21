@@ -16,6 +16,7 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
     FRESH_ACTIVATION_BRANCH, FRESH_ACTIVATION_BASE, FRESH_ACTIVATION_TREE,
     FRESH_STANDDOWN_BRANCH, FRESH_STANDDOWN_BASE, FRESH_STANDDOWN_TREE,
     FRESH_REBIND_BRANCH, FRESH_REBIND_BASE, FRESH_REBIND_TREE,
+    FRESH_SHELL_BRANCH, FRESH_SHELL_BASE, FRESH_SHELL_TREE,
     V59_READONLY_BRANCH, V59_READONLY_BASE, V59_READONLY_BASE_TREE,
     V60_PROCESS_BRANCH, V60_PROCESS_BASE, V60_PROCESS_BASE_TREE,
     V61_PROCESS_FIX_BRANCH, V61_PROCESS_FIX_BASE, V61_PROCESS_FIX_BASE_TREE,
@@ -267,6 +268,12 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == FRESH_SHELL_BRANCH:
+        if (admission != "EXACT_PR1852_F139_NATIVE_POWERSHELL_HOST_FIX_CI_ONLY"
+                or base != FRESH_SHELL_BASE
+                or tree != FRESH_SHELL_TREE):
+            raise ValueError("G156_FRESH_SHELL_EXACT_SOURCE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == FRESH_REBIND_BRANCH:
         if (admission != "EXACT_PR1851_F139_FRESH_DISABLED_TASK_REBIND_CI_ONLY"
                 or base != FRESH_REBIND_BASE
