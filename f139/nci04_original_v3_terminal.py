@@ -18,6 +18,7 @@ from f139.nci04_owner_ledger import frozen_native_issue, verify_native_activatio
 from f139.nci04_signed_native import NativeAdmission, admit_native_intent
 from f139.nci04_owner_v3_dispatch import signature, verify_claim
 from f139.nci04_worker_v3 import SCHEMA as REPORT_SCHEMA, RECEIPT as RECEIPT_SCHEMA, receipt_v3
+from f139.nci04_fresh_missing_arm_oracle_v1 import applies as missing_arm_applies
 from f139.nci04_g32_owner_custody import event_rows
 
 OS=("ubuntu-latest","windows-latest")
@@ -125,6 +126,9 @@ def inner_zip(raw,meta,admission, *, fresh=False):
          "SIGNED_PROVIDER_SCHEMA_OR_CANONICAL_BYTES_DRIFT")
     need(not fresh or "candidate_rate_oracle" in report,
          "FRESH_WORKER_RATE_ORACLE_REQUIRED")
+    if fresh and missing_arm_applies(admission.intent, admission.issue_number):
+        need("candidate_missing_arm_oracle_v1" in report,
+             "FRESH_MISSING_ARM_V1_REQUIRED_FOR_SIGNED_SUCCESSOR")
     expected=receipt_v3(admission,report)
     need(receipt==expected and receipt.get("native_qualified") is True
          and receipt.get("development_only") is True
