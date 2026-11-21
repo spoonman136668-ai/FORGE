@@ -3418,12 +3418,56 @@ def admit_fresh_functional(head_sha, base_sha, request, git):
         raise ValueError("G145_FRESH_FUNCTIONAL_EXACT_BLOBS_REQUIRED")
     return "EXACT_F139_FRESH_FUNCTIONAL_DRAFT_CI_ONLY"
 
+
+# One owner-authenticated read-only host recovery witness for failed run 44889700647.
+# CI admission only. No task, worker, SQLite, ref or owner mutation authority.
+FRESH_CUSTODY_AUDIT_BRANCH = "engineering/f139-owner-custody-readonly-20261121"
+FRESH_CUSTODY_AUDIT_BASE = "dce4c672078d6b293286e13f051fdc9a0e54f1da"
+FRESH_CUSTODY_AUDIT_TREE = "4cdf235280cc379102e0f2205a9a68d13dafc060"
+FRESH_CUSTODY_AUDIT_BLOBS = {
+    ".github/workflows/f139-fresh-original-owner-rebind.yml": "28cc3bf32afaa257c5c60d0c26a368dcd3da821f",
+    "f139/test_nci04_fresh_owner_rebind_source.py": "472ee8f9e33ffdaa6d5c6ffcddf472a738f0e5de",
+}
+FRESH_CUSTODY_AUDIT_FILES = frozenset((
+    *FRESH_CUSTODY_AUDIT_BLOBS,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+
+def admit_fresh_custody_readonly(head_sha, base_sha, request, git):
+    if (not is_sha(head_sha) or base_sha != FRESH_CUSTODY_AUDIT_BASE
+            or type(request) is not dict
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("ref") != FRESH_CUSTODY_AUDIT_BRANCH
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_OWNER_CUSTODY_READONLY_SOURCE_DENIED")
+    changed = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+    if (git("merge-base", base_sha, head_sha) != base_sha
+            or git("rev-parse", base_sha + "^{tree}") != FRESH_CUSTODY_AUDIT_TREE
+            or len(changed) != len(FRESH_CUSTODY_AUDIT_FILES)
+            or set(changed) != FRESH_CUSTODY_AUDIT_FILES
+            or any(git("rev-parse", head_sha + ":" + p) != sha
+                   for p, sha in FRESH_CUSTODY_AUDIT_BLOBS.items())):
+        raise ValueError("G145_OWNER_CUSTODY_READONLY_EXACT_BLOBS_REQUIRED")
+    return "EXACT_F139_OWNER_CUSTODY_READONLY_CI_ONLY"
+
+
 def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
     """Engineering CI admission only; never research, merge or FSA authority."""
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or not callable(git):
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_CUSTODY_AUDIT_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        return admit_fresh_custody_readonly(head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_FUNCTIONAL_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
         return admit_fresh_functional(head_sha, base_sha, event["pull_request"], git)

@@ -122,3 +122,139 @@ jobs:
           } finally {
             Remove-Item Env:F139_WORKER_HMAC_KEY -ErrorAction SilentlyContinue
           }
+
+  # Separate owner-authenticated diagnostic for a failed, potentially partial
+  # release. Never re-enters the release code, changes tasks, writes SQLite,
+  # reveals task paths/DPAPI keys, dispatches workers or grants authority.
+  fresh-release-readonly-audit:
+    if: ${{ github.repository == 'spoonman136668-ai/FORGE' && github.actor == 'spoonman136668-ai' && github.ref == 'refs/heads/main' && github.event.action == 'created' && github.event.issue.number == 1830 && github.event.issue.state == 'open' && github.event.comment.user.login == 'spoonman136668-ai' && github.event.comment.author_association == 'OWNER' && !github.event.issue.pull_request && startsWith(github.event.comment.body, 'F139-FRESH-DEV-RELEASE-CUSTODY-READONLY ') }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    concurrency:
+      group: forge-f139-fresh-existing-disabled-task-rebind
+      cancel-in-progress: false
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+    steps:
+      - name: Checkout exact protected main without stored credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Read existing task, installed source and both ledger heads only
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code){
+            if(-not $ok){throw ('F139_FRESH_RELEASE_READONLY_'+$code)}
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:GITHUB_EVENT_NAME -ceq 'issue_comment' -and
+            $env:GITHUB_REF -ceq 'refs/heads/main' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            $env:GITHUB_SHA -cmatch '^[a-f0-9]{40}$' -and
+            -not $env:OPENAI_API_KEY -and -not $env:CLOUDFLARE_API_TOKEN) 'OWNER_CONTEXT'
+          $ev=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json
+          $request='F139-FRESH-DEV-RELEASE-CUSTODY-READONLY '+$env:GITHUB_SHA+' 44889700647'
+          Need ($ev.action -ceq 'created' -and
+            $ev.repository.full_name -ceq 'spoonman136668-ai/FORGE' -and
+            $ev.issue.number -eq 1830 -and $ev.issue.state -ceq 'open' -and
+            $ev.issue.user.login -ceq 'spoonman136668-ai' -and
+            $null -eq $ev.issue.PSObject.Properties['pull_request'] -and
+            $ev.sender.login -ceq 'spoonman136668-ai' -and
+            $ev.comment.user.login -ceq 'spoonman136668-ai' -and
+            $ev.comment.author_association -ceq 'OWNER' -and
+            $ev.comment.body -ceq $request -and
+            [int64]$ev.comment.id -gt 7060587332) 'SIGNED_SOURCE_EVENT'
+          $head=(& git rev-parse HEAD|Out-String).Trim()
+          $tree=(& git rev-parse 'HEAD^{tree}'|Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $head -ceq $env:GITHUB_SHA -and
+            $tree -cmatch '^[a-f0-9]{40}$' -and
+            @(& git status --porcelain --untracked-files=all).Count -eq 0) 'CHECKOUT'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Need (@($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3) 'ORIGINAL_TOPOLOGY'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          try{
+            $sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value
+          }catch{}
+          Need (([string]$task.Principal.UserId -ieq $who.Name -or
+            $sid -ceq $who.User.Value)) 'ORIGINAL_SID'
+          function Arg([string]$name){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            Need $m.Success ('ORIGINAL_ACTION_MISSING_'+$name)
+            return [string]$m.Groups[1].Value
+          }
+          $repoRoot=Arg 'RepositoryRoot'
+          $dbPath=Arg 'Database'
+          $py=Arg 'PythonExe'
+          $wrapper=Arg 'File'
+          $key=Arg 'EncryptedKeyFile'
+          $base=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $old=Join-Path $base 'release-candidates\408139c0a10fd4836a22422c8df041aa64dfa001'
+          $new=Join-Path $base ('release-candidates\'+ 'dce4c672078d6b293286e13f051fdc9a0e54f1da')
+          $fresh=Join-Path $base 'f139-fresh-dev-44831323193\state.sqlite'
+          $historic=Join-Path $base 'state.sqlite'
+          Need (([IO.Path]::GetFullPath($dbPath) -ieq [IO.Path]::GetFullPath($fresh)) -and
+            (Test-Path -LiteralPath $py -PathType Leaf) -and
+            (Test-Path -LiteralPath $key -PathType Leaf) -and
+            (Test-Path -LiteralPath $fresh -PathType Leaf) -and
+            (Test-Path -LiteralPath $historic -PathType Leaf) -and
+            ([IO.Path]::GetFileName($wrapper) -ceq 'Run-FORGE-F139.ps1')) 'ORIGINAL_FILES'
+          $installed='UNKNOWN'
+          if([IO.Path]::GetFullPath($repoRoot) -ieq [IO.Path]::GetFullPath($old)){$installed='ADMISSION_SOURCE'}
+          if([IO.Path]::GetFullPath($repoRoot) -ieq [IO.Path]::GetFullPath($new)){$installed='QUALIFIED_RELEASE'}
+          $installedSha=''
+          if(Test-Path -LiteralPath $repoRoot -PathType Container){
+            $installedSha=(& git -C $repoRoot rev-parse HEAD 2>$null|Out-String).Trim()
+          }
+          $releasePresent=Test-Path -LiteralPath $new -PathType Container
+          $controllerCount=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') }).Count
+          $inspect=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          def fetch(path):
+              p=Path(path).resolve()
+              con=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,isolation_level=None,timeout=10)
+              con.row_factory=sqlite3.Row
+              try:
+                  con.execute("PRAGMA query_only=ON")
+                  assert con.execute("PRAGMA query_only").fetchone()[0]==1
+                  assert con.execute("PRAGMA quick_check").fetchone()[0]=="ok"
+                  m=dict(con.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone())
+                  stages={str(x["stage"]):int(x["n"]) for x in con.execute("SELECT stage,count(*) AS n FROM tasks GROUP BY stage")}
+                  counts={k:int(con.execute("SELECT count(*) FROM events WHERE kind=?",(k,)).fetchone()[0]) for k in ("FRESH_WORKER_RELEASE_AUTHENTICATED","BEFORE_DISPATCH_INTENT","PROVIDER_VERIFIED_TERMINAL","FRESH_WORKER_PROVIDER_NEGATIVE")}
+                  return {"head_seq":m["head_seq"],"head_hash":m["head_hash"],"source_sha":m["source_sha"],"stages":stages,"event_counts":counts}
+              finally:
+                  con.close()
+          print("F139_CUSTODY_SQL="+json.dumps({"historical":fetch(sys.argv[1]),"fresh":fetch(sys.argv[2])},sort_keys=True,separators=(",",":")))
+          '@
+          $raw=@($inspect|& $py -B - $historic $fresh)
+          Need ($LASTEXITCODE -eq 0 -and $raw.Count -eq 1 -and
+            [string]$raw[0] -clike 'F139_CUSTODY_SQL=*') 'READONLY_SQL'
+          $sqlRecord=([string]$raw[0]).Substring('F139_CUSTODY_SQL='.Length)|ConvertFrom-Json
+          $result=@{
+            schema='forge.f139.fresh-original-owner-cold-readonly.v1'
+            trigger_sha=$env:GITHUB_SHA
+            observed_task_state=[string]$task.State
+            task_enabled=[bool]$task.Settings.Enabled
+            installed_source_class=$installed
+            installed_source_sha=$installedSha
+            release_install_directory_exists=[bool]$releasePresent
+            controller_process_count=[int]$controllerCount
+            sqlite=$sqlRecord
+            task_mutations=0
+            sqlite_mutations=0
+            worker_dispatches=0
+            scientific_first_use=$false
+          }
+          Write-Host ('F139_FRESH_CUSTODY_READONLY_V1='+($result|ConvertTo-Json -Depth 12 -Compress))
+          Write-Host 'F139_FRESH_CUSTODY_READONLY_MUTATIONS=0'
