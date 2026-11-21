@@ -86,12 +86,23 @@ class FreshOwnerWorkerReleaseTests(unittest.TestCase):
             row["pull_requests"] = []
         self.assertEqual(qualify_release(self.get, self.target, self.tree), self.head)
         row = self.routes[self.run_route]["workflow_runs"][0]
-        row["pull_requests"] = [{"number": PR + 1}]
-        with self.assertRaises(OwnerReleaseDenied):
-            qualify_release(self.get, self.target, self.tree)
-        row["pull_requests"] = None
-        with self.assertRaises(OwnerReleaseDenied):
-            qualify_release(self.get, self.target, self.tree)
+        row["pull_requests"] = [{"number": PR}]
+        self.assertEqual(qualify_release(self.get, self.target, self.tree), self.head)
+        # Reject any explicit foreign or malformed association, even when
+        # the correct PR appears elsewhere in the same provider array.
+        for associations in (
+            [{"number": PR + 1}],
+            [{"number": PR}, {"number": PR + 1}],
+            [{"number": PR}, "malformed"],
+            [{"number": PR}, None],
+            [{"number": PR}, {"number": str(PR)}],
+            None,
+            {},
+        ):
+            with self.subTest(associations=associations):
+                row["pull_requests"] = associations
+                with self.assertRaises(OwnerReleaseDenied):
+                    qualify_release(self.get, self.target, self.tree)
 
     def test_final_suite_failure_or_old_sha_denied(self):
         run = self.routes[self.run_route]["workflow_runs"][0]

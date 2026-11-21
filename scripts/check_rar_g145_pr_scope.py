@@ -3466,8 +3466,8 @@ FRESH_RELEASE_META_BRANCH = "engineering/f139-fresh-release-run-metadata-2026112
 FRESH_RELEASE_META_BASE = "5d9c10039dcd2155fc30764c068e804666e4e5a8"
 FRESH_RELEASE_META_TREE = "8b4cb86fb1070793a5ee2867b77284b1a8831d4f"
 FRESH_RELEASE_META_BLOBS = {
-    "f139/nci04_fresh_owner_worker_release.py": "f5555155273762e7dd364bbb0d9cb13fb6fb047c",
-    "f139/test_nci04_fresh_owner_worker_release.py": "e25be088fae858955699c44f012b675fe206bf19",
+    "f139/nci04_fresh_owner_worker_release.py": "9ec385daeadf6b9fed4f249cc96a4ccd17cc4559",
+    "f139/test_nci04_fresh_owner_worker_release.py": "a31dd0fa5e0dae4078cf9d11213ff10d6b4b11e2",
 }
 FRESH_RELEASE_META_FILES = frozenset((
     *FRESH_RELEASE_META_BLOBS,

@@ -137,11 +137,10 @@ def qualify_release(get, target, tree):
              and match[0].get("conclusion") == "success"
              # GitHub may emit [] for genuine pull_request workflow runs.
              # The validated merged PR head, exact SHA, workflow path and event
-             # still bind the source. Reject explicit foreign PR associations.
+             # still bind the source. Reject every foreign or malformed link.
              and type(match[0].get("pull_requests")) is list
-             and (not match[0]["pull_requests"] or
-                  any(type(p) is dict and p.get("number") == PR
-                      for p in match[0]["pull_requests"])),
+             and all(type(p) is dict and p.get("number") == PR
+                     for p in match[0]["pull_requests"]),
              "FULL_FINAL_EXACT_HEAD_QUALIFICATION_REQUIRED")
     name = PREFIX + target
     branch = get(ROOT + "/branches/" + name)
