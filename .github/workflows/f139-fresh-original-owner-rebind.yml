@@ -230,6 +230,7 @@ jobs:
           $logPath=Join-Path (Split-Path -Path $dbPath -Parent) 'logs\controller.log'
           $logPresent=Test-Path -LiteralPath $logPath -PathType Leaf
           $logReadable=$false
+          $logUpdatedUtc=$null
           $logClasses=@()
           if($logPresent){
             try {
@@ -244,6 +245,7 @@ jobs:
                 if($null -ne $category){$logClasses+= $category}
               }
               $logReadable=$true
+              $logUpdatedUtc=(UtcStamp (Get-Item -LiteralPath $logPath -ErrorAction Stop).LastWriteTimeUtc)
             } catch {
               $logClasses=@()
             }
@@ -281,6 +283,7 @@ jobs:
             last_task_result=[int64]$taskInfo.LastTaskResult
             controller_log_present=[bool]$logPresent
             controller_log_readable=[bool]$logReadable
+            controller_log_last_write_utc=$logUpdatedUtc
             controller_log_event_classes=@($logClasses|Select-Object -Last 12)
             installed_source_class=$installed
             installed_source_sha=$installedSha
