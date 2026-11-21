@@ -3371,12 +3371,51 @@ def admit_fresh_rebound_readonly(head_sha: str, base_sha: str,
     return "EXACT_F139_FRESH_REBOUND_READONLY_PROOF_CI_ONLY"
 
 
+
+# Fresh functional integration candidate: CI-only, never owner release authority.
+FRESH_FUNCTIONAL_BRANCH = "engineering/f139-fresh-functional-integration-20261121"
+FRESH_FUNCTIONAL_BASE = "8a4cee175aea05b57625d413e00493a93a027d92"
+FRESH_FUNCTIONAL_TREE = "a3a5929728f06ae3a0641bd2bcc875d768f8e313"
+FRESH_FUNCTIONAL_BLOBS = {
+    "f139/nci04_fresh_worker_protocol.py": "3a0c6ad2d1f9dbeb424215ce9ccd696ae076841b",
+    "f139/test_nci04_fresh_worker_protocol.py": "404c904205ec7e567c41b05294d65a099fcdb81e",
+    "f139/nci04_original_v3_terminal.py": "09210bf184eb628b565d172b6281a128c94fdd6c",
+    ".github/workflows/forge-f139-development-worker.yml": "75e53278b067d9749f367dc4e6028de7783b834d"
+}
+FRESH_FUNCTIONAL_FILES = frozenset((*FRESH_FUNCTIONAL_BLOBS, "scripts/check_rar_g145_pr_scope.py", "scripts/check_rar_g148_go_cache.py", "scripts/check_rar_g156_dynamic_base_cache.py"))
+
+
+def admit_fresh_functional(head_sha, base_sha, request, git):
+    if (not is_sha(head_sha) or base_sha != FRESH_FUNCTIONAL_BASE
+            or type(request) is not dict
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("ref") != FRESH_FUNCTIONAL_BRANCH
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_FRESH_FUNCTIONAL_OWNER_SOURCE_REQUIRED")
+    changed = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+    if (git("merge-base", base_sha, head_sha) != base_sha
+            or git("rev-parse", base_sha + "^{tree}") != FRESH_FUNCTIONAL_TREE
+            or len(changed) != len(FRESH_FUNCTIONAL_FILES)
+            or set(changed) != FRESH_FUNCTIONAL_FILES
+            or any(git("rev-parse", head_sha + ":" + p) != blob
+                   for p, blob in FRESH_FUNCTIONAL_BLOBS.items())):
+        raise ValueError("G145_FRESH_FUNCTIONAL_EXACT_BLOBS_REQUIRED")
+    return "EXACT_F139_FRESH_FUNCTIONAL_DRAFT_CI_ONLY"
+
 def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
     """Engineering CI admission only; never research, merge or FSA authority."""
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or not callable(git):
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_FUNCTIONAL_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        return admit_fresh_functional(head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_REBOUND_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                            .read_text(encoding="utf-8"))

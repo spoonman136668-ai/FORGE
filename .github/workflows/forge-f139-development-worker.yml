@@ -172,7 +172,7 @@ jobs:
 
   native-authorize:
     # Existing single F139 workflow endpoint. Secret never enters native code.
-    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' && inputs.target_package != 'f139-nci04-v3' }}
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' && inputs.target_package != 'f139-nci04-v3' && inputs.target_package != 'f139-nci04-fresh' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -262,7 +262,7 @@ jobs:
   native-execute:
     # Different ephemeral GitHub-hosted OS jobs; NO F139 signing key.
     needs: native-authorize
-    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' && inputs.target_package != 'f139-nci04-v3' && needs.native-authorize.result == 'success' }}
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' && inputs.target_package != 'f139-nci04-v3' && inputs.target_package != 'f139-nci04-fresh' && needs.native-authorize.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -835,6 +835,126 @@ jobs:
           path: |
             ${{ runner.temp }}/f139-native-v3-output/f139-v3-native-report.json
             ${{ runner.temp }}/f139-native-v3-output/f139-v3-native-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 0
+
+  # Fresh epoch uses its own claim HMAC and immutable executable release.
+  native-authorize-fresh:
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package == 'f139-nci04-fresh' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      authorization: ${{ steps.admit.outputs.authorization }}
+      native_ref: ${{ steps.admit.outputs.native_ref }}
+    env:
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_EPOCH: ${{ inputs.epoch }}
+      F139_SIGNATURE: ${{ inputs.signature }}
+      F139_NATIVE_BUNDLE: ${{ inputs.native_bundle }}
+      F139_RUNNER_OS: ubuntu-latest
+      F139_FRESH_PROTOCOL: f139-nci04-fresh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate original admission and immutable executable release
+        id: admit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          F139_WORKER_HMAC_KEY: ${{ secrets.F139_WORKER_HMAC_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $raw = & python -B -m f139.nci04_fresh_worker_protocol authorize --checkout $env:GITHUB_WORKSPACE
+          if($LASTEXITCODE -ne 0){throw 'F139_FRESH_SIGNED_AUTHORIZATION_FAILED'}
+          $proof = ($raw -join [Environment]::NewLine) | ConvertFrom-Json -ErrorAction Stop
+          if($proof.authorization_sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+             $proof.target_commit -cnotmatch '^[a-f0-9]{40}$' -or
+             $proof.ticket -cne $env:F139_TICKET -or $proof.scientific_first_use -ne $false){
+            throw 'F139_FRESH_AUTHORIZATION_HANDOFF_DRIFT'
+          }
+          "authorization=$($proof.authorization_sha256)" >> $env:GITHUB_OUTPUT
+          "native_ref=$($proof.target_commit)" >> $env:GITHUB_OUTPUT
+
+  native-execute-fresh:
+    needs: native-authorize-fresh
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package == 'f139-nci04-fresh' && needs.native-authorize-fresh.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_EPOCH: ${{ inputs.epoch }}
+      F139_NATIVE_BUNDLE: ${{ inputs.native_bundle }}
+      F139_RUNNER_OS: ${{ matrix.os }}
+      F139_FRESH_PROTOCOL: f139-nci04-fresh
+      F139_FRESH_AUTHORIZED: 'true'
+      F139_FRESH_AUTHORIZATION_SHA256: ${{ needs.native-authorize-fresh.outputs.authorization }}
+    steps:
+      - name: Preserve exact Git source bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global core.autocrlf false
+          git config --global core.safecrlf true
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: ${{ needs.native-authorize-fresh.outputs.native_ref }}
+          path: native
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing pinned V3 resource sampler
+        shell: pwsh
+        run: |
+          & python -B -m pip install --disable-pip-version-check --no-input 'psutil==6.1.1'
+          if($LASTEXITCODE -ne 0){throw 'F139_FRESH_RESOURCE_SAMPLER_UNAVAILABLE'}
+      - name: Run signed fresh development with existing V3 fixed inventory
+        shell: pwsh
+        env:
+          GOMAXPROCS: '2'
+          GOFLAGS: '-p=2'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:F139_WORKER_HMAC_KEY -or $env:GH_TOKEN -or
+             $env:GITHUB_TOKEN -or $env:OPENAI_API_KEY -or $env:CLOUDFLARE_API_TOKEN){
+            throw 'F139_FRESH_CREDENTIAL_ISOLATION'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP 'f139-native-fresh-scratch'
+          $out=Join-Path $env:RUNNER_TEMP 'f139-native-fresh-output'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          New-Item -ItemType Directory -Path $out -ErrorAction Stop | Out-Null
+          python -B -m f139.nci04_fresh_worker_protocol execute --checkout $env:GITHUB_WORKSPACE --native (Join-Path $env:GITHUB_WORKSPACE 'native') --scratch $scratch --output $out
+          if($LASTEXITCODE -ne 0){throw 'F139_FRESH_NEGATIVE_OR_INCOMPLETE_NO_REPLAY'}
+          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f139-fresh-native-receipt-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f139-native-fresh-output/f139-v3-native-report.json
+            ${{ runner.temp }}/f139-native-fresh-output/f139-v3-native-receipt.json
           if-no-files-found: warn
           retention-days: 90
           compression-level: 0
