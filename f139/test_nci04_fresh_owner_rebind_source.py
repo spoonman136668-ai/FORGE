@@ -82,7 +82,7 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
             "github.event.comment.author_association == 'OWNER'",
             "F139-FRESH-DEV-TASK-REBIND ",
             "runs-on: [self-hosted, Windows, forge-codex-isolated]",
-            "group: forge-f139-v54-original-owner",
+            "group: forge-f139-fresh-existing-disabled-task-rebind",
             "cancel-in-progress: false",
             "persist-credentials: false",
             "fetch-depth: 0",
@@ -105,6 +105,80 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
         self.assertNotIn("        shell: pwsh", text)
         self.assertIn("powershell.exe -NoProfile -NonInteractive", text)
         self.assertIn("F139_FRESH_OWNER_TASK_REBIND_FAILED_CUSTODY_HOLD", text)
+
+
+    def test_owner_rebind_isolated_from_all_legacy_pending_job_groups(self):
+        # Real original-owner run 44844005419 was cancelled before steps:
+        # unrelated issue_comment workflows shared the old pending slot.
+        rebind_group = "group: forge-f139-fresh-existing-disabled-task-rebind"
+        legacy_group = "group: forge-f139-v54-original-owner"
+        self.assertIn(rebind_group, self.workflow)
+        self.assertNotIn(legacy_group, self.workflow)
+        self.assertIn("cancel-in-progress: false", self.workflow)
+        self.assertIn("F139OriginalOwnerMutex", self.script)
+        self.assertIn("SINGLE_DISABLED_ORIGINAL_TASK_REQUIRED", self.script)
+        self.assertIn("REBINDED_OR_UNKNOWN_ATTEMPT_NO_REPLAY", self.script)
+        other_workflows = (
+            ".github/workflows/f139-v59-original-owner-readonly.yml",
+            ".github/workflows/f139-v54-original-owner-release.yml",
+        )
+        for filename in other_workflows:
+            with self.subTest(filename=filename):
+                original = (ROOT / filename).read_text(encoding="utf-8")
+                self.assertIn(legacy_group, original)
+                self.assertNotIn(rebind_group, original)
+
+    def test_exact_g145_fresh_rebind_concurrency_cancellation_fix(self):
+        from scripts import check_rar_g145_pr_scope as scope
+        head = "d" * 40
+        base = scope.FRESH_REBIND_CANCEL_BASE
+        request = {
+            "number": scope.FRESH_REBIND_CANCEL_PR,
+            "author_association": "OWNER",
+            "user": {"login": "spoonman136668-ai"},
+            "head": {
+                "ref": scope.FRESH_REBIND_CANCEL_BRANCH,
+                "sha": head,
+                "repo": {"full_name": scope.REPO},
+            },
+            "base": {
+                "ref": "main", "sha": base,
+                "repo": {"full_name": scope.REPO},
+            },
+        }
+        def git(*args):
+            if args == ("merge-base", base, head):
+                return base
+            if args == ("rev-parse", base + "^{tree}"):
+                return scope.FRESH_REBIND_CANCEL_TREE
+            if args == ("diff", "--no-renames", "--name-only", base, head):
+                return "\n".join(sorted(scope.FRESH_REBIND_CANCEL_FILES))
+            if args[0] == "rev-parse" and args[1].startswith(head + ":"):
+                return scope.FRESH_REBIND_CANCEL_BLOBS.get(
+                    args[1][len(head) + 1:], "0" * 40)
+            raise AssertionError("unexpected git call")
+        self.assertEqual(
+            scope.admit_fresh_rebind_pending_collision_fix(
+                head, base, request, git),
+            "EXACT_PR1853_F139_FRESH_OWNER_PENDING_CANCEL_FIX_CI_ONLY")
+        for override in (
+            {"number": 1852},
+            {"author_association": "CONTRIBUTOR"},
+            {"user": {"login": "foreign"}},
+            {"head": {**request["head"], "ref": "unrelated"}},
+            {"base": {**request["base"], "sha": "0" * 40}},
+        ):
+            with self.subTest(override=override):
+                with self.assertRaises(ValueError):
+                    scope.admit_fresh_rebind_pending_collision_fix(
+                        head, base, {**request, **override}, git)
+        def moved(*args):
+            if args == ("rev-parse", head + ":" + scope.FRESH_REBIND_CANCEL_WORKFLOW):
+                return "0" * 40
+            return git(*args)
+        with self.assertRaisesRegex(ValueError, "SOURCE_OR_BLOB_DRIFT"):
+            scope.admit_fresh_rebind_pending_collision_fix(
+                head, base, request, moved)
 
     def test_exact_g145_owner_shell_fix_negative_controls(self):
         from scripts import check_rar_g145_pr_scope as scope
