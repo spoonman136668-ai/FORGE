@@ -11,6 +11,7 @@ import hmac
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -35,9 +36,9 @@ from f139.nci04_fresh_lifecycle import (
 
 OWNER = "spoonman136668-ai"
 ROOT = "repos/" + REPO
-PR = 1858
-BASE = "5d9c10039dcd2155fc30764c068e804666e4e5a8"
-BRANCH = "engineering/f139-fresh-release-run-metadata-20261121"
+PR = 1859
+BASE = "d1b94307536d490781dedb502d301a0c39cd10c7"
+BRANCH = "engineering/f139-release-native-owner-ruleset-read-20261121"
 QUALIFICATION = {
     ".github/workflows/qualify.yml",
     ".github/workflows/forge-f139-source-qualification.yml",
@@ -103,7 +104,47 @@ def inspect_event(event, env):
     return target, int(run_id), comment["id"]
 
 
-def qualify_release(get, target, tree):
+
+def read_native_owner_ruleset(route):
+    """Read the immutable-ref admin fields only through the existing local owner.
+
+    The Actions GH_TOKEN may legitimately omit bypass_actors. Never confuse
+    missing administration metadata with an empty bypass list or widen access.
+    No write, secret, CLI error text, or automatic release retry is permitted.
+    """
+    need(route == ROOT + "/rulesets/26049392", "OWNER_RULESET_ROUTE_DENIED")
+    safe_env = {k: v for k, v in os.environ.items()
+                if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN",
+                             "F139_WORKER_HMAC_KEY", "GH_HOST")}
+
+    def owner_read(*args):
+        p = subprocess.run(["gh", "api", *args], env=safe_env,
+                           stdin=subprocess.DEVNULL, capture_output=True,
+                           timeout=30, check=False)
+        need(p.returncode == 0 and 0 < len(p.stdout) <= 64000,
+             "LOCAL_OWNER_READ_UNAVAILABLE")
+        return p.stdout.decode("utf-8").strip()
+
+    need(owner_read("user", "--jq", ".login") == OWNER,
+         "LOCAL_OWNER_IDENTITY_DENIED")
+    try:
+        rule = json.loads(owner_read(route))
+    except (ValueError, UnicodeDecodeError):
+        raise OwnerReleaseDenied("F139_FRESH_RELEASE_OWNER_RULESET_INVALID") from None
+    need(type(rule) is dict and type(rule.get("bypass_actors")) is list,
+         "LOCAL_OWNER_RULESET_CUSTODY_REQUIRED")
+    return rule
+
+
+def safe_denial_code(exc):
+    """Emit only a fixed-shape gate identifier, never a raw exception."""
+    code = str(exc)
+    return (code if isinstance(exc, OwnerReleaseDenied)
+            and re.fullmatch(r"F139_FRESH_RELEASE_[A-Z0-9_]{1,85}", code)
+            else "F139_FRESH_RELEASE_UNCLASSIFIED")
+
+
+def qualify_release(get, target, tree, *, ruleset_get=None):
     """Verify exact merged final PR tree, all final suites and locked worker ref."""
     main = get(ROOT + "/branches/main")
     pr = get(ROOT + "/pulls/" + str(PR))
@@ -144,7 +185,7 @@ def qualify_release(get, target, tree):
              "FULL_FINAL_EXACT_HEAD_QUALIFICATION_REQUIRED")
     name = PREFIX + target
     branch = get(ROOT + "/branches/" + name)
-    rule = get(ROOT + "/rulesets/26049392")
+    rule = (ruleset_get or get)(ROOT + "/rulesets/26049392")
     need(branch.get("name") == name and branch.get("protected") is True
          and branch.get("commit", {}).get("sha") == target
          and rule.get("id") == 26049392 and rule.get("target") == "branch"
@@ -267,7 +308,7 @@ def run_once():
     tree = git(checkout, "rev-parse", "HEAD^{tree}")
     api = GitHub()
     authenticate_event_provider(api, target, run_id, comment_id, event)
-    qualify_release(api.get, target, tree)
+    qualify_release(api.get, target, tree, ruleset_get=read_native_owner_ruleset)
     policy = inspect_policy(api.get(ROOT + "/issues/807"), OLD_SOURCE)
     need(policy["enabled"] is True and "Yggdrasil" in policy["lanes"],
          "ORIGINAL_OWNER_POLICY_DISABLED")
@@ -325,7 +366,7 @@ def run_once():
                  and git(new_src, "remote") == "",
                  "CREATE_ONLY_RELEASE_CHECKOUT_DRIFT")
             # Reverify the original provider and host immediately before writing.
-            qualify_release(api.get, target, tree)
+            qualify_release(api.get, target, tree, ruleset_get=read_native_owner_ruleset)
             authenticate_event_provider(api, target, run_id, comment_id, event)
             native_task("PROBE", old_root=old_src, new_root=new_src, db=fresh)
             release = {
@@ -368,8 +409,9 @@ def run_once():
 if __name__ == "__main__":
     try:
         run_once()
-    except Exception:
-        # Any ambiguous installation remains consumed. No raw key, provider
-        # output, local path or stack trace is returned to workflow logs.
+    except Exception as exc:
+        # Release attempts are never replayed, including source-only failures.
+        # The bounded gate identifier helps diagnose without exposing secrets.
+        print("F139_FRESH_RELEASE_DENIAL_CODE=" + safe_denial_code(exc), file=sys.stderr)
         print("F139_FRESH_OWNER_RELEASE_BLOCKED_NO_REPLAY", file=sys.stderr)
         raise SystemExit(1)

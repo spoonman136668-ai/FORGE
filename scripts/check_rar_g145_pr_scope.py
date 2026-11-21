@@ -3502,12 +3502,59 @@ def admit_fresh_release_metadata(head_sha: str, base_sha: str,
     return "EXACT_F139_RELEASE_RUN_METADATA_CI_ONLY"
 
 
+
+# Source-only repair following consumed original release #44903864380.
+# Preserve original ledger and immutable rules; not live release/worker authority.
+FRESH_RELEASE_RULE_FIX_BRANCH = "engineering/f139-release-native-owner-ruleset-read-20261121"
+FRESH_RELEASE_RULE_FIX_BASE = "d1b94307536d490781dedb502d301a0c39cd10c7"
+FRESH_RELEASE_RULE_FIX_TREE = "7ac54182b6013d3e134d9e4bc7b656b886ac5e5e"
+FRESH_RELEASE_RULE_FIX_BLOBS = {
+    "f139/nci04_fresh_owner_worker_release.py": "3f5087823a871d9884f37fab0e18ae17c49d8cdc",
+    "f139/test_nci04_fresh_owner_worker_release.py": "6c8d1f8afed44beea568a83b0920e8f35fc3916c",
+    ".github/workflows/f139-v38-original-owner-release.yml": "3f342deb7602a472ee3a7b416db3fab7b6d98926",
+}
+FRESH_RELEASE_RULE_FIX_FILES = frozenset((
+    *FRESH_RELEASE_RULE_FIX_BLOBS,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+
+def admit_fresh_release_owner_ruleset(head_sha, base_sha, request, git):
+    """Only the exact owner source repair; never use this to admit deployment."""
+    if (not is_sha(head_sha) or base_sha != FRESH_RELEASE_RULE_FIX_BASE
+            or type(request) is not dict or request.get("number") != 1859
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("ref") != FRESH_RELEASE_RULE_FIX_BRANCH
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_RELEASE_RULE_FIX_OWNER_PR1859_DENIED")
+    changed = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+    if (git("merge-base", base_sha, head_sha) != base_sha
+            or git("rev-parse", base_sha + "^{tree}") != FRESH_RELEASE_RULE_FIX_TREE
+            or len(changed) != len(FRESH_RELEASE_RULE_FIX_FILES)
+            or set(changed) != FRESH_RELEASE_RULE_FIX_FILES
+            or any(git("rev-parse", head_sha + ":" + p) != b
+                   for p, b in FRESH_RELEASE_RULE_FIX_BLOBS.items())):
+        raise ValueError("G145_RELEASE_RULE_FIX_EXACT_SOURCE_OR_BLOBS_REQUIRED")
+    return "EXACT_F139_RELEASE_OWNER_RULESET_READ_CI_ONLY"
+
+
 def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
     """Engineering CI admission only; never research, merge or FSA authority."""
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or not callable(git):
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_RELEASE_RULE_FIX_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        return admit_fresh_release_owner_ruleset(
+            head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_RELEASE_META_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
         return admit_fresh_release_metadata(head_sha, base_sha, event["pull_request"], git)

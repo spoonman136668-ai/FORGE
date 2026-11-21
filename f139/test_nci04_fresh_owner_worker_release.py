@@ -1,6 +1,9 @@
 """Native release source qualification only; never mutate a live task."""
 from copy import deepcopy
 import os
+import json
+from pathlib import Path
+from unittest import mock
 import subprocess
 import shutil
 import unittest
@@ -9,6 +12,7 @@ from f139.nci04_fresh_owner_worker_release import (
     BASE, BRANCH, ROOT, REPO, OWNER, PR, PREFIX, QUALIFICATION,
     OWNER_WORKFLOW, OWNER_RELEASE_PREFIX, FRESH_RUN, TASK_SOURCE,
     OwnerReleaseDenied, inspect_event, qualify_release,
+    read_native_owner_ruleset, safe_denial_code,
 )
 
 
@@ -127,6 +131,61 @@ class FreshOwnerWorkerReleaseTests(unittest.TestCase):
                            ("GITHUB_ACTOR", "foreign"), ("OPENAI_API_KEY", "synthetic-blocked")):
             with self.subTest(key=key), self.assertRaises(OwnerReleaseDenied):
                 inspect_event(self.event, dict(self.env, **{key: value}))
+
+
+    def test_local_native_owner_read_required_not_actions_token(self):
+        calls = []
+        def fake_run(args, **kwargs):
+            calls.append((args, kwargs))
+            if args == ["gh", "api", "user", "--jq", ".login"]:
+                return subprocess.CompletedProcess(args, 0, b"spoonman136668-ai\n", b"")
+            if args == ["gh", "api", ROOT+"/rulesets/26049392"]:
+                return subprocess.CompletedProcess(
+                    args, 0, json.dumps(self.routes[ROOT+"/rulesets/26049392"]).encode(), b"")
+            raise AssertionError("unexpected native command")
+
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "synthetic",
+                                         "GITHUB_TOKEN": "synthetic",
+                                         "F139_WORKER_HMAC_KEY": "synthetic"}), \
+             mock.patch("f139.nci04_fresh_owner_worker_release.subprocess.run",
+                        side_effect=fake_run):
+            rule = read_native_owner_ruleset(ROOT+"/rulesets/26049392")
+        self.assertEqual(rule["bypass_actors"], [])
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(c[1]["env"].get("GH_TOKEN") is None and
+                            c[1]["env"].get("GITHUB_TOKEN") is None and
+                            c[1]["env"].get("F139_WORKER_HMAC_KEY") is None
+                            for c in calls))
+        self.assertEqual(
+            qualify_release(self.get, self.target, self.tree,
+                            ruleset_get=lambda route: rule), self.head)
+        with self.assertRaises(OwnerReleaseDenied):
+            read_native_owner_ruleset(ROOT+"/pulls/1859")
+
+    def test_local_owner_mismatch_and_admin_metadata_absence_denied(self):
+        for stdout in (b"foreign-owner\n", b""):
+            with self.subTest(stdout=stdout), \
+                 mock.patch("f139.nci04_fresh_owner_worker_release.subprocess.run",
+                            return_value=subprocess.CompletedProcess(["gh"], 0, stdout, b"")):
+                with self.assertRaises(OwnerReleaseDenied):
+                    read_native_owner_ruleset(ROOT+"/rulesets/26049392")
+        with mock.patch("f139.nci04_fresh_owner_worker_release.subprocess.run",
+                        side_effect=[
+                            subprocess.CompletedProcess(["gh"], 0, b"spoonman136668-ai\n", b""),
+                            subprocess.CompletedProcess(["gh"], 0, b'{"id":26049392}', b""),
+                        ]):
+            with self.assertRaises(OwnerReleaseDenied):
+                read_native_owner_ruleset(ROOT+"/rulesets/26049392")
+        self.assertEqual(safe_denial_code(ValueError("secret")), "F139_FRESH_RELEASE_UNCLASSIFIED")
+        self.assertEqual(safe_denial_code(OwnerReleaseDenied("F139_FRESH_RELEASE_OWNER_RULESET_INVALID")),
+                         "F139_FRESH_RELEASE_OWNER_RULESET_INVALID")
+
+    def test_legacy_v40_push_handoff_retired_before_next_immutable_ref(self):
+        workflow = (Path(__file__).resolve().parents[1]
+                    / ".github/workflows/f139-v38-original-owner-release.yml").read_text()
+        self.assertIn("  handoff-v40:\n    # Retired", workflow)
+        self.assertIn("    if: ${{ false }}\n", workflow.split("  handoff-v40:", 1)[1].split("    runs-on:", 1)[0])
+        self.assertIn("    if: github.actor", workflow.split("  install-v39:", 1)[1].split("    runs-on:", 1)[0])
 
     def test_existing_task_only_no_dispatch_or_secondary_controller(self):
         for term in ("Register-ScheduledTask", "Unregister-ScheduledTask", "gh api",
