@@ -118,7 +118,14 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
     def test_owner_host_shell_is_builtin_powershell_not_absent_pwsh(self):
         text = self.workflow
         self.assertIn("        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}\n", text)
-        self.assertEqual(text.count("        shell: powershell -NoProfile"), 1)
+        original, release = text.split("\n  release-existing-fresh-task:\n")
+        self.assertEqual(original.count("        shell: powershell -NoProfile"), 1)
+        self.assertEqual(release.count("        shell: powershell -NoProfile"), 1)
+        self.assertNotIn("F139-FRESH-DEV-WORKER-RELEASE ", original)
+        self.assertNotIn("F139-FRESH-DEV-TASK-REBIND ", release)
+        self.assertIn("nci04_fresh_owner_worker_release", release)
+        self.assertIn("Import-Clixml", release)
+        self.assertIn("Remove-Item Env:F139_WORKER_HMAC_KEY", release)
         self.assertNotIn("        shell: powershell\n", text)
         self.assertNotIn("        shell: powershell.exe -NoProfile", text)
         self.assertNotIn("Set-ExecutionPolicy", text)

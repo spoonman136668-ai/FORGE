@@ -1,8 +1,8 @@
 """Fresh lifecycle in the existing SQLite ledger, not a second controller.
 
 The release event must be installed by the separately authenticated native
-Windows owner route. No release writer, scheduler or provider POST is defined
-here. A committed START_RISK is permanently consumed even if POST acknowledgment
+Windows owner route. The existing controller calls this route under its lock.
+No scheduler or second controller is defined here. A committed START_RISK is permanently consumed even if POST acknowledgment
 is lost. Only the original controller may call these primitives under its lock.
 """
 from __future__ import annotations
@@ -11,6 +11,9 @@ import base64
 import hmac
 import hashlib
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 from f139.nci04_native_contract import canonical, digest, parse_intent
@@ -28,6 +31,7 @@ from f139.local_controller import (
 
 RELEASE_KIND = "FRESH_WORKER_RELEASE_AUTHENTICATED"
 CUSTODY_KIND = "FRESH_WORKER_PROVIDER_CUSTODY"
+NEGATIVE_KIND = "FRESH_WORKER_PROVIDER_NEGATIVE"
 RELEASE_SCHEMA = "forge.f139.fresh-worker-owner-release.v1"
 CUSTODY_SCHEMA = "forge.f139.fresh-worker-provider-custody.v1"
 RELEASE_DOMAIN = b"FORGE-F139-FRESH-WORKER-OWNER-RELEASE-V1\0"
@@ -222,11 +226,19 @@ def audit_execution_tail(db, activation, rows):
             e.update(stage="START_RISK", claim=row, started_at=doc["started_at"])
             committed_claim(e, release)
         elif kind == "DISPATCH_POST_RETURNED":
-            need(e["stage"] == "START_RISK" and doc == {"ticket": ticket},
+            need(e["stage"] == "START_RISK" and not e.get("negative") and doc == {"ticket": ticket},
                  "POST_ACK_WITHOUT_UNIQUE_CLAIM")
             e["stage"] = "WAIT_PROVIDER"
+        elif kind == NEGATIVE_KIND:
+            need(e["stage"] in ("START_RISK", "WAIT_PROVIDER") and not e.get("negative"),
+                 "NEGATIVE_WITHOUT_UNIQUE_CONSUMED_CLAIM")
+            claim, _ = committed_claim(e, release)
+            audit_negative_record(doc, claim)
+            need(doc["run_id"] not in run_ids, "NEGATIVE_RUN_REUSED")
+            run_ids.add(doc["run_id"])
+            e["negative"] = doc
         elif kind == "PROVIDER_VERIFIED_TERMINAL":
-            need(e["stage"] in ("START_RISK", "WAIT_PROVIDER")
+            need(e["stage"] in ("START_RISK", "WAIT_PROVIDER") and not e.get("negative")
                  and i + 1 < len(rows) and rows[i + 1]["kind"] == CUSTODY_KIND,
                  "TERMINAL_WITHOUT_CUSTODY")
             custody = read_event(rows[i + 1])
@@ -330,7 +342,7 @@ def reserve_claim(db, api, key, *, now):
 def acknowledge_post(db, key, *, ticket):
     """Only call after the one original POST returned. No retry on failure."""
     _, entries = read_lifecycle(db, key)
-    need(entries[-1]["stage"] == "START_RISK"
+    need(entries[-1]["stage"] == "START_RISK" and not entries[-1].get("negative")
          and entries[-1]["record"]["ticket"] == ticket,
          "UNMATCHED_POST_ACK")
     db.dispatch_observed(ticket)
@@ -341,7 +353,7 @@ def settle_provider(db, api, key, *, run_id, now):
     """GET-only settlement, including recovery after a lost POST acknowledgement."""
     release, entries = read_lifecycle(db, key)
     e = entries[-1]
-    need(e["stage"] in ("START_RISK", "WAIT_PROVIDER"),
+    need(e["stage"] in ("START_RISK", "WAIT_PROVIDER") and not e.get("negative"),
          "NO_UNSETTLED_CLAIM")
     claim, raw = committed_claim(e, release)
     # Lookup exact ticket/ref history before accepting the provider run.
@@ -522,3 +534,289 @@ def admit_next_successor(db, api, key):
             db.verify()
         return record
     return None
+
+
+OWNER_WORKFLOW = ".github/workflows/f139-fresh-original-owner-rebind.yml"
+OWNER_RELEASE_PREFIX = "F139-FRESH-DEV-WORKER-RELEASE "
+OWNER_RELEASE_JOB = "release-existing-fresh-task"
+
+
+def authenticate_runtime_owner(db, api, release):
+    """Require the installed original Windows task and completed native release.
+
+    A local signed event, GitHub owner association, test pass, or caller-
+    supplied key is insufficient alone. The live SID, actual task, immutable
+    checkout, and separately executed original-owner workflow must all agree.
+    """
+    from f139.nci04_fresh_worker_protocol import REPO, PREFIX
+    from f139.local_controller import legacy_windows_task_disabled
+    from f139.nci04_autonomy_feed import inspect_policy
+    from f139.nci04_v59_owner_forward_readiness import SOURCE as OLD_SOURCE
+    need(os.name == "nt" and SingleOwner.held(db.filename.with_suffix(".lock"))
+         and not os.environ.get("OPENAI_API_KEY")
+         and not os.environ.get("CLOUDFLARE_API_TOKEN"),
+         "NATIVE_WINDOWS_OWNER_REQUIRED")
+    profile = os.environ.get("LOCALAPPDATA")
+    need(bool(profile), "OWNER_PROFILE_MISSING")
+    root = Path(profile) / "FORGE-F139"
+    expected_db = root / ("f139-fresh-dev-" + str(FRESH_RUN)) / "state.sqlite"
+    expected_src = root / "release-candidates" / release["worker_release_sha"]
+    actual_src = Path(__file__).resolve().parent.parent
+    need(db.filename.resolve() == expected_db.resolve()
+         and actual_src == expected_src.resolve()
+         and not any(p.is_symlink() or getattr(p, "is_junction", lambda: False)()
+                     for p in (expected_db, expected_db.parent, expected_src,
+                               expected_src.parent, root)),
+         "NATIVE_INSTALLED_SOURCE_OR_DB_DRIFT")
+    git = shutil.which("git")
+    powershell = shutil.which("powershell.exe")
+    need(git is not None and powershell is not None, "OWNER_TOOLS_MISSING")
+
+    def git_text(*args):
+        p = subprocess.run([git, "-C", str(actual_src), *args],
+                           capture_output=True, stdin=subprocess.DEVNULL,
+                           timeout=20, check=False)
+        need(p.returncode == 0 and len(p.stdout) <= 64000, "OWNER_GIT_READ_FAILED")
+        return p.stdout.decode("utf-8").strip()
+
+    need(git_text("rev-parse", "HEAD") == release["worker_release_sha"]
+         and git_text("rev-parse", "HEAD^{tree}") == release["worker_release_tree"]
+         and git_text("status", "--porcelain", "--untracked-files=all") == ""
+         and git_text("remote") == "", "OWNER_INSTALLED_GIT_DRIFT")
+    script = r"""
+$ErrorActionPreference='Stop'
+$task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+$who=[Security.Principal.WindowsIdentity]::GetCurrent()
+$sid=''
+try{$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value}catch{}
+if([string]$task.Principal.UserId -ine $who.Name -and $sid -cne $who.User.Value){exit 41}
+if($task.State -ne 'Running' -or $task.Settings.Enabled -ne $true -or @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){exit 42}
+$a=$task.Actions[0]
+if([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe'){exit 43}
+function Arg([string]$name){
+  $m=[regex]::Match([string]$a.Arguments,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+  if(-not $m.Success){throw 'OWNER_TASK_ARG_MISSING'}
+  return [IO.Path]::GetFullPath($m.Groups[1].Value)
+}
+if((Arg 'RepositoryRoot') -ine [IO.Path]::GetFullPath($env:F139_EXPECTED_ROOT) -or
+   (Arg 'Database') -ine [IO.Path]::GetFullPath($env:F139_EXPECTED_DB) -or
+   (Arg 'File') -ine [IO.Path]::GetFullPath((Join-Path $env:F139_EXPECTED_ROOT 'scripts\Run-FORGE-F139.ps1')) -or
+   (Arg 'PythonExe') -ine [IO.Path]::GetFullPath($env:F139_EXPECTED_PYTHON)){exit 44}
+$ownerProcesses=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
+  Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller')})
+if($ownerProcesses.Count -ne 1 -or [int]$ownerProcesses[0].ProcessId -ne [int]$env:F139_EXPECTED_PID){exit 45}
+# Windows Job supervisor starts the Python child directly from the scheduled wrapper.
+$parent=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$ownerProcesses[0].ParentProcessId)
+if($null -eq $parent -or $parent.Name -ine 'powershell.exe' -or
+   -not $parent.CommandLine -or -not $parent.CommandLine.Contains('Run-FORGE-F139.ps1') -or
+   -not $parent.CommandLine.Contains($env:F139_EXPECTED_ROOT) -or
+   -not $parent.CommandLine.Contains($env:F139_EXPECTED_DB)){exit 46}
+Write-Output 'F139_FRESH_RUNNING_ORIGINAL_OWNER=PASS'
+"""
+    import sys
+    env = dict(os.environ, F139_EXPECTED_ROOT=str(actual_src),
+               F139_EXPECTED_DB=str(expected_db.resolve()),
+               F139_EXPECTED_PYTHON=str(Path(sys.executable).resolve()),
+               F139_EXPECTED_PID=str(os.getpid()))
+    # No need for the child PowerShell read-only verifier to inherit the key.
+    env.pop("F139_WORKER_HMAC_KEY", None)
+    p = subprocess.run([powershell, "-NoProfile", "-NonInteractive", "-Command", script],
+                       env=env, capture_output=True, stdin=subprocess.DEVNULL,
+                       timeout=25, check=False)
+    need(p.returncode == 0 and p.stdout.strip() == b"F139_FRESH_RUNNING_ORIGINAL_OWNER=PASS",
+         "LIVE_ORIGINAL_TASK_OR_SID_DRIFT")
+    legacy_windows_task_disabled()
+    need(api.legacy_dispatchers_disabled() is True, "LEGACY_DISPATCHERS_ACTIVE")
+    root_route = "repos/" + REPO
+    policy = inspect_policy(api.get(root_route + "/issues/807"), OLD_SOURCE)
+    need(policy["enabled"] is True and "Yggdrasil" in policy["lanes"],
+         "OWNER_POLICY_DISABLED")
+    comment_route = root_route + "/issues/comments/" + str(release["owner_comment_id"])
+    comment = api.get(comment_route)
+    need(comment.get("id") == release["owner_comment_id"]
+         and comment.get("issue_url") == "https://api.github.com/" + root_route + "/issues/1830"
+         and comment.get("user", {}).get("login") == "spoonman136668-ai"
+         and comment.get("author_association") == "OWNER"
+         and comment.get("body") == OWNER_RELEASE_PREFIX + release["worker_release_sha"]
+             + " " + str(FRESH_RUN),
+         "NATIVE_RELEASE_OWNER_COMMENT_DRIFT")
+    run_route = root_route + "/actions/runs/" + str(release["owner_run_id"])
+    run = api.get(run_route)
+    need(run.get("id") == release["owner_run_id"]
+         and run.get("event") == "issue_comment"
+         and run.get("path") == OWNER_WORKFLOW
+         and run.get("head_sha") == release["worker_release_sha"]
+         and run.get("run_attempt") == 1
+         and run.get("status") == "completed" and run.get("conclusion") == "success"
+         and run.get("actor", {}).get("login") == "spoonman136668-ai"
+         and run.get("repository", {}).get("full_name") == REPO
+         and parse_time(run["created_at"]) >= parse_time(comment["created_at"]),
+         "NATIVE_RELEASE_WORKFLOW_NOT_COMPLETED")
+    jobs = api.get(run_route + "/jobs?per_page=100")
+    rows = jobs.get("jobs")
+    need(type(rows) is list and jobs.get("total_count") == len(rows)
+         and sum(j.get("name") == OWNER_RELEASE_JOB and j.get("status") == "completed"
+                 and j.get("runner_name") == "FORGE-CODEX-REMOTE"
+                 and j.get("conclusion") == "success" for j in rows) == 1
+         and all(j.get("name") == OWNER_RELEASE_JOB
+                 or (j.get("status") == "completed" and j.get("conclusion") == "skipped")
+                 for j in rows), "NATIVE_RELEASE_WINDOWS_JOB_NOT_COMPLETED")
+    branch_route = root_route + "/branches/" + PREFIX + release["worker_release_sha"]
+    branch = api.get(branch_route)
+    commit = api.get(root_route + "/git/commits/" + release["worker_release_sha"])
+    need(branch.get("protected") is True
+         and branch.get("name") == PREFIX + release["worker_release_sha"]
+         and branch.get("commit", {}).get("sha") == release["worker_release_sha"]
+         and commit.get("sha") == release["worker_release_sha"]
+         and commit.get("tree", {}).get("sha") == release["worker_release_tree"]
+         and api.get(run_route) == run and api.get(comment_route) == comment
+         and api.get(branch_route) == branch,
+         "NATIVE_RELEASE_PROVIDER_DRIFT")
+
+
+
+def audit_negative_record(doc, claim):
+    need(type(doc) is dict and set(doc) == {
+        "schema", "ticket", "run_id", "claim_sha256", "worker_release_sha",
+        "conclusion", "jobs", "artifacts", "scientific_first_use",
+        "development_qualified", "no_replay",
+    } and doc["schema"] == "forge.f139.fresh-worker-provider-negative.v1"
+         and doc["ticket"] == claim["ticket"] and pos(doc["run_id"])
+         and doc["claim_sha256"] == digest(canonical(claim))
+         and doc["worker_release_sha"] == claim["worker_release_sha"]
+         and doc["conclusion"] in ("failure", "cancelled", "timed_out", "action_required",
+                                  "startup_failure", "stale", "neutral", "skipped")
+         and doc["scientific_first_use"] is False
+         and doc["development_qualified"] is False and doc["no_replay"] is True
+         and type(doc["jobs"]) is list and len(doc["jobs"]) <= 16
+         and type(doc["artifacts"]) is list and len(doc["artifacts"]) <= 2,
+         "NEGATIVE_PROVIDER_RECORD_INVALID")
+    need(all(type(j) is dict and set(j) == {"id", "name", "conclusion"}
+             and pos(j["id"]) and type(j["name"]) is str and len(j["name"]) <= 128
+             and j["conclusion"] in ("success", "failure", "skipped", "cancelled",
+                                     "timed_out", "action_required", "startup_failure", "neutral", "stale")
+             for j in doc["jobs"])
+         and len({j["id"] for j in doc["jobs"]}) == len(doc["jobs"])
+         and all(type(a) is dict and set(a) == {"id", "name", "digest", "expired"}
+                 and pos(a["id"]) and a["name"] in {
+                     "forge-f139-fresh-native-receipt-" + label for label in OS}
+                 and type(a["expired"]) is bool
+                 and type(a["digest"]) is str and a["digest"].startswith("sha256:")
+                 and sha(SHA64, a["digest"][7:]) for a in doc["artifacts"])
+         and len({a["id"] for a in doc["artifacts"]}) == len(doc["artifacts"]),
+         "NEGATIVE_PROVIDER_METADATA_INVALID")
+
+
+def retain_negative_observation(db, api, release, entry, run):
+    """One durable negative observation; never eligible for successor or replay.
+
+    Preserve GitHub original run/job/artifact identity even if qualification
+    failed before two complete signed archives exist. This is not positive
+    terminal custody, and no source/worker retry is authorized by it.
+    """
+    from f139.nci04_fresh_worker_protocol import REPO, WORKFLOW, PREFIX
+    claim, raw = committed_claim(entry, release)
+    rid = run["id"]
+    route = "repos/" + REPO + "/actions/runs/" + str(rid)
+    observed = api.get(route)
+    need(observed.get("id") == rid and observed.get("head_sha") == claim["worker_release_sha"]
+         and observed.get("head_branch") == PREFIX + claim["worker_release_sha"]
+         and observed.get("display_title") == observed.get("name") == "F139 " + claim["ticket"]
+         and observed.get("event") == "workflow_dispatch" and observed.get("workflow_id") == 388797257
+         and observed.get("path") == ".github/workflows/" + WORKFLOW
+         and observed.get("repository", {}).get("full_name") == REPO
+         and observed.get("actor", {}).get("login") == "spoonman136668-ai"
+         and observed.get("run_attempt") == 1 and observed.get("status") == "completed"
+         and observed.get("conclusion") == run.get("conclusion")
+         and parse_time(observed["created_at"]) >= parse_time(entry["started_at"]),
+         "NEGATIVE_PROVIDER_IDENTITY_DRIFT")
+    jobs = api.get(route + "/jobs?per_page=100")
+    arts = api.get(route + "/artifacts?per_page=100")
+    jr, ar = jobs.get("jobs"), arts.get("artifacts")
+    need(type(jr) is list and jobs.get("total_count") == len(jr) <= 16
+         and all(j.get("status") == "completed" for j in jr)
+         and type(ar) is list and arts.get("total_count") == len(ar) <= 2
+         and all(a.get("workflow_run", {}).get("id") == rid
+                 and a.get("workflow_run", {}).get("head_sha") == claim["worker_release_sha"]
+                 for a in ar)
+         and api.get(route) == observed,
+         "NEGATIVE_PROVIDER_INVENTORY_DRIFT")
+    record = {
+        "schema": "forge.f139.fresh-worker-provider-negative.v1",
+        "ticket": claim["ticket"], "run_id": rid,
+        "claim_sha256": digest(canonical(claim)), "worker_release_sha": claim["worker_release_sha"],
+        "conclusion": observed["conclusion"],
+        "jobs": [{k: j[k] for k in ("id", "name", "conclusion")} for j in jr],
+        "artifacts": [{k: a[k] for k in ("id", "name", "digest", "expired")} for a in ar],
+        "scientific_first_use": False, "development_qualified": False, "no_replay": True,
+    }
+    audit_negative_record(record, claim)
+    with db.transaction():
+        db.verify()
+        need(not db.conn.execute("SELECT 1 FROM events WHERE kind=?", (NEGATIVE_KIND,)).fetchone(),
+             "NEGATIVE_OBSERVATION_ALREADY_CONSUMED")
+        db.event(NEGATIVE_KIND, record)
+        db.verify()
+    return record
+
+
+def tick_existing_fresh_owner(db, api, key, *, now):
+    """One bounded step in the EXISTING run_once loop, after native release.
+
+    READY -> commit claim -> one POST -> ack. Any ambiguous provider start is
+    permanently spent, with subsequent ticks GET-only. Successful terminal
+    custody allows a distinct eligible successor on a later tick.
+    """
+    from f139.local_controller import F139Error
+    from f139.nci04_fresh_worker_protocol import dispatch_arguments, REPO, PREFIX, WORKFLOW
+    release, entries = read_lifecycle(db, key)
+    authenticate_runtime_owner(db, api, release)
+    e = entries[-1]
+    ticket = e["record"]["ticket"]
+    result = {"ticket": ticket, "scientific_first_use": False,
+              "model_continuation_authorized": False, "paid_model_calls": 0,
+              "dispatches": 0, "no_replay": True}
+    if e.get("negative"):
+        return dict(result, disposition="FRESH_FAILED_PROVIDER_RETAINED_NO_REPLAY",
+                    run_id=e["negative"]["run_id"], provider_conclusion=e["negative"]["conclusion"])
+    if e["stage"] == "READY":
+        claim, raw = reserve_claim(db, api, key, now=now)
+        # Re-read provider authorization after the durable claim. Any failure
+        # conservatively spends the claim instead of creating another POST.
+        authenticate_provider(claim, raw, api.native_repo_get)
+        try:
+            api.runner(dispatch_arguments(key, claim, raw))
+        except (F139Error, OSError, subprocess.TimeoutExpired):
+            return dict(result, disposition="FRESH_START_RISK_NO_REPLAY")
+        acknowledge_post(db, key, ticket=ticket)
+        return dict(result, disposition="FRESH_WAIT_PROVIDER", dispatches=1)
+    if e["stage"] in ("START_RISK", "WAIT_PROVIDER"):
+        run = api.candidates_for_source(ticket, e["started_at"], release["worker_release_sha"])
+        if run is None:
+            return dict(result, disposition="FRESH_START_RISK_NO_VISIBLE_RUN_NO_REPLAY")
+        need(type(run) is dict and pos(run.get("id"))
+             and run.get("head_sha") == release["worker_release_sha"]
+             and run.get("head_branch") == PREFIX + release["worker_release_sha"]
+             and run.get("event") == "workflow_dispatch"
+             and run.get("workflow_id") == 388797257
+             and run.get("path") == ".github/workflows/" + WORKFLOW
+             and run.get("display_title") == "F139 " + ticket
+             and run.get("run_attempt") == 1
+             and run.get("repository", {}).get("full_name") == REPO,
+             "FRESH_RUN_IDENTITY_DRIFT")
+        if run.get("status") in ("queued", "requested", "in_progress", "waiting", "pending"):
+            return dict(result, disposition="FRESH_WAIT_PROVIDER", run_id=run["id"])
+        need(run.get("status") == "completed", "FRESH_RUN_STATUS_UNRECOGNIZED")
+        if run.get("conclusion") != "success":
+            # Leave the consumed reservation intact. A failed run is never
+            # positive terminal or eligible for automatic replay/admission.
+            record = retain_negative_observation(db, api, release, e, run)
+            return dict(result, disposition="FRESH_FAILED_PROVIDER_RETAINED_NO_REPLAY",
+                        run_id=record["run_id"], provider_conclusion=record["conclusion"])
+        custody = settle_provider(db, api, key, run_id=run["id"], now=now)
+        return dict(result, disposition="FRESH_VERIFIED_TERMINAL",
+                    run_id=custody["run_id"], development_qualified=True)
+    need(e["stage"] == "VERIFIED", "FRESH_TERMINAL_STATE_INVALID")
+    new = admit_next_successor(db, api, key)
+    return dict(result, disposition="FRESH_SUCCESSOR_READY" if new else "FRESH_NO_ELIGIBLE_SUCCESSOR",
+                successor_ticket=new["ticket"] if new else None)

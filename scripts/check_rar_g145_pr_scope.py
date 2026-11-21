@@ -3383,9 +3383,14 @@ FRESH_FUNCTIONAL_BLOBS = {
     ".github/workflows/forge-f139-development-worker.yml": "75e53278b067d9749f367dc4e6028de7783b834d",
     "f139/nci04_fresh_native_intake.py": "adc1c0c8baca882d846980f3215e6e0441c2b7de",
     "f139/nci04_fresh_native_activation.py": "725b2533969b7a8c0a2131817873f57b22311c1f",
-    "f139/nci04_fresh_lifecycle.py": "bb82634531dc408b993115341a5412cb6281e7b7",
-    "f139/test_nci04_fresh_lifecycle.py": "194e0765f80d0004062c43326eadd39a4f7beb49",
+    "f139/nci04_fresh_lifecycle.py": "0b3d206a1652db6e9ac48db55b59c68458b1377f",
+    "f139/test_nci04_fresh_lifecycle.py": "3c2dd3e0c5b1cfd4fa8e4b635c00d6a3221ab3ff",
     "f139/nci04_fresh_native_owner_route.py": "72804619c3d4eb4d03e39502d4c7d541fa8ad16e",
+    "f139/local_controller.py": "63216e6482ee228cced46ffe87c124955e961f3b",
+    "f139/nci04_fresh_owner_worker_release.py": "99d3fac6cb7d0a5e67edff779c48a3d21c088a78",
+    ".github/workflows/f139-fresh-original-owner-rebind.yml": "dd94be6064b012cea1b31d24f44e297dcfc440a1",
+    "f139/test_nci04_fresh_owner_rebind_source.py": "78784730a2e9e9d308ea00c0efe91d2304e00be3",
+    "f139/test_nci04_fresh_owner_worker_release.py": "bb672bdca9b00d319c8540fc6a05b27069402487"
 }
 FRESH_FUNCTIONAL_FILES = frozenset((*FRESH_FUNCTIONAL_BLOBS, "scripts/check_rar_g145_pr_scope.py", "scripts/check_rar_g148_go_cache.py", "scripts/check_rar_g156_dynamic_base_cache.py"))
 
@@ -3393,6 +3398,7 @@ FRESH_FUNCTIONAL_FILES = frozenset((*FRESH_FUNCTIONAL_BLOBS, "scripts/check_rar_
 def admit_fresh_functional(head_sha, base_sha, request, git):
     if (not is_sha(head_sha) or base_sha != FRESH_FUNCTIONAL_BASE
             or type(request) is not dict
+            or request.get("number") != 1856
             or request.get("author_association") != "OWNER"
             or request.get("user", {}).get("login") != "spoonman136668-ai"
             or request.get("head", {}).get("ref") != FRESH_FUNCTIONAL_BRANCH

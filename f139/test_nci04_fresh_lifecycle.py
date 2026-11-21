@@ -9,8 +9,9 @@ import json
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
-from f139.local_controller import Database, SingleOwner
+from f139.local_controller import Database, SingleOwner, F139Error, run_once
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_fresh_native_activation import ACTIVATION_KIND, ACTIVATION_SCHEMA
 from f139.nci04_fresh_native_intake import KIND, SCHEMA as INTAKE_SCHEMA
@@ -144,6 +145,7 @@ class FreshLifecycleTests(unittest.TestCase):
             "head_sha": source, "head_branch": PREFIX + source,
             "run_attempt": 1, "status": "completed", "conclusion": "success",
             "repository": {"full_name": REPO}, "created_at": self.now,
+            "actor": {"login": "spoonman136668-ai"},
         }
         jobs = [{"id": 10, "name": "native-authorize-fresh",
                  "status": "completed", "conclusion": "success"}]
@@ -271,6 +273,82 @@ class FreshLifecycleTests(unittest.TestCase):
             "SELECT stage FROM tasks ORDER BY ticket")], ["VERIFIED", "READY"])
         self.assertEqual([(r["seq"], r["sha"]) for r in self.db.conn.execute(
             "SELECT seq,sha FROM events WHERE seq<=4 ORDER BY seq")], self.prefix)
+
+
+
+    def test_original_run_once_recovers_lost_post_without_second_submission(self):
+        self.install_synthetic_release()
+        posts = []
+
+        def lost_ack(args):
+            posts.append(args)
+            raise F139Error("SYNTHETIC_POST_TIMEOUT")
+
+        self.runner = lost_ack
+        classify = {"disposition": "FRESH_EXECUTION_HISTORY_RECORDED_DISPATCH_BLOCKED"}
+        with patch("f139.nci04_fresh_native_owner_route.inspect_staged_fresh_native_mode",
+                   return_value=classify), patch(
+                       "f139.nci04_fresh_lifecycle.authenticate_runtime_owner") as host:
+            with SingleOwner(self.path.with_suffix(".lock")):
+                out = run_once(self.db, self, self.path, self.key, now=self.now)
+                self.assertEqual(out["disposition"], "FRESH_START_RISK_NO_REPLAY")
+                self.assertEqual(len(posts), 1)
+                from f139.nci04_fresh_lifecycle import committed_claim
+                release, entries = read_lifecycle(self.db, self.key)
+                claim, raw = committed_claim(entries[-1], release)
+            self.reopen()
+            self.prepare_provider(claim, raw)
+            with SingleOwner(self.path.with_suffix(".lock")):
+                out = run_once(self.db, self, self.path, self.key, now=self.finished)
+                self.assertEqual(out["disposition"], "FRESH_VERIFIED_TERMINAL")
+                self.assertEqual(len(posts), 1)
+                self.assertTrue(out["development_qualified"])
+            self.assertEqual(host.call_count, 2)
+        self.reopen()
+        self.assertEqual(self.db.meta()["head_seq"], 8)
+
+    def test_original_run_once_does_not_spend_claim_if_live_owner_denied(self):
+        self.install_synthetic_release()
+        classify = {"disposition": "FRESH_EXECUTION_HISTORY_RECORDED_DISPATCH_BLOCKED"}
+        with patch("f139.nci04_fresh_native_owner_route.inspect_staged_fresh_native_mode",
+                   return_value=classify), patch(
+                       "f139.nci04_fresh_lifecycle.authenticate_runtime_owner",
+                       side_effect=FreshLifecycleDenied("SYNTHETIC_HOST_DENIAL")):
+            with SingleOwner(self.path.with_suffix(".lock")):
+                with self.assertRaises(F139Error):
+                    run_once(self.db, self, self.path, self.key, now=self.now)
+        self.assertEqual(self.db.meta()["head_seq"], 5)
+        self.assertFalse(self.api_calls)
+
+
+
+    def test_run_once_retains_one_negative_and_never_reposts_after_restart(self):
+        self.install_synthetic_release()
+        posts = []
+        self.runner = lambda args: posts.append(args)
+        classify = {"disposition": "FRESH_EXECUTION_HISTORY_RECORDED_DISPATCH_BLOCKED"}
+        with patch("f139.nci04_fresh_native_owner_route.inspect_staged_fresh_native_mode",
+                   return_value=classify), patch("f139.nci04_fresh_lifecycle.authenticate_runtime_owner"):
+            with SingleOwner(self.path.with_suffix(".lock")):
+                first = run_once(self.db, self, self.path, self.key, now=self.now)
+                self.assertEqual(first["dispatches"], 1)
+                from f139.nci04_fresh_lifecycle import committed_claim
+                release, entries = read_lifecycle(self.db, self.key)
+                claim, raw = committed_claim(entries[-1], release)
+            self.prepare_provider(claim, raw)
+            route = "repos/" + REPO + "/actions/runs/" + str(self.rid)
+            self.routes[route]["conclusion"] = "failure"
+            self.routes[route+"/jobs?per_page=100"]["jobs"][1]["conclusion"] = "failure"
+            with SingleOwner(self.path.with_suffix(".lock")):
+                result = run_once(self.db, self, self.path, self.key, now=self.finished)
+                self.assertEqual(result["disposition"], "FRESH_FAILED_PROVIDER_RETAINED_NO_REPLAY")
+            self.reopen()
+            with SingleOwner(self.path.with_suffix(".lock")):
+                again = run_once(self.db, self, self.path, self.key, now=self.finished)
+                self.assertEqual(again, result)
+                self.assertEqual(len(posts), 1)
+            self.assertEqual(self.db.conn.execute(
+                "SELECT count(*) FROM events WHERE kind='FRESH_WORKER_PROVIDER_NEGATIVE'").fetchone()[0], 1)
 
 
 

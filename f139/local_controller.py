@@ -4814,6 +4814,13 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     )
     fresh_staging = inspect_staged_fresh_native_mode(db, db_path)
     if fresh_staging is not None:
+        if fresh_staging["disposition"] == "FRESH_EXECUTION_HISTORY_RECORDED_DISPATCH_BLOCKED":
+            from f139.nci04_fresh_lifecycle import tick_existing_fresh_owner
+            try:
+                return tick_existing_fresh_owner(db, api, hmac_key, now=timestamp)
+            except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+                # No raw provider, key, filesystem or exception data in loop logs.
+                raise F139Error("F139_FRESH_NATIVE_RUNTIME_CUSTODY_BLOCKED") from exc
         return fresh_staging
     from f139.nci04_owner_ledger import verify_native_activation
     # Original Tick/Loop now recognizes only a genuine append-only owner
