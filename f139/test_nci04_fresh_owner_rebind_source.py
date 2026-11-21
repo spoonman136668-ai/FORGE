@@ -118,9 +118,25 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
     def test_owner_host_shell_is_builtin_powershell_not_absent_pwsh(self):
         text = self.workflow
         self.assertIn("        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}\n", text)
-        original, release = text.split("\n  release-existing-fresh-task:\n")
+        original, others = text.split("\n  release-existing-fresh-task:\n")
+        release, audit = others.split("\n  fresh-release-readonly-audit:\n")
         self.assertEqual(original.count("        shell: powershell -NoProfile"), 1)
         self.assertEqual(release.count("        shell: powershell -NoProfile"), 1)
+        self.assertEqual(audit.count("        shell: powershell -NoProfile"), 1)
+        self.assertIn("F139-FRESH-DEV-RELEASE-CUSTODY-READONLY ", audit)
+        self.assertNotIn("F139-FRESH-DEV-WORKER-RELEASE ", audit)
+        self.assertNotIn("F139-FRESH-DEV-TASK-REBIND ", audit)
+        self.assertIn("PRAGMA query_only=ON", audit)
+        self.assertIn("F139_FRESH_CUSTODY_READONLY_V1=", audit)
+        self.assertIn("F139_FRESH_CUSTODY_READONLY_MUTATIONS=0", audit)
+        self.assertIn("44889700647", audit)
+        for forbidden in ("Set-ScheduledTask", "Enable-ScheduledTask",
+                          "Disable-ScheduledTask", "Start-ScheduledTask",
+                          "Stop-ScheduledTask", "Register-ScheduledTask",
+                          "Unregister-ScheduledTask", "F139_WORKER_HMAC_KEY",
+                          "gh api --method POST", "sqlite3.connect(p)"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, audit)
         self.assertNotIn("F139-FRESH-DEV-WORKER-RELEASE ", original)
         self.assertNotIn("F139-FRESH-DEV-TASK-REBIND ", release)
         self.assertIn("nci04_fresh_owner_worker_release", release)
@@ -133,6 +149,28 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
         self.assertIn("powershell.exe -NoProfile -NonInteractive", text)
         self.assertIn("F139_FRESH_OWNER_TASK_REBIND_FAILED_CUSTODY_HOLD", text)
 
+
+
+    @unittest.skipUnless(os.name == "nt", "Windows PowerShell AST only")
+    def test_readonly_audit_powershell_ast_parses_without_execution(self):
+        ps = shutil.which("powershell.exe")
+        self.assertIsNotNone(ps)
+        tail = self.workflow.split("\n  fresh-release-readonly-audit:\n", 1)[1]
+        script = tail.split("        run: |\n", 1)[1]
+        rows = script.splitlines()
+        code = "\n".join(row[10:] if row.startswith("          ") else row
+                         for row in rows)
+        self.assertIn("F139_FRESH_CUSTODY_READONLY_V1", code)
+        parse = ("$t=$null;$e=$null;"
+                 "[System.Management.Automation.Language.Parser]::ParseInput("
+                 "$env:F139_AUDIT_SOURCE,[ref]$t,[ref]$e)|Out-Null;"
+                 "if(@($e).Count -gt 0){"
+                 "$e|ForEach-Object{Write-Output $_.Message};exit 1}")
+        result = subprocess.run(
+            [ps, "-NoProfile", "-NonInteractive", "-Command", parse],
+            env={**os.environ, "F139_AUDIT_SOURCE": code},
+            capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, (result.stdout + result.stderr)[:1800])
 
     def test_owner_rebind_isolated_from_all_legacy_pending_job_groups(self):
         # Real original-owner run 44844005419 was cancelled before steps:
