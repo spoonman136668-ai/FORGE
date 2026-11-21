@@ -1,0 +1,56 @@
+name: FORGE F139 original-owner fresh existing-task rebind (disabled only)
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+jobs:
+  rebind-disabled-original-task:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.action == 'created' &&
+      github.event.issue.number == 1830 &&
+      github.event.issue.state == 'open' &&
+      github.event.issue.user.login == 'spoonman136668-ai' &&
+      github.event.comment.user.login == 'spoonman136668-ai' &&
+      github.event.comment.author_association == 'OWNER' &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-FRESH-DEV-TASK-REBIND ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    concurrency:
+      group: forge-f139-v54-original-owner
+      cancel-in-progress: false
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact protected main with history and no retained credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Independently rebind existing disabled original task once
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:OPENAI_API_KEY) {
+            throw 'F139_FRESH_REBIND_OWNER_CONTEXT_DENIED'
+          }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File f139/nci04_fresh_owner_rebind.ps1 -Target $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_FRESH_OWNER_TASK_REBIND_FAILED_CUSTODY_HOLD'
+          }
+          Write-Output 'F139_FRESH_EXISTING_OWNER_TASK_REBOUND_DISABLED=PASS'
+          Write-Output 'F139_WORKER_DISPATCH_AUTHORIZED=FALSE'
+          Write-Output 'F139_SCIENTIFIC_FIRST_USE=FALSE'
