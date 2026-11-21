@@ -35,9 +35,9 @@ from f139.nci04_fresh_lifecycle import (
 
 OWNER = "spoonman136668-ai"
 ROOT = "repos/" + REPO
-PR = 1856
-BASE = "8a4cee175aea05b57625d413e00493a93a027d92"
-BRANCH = "engineering/f139-fresh-functional-integration-20261121"
+PR = 0  # Draft only; bind to the actual new PR number before CI admission.
+BASE = "5d9c10039dcd2155fc30764c068e804666e4e5a8"
+BRANCH = "engineering/f139-fresh-release-run-metadata-20261121"
 QUALIFICATION = {
     ".github/workflows/qualify.yml",
     ".github/workflows/forge-f139-source-qualification.yml",
@@ -135,7 +135,13 @@ def qualify_release(get, target, tree):
              and match[0].get("run_attempt") == 1
              and match[0].get("status") == "completed"
              and match[0].get("conclusion") == "success"
-             and any(p.get("number") == PR for p in match[0].get("pull_requests", [])),
+             # GitHub may emit [] for genuine pull_request workflow runs.
+             # The validated merged PR head, exact SHA, workflow path and event
+             # still bind the source. Reject explicit foreign PR associations.
+             and type(match[0].get("pull_requests")) is list
+             and (not match[0]["pull_requests"] or
+                  any(type(p) is dict and p.get("number") == PR
+                      for p in match[0]["pull_requests"])),
              "FULL_FINAL_EXACT_HEAD_QUALIFICATION_REQUIRED")
     name = PREFIX + target
     branch = get(ROOT + "/branches/" + name)
