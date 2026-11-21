@@ -3459,12 +3459,58 @@ def admit_fresh_custody_readonly(head_sha, base_sha, request, git):
     return "EXACT_F139_OWNER_CUSTODY_READONLY_CI_ONLY"
 
 
+# One source-only correction for GitHub's empty PR association arrays in authentic
+# pull_request Actions runs; previous owner release is consumed and never replayed.
+# Engineering CI admission only, not release/task/worker/science authority.
+FRESH_RELEASE_META_BRANCH = "engineering/f139-fresh-release-run-metadata-20261121"
+FRESH_RELEASE_META_BASE = "5d9c10039dcd2155fc30764c068e804666e4e5a8"
+FRESH_RELEASE_META_TREE = "8b4cb86fb1070793a5ee2867b77284b1a8831d4f"
+FRESH_RELEASE_META_BLOBS = {
+    "f139/nci04_fresh_owner_worker_release.py": "9ec385daeadf6b9fed4f249cc96a4ccd17cc4559",
+    "f139/test_nci04_fresh_owner_worker_release.py": "a31dd0fa5e0dae4078cf9d11213ff10d6b4b11e2",
+}
+FRESH_RELEASE_META_FILES = frozenset((
+    *FRESH_RELEASE_META_BLOBS,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+
+def admit_fresh_release_metadata(head_sha: str, base_sha: str,
+                                request: dict, git: Callable[..., str]) -> str:
+    """Only exact PR1858, parent, tree, changed files and new runtime blobs."""
+    if (not is_sha(head_sha) or base_sha != FRESH_RELEASE_META_BASE
+            or type(request) is not dict or request.get("number") != 1858
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("ref") != FRESH_RELEASE_META_BRANCH
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_RELEASE_META_EXACT_PR1858_REQUIRED")
+    changed = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+    if (git("merge-base", base_sha, head_sha) != base_sha
+            or git("rev-parse", base_sha + "^{tree}") != FRESH_RELEASE_META_TREE
+            or len(changed) != len(FRESH_RELEASE_META_FILES)
+            or set(changed) != FRESH_RELEASE_META_FILES
+            or any(git("rev-parse", head_sha + ":" + p) != expected
+                   for p, expected in FRESH_RELEASE_META_BLOBS.items())):
+        raise ValueError("G145_RELEASE_META_EXACT_SOURCE_OR_BLOB_DRIFT")
+    return "EXACT_F139_RELEASE_RUN_METADATA_CI_ONLY"
+
+
 def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
     """Engineering CI admission only; never research, merge or FSA authority."""
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or not callable(git):
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == FRESH_RELEASE_META_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        return admit_fresh_release_metadata(head_sha, base_sha, event["pull_request"], git)
     if branch == FRESH_CUSTODY_AUDIT_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
         return admit_fresh_custody_readonly(head_sha, base_sha, event["pull_request"], git)

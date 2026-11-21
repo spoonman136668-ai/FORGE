@@ -22,6 +22,7 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
     FRESH_REBOUND_BRANCH, FRESH_REBOUND_BASE, FRESH_REBOUND_TREE,
     FRESH_FUNCTIONAL_BRANCH, FRESH_FUNCTIONAL_BASE, FRESH_FUNCTIONAL_TREE,
     FRESH_CUSTODY_AUDIT_BRANCH, FRESH_CUSTODY_AUDIT_BASE, FRESH_CUSTODY_AUDIT_TREE,
+    FRESH_RELEASE_META_BRANCH, FRESH_RELEASE_META_BASE, FRESH_RELEASE_META_TREE,
     V59_READONLY_BRANCH, V59_READONLY_BASE, V59_READONLY_BASE_TREE,
     V60_PROCESS_BRANCH, V60_PROCESS_BASE, V60_PROCESS_BASE_TREE,
     V61_PROCESS_FIX_BRANCH, V61_PROCESS_FIX_BASE, V61_PROCESS_FIX_BASE_TREE,
@@ -273,6 +274,11 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    if os.environ.get("GITHUB_HEAD_REF") == FRESH_RELEASE_META_BRANCH:
+        if (admission != "EXACT_F139_RELEASE_RUN_METADATA_CI_ONLY"
+                or base != FRESH_RELEASE_META_BASE or tree != FRESH_RELEASE_META_TREE):
+            raise ValueError("G156_RELEASE_META_EXACT_SOURCE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == FRESH_CUSTODY_AUDIT_BRANCH:
         if (admission != "EXACT_F139_OWNER_CUSTODY_READONLY_CI_ONLY"
                 or base != FRESH_CUSTODY_AUDIT_BASE or tree != FRESH_CUSTODY_AUDIT_TREE):
