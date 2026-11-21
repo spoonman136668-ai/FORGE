@@ -2505,9 +2505,11 @@ FRESH_POLICY_PR = 1854
 FRESH_POLICY_BASE = "5186697bde5d45f7ae695c57e914a211a1d3a3b3"
 FRESH_POLICY_TREE = "6622b0bac3f0e53b9e93dba795198f7c72cceccf"
 FRESH_POLICY_WORKFLOW = ".github/workflows/f139-fresh-original-owner-rebind.yml"
+FRESH_POLICY_SCRIPT = "f139/nci04_fresh_owner_rebind.ps1"
 FRESH_POLICY_TEST = "f139/test_nci04_fresh_owner_rebind_source.py"
 FRESH_POLICY_BLOBS = {
     FRESH_POLICY_WORKFLOW: "82443bd4dfd55a15f5ea12328afedafc515a0b99",
+    FRESH_POLICY_SCRIPT: "e7cbfa1373c5517a936060ef8fe62c6bfe917b7f",
 }
 FRESH_POLICY_FILES = frozenset((
     *FRESH_POLICY_BLOBS, FRESH_POLICY_TEST,

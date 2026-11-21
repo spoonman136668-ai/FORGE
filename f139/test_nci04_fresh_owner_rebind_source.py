@@ -72,6 +72,23 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, script)
 
+    def test_rebind_source_pr_merge_is_pinned_ancestor_not_current_head(self):
+        # Current protected main necessarily advances after the rebind source PR.
+        self.assertIn(
+            "$SourceRebindMerge='e23b39a558b84b230f6bf9d9e37d2ade7aaf3b3a'",
+            self.script)
+        self.assertIn("$pr.merge_commit_sha -ceq $SourceRebindMerge", self.script)
+        self.assertNotIn("$pr.merge_commit_sha -ceq $Target", self.script)
+        self.assertIn(
+            "& git merge-base --is-ancestor $SourceRebindMerge $Target | Out-Null",
+            self.script)
+        self.assertIn(
+            "Need ($LASTEXITCODE -eq 0) 'QUALIFIED_OWNER_SOURCE_NOT_ANCESTOR'",
+            self.script)
+        self.assertLess(
+            self.script.index("QUALIFIED_OWNER_SOURCE_NOT_ANCESTOR"),
+            self.script.index("Set-ScheduledTask -TaskName $TaskName"))
+
     def test_owner_workflow_is_exact_comment_and_same_runner_only(self):
         text = self.workflow
         self.assertEqual(text.count("\non:\n  issue_comment:\n    types: [created]\n"), 1)
@@ -175,13 +192,15 @@ class OriginalFreshRebindSourceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     scope.admit_fresh_owner_process_policy_fix(
                         head, base, {**request, **override}, git)
-        def changed(*args):
-            if args == ("rev-parse", head + ":" + scope.FRESH_POLICY_WORKFLOW):
-                return "0" * 40
-            return git(*args)
-        with self.assertRaisesRegex(ValueError, "SOURCE_OR_BLOB_DRIFT"):
-            scope.admit_fresh_owner_process_policy_fix(
-                head, base, request, changed)
+        for drift_path in (scope.FRESH_POLICY_WORKFLOW, scope.FRESH_POLICY_SCRIPT):
+            def changed(*args):
+                if args == ("rev-parse", head + ":" + drift_path):
+                    return "0" * 40
+                return git(*args)
+            with self.subTest(drift_path=drift_path):
+                with self.assertRaisesRegex(ValueError, "SOURCE_OR_BLOB_DRIFT"):
+                    scope.admit_fresh_owner_process_policy_fix(
+                        head, base, request, changed)
 
     def test_exact_g145_fresh_rebind_concurrency_cancellation_fix(self):
         from scripts import check_rar_g145_pr_scope as scope
