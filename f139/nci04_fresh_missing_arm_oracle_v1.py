@@ -7,7 +7,10 @@ qualified versioned receipt. No new scheduler, queue, owner, or science grant.
 """
 from __future__ import annotations
 
+import ast
+
 SCHEMA = "forge.f139.nci04.fresh-missing-arm-oracle.v1"
+ATTESTATION_SCHEMA = "forge.f139.nci04.fresh-missing-arm-provider-attestation.v1"
 SUCCESS = "F139_FRESH_MISSING_ARM_ORACLE_V1=PASS"
 
 # Fixed, credential-free command to run ONLY in an already-authenticated,
@@ -73,3 +76,23 @@ print("F139_FRESH_MISSING_ARM_ORACLE_V1=PASS")
 '''
 
 COMMAND = ("python", "-B", "-c", ORACLE)
+
+
+def applies(candidate, issue_number: int) -> bool:
+    """Signed successor source explicitly contains the proposed public method.
+
+    Never change old ticket 1849 or a V1/V2/V3 historical receipt. This is
+    scope selection, not independent admission or original-owner authority.
+    """
+    if type(issue_number) is not int or issue_number <= 1849:
+        return False
+    try:
+        module = ast.parse(candidate.after_bytes.decode("utf-8", "strict"))
+    except (AttributeError, UnicodeError, SyntaxError, TypeError) as exc:
+        raise ValueError("F139_MISSING_ARM_SIGNED_CANDIDATE_UNPARSABLE") from exc
+    return any(
+        isinstance(cls, ast.ClassDef) and cls.name == "PublicCausalCells"
+        and any(isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and method.name == "propose_missing_action" for method in cls.body)
+        for cls in module.body
+    )
