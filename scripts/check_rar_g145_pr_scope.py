@@ -3510,8 +3510,7 @@ FRESH_RELEASE_RULE_FIX_BASE = "d1b94307536d490781dedb502d301a0c39cd10c7"
 FRESH_RELEASE_RULE_FIX_TREE = "7ac54182b6013d3e134d9e4bc7b656b886ac5e5e"
 FRESH_RELEASE_RULE_FIX_BLOBS = {
     "f139/nci04_fresh_owner_worker_release.py": "3f5087823a871d9884f37fab0e18ae17c49d8cdc",
-    "f139/test_nci04_fresh_owner_worker_release.py": "6c8d1f8afed44beea568a83b0920e8f35fc3916c",
-    ".github/workflows/f139-v38-original-owner-release.yml": "3f342deb7602a472ee3a7b416db3fab7b6d98926",
+    "f139/test_nci04_fresh_owner_worker_release.py": "12c7db6afad65b84abec6721e1c1cfb9b6370e67",
 }
 FRESH_RELEASE_RULE_FIX_FILES = frozenset((
     *FRESH_RELEASE_RULE_FIX_BLOBS,

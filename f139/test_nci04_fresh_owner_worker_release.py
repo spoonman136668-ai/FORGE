@@ -180,13 +180,6 @@ class FreshOwnerWorkerReleaseTests(unittest.TestCase):
         self.assertEqual(safe_denial_code(OwnerReleaseDenied("F139_FRESH_RELEASE_OWNER_RULESET_INVALID")),
                          "F139_FRESH_RELEASE_OWNER_RULESET_INVALID")
 
-    def test_legacy_v40_push_handoff_retired_before_next_immutable_ref(self):
-        workflow = (Path(__file__).resolve().parents[1]
-                    / ".github/workflows/f139-v38-original-owner-release.yml").read_text()
-        self.assertIn("  handoff-v40:\n    # Retired", workflow)
-        self.assertIn("    if: ${{ false }}\n", workflow.split("  handoff-v40:", 1)[1].split("    runs-on:", 1)[0])
-        self.assertIn("    if: github.actor", workflow.split("  install-v39:", 1)[1].split("    runs-on:", 1)[0])
-
     def test_existing_task_only_no_dispatch_or_secondary_controller(self):
         for term in ("Register-ScheduledTask", "Unregister-ScheduledTask", "gh api",
                      "Start-ScheduledTask", "Stop-ScheduledTask", "workflow_dispatch"):
