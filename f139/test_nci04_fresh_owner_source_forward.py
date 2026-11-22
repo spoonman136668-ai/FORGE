@@ -224,6 +224,7 @@ class SourceForwardTests(TestCase):
             "f139/nci04_fresh_successor_publication.py",
             "f139/test_nci04_fresh_owner_source_forward.py",
             "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
         ))
         req = {
             "number": 1863, "author_association": "OWNER",
