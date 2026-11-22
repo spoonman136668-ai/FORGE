@@ -220,6 +220,10 @@ class FreshOwnerPublicationTests(unittest.TestCase):
                     start = "2026-11-21T08:" + str(step * 20).zfill(2) + ":00Z"
                     finish = "2026-11-21T08:" + str(step * 20 + 5).zfill(2) + ":00Z"
                     fixture.rid = 123456 + step
+                    # The synthetic provider must carry the exact second
+                    # ticket's committed START time, not the first fixture's
+                    # 08:00 timestamp; production requires this custody match.
+                    fixture.now = start
                     claim, raw = reserve_claim(fixture.db, fixture, fixture.key,
                                                 now=start)
                     fixture.prepare_provider(claim, raw)
