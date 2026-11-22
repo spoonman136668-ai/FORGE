@@ -1,0 +1,27 @@
+# Eureka F15 — recurrent causal memory after an unannounced return (DEV)
+
+**Predeclared development protocol, November 8, 2026.** Parent: F14-qualified inactive draft Eureka PR #1614, `d5662758a4d00af007ab17fbae5e1e2fb842882e`; F13 source-derived NO_GO retained. The current protected FORGE main separately advances F139 research and is not an experiment owner. This is a new mechanistic experiment, not another evidence transport or owner-controller modification.
+
+## Falsifiable hypothesis
+
+A bounded persistent *causal mechanism bank*, learned only from previously credited action-consequence observations, can recognize a returning environment faster than continuously refitting the entire history or starting a new causal rule from scratch. Against a genuinely strong change-point model, a tie is a failure. A remembered mechanism is not a task oracle: the bank must discover its rule identity from historical training observations; the new regime's identity and switch markers never enter learner inputs.
+
+## World, information and budget
+
+Two original development seeds 17 and 31 (not independent science/first-use seeds 59 or 83), two precommitted action policies fixed and deterministic random: **four independent development arms**. Use the existing 16-rule two-bit causal state transition `f12Next`, the same two-step delayed telemetry/causal credit accounting as F13, and exactly **60 actions** per arm. The hidden world switches A→B at action **33** and B→A at action **49** without revealing regime labels. A/B are the existing per-seed hidden distinct rules, used solely inside the synthetic world generator. No new-world first-use, no external data, no observations from Yggdrasil or Wingless. Each learning algorithm sees the same action/cue/sensor/delayed state stream. G1 is 54 actions/52 credited effects, G2 is 60/58; two most recent effects remain pending at each cutoff. Cold G1→G2 adds only six genuinely new actions, and its source state must match full replay exactly.
+
+**Prediction task:** Each model forecasts two-step future hidden-state consequences on the existing eight distinct ten-action development evaluation episodes (64 scored predictions) under the returned A rule and, separately, under the middle B rule; evaluation labels are never used to update models. F13 negatives remain immutable. Capture mechanism score, strongest control, both ablation margins, original-world retention, deterministic work counters, source SHA, cold state and all losing arms. Actual wall-clock, GPU consumption and entire-loop efficiency are **unverified** unless measured separately.
+
+## Locked candidate and fully trained controls
+
+- **F15 memory bank:** Partition credited observations into consecutive disjoint eight-transition windows; infer the maximum-likelihood 16-rule explanation in each. Archive its rule if at least seven of eight transitions match. For the return, select the archived rule with the most matches over the latest four *credited* observations; ties choose lowest archived rule ID. If the bank is empty, fall back to an ordinary last-four MLE. No hidden rule or change-point indicator is allowed in this function.
+- **Conventional strongest controls:** all-history 16-rule MLE; last-four, last-eight and last-sixteen MLE; full-history tabular direct-transition predictor; and **fully fitted one/two-change-point 16-rule maximum-likelihood model**. The change-point control considers all possible segments at least four credits long, with a three-correct-transition penalty per extra segment and no access to true switch boundaries. Maximum score among these six controls is the *strongest control per arm*, never just a preferred control.
+- **Mechanistic negatives:** F15 with archive removed (last-four MLE), and F15 with deliberately miscredited one-step-ahead action/cue. These are ablations, not the strong controls.
+
+The same causal information and action budget applies to each mechanism. Cost counters include work required to fit hypothesis classes plus forecasting rule applications; they are not CPU time or end-to-end throughput claims.
+
+## Frozen classification and authority
+
+G2 F15 must score **at least +4/64** beyond the strongest conventional control in **each of four arms**, plus **+8/64** versus *both* ablations in each arm. It must have no reduction in returned-A accuracy between G1 and G2, preserve pending delayed credits, and round-trip through the existing F13 canonical cold snapshot with an independent expected SHA. **Any tie, single losing arm, retention loss, or source mismatch is `F15_DEV_NO_GO`**, with no post-result parameter tuning on these development seeds. If all criteria pass, label only `F15_DEV_SIGNAL_UNVERIFIED`—never scientific acceptance.
+
+Only three additive paths belong in this gate: this protocol, `nativediscovery/f15_recurrence.go`, and its Go tests. No new controller, scheduler, queued process, workflow, worker, paid API, owner permission, accepted ref, independent first-use or production activation. Preserve the F13 and F14 evidence exactly. Engineering completion requires the original full Linux/Windows regression, race/vet/build, F139/GenEnv/isolation, source custody and negative-control tests on the exact final SHA, not a cached focused substitute. Scientific proof would require a separately authorized, truly unseen world suite and fully trained baselines.
