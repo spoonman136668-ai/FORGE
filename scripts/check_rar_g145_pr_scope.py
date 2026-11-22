@@ -3694,7 +3694,7 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]
         scoped_paths = frozenset({
-            ".github/workflows/f139-fresh-original-owner-rebind.yml",
+            ".github/workflows/f139-fresh-owner-source-forward.yml",
             ".github/workflows/forge-f139-source-qualification.yml",
             "f139/nci04_fresh_lifecycle.py",
             "f139/nci04_fresh_owner_source_forward.ps1",
@@ -3723,7 +3723,7 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
             old_workflow = git("rev-parse", base_sha + ":" +
                 ".github/workflows/f139-fresh-original-owner-rebind.yml")
             new_workflow = git("rev-parse", head_sha + ":" +
-                ".github/workflows/f139-fresh-original-owner-rebind.yml")
+                ".github/workflows/f139-fresh-owner-source-forward.yml")
             changed = git("diff", "--no-renames", "--name-only",
                           base_sha, head_sha).splitlines()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
@@ -3731,7 +3731,7 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         if (ancestry != base_sha
                 or base_tree != "ebe959a996b7d0e90eced139912141fe0fb17482"
                 or old_workflow != "28cc3bf32afaa257c5c60d0c26a368dcd3da821f"
-                or new_workflow != "b7ac34f5f96782504383ac5ebe56b5f03c1c3339"
+                or new_workflow != "e86c8c45f04dc14b3c3a7457ca837d113a422903"
                 or len(changed) != len(scoped_paths)
                 or set(changed) != scoped_paths):
             raise ValueError("G145_F139_FORWARD_OWNER_BLOBS_OR_PATHS_DRIFT")
