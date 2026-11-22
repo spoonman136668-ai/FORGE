@@ -39,6 +39,10 @@ class LedgerConnection:
             if values != ("FRESH_WORKER_PROVIDER_CUSTODY", 16):
                 raise AssertionError("unexpected count")
             return Result((self.terminal_count,))
+        if statement == "SELECT COUNT(*) FROM events WHERE kind=?":
+            if values != ("FRESH_WORKER_PROVIDER_CUSTODY",):
+                raise AssertionError("unexpected count query")
+            return Result((self.terminal_count,))
         raise AssertionError("unexpected read-only SQL: " + statement)
 
 
@@ -55,7 +59,11 @@ class FakeLedger:
         self.conn = LedgerConnection(original_hash, last_hash)
         self.seq = 16
     def meta(self):
-        return {"head_seq": self.seq}
+        return {"head_seq": self.seq, "head_hash": self.conn.second_hash}
+    def ready(self):
+        return None
+    def actives(self):
+        return []
 
 
 class ForwardV2Tests(unittest.TestCase):
@@ -305,6 +313,146 @@ class ForwardV2Tests(unittest.TestCase):
             self.assertEqual(installed_forward_source(
                 self.db, self.api, self.release, self.key),
                 (self.head, self.tree))
+
+
+    def test_preflight_requires_cold_verified_multi_ticket_and_no_second_cert(self):
+        from f139.nci04_fresh_owner_source_forward_v2 import preflight_v2_unsigned
+        (self.folder / NAME).unlink()
+        with patch("f139.local_controller.SingleOwner.held", return_value=True), patch(
+            "f139.nci04_fresh_lifecycle.read_lifecycle",
+            return_value=(self.release, self.entries)
+        ) as cold:
+            raw = preflight_v2_unsigned(
+                self.db, self.api, self.release, self.key,
+                candidate=self.head, head=self.pr_head,
+                regression_run_id=802, source_run_id=803,
+                rehearsal_run_id=804)
+            self.assertEqual(raw["previous_owner_source_sha"], PREVIOUS_OWNER_MAIN)
+            self.assertEqual(raw["terminal_seq"], 16)
+            self.assertEqual(raw["terminal_count"], 2)
+            self.assertEqual(raw["terminal_hash"], self.second_hash)
+            self.assertEqual(raw["last_ticket"], self.doc["last_ticket"])
+            self.assertEqual(raw["worker_release_sha"],
+                             self.release["worker_release_sha"])
+            cold.assert_called_once_with(self.db, self.key)
+            self.assertNotIn("owner_run_id", raw)
+            self.assertNotIn("owner_signature", raw)
+            self.entries[1]["stage"] = "WAIT_PROVIDER"
+            with self.assertRaisesRegex(
+                    ForwardV2Denied, "PREFLIGHT_TERMINAL_OR_REMOTE_EFFECT_UNCERTAIN"):
+                preflight_v2_unsigned(
+                    self.db, self.api, self.release, self.key,
+                    candidate=self.head, head=self.pr_head,
+                    regression_run_id=802, source_run_id=803,
+                    rehearsal_run_id=804)
+            self.entries[1]["stage"] = "VERIFIED"
+        with self.assertRaisesRegex(
+                ForwardV2Denied, "PREFLIGHT_ORIGINAL_KERNEL_LOCK_REQUIRED"):
+            preflight_v2_unsigned(
+                self.db, self.api, self.release, self.key,
+                candidate=self.head, head=self.pr_head,
+                regression_run_id=802, source_run_id=803,
+                rehearsal_run_id=804)
+
+    def test_transport_create_only_synthetic_signature_and_bad_metadata(self):
+        import base64
+        import os
+        import subprocess
+        import sys
+
+        repo = Path(__file__).resolve().parent.parent
+        unsigned = {k: v for k, v in self.doc.items()
+                    if k != "owner_signature"}
+        encoded = base64.b64encode(canonical(unsigned)).decode("ascii")
+        env = dict(os.environ, F139_WORKER_HMAC_KEY=self.key)
+        path = self.folder / "transport" / NAME
+        path.parent.mkdir()
+        def sign_cert(value, target=path, env_override=env):
+            return subprocess.run(
+                [sys.executable, "-B", "-m",
+                 "f139.nci04_fresh_owner_source_forward_v2",
+                 "sign-cert", str(target), value],
+                cwd=repo, env=env_override, capture_output=True,
+                text=True, timeout=25, check=False)
+        run = sign_cert(encoded)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.strip(),
+                         "F139_FRESH_FORWARD_V2_SIGNED_CREATE_ONLY")
+        actual = path.read_bytes()
+        self.assertEqual(actual, canonical(self.doc))
+        self.assertNotEqual(sign_cert(encoded).returncode, 0)
+        self.assertEqual(path.read_bytes(), actual)
+        for value in ("%%%", "",
+                      base64.b64encode(b"not json").decode("ascii"),
+                      base64.b64encode(canonical({"schema": "wrong"})).decode("ascii")):
+            dest = self.folder / "transport" / ("bad-" + str(len(value)) + "-" + NAME)
+            self.assertNotEqual(sign_cert(value, dest).returncode, 0)
+            self.assertFalse(dest.exists())
+        missing = {k: v for k, v in env.items()
+                   if k != "F139_WORKER_HMAC_KEY"}
+        self.assertNotEqual(sign_cert(encoded,
+                            self.folder / "transport" / ("missing-" + NAME),
+                            missing).returncode, 0)
+
+    def test_two_phase_owner_script_is_nonreplaying_and_owner_only(self):
+        import os
+        import shutil
+        import subprocess
+
+        root = Path(__file__).resolve().parent.parent
+        script_path = root / "f139" / "nci04_fresh_owner_source_forward_v2.ps1"
+        workflow_path = root / ".github" / "workflows" / "f139-fresh-owner-source-forward-v2.yml"
+        script = script_path.read_text(encoding="utf-8")
+        workflow = workflow_path.read_text(encoding="utf-8")
+        self.assertEqual(workflow.count("  fresh-original-owner-source-forward-v2-prepare:"), 1)
+        self.assertEqual(workflow.count("  fresh-original-owner-source-forward-v2-start:"), 1)
+        self.assertIn("github.actor == 'spoonman136668-ai'", workflow)
+        self.assertIn("github.event.issue.number == 1830", workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("runs-on: [self-hosted, Windows, forge-codex-isolated]", workflow)
+        self.assertEqual(workflow.count(
+            "group: forge-f139-fresh-existing-disabled-task-rebind"), 2)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("F139-FRESH-OWNER-SOURCE-FORWARD-V2-START", workflow)
+        self.assertIn("F139-FRESH-OWNER-SOURCE-FORWARD-V2 ", workflow)
+        self.assertIn("$previousMain='f24251e0d95938e593a54c1577a34efadc8080d8'", script)
+        self.assertIn("$prScope=1869", script)
+        self.assertIn("Disable-ScheduledTask", script)
+        self.assertIn("Stop-ScheduledTask", script)
+        self.assertIn("Set-ScheduledTask", script)
+        self.assertIn("Enable-ScheduledTask", script)
+        self.assertIn("Start-ScheduledTask", script)
+        self.assertIn("F139_V2_ORIGINAL_SAME_OWNER_PREPARED_DISABLED_ONLY=PASS", workflow)
+        self.assertIn("F139_V2_ORIGINAL_SAME_OWNER_STARTED=PASS", workflow)
+        self.assertIn("F139_FRESH_OWNER_SOURCE_FORWARD_V2_PREPARED_DISABLED=PASS", script)
+        self.assertIn("F139_FRESH_ORIGINAL_OWNER_SOURCE_FORWARD_V2_RUNNING=PASS", script)
+        self.assertIn("F139_SCIENTIFIC_FIRST_USE=FALSE", script)
+        for token in ("Register-ScheduledTask", "Unregister-ScheduledTask",
+                      "New-ScheduledTaskTrigger", "Invoke-Expression",
+                      "powershell -EncodedCommand", "F139_FEED_PUBLISH"):
+            self.assertNotIn(token, script)
+        prepare, start = script.split("  } else {\n    Need ($PrepRun", 1)
+        self.assertNotIn("Enable-ScheduledTask -TaskName $taskName", prepare)
+        self.assertNotIn("Start-ScheduledTask -TaskName $taskName", prepare)
+        self.assertIn("Enable-ScheduledTask -TaskName $taskName", start)
+        self.assertIn("Start-ScheduledTask -TaskName $taskName", start)
+        if os.name == "nt":
+            power = shutil.which("powershell.exe")
+            self.assertIsNotNone(power)
+            verifier = self.folder / "parse-v2.ps1"
+            verifier.write_text(
+                "param([string]$Source)\n"
+                "$tokens=$null;$errors=$null\n"
+                "[System.Management.Automation.Language.Parser]::ParseFile("
+                "$Source,[ref]$tokens,[ref]$errors)|Out-Null\n"
+                "if($errors.Count -ne 0){$errors|Out-String|Write-Error;exit 1}\n",
+                encoding="utf-8")
+            check = subprocess.run(
+                [power, "-NoProfile", "-NonInteractive",
+                 "-ExecutionPolicy", "Bypass", "-File", str(verifier),
+                 "-Source", str(script_path)], capture_output=True,
+                text=True, timeout=30, check=False)
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
 
 if __name__ == "__main__":
