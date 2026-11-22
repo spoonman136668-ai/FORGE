@@ -14,7 +14,8 @@ from f139.nci04_fresh_owner_source_forward import (
 )
 from f139.nci04_fresh_owner_source_forward_v2 import (
     CI_JOBS, DOMAIN, FIELDS, NAME, OWNER_JOB, PREFIX, PR, SCHEMA,
-    WORKFLOW, ForwardV2Denied, inspect_installed_v2, inspect_v2, sign,
+    WORKFLOW, PREVIOUS_OWNER_MAIN, ForwardV2Denied,
+    inspect_installed_v2, inspect_v2, sign,
 )
 from f139 import test_nci04_fresh_owner_source_forward as old_fixture
 
@@ -68,11 +69,30 @@ class ForwardV2Tests(unittest.TestCase):
         self.key = old.key
         self.release = deepcopy(old.release)
         self.previous = deepcopy(old.doc)
+        self.previous["pr_number"] = 1865
+        self.previous["owner_source_sha"] = PREVIOUS_OWNER_MAIN
+        self.previous["owner_signature"] = old_sign(
+            {k: v for k, v in self.previous.items()
+             if k != "owner_signature"}, self.key)
         self.previous_bytes = canonical(self.previous)
         self.second_hash = "9" * 64
         self.db = FakeLedger(old.db.filename, self.previous["terminal_hash"],
                              self.second_hash)
         self.routes = deepcopy(old.routes)
+        base = "repos/spoonman136668-ai/FORGE"
+        self.routes[base + "/git/commits/" + PREVIOUS_OWNER_MAIN] = {
+            "sha": PREVIOUS_OWNER_MAIN,
+            "tree": {"sha": self.previous["owner_source_tree"]},
+        }
+        archived_pr = deepcopy(self.routes[base + "/pulls/1863"])
+        archived_pr["merge_commit_sha"] = PREVIOUS_OWNER_MAIN
+        self.routes[base + "/pulls/1865"] = archived_pr
+        self.routes[base + "/issues/comments/601"]["body"] = (
+            old_fixture.PREFIX + PREVIOUS_OWNER_MAIN + " " +
+            self.previous["pr_head_sha"] + " 1865 " +
+            str(self.previous["regression_run_id"]) + " " +
+            str(self.previous["source_run_id"]) + " " +
+            str(self.previous["rehearsal_run_id"]))
         self.head = "7" * 40
         self.tree = "8" * 40
         self.pr_head = "6" * 40
