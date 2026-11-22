@@ -95,6 +95,9 @@ class ForwardV2Tests(unittest.TestCase):
         archived_pr = deepcopy(self.routes[base + "/pulls/1863"])
         archived_pr["merge_commit_sha"] = PREVIOUS_OWNER_MAIN
         self.routes[base + "/pulls/1865"] = archived_pr
+        # Historical owner PREPARE workflow ran on the #1865 merge commit,
+        # not on the earlier PR #1863 source from the shared V1 fixture.
+        self.routes[base + "/actions/runs/600"]["head_sha"] = PREVIOUS_OWNER_MAIN
         self.routes[base + "/issues/comments/601"]["body"] = (
             old_fixture.PREFIX + PREVIOUS_OWNER_MAIN + " " +
             self.previous["pr_head_sha"] + " 1865 " +
