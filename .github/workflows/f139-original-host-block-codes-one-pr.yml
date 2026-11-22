@@ -1,7 +1,7 @@
 name: FORGE F139 original-host bounded read-only block codes (one PR)
 on:
   pull_request:
-    types: [opened]
+    types: [synchronize]
     branches: [main]
     paths: [.github/workflows/f139-original-host-block-codes-one-pr.yml]
 permissions: {}
@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Observe original task, SQLite and sanitized log only; no checkout or mutation
-        shell: powershell
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
@@ -31,7 +31,7 @@ jobs:
             $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
             -not $env:OPENAI_API_KEY -and -not $env:CLOUDFLARE_API_TOKEN) 'OWNER_RUNNER_CONTEXT'
           $evt=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-          Need ($evt.action -ceq 'opened' -and
+          Need ($evt.action -ceq 'synchronize' -and
             $evt.sender.login -ceq 'spoonman136668-ai' -and
             $evt.pull_request.user.login -ceq 'spoonman136668-ai' -and
             $evt.pull_request.head.repo.full_name -ceq 'spoonman136668-ai/FORGE' -and
