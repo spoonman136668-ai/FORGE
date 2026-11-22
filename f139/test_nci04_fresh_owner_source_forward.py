@@ -99,7 +99,10 @@ class SourceForwardTests(TestCase):
                 "id": self.doc["owner_comment_id"],
                 "issue_url": "https://api.github.com/" + FORGE + "/issues/1830",
                 "body": PREFIX + self.doc["owner_source_sha"] + " " +
-                    self.doc["pr_head_sha"] + " " + str(self.doc["pr_number"]),
+                    self.doc["pr_head_sha"] + " " + str(self.doc["pr_number"]) +
+                    " " + str(self.doc["regression_run_id"]) +
+                    " " + str(self.doc["source_run_id"]) +
+                    " " + str(self.doc["rehearsal_run_id"]),
                 "user": {"login": "spoonman136668-ai"},
                 "author_association": "OWNER",
             },
