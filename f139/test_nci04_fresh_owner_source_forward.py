@@ -181,6 +181,30 @@ class SourceForwardTests(TestCase):
         run("owner run not complete", FORGE + "/actions/runs/600",
             "status", "in_progress")
 
+    def test_original_owner_two_phase_cutover_remains_one_task(self):
+        # Static confinement only; does not claim live Task Scheduler PASS.
+        repo = Path(__file__).resolve().parent.parent
+        script = (repo / "f139" / "nci04_fresh_owner_source_forward.ps1").read_text(
+            encoding="utf-8")
+        workflow = (repo / ".github" / "workflows" /
+                    "f139-fresh-original-owner-rebind.yml").read_text(encoding="utf-8")
+        for token in ("Disable-ScheduledTask", "Stop-ScheduledTask",
+                      "Set-ScheduledTask", "Enable-ScheduledTask",
+                      "Start-ScheduledTask", "CheckLedger",
+                      "F139_FRESH_FORWARD_COLD_TERMINAL9=PASS",
+                      "F139_FRESH_ORIGINAL_SAME_TASK_SOURCE_FORWARDED=PASS"):
+            self.assertIn(token, script)
+        for forbidden in ("Register-ScheduledTask", "Unregister-ScheduledTask",
+                          "New-ScheduledTaskTrigger", "Invoke-Expression",
+                          "powershell -EncodedCommand"):
+            self.assertNotIn(forbidden, script)
+        self.assertIn("'-Phase Prepare", workflow.replace(" -Phase Prepare", "'-Phase Prepare"))
+        self.assertIn(" -Phase Start", workflow)
+        self.assertIn("fresh-original-owner-source-forward-start:", workflow)
+        self.assertIn("concurrency:", workflow)
+        self.assertEqual(workflow.count("  fresh-original-owner-source-forward:"), 1)
+        self.assertEqual(workflow.count("  fresh-original-owner-source-forward-start:"), 1)
+
     def test_certificate_corrupt_or_symlink_never_falls_back(self):
         path = self.folder / NAME
         path.write_bytes(b'{"not":"canonical"}\n')
