@@ -195,6 +195,132 @@ class SourceForwardTests(TestCase):
         run("owner run not complete", FORGE + "/actions/runs/600",
             "status", "in_progress")
 
+    def test_source_certificate_uses_bounded_argument_not_native_stdin(self):
+        """Live PREPARE #45008466306 got empty stdin; test both exact snippets."""
+        import base64
+        import os
+        import re
+        import subprocess
+        import sys
+
+        repo = Path(__file__).resolve().parent.parent
+        script = (repo / "f139" / "nci04_fresh_owner_source_forward.ps1"
+                  ).read_text(encoding="utf-8")
+        codes = re.findall(r"(?m)^\s*\$code=@'\n(.*?)\n'@",
+                           script.replace("\r\n", "\n"), re.DOTALL)
+        self.assertEqual(len(codes), 3)
+        sign_code, verify_code = codes[1:]
+        for code in (sign_code, verify_code):
+            self.assertIn("base64.b64decode(sys.argv[2],validate=True)", code)
+            self.assertNotIn("json.load(sys.stdin)", code)
+        self.assertIn("SIGNED_CERT_DOCUMENT_SIZE_INVALID", script)
+        self.assertIn("START_DOCUMENT_SIZE_INVALID", script)
+        self.assertIn("$receipt=@(& $py -B -c $code $cert $encodedDoc)", script)
+        self.assertIn("$ok=@(& $py -B -c $code $signature $encodedDoc)", script)
+        self.assertNotIn("$doc | & $py", script)
+
+        unsigned = {k: v for k, v in self.doc.items()
+                    if k != "owner_signature"}
+        encoded = base64.b64encode(canonical(unsigned)).decode("ascii")
+        env = dict(os.environ, F139_WORKER_HMAC_KEY=self.key)
+
+        def invoke(code, *args):
+            return subprocess.run([sys.executable, "-B", "-c", code, *args],
+                                  cwd=repo, env=env, capture_output=True,
+                                  text=True, timeout=30, check=False)
+
+        cert = self.folder / "native-transport-certificate.json"
+        signed = invoke(sign_code, str(cert), encoded)
+        self.assertEqual(signed.returncode, 0, signed.stderr)
+        self.assertEqual(signed.stdout.strip(),
+                         "F139_FRESH_FORWARD_CERTIFICATE=CREATE_ONLY_SIGNED")
+        signed_doc = json.loads(cert.read_bytes())
+        self.assertEqual(cert.read_bytes(), canonical(signed_doc))
+        self.assertEqual(signed_doc["owner_signature"],
+                         self.doc["owner_signature"])
+        verified = invoke(verify_code, signed_doc["owner_signature"],
+                          encoded)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        self.assertEqual(verified.stdout.strip(), "F139_FORWARD_HMAC_VERIFIED")
+
+        # A consumed create-only certificate cannot be overwritten or replayed.
+        before = cert.read_bytes()
+        replay = invoke(sign_code, str(cert), encoded)
+        self.assertNotEqual(replay.returncode, 0)
+        self.assertEqual(cert.read_bytes(), before)
+
+        # Empty, invalid Base64 and malformed JSON must fail with no file.
+        for i, value in enumerate(("", "%%%", base64.b64encode(
+                b"not json").decode("ascii"))):
+            target = self.folder / ("negative-" + str(i) + ".json")
+            bad = invoke(sign_code, str(target), value)
+            self.assertNotEqual(bad.returncode, 0)
+            self.assertFalse(target.exists())
+
+        # Invalid signer key must never write a certificate either.
+        no_key = dict(env, F139_WORKER_HMAC_KEY="short")
+        target = self.folder / "invalid-key.json"
+        failed = subprocess.run(
+            [sys.executable, "-B", "-c", sign_code, str(target), encoded],
+            cwd=repo, env=no_key, capture_output=True,
+            text=True, timeout=30, check=False)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertFalse(target.exists())
+
+    def test_windows_powershell_51_native_json_transport(self):
+        """Hosted Windows synthetic test; never accesses an original task."""
+        import os
+        import re
+        import shutil
+        import subprocess
+        import sys
+
+        if os.name != "nt":
+            self.skipTest("PowerShell 5.1 native transport is Windows-only")
+        shell = shutil.which("powershell.exe")
+        self.assertIsNotNone(shell)
+        repo = Path(__file__).resolve().parent.parent
+        source = (repo / "f139" / "nci04_fresh_owner_source_forward.ps1"
+                  ).read_text(encoding="utf-8").replace("\r\n", "\n")
+        codes = re.findall(r"(?m)^\s*\$code=@'\n(.*?)\n'@", source,
+                           re.DOTALL)
+        self.assertEqual(len(codes), 3)
+        sign_code = codes[1]
+        code_file = self.folder / "native-signing-source.py"
+        code_file.write_text(sign_code, encoding="utf-8")
+        wrapper = self.folder / "native-transport.ps1"
+        wrapper.write_text(
+            "$ErrorActionPreference='Stop'\n"
+            "$code=Get-Content -Raw -LiteralPath $env:FORGE_TEST_CODE\n"
+            "$encodedDoc=[Convert]::ToBase64String("
+            "[Text.Encoding]::UTF8.GetBytes($env:FORGE_TEST_JSON))\n"
+            "$result=@(& $env:FORGE_TEST_PYTHON -B -c $code "
+            "$env:FORGE_TEST_CERT $encodedDoc)\n"
+            "if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or "
+            "$result[0] -cne "
+            "'F139_FRESH_FORWARD_CERTIFICATE=CREATE_ONLY_SIGNED')"
+            "{throw 'NATIVE_TRANSPORT_NOT_VERIFIED'}\n",
+            encoding="utf-8")
+        unsigned = {k: v for k, v in self.doc.items()
+                    if k != "owner_signature"}
+        destination = self.folder / "powershell-51-certificate.json"
+        env = dict(os.environ, F139_WORKER_HMAC_KEY=self.key,
+                   FORGE_TEST_JSON=json.dumps(unsigned, separators=(",", ":")),
+                   FORGE_TEST_CODE=str(code_file),
+                   FORGE_TEST_PYTHON=sys.executable,
+                   FORGE_TEST_CERT=str(destination))
+        result = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+             "Bypass", "-File", str(wrapper)], cwd=repo, env=env,
+            capture_output=True, text=True, timeout=40, check=False)
+        self.assertEqual(result.returncode, 0,
+                         "PowerShell 5.1 native JSON transfer failed: "
+                         + result.stdout + result.stderr)
+        document = json.loads(destination.read_bytes())
+        self.assertEqual(document["owner_signature"],
+                         self.doc["owner_signature"])
+        self.assertEqual(destination.read_bytes(), canonical(document))
+
     def test_original_owner_two_phase_cutover_remains_one_task(self):
         # Static confinement only; does not claim live Task Scheduler PASS.
         repo = Path(__file__).resolve().parent.parent
