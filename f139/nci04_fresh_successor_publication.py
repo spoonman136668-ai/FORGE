@@ -28,7 +28,7 @@ def publish_one(db, api, key):
     need(SingleOwner.held(db.filename.with_suffix(".lock")),
          "PUBLICATION_ORIGINAL_OWNER_LOCK_REQUIRED")
     release, entries = read_lifecycle(db, key)
-    authenticate_runtime_owner(db, api, release)
+    authenticate_runtime_owner(db, api, release, key)
     last = entries[-1]
     need(last["stage"] == "VERIFIED", "PUBLICATION_BEFORE_TERMINAL")
     if last.get("publication_attempt"):
