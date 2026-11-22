@@ -145,7 +145,7 @@ finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
 Need ($env:F139_WORKER_HMAC_KEY.Length -ge 32) 'OWNER_HMAC_KEY_INVALID'
 try {
   if($Phase -ceq 'Prepare'){
-    Need ($Head -cmatch '^[a-f0-9]{40}$' -and $PrNumber -ge 1863 -and
+    Need ($Head -cmatch '^[a-f0-9]{40}$' -and $PrNumber -eq 1863 -and
           $RegressionRun -gt 0 -and $SourceRun -gt 0 -and
           $RehearsalRun -gt 0 -and -not (Test-Path -LiteralPath $cert)) 'ONE_SHOT_PREPARE_DENIED'
     $expectedBody='F139-FRESH-OWNER-SOURCE-FORWARD '+$Target+' '+$Head+' '+$PrNumber+' '+$RegressionRun+' '+$SourceRun+' '+$RehearsalRun

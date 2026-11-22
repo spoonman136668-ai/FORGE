@@ -85,7 +85,7 @@ def inspect_forward(doc, *, db, api, release, key):
          and _sha64(doc["owner_signature"])
          and doc["terminal_seq"] == 9
          and doc["task_name"] == "FORGE-F139-UnifiedController"
-         and _positive(doc["pr_number"]) and doc["pr_number"] > 1861
+         and type(doc["pr_number"]) is int and doc["pr_number"] == 1863
          and all(_positive(doc[k]) for k in (
              "owner_run_id", "owner_comment_id", "regression_run_id",
              "source_run_id", "rehearsal_run_id"))

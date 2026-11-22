@@ -165,6 +165,20 @@ class SourceForwardTests(TestCase):
                                     release=self.release, key=self.key)
         self.assertEqual(self.api.reads, [])
 
+    def test_other_signed_owner_pr_is_not_source_forward_authorized(self):
+        # A genuine owner signature does not widen the exact PR #1863 route.
+        for number in (1862, 1864, 1900, True):
+            with self.subTest(number=number):
+                bad = dict(self.doc, pr_number=number)
+                bad["owner_signature"] = sign(
+                    {k: v for k, v in bad.items() if k != "owner_signature"},
+                    self.key)
+                with self.assertRaisesRegex(
+                        ForwardSourceDenied, "RECORD_SCOPE_OR_AUTHORITY_INVALID"):
+                    inspect_forward(bad, db=self.db, api=self.api,
+                                    release=self.release, key=self.key)
+        self.assertEqual(self.api.reads, [])
+
     def test_provider_alterations_fail_closed(self):
         def run(case, route, field, value):
             original = self.routes[route]
@@ -200,6 +214,8 @@ class SourceForwardTests(TestCase):
             self.assertNotIn(forbidden, script)
         self.assertIn("'-Phase Prepare", workflow.replace(" -Phase Prepare", "'-Phase Prepare"))
         self.assertIn(" -Phase Start", workflow)
+        self.assertIn("$PrNumber -eq 1863", script)
+        self.assertNotIn("$PrNumber -ge 1863", script)
         self.assertIn("fresh-original-owner-source-forward-start:", workflow)
         self.assertIn("concurrency:", workflow)
         self.assertEqual(workflow.count("  fresh-original-owner-source-forward:"), 1)
