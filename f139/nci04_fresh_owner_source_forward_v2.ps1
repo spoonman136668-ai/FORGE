@@ -155,9 +155,9 @@ try {
     $runningOriginal=($task.Settings.Enabled -eq $true -and
       [string]$task.State -ceq 'Running' -and $originalControllers.Count -eq 1)
     $idleOriginal=($task.Settings.Enabled -eq $true -and
-      [string]$task.State -cne 'Running' -and $originalControllers.Count -eq 0)
+      [string]$task.State -ceq 'Ready' -and $originalControllers.Count -eq 0)
     $heldOriginal=($task.Settings.Enabled -eq $false -and
-      [string]$task.State -cne 'Running' -and $originalControllers.Count -eq 0)
+      [string]$task.State -ceq 'Disabled' -and $originalControllers.Count -eq 0)
     Need ($runningOriginal -or $idleOriginal -or $heldOriginal) 'ONLY_RUNNING_IDLE_OR_COLD_DISABLED_ORIGINAL_OWNER_REQUIRED'
     $source=TaskArg $task 'RepositoryRoot'
     $oldStage=Join-Path $root ('release-candidates\'+$previousMain)
@@ -193,7 +193,7 @@ try {
     $stopped=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
     Need (@(Owners).Count -eq 0 -and
           $stopped.Settings.Enabled -eq $false -and
-          [string]$stopped.State -cne 'Running' -and
+          [string]$stopped.State -ceq 'Disabled' -and
           [string]$stopped.Actions[0].Arguments -ceq [string]$task.Actions[0].Arguments) 'STOPPED_OWNER_CUSTODY_REQUIRED'
 
     # Exact original owner kernel lock + query-only SQLite cold evidence
@@ -249,7 +249,8 @@ try {
           $prep.status -ceq 'completed' -and $prep.conclusion -ceq 'success' -and
           @($jobs.jobs | Where-Object {$_.name -ceq 'fresh-original-owner-source-forward-v2-prepare' -and
             $_.runner_name -ceq 'FORGE-CODEX-REMOTE' -and $_.conclusion -ceq 'success'}).Count -eq 1) 'START_PREPARE_CUSTODY_NOT_ACCEPTED'
-    Need ($task.Settings.Enabled -eq $false -and @(Owners).Count -eq 0) 'START_REQUIRES_DISABLED_ORIGINAL'
+    Need ($task.Settings.Enabled -eq $false -and [string]$task.State -ceq 'Disabled' -and
+          @(Owners).Count -eq 0) 'START_REQUIRES_DISABLED_ORIGINAL'
     $source=TaskArg $task 'RepositoryRoot'
     $stage=Join-Path $root ('release-candidates\'+$Target)
     Need ([IO.Path]::GetFullPath($source) -ieq [IO.Path]::GetFullPath($stage)) 'START_SOURCE_STAGE_DRIFT'
