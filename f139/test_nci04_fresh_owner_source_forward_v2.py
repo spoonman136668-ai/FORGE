@@ -540,7 +540,21 @@ class ForwardV2Tests(unittest.TestCase):
                 with self.assertRaisesRegex(
                         ValueError, "G156_F139_V2_PROTECTED_SOURCE_REQUIRED"):
                     g156._release_scope(PREVIOUS_OWNER_MAIN, "tree", "head")
-        with patch.dict(os.environ, {"GITHUB_HEAD_REF": branch}):
+        synthetic_host = {
+            "GITHUB_HEAD_REF": branch, "GITHUB_ACTIONS": "true",
+            "GITHUB_REPOSITORY": "spoonman136668-ai/FORGE",
+            "RUNNER_OS": "Windows", "G148_HEAD": "3" * 40,
+            "RUNNER_TEMP": str(self.folder),
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_BASE_REF": "main",
+        }
+        # This is a synthetic branch decision, never a claim about the real
+        # Windows runner. The actual host guard stays unchanged in production.
+        with patch.dict(os.environ, synthetic_host), patch.object(
+            g148.sys, "platform", "win32"
+        ), patch.object(g148, "stable"), patch.object(
+            g148, "negative_controls"
+        ):
             with patch.object(g148, "admit_original_pr",
                               return_value=accepted):
                 self.assertEqual(g148.event_mode("3" * 40), "pr")
