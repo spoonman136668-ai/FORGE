@@ -241,6 +241,43 @@ jobs:
           Need ($LASTEXITCODE -eq 0 -and $raw.Count -eq 1 -and
             [string]$raw[0] -clike 'F139_CUSTODY_SQL=*') 'READONLY_SQL'
           $sqlRecord=([string]$raw[0]).Substring('F139_CUSTODY_SQL='.Length)|ConvertFrom-Json
+          # Read-only classification of the interrupted source-forward PREPARE.
+          # Never open the DPAPI signing key or print certificate contents.
+          $forwardTarget='a3ea44c8db090b6a5cbaa47eb9520956bff13b7e'
+          $forwardTree='f30cff4ed9f0f26aeaaf79aa9a5f658d97fe1c2a'
+          $forwardStage=Join-Path $base ('release-candidates\'+$forwardTarget)
+          $forwardCert=Join-Path (Split-Path -Parent $fresh) 'fresh-original-owner-source-forward.json'
+          $forwardTaskBinding='OTHER_SOURCE'
+          if([IO.Path]::GetFullPath($repoRoot) -ieq [IO.Path]::GetFullPath($forwardStage)){
+            $forwardTaskBinding='TARGET_STAGE'
+          }
+          $forwardStageClass='ABSENT'
+          if(Test-Path -LiteralPath $forwardStage){
+            $forwardStageClass='INVALID_OR_UNVERIFIED'
+            $item=Get-Item -LiteralPath $forwardStage -Force -ErrorAction Stop
+            if($item.PSIsContainer -and
+                ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){
+              $stageSha=(& git -c core.fsmonitor=false --no-optional-locks -C $forwardStage rev-parse HEAD 2>$null|Out-String).Trim()
+              $stageTree=(& git -c core.fsmonitor=false --no-optional-locks -C $forwardStage rev-parse 'HEAD^{tree}' 2>$null|Out-String).Trim()
+              $stageDirty=@(& git -c core.fsmonitor=false --no-optional-locks -C $forwardStage status --porcelain --untracked-files=all 2>$null)
+              $stageRemote=@(& git -c core.fsmonitor=false --no-optional-locks -C $forwardStage remote 2>$null)
+              if($LASTEXITCODE -eq 0 -and $stageSha -ceq $forwardTarget -and
+                  $stageTree -ceq $forwardTree -and $stageDirty.Count -eq 0 -and
+                  $stageRemote.Count -eq 0){
+                $forwardStageClass='PINNED_CLEAN_NO_REMOTE'
+              }
+            }
+          }
+          $forwardCertClass='ABSENT'
+          if(Test-Path -LiteralPath $forwardCert){
+            $forwardCertClass='PRESENT_UNVERIFIED'
+            $certItem=Get-Item -LiteralPath $forwardCert -Force -ErrorAction Stop
+            if(-not $certItem.PSIsContainer -and
+                ($certItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and
+                $certItem.Length -gt 0 -and $certItem.Length -le 8192){
+              $forwardCertClass='PRESENT_BOUNDED_UNVERIFIED'
+            }
+          }
           $result=@{
             schema='forge.f139.fresh-original-owner-cold-readonly.v1'
             trigger_sha=$env:GITHUB_SHA
@@ -250,6 +287,9 @@ jobs:
             installed_source_sha=$installedSha
             release_install_directory_exists=[bool]$releasePresent
             controller_process_count=[int]$controllerCount
+            source_forward_task_binding=$forwardTaskBinding
+            source_forward_stage_class=$forwardStageClass
+            source_forward_certificate_class=$forwardCertClass
             sqlite=$sqlRecord
             task_mutations=0
             sqlite_mutations=0
