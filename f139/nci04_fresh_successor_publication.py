@@ -7,6 +7,10 @@ may reconcile the exact published issue. No second queue or scheduler.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import json
+
 from f139.local_controller import SingleOwner
 from f139.nci04_fresh_dev_exclusions import candidate_violates_frozen_exclusions
 from f139.nci04_fresh_native_activation import audit_fresh_native_activation
@@ -19,9 +23,65 @@ from f139.nci04_fresh_structured_dev import SCHEMA as STRUCTURED_PROPOSAL_SCHEMA
 from f139.nci04_fresh_curriculum_owner import plan_next_structured_dev_from_original_owner
 from f139.nci04_fresh_lifecycle import (
     PUBLISH_KIND, PUBLISH_SCHEMA, PUBLISH_SCHEMA_STRUCTURED,
-    read_lifecycle, authenticate_runtime_owner, need, digest,
+    PUBLISH_STRUCTURED_RECIPES, read_lifecycle,
+    authenticate_runtime_owner, need, digest,
 )
-from f139.nci04_owner_issue import inspect_owner_issue
+from f139.nci04_owner_issue import (
+    inspect_owner_issue, BODY_KEYS, SCHEMA as ISSUE_SCHEMA, KIND as ISSUE_KIND,
+)
+from f139.nci04_native_contract import canonical, parse_intent
+
+
+def preflight_structured_dev_plan(plan):
+    """Reparse exact native body BEFORE durable remote POST attempt (V2 only).
+
+    The owner planner must have independently authenticated the target blob,
+    source, history and signed Windows owner. This is an additional structural
+    negative control, not a replacement for original provider provenance.
+    """
+    need(type(plan) is dict and set(plan) == {
+         "schema", "recipe", "title", "body", "body_sha256",
+         "after_sha256", "intent_sha256", "mechanism_sha256",
+         "scientific_first_use", "paid_model_calls",
+    } and plan["schema"] == STRUCTURED_PROPOSAL_SCHEMA
+         and type(plan["recipe"]) is str
+         and plan["recipe"] in PUBLISH_STRUCTURED_RECIPES
+         and plan["title"] == "F139 auto-feed fresh Yggdrasil DEV: " + plan["recipe"]
+         and plan["scientific_first_use"] is False
+         and type(plan["paid_model_calls"]) is int
+         and plan["paid_model_calls"] == 0
+         and type(plan["body"]) is str
+         and 0 < len(plan["body"].encode("utf-8")) <= 60000,
+         "STRUCTURED_PREPOST_PLAN_INVALID")
+    try:
+        # Canonical bytes reject duplicate keys, noncanonical numbers and
+        # trailing/untrusted text before anyone can write an attempt event.
+        body = json.loads(plan["body"])
+        need(type(body) is dict and set(body) == BODY_KEYS
+             and plan["body"].encode("ascii") == canonical(body)
+             and body["schema"] == ISSUE_SCHEMA
+             and body["source_sha"] == SOURCE
+             and body["lane"] == "Yggdrasil"
+             and body["kind"] == ISSUE_KIND
+             and body["scientific_first_use"] is False
+             and type(body["paid_model_calls"]) is int
+             and body["paid_model_calls"] == 0
+             and plan["body_sha256"] == digest(canonical(body)),
+             "STRUCTURED_PREPOST_BODY_INVALID")
+        raw = base64.b64decode(body["intent_base64"], validate=True)
+        need(base64.b64encode(raw).decode("ascii") == body["intent_base64"],
+             "STRUCTURED_PREPOST_INTENT_ENCODING")
+        candidate = parse_intent(
+            raw, protected_main=SOURCE,
+            target_commit=TARGET, target_tree_sha=TARGET_TREE)
+        need(candidate.lane == "Yggdrasil"
+             and candidate.path == "yggdrasil/public_causal_cells.py"
+             and candidate.after_sha256 == plan["after_sha256"]
+             and candidate.intent_sha256 == plan["intent_sha256"],
+             "STRUCTURED_PREPOST_NATIVE_IDENTITY_DRIFT")
+    except (UnicodeError, ValueError, TypeError, binascii.Error) as exc:
+        raise ValueError("F139_STRUCTURED_PREPOST_REJECTED") from exc
+
 
 def publish_one(db, api, key):
     """Return a new *issue number* only after provider-verified publication.
@@ -69,6 +129,8 @@ def publish_one(db, api, key):
                             STRUCTURED_PROPOSAL_SCHEMA),
          "PUBLICATION_GENERATOR_SCHEMA_INVALID")
     v2 = plan["schema"] == STRUCTURED_PROPOSAL_SCHEMA
+    if v2:
+        preflight_structured_dev_plan(plan)
 
     # Require the provider target and immutable first owner seed to remain the
     # actual native admission contract. No synthetic/third-party identity.
