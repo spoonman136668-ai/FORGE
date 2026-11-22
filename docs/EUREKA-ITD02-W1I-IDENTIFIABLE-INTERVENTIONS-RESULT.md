@@ -1,0 +1,36 @@
+# Eureka ITD-02 W1I — frozen identifiable-intervention development result
+
+**Original frozen decision: `ITD02_W1I_DEV_NO_GO`** — not accepted original science, not autonomous improvement, and not a conventional superiority demonstration. This is a source-owned **synthetic** selected-action/observed-consequence experiment after the already frozen W1L NO_GO (do not retune or rerun either consumed development cohort).
+
+## Provenance, exact source and custody
+
+- Reused existing [FORGE draft PR #1730](https://github.com/spoonman136668-ai/FORGE/pull/1730), previous qualified exact-parent `00badf1c70f9ecc5e72a9dbba109932f3fdb21a3`. Original W1L negative, two-bank synthetic reversal results, original Acrobot F51/F56/F58 negatives and protected F57 seed plan remain unchanged. Independent Wingless/Yggdrasil/Hybrid and owner lanes not touched.
+- Prospective first protocol `5d394a1fe6cd8ca268467ef3751ec42ff5dfa0e4` was **corrected before source implementation, tests or scored W1I data** because it originally made candidate and strongest active Bayesian control identical and thus a positive paired result impossible. **Final preregistration** `39cd0c72daf1d1853c83ea7791eb2c913630c665` with doc Git blob `21da6107ae7f71e7c64ccf584afcb2a0ead57b08`; pre-froze 2-consecutive-residual contradiction threshold 0.70 and next-update adaptive hazard 0.40 versus conventional hazard 0.04, all W1I seeds, scoring and controls unchanged. This amendment is NOT post-result tuning.
+- Implemented `research/itd02_w1i_lag_identification_dev.py` Git blob **`6a688ca8fc900a26948e1529ba1101feca3185dc`** and source-free focused tests Git blob **`2e433a8419f549698a8c38fd72f5dd0807e2bac4`** at code commit `5d3b69650a7d759f689b4675dacf8b52dff784d3`. Prior online two-bank/W1L source blobs unchanged.
+- Original exact own-PR temporary CI [run #43303710694](https://github.com/spoonman136668-ai/FORGE/actions/runs/43303710694), source SHA `a7ed400972b50c854d5de273eefb525ce3420000`: prerequisite Linux preflight job `131481911454` **10/10 PASS**, Windows `131481911823` **10/10 PASS**. These FIT-only tests used *unscored* 93001/93003 fixture seeds and proved periodic `a_t=a_(t−2)` action trace is **lag0/lag2 nonidentifiable** while independently pulsed FIT trace has full rank. Scored world step count at preflight=ZERO. Only **after both prerequisites succeeded** did the single frozen score job `131482141626` **SUCCESS**; no duplicate scorer runs.
+- The scored job delivered **1,536** shared FIT source interventions (96×16), **17,920** true policy-selected synthetic source reward observations (16 worlds ×7 arms ×160), and **17,920** deterministic fresh whole-world cold replays. Candidate also SHA-bound cold restored its actual posterior/action history after step 80. All 16/16 world cases completed; no Gymnasium, F57 original-seed use or independently qualified real-world first-use.
+
+## All-world source-measured consequence returns (higher is better)
+
+| Policy | Cumulative measured synthetic return, 16 worlds |
+|---|---:|
+| Adaptive-hazard causal probe (`pulse-causal`) | **1090.0841502409749** |
+| Conventional fixed-hazard Bayesian with probe premium (`bayes-active`) | **1090.0841502409749** |
+| Conventional fixed-hazard Bayesian without probe premium (`bayes-greedy`) | **1090.0841502409749** |
+| Recent 16-feedback lag likelihood | 963.5841502409749 |
+| Conventional fixed eligibility/credit trace | 566.084150240975 |
+| Nonlearning public sine policy | 219.28415024097484 |
+| Random action | −77.41584975902516 |
+
+**No gain** over strongest conventional Bayesian active: `0.0` vs frozen minimum `54.504207512048744`; **0/16** strict paired world wins vs required **≥12/16**; candidate action traces differ from greedy Bayes in **0/16** worlds vs required ≥8. Across all four frozen families (`lag-cycle`, `lag-return`, `lag-stationary`, `lag-distractor`), all three Bayesian variants had identical returns. The named exploration bonus and surprise-responsive hazard **did not improve selected interventions**, even with genuine feedback and fresh lag-identifiable FIT signals. Do **not** infer from equal returns that internal posteriors were identical; only observed policy returns and candidate-vs-greedy action trajectories are verified equal.
+
+Explicitly: ITD-02 learner identifies only a tiny *predefined three-lag hypothesis family* under a source-frozen sinusoidal public-goal prior. It did **not** learn arbitrary dynamics, demonstrate independent unfamiliar-family intelligence, world-model planning, general action-consequence learning, language, autonomous RSI, retained cognitive knowledge or whole-process cost superiority. Synthetic action consequences were physically executed in the **toy simulator**, not an independent original environment. The score uses no action-counterfactual privileged truth as policy input; evaluator-only hidden lag may inform diagnostics, not decisions.
+
+## Original output digests and engineering distinction
+
+- Full immutable Actions JSON artifact [#13983700525](https://github.com/spoonman136668-ai/FORGE/actions/runs/43303710694/artifacts/13983700525), artifact ZIP sha256 `977ebe3c4f2f6066981c536ee09514f991078063a6398025eb87db3202a5a375`; actual newline-terminated report file sha256 `cec25a4a56a2fbcffab12d3d4633f7d9dfa7bd158f29ddfe5a17d7617d24985d`; canonical model-defined report digest field `b248dc24a8409e8af495aa56cca018bc453942b4baa8dac6588cabe01fd52794`. These identify **different byte presentations**, not inconsistent scientific evidence.
+- A temporary **modified** `.github/workflows/qualify.yml` was used solely for own-PR two-OS focused smoke and single synthetic DEV action sequence; its native G145 altered-harness admission is expected to deny, **not an original full-regression PASS**. The original workflow byte-identical Git blob `8b6710df902710d088fe9658da718d22244e5151` is restored in the final source-only commit. A *separate* mandatory original complete Linux+Windows 8/8 final exact-SHA regression is required before engineering promotion, even though preflight and DEV job themselves completed.
+- PR stays **OPEN / DRAFT / UNMERGED**. Protected main advanced separately to `f32174255169f907275ddce94c963842db83d3c6` by independent original-owner V41 work; combined main+this PR source is NOT qualified, even if branch-local native regression passes. No authority to merge, owner transition, runtime integration, production release, scientific first-use, new controller, scheduled task, runner, cloud account/write, paid model or CKB-plane dependency.
+- **Immutable next decision:** Do not retune/replay consumed 940xx W1I DEV cohort; intervention bonus and hazard changed no actions, so incremental threshold tweaks are not an informative next research gate. A distinct prospectively frozen test would need a genuinely different causal class (unseen state dynamics, absent pretrained future-phase prior, counterfactual intervention requirements) against fully trained model-based/recurrent conventional controls, ideally a qualified independent original interactive source. Original science remains blocked under [FORGE FSA #83](https://github.com/spoonman136668-ai/FORGE/issues/83).
+
+`ENGINEERING_FOCUSED=PASS_10_OF_10_LINUX_AND_WINDOWS` · `W1I_SYNTHETIC_DEV=NO_GO` · `SCIENTIFIC_PASS=NOT_SHOWN` · `DEPLOYMENT=INACTIVE`.
