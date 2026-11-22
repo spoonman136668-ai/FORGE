@@ -22,6 +22,10 @@ $oldTree='fec1166ed94e8cb95e47bcf50e312628d41d54ab'
 $admission='408139c0a10fd4836a22422c8df041aa64dfa001'
 $runId='44831323193'
 $knownTerminal='9177021b1d78a084ac021fe02731b6232f319b537f527c5ad0532f7c47f2c812'
+# New, owner-PR-scoped partial-PREPARE recovery; failed run #45008466306 is never replayed.
+$recoveryPr=1865
+$failedStageSha='a3ea44c8db090b6a5cbaa47eb9520956bff13b7e'
+$failedStageTree='f30cff4ed9f0f26aeaaf79aa9a5f658d97fe1c2a'
 $taskName='FORGE-F139-UnifiedController'
 $expectedTaskRoot=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
 $expectedDb=Join-Path $expectedTaskRoot ('f139-fresh-dev-'+$runId+'\state.sqlite')
@@ -145,7 +149,7 @@ finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
 Need ($env:F139_WORKER_HMAC_KEY.Length -ge 32) 'OWNER_HMAC_KEY_INVALID'
 try {
   if($Phase -ceq 'Prepare'){
-    Need ($Head -cmatch '^[a-f0-9]{40}$' -and $PrNumber -eq 1863 -and
+    Need ($Head -cmatch '^[a-f0-9]{40}$' -and $PrNumber -in @(1863,$recoveryPr) -and
           $RegressionRun -gt 0 -and $SourceRun -gt 0 -and
           $RehearsalRun -gt 0 -and -not (Test-Path -LiteralPath $cert)) 'ONE_SHOT_PREPARE_DENIED'
     $expectedBody='F139-FRESH-OWNER-SOURCE-FORWARD '+$Target+' '+$Head+' '+$PrNumber+' '+$RegressionRun+' '+$SourceRun+' '+$RehearsalRun
@@ -157,14 +161,31 @@ try {
     CheckCI $RegressionRun @('windows_f139','linux_f139','windows_genenv','linux_genenv','windows_native','linux_native','windows','linux') $Head
     CheckCI $SourceRun @('source (ubuntu-latest)','source (windows-latest)') $Head
     CheckCI $RehearsalRun @('development-rehearsal (ubuntu-latest)','development-rehearsal (windows-latest)') $Head
-    Need ($task.Settings.Enabled -eq $true -and [string]$task.State -ceq 'Running' -and
-          @(Controllers).Count -eq 1) 'ORIGINAL_RUNNING_OWNER_REQUIRED'
+    # Legacy owner PR #1863 remains running-only; never replay the failed PREPARE.
+    # PR #1865 recovers only the known original cold/disabled partial state.
+    if($PrNumber -eq 1863){
+      Need ($task.Settings.Enabled -eq $true -and [string]$task.State -ceq 'Running' -and
+            @(Controllers).Count -eq 1) 'ORIGINAL_RUNNING_OWNER_REQUIRED'
+    } elseif($PrNumber -eq $recoveryPr){
+      Need ($Target -cne $failedStageSha -and $Target -cne $old) 'RECOVERY_NEW_MAIN_REQUIRED'
+      Need ($task.Settings.Enabled -eq $false -and [string]$task.State -ceq 'Disabled' -and
+            @(Controllers).Count -eq 0) 'RECOVERY_COLD_DISABLED_REQUIRED'
+      $originalStage=Join-Path $expectedTaskRoot ('release-candidates\'+$failedStageSha)
+      # The owner-host audit authenticated the task SID, root's exact SHA,
+      # and both ledgers, but did not prove a specific root directory name.
+      # ExactGit below binds the existing task-root to old SHA/tree/clean/no-remote
+      # without inventing a directory layout or substituting a second checkout.
+      ExactGit $originalStage $failedStageSha $failedStageTree
+      Need ($null -eq (Get-Item -LiteralPath $cert -Force -ErrorAction SilentlyContinue)) 'RECOVERY_CERTIFICATE_ALREADY_CONSUMED'
+    } else {
+      Need $false 'RECOVERY_PR_OUT_OF_SCOPE'
+    }
     ExactGit $root $old $oldTree
     CheckLedger
-    # Create-only source staging happens WHILE the original task is still
-    # running. A checkout/network failure does not interrupt that controller.
+    # Create only a NEW main-SHA checkout; never reuse or delete the failed stage.
     $stage=Join-Path $expectedTaskRoot ('release-candidates\'+$Target)
-    Need (-not(Test-Path -LiteralPath $stage)) 'TARGET_STAGE_ALREADY_EXISTS_NO_REPLAY'
+    Need (-not(Test-Path -LiteralPath $stage) -and
+          $null -eq (Get-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue)) 'TARGET_STAGE_ALREADY_EXISTS_NO_REPLAY'
     & git clone --no-local --no-checkout --quiet -- $env:GITHUB_WORKSPACE $stage
     Need ($LASTEXITCODE -eq 0) 'CREATE_ONLY_STAGE_FAILED'
     & git -C $stage checkout --quiet --detach $Target
@@ -172,10 +193,12 @@ try {
     & git -C $stage remote remove origin
     Need ($LASTEXITCODE -eq 0) 'REMOVE_REMOTE_FAILED'
     ExactGit $stage $Target $commit.tree.sha
-    # FIRST disable original task, THEN stop its child, then cold-verify again.
-    Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
-    for($i=0;$i -lt 80 -and @(Controllers).Count -ne 0;$i++){Start-Sleep -Milliseconds 250}
+    # Never call STOP or DISABLE in recovery: they belong solely to #1863.
+    if($PrNumber -eq 1863){
+      Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+      Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+      for($i=0;$i -lt 80 -and @(Controllers).Count -ne 0;$i++){Start-Sleep -Milliseconds 250}
+    }
     Need (@(Controllers).Count -eq 0 -and
           (Get-ScheduledTask -TaskName $taskName).Settings.Enabled -eq $false) 'ORIGINAL_NOT_STOPPED_HOLD'
     CheckLedger
@@ -219,6 +242,9 @@ try {
     $after=OwnerTask
     Need ($after.Settings.Enabled -eq $false -and [string]$after.Actions[0].Arguments -ceq $newArgs -and
           @(Controllers).Count -eq 0) 'PREPARED_TASK_NOT_DISABLED'
+    if($PrNumber -eq $recoveryPr){
+      Write-Output 'F139_FRESH_OWNER_PARTIAL_PREPARE_RECOVERED_DISABLED=PASS'
+    }
     Write-Output 'F139_FRESH_OWNER_SOURCE_FORWARD_PREPARED_DISABLED=PASS'
     Write-Output 'F139_WORKER_DISPATCHES=ZERO'
     Write-Output 'F139_SCIENTIFIC_FIRST_USE=FALSE'
@@ -226,7 +252,8 @@ try {
     Need ($PrepRun -gt 0 -and $event.comment.body -ceq
           ('F139-FRESH-OWNER-SOURCE-FORWARD-START '+$Target+' '+$PrepRun)) 'START_OWNER_COMMENT_INVALID'
     $doc=Get-Content -LiteralPath $cert -Raw -ErrorAction Stop | ConvertFrom-Json
-    Need ($doc.owner_run_id -eq $PrepRun -and $doc.owner_source_sha -ceq $Target -and
+    Need ($doc.pr_number -in @(1863,$recoveryPr) -and
+          $doc.owner_run_id -eq $PrepRun -and $doc.owner_source_sha -ceq $Target -and
           $doc.owner_source_tree -ceq $commit.tree.sha) 'START_CERTIFICATE_SOURCE_DRIFT'
     $prep=GetRemote ('repos/'+$repo+'/actions/runs/'+$PrepRun)
     $jobs=GetRemote ('repos/'+$repo+'/actions/runs/'+$PrepRun+'/jobs?per_page=100')

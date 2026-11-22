@@ -24,6 +24,8 @@ FORGE = "repos/spoonman136668-ai/FORGE"
 WORKFLOW = ".github/workflows/f139-fresh-owner-source-forward.yml"
 JOB = "fresh-original-owner-source-forward"
 PREFIX = "F139-FRESH-OWNER-SOURCE-FORWARD "
+# One distinct, owner-merged source-recovery PR; no blanket forward acceptance.
+RECOVERY_PR = 1865
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 FIELDS = frozenset({
@@ -85,7 +87,8 @@ def inspect_forward(doc, *, db, api, release, key):
          and _sha64(doc["owner_signature"])
          and doc["terminal_seq"] == 9
          and doc["task_name"] == "FORGE-F139-UnifiedController"
-         and type(doc["pr_number"]) is int and doc["pr_number"] == 1863
+         and type(doc["pr_number"]) is int
+         and doc["pr_number"] in (1863, RECOVERY_PR)
          and all(_positive(doc[k]) for k in (
              "owner_run_id", "owner_comment_id", "regression_run_id",
              "source_run_id", "rehearsal_run_id"))
