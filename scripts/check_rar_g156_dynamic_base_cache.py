@@ -58,6 +58,7 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
 from check_rar_g148_go_cache import CAP, ROOT, git, identity, stable, compiled_graph
 
 BRANCH = "engineering/rar-g156-dynamic-main-cache-release-20261108"
+F139_FORWARD_BRANCH = "engineering/f139-fresh-original-source-forward-20261122"
 BASE = "a62f469de1d5316c04d063246c30a5812bc8857d"
 BASE_TREE = "e306a28616fa4c3ccb8d17e77ed2020154c2a083"
 BASE_GRAPH = "39c27c4f51e81fb12d3b5dc573a99793d80c1b692943d7fbb9ed9cd7501cad47"
@@ -275,6 +276,15 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    # G145 independently checks PR #1863, owner identity, base ancestry,
+    # both owner-workflow blobs and all ten changed paths. CI admission only:
+    # no generic cache exception, original-owner cutover or worker authority.
+    if os.environ.get("GITHUB_HEAD_REF") == F139_FORWARD_BRANCH:
+        if (admission != "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY"
+                or base != "e0467115ea085e2f0ddbee258e4d8937f6a90f10"
+                or tree != "ebe959a996b7d0e90eced139912141fe0fb17482"):
+            raise ValueError("G156_F139_FORWARD_EXACT_OWNER_SOURCE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == FRESH_RELEASE_RULE_FIX_BRANCH:
         if (admission != "EXACT_F139_RELEASE_OWNER_RULESET_READ_CI_ONLY"
                 or base != FRESH_RELEASE_RULE_FIX_BASE or tree != FRESH_RELEASE_RULE_FIX_TREE):
@@ -680,6 +690,11 @@ def _reference(data: dict) -> dict:
             or current_count != data["source_graph_files"]):
         raise ValueError("G156_GIT_TREE_INDEX_SEMANTIC_DIVERGENCE")
     base_digest, base_count = _reference_graph(base)
+    # Source-forward carries no Go semantic-input changes. No G156 seed restore
+    # may become eligible as a side-effect of the owner source transition.
+    if (os.environ.get("GITHUB_HEAD_REF") == F139_FORWARD_BRANCH
+            and base_digest != current_digest):
+        raise ValueError("G156_F139_FORWARD_GO_GRAPH_CHANGED")
     if os.environ.get("GITHUB_HEAD_REF") == BRANCH and base_digest != BASE_GRAPH:
         raise ValueError("G156_FROZEN_RELEASE_GO_GRAPH_CHANGED")
     fp = dict(data["fingerprint"])

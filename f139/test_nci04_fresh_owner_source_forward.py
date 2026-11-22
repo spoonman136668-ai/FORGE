@@ -225,6 +225,7 @@ class SourceForwardTests(TestCase):
             "f139/test_nci04_fresh_owner_source_forward.py",
             "scripts/check_rar_g145_pr_scope.py",
             "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
         ))
         req = {
             "number": 1863, "author_association": "OWNER",
@@ -277,6 +278,37 @@ class SourceForwardTests(TestCase):
             ):
                 with self.subTest(field=field), self.assertRaises(ValueError):
                     admit(req, {**expected, field: value})
+
+    def test_g156_forward_requires_independent_exact_source_admission(self):
+        import os
+        from scripts import check_rar_g156_dynamic_base_cache as g156
+        branch = "engineering/f139-fresh-original-source-forward-20261122"
+        base = "e0467115ea085e2f0ddbee258e4d8937f6a90f10"
+        tree = "ebe959a996b7d0e90eced139912141fe0fb17482"
+        head = "a" * 40
+        scoped = "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY"
+        with patch.dict(os.environ, {"GITHUB_HEAD_REF": branch}):
+            with patch.object(g156, "admit_original_pr", return_value=scoped):
+                self.assertIsNone(g156._release_scope(base, tree, head))
+                for bad_base, bad_tree in (("f" * 40, tree),
+                                           (base, "f" * 40)):
+                    with self.subTest(base=bad_base, tree=bad_tree):
+                        with self.assertRaisesRegex(
+                                ValueError, "G156_F139_FORWARD_EXACT_OWNER"):
+                            g156._release_scope(bad_base, bad_tree, head)
+            for unauthorised in ("EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR",
+                                 "FROZEN_G141_G144_OR_G145_HARNESS_DEVELOPMENT"):
+                with self.subTest(admission=unauthorised):
+                    with patch.object(g156, "admit_original_pr",
+                                      return_value=unauthorised):
+                        with self.assertRaisesRegex(
+                                ValueError, "G156_F139_FORWARD_EXACT_OWNER"):
+                            g156._release_scope(base, tree, head)
+        with patch.dict(os.environ, {"GITHUB_HEAD_REF": "unrelated-source"}):
+            with patch.object(g156, "admit_original_pr", return_value=scoped):
+                with self.assertRaisesRegex(
+                        ValueError, "G156_UNAUTHORIZED_GENERIC_PR_SOURCE"):
+                    g156._release_scope(base, tree, head)
 
     def test_certificate_corrupt_or_symlink_never_falls_back(self):
         path = self.folder / NAME
