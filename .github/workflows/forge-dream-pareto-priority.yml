@@ -1,0 +1,35 @@
+name: FORGE Dream Pareto priority gate
+on:
+  push:
+    branches: [research/optimizer-priority-dream-pareto-20261015-r1]
+permissions:
+  contents: read
+jobs:
+  qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Frozen controls and phase priority acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./optimizerbridge
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'DREAM_PARETO_PHASE=ADVISORY_FROZEN_CONTROLS'
+          echo 'THETA_POLICY_PROMOTION=DISABLED_UNTIL_ACCEPTED_OUTCOMES'
+          echo 'PROMPT_DGM_LIVE_DISPATCH=DISABLED'
+          echo 'SCIENTIFIC_ORIGINALS_DISPATCHED=0'
