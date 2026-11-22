@@ -161,13 +161,8 @@ try {
           @(Controllers).Count -eq 1) 'ORIGINAL_RUNNING_OWNER_REQUIRED'
     ExactGit $root $old $oldTree
     CheckLedger
-    # FIRST disable original task, THEN stop its child, then cold-verify again.
-    Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
-    for($i=0;$i -lt 80 -and @(Controllers).Count -ne 0;$i++){Start-Sleep -Milliseconds 250}
-    Need (@(Controllers).Count -eq 0 -and
-          (Get-ScheduledTask -TaskName $taskName).Settings.Enabled -eq $false) 'ORIGINAL_NOT_STOPPED_HOLD'
-    CheckLedger
+    # Create-only source staging happens WHILE the original task is still
+    # running. A checkout/network failure does not interrupt that controller.
     $stage=Join-Path $expectedTaskRoot ('release-candidates\'+$Target)
     Need (-not(Test-Path -LiteralPath $stage)) 'TARGET_STAGE_ALREADY_EXISTS_NO_REPLAY'
     & git clone --no-local --no-checkout --quiet -- $env:GITHUB_WORKSPACE $stage
@@ -177,6 +172,13 @@ try {
     & git -C $stage remote remove origin
     Need ($LASTEXITCODE -eq 0) 'REMOVE_REMOTE_FAILED'
     ExactGit $stage $Target $commit.tree.sha
+    # FIRST disable original task, THEN stop its child, then cold-verify again.
+    Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+    Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    for($i=0;$i -lt 80 -and @(Controllers).Count -ne 0;$i++){Start-Sleep -Milliseconds 250}
+    Need (@(Controllers).Count -eq 0 -and
+          (Get-ScheduledTask -TaskName $taskName).Settings.Enabled -eq $false) 'ORIGINAL_NOT_STOPPED_HOLD'
+    CheckLedger
     $doc=@{
       schema='forge.f139.fresh-original-owner-source-forward.v1'
       admission_source_sha=$admission
