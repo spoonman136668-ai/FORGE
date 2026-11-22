@@ -174,9 +174,11 @@ class ForwardV2Tests(unittest.TestCase):
         (self.folder / NAME).write_bytes(canonical(self.doc))
         self.entries = [
             {"record": {"ticket": "f139-nci04-i1849-previous"},
-             "stage": "VERIFIED", "negative": None},
+             "stage": "VERIFIED", "negative": None,
+             "custody": {"run_id": 11}},
             {"record": {"ticket": self.doc["last_ticket"]},
-             "stage": "VERIFIED", "negative": None},
+             "stage": "VERIFIED", "negative": None,
+             "custody": {"run_id": 12}},
         ]
 
     def body(self):
