@@ -206,20 +206,7 @@ try {
     # bounded UTF-8/Base64 metadata, never the DPAPI-protected signing key.
     Need ($doc.Length -gt 0 -and $doc.Length -le 8192) 'SIGNED_CERT_DOCUMENT_SIZE_INVALID'
     $encodedDoc=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($doc))
-    $code=@'
-import base64,json,os,sys
-from pathlib import Path
-from f139.nci04_native_contract import canonical
-from f139.nci04_fresh_owner_source_forward import sign
-v=json.loads(base64.b64decode(sys.argv[2],validate=True))
-v["owner_signature"]=sign(v,os.environ["F139_WORKER_HMAC_KEY"])
-with Path(sys.argv[1]).open("xb") as f:
-    f.write(canonical(v))
-    f.flush()
-    os.fsync(f.fileno())
-print("F139_FRESH_FORWARD_CERTIFICATE=CREATE_ONLY_SIGNED")
-'@
-    $receipt=@(& $py -B -c $code $cert $encodedDoc)
+    $receipt=@(& $py -B -m f139.nci04_fresh_owner_source_forward sign-cert $cert $encodedDoc)
     Need ($LASTEXITCODE -eq 0 -and $receipt.Count -eq 1 -and
           $receipt[0] -ceq 'F139_FRESH_FORWARD_CERTIFICATE=CREATE_ONLY_SIGNED') 'SIGNED_CERT_CREATE_FAILED'
     $a=[string]$task.Actions[0].Arguments
@@ -254,14 +241,7 @@ print("F139_FRESH_FORWARD_CERTIFICATE=CREATE_ONLY_SIGNED")
     $unsignedJson=$unsigned | ConvertTo-Json -Compress -Depth 5
     Need ($unsignedJson.Length -gt 0 -and $unsignedJson.Length -le 8192) 'START_DOCUMENT_SIZE_INVALID'
     $encodedDoc=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($unsignedJson))
-    $code=@'
-import base64,json,os,sys
-from f139.nci04_fresh_owner_source_forward import sign
-v=json.loads(base64.b64decode(sys.argv[2],validate=True))
-assert sign(v,os.environ["F139_WORKER_HMAC_KEY"])==sys.argv[1]
-print("F139_FORWARD_HMAC_VERIFIED")
-'@
-    $ok=@(& $py -B -c $code $signature $encodedDoc)
+    $ok=@(& $py -B -m f139.nci04_fresh_owner_source_forward verify-cert $signature $encodedDoc)
     Need ($LASTEXITCODE -eq 0 -and $ok.Count -eq 1 -and
           $ok[0] -ceq 'F139_FORWARD_HMAC_VERIFIED') 'FORWARD_HMAC_INVALID'
     Need ($task.Settings.Enabled -eq $false -and @(Controllers).Count -eq 0) 'PREP_TASK_NOT_DISABLED'

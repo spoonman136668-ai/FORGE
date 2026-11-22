@@ -203,3 +203,38 @@ def installed_forward_source(db, api, release, key):
         raise ForwardSourceDenied("F139_FRESH_FORWARD_CERTIFICATE_NOT_JSON") from exc
     need(raw == canonical(doc), "CERTIFICATE_NONCANONICAL")
     return inspect_forward(doc, db=db, api=api, release=release, key=key)
+
+
+def _transport_main(argv=None):
+    """Bounded metadata-only certificate transport without inline Python."""
+    import base64
+    import binascii
+    import os
+    import sys
+
+    args = sys.argv[1:] if argv is None else argv
+    need(len(args) == 3 and args[0] in ("sign-cert", "verify-cert"),
+         "TRANSPORT_ARGUMENTS_INVALID")
+    need(0 < len(args[2]) <= 16384, "TRANSPORT_METADATA_SIZE_INVALID")
+    try:
+        raw = base64.b64decode(args[2], validate=True)
+        need(0 < len(raw) <= 8192, "TRANSPORT_METADATA_SIZE_INVALID")
+        unsigned = json.loads(raw)
+    except (binascii.Error, UnicodeError, ValueError) as exc:
+        raise ForwardSourceDenied("F139_FRESH_FORWARD_TRANSPORT_METADATA_INVALID") from exc
+    signature = sign(unsigned, os.environ["F139_WORKER_HMAC_KEY"])
+    if args[0] == "sign-cert":
+        signed = dict(unsigned, owner_signature=signature)
+        with Path(args[1]).open("xb") as file:
+            file.write(canonical(signed))
+            file.flush()
+            os.fsync(file.fileno())
+        print("F139_FRESH_FORWARD_CERTIFICATE=CREATE_ONLY_SIGNED")
+    else:
+        need(hmac.compare_digest(args[1], signature),
+             "TRANSPORT_SIGNATURE_INVALID")
+        print("F139_FORWARD_HMAC_VERIFIED")
+
+
+if __name__ == "__main__":
+    _transport_main()
