@@ -151,7 +151,10 @@ def inspect_forward(doc, *, db, api, release, key):
 
     comment = api.get(FORGE + "/issues/comments/" + str(doc["owner_comment_id"]))
     owner_body = (PREFIX + doc["owner_source_sha"] + " " +
-                  doc["pr_head_sha"] + " " + str(doc["pr_number"]))
+                  doc["pr_head_sha"] + " " + str(doc["pr_number"]) + " " +
+                  str(doc["regression_run_id"]) + " " +
+                  str(doc["source_run_id"]) + " " +
+                  str(doc["rehearsal_run_id"]))
     need(comment.get("id") == doc["owner_comment_id"]
          and comment.get("issue_url") ==
              "https://api.github.com/" + FORGE + "/issues/1830"
