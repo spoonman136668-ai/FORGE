@@ -152,11 +152,12 @@ class FreshOwnerPublicationTests(unittest.TestCase):
                 self.assertEqual(fixture.db.conn.execute(
                     "SELECT COUNT(*) FROM events WHERE kind=?", (PUBLISH_KIND,)
                 ).fetchone()[0], 1)
-            fixture.reopen()
-            with SingleOwner(fixture.path.with_suffix(".lock")):
-                _, entries = read_lifecycle(fixture.db, fixture.key)
-                self.assertEqual(entries[-1]["publication_attempt"]["recipe"],
-                                 plan["recipe"])
+        # Cold-reopen only AFTER releasing the original kernel mutex.
+        fixture.reopen()
+        with SingleOwner(fixture.path.with_suffix(".lock")):
+            _, entries = read_lifecycle(fixture.db, fixture.key)
+            self.assertEqual(entries[-1]["publication_attempt"]["recipe"],
+                             plan["recipe"])
 
     def test_malformed_or_duplicate_attempt_rejected_by_cold_audit(self):
         self.assertEqual(PUBLISH_SCHEMA,
