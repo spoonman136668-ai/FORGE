@@ -459,6 +459,17 @@ class ForwardV2Tests(unittest.TestCase):
         self.assertIn("$runningOriginal=($task.Settings.Enabled -eq $true", prepare)
         self.assertIn("$idleOriginal=($task.Settings.Enabled -eq $true", prepare)
         self.assertIn("$heldOriginal=($task.Settings.Enabled -eq $false", prepare)
+        # Windows Task Scheduler reports distinct Running, Ready, Disabled,
+        # Queued and Unknown states. Only the first three exact states are
+        # admissible; a queued/unknown task must never be source-forwarded.
+        self.assertIn("[string]$task.State -ceq 'Running'", prepare)
+        self.assertIn("[string]$task.State -ceq 'Ready'", prepare)
+        self.assertIn("[string]$task.State -ceq 'Disabled'", prepare)
+        self.assertIn("[string]$stopped.State -ceq 'Disabled'", prepare)
+        self.assertNotIn("[string]$task.State -cne 'Running'", prepare)
+        self.assertNotIn("[string]$stopped.State -cne 'Running'", prepare)
+        self.assertIn(
+            "[string]$task.State -ceq 'Disabled' -and", start)
         self.assertIn("$originalControllers.Count -eq 0)", prepare)
         self.assertIn("$originalControllers.Count -eq 1)", prepare)
         self.assertIn(
