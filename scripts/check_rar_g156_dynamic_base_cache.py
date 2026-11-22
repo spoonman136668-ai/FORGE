@@ -676,6 +676,16 @@ def _release_scope(base: str, tree: str, head: str) -> None:
         raise ValueError("G156_UNAUTHORIZED_GENERIC_PR_SOURCE")
 
 
+def _base_cache_eligible(base_digest: str, current_digest: str,
+                         base_key: str, current_key: str) -> bool:
+    # G148 can fingerprint broad non-Go inputs. The owner-forward PR is
+    # restricted to ten exact G145-reviewed paths, but those source edits
+    # can change the fingerprint. Never reuse an old compiler cache for
+    # this owner release; native Go commands and all qualification remain.
+    return (os.environ.get("GITHUB_HEAD_REF") != F139_FORWARD_BRANCH
+            and base_digest != current_digest and base_key != current_key)
+
+
 def _reference(data: dict) -> dict:
     head = data["source_sha"]
     base = github_event_base(head)
@@ -690,11 +700,6 @@ def _reference(data: dict) -> dict:
             or current_count != data["source_graph_files"]):
         raise ValueError("G156_GIT_TREE_INDEX_SEMANTIC_DIVERGENCE")
     base_digest, base_count = _reference_graph(base)
-    # Source-forward carries no Go semantic-input changes. No G156 seed restore
-    # may become eligible as a side-effect of the owner source transition.
-    if (os.environ.get("GITHUB_HEAD_REF") == F139_FORWARD_BRANCH
-            and base_digest != current_digest):
-        raise ValueError("G156_F139_FORWARD_GO_GRAPH_CHANGED")
     if os.environ.get("GITHUB_HEAD_REF") == BRANCH and base_digest != BASE_GRAPH:
         raise ValueError("G156_FROZEN_RELEASE_GO_GRAPH_CHANGED")
     fp = dict(data["fingerprint"])
@@ -702,7 +707,8 @@ def _reference(data: dict) -> dict:
     baseline_key = "rar-g148-win-go-" + hashlib.sha256(json.dumps(
         fp, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")).hexdigest()
-    eligible = base_digest != current_digest and baseline_key != data["cache_key"]
+    eligible = _base_cache_eligible(base_digest, current_digest,
+                                    baseline_key, data["cache_key"])
     if os.environ.get("GITHUB_HEAD_REF") == BRANCH and baseline_key != BASE_KEY:
         raise ValueError("G156_FROZEN_RELEASE_BASE_KEY_MISMATCH")
     return dict(base_source_sha=base, base_source_tree=tree,

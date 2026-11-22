@@ -310,6 +310,20 @@ class SourceForwardTests(TestCase):
                         ValueError, "G156_UNAUTHORIZED_GENERIC_PR_SOURCE"):
                     g156._release_scope(base, tree, head)
 
+    def test_g156_forward_cache_miss_never_restores_base_cache(self):
+        import os
+        from scripts import check_rar_g156_dynamic_base_cache as g156
+        branch = "engineering/f139-fresh-original-source-forward-20261122"
+        # Distinct fingerprints occur even when changed source is non-Go:
+        # the cache inventory includes broader inputs in Go package dirs.
+        with patch.dict(os.environ, {"GITHUB_HEAD_REF": branch}):
+            self.assertFalse(g156._base_cache_eligible("a", "b", "base", "head"))
+            self.assertFalse(g156._base_cache_eligible("a", "a", "base", "head"))
+        with patch.dict(os.environ, {"GITHUB_HEAD_REF": "other-branch"}):
+            self.assertTrue(g156._base_cache_eligible("a", "b", "base", "head"))
+            self.assertFalse(g156._base_cache_eligible("a", "a", "base", "head"))
+            self.assertFalse(g156._base_cache_eligible("a", "b", "same", "same"))
+
     def test_certificate_corrupt_or_symlink_never_falls_back(self):
         path = self.folder / NAME
         path.write_bytes(b'{"not":"canonical"}\n')
