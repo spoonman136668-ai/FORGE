@@ -450,6 +450,32 @@ class ForwardV2Tests(unittest.TestCase):
         self.assertNotIn("Start-ScheduledTask -TaskName $taskName", prepare)
         self.assertIn("Enable-ScheduledTask -TaskName $taskName", start)
         self.assertIn("Start-ScheduledTask -TaskName $taskName", start)
+        # The original V1 owner may be stopped by its old protected-main
+        # authentication after PR merge. Only the original task in either
+        # healthy running state OR already-cold disabled state is admissible.
+        # The disabled path must never replay STOP or START, and both must
+        # require the exact archived checkout and query-only cold evidence.
+        self.assertIn("$originalControllers=@(Owners)", prepare)
+        self.assertIn("$runningOriginal=($task.Settings.Enabled -eq $true", prepare)
+        self.assertIn("$heldOriginal=($task.Settings.Enabled -eq $false", prepare)
+        self.assertIn("$originalControllers.Count -eq 0)", prepare)
+        self.assertIn("$originalControllers.Count -eq 1)", prepare)
+        self.assertIn(
+            "Need ($runningOriginal -or $heldOriginal) "
+            "'ONLY_RUNNING_OR_COLD_DISABLED_ORIGINAL_OWNER_REQUIRED'", prepare)
+        self.assertIn("if ($runningOriginal) {\n"
+                      "      Disable-ScheduledTask -TaskName $taskName", prepare)
+        self.assertEqual(
+            prepare.count("Stop-ScheduledTask -TaskName $taskName"), 1)
+        self.assertLess(prepare.index("ExactGit $source $previousMain"),
+                        prepare.index("if ($runningOriginal)"))
+        self.assertLess(prepare.index("if ($runningOriginal)"),
+                        prepare.index(" preflight $db $encoded)"))
+        self.assertLess(prepare.index(" preflight $db $encoded)"),
+                        prepare.index(" sign-cert $cert $encodedDoc)"))
+        self.assertIn(
+            "[string]$stopped.Actions[0].Arguments -ceq "
+            "[string]$task.Actions[0].Arguments", prepare)
         if os.name == "nt":
             power = shutil.which("powershell.exe")
             self.assertIsNotNone(power)
