@@ -3702,6 +3702,7 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
             "f139/nci04_fresh_successor_publication.py",
             "f139/test_nci04_fresh_owner_source_forward.py",
             "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
         })
         if (base_sha != "e0467115ea085e2f0ddbee258e4d8937f6a90f10"
                 or type(request.get("number")) is not int
