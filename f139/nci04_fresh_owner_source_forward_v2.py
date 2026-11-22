@@ -261,3 +261,177 @@ def inspect_installed_v2(db, api, release, key):
     previous, previous_raw = _sealed(folder / PREVIOUS_NAME)
     return inspect_v2(doc, db=db, api=api, release=release, key=key,
                       previous=previous, previous_bytes=previous_raw)
+
+
+PREVIOUS_OWNER_MAIN = "f24251e0d95938e593a54c1577a34efadc8080d8"
+
+
+def preflight_v2_unsigned(db, api, release, key, *, head, candidate,
+                          regression_run_id, source_run_id,
+                          rehearsal_run_id):
+    """Generate bounded unsigned V2 metadata AFTER a cold, locked owner audit.
+
+    No cert write, task change, POST, dispatch or scientific first-use occurs.
+    The owner-only Windows PREPARE must separately authenticate its exact SID,
+    Git checkout, old task action and disabled/stopped state before signing.
+    """
+    from f139.nci04_fresh_lifecycle import (
+        CUSTODY_KIND, read_lifecycle,
+    )
+    from f139.local_controller import SingleOwner
+    need(SingleOwner.held(db.filename.with_suffix(".lock")),
+         "PREFLIGHT_ORIGINAL_KERNEL_LOCK_REQUIRED")
+    need(sha40(candidate) and sha40(head)
+         and all(pos(x) for x in (
+             regression_run_id, source_run_id, rehearsal_run_id)),
+         "PREFLIGHT_INPUT_INVALID")
+    root = db.filename.parent
+    need(not (root / NAME).exists() and not (root / NAME).is_symlink(),
+         "PREFLIGHT_V2_CERT_ALREADY_SPENT")
+    prior, raw = _sealed(root / PREVIOUS_NAME)
+    need(prior.get("pr_number") == 1865
+         and prior.get("owner_source_sha") == PREVIOUS_OWNER_MAIN,
+         "PREFLIGHT_WRONG_HISTORICAL_OWNER_SOURCE")
+    older_source = inspect_forward(
+        prior, db=db, api=api, release=release, key=key,
+        expected_current_source_sha=candidate)
+    need(older_source[0] == PREVIOUS_OWNER_MAIN,
+         "PREFLIGHT_PREVIOUS_CUSTODY_DRIFT")
+
+    verified_release, entries = read_lifecycle(db, key)
+    need(verified_release == release
+         and 2 <= len(entries) <= 4096
+         and all(e["stage"] == "VERIFIED"
+                 and e.get("negative") is None
+                 and e.get("custody") is not None for e in entries)
+         and entries[-1].get("publication_attempt") is None
+         and db.ready() is None and not db.actives(),
+         "PREFLIGHT_TERMINAL_OR_REMOTE_EFFECT_UNCERTAIN")
+    meta = db.meta()
+    seq = meta["head_seq"]
+    event = db.conn.execute(
+        "SELECT kind,sha FROM events WHERE seq=?", (seq,)).fetchone()
+    need(event is not None and event["kind"] == CUSTODY_KIND
+         and sha64(event["sha"])
+         and seq > 9,
+         "PREFLIGHT_LATEST_TERMINAL_INVALID")
+    count = db.conn.execute(
+        "SELECT COUNT(*) FROM events WHERE kind=?", (CUSTODY_KIND,)
+    ).fetchone()[0]
+    need(count == len(entries), "PREFLIGHT_COLD_ARCHIVE_COUNT_DRIFT")
+
+    branch = api.get(FORGE + "/branches/main")
+    commit = api.get(FORGE + "/git/commits/" + candidate)
+    pr = api.get(FORGE + "/pulls/" + str(PR))
+    need(branch.get("name") == "main"
+         and branch.get("protected") is True
+         and branch.get("commit", {}).get("sha") == candidate
+         and commit.get("sha") == candidate
+         and sha40(commit.get("tree", {}).get("sha"))
+         and pr.get("merged") is True and pr.get("state") == "closed"
+         and pr.get("merge_commit_sha") == candidate
+         and pr.get("head", {}).get("sha") == head
+         and pr.get("user", {}).get("login") == "spoonman136668-ai"
+         and pr.get("base", {}).get("repo", {}).get("full_name")
+             == "spoonman136668-ai/FORGE"
+         and pr.get("head", {}).get("repo", {}).get("full_name")
+             == "spoonman136668-ai/FORGE",
+         "PREFLIGHT_MERGED_OWNER_SOURCE_DRIFT")
+    runs = {
+        "regression_run_id": regression_run_id,
+        "source_run_id": source_run_id,
+        "rehearsal_run_id": rehearsal_run_id,
+    }
+    for field, names in CI_JOBS:
+        _qualified_run(api, runs[field], head, names)
+    need(api.get(FORGE + "/branches/main") == branch
+         and db.meta()["head_seq"] == seq
+         and db.meta()["head_hash"] == event["sha"],
+         "PREFLIGHT_SOURCE_OR_LEDGER_MOVED")
+    return {
+        "schema": SCHEMA, "admission_source_sha": SOURCE,
+        "worker_release_sha": release["worker_release_sha"],
+        "previous_certificate_sha256": digest(raw),
+        "previous_owner_source_sha": older_source[0],
+        "previous_owner_source_tree": older_source[1],
+        "owner_source_sha": candidate,
+        "owner_source_tree": commit["tree"]["sha"],
+        "pr_number": PR, "pr_head_sha": head,
+        **runs,
+        "terminal_seq": seq, "terminal_hash": event["sha"],
+        "terminal_count": count,
+        "last_ticket": entries[-1]["record"]["ticket"],
+        "task_name": "FORGE-F139-UnifiedController",
+        "development_only": True, "worker_release_unchanged": True,
+        "scientific_first_use": False, "paid_model_calls": 0,
+    }
+
+
+def _transport_main(argv=None):
+    """Owned Windows CLI: bounded metadata and read-only cold owner check."""
+    import base64
+    import binascii
+    import os
+    import sys
+
+    args = sys.argv[1:] if argv is None else argv
+    need(type(args) is list and len(args) == 3
+         and args[0] in ("sign-cert", "verify-cert", "preflight"),
+         "TRANSPORT_ARGUMENTS_INVALID")
+    need(type(args[2]) is str and 0 < len(args[2]) <= 16384,
+         "TRANSPORT_METADATA_SIZE_INVALID")
+    try:
+        raw = base64.b64decode(args[2], validate=True)
+        need(0 < len(raw) <= 8192, "TRANSPORT_METADATA_SIZE_INVALID")
+        doc = json.loads(raw)
+        need(type(doc) is dict and canonical(doc) == raw,
+             "TRANSPORT_METADATA_NONCANONICAL")
+    except (binascii.Error, ValueError, UnicodeError) as exc:
+        raise ForwardV2Denied("F139_FRESH_FORWARD_V2_TRANSPORT_INVALID") from exc
+    key = os.environ["F139_WORKER_HMAC_KEY"]
+    if args[0] == "sign-cert":
+        signed = dict(doc, owner_signature=sign(doc, key))
+        path = Path(args[1])
+        need(path.name == NAME
+             and not path.exists() and not path.is_symlink(),
+             "TRANSPORT_CERT_ALREADY_EXISTS")
+        with path.open("xb") as stream:
+            stream.write(canonical(signed))
+            stream.flush()
+            os.fsync(stream.fileno())
+        print("F139_FRESH_FORWARD_V2_SIGNED_CREATE_ONLY")
+        return
+    need(len(args[1]) > 0 and args[1].endswith("state.sqlite"),
+         "TRANSPORT_EXPECTED_DATABASE_INVALID")
+    from f139.local_controller import Database, SingleOwner, GitHub
+    from f139.nci04_fresh_lifecycle import read_lifecycle
+    database = Path(args[1]).resolve()
+    with SingleOwner(database.with_suffix(".lock")):
+        db = Database.open_readonly(database)
+        try:
+            release, _ = read_lifecycle(db, key)
+            api = GitHub()
+            if args[0] == "preflight":
+                need(set(doc) == {
+                    "head", "candidate", "regression_run_id",
+                    "source_run_id", "rehearsal_run_id",
+                }, "TRANSPORT_PREFLIGHT_FIELDS")
+                unsigned = preflight_v2_unsigned(
+                    db, api, release, key, **doc)
+                print(canonical(unsigned).decode("utf-8"))
+            else:
+                # The START phase checks full live-source, archived source,
+                # owner-prepare run + signed old/new cold receipts.
+                need(doc == {"expected_source_sha": doc.get("expected_source_sha")}
+                     and sha40(doc["expected_source_sha"]),
+                     "TRANSPORT_VERIFY_INPUT_INVALID")
+                result = inspect_installed_v2(db, api, release, key)
+                need(result[0] == doc["expected_source_sha"],
+                     "TRANSPORT_VERIFY_SOURCE_DRIFT")
+                print("F139_FRESH_FORWARD_V2_OWNER_CUSTODY_VERIFIED")
+        finally:
+            db.close()
+
+
+if __name__ == "__main__":
+    _transport_main()
