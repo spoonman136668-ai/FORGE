@@ -205,6 +205,77 @@ class SourceForwardTests(TestCase):
         self.assertEqual(workflow.count("  fresh-original-owner-source-forward:"), 1)
         self.assertEqual(workflow.count("  fresh-original-owner-source-forward-start:"), 1)
 
+    def test_exact_owner_workflow_exception_preserves_generic_denial(self):
+        # Explicit one-owner PR + one changed workflow blob, never a general
+        # privilege to bypass workflow guards or native security harnesses.
+        import os
+        from scripts.check_rar_g145_pr_scope import admit_original_pr
+
+        main = "e0467115ea085e2f0ddbee258e4d8937f6a90f10"
+        head = "a" * 40
+        branch = "engineering/f139-fresh-original-source-forward-20261122"
+        workflow = ".github/workflows/f139-fresh-original-owner-rebind.yml"
+        paths = sorted((
+            workflow, ".github/workflows/forge-f139-source-qualification.yml",
+            "f139/nci04_fresh_lifecycle.py",
+            "f139/nci04_fresh_owner_source_forward.ps1",
+            "f139/nci04_fresh_owner_source_forward.py",
+            "f139/nci04_fresh_successor_publication.py",
+            "f139/test_nci04_fresh_owner_source_forward.py",
+            "scripts/check_rar_g145_pr_scope.py",
+        ))
+        req = {
+            "number": 1863, "author_association": "OWNER",
+            "user": {"login": "spoonman136668-ai"},
+            "head": {"ref": branch, "sha": head,
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+            "base": {"ref": "main", "sha": main,
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+        }
+        expected = {
+            ("merge-base", main, head): main,
+            ("rev-parse", main + "^{tree}"):
+                "ebe959a996b7d0e90eced139912141fe0fb17482",
+            ("rev-parse", main + ":" + workflow):
+                "28cc3bf32afaa257c5c60d0c26a368dcd3da821f",
+            ("rev-parse", head + ":" + workflow):
+                "b7ac34f5f96782504383ac5ebe56b5f03c1c3339",
+            ("diff", "--no-renames", "--name-only", main, head):
+                "\n".join(paths),
+        }
+        def fake_git(*args):
+            return expected[args]
+        event = self.folder / "source-forward-owner-event.json"
+        env = {"GITHUB_EVENT_NAME": "pull_request",
+               "GITHUB_EVENT_PATH": str(event),
+               "GITHUB_HEAD_REF": branch,
+               "GITHUB_BASE_REF": "main"}
+        with patch.dict(os.environ, env):
+            def admit(payload=req, overrides=None):
+                event.write_text(json.dumps({"pull_request": payload}),
+                                 encoding="utf-8")
+                return admit_original_pr(head, fake_git if overrides is None
+                                         else lambda *args: overrides[args])
+            self.assertEqual(
+                admit(), "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY")
+            for bad in (
+                {**req, "number": 1864},
+                {**req, "author_association": "CONTRIBUTOR"},
+                {**req, "user": {"login": "untrusted"}},
+                {**req, "head": {**req["head"], "ref": "main"}},
+            ):
+                with self.subTest(bad=bad), self.assertRaises(ValueError):
+                    admit(bad)
+            for field, value in (
+                (("rev-parse", main + ":" + workflow), "f" * 40),
+                (("rev-parse", head + ":" + workflow), "f" * 40),
+                (("diff", "--no-renames", "--name-only", main, head),
+                 "\n".join(paths[:-1])),
+                (("merge-base", main, head), "f" * 40),
+            ):
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    admit(req, {**expected, field: value})
+
     def test_certificate_corrupt_or_symlink_never_falls_back(self):
         path = self.folder / NAME
         path.write_bytes(b'{"not":"canonical"}\n')
