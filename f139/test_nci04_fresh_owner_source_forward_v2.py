@@ -455,5 +455,101 @@ class ForwardV2Tests(unittest.TestCase):
             self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
 
+    def test_exact_scoped_v2_workflow_ci_admission_and_negative_controls(self):
+        from scripts.check_rar_g145_pr_scope import (
+            F139_V2_BASE, F139_V2_BASE_G145, F139_V2_BRANCH,
+            F139_V2_PATHS, F139_V2_PR, F139_V2_RESULT,
+            F139_V2_WORKFLOW, F139_V2_WORKFLOW_BLOB,
+            admit_f139_v2_source, generic_paths_safe,
+        )
+
+        head = "3" * 40
+        self.assertFalse(generic_paths_safe([F139_V2_WORKFLOW]))
+        self.assertEqual(F139_V2_PR, 1869)
+        self.assertEqual(F139_V2_BASE, PREVIOUS_OWNER_MAIN)
+        self.assertEqual(len(F139_V2_PATHS), 18)
+        request = {
+            "number": F139_V2_PR, "author_association": "OWNER",
+            "user": {"login": "spoonman136668-ai"},
+            "head": {"ref": F139_V2_BRANCH, "sha": head,
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+            "base": {"ref": "main", "sha": F139_V2_BASE,
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+        }
+        expected = {
+            ("merge-base", F139_V2_BASE, head): F139_V2_BASE,
+            ("rev-parse", F139_V2_BASE +
+             ":scripts/check_rar_g145_pr_scope.py"): F139_V2_BASE_G145,
+            ("rev-parse", head + ":" + F139_V2_WORKFLOW):
+                F139_V2_WORKFLOW_BLOB,
+            ("diff", "--no-renames", "--name-only",
+             F139_V2_BASE, head): "\n".join(sorted(F139_V2_PATHS)),
+        }
+
+        def trusted(*args):
+            if args not in expected:
+                raise AssertionError("UNEXPECTED_GIT_CUSTODY_PATH")
+            return expected[args]
+
+        self.assertEqual(admit_f139_v2_source(
+            head, F139_V2_BASE, request, trusted), F139_V2_RESULT)
+        for field, change in (
+            ("number", 1863),
+            ("author_association", "CONTRIBUTOR"),
+            ("user", {"login": "forged"}),
+            ("head", {**request["head"], "ref": "main"}),
+            ("base", {**request["base"], "sha": "0" * 40}),
+        ):
+            with self.subTest(field=field):
+                with self.assertRaises(ValueError):
+                    admit_f139_v2_source(
+                        head, F139_V2_BASE, {**request, field: change},
+                        trusted)
+        for path, changed in (
+            (("merge-base", F139_V2_BASE, head), "1" * 40),
+            (("rev-parse", head + ":" + F139_V2_WORKFLOW), "2" * 40),
+            (("diff", "--no-renames", "--name-only", F139_V2_BASE, head),
+             "\n".join(sorted(F139_V2_PATHS - {F139_V2_WORKFLOW}))),
+            (("diff", "--no-renames", "--name-only", F139_V2_BASE, head),
+             "\n".join(sorted(F139_V2_PATHS | {".github/workflows/foreign.yml"}))),
+        ):
+            with self.subTest(path=path, changed=changed):
+                with self.assertRaisesRegex(
+                        ValueError, "EXACT_WORKFLOW_OR_SOURCE_DRIFT"):
+                    admit_f139_v2_source(
+                        head, F139_V2_BASE, request,
+                        lambda *q: changed if q == path else trusted(*q))
+
+    def test_existing_go_qualifiers_do_not_generalize_v2_workflow_exception(self):
+        import os
+        from scripts import check_rar_g156_dynamic_base_cache as g156
+        from scripts import check_rar_g148_go_cache as g148
+        from unittest.mock import patch
+        branch = "engineering/f139-history-conditioned-dev-selector-20261122"
+        accepted = "EXACT_PR1869_F139_V2_SOURCE_FORWARD_CI_ONLY"
+        with patch.dict(os.environ, {"GITHUB_HEAD_REF": branch}):
+            with patch.object(g156, "admit_original_pr",
+                              return_value=accepted):
+                self.assertIsNone(
+                    g156._release_scope(PREVIOUS_OWNER_MAIN, "tree", "head"))
+                with self.assertRaisesRegex(
+                        ValueError, "G156_F139_V2_PROTECTED_SOURCE_REQUIRED"):
+                    g156._release_scope("0" * 40, "tree", "head")
+            with patch.object(g156, "admit_original_pr",
+                              return_value="EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR"):
+                with self.assertRaisesRegex(
+                        ValueError, "G156_F139_V2_PROTECTED_SOURCE_REQUIRED"):
+                    g156._release_scope(PREVIOUS_OWNER_MAIN, "tree", "head")
+        with patch.dict(os.environ, {"GITHUB_HEAD_REF": branch}):
+            with patch.object(g148, "admit_original_pr",
+                              return_value=accepted):
+                self.assertEqual(g148.event_mode("3" * 40), "pr")
+            with patch.object(g148, "admit_original_pr",
+                              return_value="EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR"):
+                with self.assertRaisesRegex(
+                        ValueError, "G148_F139_V2_SCOPED_ORIGINAL_OWNER_SOURCE_REQUIRED"):
+                    g148.event_mode("3" * 40)
+
+
 if __name__ == "__main__":
     unittest.main()
