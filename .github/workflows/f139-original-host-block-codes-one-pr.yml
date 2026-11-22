@@ -1,0 +1,119 @@
+name: FORGE F139 original-host bounded read-only block codes (one PR)
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+    paths: [.github/workflows/f139-original-host-block-codes-one-pr.yml]
+permissions: {}
+jobs:
+  original-owner-readonly:
+    if: >-
+      github.actor == 'spoonman136668-ai' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event.pull_request.head.repo.full_name == 'spoonman136668-ai/FORGE' &&
+      github.event.pull_request.head.ref == 'diagnostic/f139-stdout-readonly-original-host-20261122' &&
+      github.event.pull_request.base.sha == 'f24251e0d95938e593a54c1577a34efadc8080d8'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Observe original task, SQLite and sanitized log only; no checkout or mutation
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$why) { if(-not $ok){throw ('F139_DIAGNOSTIC_'+$why)} }
+          Need ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and
+            $env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_ACTOR -ceq 'spoonman136668-ai' -and
+            $env:GITHUB_EVENT_NAME -ceq 'pull_request' -and
+            $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+            -not $env:OPENAI_API_KEY -and -not $env:CLOUDFLARE_API_TOKEN) 'OWNER_RUNNER_CONTEXT'
+          $evt=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          Need ($evt.action -ceq 'opened' -and
+            $evt.sender.login -ceq 'spoonman136668-ai' -and
+            $evt.pull_request.user.login -ceq 'spoonman136668-ai' -and
+            $evt.pull_request.head.repo.full_name -ceq 'spoonman136668-ai/FORGE' -and
+            $evt.pull_request.head.ref -ceq 'diagnostic/f139-stdout-readonly-original-host-20261122' -and
+            $evt.pull_request.base.sha -ceq 'f24251e0d95938e593a54c1577a34efadc8080d8') 'ORIGINAL_OWNER_PR'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Need (@($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3) 'ORIGINAL_TASK_TOPOLOGY'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          try { $sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value } catch {}
+          Need ([string]$task.Principal.UserId -ieq $who.Name -or $sid -ceq $who.User.Value) 'ORIGINAL_SID'
+          function Arg([string]$name) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            Need ($m.Success) ('ORIGINAL_ACTION_'+$name)
+            return [string]$m.Groups[1].Value
+          }
+          $root=Arg 'RepositoryRoot'
+          $db=Arg 'Database'
+          $py=Arg 'PythonExe'
+          $base=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $expectedDb=Join-Path $base 'f139-fresh-dev-44831323193\state.sqlite'
+          $expectedSource=Join-Path $base 'release-candidates\f24251e0d95938e593a54c1577a34efadc8080d8'
+          Need ([IO.Path]::GetFullPath($db) -ieq [IO.Path]::GetFullPath($expectedDb) -and
+            [IO.Path]::GetFullPath($root) -ieq [IO.Path]::GetFullPath($expectedSource) -and
+            (Test-Path -LiteralPath $py -PathType Leaf) -and (Test-Path -LiteralPath $db -PathType Leaf)) 'EXACT_INSTALLED_ROUTE'
+          $installed=(& git -C $root rev-parse HEAD | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $installed -ceq 'f24251e0d95938e593a54c1577a34efadc8080d8') 'INSTALLED_SOURCE_DRIFT'
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') })
+          $info=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController'
+          $script=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,isolation_level=None,timeout=10)
+          try:
+              con.execute("PRAGMA query_only=ON")
+              assert con.execute("PRAGMA query_only").fetchone()[0]==1
+              assert con.execute("PRAGMA quick_check").fetchone()[0]=="ok"
+              meta=con.execute("SELECT head_seq,head_hash FROM meta WHERE id=1").fetchone()
+              stages=dict(con.execute("SELECT stage,count(*) FROM tasks GROUP BY stage"))
+              kinds=[row[0] for row in con.execute("SELECT kind FROM events ORDER BY seq DESC LIMIT 8")]
+              assert con.total_changes==0
+              print("F139_ORIGINAL_DIAGNOSTIC_SQL="+json.dumps({"seq":meta[0],"head":meta[1],"stages":stages,"recent_kinds":kinds},sort_keys=True,separators=(",",":")))
+          finally:
+              con.close()
+          '@
+          $sql=@($script | & $py -B - $db)
+          Need ($LASTEXITCODE -eq 0 -and $sql.Count -eq 1 -and
+            [string]$sql[0] -clike 'F139_ORIGINAL_DIAGNOSTIC_SQL=*') 'READONLY_SQL'
+          $log=Join-Path (Split-Path -Path $db -Parent) 'logs\controller.log'
+          $codes=@()
+          $dispositions=@()
+          $logFound=Test-Path -LiteralPath $log -PathType Leaf
+          if($logFound) {
+            foreach($line in @(Get-Content -LiteralPath $log -Tail 320 -ErrorAction Stop)) {
+              if(-not $line.TrimStart().StartsWith('{')){continue}
+              try{$entry=$line | ConvertFrom-Json -ErrorAction Stop}catch{continue}
+              if($entry.PSObject.Properties['blocked']) {
+                $v=[string]$entry.blocked
+                if($v -cmatch '^F139_[A-Z0-9_]{3,100}$'){$codes+= $v}else{$codes+= 'REDACTED'}
+              }
+              if($entry.PSObject.Properties['disposition']) {
+                $v=[string]$entry.disposition
+                if($v -cmatch '^[A-Z0-9_]{3,100}$'){$dispositions+= $v}else{$dispositions+= 'REDACTED'}
+              }
+            }
+          }
+          Write-Output ('F139_ORIGINAL_DIAGNOSTIC_RESULT='+(@{
+            schema='forge.f139.original-host-sanitized-block-diagnostic.v1'
+            installed_source='f24251e0d95938e593a54c1577a34efadc8080d8'
+            task_state=[string]$task.State
+            task_enabled=[bool]$task.Settings.Enabled
+            controller_count=$proc.Count
+            last_task_result=[int64]$info.LastTaskResult
+            log_present=[bool]$logFound
+            blocked_count=$codes.Count
+            blocked_codes=@($codes | Select-Object -Last 12)
+            dispositions=@($dispositions | Select-Object -Last 12)
+            task_mutations=0
+            sqlite_mutations=0
+            worker_dispatches=0
+            scientific_first_use=$false
+          } | ConvertTo-Json -Compress -Depth 5))
+          Write-Output $sql[0]
