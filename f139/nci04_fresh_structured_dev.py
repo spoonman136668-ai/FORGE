@@ -185,3 +185,44 @@ def matching_plan(pool: list[dict], selection: dict) -> dict:
     need(len(same) == 1 and type(same[0].get("plan")) is dict,
          "GRAMMAR_SELECTED_PLAN_AMBIGUOUS")
     return dict(same[0]["plan"])
+
+
+def generate_from_original_owner(*, api, initial_record: dict,
+                                 consumed_after: set[str],
+                                 last_verified_after: str) -> list[dict]:
+    """Verify the source through original-owner provider GET before generation.
+
+    Exact accepted protected target main, Git commit/tree and Git blob bytes
+    must agree. No issue creation or query of research holdouts occurs here.
+    Original-owner ledger and remote-attempt identities remain caller-audited.
+    """
+    from f139.nci04_fresh_successor_producer import REPO
+    from f139.nci04_fresh_yggdrasil_boundary import _content
+
+    root = "repos/" + REPO
+    branch_route = root + "/branches/main"
+    main = api.native_repo_get(branch_route)
+    commit = api.native_repo_get(root + "/git/commits/" + TARGET)
+    need(type(main) is dict and main.get("name") == "main"
+         and main.get("protected") is True
+         and main.get("commit", {}).get("sha") == TARGET
+         and type(commit) is dict and commit.get("sha") == TARGET
+         and commit.get("tree", {}).get("sha") == TARGET_TREE,
+         "ORIGINAL_OWNER_TARGET_PIN_DRIFT")
+    before = _content(
+        api.native_repo_get, ACCEPTED_NATIVE_PATH, TARGET,
+        ACCEPTED_NATIVE_BLOB)
+    need(api.native_repo_get(branch_route) == main, "TARGET_MOVED_DURING_READ")
+    need(type(initial_record) is dict
+         and type(initial_record.get("native_intent_base64")) is str,
+         "INITIAL_OWNER_SEED_MISSING")
+    try:
+        raw_seed = base64.b64decode(
+            initial_record["native_intent_base64"], validate=True)
+    except (ValueError, TypeError) as exc:
+        raise FreshProposalDenied(
+            "F139_FRESH_PROPOSAL_ORIGINAL_SEED_ENCODING_INVALID") from exc
+    return generate_dev_pool(
+        before=before, seed_intent=raw_seed,
+        consumed_after=consumed_after,
+        last_verified_after=last_verified_after)
