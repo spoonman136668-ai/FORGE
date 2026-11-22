@@ -158,6 +158,9 @@ def inspect_v2(doc, *, db, api, release, key, previous, previous_bytes):
     need(type(previous_bytes) is bytes and
          digest(previous_bytes) == doc["previous_certificate_sha256"]
          and type(previous) is dict
+         and previous.get("pr_number") == 1865
+         and previous.get("owner_source_sha") == PREVIOUS_OWNER_MAIN
+         and doc["previous_owner_source_sha"] == PREVIOUS_OWNER_MAIN
          and previous.get("owner_source_sha") == doc["previous_owner_source_sha"]
          and previous.get("owner_source_tree") == doc["previous_owner_source_tree"],
          "PREVIOUS_CERTIFICATE_CHAIN_DRIFT")
