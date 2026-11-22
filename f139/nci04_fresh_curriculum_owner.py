@@ -89,3 +89,67 @@ def select_cold_owner_dev_candidate(*, db: Database, owner_key: str,
           db.conn.total_changes) == previous,
          "READONLY_LEDGER_MUTATED")
     return selection
+
+
+def plan_next_structured_dev_from_original_owner(
+        *, db: Database, api, owner_key: str,
+        remaining_cost_units: int) -> dict | None:
+    """Read-only authenticated planning; intentionally NEVER publish/dispatch.
+
+    The original source-bound Windows owner must hold the kernel lock. First
+    authenticate its actual installed source, SID, Task Scheduler process,
+    source release and provider policy. Then re-read the signed SQLite history,
+    frozen pre-epoch exclusions, and accepted Yggdrasil Git tree/blob before
+    authoring a bounded source candidate. Re-select against the independently
+    reaudited ledger. The eventual one-shot publisher (NOT this function) must
+    durably commit a versioned attempt before remote POST and read back the
+    provider result. CI cannot authorize that publisher or owner rebind.
+    """
+    from f139.nci04_fresh_lifecycle import authenticate_runtime_owner
+    from f139.nci04_fresh_structured_dev import (
+        generate_from_original_owner, matching_plan,
+    )
+
+    need(type(db) is Database
+         and SingleOwner.held(db.filename.with_suffix(".lock")),
+         "PLANNER_ORIGINAL_MUTEX_REQUIRED")
+    original = (db.meta()["head_seq"], db.meta()["head_hash"],
+                db.conn.total_changes)
+    release, entries = read_lifecycle(db, owner_key)
+    authenticate_runtime_owner(db, api, release, owner_key)
+    need(entries[-1]["stage"] == "VERIFIED"
+         and entries[-1].get("negative") is None
+         and entries[-1].get("publication_attempt") is None,
+         "PLANNER_MUST_FOLLOW_UNPUBLISHED_VERIFIED_TERMINAL")
+    activation = audit_fresh_native_activation(db)
+    consumed, consumed_raw = _sealed_json(
+        db.filename.parent / "consumed-development-identities.json")
+    old = consumed.get("old_source_after_sha256")
+    need(activation is not None
+         and consumed.get("schema") == EXCLUSION_SCHEMA
+         and consumed.get("previous_work_replay_authorized") is False
+         and digest(consumed_raw) == activation["consumed_exclusions_sha256"]
+         and type(old) is list and len(old) <= 10000
+         and len(old) == len(set(old)) and all(sha(v) for v in old),
+         "PLANNER_SEALED_CONSUMED_HISTORY_DRIFT")
+    spent = set(old)
+    for e in entries:
+        spent.add(e["record"]["after_sha256"])
+        publication = e.get("publication_attempt")
+        if publication:
+            spent.add(publication["after_sha256"])
+    latest = entries[-1]["record"]["after_sha256"]
+    need(latest in spent and len(spent) <= 10000,
+         "PLANNER_LAST_TERMINAL_NOT_CONSUMED")
+    pool = generate_from_original_owner(
+        api=api, initial_record=entries[0]["record"],
+        consumed_after=spent, last_verified_after=latest)
+    proposal = select_cold_owner_dev_candidate(
+        db=db, owner_key=owner_key, proposals=[p["selection"] for p in pool],
+        remaining_cost_units=remaining_cost_units)
+    need((db.meta()["head_seq"], db.meta()["head_hash"],
+          db.conn.total_changes) == original,
+         "PLANNER_LEDGER_MUTATED")
+    if proposal is None:
+        return None
+    return matching_plan(pool, proposal)
