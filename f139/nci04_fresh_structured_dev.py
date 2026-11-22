@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import binascii
 import json
 
 from f139.nci04_fresh_curriculum import PROPOSAL_SCHEMA
@@ -219,7 +220,7 @@ def generate_from_original_owner(*, api, initial_record: dict,
     try:
         raw_seed = base64.b64decode(
             initial_record["native_intent_base64"], validate=True)
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, binascii.Error) as exc:
         raise FreshProposalDenied(
             "F139_FRESH_PROPOSAL_ORIGINAL_SEED_ENCODING_INVALID") from exc
     return generate_dev_pool(
