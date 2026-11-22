@@ -146,8 +146,18 @@ try {
     CheckCI $SourceRun @('source (ubuntu-latest)','source (windows-latest)') $Head
     CheckCI $RehearsalRun @('development-rehearsal (ubuntu-latest)','development-rehearsal (windows-latest)') $Head
 
-    Need ($task.Settings.Enabled -eq $true -and [string]$task.State -ceq 'Running' -and
-          @(Owners).Count -eq 1) 'ONLY_RUNNING_ORIGINAL_OWNER_REQUIRED'
+    # An old V1 process might stop when protected main moves before this
+    # post-merge V2 PREPARE event is delivered. Accept precisely two original-
+    # task states: authenticated RUNNING+enabled+one controller, or already
+    # DISABLED+stopped+zero controllers. Any mixed/unknown state fails closed.
+    # Either state must still match the original signed V1 checkout and pass
+    # the complete cold ledger/receipt audit before V2 can be signed.
+    $originalControllers=@(Owners)
+    $runningOriginal=($task.Settings.Enabled -eq $true -and
+      [string]$task.State -ceq 'Running' -and $originalControllers.Count -eq 1)
+    $heldOriginal=($task.Settings.Enabled -eq $false -and
+      [string]$task.State -cne 'Running' -and $originalControllers.Count -eq 0)
+    Need ($runningOriginal -or $heldOriginal) 'ONLY_RUNNING_OR_COLD_DISABLED_ORIGINAL_OWNER_REQUIRED'
     $source=TaskArg $task 'RepositoryRoot'
     $oldStage=Join-Path $root ('release-candidates\'+$previousMain)
     Need ([IO.Path]::GetFullPath($source) -ieq [IO.Path]::GetFullPath($oldStage)) 'PREVIOUS_TASK_SOURCE_DRIFT'
@@ -168,13 +178,20 @@ try {
     Need ($LASTEXITCODE -eq 0) 'STAGE_REMOVE_REMOTE_FAILED'
     ExactGit $stage $Target ([string]$commit.tree.sha)
 
-    # STOP/DISABLE is separately owner-approved through this exact original
-    # issue comment. Failure after this point leaves the SAME task disabled.
-    Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
-    for($i=0;$i -lt 80 -and @(Owners).Count -ne 0;$i++){Start-Sleep -Milliseconds 250}
+    # Only the owner-authenticated RUNNING state may be stopped here.
+    # A pre-existing disabled original task is never re-enabled, restarted,
+    # or STOP-replayed. Both paths require the same zero-PID, disabled
+    # original task plus complete query-only provider and ledger verification.
+    if ($runningOriginal) {
+      Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+      Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+      for($i=0;$i -lt 80 -and @(Owners).Count -ne 0;$i++){Start-Sleep -Milliseconds 250}
+    }
+    $stopped=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
     Need (@(Owners).Count -eq 0 -and
-          (Get-ScheduledTask -TaskName $taskName).Settings.Enabled -eq $false) 'STOPPED_OWNER_CUSTODY_REQUIRED'
+          $stopped.Settings.Enabled -eq $false -and
+          [string]$stopped.State -cne 'Running' -and
+          [string]$stopped.Actions[0].Arguments -ceq [string]$task.Actions[0].Arguments) 'STOPPED_OWNER_CUSTODY_REQUIRED'
 
     # Exact original owner kernel lock + query-only SQLite cold evidence
     # verifies ALL historical worker ZIP receipts before signing the new cert.
