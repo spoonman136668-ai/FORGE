@@ -12,10 +12,14 @@ from f139.nci04_fresh_dev_exclusions import candidate_violates_frozen_exclusions
 from f139.nci04_fresh_native_activation import audit_fresh_native_activation
 from f139.nci04_fresh_native_owner_route import _sealed_json
 from f139.nci04_fresh_worker_protocol import SOURCE, TARGET, TARGET_TREE
-from f139.nci04_fresh_successor_producer import propose_from_original_owner
+from f139.nci04_fresh_successor_producer import (
+    SCHEMA as LEGACY_PROPOSAL_SCHEMA, propose_from_original_owner,
+)
+from f139.nci04_fresh_structured_dev import SCHEMA as STRUCTURED_PROPOSAL_SCHEMA
+from f139.nci04_fresh_curriculum_owner import plan_next_structured_dev_from_original_owner
 from f139.nci04_fresh_lifecycle import (
-    PUBLISH_KIND, PUBLISH_SCHEMA, read_lifecycle, authenticate_runtime_owner,
-    need, digest,
+    PUBLISH_KIND, PUBLISH_SCHEMA, PUBLISH_SCHEMA_STRUCTURED,
+    read_lifecycle, authenticate_runtime_owner, need, digest,
 )
 from f139.nci04_owner_issue import inspect_owner_issue
 
@@ -53,7 +57,18 @@ def publish_one(db, api, key):
                      for row in entries if row.get("publication_attempt"))
     plan = propose_from_original_owner(api, entries[0]["record"], attempted)
     if plan is None:
+        # Source-only candidate builds cannot activate this route. Only the
+        # separately source-forwarded original Windows owner can enter here,
+        # after independently verifying its own SID/task/checkout/release.
+        # No second controller, scheduler, queue or scientific first-use.
+        plan = plan_next_structured_dev_from_original_owner(
+            db=db, api=api, owner_key=key, remaining_cost_units=16)
+    if plan is None:
         return None
+    need(plan["schema"] in (LEGACY_PROPOSAL_SCHEMA,
+                            STRUCTURED_PROPOSAL_SCHEMA),
+         "PUBLICATION_GENERATOR_SCHEMA_INVALID")
+    v2 = plan["schema"] == STRUCTURED_PROPOSAL_SCHEMA
 
     # Require the provider target and immutable first owner seed to remain the
     # actual native admission contract. No synthetic/third-party identity.
@@ -69,7 +84,8 @@ def publish_one(db, api, key):
          and plan["paid_model_calls"] == 0,
          "PUBLICATION_CANDIDATE_CUSTODY_INVALID")
     event = {
-        "schema": PUBLISH_SCHEMA, "ticket": last["record"]["ticket"],
+        "schema": (PUBLISH_SCHEMA_STRUCTURED if v2 else PUBLISH_SCHEMA),
+        "ticket": last["record"]["ticket"],
         "source_sha": SOURCE, "target_sha": TARGET,
         "recipe": plan["recipe"],
         "mechanism_sha256": plan["mechanism_sha256"],
