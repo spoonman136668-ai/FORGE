@@ -9,6 +9,7 @@ from f139.nci04_fresh_curriculum import CurriculumDenied
 from f139.nci04_fresh_curriculum_owner import (
     select_cold_owner_dev_candidate,
     plan_next_structured_dev_from_original_owner,
+    remaining_structured_dev_budget,
 )
 from f139.nci04_fresh_lifecycle import reserve_claim, settle_provider
 from f139.nci04_fresh_worker_protocol import SOURCE, TARGET_TREE
@@ -124,6 +125,65 @@ class OwnerVerifiedSelectorTests(unittest.TestCase):
                     self.owner.db.conn.execute(
                         "SELECT COUNT(*) FROM events WHERE kind='FRESH_SUCCESSOR_PUBLICATION_ATTEMPTED'"
                     ).fetchone()[0], 0)
+
+
+    def test_cold_budget_counts_all_v2_posts_including_uncertain_attempts(self):
+        from f139.nci04_fresh_lifecycle import (
+            PUBLISH_SCHEMA, PUBLISH_SCHEMA_STRUCTURED,
+        )
+        entry = lambda attempt=None: {
+            "record": {"ticket": "fixture"},
+            "publication_attempt": attempt,
+        }
+        prior = [
+            entry({"schema": PUBLISH_SCHEMA}),  # old recipes do not debit V2
+            entry({"schema": PUBLISH_SCHEMA_STRUCTURED}),
+            entry({"schema": PUBLISH_SCHEMA_STRUCTURED}),
+            entry(),
+        ]
+        self.assertEqual(remaining_structured_dev_budget(prior, 16), 12)
+        self.assertEqual(remaining_structured_dev_budget(prior, 4), 0)
+        with self.assertRaisesRegex(
+                CurriculumDenied, "STRUCTURED_BUDGET_ALREADY_EXCEEDED"):
+            remaining_structured_dev_budget(prior, 3)
+        # Source-validated negative/unknown outcomes remain spent; this
+        # helper deliberately has no success or refund condition.
+        prior[2]["negative"] = {"conclusion": "failure"}
+        self.assertEqual(remaining_structured_dev_budget(prior, 16), 12)
+        for bad in (None, -1, 10001, True):
+            with self.subTest(bad=bad), self.assertRaises(CurriculumDenied):
+                remaining_structured_dev_budget(prior, bad)
+        with self.assertRaisesRegex(CurriculumDenied, "ATTEMPT_INVALID"):
+            remaining_structured_dev_budget(
+                [entry({"schema": "unreviewed"})], 16)
+
+    def test_owner_planner_cannot_reset_the_structured_budget_each_tick(self):
+        with SingleOwner(self.owner.path.with_suffix(".lock")):
+            self.verify_one_terminal()
+            last = self.owner.fixture.issue.candidate.after_sha256
+            candidate = dict(self.candidate, prerequisites=[last])
+            plan = {
+                "recipe": "support-2-v2",
+                "after_sha256": candidate["after_sha256"],
+                "intent_sha256": candidate["intent_sha256"],
+                "scientific_first_use": False, "paid_model_calls": 0,
+            }
+            pool = [{"selection": candidate, "plan": plan}]
+            with patch(
+                "f139.nci04_fresh_lifecycle.authenticate_runtime_owner"
+            ), patch(
+                "f139.nci04_fresh_structured_dev.generate_from_original_owner",
+                return_value=pool,
+            ), patch(
+                "f139.nci04_fresh_curriculum_owner.remaining_structured_dev_budget",
+                return_value=0,
+            ) as remaining:
+                selected = plan_next_structured_dev_from_original_owner(
+                    db=self.owner.db, api=self.owner,
+                    owner_key=self.owner.key, remaining_cost_units=16)
+                self.assertIsNone(selected)
+                remaining.assert_called_once()
+                self.assertEqual(remaining.call_args.args[1], 16)
 
     def test_plan_denies_without_lock_or_verified_tail(self):
         self.owner.install_synthetic_release()

@@ -12,8 +12,45 @@ from f139.nci04_fresh_dev_exclusions import SCHEMA as EXCLUSION_SCHEMA
 from f139.nci04_fresh_native_activation import audit_fresh_native_activation
 from f139.nci04_fresh_native_owner_route import _sealed_json
 from f139.nci04_fresh_worker_protocol import SOURCE, TARGET, TARGET_TREE
-from f139.nci04_fresh_lifecycle import read_lifecycle
+from f139.nci04_fresh_lifecycle import (
+    PUBLISH_SCHEMA, PUBLISH_SCHEMA_STRUCTURED, read_lifecycle,
+)
 from f139.nci04_native_contract import digest
+
+
+# Every structured publication consumes exactly the same two DEV cost units
+# advertised to the selector, including a committed POST without an ACK.
+# This total is derived from the source-authenticated cold lifecycle; it is
+# never reset on the next owner tick or replenished by a CI-only terminal.
+STRUCTURED_DEV_COST_UNITS = 2
+
+
+def remaining_structured_dev_budget(entries: list[dict], ceiling: int) -> int:
+    """Ledger-derived, monotone budget for the current fresh DEV epoch.
+
+    The existing cold owner audits these publication attempts and signatures
+    before calling this helper. It never measures scientific utility.
+    """
+    need(type(ceiling) is int and 0 <= ceiling <= 10000
+         and type(entries) is list and 1 <= len(entries) <= 4096,
+         "STRUCTURED_BUDGET_INPUT_INVALID")
+    attempts = 0
+    for entry in entries:
+        need(type(entry) is dict
+             and type(entry.get("record")) is dict,
+             "STRUCTURED_BUDGET_ENTRY_INVALID")
+        attempt = entry.get("publication_attempt")
+        if attempt is None:
+            continue
+        need(type(attempt) is dict
+             and attempt.get("schema") in (PUBLISH_SCHEMA,
+                                            PUBLISH_SCHEMA_STRUCTURED),
+             "STRUCTURED_BUDGET_ATTEMPT_INVALID")
+        if attempt["schema"] == PUBLISH_SCHEMA_STRUCTURED:
+            attempts += 1
+    used = attempts * STRUCTURED_DEV_COST_UNITS
+    need(used <= ceiling, "STRUCTURED_BUDGET_ALREADY_EXCEEDED")
+    return ceiling - used
 
 
 def select_cold_owner_dev_candidate(*, db: Database, owner_key: str,
@@ -144,9 +181,13 @@ def plan_next_structured_dev_from_original_owner(
     pool = generate_from_original_owner(
         api=api, initial_record=entries[0]["record"],
         consumed_after=spent, last_verified_after=latest)
+    # Debit all previously committed V2 attempts, even on lost POST ACK.
+    # Passing the original per-epoch ceiling again must not reset it.
+    available_cost_units = remaining_structured_dev_budget(
+        entries, remaining_cost_units)
     proposal = select_cold_owner_dev_candidate(
         db=db, owner_key=owner_key, proposals=[p["selection"] for p in pool],
-        remaining_cost_units=remaining_cost_units)
+        remaining_cost_units=available_cost_units)
     need((db.meta()["head_seq"], db.meta()["head_hash"],
           db.conn.total_changes) == original,
          "PLANNER_LEDGER_MUTATED")
