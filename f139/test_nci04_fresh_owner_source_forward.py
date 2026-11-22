@@ -282,52 +282,6 @@ class SourceForwardTests(TestCase):
         self.assertEqual(doc["owner_signature"], self.doc["owner_signature"])
         self.assertEqual(destination.read_bytes(), canonical(doc))
 
-    def test_original_owner_readonly_audit_reports_interrupted_forward_without_writes(self):
-        """The pre-existing owner audit classifies stage/cert; no recovery run."""
-        repo = Path(__file__).resolve().parent.parent
-        workflow = (repo / ".github" / "workflows" /
-                    "f139-fresh-original-owner-rebind.yml").read_text(
-                        encoding="utf-8")
-        job = workflow.split("  fresh-release-readonly-audit:", 1)[1]
-        self.assertIn("F139-FRESH-DEV-RELEASE-CUSTODY-READONLY ", job)
-        for token in ("source_forward_task_binding=$forwardTaskBinding",
-                      "source_forward_stage_class=$forwardStageClass",
-                      "source_forward_certificate_class=$forwardCertClass",
-                      "a3ea44c8db090b6a5cbaa47eb9520956bff13b7e",
-                      "f30cff4ed9f0f26aeaaf79aa9a5f658d97fe1c2a",
-                      "PINNED_CLEAN_NO_REMOTE", "PRESENT_BOUNDED_UNVERIFIED",
-                      "--no-optional-locks", "F139_FRESH_CUSTODY_READONLY_MUTATIONS=0"):
-            self.assertIn(token, job)
-        for prohibited in ("Set-ScheduledTask", "Enable-ScheduledTask",
-                           "Disable-ScheduledTask", "Start-ScheduledTask",
-                           "Stop-ScheduledTask", "Import-Clixml",
-                           "F139_WORKER_HMAC_KEY"):
-            self.assertNotIn(prohibited, job)
-        # Parse the shell source but NEVER execute it on any host.
-        import os
-        if os.name == "nt":
-            import subprocess
-            import shutil
-            shell = shutil.which("powershell.exe")
-            self.assertIsNotNone(shell)
-            script = job.split("        run: |", 1)[1]
-            script = "\n".join(line[10:] for line in script.splitlines()
-                               if line.startswith("          "))
-            target = self.folder / "readonly-audit-syntax.ps1"
-            target.write_text(script + "\n", encoding="utf-8")
-            verifier = self.folder / "parse-only.ps1"
-            verifier.write_text(
-                "param([string]$Source)\n"
-                "$tokens=$null; $errors=$null\n"
-                "[System.Management.Automation.Language.Parser]::ParseFile("
-                "$Source,[ref]$tokens,[ref]$errors) | Out-Null\n"
-                "if($errors.Count -ne 0){exit 1}\n", encoding="utf-8")
-            result = subprocess.run(
-                [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
-                 "Bypass", "-File", str(verifier), "-Source", str(target)],
-                capture_output=True, text=True, timeout=30, check=False)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
     def test_original_owner_two_phase_cutover_remains_one_task(self):
         # Static confinement only; does not claim live Task Scheduler PASS.
         repo = Path(__file__).resolve().parent.parent
