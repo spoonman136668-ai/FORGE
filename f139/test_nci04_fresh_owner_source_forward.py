@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from f139.nci04_native_contract import canonical
 from f139.nci04_fresh_owner_source_forward import (
-    DOMAIN, FIELDS, FORGE, JOB, NAME, PREFIX, SCHEMA, WORKFLOW,
+    DOMAIN, FIELDS, FORGE, JOB, NAME, PREFIX, RECOVERY_PR, SCHEMA, WORKFLOW,
     ForwardSourceDenied, inspect_forward, installed_forward_source, sign,
 )
 from f139.nci04_fresh_worker_protocol import SOURCE
@@ -164,6 +164,46 @@ class SourceForwardTests(TestCase):
                     inspect_forward(forged, db=self.db, api=self.api,
                                     release=self.release, key=self.key)
         self.assertEqual(self.api.reads, [])
+
+    def test_distinct_recovery_pr_custody_and_negative(self):
+        self.doc["pr_number"] = RECOVERY_PR
+        self.doc["owner_signature"] = sign(
+            {k: v for k, v in self.doc.items() if k != "owner_signature"},
+            self.key)
+        self.routes[FORGE + "/pulls/" + str(RECOVERY_PR)] = self.routes[FORGE + "/pulls/1863"]
+        self.routes[FORGE + "/issues/comments/601"]["body"] = (
+            PREFIX + self.doc["owner_source_sha"] + " " +
+            self.doc["pr_head_sha"] + " " + str(RECOVERY_PR) + " " +
+            str(self.doc["regression_run_id"]) + " " +
+            str(self.doc["source_run_id"]) + " " +
+            str(self.doc["rehearsal_run_id"]))
+        self.assertEqual(inspect_forward(
+            self.doc, db=self.db, api=self.api, release=self.release,
+            key=self.key), (self.doc["owner_source_sha"],
+                            self.doc["owner_source_tree"]))
+        self.routes[FORGE + "/pulls/" + str(RECOVERY_PR)]["merged"] = False
+        with self.assertRaises(ForwardSourceDenied):
+            inspect_forward(self.doc, db=self.db, api=self.api,
+                            release=self.release, key=self.key)
+
+    def test_interrupted_prepare_source_has_frozen_cold_fences(self):
+        repo = Path(__file__).resolve().parent.parent
+        script = (repo / "f139" / "nci04_fresh_owner_source_forward.ps1").read_text(encoding="utf-8")
+        self.assertIn("$recoveryPr=1865", script)
+        self.assertIn("$failedStageSha='a3ea44c8db090b6a5cbaa47eb9520956bff13b7e'", script)
+        self.assertIn("$failedStageTree='f30cff4ed9f0f26aeaaf79aa9a5f658d97fe1c2a'", script)
+        self.assertIn("'RECOVERY_COLD_DISABLED_REQUIRED'", script)
+        self.assertIn("'RECOVERY_ORIGINAL_ACTION_DRIFT'", script)
+        self.assertIn("'RECOVERY_CERTIFICATE_ALREADY_CONSUMED'", script)
+        self.assertIn("ExactGit $originalStage $failedStageSha $failedStageTree", script)
+        self.assertIn("'RECOVERY_NEW_MAIN_REQUIRED'", script)
+        self.assertIn("if($PrNumber -eq 1863){\n      Disable-ScheduledTask", script)
+        self.assertIn("F139_FRESH_OWNER_PARTIAL_PREPARE_RECOVERED_DISABLED=PASS", script)
+        self.assertNotIn("Register-ScheduledTask", script)
+        self.assertNotIn("Unregister-ScheduledTask", script)
+        prepare, start = script.split("  } else {\n    Need ($PrepRun", 1)
+        self.assertNotIn("Enable-ScheduledTask -TaskName $taskName", prepare)
+        self.assertIn("Enable-ScheduledTask -TaskName $taskName", start)
 
     def test_other_signed_owner_pr_is_not_source_forward_authorized(self):
         # A genuine owner signature does not widen the exact PR #1863 route.
