@@ -113,6 +113,27 @@ class HistoryConditionedSelectorTests(unittest.TestCase):
         with self.assertRaises(CurriculumDenied):
             pick(proposals=[proposal()] * 65)
 
+    def test_sealed_prior_exclusions_and_uncertain_publication_are_spent(self):
+        p = proposal()
+        self.assertIsNone(select_next(
+            history=[hist()], proposals=[p],
+            source_sha=SOURCE, target_tree_sha=TREE,
+            remaining_cost_units=10,
+            spent_after_sha256=frozenset({p["after_sha256"]})))
+        self.assertIsNone(select_next(
+            history=[hist()], proposals=[p],
+            source_sha=SOURCE, target_tree_sha=TREE,
+            remaining_cost_units=10,
+            spent_intent_sha256=frozenset({p["intent_sha256"]})))
+
+    def test_sealed_prior_exclusions_must_be_well_formed(self):
+        for spent_after in ({"4" * 64}, frozenset({"z" * 64})):
+            with self.assertRaisesRegex(CurriculumDenied, "SEALED_SPENT"):
+                select_next(
+                    history=[hist()], proposals=[proposal()],
+                    source_sha=SOURCE, target_tree_sha=TREE,
+                    remaining_cost_units=10, spent_after_sha256=spent_after)
+
 
 if __name__ == "__main__":
     unittest.main()
