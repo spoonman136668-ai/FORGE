@@ -583,7 +583,7 @@ OWNER_RELEASE_PREFIX = "F139-FRESH-DEV-WORKER-RELEASE "
 OWNER_RELEASE_JOB = "release-existing-fresh-task"
 
 
-def authenticate_runtime_owner(db, api, release):
+def authenticate_runtime_owner(db, api, release, key):
     """Require the installed original Windows task and completed native release.
 
     A local signed event, GitHub owner association, test pass, or caller-
@@ -602,7 +602,9 @@ def authenticate_runtime_owner(db, api, release):
     need(bool(profile), "OWNER_PROFILE_MISSING")
     root = Path(profile) / "FORGE-F139"
     expected_db = root / ("f139-fresh-dev-" + str(FRESH_RUN)) / "state.sqlite"
-    expected_src = root / "release-candidates" / release["worker_release_sha"]
+    from f139.nci04_fresh_owner_source_forward import installed_forward_source
+    owner_sha, owner_tree = installed_forward_source(db, api, release, key)
+    expected_src = root / "release-candidates" / owner_sha
     actual_src = Path(__file__).resolve().parent.parent
     need(db.filename.resolve() == expected_db.resolve()
          and actual_src == expected_src.resolve()
@@ -621,8 +623,8 @@ def authenticate_runtime_owner(db, api, release):
         need(p.returncode == 0 and len(p.stdout) <= 64000, "OWNER_GIT_READ_FAILED")
         return p.stdout.decode("utf-8").strip()
 
-    need(git_text("rev-parse", "HEAD") == release["worker_release_sha"]
-         and git_text("rev-parse", "HEAD^{tree}") == release["worker_release_tree"]
+    need(git_text("rev-parse", "HEAD") == owner_sha
+         and git_text("rev-parse", "HEAD^{tree}") == owner_tree
          and git_text("status", "--porcelain", "--untracked-files=all") == ""
          and git_text("remote") == "", "OWNER_INSTALLED_GIT_DRIFT")
     script = r"""
@@ -812,7 +814,7 @@ def tick_existing_fresh_owner(db, api, key, *, now):
     from f139.local_controller import F139Error
     from f139.nci04_fresh_worker_protocol import dispatch_arguments, REPO, PREFIX, WORKFLOW
     release, entries = read_lifecycle(db, key)
-    authenticate_runtime_owner(db, api, release)
+    authenticate_runtime_owner(db, api, release, key)
     e = entries[-1]
     ticket = e["record"]["ticket"]
     result = {"ticket": ticket, "scientific_first_use": False,
