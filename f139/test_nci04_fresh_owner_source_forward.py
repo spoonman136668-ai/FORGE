@@ -214,7 +214,8 @@ class SourceForwardTests(TestCase):
         main = "e0467115ea085e2f0ddbee258e4d8937f6a90f10"
         head = "a" * 40
         branch = "engineering/f139-fresh-original-source-forward-20261122"
-        workflow = ".github/workflows/f139-fresh-original-owner-rebind.yml"
+        workflow = ".github/workflows/f139-fresh-owner-source-forward.yml"
+        original_workflow = ".github/workflows/f139-fresh-original-owner-rebind.yml"
         paths = sorted((
             workflow, ".github/workflows/forge-f139-source-qualification.yml",
             "f139/nci04_fresh_lifecycle.py",
@@ -236,10 +237,10 @@ class SourceForwardTests(TestCase):
             ("merge-base", main, head): main,
             ("rev-parse", main + "^{tree}"):
                 "ebe959a996b7d0e90eced139912141fe0fb17482",
-            ("rev-parse", main + ":" + workflow):
+            ("rev-parse", main + ":" + original_workflow):
                 "28cc3bf32afaa257c5c60d0c26a368dcd3da821f",
             ("rev-parse", head + ":" + workflow):
-                "b7ac34f5f96782504383ac5ebe56b5f03c1c3339",
+                "e86c8c45f04dc14b3c3a7457ca837d113a422903",
             ("diff", "--no-renames", "--name-only", main, head):
                 "\n".join(paths),
         }
@@ -267,7 +268,7 @@ class SourceForwardTests(TestCase):
                 with self.subTest(bad=bad), self.assertRaises(ValueError):
                     admit(bad)
             for field, value in (
-                (("rev-parse", main + ":" + workflow), "f" * 40),
+                (("rev-parse", main + ":" + original_workflow), "f" * 40),
                 (("rev-parse", head + ":" + workflow), "f" * 40),
                 (("diff", "--no-renames", "--name-only", main, head),
                  "\n".join(paths[:-1])),
