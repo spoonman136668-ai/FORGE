@@ -193,7 +193,9 @@ class SourceForwardTests(TestCase):
         self.assertIn("$failedStageSha='a3ea44c8db090b6a5cbaa47eb9520956bff13b7e'", script)
         self.assertIn("$failedStageTree='f30cff4ed9f0f26aeaaf79aa9a5f658d97fe1c2a'", script)
         self.assertIn("'RECOVERY_COLD_DISABLED_REQUIRED'", script)
-        self.assertIn("'RECOVERY_ORIGINAL_ACTION_DRIFT'", script)
+        # Do not demand a canonical directory absent from original-host evidence.
+        self.assertNotIn("'RECOVERY_ORIGINAL_ACTION_DRIFT'", script)
+        self.assertIn("ExactGit $root $old $oldTree", script)
         self.assertIn("'RECOVERY_CERTIFICATE_ALREADY_CONSUMED'", script)
         self.assertIn("ExactGit $originalStage $failedStageSha $failedStageTree", script)
         self.assertIn("'RECOVERY_NEW_MAIN_REQUIRED'", script)

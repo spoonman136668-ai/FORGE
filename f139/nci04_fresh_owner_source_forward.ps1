@@ -171,8 +171,10 @@ try {
       Need ($task.Settings.Enabled -eq $false -and [string]$task.State -ceq 'Disabled' -and
             @(Controllers).Count -eq 0) 'RECOVERY_COLD_DISABLED_REQUIRED'
       $originalStage=Join-Path $expectedTaskRoot ('release-candidates\'+$failedStageSha)
-      Need ([IO.Path]::GetFullPath($root) -ieq
-            [IO.Path]::GetFullPath((Join-Path $expectedTaskRoot ('release-candidates\'+$old)))) 'RECOVERY_ORIGINAL_ACTION_DRIFT'
+      # The owner-host audit authenticated the task SID, root's exact SHA,
+      # and both ledgers, but did not prove a specific root directory name.
+      # ExactGit below binds the existing task-root to old SHA/tree/clean/no-remote
+      # without inventing a directory layout or substituting a second checkout.
       ExactGit $originalStage $failedStageSha $failedStageTree
       Need ($null -eq (Get-Item -LiteralPath $cert -Force -ErrorAction SilentlyContinue)) 'RECOVERY_CERTIFICATE_ALREADY_CONSUMED'
     } else {
