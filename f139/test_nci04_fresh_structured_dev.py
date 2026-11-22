@@ -154,5 +154,68 @@ class StructuredDevSourceTests(unittest.TestCase):
             matching_plan(p, nonexistent)
 
 
+    def test_original_owner_readback_verifies_target_main_tree_blob_and_seed(self):
+        from f139.nci04_fresh_structured_dev import generate_from_original_owner
+        from f139.nci04_fresh_successor_producer import REPO
+        from f139.nci04_fresh_yggdrasil_boundary import ACCEPTED_NATIVE_PATH
+
+        base = "repos/" + REPO
+        main_route = base + "/branches/main"
+        commit_route = base + "/git/commits/" + TARGET
+        contents_route = (base + "/contents/" + ACCEPTED_NATIVE_PATH +
+                          "?ref=" + TARGET)
+        main = {"name": "main", "protected": True, "commit": {"sha": TARGET}}
+        commit = {"sha": TARGET, "tree": {"sha": TARGET_TREE}}
+        blob = {
+            "type": "file", "sha": self.fixture.blob, "encoding": "base64",
+            "size": len(SOURCE_CODE),
+            "content": base64.b64encode(SOURCE_CODE).decode("ascii"),
+        }
+
+        class Fake:
+            def __init__(self):
+                self.routes = {
+                    main_route: main,
+                    commit_route: commit,
+                    contents_route: blob,
+                }
+                self.calls = []
+
+            def native_repo_get(self, route):
+                from copy import deepcopy
+                self.calls.append(route)
+                return deepcopy(self.routes[route])
+
+        record = {"native_intent_base64":
+                  base64.b64encode(self.fixture.seed).decode("ascii")}
+        api = Fake()
+        with patch("f139.nci04_fresh_structured_dev.ACCEPTED_NATIVE_BLOB",
+                   self.fixture.blob):
+            generated = generate_from_original_owner(
+                api=api, initial_record=record, consumed_after=self.spent,
+                last_verified_after=self.last_verified)
+            self.assertEqual(len(generated), 8)
+            self.assertEqual(
+                api.calls, [main_route, commit_route, contents_route, main_route])
+            for target, variant in (
+                (main_route, {"protected": False}),
+                (commit_route, {"tree": {"sha": "0" * 40}}),
+                (contents_route, {"sha": "0" * 40}),
+            ):
+                other = Fake()
+                other.routes[target] = dict(other.routes[target], **variant)
+                with self.subTest(target=target), self.assertRaises(ValueError):
+                    generate_from_original_owner(
+                        api=other, initial_record=record,
+                        consumed_after=self.spent,
+                        last_verified_after=self.last_verified)
+            with self.assertRaises(ValueError):
+                generate_from_original_owner(
+                    api=Fake(), initial_record={"native_intent_base64": "!"},
+                    consumed_after=self.spent,
+                    last_verified_after=self.last_verified)
+
+
+
 if __name__ == "__main__":
     unittest.main()
