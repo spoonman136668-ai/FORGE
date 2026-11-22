@@ -73,9 +73,10 @@ jobs:
               assert con.execute("PRAGMA quick_check").fetchone()[0]=="ok"
               meta=con.execute("SELECT head_seq,head_hash FROM meta WHERE id=1").fetchone()
               stages=dict(con.execute("SELECT stage,count(*) FROM tasks GROUP BY stage"))
-              kinds=[row[0] for row in con.execute("SELECT kind FROM events ORDER BY seq DESC LIMIT 8")]
+              kinds=[row[0] for row in con.execute("SELECT kind FROM events ORDER BY seq DESC LIMIT 12")]
+              outstanding=[{"ticket":row[0],"stage":row[1]} for row in con.execute("SELECT ticket,stage FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER') ORDER BY ticket LIMIT 3")]
               assert con.total_changes==0
-              print("F139_ORIGINAL_DIAGNOSTIC_SQL="+json.dumps({"seq":meta[0],"head":meta[1],"stages":stages,"recent_kinds":kinds},sort_keys=True,separators=(",",":")))
+              print("F139_ORIGINAL_DIAGNOSTIC_SQL="+json.dumps({"seq":meta[0],"head":meta[1],"stages":stages,"recent_kinds":kinds,"outstanding":outstanding},sort_keys=True,separators=(",",":")))
           finally:
               con.close()
           '@
@@ -101,7 +102,7 @@ jobs:
             }
           }
           Write-Output ('F139_ORIGINAL_DIAGNOSTIC_RESULT='+(@{
-            schema='forge.f139.original-host-sanitized-block-diagnostic.v1'
+            schema='forge.f139.original-host-sanitized-block-diagnostic.v2'
             installed_source='f24251e0d95938e593a54c1577a34efadc8080d8'
             task_state=[string]$task.State
             task_enabled=[bool]$task.Settings.Enabled
