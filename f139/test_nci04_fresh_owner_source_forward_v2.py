@@ -26,6 +26,7 @@ class LedgerConnection:
         self.second_hash = second_hash
         self.terminal_count = 2
         self.second_kind = "FRESH_WORKER_PROVIDER_CUSTODY"
+        self.unfinished_tasks = 0
 
     def execute(self, statement, values=()):
         if statement == "SELECT kind,sha FROM events WHERE seq=9":
@@ -43,6 +44,9 @@ class LedgerConnection:
             if values != ("FRESH_WORKER_PROVIDER_CUSTODY",):
                 raise AssertionError("unexpected count query")
             return Result((self.terminal_count,))
+        if statement == ("SELECT COUNT(*) FROM tasks "
+                         "WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER','QUARANTINED')"):
+            return Result((self.unfinished_tasks,))
         raise AssertionError("unexpected read-only SQL: " + statement)
 
 
@@ -60,10 +64,6 @@ class FakeLedger:
         self.seq = 16
     def meta(self):
         return {"head_seq": self.seq, "head_hash": self.conn.second_hash}
-    def ready(self):
-        return None
-    def actives(self):
-        return []
 
 
 class ForwardV2Tests(unittest.TestCase):
@@ -349,6 +349,15 @@ class ForwardV2Tests(unittest.TestCase):
                     regression_run_id=802, source_run_id=803,
                     rehearsal_run_id=804)
             self.entries[1]["stage"] = "VERIFIED"
+            self.db.conn.unfinished_tasks = 1
+            with self.assertRaisesRegex(
+                    ForwardV2Denied, "PREFLIGHT_UNFINISHED_TASK_HOLD"):
+                preflight_v2_unsigned(
+                    self.db, self.api, self.release, self.key,
+                    candidate=self.head, head=self.pr_head,
+                    regression_run_id=802, source_run_id=803,
+                    rehearsal_run_id=804)
+            self.db.conn.unfinished_tasks = 0
         with self.assertRaisesRegex(
                 ForwardV2Denied, "PREFLIGHT_ORIGINAL_KERNEL_LOCK_REQUIRED"):
             preflight_v2_unsigned(
