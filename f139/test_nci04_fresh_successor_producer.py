@@ -124,6 +124,7 @@ class FreshOwnerPublicationTests(unittest.TestCase):
                             run_id=fixture.rid, now=fixture.finished)
             original_head = fixture.db.meta()["head_seq"]
             plan = {
+                "schema": "forge.f139.fresh-owner-source-proposal.v1",
                 "title": "F139 auto-feed fresh Yggdrasil DEV: test",
                 "body": '{"test":true}', "body_sha256": "a" * 64,
                 "recipe": "least-observed-local-arm-v1",
