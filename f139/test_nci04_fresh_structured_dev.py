@@ -105,8 +105,8 @@ class StructuredDevSourceTests(unittest.TestCase):
             exec(compile(native.after_bytes, "<frozen-test-candidate>", "exec"),
                  namespace)
             cells = namespace["PublicCausalCells"]()
-            cells._counts[0][0][1] = 8
-            cells._counts[0][1][0] = 8
+            cells._counts[0][0][1] = 32
+            cells._counts[0][1][0] = 32
             before = repr(cells._counts)
             method_name = "choose_" + (
                 "support_floor_" if "-support-" in variant["plan"]["recipe"]
