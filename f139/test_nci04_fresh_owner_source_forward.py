@@ -259,13 +259,13 @@ class SourceForwardTests(TestCase):
         repo = Path(__file__).resolve().parent.parent
         wrapper = self.folder / "native-transport.ps1"
         wrapper.write_text(
-            "$ErrorActionPreference='Stop'\\n"
-            "$encodedDoc=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($env:FORGE_TEST_JSON))\\n"
-            "$result=@(& $env:FORGE_TEST_PYTHON -B -m f139.nci04_fresh_owner_source_forward sign-cert $env:FORGE_TEST_CERT $encodedDoc)\\n"
-            "if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or $result[0] -cne 'F139_FRESH_FORWARD_CERTIFICATE=CREATE_ONLY_SIGNED'){throw 'NATIVE_SIGN_NOT_VERIFIED'}\\n"
-            "$signature=(Get-Content -Raw -LiteralPath $env:FORGE_TEST_CERT | ConvertFrom-Json).owner_signature\\n"
-            "$ok=@(& $env:FORGE_TEST_PYTHON -B -m f139.nci04_fresh_owner_source_forward verify-cert $signature $encodedDoc)\\n"
-            "if($LASTEXITCODE -ne 0 -or $ok.Count -ne 1 -or $ok[0] -cne 'F139_FORWARD_HMAC_VERIFIED'){throw 'NATIVE_VERIFY_NOT_VERIFIED'}\\n",
+            "$ErrorActionPreference='Stop'\n"
+            "$encodedDoc=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($env:FORGE_TEST_JSON))\n"
+            "$result=@(& $env:FORGE_TEST_PYTHON -B -m f139.nci04_fresh_owner_source_forward sign-cert $env:FORGE_TEST_CERT $encodedDoc)\n"
+            "if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or $result[0] -cne 'F139_FRESH_FORWARD_CERTIFICATE=CREATE_ONLY_SIGNED'){throw 'NATIVE_SIGN_NOT_VERIFIED'}\n"
+            "$signature=(Get-Content -Raw -LiteralPath $env:FORGE_TEST_CERT | ConvertFrom-Json).owner_signature\n"
+            "$ok=@(& $env:FORGE_TEST_PYTHON -B -m f139.nci04_fresh_owner_source_forward verify-cert $signature $encodedDoc)\n"
+            "if($LASTEXITCODE -ne 0 -or $ok.Count -ne 1 -or $ok[0] -cne 'F139_FORWARD_HMAC_VERIFIED'){throw 'NATIVE_VERIFY_NOT_VERIFIED'}\n",
             encoding="utf-8")
         unsigned = {k: v for k, v in self.doc.items() if k != "owner_signature"}
         destination = self.folder / "powershell-51-certificate.json"
