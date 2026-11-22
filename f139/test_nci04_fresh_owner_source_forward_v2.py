@@ -457,14 +457,17 @@ class ForwardV2Tests(unittest.TestCase):
         # require the exact archived checkout and query-only cold evidence.
         self.assertIn("$originalControllers=@(Owners)", prepare)
         self.assertIn("$runningOriginal=($task.Settings.Enabled -eq $true", prepare)
+        self.assertIn("$idleOriginal=($task.Settings.Enabled -eq $true", prepare)
         self.assertIn("$heldOriginal=($task.Settings.Enabled -eq $false", prepare)
         self.assertIn("$originalControllers.Count -eq 0)", prepare)
         self.assertIn("$originalControllers.Count -eq 1)", prepare)
         self.assertIn(
-            "Need ($runningOriginal -or $heldOriginal) "
-            "'ONLY_RUNNING_OR_COLD_DISABLED_ORIGINAL_OWNER_REQUIRED'", prepare)
-        self.assertIn("if ($runningOriginal) {\n"
+            "Need ($runningOriginal -or $idleOriginal -or $heldOriginal) "
+            "'ONLY_RUNNING_IDLE_OR_COLD_DISABLED_ORIGINAL_OWNER_REQUIRED'", prepare)
+        self.assertIn("if ($runningOriginal -or $idleOriginal) {\n"
                       "      Disable-ScheduledTask -TaskName $taskName", prepare)
+        self.assertIn("if ($runningOriginal) {\n"
+                      "        Stop-ScheduledTask -TaskName $taskName", prepare)
         self.assertEqual(
             prepare.count("Stop-ScheduledTask -TaskName $taskName"), 1)
         self.assertLess(prepare.index("ExactGit $source $previousMain"),
