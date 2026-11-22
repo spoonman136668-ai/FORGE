@@ -187,7 +187,7 @@ class SourceForwardTests(TestCase):
         script = (repo / "f139" / "nci04_fresh_owner_source_forward.ps1").read_text(
             encoding="utf-8")
         workflow = (repo / ".github" / "workflows" /
-                    "f139-fresh-original-owner-rebind.yml").read_text(encoding="utf-8")
+                    "f139-fresh-owner-source-forward.yml").read_text(encoding="utf-8")
         for token in ("Disable-ScheduledTask", "Stop-ScheduledTask",
                       "Set-ScheduledTask", "Enable-ScheduledTask",
                       "Start-ScheduledTask", "CheckLedger",
