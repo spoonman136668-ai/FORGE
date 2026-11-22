@@ -13,14 +13,12 @@ from f139.nci04_fresh_structured_dev import (
     FAMILIES, PARAMETERS, generate_dev_pool, matching_plan, method_for,
 )
 from f139.nci04_fresh_successor_producer import FreshProposalDenied
-from f139.test_nci04_fresh_successor_producer import (
-    FreshSourceProposalTests, SOURCE_CODE,
-)
+from f139 import test_nci04_fresh_successor_producer as proposal_fixture
 
 
 class StructuredDevSourceTests(unittest.TestCase):
     def setUp(self):
-        fixture = FreshSourceProposalTests(
+        fixture = proposal_fixture.FreshSourceProposalTests(
             "test_two_distinct_finite_nonreplaying_candidates")
         fixture.setUp()
         self.fixture = fixture
@@ -31,7 +29,7 @@ class StructuredDevSourceTests(unittest.TestCase):
         self.first = first
         self.second = second
 
-    def pool(self, *, before=SOURCE_CODE, seed=None, spent=None, latest=None):
+    def pool(self, *, before=proposal_fixture.SOURCE_CODE, seed=None, spent=None, latest=None):
         with patch("f139.nci04_fresh_structured_dev.ACCEPTED_NATIVE_BLOB",
                    self.fixture.blob):
             return generate_dev_pool(
@@ -129,7 +127,7 @@ class StructuredDevSourceTests(unittest.TestCase):
         with self.assertRaises(FreshProposalDenied):
             self.pool(spent={"not-a-sha"})
         with self.assertRaises(FreshProposalDenied):
-            self.pool(before=SOURCE_CODE + b"\n# changed baseline\n")
+            self.pool(before=proposal_fixture.SOURCE_CODE + b"\n# changed baseline\n")
 
     def test_reject_unqualified_science_and_paid_flags(self):
         seed = json.loads(self.fixture.seed)
@@ -168,8 +166,8 @@ class StructuredDevSourceTests(unittest.TestCase):
         commit = {"sha": TARGET, "tree": {"sha": TARGET_TREE}}
         blob = {
             "type": "file", "sha": self.fixture.blob, "encoding": "base64",
-            "size": len(SOURCE_CODE),
-            "content": base64.b64encode(SOURCE_CODE).decode("ascii"),
+            "size": len(proposal_fixture.SOURCE_CODE),
+            "content": base64.b64encode(proposal_fixture.SOURCE_CODE).decode("ascii"),
         }
 
         class Fake:
