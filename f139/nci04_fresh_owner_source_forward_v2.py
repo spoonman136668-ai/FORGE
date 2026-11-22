@@ -307,9 +307,18 @@ def preflight_v2_unsigned(db, api, release, key, *, head, candidate,
          and all(e["stage"] == "VERIFIED"
                  and e.get("negative") is None
                  and e.get("custody") is not None for e in entries)
-         and entries[-1].get("publication_attempt") is None
-         and db.ready() is None and not db.actives(),
+         and entries[-1].get("publication_attempt") is None,
          "PREFLIGHT_TERMINAL_OR_REMOTE_EFFECT_UNCERTAIN")
+    # Database has no ready()/actives() methods. Query the authenticated
+    # original SQLite task inventory through its read-only connection.
+    # The cold read_lifecycle auditor has already bound each task row to its
+    # immutable event chain; this additional guard rejects any unfinished row.
+    unfinished = db.conn.execute(
+        "SELECT COUNT(*) FROM tasks "
+        "WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER','QUARANTINED')"
+    ).fetchone()[0]
+    need(type(unfinished) is int and unfinished == 0,
+         "PREFLIGHT_UNFINISHED_TASK_HOLD")
     meta = db.meta()
     seq = meta["head_seq"]
     event = db.conn.execute(
