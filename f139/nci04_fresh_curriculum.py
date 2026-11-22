@@ -48,7 +48,9 @@ def hashes(value: object) -> bool:
 
 def select_next(*, history: list[dict], proposals: list[dict],
                 source_sha: str, target_tree_sha: str,
-                remaining_cost_units: int) -> dict | None:
+                remaining_cost_units: int,
+                spent_after_sha256: frozenset[str] = frozenset(),
+                spent_intent_sha256: frozenset[str] = frozenset()) -> dict | None:
     """Select one unconsumed qualified DEV proposal; never create or post it.
 
     'VERIFIED' proves only a separately authenticated *development* terminal;
@@ -61,6 +63,13 @@ def select_next(*, history: list[dict], proposals: list[dict],
          and type(remaining_cost_units) is int
          and 0 <= remaining_cost_units <= 10000,
          "SOURCE_OR_BUDGET_INVALID")
+    need(type(spent_after_sha256) is frozenset
+         and type(spent_intent_sha256) is frozenset
+         and len(spent_after_sha256) <= 10000
+         and len(spent_intent_sha256) <= 10000
+         and all(sha(v) for v in spent_after_sha256)
+         and all(sha(v) for v in spent_intent_sha256),
+         "SEALED_SPENT_IDENTITIES_INVALID")
     need(type(history) is list and 1 <= len(history) <= 4096
          and type(proposals) is list and len(proposals) <= 64,
          "BOUNDED_INPUT_INVALID")
@@ -117,7 +126,8 @@ def select_next(*, history: list[dict], proposals: list[dict],
         seen_candidate_intents.add(intent)
         need(not set(proposal["prerequisites"]).intersection(proposal["exclusions"]),
              "CONTRADICTORY_DEPENDENCIES")
-        if (after in attempted or intent in seen_intents
+        if (after in attempted or after in spent_after_sha256
+                or intent in seen_intents or intent in spent_intent_sha256
                 or proposal["cost_units"] > remaining_cost_units
                 or not set(proposal["prerequisites"]).issubset(verified)
                 or set(proposal["exclusions"]).intersection(attempted)):
