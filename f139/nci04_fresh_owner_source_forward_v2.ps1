@@ -146,18 +146,19 @@ try {
     CheckCI $SourceRun @('source (ubuntu-latest)','source (windows-latest)') $Head
     CheckCI $RehearsalRun @('development-rehearsal (ubuntu-latest)','development-rehearsal (windows-latest)') $Head
 
-    # An old V1 process might stop when protected main moves before this
-    # post-merge V2 PREPARE event is delivered. Accept precisely two original-
-    # task states: authenticated RUNNING+enabled+one controller, or already
-    # DISABLED+stopped+zero controllers. Any mixed/unknown state fails closed.
-    # Either state must still match the original signed V1 checkout and pass
-    # the complete cold ledger/receipt audit before V2 can be signed.
+    # Protected main may advance before V2 PREPARE. The V1 owner may then
+    # be running, idle (enabled but no controller), or already disabled.
+    # Accept only those exact original task/SID states. All mixed states fail;
+    # no rebind is permitted until the task is disabled with zero processes,
+    # every prior signed worker receipt is cold-verified, and no claim is open.
     $originalControllers=@(Owners)
     $runningOriginal=($task.Settings.Enabled -eq $true -and
       [string]$task.State -ceq 'Running' -and $originalControllers.Count -eq 1)
+    $idleOriginal=($task.Settings.Enabled -eq $true -and
+      [string]$task.State -cne 'Running' -and $originalControllers.Count -eq 0)
     $heldOriginal=($task.Settings.Enabled -eq $false -and
       [string]$task.State -cne 'Running' -and $originalControllers.Count -eq 0)
-    Need ($runningOriginal -or $heldOriginal) 'ONLY_RUNNING_OR_COLD_DISABLED_ORIGINAL_OWNER_REQUIRED'
+    Need ($runningOriginal -or $idleOriginal -or $heldOriginal) 'ONLY_RUNNING_IDLE_OR_COLD_DISABLED_ORIGINAL_OWNER_REQUIRED'
     $source=TaskArg $task 'RepositoryRoot'
     $oldStage=Join-Path $root ('release-candidates\'+$previousMain)
     Need ([IO.Path]::GetFullPath($source) -ieq [IO.Path]::GetFullPath($oldStage)) 'PREVIOUS_TASK_SOURCE_DRIFT'
@@ -178,13 +179,15 @@ try {
     Need ($LASTEXITCODE -eq 0) 'STAGE_REMOVE_REMOTE_FAILED'
     ExactGit $stage $Target ([string]$commit.tree.sha)
 
-    # Only the owner-authenticated RUNNING state may be stopped here.
-    # A pre-existing disabled original task is never re-enabled, restarted,
-    # or STOP-replayed. Both paths require the same zero-PID, disabled
-    # original task plus complete query-only provider and ledger verification.
-    if ($runningOriginal) {
+    # An enabled original task is disabled BEFORE the source handoff,
+    # preventing later scheduled restarts. Only a confirmed running owner
+    # receives STOP; an already-idle original task must not replay STOP.
+    # Existing disabled tasks remain untouched until cold verification.
+    if ($runningOriginal -or $idleOriginal) {
       Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
-      Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+      if ($runningOriginal) {
+        Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+      }
       for($i=0;$i -lt 80 -and @(Owners).Count -ne 0;$i++){Start-Sleep -Milliseconds 250}
     }
     $stopped=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
