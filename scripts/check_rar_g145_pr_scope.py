@@ -3686,6 +3686,58 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         if (request.get('user', {}).get('login') != 'spoonman136668-ai'
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
+    # One original-owner source-forward PR, not a generic workflow exception.
+    # Frozen base/tree, old+new owner-workflow Git blobs, exact PR identity,
+    # and all changed paths are checked independently. It never authorizes
+    # deployment, Task Scheduler operations, worker dispatch or science.
+    if branch == "engineering/f139-fresh-original-source-forward-20261122":
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        scoped_paths = frozenset({
+            ".github/workflows/f139-fresh-owner-source-forward.yml",
+            ".github/workflows/forge-f139-source-qualification.yml",
+            "f139/nci04_fresh_lifecycle.py",
+            "f139/nci04_fresh_owner_source_forward.ps1",
+            "f139/nci04_fresh_owner_source_forward.py",
+            "f139/nci04_fresh_successor_publication.py",
+            "f139/test_nci04_fresh_owner_source_forward.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        })
+        if (base_sha != "e0467115ea085e2f0ddbee258e4d8937f6a90f10"
+                or type(request.get("number")) is not int
+                or request["number"] != 1863
+                or request.get("user", {}).get("login") != "spoonman136668-ai"
+                or request.get("author_association") != "OWNER"
+                or request.get("head", {}).get("sha") != head_sha
+                or request.get("head", {}).get("ref") != branch
+                or request.get("head", {}).get("repo", {}).get("full_name")
+                    != "spoonman136668-ai/FORGE"
+                or request.get("base", {}).get("sha") != base_sha
+                or request.get("base", {}).get("ref") != "main"
+                or request.get("base", {}).get("repo", {}).get("full_name")
+                    != "spoonman136668-ai/FORGE"):
+            raise ValueError("G145_F139_FORWARD_ORIGINAL_OWNER_SCOPE_DENIED")
+        try:
+            ancestry = git("merge-base", base_sha, head_sha)
+            base_tree = git("rev-parse", base_sha + "^{tree}")
+            old_workflow = git("rev-parse", base_sha + ":" +
+                ".github/workflows/f139-fresh-original-owner-rebind.yml")
+            new_workflow = git("rev-parse", head_sha + ":" +
+                ".github/workflows/f139-fresh-owner-source-forward.yml")
+            changed = git("diff", "--no-renames", "--name-only",
+                          base_sha, head_sha).splitlines()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise ValueError("G145_F139_FORWARD_SCOPE_READ_FAILED") from exc
+        if (ancestry != base_sha
+                or base_tree != "ebe959a996b7d0e90eced139912141fe0fb17482"
+                or old_workflow != "28cc3bf32afaa257c5c60d0c26a368dcd3da821f"
+                or new_workflow != "e86c8c45f04dc14b3c3a7457ca837d113a422903"
+                or len(changed) != len(scoped_paths)
+                or set(changed) != scoped_paths):
+            raise ValueError("G145_F139_FORWARD_OWNER_BLOBS_OR_PATHS_DRIFT")
+        return "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY"
     if branch in FROZEN_SCOPES:
         if branch == V61_PROCESS_FIX_BRANCH:
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])

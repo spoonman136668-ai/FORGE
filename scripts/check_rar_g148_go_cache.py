@@ -397,6 +397,13 @@ def event_mode(head):
         if admiss != V41_STATUS_RESULT:
             raise ValueError("G148_V41_EXACT_READONLY_SCOPE_REQUIRED")
         return "pr"
+    # G145 independently authenticates original PR1863, pinned base/tree,
+    # exact workflows, source and changed paths. Never generalize this
+    # eligibility to other PRs or grant actual Task Scheduler authority.
+    if branch == "engineering/f139-fresh-original-source-forward-20261122":
+        if admiss != "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY":
+            raise ValueError("G148_F139_FORWARD_EXACT_OWNER_SCOPE_REQUIRED")
+        return "pr"
     if branch != BRANCH:
         if admiss != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
             raise ValueError("G148_ONLY_ORDINARY_TRUSTED_SOURCE_PR")
