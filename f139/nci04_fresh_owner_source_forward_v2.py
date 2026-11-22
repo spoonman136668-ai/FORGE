@@ -384,7 +384,12 @@ def _transport_main(argv=None):
         raw = base64.b64decode(args[2], validate=True)
         need(0 < len(raw) <= 8192, "TRANSPORT_METADATA_SIZE_INVALID")
         doc = json.loads(raw)
-        need(type(doc) is dict and canonical(doc) == raw,
+        # Windows PowerShell has no canonical JSON producer. The only signing
+        # path accepts one bounded decoded object, then writes canonical bytes
+        # under a different HMAC domain. Read-only preflight and verification
+        # still require exact canonical argument bytes.
+        need(type(doc) is dict
+             and (args[0] == "sign-cert" or canonical(doc) == raw),
              "TRANSPORT_METADATA_NONCANONICAL")
     except (binascii.Error, ValueError, UnicodeError) as exc:
         raise ForwardV2Denied("F139_FRESH_FORWARD_V2_TRANSPORT_INVALID") from exc
