@@ -34,14 +34,14 @@ function GetRemote([string]$path){
   Need ($LASTEXITCODE -eq 0 -and $raw.Count -gt 0) 'READONLY_PROVIDER_UNAVAILABLE'
   return ($raw -join [Environment]::NewLine | ConvertFrom-Json)
 }
-function ExactGit([string]$root,[string]$sha,[string]$tree){
+function ExactGit([string]$root,[string]$sha,[string]$tree,[switch]$AllowRemote){
   Need (Test-Path -LiteralPath $root -PathType Container) 'SOURCE_NOT_INSTALLED'
   $h=(& git -C $root rev-parse HEAD | Out-String).Trim()
   $t=(& git -C $root rev-parse 'HEAD^{tree}' | Out-String).Trim()
   $dirty=@(& git -C $root status --porcelain --untracked-files=all)
   $remote=(& git -C $root remote | Out-String).Trim()
   Need ($LASTEXITCODE -eq 0 -and $h -ceq $sha -and $t -ceq $tree -and
-        $dirty.Count -eq 0 -and -not $remote) 'CHECKOUT_SHA_TREE_OR_DIRTY'
+        $dirty.Count -eq 0 -and ($AllowRemote -or -not $remote)) 'CHECKOUT_SHA_TREE_OR_DIRTY'
 }
 function Arg($task,[string]$name){
   $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
@@ -127,7 +127,7 @@ $main=GetRemote ('repos/'+$repo+'/branches/main')
 Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target) 'PROTECTED_MAIN_MOVED'
 $commit=GetRemote ('repos/'+$repo+'/git/commits/'+$Target)
 Need ($commit.sha -ceq $Target -and $commit.tree.sha -cmatch '^[a-f0-9]{40}$') 'OWNER_MAIN_TREE_DRIFT'
-ExactGit $env:GITHUB_WORKSPACE $Target $commit.tree.sha
+ExactGit $env:GITHUB_WORKSPACE $Target $commit.tree.sha -AllowRemote
 $task=OwnerTask
 Need ([IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ieq 'powershell.exe') 'ORIGINAL_ACTION_UNKNOWN'
 Need ([IO.Path]::GetFullPath((Arg $task 'Database')) -ieq
