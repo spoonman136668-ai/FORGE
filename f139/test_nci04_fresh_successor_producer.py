@@ -159,6 +159,99 @@ class FreshOwnerPublicationTests(unittest.TestCase):
             self.assertEqual(entries[-1]["publication_attempt"]["recipe"],
                              plan["recipe"])
 
+    def test_two_distinct_successors_publish_admit_and_cold_restore(self):
+        # This is a SYNTHETIC owner provider + SQLite test, NOT deployment.
+        from copy import deepcopy
+        from f139.nci04_owner_issue import LABEL
+        from f139.nci04_fresh_lifecycle import admit_next_successor
+
+        fixture = fixture_module.FreshLifecycleTests(
+            "test_original_inert_prefix_stays_valid_but_cannot_claim_without_release")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.install_synthetic_release()
+        builder = FreshSourceProposalTests("test_two_distinct_finite_nonreplaying_candidates")
+        builder.setUp()
+        first = builder.proposal()
+        second = builder.proposal({first["after_sha256"]})
+        self.assertNotEqual(first["after_sha256"], second["after_sha256"])
+
+        issue_base = deepcopy(fixture.fixture.raw_issue)
+        prefix = "repos/spoonman136668-ai/FORGE"
+        issue_list = prefix + "/issues?state=open&labels=" + LABEL + "&per_page=100&page=1"
+        original_head = [(r["seq"], r["sha"]) for r in fixture.db.conn.execute(
+            "SELECT seq,sha FROM events WHERE seq<=4 ORDER BY seq")]
+
+        with patch("f139.nci04_fresh_successor_publication.authenticate_runtime_owner"):
+            with SingleOwner(fixture.path.with_suffix(".lock")):
+                claim, raw = reserve_claim(fixture.db, fixture, fixture.key,
+                                            now=fixture.now)
+                fixture.prepare_provider(claim, raw)
+                settle_provider(fixture.db, fixture, fixture.key,
+                                run_id=fixture.rid, now=fixture.finished)
+                for step, plan in enumerate((first, second), start=1):
+                    number = 1850 + step
+                    remote = dict(issue_base,
+                                  number=number, id=91850 + step,
+                                  url="https://api.github.com/" + prefix + "/issues/" + str(number),
+                                  body=plan["body"])
+                    fixture.routes[prefix + "/issues/" + str(number)] = remote
+                    fixture.routes[issue_list] = [remote]
+                    posts = []
+                    def create_issue(*, title, body):
+                        posts.append((title, body))
+                        self.assertEqual(body, plan["body"])
+                        self.assertEqual(title, plan["title"])
+                        return deepcopy(remote)
+                    fixture.create_native_feed_issue = create_issue
+                    with patch(
+                        "f139.nci04_fresh_successor_publication.propose_from_original_owner",
+                        return_value=plan,
+                    ):
+                        published = publish_one(fixture.db, fixture, fixture.key)
+                        self.assertEqual(published, number)
+                        self.assertEqual(len(posts), 1)
+                        self.assertIsNone(publish_one(fixture.db, fixture, fixture.key))
+                        self.assertEqual(len(posts), 1)
+                    admitted = admit_next_successor(fixture.db, fixture, fixture.key)
+                    self.assertEqual(admitted["issue_number"], number)
+                    self.assertEqual(admitted["after_sha256"], plan["after_sha256"])
+                    self.assertEqual(fixture.db.ready()["ticket"], admitted["ticket"])
+                    start = "2026-11-21T08:" + str(step * 20).zfill(2) + ":00Z"
+                    finish = "2026-11-21T08:" + str(step * 20 + 5).zfill(2) + ":00Z"
+                    fixture.rid = 123456 + step
+                    claim, raw = reserve_claim(fixture.db, fixture, fixture.key,
+                                                now=start)
+                    fixture.prepare_provider(claim, raw)
+                    # The existing original API fixture hardcodes the first
+                    # ticket; this synthetic second-ticket reader is GET-only.
+                    def provider_lookup(ticket, started_at, source):
+                        self.assertEqual(ticket, admitted["ticket"])
+                        self.assertEqual(started_at, start)
+                        self.assertEqual(source, fixture.fixture.release)
+                        return fixture.get(prefix + "/actions/runs/" + str(fixture.rid))
+                    fixture.candidates_for_source = provider_lookup
+                    settle_provider(fixture.db, fixture, fixture.key,
+                                    run_id=fixture.rid, now=finish)
+                    self.assertIsNone(fixture.db.ready())
+                self.assertEqual(fixture.db.conn.execute(
+                    "SELECT COUNT(*) FROM events WHERE kind=?", (PUBLISH_KIND,)
+                ).fetchone()[0], 2)
+                self.assertEqual(fixture.db.conn.execute(
+                    "SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'"
+                ).fetchone()[0], 3)
+                self.assertEqual([(r["seq"], r["sha"]) for r in fixture.db.conn.execute(
+                    "SELECT seq,sha FROM events WHERE seq<=4 ORDER BY seq")],
+                    original_head)
+        fixture.reopen()
+        with SingleOwner(fixture.path.with_suffix(".lock")):
+            _, entries = read_lifecycle(fixture.db, fixture.key)
+            self.assertEqual([e["record"]["issue_number"] for e in entries],
+                             [1849, 1851, 1852])
+            self.assertTrue(all(e["stage"] == "VERIFIED" for e in entries))
+            self.assertEqual([e["publication_attempt"]["recipe"] for e in entries[:2]],
+                             [first["recipe"], second["recipe"]])
+
     def test_malformed_or_duplicate_attempt_rejected_by_cold_audit(self):
         self.assertEqual(PUBLISH_SCHEMA,
                          "forge.f139.fresh-owner-publication-attempt.v1")
