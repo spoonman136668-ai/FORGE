@@ -132,30 +132,15 @@ foreach($path in $recoveryPythonFiles){
   Need ($LASTEXITCODE -eq 0 -and $mainBlob -ceq $mergeBlob) 'RECOVERY_DEPENDENCY_SOURCE_DRIFT'
 }
 
-# The modified PowerShell recovery script is accepted only through its exact
-# qualified PR #1877 merge, ancestral to current main, with its blob unchanged.
-$recoveryFixPr=Remote ('repos/'+$repo+'/pulls/1877')
-$recoveryFixMergeSha=[string]$recoveryFixPr.merge_commit_sha
-$recoveryFix=Remote ('repos/'+$repo+'/git/commits/'+$recoveryFixMergeSha)
-$recoveryFixSource=Remote ('repos/'+$repo+'/git/commits/'+$recoveryFixPr.head.sha)
-Need ($recoveryFixPr.number -eq 1877 -and $recoveryFixPr.merged -eq $true -and
-      $recoveryFixPr.state -ceq 'closed' -and
-      $recoveryFixPr.user.login -ceq 'spoonman136668-ai' -and
-      $recoveryFixPr.head.ref -ceq 'engineering/f139-v1-recovery-current-main-ancestry-guard-20261123' -and
-      $recoveryFixPr.head.repo.full_name -ceq $repo -and
-      $recoveryFixPr.base.ref -ceq 'main' -and $recoveryFixPr.base.repo.full_name -ceq $repo -and
-      $recoveryFix.sha -ceq $recoveryFixMergeSha -and
-      @($recoveryFix.parents).Count -eq 2 -and
-      $recoveryFix.parents[0].sha -ceq $recoveryFixPr.base.sha -and
-      $recoveryFix.parents[1].sha -ceq $recoveryFixPr.head.sha -and
-      $recoveryFix.tree.sha -ceq $recoveryFixSource.tree.sha) 'RECOVERY_FIX_MERGE_REQUIRED'
-& git -C $env:GITHUB_WORKSPACE merge-base --is-ancestor $recoveryFixMergeSha $Target
-Need ($LASTEXITCODE -eq 0) 'RECOVERY_FIX_NOT_ANCESTOR_OF_CURRENT_MAIN'
+# The workflow checks out exact protected main at $Target. Bind the running
+# PowerShell file to that commit's own blob rather than pinning it to an older
+# recovery PR (which would reject every legitimate follow-up source correction).
 $scriptPath='f139/nci04_v2_failed_prepare_restore_original.ps1'
-$fixScriptBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($recoveryFixMergeSha+':'+$scriptPath) | Out-String).Trim()
-Need ($LASTEXITCODE -eq 0 -and $fixScriptBlob.Length -eq 40) 'RECOVERY_FIX_SCRIPT_BLOB_UNAVAILABLE'
 $currentScriptBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($Target+':'+$scriptPath) | Out-String).Trim()
-Need ($LASTEXITCODE -eq 0 -and $currentScriptBlob -ceq $fixScriptBlob) 'RECOVERY_SCRIPT_SOURCE_DRIFT_AFTER_FIX'
+Need ($LASTEXITCODE -eq 0 -and $currentScriptBlob.Length -eq 40) 'RECOVERY_SCRIPT_MAIN_BLOB_UNAVAILABLE'
+$runningScriptBlob=(& git -C $env:GITHUB_WORKSPACE hash-object $PSCommandPath | Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $runningScriptBlob.Length -eq 40 -and
+      $runningScriptBlob -ceq $currentScriptBlob) 'RECOVERY_SCRIPT_CHECKOUT_DRIFT'
 ExactCheckout $env:GITHUB_WORKSPACE $Target ([string]$commit.tree.sha) $true
 # ACTION_RUNS /jobs GET was the failing endpoint in the consumed PREPARE.
 # Do not re-depend on it for original-owner recovery. Confirm the two exact
