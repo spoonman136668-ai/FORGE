@@ -88,3 +88,40 @@ Until exact-candidate CI and independent owner qualification pass, Q1 remains
 The recipe catalogue is deliberately finite and its structured hashes alone
 cannot establish the paper's genuine-hypothesis-discovery thesis. Independent
 semantic novelty review and a fair science comparison are still required.
+
+
+## Follow-up engineering qualification and Q2 source evaluator (2026-11-23)
+
+The previous Q1 PENDING language is historical. **Q1 original isolated planning
+implementation engineering qualification PASS at exact candidate
+`3b5221a8f2b464abb3f72131261421447c53280d`** under the existing
+repository's Linux+Windows CI, F139 source regression, and development rehearsal:
+- Public Linux/Windows run 45229156763 SUCCESS, including all seven
+  `scripts/test_fsa_nature_failure_guided_comparator.py` tests on both OSes.
+- F139 native Windows/source run 45229156715 SUCCESS.
+- Linux/Windows development rehearsal run 45229156728 SUCCESS.
+This is **source engineering PASS only**, not owner-host deployment, live
+controller health, novel hypothesis discovery, source-authenticated scientific
+outcomes or accepted first-use. Some unrelated steps are intentionally skipped
+by the existing CI's source qualification profile; preserve run/job receipts.
+
+Follow-up **Q2 evaluator source** now lives in
+`scripts/nature_training_replay.py`, with adversarial tests at
+`scripts/test_fsa_nature_training_replay.py`. It requires a preregistered
+development-only source/tree/corpus identity; exactly four matched A/B/C/D
+arms; preselected strongest-control family; identical event and information
+identity; 2–12 equal paired cases; 5% total whole-process CPU/wall matching,
+absolute resource caps; zero model calls/holdouts/first-use; explicit negative
+controls and +0.02 retention-drift veto. It returns
+`SOURCE_UNVERIFIED_DEV_DIAGNOSTIC` **even for favorable labels**. Its
+input digests and declared outcomes are not independently authenticated by
+the evaluator, and no original terminal data or paper experiment was imported.
+Q2 actual matched empirical development comparison remains **NOT RUN** until
+the original scientific owner supplies and verifies an eligible frozen corpus,
+strongest controls, original negative chain and cost receipts.
+
+The added Q2 evaluator and tests require a **fresh full exact-head final CI**
+on the later source candidate; prior Q1 CI must not be reused as that proof.
+Q3 new-science first-use and Q4 scientific gain remain NOT AUTHORIZED/UNVERIFIED.
+Q5 deployment is HOLD. No new controller, schedule, API, workflow, owner task,
+original SQLite, scientific checkpoint or accepted refs were touched.
