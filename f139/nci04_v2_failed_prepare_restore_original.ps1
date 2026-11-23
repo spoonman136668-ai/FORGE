@@ -68,7 +68,7 @@ Need ($Target -cmatch '^[a-f0-9]{40}$' -and $Target -ceq $env:GITHUB_SHA -and
 $who=[Security.Principal.WindowsIdentity]::GetCurrent()
 Need ([Security.Principal.WindowsPrincipal]::new($who).IsInRole(
   [Security.Principal.WindowsBuiltInRole]::Administrator)) 'ORIGINAL_ADMIN_REQUIRED'
-$evt=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json -Depth 24
+$evt=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
 $expected=$prefix+$Target+' '+$FailedRun+' '+$TerminalSeq+' '+$TerminalHash
 Need ($evt.action -ceq 'created' -and $evt.issue.number -eq 1830 -and
       $evt.issue.state -ceq 'open' -and
