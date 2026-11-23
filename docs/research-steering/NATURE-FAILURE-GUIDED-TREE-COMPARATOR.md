@@ -202,3 +202,38 @@ New adverse tests are in
 existing \`scripts/test_fsa_*py\` CI discovery. The new exact candidate must
 complete full Linux/Windows, F139 native and development rehearsal gates;
 prior SHAs do not qualify it.
+
+
+
+## Original-owner Yggdrasil engineering negative — issue #856
+
+A more detailed inspection of the retained original artifacts resolves the
+failure mode. Original development candidate
+\`yggdrasil/public_causal_cells.py\` (candidate SHA-256
+\`1d93655e00dfd114f146932806542efeda12a3a749d3c83dce9eb588c5ec14ad\`)
+changed the update rule so that when an arm's counts reached 65,535, it halved
+both outcome counters before adding the new observation. The pre-existing
+frozen test \`test_saturating_counter_never_grows_or_wraps\` required the capped
+lifetime counter to remain at 65,535. Both original Windows and Ubuntu jobs
+observed **32,797 instead of 65,535**; the other seven of eight focused tests
+passed. Original reports classify this as \`TEST_FAILURE\`, not a provider
+infrastructure failure. Provider run 40081353365 failed on both OSes; original
+read-only owner-ledger audit 40083044533 later passed and recorded the negative.
+
+This is a real, source-bound **engineering regression** in a Yggdrasil fixed-
+memory development candidate. The cause is a conflict between a recency-decay
+operator and an existing monotonic-saturation invariant. It is useful historical
+training-side evidence for engineering hypothesis generation. It is **not** a
+measured failure of learned causal reasoning, transfer or retention in a
+trained model, and it is only one candidate/trial, not an A/B/C/D cohort.
+The portable G4 owner receipt is separately specified to require GitHub
+attestation; this audit run itself has no artifact, so signed G4 receipt
+issuance must not be inferred.
+
+The compositional grammar now has a \`saturation-boundary\` failure signal and
+a falsifiable two-tier memory hypothesis: retain the monotonic lifetime
+counter, place bounded recent evidence in a separate fixed-size allocation,
+and audit that neither tier corrupts the other. It is a proposal only; no
+Yggdrasil source or model state was changed, and the historical failure was not
+replayed. The new regression test validates the branch plan and dependency
+graph, not its empirical benefit.
