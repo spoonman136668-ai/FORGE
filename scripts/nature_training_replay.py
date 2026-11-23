@@ -14,6 +14,8 @@ import re
 
 SCHEMA = "forge.research.nature-dev-replay.v1"
 ARMS = ("A", "B", "C", "D")  # preselected strongest control, blind, guided, no-memory
+ARM_ROLES = {"A": "preselected-control", "B": "blind-branch",
+             "C": "failure-guided-branch", "D": "no-negative-memory"}
 CONTROL_IDS = frozenset({"finite", "dream-rsi", "pareto", "infogain"})
 SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 SHA64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -23,9 +25,10 @@ FREEZE_KEYS = frozenset({
     "development_corpus_sha256", "partition", "selected_control",
     "terminal_event_ids", "case_input_sha256", "max_wall_ms",
     "max_cpu_ms", "max_gpu_ms", "max_peak_rss_bytes", "negative_control",
+    "arm_source_sha256",
 })
 ROW_KEYS = frozenset({
-    "terminal_event_id", "input_sha256", "plan_sha256",
+    "terminal_event_id", "input_sha256", "plan_sha256", "arm_role", "arm_source_sha256",
     "beneficial_dev_outcome", "retention_drift_brier", "wall_ms",
     "cpu_ms", "gpu_ms", "peak_rss_bytes", "model_calls", "sealed_holdout_access",
     "scientific_first_use",
@@ -73,6 +76,10 @@ def _freeze(raw):
                  "BUDGET_NOT_PREDECLARED")
     _require(type(raw["max_gpu_ms"]) is int and 0 <= raw["max_gpu_ms"] <= 10**12,
              "BUDGET_NOT_PREDECLARED")
+    arm_sources = raw["arm_source_sha256"]
+    _require(type(arm_sources) is dict and set(arm_sources) == set(ARMS) and
+             all(_sha(value) for value in arm_sources.values()) and
+             len(set(arm_sources.values())) == len(ARMS), "ARM_SOURCE_IDENTITIES")
     _require(type(raw["negative_control"]) is bool, "NEGATIVE_CONTROL_NOT_FROZEN")
     return ids
 
@@ -118,6 +125,9 @@ def evaluate(freeze, rows_by_arm):
             _require(row["input_sha256"] ==
                      freeze["case_input_sha256"][row["terminal_event_id"]],
                      "HOLDOUT_OR_INPUT_LEAKAGE")
+            _require(row["arm_role"] == ARM_ROLES[arm] and
+                     row["arm_source_sha256"] == freeze["arm_source_sha256"][arm],
+                     "ARM_SOURCE_OR_ROLE_MISMATCH")
             plan = row["plan_sha256"]
             _require(plan is None or _sha(plan), "PLAN_IDENTITY")
             if plan is None:
@@ -171,6 +181,9 @@ def evaluate(freeze, rows_by_arm):
               "frozen_sha256": _digest(freeze),
               "development_corpus_sha256": freeze["development_corpus_sha256"],
               "selected_control": freeze["selected_control"],
+              "declared_arm_roles": dict(ARM_ROLES),
+              "declared_arm_source_sha256": dict(freeze["arm_source_sha256"]),
+              "arm_source_identities_authenticated": False,
               "arms": summaries, "candidate_vs_control_relative": relative,
               "paired_two_sided_sign_p": _paired_sign_test(outcomes["A"], outcomes["C"]),
               "retention_within_proposed_limit": retention_ok,
