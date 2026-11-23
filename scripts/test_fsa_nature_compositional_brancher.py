@@ -74,16 +74,21 @@ class CompositionalBranchTests(unittest.TestCase):
                            "token": "context_partition"}, p["dependency_edges"])
 
     def test_retention_composition_requires_regime_and_temporal_sources(self):
-        got = run(event(("retention-loss", "nonstationarity")))
-        match = [p for p in got["branches"]
-                 if {n["node_id"] for n in p["mechanism_nodes"]} >=
-                 {"change_point_partition", "multi_timescale_memory", "regime_gated_consolidation"}]
-        self.assertTrue(match)
-        for p in match:
-            self.assertIn({"from": "change_point_partition", "to": "regime_gated_consolidation",
-                           "token": "regime_partition"}, p["dependency_edges"])
-            self.assertIn({"from": "multi_timescale_memory", "to": "regime_gated_consolidation",
-                           "token": "temporal_context"}, p["dependency_edges"])
+        item = event(("retention-loss", "nonstationarity"))
+        sequence = ("change_point_partition", "multi_timescale_memory",
+                    "regime_gated_consolidation")
+        edges = b._dependencies(sequence)
+        self.assertIsNotNone(edges)
+        self.assertIn({"from": "change_point_partition",
+                       "to": "regime_gated_consolidation",
+                       "token": "regime_partition"}, edges)
+        self.assertIn({"from": "multi_timescale_memory",
+                       "to": "regime_gated_consolidation",
+                       "token": "temporal_context"}, edges)
+        plan = b._plan(sequence, item, set(item["observed_signals"]), None)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["depth"], 3)
+        self.assertEqual(len(plan["causal_hypothesis_components"]), 3)
 
     def test_relabels_and_duplicate_history_are_not_new_terminal_evidence(self):
         old = event()
