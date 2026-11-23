@@ -45,7 +45,7 @@ def inspect_original_owner_cold_readonly(
     kernel lock and open SQLite *read-only*. This does not acquire that lock,
     quiesce an owner process, authenticate an OS SID, or touch Task Scheduler.
     """
-    need(type(db) is Database and type(folder) is Path
+    need(type(db) is Database and isinstance(folder, Path)
          and type(key) is str and 32 <= len(key) <= 4096,
          "INPUT_INVALID")
     need(SingleOwner.held(db.filename.with_suffix(".lock")),
