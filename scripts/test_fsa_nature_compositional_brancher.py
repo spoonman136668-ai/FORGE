@@ -165,6 +165,10 @@ class CompositionalBranchTests(unittest.TestCase):
                        "to": "two_tier_memory_consistency_audit",
                        "token": "recent_evidence_window"}, edges)
         plan = b._plan(sequence, item, set(item["observed_signals"]), None)
+        searched = run(item)
+        self.assertTrue(any(
+            {node["node_id"] for node in branch["mechanism_nodes"]} >= set(sequence)
+            for branch in searched["branches"]))
         self.assertIsNotNone(plan)
         self.assertEqual(plan["classification"], "UNTESTED_ADVISORY_COMPOSITION")
         self.assertTrue(any("65535" in text for text in plan["counterfactual_predictions"]))
