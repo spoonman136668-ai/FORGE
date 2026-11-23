@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -154,10 +157,89 @@ class RecoveryContractTests(unittest.TestCase):
         self.assertNotIn("Register-ScheduledTask", script)
         self.assertNotIn("Set-ScheduledTask", script)
         self.assertNotIn("Invoke-RestMethod", script)
+
         self.assertNotIn("/jobs?per_page=100", script)
         self.assertIn("FAILED_PREPARE_IDENTITY_NOT_VERIFIED", script)
         self.assertIn("ORIGINAL_OWNER_AUDIT_PROVENANCE", script)
         self.assertIn("ab87431e8718eec1e160b0bfbd077ee6550a3844", script)
+
+        self.assertNotIn("ConvertFrom-Json -Depth", script)
+        if os.name == "nt":
+            power = shutil.which("powershell.exe")
+            self.assertIsNotNone(power)
+            verifier = self.folder / "parse-v2-restore.ps1"
+            verifier.write_text(
+                "param([string]$Source)\n"
+                "$tokens=$null;$errors=$null\n"
+                "[System.Management.Automation.Language.Parser]::ParseFile("
+                "$Source,[ref]$tokens,[ref]$errors)|Out-Null\n"
+                "if($errors.Count -ne 0){$errors|Out-String|Write-Error;exit 1}\n",
+                encoding="utf-8")
+            check = subprocess.run(
+                [power, "-NoProfile", "-NonInteractive",
+                 "-ExecutionPolicy", "Bypass", "-File", str(verifier),
+                 "-Source", str(repo / "f139" /
+                                "nci04_v2_failed_prepare_restore_original.ps1")],
+                capture_output=True, text=True, timeout=30, check=False)
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+    def test_scoped_pr_admission_negative_controls(self):
+        from scripts.check_rar_g145_pr_scope import (
+            F139_V2_RESTORE_BASE, F139_V2_RESTORE_BASE_TREE,
+            F139_V2_RESTORE_BLOBS, F139_V2_RESTORE_BRANCH,
+            F139_V2_RESTORE_PATHS, F139_V2_RESTORE_PR,
+            F139_V2_RESTORE_RESULT, admit_f139_v2_failed_restore,
+            generic_paths_safe,
+        )
+        head = "3" * 40
+        base = F139_V2_RESTORE_BASE
+        self.assertEqual(F139_V2_RESTORE_PR, 1870)
+        self.assertEqual(len(F139_V2_RESTORE_PATHS), 7)
+        self.assertFalse(generic_paths_safe([
+            ".github/workflows/f139-v2-failed-prepare-original-restore.yml"]))
+        request = {
+            "number": 1870,
+            "author_association": "OWNER",
+            "user": {"login": "spoonman136668-ai"},
+            "head": {"sha": head, "ref": F139_V2_RESTORE_BRANCH,
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+            "base": {"sha": base, "ref": "main",
+                     "repo": {"full_name": "spoonman136668-ai/FORGE"}},
+        }
+        def git(*args):
+            if args == ("merge-base", base, head):
+                return base
+            if args == ("rev-parse", base + "^{tree}"):
+                return F139_V2_RESTORE_BASE_TREE
+            if args[:1] == ("rev-parse",) and len(args) == 2:
+                key = args[1]
+                for path, sha in F139_V2_RESTORE_BLOBS.items():
+                    if key == head + ":" + path:
+                        return sha
+            if args == ("diff", "--no-renames", "--name-only", base, head):
+                return "\n".join(sorted(F139_V2_RESTORE_PATHS)) + "\n"
+            raise AssertionError("Unscoped Git test route")
+        self.assertEqual(admit_f139_v2_failed_restore(head, base, request, git),
+                         F139_V2_RESTORE_RESULT)
+        for bad_request in (
+            dict(request, number=1869),
+            dict(request, author_association="CONTRIBUTOR"),
+            dict(request, user={"login": "other"}),
+            dict(request, head=dict(request["head"], ref="other")),
+            dict(request, base=dict(request["base"], sha="0" * 40)),
+        ):
+            with self.subTest(request=bad_request):
+                with self.assertRaises(ValueError):
+                    admit_f139_v2_failed_restore(head, base, bad_request, git)
+        def wrong_git(*args):
+            if args == ("rev-parse", head +
+                        ":.github/workflows/f139-v2-failed-prepare-original-restore.yml"):
+                return "0" * 40
+            return git(*args)
+        with self.assertRaisesRegex(ValueError, "BLOBS_OR_SCOPE_DRIFT"):
+            admit_f139_v2_failed_restore(head, base, request, wrong_git)
+
+
 
 
 if __name__ == "__main__":

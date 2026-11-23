@@ -30,7 +30,7 @@ function Remote([string]$path) {
         -not $path.Contains('..')) 'UNSCOPED_GET'
   $rows=@(& gh api $path 2>$null)
   Need ($LASTEXITCODE -eq 0 -and $rows.Count -gt 0) 'READONLY_PROVIDER_GET_FAILED'
-  return (($rows -join [Environment]::NewLine) | ConvertFrom-Json -Depth 24)
+  return (($rows -join [Environment]::NewLine) | ConvertFrom-Json)
 }
 function Field($task,[string]$key) {
   $m=[regex]::Match([string]$task.Actions[0].Arguments,
@@ -146,7 +146,7 @@ try {
   $result=@(& $python -B -m f139.nci04_v2_failed_prepare_restore_original audit $db $certDir ([string]$TerminalSeq) $TerminalHash)
   Need ($LASTEXITCODE -eq 0 -and $result.Count -eq 1 -and
         [string]$result[0] -clike 'F139_V2_POSTFAIL_COLD=*') 'COLD_SIGNED_V1_CUSTODY_REJECTED'
-  $report=([string]$result[0]).Substring('F139_V2_POSTFAIL_COLD='.Length) | ConvertFrom-Json -Depth 12
+  $report=([string]$result[0]).Substring('F139_V2_POSTFAIL_COLD='.Length) | ConvertFrom-Json
   Need ($report.head_seq -eq 23 -and $report.head_hash -ceq $dbHead -and
         $report.verified_tasks -eq 3 -and
         $report.original_source_sha -ceq $original -and
