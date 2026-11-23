@@ -77,6 +77,24 @@ class V3OriginalColdReadOnlyTests(unittest.TestCase):
         with self.assertRaises(V3ColdReadDenied):
             self.run_gate()
 
+    def test_v1_certificate_swap_during_signature_audit_denied(self):
+        from f139.nci04_v3_original_owner_cold_readonly import ORIGINAL, ORIGINAL_TREE
+        path = self.old.folder / "fresh-original-owner-source-forward.json"
+        def swap_during_validation(*args, **kwargs):
+            path.write_bytes(b"altered-after-original-snapshot")
+            return {
+                "original_source_sha": ORIGINAL,
+                "original_source_tree": ORIGINAL_TREE,
+                "verified_tasks": 3,
+                "v2_certificate_present": False,
+            }
+        with patch(
+            "f139.nci04_v3_original_owner_cold_readonly.validate",
+            side_effect=swap_during_validation,
+        ):
+            with self.assertRaises(V3ColdReadDenied):
+                self.run_gate()
+
     def test_v2_certificate_collision_denied(self):
         (self.old.folder / "fresh-original-owner-source-forward-v2.json").write_bytes(b"{}")
         with self.assertRaises(V3ColdReadDenied):

@@ -66,6 +66,9 @@ def inspect_original_owner_cold_readonly(
         # The original V2 PREPARE failed after disabling the task, before V2
         # signing. Reuse the restored V1 exact-source and all-receipt cold
         # verifier; no V2 failure is silently promoted to signed custody.
+        original_certificate = (folder / V1_NAME).read_bytes()
+        need(0 < len(original_certificate) <= 8192,
+             "ORIGINAL_CERTIFICATE_SIZE_DRIFT")
         cold = validate(db, key, folder, CHECKPOINT_SEQ, CHECKPOINT_HASH)
         need(cold["original_source_sha"] == ORIGINAL
              and cold["original_source_tree"] == ORIGINAL_TREE
@@ -77,9 +80,8 @@ def inspect_original_owner_cold_readonly(
         # validate() checked canonical bytes and original owner HMAC. Digest
         # exactly those immutable bytes for a future, separately versioned V3
         # certificate; this reader never creates or signs that certificate.
-        original_certificate = (folder / V1_NAME).read_bytes()
-        need(0 < len(original_certificate) <= 8192,
-             "ORIGINAL_CERTIFICATE_SIZE_DRIFT")
+        need((folder / V1_NAME).read_bytes() == original_certificate,
+             "ORIGINAL_CERTIFICATE_CHANGED_DURING_AUDIT")
         last = api.get(REPO + "/branches/main")
         need(type(last) is dict and last.get("name") == "main"
              and last.get("protected") is True
