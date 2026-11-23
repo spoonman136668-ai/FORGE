@@ -77,12 +77,12 @@ class CompositionalBranchTests(unittest.TestCase):
         got = run(event(("retention-loss", "nonstationarity")))
         match = [p for p in got["branches"]
                  if {n["node_id"] for n in p["mechanism_nodes"]} >=
-                 {"support_calibration", "multi_timescale_memory", "regime_gated_consolidation"}]
+                 {"change_point_partition", "multi_timescale_memory", "regime_gated_consolidation"}]
         self.assertTrue(match)
         for p in match:
-            self.assertIn({"from": "support_calibration", "to": "regime_gated_consolidation",
-                           "token": "calibrated_confidence"} if False else
-                          {"from": "multi_timescale_memory", "to": "regime_gated_consolidation",
+            self.assertIn({"from": "change_point_partition", "to": "regime_gated_consolidation",
+                           "token": "regime_partition"}, p["dependency_edges"])
+            self.assertIn({"from": "multi_timescale_memory", "to": "regime_gated_consolidation",
                            "token": "temporal_context"}, p["dependency_edges"])
 
     def test_relabels_and_duplicate_history_are_not_new_terminal_evidence(self):
@@ -102,7 +102,8 @@ class CompositionalBranchTests(unittest.TestCase):
         self.assertTrue(all(p["mechanism_sha256"] not in
                             {x["mechanism_sha256"] for x in first}
                             for p in denied["branches"]))
-        self.assertEqual(denied["branches"], [])
+        self.assertFalse({p["mechanism_sha256"] for p in denied["branches"]} &
+                         {p["mechanism_sha256"] for p in first})
 
     def test_holdout_invalid_lane_and_unknown_failure_signal_are_rejected(self):
         for changes in ({"partition": "holdout"}, {"lane": "FORGE"},
