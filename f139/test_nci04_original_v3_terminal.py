@@ -1,6 +1,7 @@
 """V3 original-owner consumer: fail closed on any missing provider identity."""
 from __future__ import annotations
 import copy
+from dataclasses import replace
 import io
 import zipfile
 import unittest
@@ -10,6 +11,10 @@ from f139.nci04_signed_native import NativeAdmission
 from f139.nci04_worker_v3 import (
     unit, COMMAND, BUILD, RATE_COMMAND, ATLAS, TARGET, CLOSED,
     SCHEMA as R_SCHEMA, receipt_v3)
+from f139.nci04_fresh_missing_arm_oracle_v1 import (
+    COMMAND as MISSING_COMMAND, SCHEMA as MISSING_SCHEMA,
+    SUCCESS as MISSING_SUCCESS, applies as missing_arm_applies,
+)
 from f139.nci04_original_v3_terminal import (
     inner_zip, V3TerminalDenied, MEMBERS,
     qualified_original_github_run)
@@ -128,6 +133,51 @@ class OriginalV3CustodyTests(unittest.TestCase):
         historical_receipt=receipt_v3(self.admission,historical)
         self.assertEqual(historical_receipt["schema"],self.receipt["schema"])
         self.assertEqual(len(self.verify(self.zipbytes(historical,historical_receipt))["receipt_sha256"]),64)
+
+    def test_future_missing_arm_is_bound_to_native_signed_provider_custody(self):
+        successor = replace(self.admission, issue_number=1850,
+                            intent=replace(self.admission.intent,
+                                           after_bytes=(b"class PublicCausalCells:\n"
+                                                        b"    def propose_missing_action(self): pass\n")))
+        # Ticket 1849 and other historical V3 receipts are unchanged.
+        self.assertFalse(missing_arm_applies(successor.intent, 1849))
+        self.assertTrue(missing_arm_applies(successor.intent, 1850))
+        report=copy.deepcopy(self.report)
+        report["candidate_missing_arm_oracle_schema_v1"]=MISSING_SCHEMA
+        row=copy.deepcopy(report["candidate_rate_oracle"])
+        out=(MISSING_SUCCESS+"\n").encode("ascii")
+        row.update(argv=list(MISSING_COMMAND), output_sha256=digest(out),
+                   output_bytes=len(out))
+        report["candidate_missing_arm_oracle_v1"]=row
+        receipt=receipt_v3(successor,report)
+        self.assertEqual(receipt["candidate_missing_arm_attestation_v1"]["native_intent_sha256"],
+                         successor.intent.intent_sha256)
+        self.assertEqual(receipt["candidate_missing_arm_attestation_v1"]["run_id"],
+                         successor.run_id)
+        def verified(rep,proof):
+            data=self.zipbytes(rep,proof)
+            return inner_zip(data,{"size_in_bytes":len(data),
+                                   "digest":"sha256:"+digest(data),
+                                   "expired":False},successor,fresh=True)
+        self.assertEqual(len(verified(report,receipt)["report_sha256"]),64)
+        missing=copy.deepcopy(report)
+        missing.pop("candidate_missing_arm_oracle_v1")
+        missing.pop("candidate_missing_arm_oracle_schema_v1")
+        with self.assertRaises(V3TerminalDenied):
+            verified(missing,receipt_v3(successor,missing))
+        for mutation in ("wrong_command","wrong_output","wrong_status","wrong_version"):
+            changed=copy.deepcopy(report)
+            r=changed["candidate_missing_arm_oracle_v1"]
+            if mutation=="wrong_command": r["argv"]=["python","-c","print(1)"]
+            if mutation=="wrong_output": r["output_sha256"]="0"*64
+            if mutation=="wrong_status": r["status"]="TEST_FAILURE"
+            if mutation=="wrong_version": changed["candidate_missing_arm_oracle_schema_v1"]="v0"
+            with self.subTest(mutation=mutation),self.assertRaises(ValueError):
+                verified(changed,receipt)
+        forged=copy.deepcopy(receipt)
+        forged["candidate_missing_arm_attestation_v1"]["run_id"]=1
+        with self.assertRaises(V3TerminalDenied):
+            verified(report,forged)
 
     def test_outer_provider_zip_digest_and_member_inventory_enforced(self):
         blob=self.zipbytes()

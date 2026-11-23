@@ -22,6 +22,7 @@ from f139.nci04_owner_issue import NativeIssue, inspect_owner_issue
 from f139.nci04_signed_native import NativeAdmission
 from f139.nci04_worker_entry import git
 from f139.nci04_worker_v3 import run_v3, receipt_v3
+from f139.nci04_fresh_missing_arm_oracle_v1 import applies as missing_arm_applies
 from f139.nci04_fresh_worker_release_gate import SOURCE, TARGET, TARGET_TREE
 
 REPO = "spoonman136668-ai/FORGE"
@@ -301,7 +302,8 @@ def execute(env, *, checkout: Path, native: Path, scratch: Path, output: Path):
          and git(native, "rev-parse", "HEAD") == TARGET
          and git(native, "rev-parse", "HEAD^{tree}") == TARGET_TREE,
          "EXECUTION_PATH_OR_TARGET_DRIFT")
-    report = run_v3(a.intent, native, scratch, oslabel=label)
+    report = run_v3(a.intent, native, scratch, oslabel=label,
+                    missing_arm_oracle=missing_arm_applies(a.intent, claim["issue_number"]))
     receipt = receipt_v3(a, report)
     for name, doc in (("f139-v3-native-report.json", report),
                       ("f139-v3-native-receipt.json", receipt)):

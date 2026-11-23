@@ -18,6 +18,10 @@ import time
 from f139.nci04_native_contract import Candidate, canonical, digest
 from f139.nci04_native_worker import _bounded_capture, _git, _inspect_checkout, stage_candidate
 from f139.nci04_signed_native import NativeAdmission
+from f139.nci04_fresh_missing_arm_oracle_v1 import (
+    COMMAND as MISSING_COMMAND, SCHEMA as MISSING_SCHEMA,
+    SUCCESS as MISSING_SUCCESS, ATTESTATION_SCHEMA as MISSING_ATTESTATION_SCHEMA,
+)
 
 SCHEMA = "forge.f139.nci04.native-development-diagnostic.v3"
 RECEIPT = "forge.f139.nci04.native-execution-receipt.v3"
@@ -95,7 +99,7 @@ def unit(module):
 
 
 def invoke(argv, root, *, module=None, expected_rejection=False, runner=None):
-    need(tuple(argv) in (BUILD, RATE_COMMAND) or
+    need(tuple(argv) in (BUILD, RATE_COMMAND, MISSING_COMMAND) or
          (module=="test_*.py" and tuple(argv)==COMMAND+("-p","test_*.py","-v")) or
          (module is not None and module!="test_*.py" and tuple(argv)==unit(module)),
          "ARBITRARY_COMMAND_REJECTED")
@@ -124,6 +128,9 @@ def invoke(argv, root, *, module=None, expected_rejection=False, runner=None):
     if tuple(argv) == RATE_COMMAND:
         need(raw.strip() == b"F139_PROSPECTIVE_RATE_ORACLE=PASS",
              "RATE_ORACLE_OUTPUT_NOT_AUTHENTIC")
+    if tuple(argv) == MISSING_COMMAND:
+        need(raw.strip() == MISSING_SUCCESS.encode("ascii"),
+             "MISSING_ARM_ORACLE_OUTPUT_NOT_AUTHENTIC")
     if expected_rejection:
         exact = (outcome=="TEST_FAILURE" and exitcode>0
                  and module==ATLAS
@@ -148,11 +155,13 @@ def invoke(argv, root, *, module=None, expected_rejection=False, runner=None):
     }
 
 
-def run_v3(candidate, original, scratch, *, oslabel, runner=None):
+def run_v3(candidate, original, scratch, *, oslabel, runner=None,
+           missing_arm_oracle=False):
     """Real split test algorithm; requires external budget and signed custody."""
     need(oslabel in ("ubuntu-latest","windows-latest")
          and ((os.name=="nt")== (oslabel=="windows-latest")),
          "RUNNER_OS_NOT_AUTHENTIC")
+    need(type(missing_arm_oracle) is bool, "MISSING_ARM_ORACLE_SCOPE_INVALID")
     root, modules = inventory(candidate, original)
     scratch=Path(scratch).resolve(strict=True)
     need(scratch.is_dir() and not scratch.is_symlink()
@@ -177,6 +186,8 @@ def run_v3(candidate, original, scratch, *, oslabel, runner=None):
                 positive.append((name,invoke(unit(name),modified,
                                              module=name,runner=runner)))
         rate=invoke(RATE_COMMAND,modified,runner=runner)
+        if missing_arm_oracle:
+            missing=invoke(MISSING_COMMAND,modified,runner=runner)
         build=invoke(BUILD,modified,runner=runner)
         need(_git(modified,"diff","--name-only")==TARGET,
              "CANDIDATE_OVERLAY_MUTATED")
@@ -190,14 +201,15 @@ def run_v3(candidate, original, scratch, *, oslabel, runner=None):
     need(tuple(x[0] for x in positive)==tuple(x for x in modules if x!=ATLAS)
          and all(e["discovered_tests"]>0 and e["status"]=="PASS"
                  for _,e in positive), "BEHAVIOR_INVENTORY_INCOMPLETE")
-    all_results=[pristine,full,g29,*dict(positive).values(),rate,build]
+    all_results=[pristine,full,g29,*dict(positive).values(),rate,
+                 *([missing] if missing_arm_oracle else []),build]
     budget_pass=all(row["resource_budget_verified"] is True
                     and type(row["child_cpu_ms"]) is int
                     and row["child_cpu_ms"]>0
                     and type(row["child_peak_rss_bytes"]) is int
                     and row["child_peak_rss_bytes"]>0
                     for row in all_results)
-    return {
+    report = {
         "schema":SCHEMA, "ticket_source_commit":candidate.target_commit,
         "target_tree_sha":candidate.target_tree_sha,
         "intent_sha256":candidate.intent_sha256,
@@ -217,6 +229,10 @@ def run_v3(candidate, original, scratch, *, oslabel, runner=None):
         "protected_holdouts_accessed":0,"accepted_ref_mutations":0,
         "paid_model_calls":0,
     }
+    if missing_arm_oracle:
+        report["candidate_missing_arm_oracle_schema_v1"]=MISSING_SCHEMA
+        report["candidate_missing_arm_oracle_v1"]=missing
+    return report
 
 
 def receipt_v3(admission:NativeAdmission, report:dict):
@@ -238,6 +254,11 @@ def receipt_v3(admission:NativeAdmission, report:dict):
          and type(report.get("child_cpu_rss_verified")) is bool
          and report["native_qualified"] is report["child_cpu_rss_verified"],
          "V3_SIGNED_SOURCE_OR_RESOURCE_CLAIM_INVALID")
+    has_missing = "candidate_missing_arm_oracle_v1" in report
+    need(has_missing == ("candidate_missing_arm_oracle_schema_v1" in report)
+         and (not has_missing or (report["native_qualified"] is True
+              and report["candidate_missing_arm_oracle_schema_v1"] == MISSING_SCHEMA)),
+         "MISSING_ARM_VERSION_OR_QUALIFICATION_INVALID")
     if report["native_qualified"]:
         from f139.nci04_v3_bounded_resource import (
             MAX_SAMPLED_RSS_BYTES, MAX_SAMPLED_CPU_MS)
@@ -266,6 +287,15 @@ def receipt_v3(admission:NativeAdmission, report:dict):
         # unconditionally; validate the fixed command whenever it is present.
         if "candidate_rate_oracle" in report:
             expected["candidate_rate_oracle"]=(RATE_COMMAND,"PASS")
+        if has_missing:
+            expected["candidate_missing_arm_oracle_v1"]=(MISSING_COMMAND,"PASS")
+            missing_row=report["candidate_missing_arm_oracle_v1"]
+            stdout_hashes={digest((MISSING_SUCCESS+newline).encode("ascii"))
+                           for newline in ("\n", "\r\n")}
+            need(missing_row.get("output_sha256") in stdout_hashes
+                 and missing_row.get("output_bytes") in
+                     (len(MISSING_SUCCESS)+1, len(MISSING_SUCCESS)+2),
+                 "MISSING_ARM_OUTPUT_PROVENANCE_INVALID")
         entries=[(report[k],argv,state) for k,(argv,state) in expected.items()]
         entries.extend((report["candidate_nonatlas"][name],unit(name),"PASS")
                        for name in inventory if name!=ATLAS)
@@ -275,7 +305,7 @@ def receipt_v3(admission:NativeAdmission, report:dict):
                     and type(row.get("returncode")) is int
                     and ((state=="PASS" and row["returncode"]==0)
                          or (state==CLOSED and row["returncode"]>0))
-                    and (argv in (BUILD, RATE_COMMAND) or
+                    and (argv in (BUILD, RATE_COMMAND, MISSING_COMMAND) or
                          (type(row.get("discovered_tests")) is int
                           and row["discovered_tests"]>0))
                     and row.get("resource_budget_verified") is True
@@ -288,7 +318,7 @@ def receipt_v3(admission:NativeAdmission, report:dict):
                     and row.get("resource_accounting")==
                         "psutil-sampled-process-tree-v1",
                     "V3_POSITIVE_TEST_OR_RESOURCE_FORGERY")
-    return {
+    receipt = {
         "schema":RECEIPT,"ticket":admission.ticket,
         "source_sha":admission.source_sha,
         "run_id":admission.run_id, "os":admission.runner_os,
@@ -302,3 +332,18 @@ def receipt_v3(admission:NativeAdmission, report:dict):
         "scientific_first_use_authorized":False,
         "accepted_ref_mutations":0, "paid_model_calls":0,
     }
+    if has_missing:
+        receipt["candidate_missing_arm_attestation_v1"]={
+            "schema": MISSING_ATTESTATION_SCHEMA,
+            "original_signed_admission_sha256": admission.authorization_sha256,
+            "native_intent_sha256": admission.intent.intent_sha256,
+            "target_commit": admission.intent.target_commit,
+            "target_tree_sha": admission.intent.target_tree_sha,
+            "candidate_sha256": admission.intent.after_sha256,
+            "os": admission.runner_os, "run_id": admission.run_id,
+            "v3_report_sha256": receipt["v3_report_sha256"],
+            "fixed_command_sha256": digest(canonical(list(MISSING_COMMAND))),
+            "output_sha256": report["candidate_missing_arm_oracle_v1"]["output_sha256"],
+            "development_only": True, "scientific_first_use": False,
+        }
+    return receipt
