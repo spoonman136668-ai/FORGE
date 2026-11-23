@@ -55,7 +55,7 @@ def inspect_cold_host(encoded: str, *, dbpath: Path, folder: Path,
          "OWNER_SOURCE_OR_EXISTING_LOCK_INVALID")
 
     # Never create the old lock as a surrogate for the original owner.
-    with SingleOwner(lock):
+    with SingleOwner(lock, existing_only=True):
         db = Database.open_readonly(dbpath)
         try:
             before = db.conn.total_changes

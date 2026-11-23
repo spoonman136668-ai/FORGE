@@ -130,6 +130,45 @@ class V3OriginalHostColdCLITests(unittest.TestCase):
             self.audit()
         self.assertEqual(self.lock.stat().st_size, 0)
 
+    def test_lock_disappears_at_acquire_never_recreated(self):
+        real_open = Path.open
+        def lose_before_open(path, *args, **kwargs):
+            if path == self.lock and args and args[0] == "r+b":
+                path.unlink()
+            return real_open(path, *args, **kwargs)
+        with patch.object(Path, "open", lose_before_open), patch(
+            "f139.nci04_v3_original_cold_host_cli.Database.open_readonly",
+        ) as opener:
+            with self.assertRaises(FileNotFoundError):
+                inspect_cold_host(self.encoded, dbpath=self.dbpath,
+                                  folder=self.folder, key=self.key, api=object())
+            opener.assert_not_called()
+        self.assertFalse(self.lock.exists())
+
+    def test_existing_lock_truncated_during_acquire_not_repaired(self):
+        real_open = Path.open
+        def truncate_before_open(path, *args, **kwargs):
+            if path == self.lock and args and args[0] == "r+b":
+                with real_open(path, "wb"):
+                    pass
+            return real_open(path, *args, **kwargs)
+        with patch.object(Path, "open", truncate_before_open), patch(
+            "f139.nci04_v3_original_cold_host_cli.Database.open_readonly",
+        ) as opener:
+            with self.assertRaises(F139Error):
+                inspect_cold_host(self.encoded, dbpath=self.dbpath,
+                                  folder=self.folder, key=self.key, api=object())
+            opener.assert_not_called()
+        self.assertEqual(self.lock.read_bytes(), b"")
+
+    def test_default_controller_lock_creation_unchanged(self):
+        other = self.folder / "fresh-controller-lock.lock"
+        self.assertFalse(other.exists())
+        with SingleOwner(other):
+            self.assertTrue(SingleOwner.held(other))
+            self.assertTrue(other.is_file())
+        self.assertFalse(SingleOwner.held(other))
+
     def test_reparse_database_denied_before_open(self):
         real = Path.is_symlink
         with patch.object(
