@@ -12,6 +12,9 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $repo='spoonman136668-ai/FORGE'
 $previousMain='852b473bf714038c75254650503c279768eff8cf'
+# Exactly the source qualified by the three first-attempt PR1870 workflows.
+$qualifiedHead='3a4eaeff4ff53be0fdb0822d84bb77fb65169297'
+$qualifiedTree='1797ceac87ce254c5b08755027bd3cd7a076ac42'
 $original='f24251e0d95938e593a54c1577a34efadc8080d8'
 $originalTree='b63e6346b9d665664bb4e248535a60db9473b592'
 $failed=45091947666L
@@ -89,7 +92,9 @@ $main=Remote ('repos/'+$repo+'/branches/main')
 $commit=Remote ('repos/'+$repo+'/git/commits/'+$Target)
 Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target -and
       $commit.sha -ceq $Target -and @($commit.parents).Count -eq 2 -and
-      $commit.parents[0].sha -ceq $previousMain) 'EXACT_RECOVERY_MERGE_REQUIRED'
+      $commit.parents[0].sha -ceq $previousMain -and
+      $commit.parents[1].sha -ceq $qualifiedHead -and
+      $commit.tree.sha -ceq $qualifiedTree) 'EXACT_RECOVERY_MERGE_REQUIRED'
 ExactCheckout $env:GITHUB_WORKSPACE $Target ([string]$commit.tree.sha) $true
 # ACTION_RUNS /jobs GET was the failing endpoint in the consumed PREPARE.
 # Do not re-depend on it for original-owner recovery. Confirm the two exact

@@ -2626,9 +2626,9 @@ F139_V2_RESTORE_BASE = "852b473bf714038c75254650503c279768eff8cf"
 F139_V2_RESTORE_BASE_TREE = "dee88efb8241cb58539bc50dc621569d7f298025"
 F139_V2_RESTORE_BLOBS = {
     ".github/workflows/f139-v2-failed-prepare-original-restore.yml": "d36baa18cd3920b45545ab6c66a0325c8353012c",
-    "f139/nci04_v2_failed_prepare_restore_original.ps1": "ab3f54445ede54fcd17958997b965973c5cb4ecc",
+    "f139/nci04_v2_failed_prepare_restore_original.ps1": "f3ad1c7a84a21a8f9dadb79b1e9214dbbd83dfc5",
     "f139/nci04_v2_failed_prepare_restore_original.py": "bda6b53a5e8fc24c3c3493f2395cfec05c84d783",
-    "f139/test_nci04_v2_failed_prepare_restore_original.py": "f8b9cc62087c204d92c73c33a5bd9b794b2dfb67",
+    "f139/test_nci04_v2_failed_prepare_restore_original.py": "081e470563a7cbedb48af0414a00e02dcfe7b52a",
 }
 F139_V2_RESTORE_PATHS = frozenset(set(F139_V2_RESTORE_BLOBS) | {
     "scripts/check_rar_g145_pr_scope.py",

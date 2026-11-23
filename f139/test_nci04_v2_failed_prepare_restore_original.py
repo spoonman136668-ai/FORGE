@@ -157,6 +157,12 @@ class RecoveryContractTests(unittest.TestCase):
         self.assertEqual(script.count("Disable-ScheduledTask"), 1)
         self.assertIn("} catch {\n    $startupFailure=$_", script)
         self.assertIn("SAME_OWNER_NOT_STARTED", script)
+        # First-parent alone permits an unrelated two-parent main merge.
+        # The recovery must authenticate this exact qualified PR HEAD/tree.
+        self.assertIn("$qualifiedHead='3a4eaeff4ff53be0fdb0822d84bb77fb65169297'", script)
+        self.assertIn("$qualifiedTree='1797ceac87ce254c5b08755027bd3cd7a076ac42'", script)
+        self.assertIn("$commit.parents[1].sha -ceq $qualifiedHead", script)
+        self.assertIn("$commit.tree.sha -ceq $qualifiedTree", script)
         self.assertEqual(script.count("Stop-ScheduledTask -TaskName"), 1)
         self.assertIn("'FAILED_START_ROLLBACK_UNVERIFIED'", script)
         self.assertLess(script.index("Disable-ScheduledTask -TaskName"),
