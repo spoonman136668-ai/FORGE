@@ -170,3 +170,35 @@ The prior native F139 source workflow was still in progress on ancestor
 pending state as qualification for this new candidate. All full exact-head
 regressions must run again on the latest commit. The previous full public
 Linux/Windows run and development rehearsal passed on that ancestor only.
+
+
+## Bounded compositional search-tree implementation (2026-11-23)
+
+The fixed nine-plan producer is retained as historical/prototype code, but a
+new independent pure brancher now constructs *runtime compositions* from a
+typed mechanism grammar in \`scripts/nature_compositional_brancher.py\`.
+It is not connected to the original owner loop, F139 scheduler, ledger, or
+scientific admission.
+
+The brancher performs deterministic, bounded beam expansion over eight
+mechanism primitives with explicit read/write tokens, typed dependency edges,
+observed failure dimensions, and depth up to three. It can compose, for example,
+support calibration + context partition + context-scoped plasticity, or
+change-point partition + multi-timescale memory + regime-gated consolidation.
+It emits competing causal-claim components, counterfactual predictions,
+falsifiers, source lineage and parent-branch identities. The outputs are
+nonexecutable plans only; no source code is generated.
+
+Limits: the primitive vocabulary and heuristic are hand-authored, finite and
+explicit. This is *combinatorial compositional search*, not unconstrained
+self-invention or proof of a new scientific mechanism. Structural hashes do
+not prove semantic novelty. The owner must authenticate terminal events,
+source bytes, negative completeness and train-only partition; the brancher
+cannot authenticate any caller-supplied receipt digest. No actual scientific
+corpus is currently eligible, so this remains engineering-only.
+
+New adverse tests are in
+\`scripts/test_fsa_nature_compositional_brancher.py\` and are picked up by the
+existing \`scripts/test_fsa_*py\` CI discovery. The new exact candidate must
+complete full Linux/Windows, F139 native and development rehearsal gates;
+prior SHAs do not qualify it.
