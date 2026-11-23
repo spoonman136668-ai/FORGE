@@ -1,6 +1,8 @@
-"""Pure, nonexecuting Nature-inspired failure-guided research-plan comparator.
+"""Legacy finite Nature-inspired research-plan prototype.
 
-This is an advisory *development-only* planner, not an F139 owner hook.
+Superseded for compositional exploration by scripts.nature_compositional_brancher.
+Retained to preserve the original fixed-recipe comparison and its source history.
+This is advisory-only and not an F139 owner hook.
 The caller must independently verify original terminal receipts, source/tree
 custody, complete historical negatives, and their training-only status. A
 receipt digest here is an opaque identity, NOT authentication or trial authority.
