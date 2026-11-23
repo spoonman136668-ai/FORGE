@@ -24,7 +24,7 @@ def frozen(**changes):
             "terminal_event_ids": list(IDS),
             "case_input_sha256": {item: digest("input-" + item) for item in IDS},
             "max_wall_ms": 300, "max_cpu_ms": 300,
-            "max_peak_rss_bytes": 200, "negative_control": False}
+            "max_gpu_ms": 0, "max_peak_rss_bytes": 200, "negative_control": False}
     data.update(changes)
     return data
 
@@ -38,7 +38,8 @@ def rows(fr, scores=None):
          "input_sha256": fr["case_input_sha256"][item],
          "plan_sha256": digest("plan-" + arm + "-" + item),
          "beneficial_dev_outcome": value, "retention_drift_brier": 0.01,
-         "wall_ms": 10, "cpu_ms": 10, "peak_rss_bytes": 100,
+         "wall_ms": 10, "cpu_ms": 10, "gpu_ms": 0,
+         "peak_rss_bytes": 100,
          "model_calls": 0, "sealed_holdout_access": False,
          "scientific_first_use": False}
         for item, value in zip(IDS, scores[arm])] for arm in n.ARMS}
@@ -142,6 +143,38 @@ class PureNatureDevReplayTests(unittest.TestCase):
             data = rows(fr)
             data["C"][0]["post_result_tuning"] = True
             n.evaluate(fr, data)
+
+
+    def test_exhausted_candidate_does_not_gain_from_an_invented_plan(self):
+        fr = frozen()
+        sample = rows(fr)
+        sample["A"][2]["plan_sha256"] = None
+        sample["A"][2]["beneficial_dev_outcome"] = False
+        got = n.evaluate(fr, sample)
+        self.assertEqual(got["arms"]["A"]["attempts"], 3)
+        self.assertEqual(got["arms"]["A"]["beneficial_training_labels"], 1)
+        sample["A"][2]["beneficial_dev_outcome"] = True
+        with self.assertRaisesRegex(n.DevReplayRejected, "EXHAUSTION_CANNOT_BENEFIT"):
+            n.evaluate(fr, sample)
+
+    def test_gpu_memory_fairness_and_resource_accounting(self):
+        fr = frozen(max_gpu_ms=20)
+        sample = rows(fr)
+        for arm in n.ARMS:
+            for row in sample[arm]:
+                row["gpu_ms"] = 1
+        self.assertEqual(n.evaluate(fr, sample)["arms"]["C"]["gpu_ms"], 3)
+        sample["C"][0]["gpu_ms"] = 2
+        with self.assertRaisesRegex(n.DevReplayRejected, "UNEQUAL_WHOLE_PROCESS_COST"):
+            n.evaluate(fr, sample)
+        sample = rows(frozen())
+        sample["C"][0]["gpu_ms"] = 1
+        with self.assertRaisesRegex(n.DevReplayRejected, "EXCEEDED_RESOURCE_BUDGET"):
+            n.evaluate(frozen(), sample)
+        sample = rows(frozen())
+        sample["C"][0]["peak_rss_bytes"] = 130
+        with self.assertRaisesRegex(n.DevReplayRejected, "UNEQUAL_WHOLE_PROCESS_COST"):
+            n.evaluate(frozen(), sample)
 
     def test_no_file_or_network_access_during_diagnostics(self):
         fr = frozen()

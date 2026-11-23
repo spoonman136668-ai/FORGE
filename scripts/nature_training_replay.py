@@ -22,12 +22,12 @@ FREEZE_KEYS = frozenset({
     "schema", "parent_sha", "parent_tree_sha", "protocol_sha256",
     "development_corpus_sha256", "partition", "selected_control",
     "terminal_event_ids", "case_input_sha256", "max_wall_ms",
-    "max_cpu_ms", "max_peak_rss_bytes", "negative_control",
+    "max_cpu_ms", "max_gpu_ms", "max_peak_rss_bytes", "negative_control",
 })
 ROW_KEYS = frozenset({
     "terminal_event_id", "input_sha256", "plan_sha256",
     "beneficial_dev_outcome", "retention_drift_brier", "wall_ms",
-    "cpu_ms", "peak_rss_bytes", "model_calls", "sealed_holdout_access",
+    "cpu_ms", "gpu_ms", "peak_rss_bytes", "model_calls", "sealed_holdout_access",
     "scientific_first_use",
 })
 
@@ -71,6 +71,8 @@ def _freeze(raw):
     for k in ("max_wall_ms", "max_cpu_ms", "max_peak_rss_bytes"):
         _require(type(raw[k]) is int and 1 <= raw[k] <= 10**12,
                  "BUDGET_NOT_PREDECLARED")
+    _require(type(raw["max_gpu_ms"]) is int and 0 <= raw["max_gpu_ms"] <= 10**12,
+             "BUDGET_NOT_PREDECLARED")
     _require(type(raw["negative_control"]) is bool, "NEGATIVE_CONTROL_NOT_FROZEN")
     return ids
 
@@ -108,7 +110,7 @@ def evaluate(freeze, rows_by_arm):
         _require([row["terminal_event_id"] for row in rows] == ids,
                  "EVENT_ORDER_OR_INFORMATION_DRIFT")
         used_plans = set()
-        wall = cpu = 0
+        wall = cpu = gpu = 0
         successes = 0
         max_drift = -1.0
         peak = 0
@@ -117,15 +119,20 @@ def evaluate(freeze, rows_by_arm):
                      freeze["case_input_sha256"][row["terminal_event_id"]],
                      "HOLDOUT_OR_INPUT_LEAKAGE")
             plan = row["plan_sha256"]
-            _require(_sha(plan), "PLAN_IDENTITY")
-            _require(plan not in used_plans, "REPLAYED_PLAN_WITHIN_ARM")
-            used_plans.add(plan)
+            _require(plan is None or _sha(plan), "PLAN_IDENTITY")
+            if plan is None:
+                _require(row["beneficial_dev_outcome"] is False,
+                         "EXHAUSTION_CANNOT_BENEFIT")
+            else:
+                _require(plan not in used_plans, "REPLAYED_PLAN_WITHIN_ARM")
+                used_plans.add(plan)
             _require(type(row["beneficial_dev_outcome"]) is bool and
                      type(row["retention_drift_brier"]) in (float, int)
                      and math.isfinite(row["retention_drift_brier"]) and
                      -1 <= row["retention_drift_brier"] <= 1, "OUTCOME_FIELDS")
             _require(type(row["wall_ms"]) is int and row["wall_ms"] > 0 and
                      type(row["cpu_ms"]) is int and row["cpu_ms"] > 0 and
+                     type(row["gpu_ms"]) is int and row["gpu_ms"] >= 0 and
                      type(row["peak_rss_bytes"]) is int and
                      row["peak_rss_bytes"] > 0, "UNMEASURED_RESOURCE")
             _require(row["model_calls"] == 0 and
@@ -135,18 +142,21 @@ def evaluate(freeze, rows_by_arm):
                      "UNAUTHORIZED_MODEL_OR_SCIENCE_ACCESS")
             wall += row["wall_ms"]
             cpu += row["cpu_ms"]
+            gpu += row["gpu_ms"]
             peak = max(peak, row["peak_rss_bytes"])
             max_drift = max(max_drift, row["retention_drift_brier"])
             successes += int(row["beneficial_dev_outcome"])
         _require(wall <= freeze["max_wall_ms"] and
                  cpu <= freeze["max_cpu_ms"] and
+                 gpu <= freeze["max_gpu_ms"] and
                  peak <= freeze["max_peak_rss_bytes"], "EXCEEDED_RESOURCE_BUDGET")
         summaries[arm] = {"beneficial_training_labels": successes,
                           "attempts": len(ids), "wall_ms": wall,
-                          "cpu_ms": cpu, "peak_rss_bytes": peak,
+                          "cpu_ms": cpu, "gpu_ms": gpu,
+                          "peak_rss_bytes": peak,
                           "max_retention_drift_brier": max_drift}
         outcomes[arm] = [x["beneficial_dev_outcome"] for x in rows]
-    for budget in ("wall_ms", "cpu_ms"):
+    for budget in ("wall_ms", "cpu_ms", "gpu_ms", "peak_rss_bytes"):
         totals = [summaries[x][budget] for x in ARMS]
         _require(max(totals) - min(totals) <= max(totals) * 0.05,
                  "UNEQUAL_WHOLE_PROCESS_COST")
