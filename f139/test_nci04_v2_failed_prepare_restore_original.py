@@ -154,6 +154,10 @@ class RecoveryContractTests(unittest.TestCase):
         self.assertNotIn("Register-ScheduledTask", script)
         self.assertNotIn("Set-ScheduledTask", script)
         self.assertNotIn("Invoke-RestMethod", script)
+        self.assertNotIn("/jobs?per_page=100", script)
+        self.assertIn("FAILED_PREPARE_IDENTITY_NOT_VERIFIED", script)
+        self.assertIn("ORIGINAL_OWNER_AUDIT_PROVENANCE", script)
+        self.assertIn("ab87431e8718eec1e160b0bfbd077ee6550a3844", script)
 
 
 if __name__ == "__main__":

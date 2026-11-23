@@ -91,24 +91,28 @@ Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target -and
       $commit.sha -ceq $Target -and @($commit.parents).Count -eq 2 -and
       $commit.parents[0].sha -ceq $previousMain) 'EXACT_RECOVERY_MERGE_REQUIRED'
 ExactCheckout $env:GITHUB_WORKSPACE $Target ([string]$commit.tree.sha) $true
+# ACTION_RUNS /jobs GET was the failing endpoint in the consumed PREPARE.
+# Do not re-depend on it for original-owner recovery. Confirm the two exact
+# immutable run IDs, actors, source SHAs and workflow identities. Current task,
+# signed V1 certificate and entire cold SQLite chain are checked independently.
 $failure=Remote ('repos/'+$repo+'/actions/runs/'+$FailedRun)
-$fjobs=Remote ('repos/'+$repo+'/actions/runs/'+$FailedRun+'/jobs?per_page=100')
-Need ($failure.event -ceq 'issue_comment' -and
+Need ($failure.id -eq $FailedRun -and
+      $failure.name -ceq 'FORGE F139 V2 original-owner source forward (same task, owner-only)' -and
+      $failure.path -ceq '.github/workflows/f139-fresh-owner-source-forward-v2.yml' -and
+      $failure.event -ceq 'issue_comment' -and
       $failure.actor.login -ceq 'spoonman136668-ai' -and
       $failure.head_sha -ceq $previousMain -and
       $failure.run_attempt -eq 1 -and $failure.status -ceq 'completed' -and
-      $failure.conclusion -ceq 'failure' -and
-      @($fjobs.jobs | Where-Object {$_.name -ceq 'fresh-original-owner-source-forward-v2-prepare' -and
-        $_.conclusion -ceq 'failure' -and $_.runner_name -ceq 'FORGE-CODEX-REMOTE'}).Count -eq 1 -and
-      @($fjobs.jobs | Where-Object {$_.name -ceq 'fresh-original-owner-source-forward-v2-start' -and
-        $_.conclusion -ceq 'skipped'}).Count -eq 1) 'FAILED_PREPARE_IDENTITY_NOT_VERIFIED'
+      $failure.conclusion -ceq 'failure') 'FAILED_PREPARE_IDENTITY_NOT_VERIFIED'
 $prior=Remote ('repos/'+$repo+'/actions/runs/'+$audit)
-$ajobs=Remote ('repos/'+$repo+'/actions/runs/'+$audit+'/jobs?per_page=100')
-Need ($prior.id -eq $audit -and $prior.run_attempt -eq 1 -and
-      $prior.event -ceq 'pull_request' -and $prior.status -ceq 'completed' -and
-      $prior.conclusion -ceq 'success' -and
-      @($ajobs.jobs | Where-Object {$_.name -ceq 'original-owner-readonly' -and
-        $_.conclusion -ceq 'success' -and $_.runner_name -ceq 'FORGE-CODEX-REMOTE'}).Count -eq 1) 'ORIGINAL_OWNER_AUDIT_PROVENANCE'
+Need ($prior.id -eq $audit -and
+      $prior.name -ceq 'FORGE F139 original-host bounded read-only block codes (one PR)' -and
+      $prior.path -ceq '.github/workflows/f139-original-host-block-codes-one-pr.yml' -and
+      $prior.head_sha -ceq 'ab87431e8718eec1e160b0bfbd077ee6550a3844' -and
+      $prior.actor.login -ceq 'spoonman136668-ai' -and
+      $prior.run_attempt -eq 1 -and $prior.event -ceq 'pull_request' -and
+      $prior.status -ceq 'completed' -and
+      $prior.conclusion -ceq 'success') 'ORIGINAL_OWNER_AUDIT_PROVENANCE'
 $task=Get-ScheduledTask -TaskName $originalName -ErrorAction Stop
 $sid=''
 try {$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value} catch {}
