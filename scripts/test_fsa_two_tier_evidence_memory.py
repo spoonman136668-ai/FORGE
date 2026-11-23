@@ -19,24 +19,28 @@ class TwoTierEvidenceTests(unittest.TestCase):
 
     def test_recent_reversal_adapts_without_mutating_lifetime(self):
         memory = TwoTierEvidence()
-        # Stationary first regime: action 0 has higher observed success.
-        for _ in range(10):
+        # Large stationary history makes lifetime-only evidence robustly favor
+        # action 0. The later reversal must fully evict the 64-slot recent ring.
+        for _ in range(100):
             memory.observe(0, 0, 1)
             memory.observe(0, 1, 0)
         self.assertEqual(memory.choose_lifetime(0), 0)
         self.assertEqual(memory.choose(0), 0)
-        prior_lifetime = (memory.lifetime_counts(0, 0),
+        lifetime_before = (memory.lifetime_counts(0, 0),
                           memory.lifetime_counts(0, 1))
-        # Recent reversal: action 1 now has higher observed success.
-        for _ in range(4):
+        # 80 reversed observations evict all 64 old events from recent memory.
+        for _ in range(40):
             memory.observe(0, 0, 0)
             memory.observe(0, 1, 1)
         self.assertEqual(memory.choose_lifetime(0), 0)
         self.assertEqual(memory.choose(0), 1)
-        self.assertNotEqual(memory.recent_counts(0, 0), (0, 0))
-        self.assertNotEqual(memory.recent_counts(0, 1), (0, 0))
-        self.assertNotEqual(prior_lifetime, (memory.lifetime_counts(0, 0),
-                                             memory.lifetime_counts(0, 1)))
+        lifetime_after = (memory.lifetime_counts(0, 0),
+                          memory.lifetime_counts(0, 1))
+        self.assertEqual(lifetime_after[0], (40, 100))
+        self.assertEqual(lifetime_after[1], (100, 40))
+        self.assertGreaterEqual(sum(memory.recent_counts(0, 0)), 2)
+        self.assertGreaterEqual(sum(memory.recent_counts(0, 1)), 2)
+        self.assertNotEqual(lifetime_before, lifetime_after)
 
     def test_recent_ring_is_fixed_size_and_evicts_oldest(self):
         memory = TwoTierEvidence()
