@@ -15,7 +15,7 @@ from f139.local_controller import Database, SingleOwner
 from f139.nci04_v3_original_owner_cold_readonly import inspect_original_owner_cold_readonly
 from f139.nci04_v3_owner_remote_preflight import GitHubGET, decode_request
 
-FRESH_DIR = "f139-fresh-dev-44831323193"
+OWNER_DIR = "FORGE-F139"
 STATUS = "F139_V3_ORIGINAL_COLD_HISTORY"
 SCHEMA = "forge.f139.v3-original-host-cold-cli-readonly.v1"
 
@@ -45,7 +45,7 @@ def inspect_cold_host(encoded: str, *, dbpath: Path, folder: Path,
          and dbpath.is_absolute() and folder.is_absolute()
          and folder == dbpath.parent
          and dbpath.name == "state.sqlite"
-         and folder.name == FRESH_DIR
+         and folder.name == OWNER_DIR
          and type(key) is str and 32 <= len(key) <= 4096,
          "INPUT_OR_OWNER_PATH_INVALID")
     lock = dbpath.with_suffix(".lock")
@@ -102,7 +102,7 @@ def main(argv=None) -> int:
         profile = os.environ.get("LOCALAPPDATA", "")
         need(bool(profile) and Path(profile).is_absolute(),
              "LOCAL_OWNER_PROFILE_REQUIRED")
-        folder = Path(profile) / "FORGE-F139" / FRESH_DIR
+        folder = Path(profile) / OWNER_DIR
         report = inspect_cold_host(
             args[0], dbpath=folder / "state.sqlite", folder=folder,
             key=os.environ.get("F139_WORKER_HMAC_KEY", ""))
