@@ -24,7 +24,8 @@ def frozen(**changes):
             "terminal_event_ids": list(IDS),
             "case_input_sha256": {item: digest("input-" + item) for item in IDS},
             "max_wall_ms": 300, "max_cpu_ms": 300,
-            "max_gpu_ms": 0, "max_peak_rss_bytes": 200, "negative_control": False}
+            "max_gpu_ms": 0, "max_peak_rss_bytes": 200, "negative_control": False,
+            "arm_source_sha256": {arm: digest("source-" + arm) for arm in n.ARMS}}
     data.update(changes)
     return data
 
@@ -37,6 +38,8 @@ def rows(fr, scores=None):
         {"terminal_event_id": item,
          "input_sha256": fr["case_input_sha256"][item],
          "plan_sha256": digest("plan-" + arm + "-" + item),
+         "arm_role": n.ARM_ROLES[arm],
+         "arm_source_sha256": fr["arm_source_sha256"][arm],
          "beneficial_dev_outcome": value, "retention_drift_brier": 0.01,
          "wall_ms": 10, "cpu_ms": 10, "gpu_ms": 0,
          "peak_rss_bytes": 100,
@@ -175,6 +178,20 @@ class PureNatureDevReplayTests(unittest.TestCase):
         sample["C"][0]["peak_rss_bytes"] = 130
         with self.assertRaisesRegex(n.DevReplayRejected, "UNEQUAL_WHOLE_PROCESS_COST"):
             n.evaluate(frozen(), sample)
+
+    def test_arm_source_and_role_are_bound_to_frozen_four_arm_protocol(self):
+        fr = frozen()
+        sample = rows(fr)
+        sample["C"][1]["arm_role"] = n.ARM_ROLES["B"]
+        with self.assertRaisesRegex(n.DevReplayRejected, "ARM_SOURCE_OR_ROLE_MISMATCH"):
+            n.evaluate(fr, sample)
+        sample = rows(fr)
+        sample["A"][0]["arm_source_sha256"] = fr["arm_source_sha256"]["C"]
+        with self.assertRaisesRegex(n.DevReplayRejected, "ARM_SOURCE_OR_ROLE_MISMATCH"):
+            n.evaluate(fr, sample)
+        same_sources = {arm: digest("same-source") for arm in n.ARMS}
+        with self.assertRaisesRegex(n.DevReplayRejected, "ARM_SOURCE_IDENTITIES"):
+            n.evaluate(frozen(arm_source_sha256=same_sources), rows(fr))
 
     def test_no_file_or_network_access_during_diagnostics(self):
         fr = frozen()
