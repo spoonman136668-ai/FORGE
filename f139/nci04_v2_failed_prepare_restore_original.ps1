@@ -90,9 +90,13 @@ Need ([int64]$c.id -eq [int64]$evt.comment.id -and
 $main=Remote ('repos/'+$repo+'/branches/main')
 $commit=Remote ('repos/'+$repo+'/git/commits/'+$Target)
 $recoveryPr=Remote ('repos/'+$repo+'/pulls/1870')
+$recoveryMergeSha=[string]$recoveryPr.merge_commit_sha
+$recoveryMerge=Remote ('repos/'+$repo+'/git/commits/'+$recoveryMergeSha)
 Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target -and
-      $commit.sha -ceq $Target -and @($commit.parents).Count -eq 2 -and
-      $commit.parents[0].sha -ceq $previousMain -and
+      $commit.sha -ceq $Target -and
+      $recoveryMerge.sha -ceq $recoveryMergeSha -and
+      @($recoveryMerge.parents).Count -eq 2 -and
+      $recoveryMerge.parents[0].sha -ceq $previousMain -and
       $recoveryPr.number -eq 1870 -and $recoveryPr.merged -eq $true -and
       $recoveryPr.state -ceq 'closed' -and
       $recoveryPr.user.login -ceq 'spoonman136668-ai' -and
@@ -100,11 +104,18 @@ Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target -and
       $recoveryPr.head.repo.full_name -ceq $repo -and
       $recoveryPr.base.ref -ceq 'main' -and
       $recoveryPr.base.repo.full_name -ceq $repo -and
-      $recoveryPr.merge_commit_sha -ceq $Target -and
-      $recoveryPr.head.sha -ceq $commit.parents[1].sha) 'EXACT_RECOVERY_MERGE_REQUIRED'
+      $recoveryPr.base.sha -ceq $previousMain -and
+      $recoveryPr.merge_commit_sha -ceq $recoveryMergeSha -and
+      $recoveryPr.head.sha -ceq $recoveryMerge.parents[1].sha) 'EXACT_RECOVERY_MERGE_REQUIRED'
 $prSource=Remote ('repos/'+$repo+'/git/commits/'+$recoveryPr.head.sha)
 Need ($prSource.sha -ceq $recoveryPr.head.sha -and
-      $commit.tree.sha -ceq $prSource.tree.sha) 'RECOVERY_MERGE_TREE_DIFFERS_FROM_QUALIFIED_PR'
+      $recoveryMerge.tree.sha -ceq $prSource.tree.sha) 'RECOVERY_MERGE_TREE_DIFFERS_FROM_QUALIFIED_PR'
+# Later protected-main merges are allowed only when the original recovery merge
+# remains an ancestor and the exact executable recovery files are unchanged.
+& git -C $env:GITHUB_WORKSPACE merge-base --is-ancestor $recoveryMergeSha $Target
+Need ($LASTEXITCODE -eq 0) 'RECOVERY_MERGE_NOT_ANCESTOR_OF_CURRENT_MAIN'
+& git -C $env:GITHUB_WORKSPACE diff --quiet ($recoveryMergeSha+'..'+$Target) -- '.github/workflows/f139-v2-failed-prepare-original-restore.yml' 'f139/nci04_v2_failed_prepare_restore_original.ps1' 'f139/nci04_v2_failed_prepare_restore_original.py'
+Need ($LASTEXITCODE -eq 0) 'RECOVERY_EXECUTABLE_SOURCE_DRIFT_AFTER_MERGE'
 ExactCheckout $env:GITHUB_WORKSPACE $Target ([string]$commit.tree.sha) $true
 # ACTION_RUNS /jobs GET was the failing endpoint in the consumed PREPARE.
 # Do not re-depend on it for original-owner recovery. Confirm the two exact
