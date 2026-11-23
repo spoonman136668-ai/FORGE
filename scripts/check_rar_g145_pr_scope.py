@@ -2551,6 +2551,73 @@ def admit_fresh_owner_process_policy_fix(head_sha: str, base_sha: str,
     return "EXACT_PR1854_F139_FRESH_OWNER_PROCESS_POLICY_FIX_CI_ONLY"
 
 
+# One exact original-owner V2 source-forward PR. This qualifies CI source only,
+# never the Windows task, owner signature, merge, worker start or first-use.
+F139_V2_BRANCH = "engineering/f139-history-conditioned-dev-selector-20261122"
+F139_V2_PR = 1869
+F139_V2_BASE = "f24251e0d95938e593a54c1577a34efadc8080d8"
+F139_V2_BASE_G145 = "500be45c28fab0a07552dc9a83905ec301248745"
+F139_V2_WORKFLOW = ".github/workflows/f139-fresh-owner-source-forward-v2.yml"
+F139_V2_WORKFLOW_BLOB = "951977f141ce3c00e3f0a7d92867f9a07698b0b9"
+F139_V2_RESULT = "EXACT_PR1869_F139_V2_SOURCE_FORWARD_CI_ONLY"
+F139_V2_PATHS = frozenset({
+    F139_V2_WORKFLOW,
+    "f139/nci04_fresh_curriculum.py",
+    "f139/nci04_fresh_curriculum_owner.py",
+    "f139/nci04_fresh_lifecycle.py",
+    "f139/nci04_fresh_owner_source_forward.py",
+    "f139/nci04_fresh_owner_source_forward_v2.ps1",
+    "f139/nci04_fresh_owner_source_forward_v2.py",
+    "f139/nci04_fresh_structured_dev.py",
+    "f139/nci04_fresh_successor_publication.py",
+    "f139/test_nci04_fresh_curriculum.py",
+    "f139/test_nci04_fresh_curriculum_owner.py",
+    "f139/test_nci04_fresh_owner_source_forward_v2.py",
+    "f139/test_nci04_fresh_structured_dev.py",
+    "f139/test_nci04_fresh_structured_publication.py",
+    "f139/test_nci04_fresh_successor_producer.py",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
+
+def admit_f139_v2_source(head_sha: str, base_sha: str,
+                          request: dict, git: Callable[..., str]) -> str:
+    """Exact original V2 source workflow/guard exception; no runtime authority."""
+    if (not is_sha(head_sha) or base_sha != F139_V2_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != F139_V2_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != F139_V2_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name")
+                != "spoonman136668-ai/FORGE"
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name")
+                != "spoonman136668-ai/FORGE"):
+        raise ValueError("G145_F139_V2_EXACT_OWNER_PR_REQUIRED")
+    try:
+        ancestry = git("merge-base", base_sha, head_sha)
+        guard_before = git("rev-parse", base_sha +
+                           ":scripts/check_rar_g145_pr_scope.py")
+        workflow = git("rev-parse", head_sha + ":" + F139_V2_WORKFLOW)
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_F139_V2_ORIGINAL_SOURCE_NOT_AVAILABLE") from exc
+    if (ancestry != base_sha
+            or guard_before != F139_V2_BASE_G145
+            or workflow != F139_V2_WORKFLOW_BLOB
+            or len(changed) != len(F139_V2_PATHS)
+            or set(changed) != F139_V2_PATHS):
+        raise ValueError("G145_F139_V2_EXACT_WORKFLOW_OR_SOURCE_DRIFT")
+    return F139_V2_RESULT
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -3817,6 +3884,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
     if branch == F139_RECOVERY_AUDIT_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
         return admit_f139_recovery_readonly(head_sha, base_sha, event["pull_request"], git)
+    if branch == F139_V2_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_f139_v2_source(head_sha, base_sha, request, git)
     if branch == "engineering/f139-fresh-original-source-forward-20261122":
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]

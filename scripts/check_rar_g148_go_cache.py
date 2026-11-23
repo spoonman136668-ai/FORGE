@@ -409,6 +409,10 @@ def event_mode(head):
         if admiss != "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY":
             raise ValueError("G148_F139_FORWARD_EXACT_OWNER_SCOPE_REQUIRED")
         return "pr"
+    if branch == "engineering/f139-history-conditioned-dev-selector-20261122":
+        if admiss != "EXACT_PR1869_F139_V2_SOURCE_FORWARD_CI_ONLY":
+            raise ValueError("G148_F139_V2_SCOPED_ORIGINAL_OWNER_SOURCE_REQUIRED")
+        return "pr"
     if branch != BRANCH:
         if admiss != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
             raise ValueError("G148_ONLY_ORDINARY_TRUSTED_SOURCE_PR")

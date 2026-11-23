@@ -33,6 +33,14 @@ RELEASE_KIND = "FRESH_WORKER_RELEASE_AUTHENTICATED"
 CUSTODY_KIND = "FRESH_WORKER_PROVIDER_CUSTODY"
 NEGATIVE_KIND = "FRESH_WORKER_PROVIDER_NEGATIVE"
 PUBLISH_KIND = "FRESH_SUCCESSOR_PUBLICATION_ATTEMPTED"
+# V2 is strictly additional DEV grammar admission; previous V1 receipts are
+# immutable and remain parseable by the cold owner chain.
+PUBLISH_SCHEMA_STRUCTURED = "forge.f139.fresh-owner-structured-publication-attempt.v2"
+PUBLISH_STRUCTURED_RECIPES = frozenset(
+    [f"support-{n}-v2" for n in (2, 4, 8, 16)] +
+    [f"symmetric-prior-{n}-v2" for n in (2, 4, 8, 16)]
+)
+
 PUBLISH_SCHEMA = "forge.f139.fresh-owner-publication-attempt.v1"
 RELEASE_SCHEMA = "forge.f139.fresh-worker-owner-release.v1"
 CUSTODY_SCHEMA = "forge.f139.fresh-worker-provider-custody.v1"
@@ -261,13 +269,17 @@ def audit_execution_tail(db, activation, rows):
                      "mechanism_sha256", "after_sha256", "intent_sha256",
                      "issue_body_sha256", "scientific_first_use", "paid_model_calls",
                  }
-                 and doc["schema"] == PUBLISH_SCHEMA
+                 and type(doc["recipe"]) is str
+                 and (
+                     (doc["schema"] == PUBLISH_SCHEMA
+                      and doc["recipe"] in {
+                          "least-observed-local-arm-v1", "laplace-local-evidence-v1",
+                      })
+                     or (doc["schema"] == PUBLISH_SCHEMA_STRUCTURED
+                         and doc["recipe"] in PUBLISH_STRUCTURED_RECIPES)
+                 )
                  and doc["ticket"] == ticket
                  and doc["source_sha"] == SOURCE and doc["target_sha"] == TARGET
-                 and type(doc["recipe"]) is str
-                 and doc["recipe"] in {
-                     "least-observed-local-arm-v1", "laplace-local-evidence-v1",
-                 }
                  and all(sha(SHA64, doc[k]) for k in (
                      "mechanism_sha256", "after_sha256", "intent_sha256",
                      "issue_body_sha256",

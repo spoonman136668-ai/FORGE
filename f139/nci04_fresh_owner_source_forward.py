@@ -68,7 +68,8 @@ def sign(unsigned, key):
                     hashlib.sha256).hexdigest()
 
 
-def inspect_forward(doc, *, db, api, release, key):
+def inspect_forward(doc, *, db, api, release, key,
+                    expected_current_source_sha=None):
     """A positive result binds provider, owner, immutable ledger and SHA/tree.
 
     This validates metadata only. The caller STILL verifies the actual
@@ -111,9 +112,18 @@ def inspect_forward(doc, *, db, api, release, key):
          "ORIGINAL_TERMINAL_LEDGER_DRIFT")
     branch = api.get(FORGE + "/branches/main")
     commit = api.get(FORGE + "/git/commits/" + doc["owner_source_sha"])
+    # Only the separately signed V2 successor may make this historical V1
+    # signature an ARCHIVED source check after current main moves. No V1-only
+    # caller changes its original strict main requirement.
+    current = (doc["owner_source_sha"] if expected_current_source_sha is None
+               else expected_current_source_sha)
+    need(_sha40(current) and
+         (expected_current_source_sha is None
+          or current != doc["owner_source_sha"]),
+         "FORWARD_EXPECTED_MAIN_INVALID")
     need(branch.get("name") == "main"
          and branch.get("protected") is True
-         and branch.get("commit", {}).get("sha") == doc["owner_source_sha"]
+         and branch.get("commit", {}).get("sha") == current
          and commit.get("sha") == doc["owner_source_sha"]
          and commit.get("tree", {}).get("sha") == doc["owner_source_tree"],
          "PROTECTED_FORWARD_SOURCE_DRIFT")
@@ -193,6 +203,15 @@ def inspect_forward(doc, *, db, api, release, key):
 def installed_forward_source(db, api, release, key):
     """Return source+tree; fallback only on an ABSENT, not invalid, certificate."""
     path = db.filename.parent / NAME
+    # V2 never replaces V1. The presence of a later certificate requires the
+    # full independent V1+V2, old and latest source, owner and ledger audit.
+    # An invalid V2 blocks; there is no fallback to V1 after partial cutover.
+    from f139.nci04_fresh_owner_source_forward_v2 import (
+        NAME as NAME_V2, inspect_installed_v2,
+    )
+    new_path = db.filename.parent / NAME_V2
+    if new_path.exists() or new_path.is_symlink():
+        return inspect_installed_v2(db, api, release, key)
     if not path.exists() and not path.is_symlink():
         return release["worker_release_sha"], release["worker_release_tree"]
     need(path.is_file() and not path.is_symlink()

@@ -281,6 +281,11 @@ def _release_scope(base: str, tree: str, head: str) -> None:
     # G145 independently checks PR #1863, owner identity, base ancestry,
     # both owner-workflow blobs and all ten changed paths. CI admission only:
     # no generic cache exception, original-owner cutover or worker authority.
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-history-conditioned-dev-selector-20261122":
+        if (admission != "EXACT_PR1869_F139_V2_SOURCE_FORWARD_CI_ONLY"
+                or base != "f24251e0d95938e593a54c1577a34efadc8080d8"):
+            raise ValueError("G156_F139_V2_PROTECTED_SOURCE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == F139_FORWARD_BRANCH:
         if (admission != "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY"
                 or base != "e0467115ea085e2f0ddbee258e4d8937f6a90f10"
