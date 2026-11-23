@@ -42,11 +42,14 @@ class TwoTierEvidenceTests(unittest.TestCase):
         self.assertGreaterEqual(sum(memory.recent_counts(0, 1)), 2)
         self.assertNotEqual(lifetime_before, lifetime_after)
 
-    def test_recent_ring_is_fixed_size_and_evicts_oldest(self):
+    def test_recent_slots_remain_fixed_size_under_high_traffic(self):
         memory = TwoTierEvidence()
         start_size = len(memory.snapshot())
-        for i in range(10000):
-            memory.observe(i % 16, i % 2, (i // 2) % 2)
+        # Exercise every one of the 16 x 2 address/action partitions.
+        for i in range(1000):
+            for address in range(16):
+                for action in range(2):
+                    memory.observe(address, action, (i + address + action) % 2)
         self.assertEqual(len(memory.snapshot()), start_size)
         self.assertEqual(len(memory._recent), 64)
         self.assertTrue(all(value in (0, 1) for value in memory._recent))
