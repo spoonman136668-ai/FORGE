@@ -292,6 +292,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or tree != "dee88efb8241cb58539bc50dc621569d7f298025"):
             raise ValueError("G156_F139_V2_RESTORE_EXACT_BASE_TREE_REQUIRED")
         return
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-fresh-audit-scheduler-readback-20261121":
+        if (admission != "EXACT_PR1860_F139_POSTRESTORE_LOG_AUDIT_CI_ONLY"
+                or base != "77e6f2eda77a260b6bfef7875d5c56a7080a9b9d"
+                or tree != "0587f465b6ba0b66afe8852b401cd6363883b393"):
+            raise ValueError("G156_PR1860_EXACT_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == F139_FORWARD_BRANCH:
         if (admission != "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY"
                 or base != "e0467115ea085e2f0ddbee258e4d8937f6a90f10"

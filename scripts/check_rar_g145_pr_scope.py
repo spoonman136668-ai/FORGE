@@ -2966,6 +2966,7 @@ def negative_controls() -> None:
     if not generic_paths_safe(valid) or any(generic_paths_safe(x) for x in invalid):
         raise ValueError("G145_ADMISSION_NEGATIVE_CONTROL_FAILED")
     f139_recovery_readonly_negative_controls()
+    pr1860_postrestore_negative_controls()
     hybrid_release_negative_controls()
     hybrid_complete_negative_controls()
     v38_readonly_negative_controls()
@@ -3790,12 +3791,129 @@ def f139_recovery_readonly_negative_controls():
         raise ValueError("G145_F139_RECOVERY_GENERIC_PATH_BYPASS")
 
 
+
+# Exact source admission for EXISTING PR #1860 only; not runner/owner authority.
+PR1860_AUDIT_BRANCH = "engineering/f139-fresh-audit-scheduler-readback-20261121"
+PR1860_AUDIT_BASE = "77e6f2eda77a260b6bfef7875d5c56a7080a9b9d"
+PR1860_AUDIT_TREE = "0587f465b6ba0b66afe8852b401cd6363883b393"
+PR1860_AUDIT_RESULT = "EXACT_PR1860_F139_POSTRESTORE_LOG_AUDIT_CI_ONLY"
+PR1860_AUDIT_BLOBS = {
+    ".github/workflows/f139-fresh-original-owner-rebind.yml": "95f889acc277717841bd771875e7634ded6590d6",
+    "f139/test_nci04_postrestore_readonly_audit.py": "036d9d34eede6639f79772bd20104153b29fe694",
+}
+PR1860_AUDIT_FILES = frozenset({
+    *PR1860_AUDIT_BLOBS,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
+
+def admit_pr1860_postrestore_readonly(head_sha, base_sha, request, git):
+    """Exact owner PR, old/new workflow bytes, base tree, and five paths only."""
+    if (not is_sha(head_sha) or base_sha != PR1860_AUDIT_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != 1860
+            or request.get("author_association") != "OWNER"
+            or type(request.get("user")) is not dict
+            or request["user"].get("login") != "spoonman136668-ai"
+            or type(request.get("head")) is not dict
+            or type(request.get("base")) is not dict
+            or type(request["head"].get("repo")) is not dict
+            or type(request["base"].get("repo")) is not dict
+            or request["head"].get("sha") != head_sha
+            or request["head"].get("ref") != PR1860_AUDIT_BRANCH
+            or request["head"]["repo"].get("full_name") != REPO
+            or request["base"].get("sha") != base_sha
+            or request["base"].get("ref") != "main"
+            or request["base"]["repo"].get("full_name") != REPO):
+        raise ValueError("G145_PR1860_OWNER_AND_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        base_tree = git("rev-parse", base_sha + "^{tree}")
+        original = git("rev-parse", base_sha + ":.github/workflows/f139-fresh-original-owner-rebind.yml")
+        changed = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+        exact = {p: git("rev-parse", head_sha + ":" + p)
+                 for p in PR1860_AUDIT_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_PR1860_SOURCE_READ_FAILURE") from exc
+    if (ancestor != base_sha or base_tree != PR1860_AUDIT_TREE
+            or original != "6c74ce61f43749d4fd7e70b81a4327c5346735e0"
+            or len(changed) != len(PR1860_AUDIT_FILES)
+            or set(changed) != PR1860_AUDIT_FILES
+            or exact != PR1860_AUDIT_BLOBS):
+        raise ValueError("G145_PR1860_EXACT_SCOPE_OR_BLOBS_REQUIRED")
+    return PR1860_AUDIT_RESULT
+
+
+def pr1860_postrestore_negative_controls():
+    head = "f" * 40
+    request = {
+        "number": 1860, "author_association": "OWNER",
+        "user": {"login": "spoonman136668-ai"},
+        "head": {"sha": head, "ref": PR1860_AUDIT_BRANCH,
+                 "repo": {"full_name": REPO}},
+        "base": {"sha": PR1860_AUDIT_BASE, "ref": "main",
+                 "repo": {"full_name": REPO}},
+    }
+    routes = {
+        ("merge-base", PR1860_AUDIT_BASE, head): PR1860_AUDIT_BASE,
+        ("rev-parse", PR1860_AUDIT_BASE + "^{tree}"): PR1860_AUDIT_TREE,
+        ("rev-parse", PR1860_AUDIT_BASE + ":.github/workflows/f139-fresh-original-owner-rebind.yml"):
+            "6c74ce61f43749d4fd7e70b81a4327c5346735e0",
+        ("diff", "--no-renames", "--name-only", PR1860_AUDIT_BASE, head):
+            "\n".join(sorted(PR1860_AUDIT_FILES)),
+        **{("rev-parse", head + ":" + p): digest
+           for p, digest in PR1860_AUDIT_BLOBS.items()},
+    }
+    def exact_git(*args):
+        if args not in routes:
+            raise ValueError("G145_PR1860_NEGATIVE_TEST_UNKNOWN_ROUTE")
+        return routes[args]
+    if admit_pr1860_postrestore_readonly(
+            head, PR1860_AUDIT_BASE, request, exact_git) != PR1860_AUDIT_RESULT:
+        raise ValueError("G145_PR1860_BASELINE_ADMISSION_FAILED")
+    for field, new in (
+        ("number", 1870), ("author_association", "CONTRIBUTOR"),
+        ("user", {}), ("head", {}), ("base", {})):
+        corrupted = json.loads(json.dumps(request))
+        corrupted[field] = new
+        try:
+            admit_pr1860_postrestore_readonly(
+                head, PR1860_AUDIT_BASE, corrupted, exact_git)
+        except ValueError:
+            continue
+        raise ValueError("G145_PR1860_OWNER_NEGATIVE_FAILED")
+    for route, new in (
+        (("merge-base", PR1860_AUDIT_BASE, head), "0" * 40),
+        (("rev-parse", PR1860_AUDIT_BASE + "^{tree}"), "0" * 40),
+        (("rev-parse", head + ":.github/workflows/f139-fresh-original-owner-rebind.yml"), "0" * 40),
+        (("rev-parse", head + ":f139/test_nci04_postrestore_readonly_audit.py"), "0" * 40),
+        (("diff", "--no-renames", "--name-only", PR1860_AUDIT_BASE, head),
+         "f139/local_controller.py"),
+    ):
+        def invalid_git(*args, route=route, new=new):
+            return new if args == route else exact_git(*args)
+        try:
+            admit_pr1860_postrestore_readonly(
+                head, PR1860_AUDIT_BASE, request, invalid_git)
+        except ValueError:
+            continue
+        raise ValueError("G145_PR1860_SOURCE_NEGATIVE_FAILED")
+    if generic_paths_safe([".github/workflows/f139-fresh-original-owner-rebind.yml"]):
+        raise ValueError("G145_PR1860_GENERIC_WORKFLOW_BYPASS")
+
 def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
     """Engineering CI admission only; never research, merge or FSA authority."""
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or not callable(git):
         raise ValueError("G145_NOT_GITHUB_PR")
     branch = os.environ.get("GITHUB_HEAD_REF", "")
     base_sha = github_event_base(head_sha)
+    if branch == PR1860_AUDIT_BRANCH:
+        payload = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        return admit_pr1860_postrestore_readonly(
+            head_sha, base_sha, payload["pull_request"], git)
     if branch == FRESH_RELEASE_RULE_FIX_BRANCH:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
         return admit_fresh_release_owner_ruleset(
