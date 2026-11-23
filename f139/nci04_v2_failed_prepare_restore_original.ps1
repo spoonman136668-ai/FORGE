@@ -90,9 +90,13 @@ Need ([int64]$c.id -eq [int64]$evt.comment.id -and
 $main=Remote ('repos/'+$repo+'/branches/main')
 $commit=Remote ('repos/'+$repo+'/git/commits/'+$Target)
 $recoveryPr=Remote ('repos/'+$repo+'/pulls/1870')
+$recoveryMergeSha=[string]$recoveryPr.merge_commit_sha
+$recoveryMerge=Remote ('repos/'+$repo+'/git/commits/'+$recoveryMergeSha)
 Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target -and
-      $commit.sha -ceq $Target -and @($commit.parents).Count -eq 2 -and
-      $commit.parents[0].sha -ceq $previousMain -and
+      $commit.sha -ceq $Target -and
+      $recoveryMerge.sha -ceq $recoveryMergeSha -and
+      @($recoveryMerge.parents).Count -eq 2 -and
+      $recoveryMerge.parents[0].sha -ceq $previousMain -and
       $recoveryPr.number -eq 1870 -and $recoveryPr.merged -eq $true -and
       $recoveryPr.state -ceq 'closed' -and
       $recoveryPr.user.login -ceq 'spoonman136668-ai' -and
@@ -100,11 +104,58 @@ Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target -and
       $recoveryPr.head.repo.full_name -ceq $repo -and
       $recoveryPr.base.ref -ceq 'main' -and
       $recoveryPr.base.repo.full_name -ceq $repo -and
-      $recoveryPr.merge_commit_sha -ceq $Target -and
-      $recoveryPr.head.sha -ceq $commit.parents[1].sha) 'EXACT_RECOVERY_MERGE_REQUIRED'
+      $recoveryPr.base.sha -ceq $previousMain -and
+      $recoveryPr.merge_commit_sha -ceq $recoveryMergeSha -and
+      $recoveryPr.head.sha -ceq $recoveryMerge.parents[1].sha) 'EXACT_RECOVERY_MERGE_REQUIRED'
 $prSource=Remote ('repos/'+$repo+'/git/commits/'+$recoveryPr.head.sha)
 Need ($prSource.sha -ceq $recoveryPr.head.sha -and
-      $commit.tree.sha -ceq $prSource.tree.sha) 'RECOVERY_MERGE_TREE_DIFFERS_FROM_QUALIFIED_PR'
+      $recoveryMerge.tree.sha -ceq $prSource.tree.sha) 'RECOVERY_MERGE_TREE_DIFFERS_FROM_QUALIFIED_PR'
+# Later protected-main merges are allowed only when the original recovery merge
+# remains an ancestor and the exact executable recovery files are unchanged.
+& git -C $env:GITHUB_WORKSPACE merge-base --is-ancestor $recoveryMergeSha $Target
+Need ($LASTEXITCODE -eq 0) 'RECOVERY_MERGE_NOT_ANCESTOR_OF_CURRENT_MAIN'
+# Original recovery workflow and non-test Python runtime sources remain pinned
+# to the exact qualified PR #1870 merge. Later tests and unrelated workflows may evolve.
+$workflowPath='.github/workflows/f139-v2-failed-prepare-original-restore.yml'
+$workflowMergeBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($recoveryMergeSha+':'+$workflowPath) | Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $workflowMergeBlob.Length -eq 40) 'RECOVERY_WORKFLOW_MERGE_BLOB_UNAVAILABLE'
+$workflowMainBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($Target+':'+$workflowPath) | Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $workflowMainBlob -ceq $workflowMergeBlob) 'RECOVERY_WORKFLOW_SOURCE_DRIFT'
+$recoveryPythonFiles=@(& git -C $env:GITHUB_WORKSPACE ls-tree -r --name-only $recoveryMergeSha -- f139)
+Need ($LASTEXITCODE -eq 0 -and $recoveryPythonFiles.Count -gt 0) 'RECOVERY_DEPENDENCY_TREE_UNAVAILABLE'
+$recoveryPythonFiles=@($recoveryPythonFiles | Where-Object { $_ -like 'f139/*.py' -and $_ -notlike 'f139/test_*.py' })
+Need ($recoveryPythonFiles.Count -gt 0) 'RECOVERY_DEPENDENCY_PYTHON_TREE_EMPTY'
+foreach($path in $recoveryPythonFiles){
+  $mergeBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($recoveryMergeSha+':'+$path) | Out-String).Trim()
+  Need ($LASTEXITCODE -eq 0 -and $mergeBlob.Length -eq 40) 'RECOVERY_DEPENDENCY_MERGE_BLOB_UNAVAILABLE'
+  $mainBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($Target+':'+$path) | Out-String).Trim()
+  Need ($LASTEXITCODE -eq 0 -and $mainBlob -ceq $mergeBlob) 'RECOVERY_DEPENDENCY_SOURCE_DRIFT'
+}
+
+# The modified PowerShell recovery script is accepted only through its exact
+# qualified PR #1877 merge, ancestral to current main, with its blob unchanged.
+$recoveryFixPr=Remote ('repos/'+$repo+'/pulls/1877')
+$recoveryFixMergeSha=[string]$recoveryFixPr.merge_commit_sha
+$recoveryFix=Remote ('repos/'+$repo+'/git/commits/'+$recoveryFixMergeSha)
+$recoveryFixSource=Remote ('repos/'+$repo+'/git/commits/'+$recoveryFixPr.head.sha)
+Need ($recoveryFixPr.number -eq 1877 -and $recoveryFixPr.merged -eq $true -and
+      $recoveryFixPr.state -ceq 'closed' -and
+      $recoveryFixPr.user.login -ceq 'spoonman136668-ai' -and
+      $recoveryFixPr.head.ref -ceq 'engineering/f139-v1-recovery-current-main-ancestry-guard-20261123' -and
+      $recoveryFixPr.head.repo.full_name -ceq $repo -and
+      $recoveryFixPr.base.ref -ceq 'main' -and $recoveryFixPr.base.repo.full_name -ceq $repo -and
+      $recoveryFix.merge_commit_sha -ceq $recoveryFixMergeSha -and
+      @($recoveryFix.parents).Count -eq 2 -and
+      $recoveryFix.parents[0].sha -ceq $recoveryFixPr.base.sha -and
+      $recoveryFix.parents[1].sha -ceq $recoveryFixPr.head.sha -and
+      $recoveryFix.tree.sha -ceq $recoveryFixSource.tree.sha) 'RECOVERY_FIX_MERGE_REQUIRED'
+& git -C $env:GITHUB_WORKSPACE merge-base --is-ancestor $recoveryFixMergeSha $Target
+Need ($LASTEXITCODE -eq 0) 'RECOVERY_FIX_NOT_ANCESTOR_OF_CURRENT_MAIN'
+$scriptPath='f139/nci04_v2_failed_prepare_restore_original.ps1'
+$fixScriptBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($recoveryFixMergeSha+':'+$scriptPath) | Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $fixScriptBlob.Length -eq 40) 'RECOVERY_FIX_SCRIPT_BLOB_UNAVAILABLE'
+$currentScriptBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($Target+':'+$scriptPath) | Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $currentScriptBlob -ceq $fixScriptBlob) 'RECOVERY_SCRIPT_SOURCE_DRIFT_AFTER_FIX'
 ExactCheckout $env:GITHUB_WORKSPACE $Target ([string]$commit.tree.sha) $true
 # ACTION_RUNS /jobs GET was the failing endpoint in the consumed PREPARE.
 # Do not re-depend on it for original-owner recovery. Confirm the two exact
