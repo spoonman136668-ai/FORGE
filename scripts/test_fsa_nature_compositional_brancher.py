@@ -54,12 +54,13 @@ class CompositionalBranchTests(unittest.TestCase):
 
     def test_failure_dimensions_change_branch_population(self):
         sparse = run(event(("sparse-evidence",)))
-        context = run(event(("context-interference",)))
+        temporal = run(event(("nonstationarity",)))
         sparse_ids = {node["node_id"] for p in sparse["branches"] for node in p["mechanism_nodes"]}
-        context_ids = {node["node_id"] for p in context["branches"] for node in p["mechanism_nodes"]}
+        temporal_ids = {node["node_id"] for p in temporal["branches"] for node in p["mechanism_nodes"]}
         self.assertIn("support_calibration", sparse_ids)
-        self.assertIn("context_partition", context_ids)
-        self.assertNotEqual(sparse_ids, context_ids)
+        self.assertIn("change_point_partition", temporal_ids)
+        self.assertIn("multi_timescale_memory", temporal_ids)
+        self.assertNotEqual(sparse_ids, temporal_ids)
 
     def test_compositions_preserve_typed_dependency_edges(self):
         got = run(event(("sparse-evidence", "context-interference")))
