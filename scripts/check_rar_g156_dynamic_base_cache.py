@@ -286,6 +286,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
                 or base != "f24251e0d95938e593a54c1577a34efadc8080d8"):
             raise ValueError("G156_F139_V2_PROTECTED_SOURCE_REQUIRED")
         return
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v2-postfail-original-v1-recovery-20261122":
+        if (admission != "EXACT_PR1870_F139_V2_POSTFAIL_V1_RECOVERY_SOURCE_CI_ONLY"
+                or base != "852b473bf714038c75254650503c279768eff8cf"
+                or tree != "dee88efb8241cb58539bc50dc621569d7f298025"):
+            raise ValueError("G156_F139_V2_RESTORE_EXACT_BASE_TREE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == F139_FORWARD_BRANCH:
         if (admission != "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY"
                 or base != "e0467115ea085e2f0ddbee258e4d8937f6a90f10"

@@ -2618,6 +2618,61 @@ def admit_f139_v2_source(head_sha: str, base_sha: str,
     return F139_V2_RESULT
 
 
+
+# Exactly scoped owner-authored PR1870: same original task restoration only.
+F139_V2_RESTORE_BRANCH = "engineering/f139-v2-postfail-original-v1-recovery-20261122"
+F139_V2_RESTORE_PR = 1870
+F139_V2_RESTORE_BASE = "852b473bf714038c75254650503c279768eff8cf"
+F139_V2_RESTORE_BASE_TREE = "dee88efb8241cb58539bc50dc621569d7f298025"
+F139_V2_RESTORE_BLOBS = {
+    ".github/workflows/f139-v2-failed-prepare-original-restore.yml": "2808afcc890745daf2a2d20a5e821590f7e33452",
+    "f139/nci04_v2_failed_prepare_restore_original.ps1": "288185563487248f96fe650339eac4abc33657a8",
+    "f139/nci04_v2_failed_prepare_restore_original.py": "bda6b53a5e8fc24c3c3493f2395cfec05c84d783",
+    "f139/test_nci04_v2_failed_prepare_restore_original.py": "39656c98a79382977941edc68a1a8f6f5f92ad1f",
+}
+F139_V2_RESTORE_PATHS = frozenset(set(F139_V2_RESTORE_BLOBS) | {
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+F139_V2_RESTORE_RESULT = "EXACT_PR1870_F139_V2_POSTFAIL_V1_RECOVERY_SOURCE_CI_ONLY"
+
+
+def admit_f139_v2_failed_restore(head_sha: str, base_sha: str,
+                                  request: dict, git: Callable[..., str]) -> str:
+    """Engineering source qualification, never runtime/task/owner approval."""
+    if (not is_sha(head_sha) or base_sha != F139_V2_RESTORE_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != F139_V2_RESTORE_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != F139_V2_RESTORE_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name")
+                 != "spoonman136668-ai/FORGE"
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name")
+                 != "spoonman136668-ai/FORGE"):
+        raise ValueError("G145_F139_V2_RESTORE_EXACT_OWNER_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        base_tree = git("rev-parse", base_sha + "^{tree}")
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        blob_map = {path: git("rev-parse", head_sha + ":" + path)
+                    for path in F139_V2_RESTORE_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_F139_V2_RESTORE_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or base_tree != F139_V2_RESTORE_BASE_TREE
+            or set(changed) != F139_V2_RESTORE_PATHS
+            or len(changed) != len(F139_V2_RESTORE_PATHS)
+            or blob_map != F139_V2_RESTORE_BLOBS):
+        raise ValueError("G145_F139_V2_RESTORE_BLOBS_OR_SCOPE_DRIFT")
+    return F139_V2_RESTORE_RESULT
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -3888,6 +3943,10 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]
         return admit_f139_v2_source(head_sha, base_sha, request, git)
+    if branch == F139_V2_RESTORE_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_f139_v2_failed_restore(head_sha, base_sha, request, git)
     if branch == "engineering/f139-fresh-original-source-forward-20261122":
         request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
                              .read_text(encoding="utf-8"))["pull_request"]
