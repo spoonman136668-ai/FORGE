@@ -155,9 +155,14 @@ class RecoveryContractTests(unittest.TestCase):
         self.assertEqual(script.count("Enable-ScheduledTask"), 1)
         self.assertEqual(script.count("Start-ScheduledTask"), 1)
         self.assertEqual(script.count("Disable-ScheduledTask"), 1)
-        self.assertIn("} catch {\n    Disable-ScheduledTask", script)
+        self.assertIn("} catch {\n    $startupFailure=$_", script)
         self.assertIn("SAME_OWNER_NOT_STARTED", script)
-        self.assertNotIn("Stop-ScheduledTask", script)
+        self.assertEqual(script.count("Stop-ScheduledTask -TaskName"), 1)
+        self.assertIn("'FAILED_START_ROLLBACK_UNVERIFIED'", script)
+        self.assertLess(script.index("Disable-ScheduledTask -TaskName"),
+                        script.index("Stop-ScheduledTask -TaskName"))
+        self.assertLess(script.index("Stop-ScheduledTask -TaskName"),
+                        script.index("'FAILED_START_ROLLBACK_UNVERIFIED'"))
         self.assertNotIn("Register-ScheduledTask", script)
         self.assertNotIn("Set-ScheduledTask", script)
         self.assertNotIn("Invoke-RestMethod", script)

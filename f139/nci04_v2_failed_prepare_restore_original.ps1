@@ -172,8 +172,26 @@ try {
           $observed.Count -eq 1 -and $matched.Count -eq 1 -and
           [string]$after.Actions[0].Arguments -ceq [string]$task.Actions[0].Arguments) 'SAME_OWNER_NOT_STARTED'
   } catch {
-    Disable-ScheduledTask -TaskName $originalName -ErrorAction Stop | Out-Null
-    throw
+    $startupFailure=$_
+    # Disabling a task does not terminate a running instance. Attempt both
+    # actions; if either cannot be proved safe, report a recovery failure.
+    $disableFailed=$false
+    try { Disable-ScheduledTask -TaskName $originalName -ErrorAction Stop | Out-Null }
+    catch { $disableFailed=$true }
+    try { Stop-ScheduledTask -TaskName $originalName -ErrorAction Stop | Out-Null }
+    catch {
+      # Stop can fail when START failed before any task instance existed.
+      # Verify the process census rather than assuming an error is harmless.
+    }
+    for($i=0;$i -lt 40 -and @(Controllers).Count -ne 0;$i++){
+      Start-Sleep -Milliseconds 250
+    }
+    $rollback=Get-ScheduledTask -TaskName $originalName -ErrorAction Stop
+    Need (-not $disableFailed -and
+          $rollback.Settings.Enabled -eq $false -and
+          [string]$rollback.State -ceq 'Disabled' -and
+          @(Controllers).Count -eq 0) 'FAILED_START_ROLLBACK_UNVERIFIED'
+    throw $startupFailure
   }
   Write-Output 'F139_V2_FAILED_PREPARE_ORIGINAL_V1_SAME_TASK_RESTORED=PASS'
   Write-Output 'F139_NEW_CONTROLLER_OR_SCHEDULER=FALSE'
