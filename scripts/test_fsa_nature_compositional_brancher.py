@@ -146,6 +146,33 @@ class CompositionalBranchTests(unittest.TestCase):
             if p["branch_parent_id"] is not None:
                 self.assertIn(p["branch_parent_id"], by_id)
 
+    def test_historical_saturation_negative_generates_two_tier_counter_hypothesis(self):
+        # Development-only replay of the historical Yggdrasil issue #856 failure:
+        # at-cap value 65535 became 32797 after the candidate halved both counters.
+        # It is an engineering regression negative, not a model-science outcome.
+        item = event(("saturation-boundary", "nonstationarity"))
+        sequence = ("saturation_invariant_guard", "two_tier_recent_evidence",
+                    "two_tier_memory_consistency_audit")
+        edges = b._dependencies(sequence)
+        self.assertIsNotNone(edges)
+        self.assertIn({"from": "saturation_invariant_guard",
+                       "to": "two_tier_recent_evidence",
+                       "token": "monotonic_lifetime_counts"}, edges)
+        self.assertIn({"from": "saturation_invariant_guard",
+                       "to": "two_tier_memory_consistency_audit",
+                       "token": "monotonic_lifetime_counts"}, edges)
+        self.assertIn({"from": "two_tier_recent_evidence",
+                       "to": "two_tier_memory_consistency_audit",
+                       "token": "recent_evidence_window"}, edges)
+        plan = b._plan(sequence, item, set(item["observed_signals"]), None)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["classification"], "UNTESTED_ADVISORY_COMPOSITION")
+        self.assertTrue(any("65535" in text for text in plan["counterfactual_predictions"]))
+        self.assertTrue(any("decreases" in text or "recede" in text
+                            for text in plan["falsification_conditions"]))
+        self.assertFalse(plan["scientific_gain_verified"])
+        self.assertFalse(plan["semantic_novelty_verified"])
+
     def test_no_files_network_or_model_execution(self):
         with patch("builtins.open", side_effect=AssertionError("filesystem denied")), \
              patch("builtins.input", side_effect=AssertionError("prompt denied")):
