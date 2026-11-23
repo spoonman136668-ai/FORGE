@@ -73,7 +73,7 @@ class CompositionalBranchTests(unittest.TestCase):
             self.assertIn({"from": "context_partition", "to": "context_scoped_update",
                            "token": "context_partition"}, p["dependency_edges"])
 
-    def test_retention_composition_requires_both_temporal_and_confidence_sources(self):
+    def test_retention_composition_requires_regime_and_temporal_sources(self):
         got = run(event(("retention-loss", "nonstationarity")))
         match = [p for p in got["branches"]
                  if {n["node_id"] for n in p["mechanism_nodes"]} >=
