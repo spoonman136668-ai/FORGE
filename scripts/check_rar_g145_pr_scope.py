@@ -2626,7 +2626,7 @@ F139_V2_RESTORE_BASE = "852b473bf714038c75254650503c279768eff8cf"
 F139_V2_RESTORE_BASE_TREE = "dee88efb8241cb58539bc50dc621569d7f298025"
 F139_V2_RESTORE_BLOBS = {
     ".github/workflows/f139-v2-failed-prepare-original-restore.yml": "d36baa18cd3920b45545ab6c66a0325c8353012c",
-    "f139/nci04_v2_failed_prepare_restore_original.ps1": "b07974a18607e210944f4dad652538d6b875b56d",
+    "f139/nci04_v2_failed_prepare_restore_original.ps1": "565d702663f3581f5c8672416098a5252c7b2f2c",
     "f139/nci04_v2_failed_prepare_restore_original.py": "bda6b53a5e8fc24c3c3493f2395cfec05c84d783",
     "f139/test_nci04_v2_failed_prepare_restore_original.py": "cb0b3238739de91d3122d5a6cb6f59f63a7056ab",
 }
