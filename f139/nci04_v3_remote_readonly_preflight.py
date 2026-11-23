@@ -72,10 +72,14 @@ def inspect_merged_source_readonly(api, *, owner_source_sha: str,
              and base.get("tree", {}).get("sha") == BASE_TREE,
              "PINNED_BASE_TREE_CHANGED")
         parents = commit.get("parents") if type(commit) is dict else None
+        parent_sha = (parents[0].get("sha")
+                      if type(parents) is list and len(parents) == 2
+                      and type(parents[0]) is dict else None)
         need(type(commit) is dict and commit.get("sha") == owner_source_sha
              and commit.get("tree", {}).get("sha") == owner_source_tree
-             and type(parents) is list and len(parents) == 2
-             and parents[0].get("sha") == BASE_MAIN
+             and _sha(parent_sha) and parent_sha not in (
+                 owner_source_sha, pr_head_sha)
+             and type(parents[1]) is dict
              and parents[1].get("sha") == pr_head_sha,
              "MERGE_PARENT_OR_TREE_MISMATCH")
         need(type(pr) is dict and pr.get("number") == pr_number
@@ -85,11 +89,27 @@ def inspect_merged_source_readonly(api, *, owner_source_sha: str,
              and pr.get("head", {}).get("sha") == pr_head_sha
              and pr.get("head", {}).get("repo", {}).get("full_name")
                  == "spoonman136668-ai/FORGE"
-             and pr.get("base", {}).get("sha") == BASE_MAIN
+             and pr.get("base", {}).get("sha") == parent_sha
              and pr.get("base", {}).get("ref") == "main"
              and pr.get("base", {}).get("repo", {}).get("full_name")
                  == "spoonman136668-ai/FORGE",
              "MERGED_OWNER_PR_CUSTODY_INVALID")
+        # A later V3 owner release PR necessarily has a different first parent
+        # after this helper merges. Prove immutable ancestry instead of
+        # incorrectly requiring the parent to equal the original baseline.
+        ancestry = api.get(REPO + "/compare/" + BASE_MAIN + "..." + parent_sha)
+        need(type(ancestry) is dict
+             and ancestry.get("base_commit", {}).get("sha") == BASE_MAIN
+             and ancestry.get("merge_base_commit", {}).get("sha") == BASE_MAIN
+             and ancestry.get("status") in ("identical", "ahead")
+             and type(ancestry.get("ahead_by")) is int
+             and ancestry["ahead_by"] >= 0
+             and type(ancestry.get("behind_by")) is int
+             and ancestry["behind_by"] == 0
+             and ((parent_sha == BASE_MAIN) ==
+                  (ancestry["status"] == "identical"
+                   and ancestry["ahead_by"] == 0)),
+             "PINNED_BASE_NOT_ANCESTOR_OF_MERGE_PARENT")
         runs = {
             "regression_run_id": regression_run_id,
             "source_run_id": source_run_id,
@@ -107,6 +127,8 @@ def inspect_merged_source_readonly(api, *, owner_source_sha: str,
         "schema": SCHEMA,
         "owner_source_sha": owner_source_sha,
         "owner_source_tree": owner_source_tree,
+        "merge_parent_sha": parent_sha,
+        "pinned_base_sha": BASE_MAIN,
         "pr_number": pr_number,
         "pr_head_sha": pr_head_sha,
         **runs,

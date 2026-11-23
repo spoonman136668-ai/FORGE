@@ -44,6 +44,11 @@ def fixture():
         REPO + "/git/commits/" + MERGE:
             {"sha": MERGE, "tree": {"sha": TREE},
              "parents": [{"sha": BASE_MAIN}, {"sha": HEAD}]},
+        REPO + "/compare/" + BASE_MAIN + "..." + BASE_MAIN: {
+            "status": "identical", "ahead_by": 0, "behind_by": 0,
+            "base_commit": {"sha": BASE_MAIN},
+            "merge_base_commit": {"sha": BASE_MAIN},
+        },
         REPO + "/pulls/" + str(PR): {
             "number": PR, "state": "closed", "merged": True,
             "merge_commit_sha": MERGE,
@@ -80,6 +85,8 @@ class RemoteOnlyGateTests(unittest.TestCase):
         api = fixture()
         result = verify(api)
         self.assertEqual(result["remote_evidence"], "VERIFIED_READ_ONLY")
+        self.assertEqual(result["merge_parent_sha"], BASE_MAIN)
+        self.assertEqual(result["pinned_base_sha"], BASE_MAIN)
         self.assertFalse(result["safe_to_disable_task"])
         self.assertFalse(result["signed_source_forward"])
         self.assertFalse(result["scientific_first_use"])
@@ -129,6 +136,41 @@ class RemoteOnlyGateTests(unittest.TestCase):
         api.documents[REPO + "/branches/main"]["protected"] = False
         with self.assertRaises(V3RemotePreflightDenied):
             verify(api)
+
+    def test_future_v3_merge_accepts_authenticated_descendant_parent(self):
+        # PR #1871 must merge before a later V3 owner cutover can use this
+        # helper. Its own BASE_MAIN is necessarily no longer the direct parent.
+        successor_parent = "d" * 40
+        api = fixture()
+        api.documents[REPO + "/git/commits/" + MERGE]["parents"][0]["sha"] = successor_parent
+        api.documents[REPO + "/pulls/" + str(PR)]["base"]["sha"] = successor_parent
+        del api.documents[REPO + "/compare/" + BASE_MAIN + "..." + BASE_MAIN]
+        route = REPO + "/compare/" + BASE_MAIN + "..." + successor_parent
+        api.documents[route] = {
+            "status": "ahead", "ahead_by": 2, "behind_by": 0,
+            "base_commit": {"sha": BASE_MAIN},
+            "merge_base_commit": {"sha": BASE_MAIN},
+        }
+        result = verify(api)
+        self.assertEqual(result["merge_parent_sha"], successor_parent)
+        self.assertFalse(result["safe_to_disable_task"])
+        for failure, change in (
+            ("divergent", {"status": "diverged", "behind_by": 1}),
+            ("forged-base", {"merge_base_commit": {"sha": "f" * 40}}),
+            ("mismatched-lineage", {"base_commit": {"sha": "f" * 40}}),
+            ("impossible-identical", {"status": "identical", "ahead_by": 0}),
+        ):
+            with self.subTest(failure=failure):
+                bad = fixture()
+                bad.documents[REPO + "/git/commits/" + MERGE]["parents"][0]["sha"] = successor_parent
+                bad.documents[REPO + "/pulls/" + str(PR)]["base"]["sha"] = successor_parent
+                bad.documents[route] = dict(api.documents[route], **change)
+                with self.assertRaises(V3RemotePreflightDenied):
+                    verify(bad)
+        bad = fixture()
+        bad.documents[REPO + "/git/commits/" + MERGE]["parents"][0]["sha"] = successor_parent
+        with self.assertRaises(V3RemotePreflightDenied):
+            verify(bad)
 
     def test_missing_failed_replayed_or_foreign_ci_denied(self):
         for change in ("missing", "failed", "rerun", "different-head",
