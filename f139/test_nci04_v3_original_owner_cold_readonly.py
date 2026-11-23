@@ -73,6 +73,32 @@ class V3OriginalColdReadOnlyTests(unittest.TestCase):
         with self.assertRaisesRegex(V3ColdReadDenied, "HISTORY_UNVERIFIED"):
             self.run_gate()
 
+    def test_oversized_v1_certificate_rejected_before_file_open(self):
+        from pathlib import Path
+        path = self.old.folder / "fresh-original-owner-source-forward.json"
+        path.write_bytes(b"x" * 8193)
+        with patch.object(Path, "open", side_effect=AssertionError("unbounded read")) as opened:
+            with self.assertRaises(V3ColdReadDenied) as denied:
+                self.run_gate()
+            opened.assert_not_called()
+        self.assertIsInstance(denied.exception.__cause__, V3ColdReadDenied)
+        self.assertIn("SIZE_DRIFT", str(denied.exception.__cause__))
+
+    def test_linked_v1_certificate_rejected_before_file_open(self):
+        from pathlib import Path
+        path = self.old.folder / "fresh-original-owner-source-forward.json"
+        real_is_symlink = Path.is_symlink
+        def fake_is_symlink(candidate):
+            return candidate == path or real_is_symlink(candidate)
+        with patch.object(Path, "is_symlink", fake_is_symlink), patch.object(
+            Path, "open", side_effect=AssertionError("linked-file read"),
+        ) as opened:
+            with self.assertRaises(V3ColdReadDenied) as denied:
+                self.run_gate()
+            opened.assert_not_called()
+        self.assertIsInstance(denied.exception.__cause__, V3ColdReadDenied)
+        self.assertIn("FILE_INVALID", str(denied.exception.__cause__))
+
     def test_wrong_original_hmac_denied(self):
         path = self.old.folder / "fresh-original-owner-source-forward.json"
         bad = dict(self.old.doc, owner_signature="0" * 64)

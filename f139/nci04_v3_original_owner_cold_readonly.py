@@ -33,6 +33,17 @@ def need(ok: bool, reason: str) -> None:
         raise V3ColdReadDenied("F139_V3_COLD_READONLY_" + reason)
 
 
+def _bounded_original_certificate(path: Path) -> bytes:
+    """Reject absent, linked, or oversized V1 files before reading bytes."""
+    need(path.is_file() and not path.is_symlink(),
+         "ORIGINAL_CERTIFICATE_FILE_INVALID")
+    need(0 < path.stat().st_size <= 8192,
+         "ORIGINAL_CERTIFICATE_SIZE_DRIFT")
+    with path.open("rb") as stream:
+        data = stream.read(8193)
+    need(0 < len(data) <= 8192, "ORIGINAL_CERTIFICATE_SIZE_DRIFT")
+    return data
+
 def inspect_original_owner_cold_readonly(
     db: Database, api, key: str, folder: Path, *,
     owner_source_sha: str, owner_source_tree: str, pr_number: int,
@@ -69,9 +80,7 @@ def inspect_original_owner_cold_readonly(
         # The original V2 PREPARE failed after disabling the task, before V2
         # signing. Reuse the restored V1 exact-source and all-receipt cold
         # verifier; no V2 failure is silently promoted to signed custody.
-        original_certificate = (folder / V1_NAME).read_bytes()
-        need(0 < len(original_certificate) <= 8192,
-             "ORIGINAL_CERTIFICATE_SIZE_DRIFT")
+        original_certificate = _bounded_original_certificate(folder / V1_NAME)
         cold = validate(db, key, folder, CHECKPOINT_SEQ, CHECKPOINT_HASH)
         need(cold["original_source_sha"] == ORIGINAL
              and cold["original_source_tree"] == ORIGINAL_TREE
@@ -83,7 +92,7 @@ def inspect_original_owner_cold_readonly(
         # validate() checked canonical bytes and original owner HMAC. Digest
         # exactly those immutable bytes for a future, separately versioned V3
         # certificate; this reader never creates or signs that certificate.
-        need((folder / V1_NAME).read_bytes() == original_certificate,
+        need(_bounded_original_certificate(folder / V1_NAME) == original_certificate,
              "ORIGINAL_CERTIFICATE_CHANGED_DURING_AUDIT")
         last = api.get(REPO + "/branches/main")
         need(type(last) is dict and last.get("name") == "main"
