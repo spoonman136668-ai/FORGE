@@ -125,7 +125,9 @@ class TwoTierEvidence:
         offset = len(cls.MAGIC)
         cursor, recent_count = cls.HEADER.unpack(checkpoint[offset:offset + cls.HEADER.size])
         offset += cls.HEADER.size
-        if cursor >= cls.RECENT_CAPACITY or recent_count > cls.RECENT_CAPACITY:
+        if (cursor >= cls.RECENT_CAPACITY or recent_count > cls.RECENT_CAPACITY
+                or (recent_count == 0 and cursor != 0)
+                or (0 < recent_count < cls.RECENT_CAPACITY and cursor != recent_count)):
             raise ValueError("TWO_TIER_CHECKPOINT_HEADER_INVALID")
         learned = checkpoint[offset:-32]
         cells = cls()
