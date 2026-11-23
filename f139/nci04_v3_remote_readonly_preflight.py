@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from f139.local_controller import F139Error
 from f139.nci04_fresh_owner_source_forward_v2 import (
     CI_JOBS, ForwardV2Denied, _qualified_run,
 )
@@ -98,7 +99,8 @@ def inspect_merged_source_readonly(api, *, owner_source_sha: str,
             _qualified_run(api, runs[name], pr_head_sha, expected)
         need(api.get(REPO + "/branches/main") == branch,
              "PROTECTED_MAIN_MOVED_DURING_READ")
-    except (OSError, KeyError, TypeError, AttributeError, ForwardV2Denied) as exc:
+    except (OSError, KeyError, TypeError, AttributeError, F139Error,
+            ForwardV2Denied) as exc:
         raise V3RemotePreflightDenied(
             "F139_V3_READONLY_REMOTE_EVIDENCE_UNAVAILABLE_OR_INVALID") from exc
     return {

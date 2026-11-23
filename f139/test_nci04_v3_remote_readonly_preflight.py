@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 import unittest
 
+from f139.local_controller import F139Error
 from f139.nci04_fresh_owner_source_forward_v2 import CI_JOBS
 from f139.nci04_v3_remote_readonly_preflight import (
     BASE_MAIN, BASE_TREE, REPO, V3RemotePreflightDenied,
@@ -164,6 +165,19 @@ class RemoteOnlyGateTests(unittest.TestCase):
         del api.documents[REPO + "/branches/main"]
         with self.assertRaises(V3RemotePreflightDenied):
             verify(api)
+
+    def test_real_github_api_exception_is_sanitized(self):
+        # The original V2 PREPARE failed with F139_GITHUB_API_FAILED,
+        # not OSError. Never leak that runtime exception or claim success.
+        api = fixture()
+        def blocked_api(_path):
+            raise F139Error("F139_GITHUB_API_FAILED")
+        api.get = blocked_api
+        with self.assertRaisesRegex(
+                V3RemotePreflightDenied,
+                "F139_V3_READONLY_REMOTE_EVIDENCE_UNAVAILABLE_OR_INVALID") as failure:
+            verify(api)
+        self.assertNotIn("GITHUB_API_FAILED", str(failure.exception))
 
 
 if __name__ == "__main__":
