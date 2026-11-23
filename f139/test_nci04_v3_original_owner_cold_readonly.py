@@ -27,6 +27,9 @@ class V3OriginalColdReadOnlyTests(unittest.TestCase):
         old.setUp()
         self.addCleanup(old.doCleanups)
         self.old = old
+        # Emulate Database.open_readonly() after the old fixture seeds rows.
+        self.old.db._readonly_opened = True
+        self.old.db.conn.execute("PRAGMA query_only=ON")
         self.api = fixture()
 
     def run_gate(self, **overrides):
@@ -100,6 +103,19 @@ class V3OriginalColdReadOnlyTests(unittest.TestCase):
         with self.assertRaises(V3ColdReadDenied):
             self.run_gate()
 
+    def test_writable_database_rejected_before_remote(self):
+        self.old.db._readonly_opened = False
+        self.old.db.conn.execute("PRAGMA query_only=OFF")
+        with self.assertRaisesRegex(V3ColdReadDenied, "READONLY_DATABASE_REQUIRED"):
+            self.run_gate()
+        self.assertEqual(self.api.calls, [])
+
+    def test_query_only_disabled_rejected_before_remote(self):
+        self.old.db.conn.execute("PRAGMA query_only=OFF")
+        with self.assertRaisesRegex(V3ColdReadDenied, "READONLY_DATABASE_REQUIRED"):
+            self.run_gate()
+        self.assertEqual(self.api.calls, [])
+
     def test_v3_certificate_already_exists_rejected_before_remote(self):
         (self.old.folder / V3_CERT_NAME).write_bytes(b"{}")
         with self.assertRaisesRegex(V3ColdReadDenied, "ALREADY_PRESENT"):
@@ -117,8 +133,11 @@ class V3OriginalColdReadOnlyTests(unittest.TestCase):
         self.assertEqual(self.api.calls, [])
 
     def test_unfinished_original_task_denied(self):
+        # Seed bad fixture state, then restore the read-only gate.
+        self.old.db.conn.execute("PRAGMA query_only=OFF")
         self.old.db.conn.execute(
             "UPDATE tasks SET stage='WAIT_PROVIDER' WHERE ticket='c'")
+        self.old.db.conn.execute("PRAGMA query_only=ON")
         with self.assertRaises(V3ColdReadDenied):
             self.run_gate()
 
@@ -158,11 +177,26 @@ class V3OriginalColdReadOnlyTests(unittest.TestCase):
                 self.run_gate()
         self.assertEqual(n[0], 3)
 
+    def test_query_only_disabled_during_cold_audit_denied(self):
+        from f139.nci04_v3_original_owner_cold_readonly import ORIGINAL, ORIGINAL_TREE
+        def unset(*args, **kwargs):
+            self.old.db.conn.execute("PRAGMA query_only=OFF")
+            return {
+                "original_source_sha": ORIGINAL,
+                "original_source_tree": ORIGINAL_TREE,
+                "verified_tasks": 3,
+                "v2_certificate_present": False,
+            }
+        with patch("f139.nci04_v3_original_owner_cold_readonly.validate", side_effect=unset):
+            with self.assertRaises(V3ColdReadDenied):
+                self.run_gate()
+
     def test_any_sqlite_mutation_during_cold_check_rejected(self):
         from f139.nci04_v3_original_owner_cold_readonly import (
             inspect_original_owner_cold_readonly as inspect,
         )
         def mutate(*args, **kwargs):
+            self.old.db.conn.execute("PRAGMA query_only=OFF")
             self.old.db.conn.execute("INSERT INTO tasks VALUES ('x','VERIFIED')")
             return {
                 "original_source_sha": self.old.doc["owner_source_sha"],

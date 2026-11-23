@@ -48,6 +48,9 @@ def inspect_original_owner_cold_readonly(
     need(type(db) is Database and isinstance(folder, Path)
          and type(key) is str and 32 <= len(key) <= 4096,
          "INPUT_INVALID")
+    need(getattr(db, "_readonly_opened", False) is True
+         and db.conn.execute("PRAGMA query_only").fetchone()[0] == 1,
+         "READONLY_DATABASE_REQUIRED")
     need(SingleOwner.held(db.filename.with_suffix(".lock")),
          "ORIGINAL_OWNER_LOCK_REQUIRED")
     need(not (folder / V3_CERT_NAME).exists()
@@ -87,7 +90,9 @@ def inspect_original_owner_cold_readonly(
              and last.get("protected") is True
              and last.get("commit", {}).get("sha") == owner_source_sha,
              "MAIN_MOVED_DURING_COLD_READ")
-        need(db.conn.total_changes == before
+        need(getattr(db, "_readonly_opened", False) is True
+             and db.conn.execute("PRAGMA query_only").fetchone()[0] == 1
+             and db.conn.total_changes == before
              and db.meta()["head_seq"] == CHECKPOINT_SEQ
              and db.meta()["head_hash"] == CHECKPOINT_HASH
              and SingleOwner.held(db.filename.with_suffix(".lock")),
