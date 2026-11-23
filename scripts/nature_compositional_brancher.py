@@ -20,7 +20,7 @@ EVENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\Z")
 LANES = frozenset({"Wingless", "Yggdrasil", "TTT-Hybrid"})
 SIGNALS = frozenset({
     "sparse-evidence", "causal-support-gap", "nonstationarity",
-    "retention-loss", "context-interference",
+    "retention-loss", "context-interference", "saturation-boundary",
 })
 EVENT_FIELDS = frozenset({
     "schema", "event_id", "lane", "parent_sha", "parent_tree_sha",
@@ -109,6 +109,33 @@ PRIMITIVES = {
         "claim": "Confidence-gated writes scoped to learned context partitions should reduce cross-context overwrites.",
         "prediction": "Interference falls while matched causal transfer remains intact.",
         "falsifier": "The partition causes context fragmentation or suppresses valid cross-context reuse.",
+    },
+    "saturation_invariant_guard": {
+        "phase": 0, "role": "counter-invariant",
+        "reads": ("support_counts",),
+        "writes": ("monotonic_lifetime_counts",),
+        "targets": ("saturation-boundary",),
+        "claim": "A capped lifetime evidence counter must remain monotonic and stop at its declared maximum; evidence saturation must not silently decay or wrap it.",
+        "prediction": "An at-cap 16-bit lifetime count remains 65535 after additional matching evidence, with unchanged serialized memory size.",
+        "falsifier": "An at-cap lifetime count decreases, wraps, or requires unbounded extra storage.",
+    },
+    "two_tier_recent_evidence": {
+        "phase": 1, "role": "bounded-recency",
+        "reads": ("outcome_sequence", "memory_state", "monotonic_lifetime_counts"),
+        "writes": ("recent_evidence_window",),
+        "targets": ("saturation-boundary", "nonstationarity"),
+        "claim": "A separate fixed-size recent-evidence window may permit reversal adaptation while leaving lifetime saturated evidence untouched.",
+        "prediction": "Recent reversals become detectable without reducing lifetime counters or increasing the total memory budget.",
+        "falsifier": "Lifetime counts recede, the recent window grows beyond its fixed allocation, or stationary retention/transfer regresses.",
+    },
+    "two_tier_memory_consistency_audit": {
+        "phase": 3, "role": "verification",
+        "reads": ("monotonic_lifetime_counts", "recent_evidence_window"),
+        "writes": ("two_tier_memory_consistency",),
+        "targets": ("saturation-boundary", "retention-loss"),
+        "claim": "Independent checks of lifetime and recent evidence should expose accidental coupling between saturation and consolidation.",
+        "prediction": "Lifetime invariants, fixed byte budget, and recent-response behavior all hold simultaneously.",
+        "falsifier": "Consolidation mutates lifetime evidence, memory size drifts, or either counter family violates its own declared invariant.",
     },
     "counterfactual_retention_audit": {
         "phase": 3, "role": "verification",
