@@ -237,3 +237,14 @@ and audit that neither tier corrupts the other. It is a proposal only; no
 Yggdrasil source or model state was changed, and the historical failure was not
 replayed. The new regression test validates the branch plan and dependency
 graph, not its empirical benefit.
+
+
+
+## Exact-candidate public qualification closure (2026-11-23)
+- Candidate \`b44cd8b8cd3edf46eb947c5e013bdbac65ef0ca8\`.
+- Public Linux/Windows workflow [45266900386](https://github.com/spoonman136668-ai/FORGE/actions/runs/45266900386): **SUCCESS, 8/8 jobs**. Includes Linux+Windows F139, native, GenEnv and final platform jobs.
+- F139-D development rehearsal [45266899940](https://github.com/spoonman136668-ai/FORGE/actions/runs/45266899940): **SUCCESS, 2/2 OS jobs**.
+- The Linux native Go test/race/vet/build step passed. It also ran the source discovery suite: 98 tests and the 15 F139-specific tests passed; the 12 compositional brancher tests, including the original saturation-negative hypothesis test, passed.
+- Separate native F139 source qualification [45266899912](https://github.com/spoonman136668-ai/FORGE/actions/runs/45266899912) is **PENDING / no jobs allocated** at readback. This is not a failure, but it is not a PASS. Public native and regression jobs already passed in the 8/8 public workflow.
+- Engineering source qualification is therefore **PASS** for the public workflow and rehearsal. Separate native F139 source path remains pending.
+- Scientific comparison remains **NOT RUN**; one verified Yggdrasil engineering negative exists, but it is not a behavioral science cohort. No scientific first-use or model gain is claimed.
