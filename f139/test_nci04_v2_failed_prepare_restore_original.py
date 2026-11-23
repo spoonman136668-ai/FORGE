@@ -141,6 +141,7 @@ class RecoveryContractTests(unittest.TestCase):
             "runs-on: [self-hosted, Windows, forge-codex-isolated]",
         ):
             self.assertIn(needle, workflow)
+        self.assertEqual(workflow.count("pull-requests: read"), 2)
         self.assertNotIn("workflow_dispatch:", workflow)
         self.assertNotIn("schedule:", workflow)
         self.assertNotIn("push:", workflow)
@@ -158,11 +159,16 @@ class RecoveryContractTests(unittest.TestCase):
         self.assertIn("} catch {\n    $startupFailure=$_", script)
         self.assertIn("SAME_OWNER_NOT_STARTED", script)
         # First-parent alone permits an unrelated two-parent main merge.
-        # The recovery must authenticate this exact qualified PR HEAD/tree.
-        self.assertIn("$qualifiedHead='3a4eaeff4ff53be0fdb0822d84bb77fb65169297'", script)
-        self.assertIn("$qualifiedTree='1797ceac87ce254c5b08755027bd3cd7a076ac42'", script)
-        self.assertIn("$commit.parents[1].sha -ceq $qualifiedHead", script)
-        self.assertIn("$commit.tree.sha -ceq $qualifiedTree", script)
+        # Require the live merged PR #1870 to identify exact parent 2.
+        # The merge must preserve the PR's tree; never hardcode self SHA.
+        self.assertIn("$recoveryPr=Remote ('repos/'+$repo+'/pulls/1870')", script)
+        self.assertIn("$recoveryPr.merged -eq $true", script)
+        self.assertIn("$recoveryPr.merge_commit_sha -ceq $Target", script)
+        self.assertIn("$recoveryPr.head.sha -ceq $commit.parents[1].sha", script)
+        self.assertIn("$commit.tree.sha -ceq $prSource.tree.sha", script)
+        self.assertIn("RECOVERY_MERGE_TREE_DIFFERS_FROM_QUALIFIED_PR", script)
+        self.assertNotIn("$qualifiedHead=", script)
+        self.assertNotIn("$qualifiedTree=", script)
         self.assertEqual(script.count("Stop-ScheduledTask -TaskName"), 1)
         self.assertIn("'FAILED_START_ROLLBACK_UNVERIFIED'", script)
         self.assertLess(script.index("Disable-ScheduledTask -TaskName"),

@@ -12,9 +12,8 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $repo='spoonman136668-ai/FORGE'
 $previousMain='852b473bf714038c75254650503c279768eff8cf'
-# Exactly the source qualified by the three first-attempt PR1870 workflows.
-$qualifiedHead='3a4eaeff4ff53be0fdb0822d84bb77fb65169297'
-$qualifiedTree='1797ceac87ce254c5b08755027bd3cd7a076ac42'
+# Bind the merge to the merged PR identity instead of self-referential SHAs.
+# All remote GETs must succeed before the original scheduled task is touched.
 $original='f24251e0d95938e593a54c1577a34efadc8080d8'
 $originalTree='b63e6346b9d665664bb4e248535a60db9473b592'
 $failed=45091947666L
@@ -90,11 +89,22 @@ Need ([int64]$c.id -eq [int64]$evt.comment.id -and
       $c.created_at -ceq $evt.comment.created_at) 'OWNER_COMMENT_PROVIDER_DRIFT'
 $main=Remote ('repos/'+$repo+'/branches/main')
 $commit=Remote ('repos/'+$repo+'/git/commits/'+$Target)
+$recoveryPr=Remote ('repos/'+$repo+'/pulls/1870')
 Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target -and
       $commit.sha -ceq $Target -and @($commit.parents).Count -eq 2 -and
       $commit.parents[0].sha -ceq $previousMain -and
-      $commit.parents[1].sha -ceq $qualifiedHead -and
-      $commit.tree.sha -ceq $qualifiedTree) 'EXACT_RECOVERY_MERGE_REQUIRED'
+      $recoveryPr.number -eq 1870 -and $recoveryPr.merged -eq $true -and
+      $recoveryPr.state -ceq 'closed' -and
+      $recoveryPr.user.login -ceq 'spoonman136668-ai' -and
+      $recoveryPr.head.ref -ceq 'engineering/f139-v2-postfail-original-v1-recovery-20261122' -and
+      $recoveryPr.head.repo.full_name -ceq $repo -and
+      $recoveryPr.base.ref -ceq 'main' -and
+      $recoveryPr.base.repo.full_name -ceq $repo -and
+      $recoveryPr.merge_commit_sha -ceq $Target -and
+      $recoveryPr.head.sha -ceq $commit.parents[1].sha) 'EXACT_RECOVERY_MERGE_REQUIRED'
+$prSource=Remote ('repos/'+$repo+'/git/commits/'+$recoveryPr.head.sha)
+Need ($prSource.sha -ceq $recoveryPr.head.sha -and
+      $commit.tree.sha -ceq $prSource.tree.sha) 'RECOVERY_MERGE_TREE_DIFFERS_FROM_QUALIFIED_PR'
 ExactCheckout $env:GITHUB_WORKSPACE $Target ([string]$commit.tree.sha) $true
 # ACTION_RUNS /jobs GET was the failing endpoint in the consumed PREPARE.
 # Do not re-depend on it for original-owner recovery. Confirm the two exact
