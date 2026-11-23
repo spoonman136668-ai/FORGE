@@ -48,7 +48,22 @@ class TwoTierEvidenceTests(unittest.TestCase):
         for i in range(10000):
             memory.observe(i % 16, i % 2, (i // 2) % 2)
         self.assertEqual(len(memory.snapshot()), start_size)
-        self.assertEqual(memory._recent_count, 64)
+        self.assertEqual(len(memory._recent), 64)
+        self.assertTrue(all(value in (0, 1) for value in memory._recent))
+        self.assertEqual(len(memory.snapshot()), 230)
+
+    def test_recent_evidence_isolated_per_address_and_action(self):
+        memory = TwoTierEvidence()
+        memory.observe(1, 0, 1)
+        memory.observe(1, 0, 0)
+        memory.observe(0, 1, 0)
+        memory.observe(0, 1, 1)
+        # High traffic on one arm cannot evict another address/action's history.
+        for i in range(10000):
+            memory.observe(0, 0, i % 2)
+        self.assertEqual(memory.recent_counts(1, 0), (1, 1))
+        self.assertEqual(memory.recent_counts(0, 1), (1, 1))
+        self.assertEqual(memory.recent_counts(0, 0), (1, 1))
         self.assertEqual(len(memory._recent), 64)
         self.assertEqual(len(memory.snapshot()), 230)
 
