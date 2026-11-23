@@ -64,3 +64,27 @@ Expected negative controls: invalid/duplicate/semantic-replay source, relabeled 
 Build an **isolated, pure advisory library + deterministic unit tests** that accepts frozen, independently *supplied* historical development events, rejects source/semantic duplicates, emits content-addressed research *plans* only, and returns explicit ineligibility without side effects. Reuse existing FORGE contracts instead of introducing a second controller, scheduler, queues, signed certificate path, credentials, provider network operations, new workflow, or scientific admission implementation. Run focused tests, adverse controls, then full exact-candidate Linux/Windows final regression; do not label these as scientific gain.
 
 **Current conclusion:** the Nature mechanism is potentially testable against FORGE's fixed search, but this document records **no implemented branching engine, authorized scientific trial, verified discovery, deployment, or improved autonomy**.
+
+
+## Source-only implementation checkpoint (2026-11-23)
+
+The original Q1 status above describes the preregistered baseline. Follow-up draft
+source now includes \`f139/nature_failure_guided_comparator.py\` and
+\`f139/test_nature_failure_guided_comparator.py\`. The library emits only
+content-addressed, UNTESTED_ADVISORY_ONLY research plans. It does not integrate
+with F139's controller, owner ledger, worker, scheduler, scientific admission
+or protected refs. Its input event IDs and receipt hashes are opaque: the
+separate original owner must independently validate receipt authenticity,
+complete negative history and source/tree custody. No signed or authenticated
+science claim can be inferred from a caller-supplied field.
+
+Focused local isolated Python \`python -m unittest -v
+f139.test_nature_failure_guided_comparator\`: 7 tests PASS before repository
+commit. The tests include event relabel/receipt replay, consumed semantic
+recipes, malformed/holdout evidence, deterministic limits and zero I/O.
+This is not exact-head whole-repository Linux/Windows/native F139 regression.
+Until exact-candidate CI and independent owner qualification pass, Q1 remains
+**PARTIAL / FULL REGRESSION UNVERIFIED**; Q2–Q5 remain NOT RUN/HOLD.
+The recipe catalogue is deliberately finite and its structured hashes alone
+cannot establish the paper's genuine-hypothesis-discovery thesis. Independent
+semantic novelty review and a fair science comparison are still required.
