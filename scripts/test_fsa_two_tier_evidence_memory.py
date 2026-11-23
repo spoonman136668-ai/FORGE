@@ -70,6 +70,24 @@ class TwoTierEvidenceTests(unittest.TestCase):
         self.assertEqual(len(memory._recent), 64)
         self.assertEqual(len(memory.snapshot()), 230)
 
+    def test_decisions_remain_independent_under_cross_context_flood(self):
+        memory = TwoTierEvidence()
+        # Context 0 strongly prefers action 0; context 1 strongly prefers action 1.
+        for _ in range(4):
+            memory.observe(0, 0, 1)
+            memory.observe(0, 1, 0)
+            memory.observe(1, 0, 0)
+            memory.observe(1, 1, 1)
+        self.assertEqual(memory.choose(0), 0)
+        self.assertEqual(memory.choose(1), 1)
+        # Flood only context 0/action 0; context 1's two-slot recency is isolated.
+        for i in range(10000):
+            memory.observe(0, 0, i % 2)
+        self.assertEqual(memory.choose(1), 1)
+        self.assertEqual(memory.recent_counts(1, 0), (2, 0))
+        self.assertEqual(memory.recent_counts(1, 1), (0, 2))
+        self.assertEqual(len(memory.snapshot()), 230)
+
     def test_recent_fallback_requires_minimum_support_in_each_arm(self):
         memory = TwoTierEvidence()
         # Old lifetime evidence favors action 0, but only one recent observation
