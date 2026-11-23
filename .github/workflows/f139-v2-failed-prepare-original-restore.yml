@@ -1,0 +1,53 @@
+# A new, exact owner authorization is required after failed V2 PREPARE.
+# Reuses the SAME original Windows task; cannot mutate a controller via PR CI.
+name: FORGE F139 V2 failed PREPARE original V1 owner recovery
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+jobs:
+  original-v1-recovery:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.action == 'created' &&
+      github.event.issue.number == 1830 &&
+      github.event.issue.state == 'open' &&
+      github.event.issue.user.login == 'spoonman136668-ai' &&
+      github.event.comment.user.login == 'spoonman136668-ai' &&
+      github.event.comment.author_association == 'OWNER' &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V2-FAILED-PREPARE-RESTORE-ORIGINAL ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    concurrency:
+      group: forge-f139-fresh-existing-disabled-task-rebind
+      cancel-in-progress: false
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+    steps:
+      - name: Checkout exact approved protected source without credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Independent original-host cold custody and original V1 task recovery
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_EVENT_NAME -cne 'issue_comment'){throw 'F139_V2_RESTORE_WRONG_EVENT'}
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          $values=@(([string]$event.comment.body).Split(' ',[StringSplitOptions]::RemoveEmptyEntries))
+          if($values.Count -ne 5 -or $values[0] -cne 'F139-V2-FAILED-PREPARE-RESTORE-ORIGINAL'){throw 'F139_V2_RESTORE_COMMENT_SHAPE'}
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File f139/nci04_v2_failed_prepare_restore_original.ps1 -Target $values[1] -FailedRun ([int64]$values[2]) -TerminalSeq ([int64]$values[3]) -TerminalHash $values[4]
+          if($LASTEXITCODE -ne 0){throw 'F139_V2_RESTORE_OWNER_CUSTODY_DENIED'}
+          Write-Output 'F139_V2_FAILED_PREPARE_ORIGINAL_V1_RECOVERY=PASS'
