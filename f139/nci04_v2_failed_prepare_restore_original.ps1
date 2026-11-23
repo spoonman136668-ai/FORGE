@@ -156,13 +156,25 @@ try {
   # owner-approved mutation: enable and start the existing original task.
   Need (@(Controllers).Count -eq 0 -and
         (Get-ScheduledTask -TaskName $originalName).Settings.Enabled -eq $false) 'OWNER_MOVED_BEFORE_RESTORE'
-  Enable-ScheduledTask -TaskName $originalName -ErrorAction Stop | Out-Null
-  Start-ScheduledTask -TaskName $originalName -ErrorAction Stop
-  for($i=0;$i -lt 80 -and @(Controllers).Count -ne 1;$i++){Start-Sleep -Milliseconds 250}
-  $after=Get-ScheduledTask -TaskName $originalName -ErrorAction Stop
-  Need ($after.Settings.Enabled -eq $true -and
-        @(Controllers).Count -eq 1 -and
-        [string]$after.Actions[0].Arguments -ceq [string]$task.Actions[0].Arguments) 'SAME_OWNER_NOT_STARTED'
+  # If startup or its immediate identity check fails, return the same task
+  # to the disabled state. Never replay PREPARE or spawn another controller.
+  try {
+    Enable-ScheduledTask -TaskName $originalName -ErrorAction Stop | Out-Null
+    Start-ScheduledTask -TaskName $originalName -ErrorAction Stop
+    for($i=0;$i -lt 80 -and @(Controllers).Count -ne 1;$i++){Start-Sleep -Milliseconds 250}
+    $after=Get-ScheduledTask -TaskName $originalName -ErrorAction Stop
+    $observed=@(Controllers)
+    $matched=@($observed | Where-Object {
+      [string]$_.CommandLine -and
+      ([string]$_.CommandLine).IndexOf($db,[StringComparison]::OrdinalIgnoreCase) -ge 0
+    })
+    Need ($after.Settings.Enabled -eq $true -and
+          $observed.Count -eq 1 -and $matched.Count -eq 1 -and
+          [string]$after.Actions[0].Arguments -ceq [string]$task.Actions[0].Arguments) 'SAME_OWNER_NOT_STARTED'
+  } catch {
+    Disable-ScheduledTask -TaskName $originalName -ErrorAction Stop | Out-Null
+    throw
+  }
   Write-Output 'F139_V2_FAILED_PREPARE_ORIGINAL_V1_SAME_TASK_RESTORED=PASS'
   Write-Output 'F139_NEW_CONTROLLER_OR_SCHEDULER=FALSE'
   Write-Output 'F139_WORKER_DISPATCH_AUTHORIZED=FALSE'
