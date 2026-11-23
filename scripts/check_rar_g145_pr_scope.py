@@ -2551,6 +2551,128 @@ def admit_fresh_owner_process_policy_fix(head_sha: str, base_sha: str,
     return "EXACT_PR1854_F139_FRESH_OWNER_PROCESS_POLICY_FIX_CI_ONLY"
 
 
+# One exact original-owner V2 source-forward PR. This qualifies CI source only,
+# never the Windows task, owner signature, merge, worker start or first-use.
+F139_V2_BRANCH = "engineering/f139-history-conditioned-dev-selector-20261122"
+F139_V2_PR = 1869
+F139_V2_BASE = "f24251e0d95938e593a54c1577a34efadc8080d8"
+F139_V2_BASE_G145 = "500be45c28fab0a07552dc9a83905ec301248745"
+F139_V2_WORKFLOW = ".github/workflows/f139-fresh-owner-source-forward-v2.yml"
+F139_V2_WORKFLOW_BLOB = "951977f141ce3c00e3f0a7d92867f9a07698b0b9"
+F139_V2_RESULT = "EXACT_PR1869_F139_V2_SOURCE_FORWARD_CI_ONLY"
+F139_V2_PATHS = frozenset({
+    F139_V2_WORKFLOW,
+    "f139/nci04_fresh_curriculum.py",
+    "f139/nci04_fresh_curriculum_owner.py",
+    "f139/nci04_fresh_lifecycle.py",
+    "f139/nci04_fresh_owner_source_forward.py",
+    "f139/nci04_fresh_owner_source_forward_v2.ps1",
+    "f139/nci04_fresh_owner_source_forward_v2.py",
+    "f139/nci04_fresh_structured_dev.py",
+    "f139/nci04_fresh_successor_publication.py",
+    "f139/test_nci04_fresh_curriculum.py",
+    "f139/test_nci04_fresh_curriculum_owner.py",
+    "f139/test_nci04_fresh_owner_source_forward_v2.py",
+    "f139/test_nci04_fresh_structured_dev.py",
+    "f139/test_nci04_fresh_structured_publication.py",
+    "f139/test_nci04_fresh_successor_producer.py",
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+
+
+def admit_f139_v2_source(head_sha: str, base_sha: str,
+                          request: dict, git: Callable[..., str]) -> str:
+    """Exact original V2 source workflow/guard exception; no runtime authority."""
+    if (not is_sha(head_sha) or base_sha != F139_V2_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != F139_V2_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != F139_V2_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name")
+                != "spoonman136668-ai/FORGE"
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name")
+                != "spoonman136668-ai/FORGE"):
+        raise ValueError("G145_F139_V2_EXACT_OWNER_PR_REQUIRED")
+    try:
+        ancestry = git("merge-base", base_sha, head_sha)
+        guard_before = git("rev-parse", base_sha +
+                           ":scripts/check_rar_g145_pr_scope.py")
+        workflow = git("rev-parse", head_sha + ":" + F139_V2_WORKFLOW)
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_F139_V2_ORIGINAL_SOURCE_NOT_AVAILABLE") from exc
+    if (ancestry != base_sha
+            or guard_before != F139_V2_BASE_G145
+            or workflow != F139_V2_WORKFLOW_BLOB
+            or len(changed) != len(F139_V2_PATHS)
+            or set(changed) != F139_V2_PATHS):
+        raise ValueError("G145_F139_V2_EXACT_WORKFLOW_OR_SOURCE_DRIFT")
+    return F139_V2_RESULT
+
+
+
+# Exactly scoped owner-authored PR1870: same original task restoration only.
+F139_V2_RESTORE_BRANCH = "engineering/f139-v2-postfail-original-v1-recovery-20261122"
+F139_V2_RESTORE_PR = 1870
+F139_V2_RESTORE_BASE = "852b473bf714038c75254650503c279768eff8cf"
+F139_V2_RESTORE_BASE_TREE = "dee88efb8241cb58539bc50dc621569d7f298025"
+F139_V2_RESTORE_BLOBS = {
+    ".github/workflows/f139-v2-failed-prepare-original-restore.yml": "2808afcc890745daf2a2d20a5e821590f7e33452",
+    "f139/nci04_v2_failed_prepare_restore_original.ps1": "288185563487248f96fe650339eac4abc33657a8",
+    "f139/nci04_v2_failed_prepare_restore_original.py": "bda6b53a5e8fc24c3c3493f2395cfec05c84d783",
+    "f139/test_nci04_v2_failed_prepare_restore_original.py": "39656c98a79382977941edc68a1a8f6f5f92ad1f",
+}
+F139_V2_RESTORE_PATHS = frozenset(set(F139_V2_RESTORE_BLOBS) | {
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+})
+F139_V2_RESTORE_RESULT = "EXACT_PR1870_F139_V2_POSTFAIL_V1_RECOVERY_SOURCE_CI_ONLY"
+
+
+def admit_f139_v2_failed_restore(head_sha: str, base_sha: str,
+                                  request: dict, git: Callable[..., str]) -> str:
+    """Engineering source qualification, never runtime/task/owner approval."""
+    if (not is_sha(head_sha) or base_sha != F139_V2_RESTORE_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != F139_V2_RESTORE_PR
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != F139_V2_RESTORE_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name")
+                 != "spoonman136668-ai/FORGE"
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("repo", {}).get("full_name")
+                 != "spoonman136668-ai/FORGE"):
+        raise ValueError("G145_F139_V2_RESTORE_EXACT_OWNER_PR_REQUIRED")
+    try:
+        ancestor = git("merge-base", base_sha, head_sha)
+        base_tree = git("rev-parse", base_sha + "^{tree}")
+        changed = git("diff", "--no-renames", "--name-only",
+                      base_sha, head_sha).splitlines()
+        blob_map = {path: git("rev-parse", head_sha + ":" + path)
+                    for path in F139_V2_RESTORE_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_F139_V2_RESTORE_SOURCE_UNAVAILABLE") from exc
+    if (ancestor != base_sha or base_tree != F139_V2_RESTORE_BASE_TREE
+            or set(changed) != F139_V2_RESTORE_PATHS
+            or len(changed) != len(F139_V2_RESTORE_PATHS)
+            or blob_map != F139_V2_RESTORE_BLOBS):
+        raise ValueError("G145_F139_V2_RESTORE_BLOBS_OR_SCOPE_DRIFT")
+    return F139_V2_RESTORE_RESULT
+
+
 def generic_paths_safe(paths: list[str]) -> bool:
     if not paths or len(paths) > 128 or len(set(paths)) != len(paths):
         return False
@@ -2843,6 +2965,7 @@ def negative_controls() -> None:
     ]
     if not generic_paths_safe(valid) or any(generic_paths_safe(x) for x in invalid):
         raise ValueError("G145_ADMISSION_NEGATIVE_CONTROL_FAILED")
+    f139_recovery_readonly_negative_controls()
     hybrid_release_negative_controls()
     hybrid_complete_negative_controls()
     v38_readonly_negative_controls()
@@ -3544,6 +3667,129 @@ def admit_fresh_release_owner_ruleset(head_sha, base_sha, request, git):
     return "EXACT_F139_RELEASE_OWNER_RULESET_READ_CI_ONLY"
 
 
+
+# EXACT original-owner PR #1864 can extend only the pre-existing F139
+# read-only audit. This is CI admission, NOT host deployment authority.
+F139_RECOVERY_AUDIT_BRANCH = "engineering/f139-fresh-forward-cert-json-transport-repair-20261122"
+F139_RECOVERY_AUDIT_BASE = "a3ea44c8db090b6a5cbaa47eb9520956bff13b7e"
+F139_RECOVERY_AUDIT_TREE = "f30cff4ed9f0f26aeaaf79aa9a5f658d97fe1c2a"
+F139_RECOVERY_AUDIT_RESULT = "EXACT_PR1864_F139_INTERRUPTED_PREPARE_READONLY_CI_ONLY"
+F139_RECOVERY_AUDIT_BLOBS = {
+    ".github/workflows/f139-fresh-original-owner-rebind.yml": "6c74ce61f43749d4fd7e70b81a4327c5346735e0",
+    "f139/test_nci04_fresh_owner_source_forward.py": "b2128fdb9627419fee5a40019c4e96f104aa8033",
+    "f139/nci04_fresh_owner_source_forward.ps1": "2ec48668823ac227733b767a052abbd1b561b011",
+    "f139/nci04_fresh_owner_source_forward.py": "30de26f48ab003bc6745668e822bbe063e35b319",
+}
+F139_RECOVERY_AUDIT_FILES = frozenset((
+    *F139_RECOVERY_AUDIT_BLOBS,
+    "scripts/check_rar_g145_pr_scope.py",
+    "scripts/check_rar_g148_go_cache.py",
+    "scripts/check_rar_g156_dynamic_base_cache.py",
+))
+
+def admit_f139_recovery_readonly(head_sha, base_sha, request, git):
+    """One exact owner PR, source/tree and 7-file review. No host authority."""
+    if (not is_sha(head_sha) or base_sha != F139_RECOVERY_AUDIT_BASE
+            or type(request) is not dict
+            or type(request.get("number")) is not int
+            or request["number"] != 1864
+            or request.get("author_association") != "OWNER"
+            or request.get("user", {}).get("login") != "spoonman136668-ai"
+            or request.get("head", {}).get("sha") != head_sha
+            or request.get("head", {}).get("ref") != F139_RECOVERY_AUDIT_BRANCH
+            or request.get("head", {}).get("repo", {}).get("full_name") != REPO
+            or request.get("base", {}).get("ref") != "main"
+            or request.get("base", {}).get("sha") != base_sha
+            or request.get("base", {}).get("repo", {}).get("full_name") != REPO):
+        raise ValueError("G145_F139_RECOVERY_OWNER_PR1864_REQUIRED")
+    try:
+        ancestry = git("merge-base", base_sha, head_sha)
+        tree = git("rev-parse", base_sha + "^{tree}")
+        old = git("rev-parse", base_sha + ":.github/workflows/f139-fresh-original-owner-rebind.yml")
+        changed = git("diff", "--no-renames", "--name-only", base_sha, head_sha).splitlines()
+        blobs = {p: git("rev-parse", head_sha + ":" + p)
+                 for p in F139_RECOVERY_AUDIT_BLOBS}
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("G145_F139_RECOVERY_GIT_READ_FAILED") from exc
+    if (ancestry != base_sha or tree != F139_RECOVERY_AUDIT_TREE
+            or old != "28cc3bf32afaa257c5c60d0c26a368dcd3da821f"
+            or blobs != F139_RECOVERY_AUDIT_BLOBS
+            or len(changed) != len(F139_RECOVERY_AUDIT_FILES)
+            or set(changed) != F139_RECOVERY_AUDIT_FILES):
+        raise ValueError("G145_F139_RECOVERY_SCOPE_OR_BLOBS_CHANGED")
+    return F139_RECOVERY_AUDIT_RESULT
+
+
+def f139_recovery_readonly_negative_controls():
+    """Tampered PR owner, files, tree and workflow blobs cannot gain admission."""
+    head = "f" * 40
+    request = {
+        "number": 1864, "author_association": "OWNER",
+        "user": {"login": "spoonman136668-ai"},
+        "head": {"sha": head, "ref": F139_RECOVERY_AUDIT_BRANCH,
+                 "repo": {"full_name": REPO}},
+        "base": {"sha": F139_RECOVERY_AUDIT_BASE, "ref": "main",
+                 "repo": {"full_name": REPO}},
+    }
+    def exact_git(*args):
+        if args == ("merge-base", F139_RECOVERY_AUDIT_BASE, head):
+            return F139_RECOVERY_AUDIT_BASE
+        if args == ("rev-parse", F139_RECOVERY_AUDIT_BASE + "^{tree}"):
+            return F139_RECOVERY_AUDIT_TREE
+        if args == ("rev-parse", F139_RECOVERY_AUDIT_BASE +
+                    ":.github/workflows/f139-fresh-original-owner-rebind.yml"):
+            return "28cc3bf32afaa257c5c60d0c26a368dcd3da821f"
+        if args == ("diff", "--no-renames", "--name-only",
+                    F139_RECOVERY_AUDIT_BASE, head):
+            return "\n".join(sorted(F139_RECOVERY_AUDIT_FILES))
+        if len(args) == 2 and args[0] == "rev-parse":
+            for path, blob in F139_RECOVERY_AUDIT_BLOBS.items():
+                if args[1] == head + ":" + path:
+                    return blob
+        raise ValueError("G145_F139_RECOVERY_UNEXPECTED_TEST_GIT_ROUTE")
+    if admit_f139_recovery_readonly(
+            head, F139_RECOVERY_AUDIT_BASE, request, exact_git
+    ) != F139_RECOVERY_AUDIT_RESULT:
+        raise ValueError("G145_F139_RECOVERY_BASELINE_DENIED")
+    for key, value in (("number", 1865),
+                       ("author_association", "CONTRIBUTOR")):
+        altered = json.loads(json.dumps(request))
+        altered[key] = value
+        try:
+            admit_f139_recovery_readonly(
+                head, F139_RECOVERY_AUDIT_BASE, altered, exact_git)
+        except ValueError:
+            continue
+        raise ValueError("G145_F139_RECOVERY_OWNER_NEGATIVE_FAILED")
+    for edit in ("user", "head", "base"):
+        altered = json.loads(json.dumps(request))
+        altered[edit] = {}
+        try:
+            admit_f139_recovery_readonly(
+                head, F139_RECOVERY_AUDIT_BASE, altered, exact_git)
+        except ValueError:
+            continue
+        raise ValueError("G145_F139_RECOVERY_IDENTITY_NEGATIVE_FAILED")
+    for route, bad in (
+        (("merge-base", F139_RECOVERY_AUDIT_BASE, head), "0"*40),
+        (("rev-parse", F139_RECOVERY_AUDIT_BASE + "^{tree}"), "0"*40),
+        (("rev-parse", head + ":.github/workflows/f139-fresh-original-owner-rebind.yml"), "0"*40),
+        (("diff", "--no-renames", "--name-only",
+          F139_RECOVERY_AUDIT_BASE, head), "f139/local_controller.py"),
+    ):
+        def wrong_git(*args, route=route, bad=bad):
+            return bad if args == route else exact_git(*args)
+        try:
+            admit_f139_recovery_readonly(
+                head, F139_RECOVERY_AUDIT_BASE, request, wrong_git)
+        except ValueError:
+            continue
+        raise ValueError("G145_F139_RECOVERY_SOURCE_NEGATIVE_FAILED")
+    if generic_paths_safe([
+        ".github/workflows/f139-fresh-original-owner-rebind.yml"]):
+        raise ValueError("G145_F139_RECOVERY_GENERIC_PATH_BYPASS")
+
+
 def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
     """Engineering CI admission only; never research, merge or FSA authority."""
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or not callable(git):
@@ -3686,6 +3932,69 @@ def admit_original_pr(head_sha: str, git: Callable[..., str]) -> str:
         if (request.get('user', {}).get('login') != 'spoonman136668-ai'
                 or request.get('author_association') != 'OWNER'):
             raise ValueError('G145_V40_ORIGINAL_OWNER_PR_REQUIRED')
+    # One original-owner source-forward PR, not a generic workflow exception.
+    # Frozen base/tree, old+new owner-workflow Git blobs, exact PR identity,
+    # and all changed paths are checked independently. It never authorizes
+    # deployment, Task Scheduler operations, worker dispatch or science.
+    if branch == F139_RECOVERY_AUDIT_BRANCH:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        return admit_f139_recovery_readonly(head_sha, base_sha, event["pull_request"], git)
+    if branch == F139_V2_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_f139_v2_source(head_sha, base_sha, request, git)
+    if branch == F139_V2_RESTORE_BRANCH:
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        return admit_f139_v2_failed_restore(head_sha, base_sha, request, git)
+    if branch == "engineering/f139-fresh-original-source-forward-20261122":
+        request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])
+                             .read_text(encoding="utf-8"))["pull_request"]
+        scoped_paths = frozenset({
+            ".github/workflows/f139-fresh-owner-source-forward.yml",
+            ".github/workflows/forge-f139-source-qualification.yml",
+            "f139/nci04_fresh_lifecycle.py",
+            "f139/nci04_fresh_owner_source_forward.ps1",
+            "f139/nci04_fresh_owner_source_forward.py",
+            "f139/nci04_fresh_successor_publication.py",
+            "f139/test_nci04_fresh_owner_source_forward.py",
+            "scripts/check_rar_g145_pr_scope.py",
+            "scripts/check_rar_g148_go_cache.py",
+            "scripts/check_rar_g156_dynamic_base_cache.py",
+        })
+        if (base_sha != "e0467115ea085e2f0ddbee258e4d8937f6a90f10"
+                or type(request.get("number")) is not int
+                or request["number"] != 1863
+                or request.get("user", {}).get("login") != "spoonman136668-ai"
+                or request.get("author_association") != "OWNER"
+                or request.get("head", {}).get("sha") != head_sha
+                or request.get("head", {}).get("ref") != branch
+                or request.get("head", {}).get("repo", {}).get("full_name")
+                    != "spoonman136668-ai/FORGE"
+                or request.get("base", {}).get("sha") != base_sha
+                or request.get("base", {}).get("ref") != "main"
+                or request.get("base", {}).get("repo", {}).get("full_name")
+                    != "spoonman136668-ai/FORGE"):
+            raise ValueError("G145_F139_FORWARD_ORIGINAL_OWNER_SCOPE_DENIED")
+        try:
+            ancestry = git("merge-base", base_sha, head_sha)
+            base_tree = git("rev-parse", base_sha + "^{tree}")
+            old_workflow = git("rev-parse", base_sha + ":" +
+                ".github/workflows/f139-fresh-original-owner-rebind.yml")
+            new_workflow = git("rev-parse", head_sha + ":" +
+                ".github/workflows/f139-fresh-owner-source-forward.yml")
+            changed = git("diff", "--no-renames", "--name-only",
+                          base_sha, head_sha).splitlines()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise ValueError("G145_F139_FORWARD_SCOPE_READ_FAILED") from exc
+        if (ancestry != base_sha
+                or base_tree != "ebe959a996b7d0e90eced139912141fe0fb17482"
+                or old_workflow != "28cc3bf32afaa257c5c60d0c26a368dcd3da821f"
+                or new_workflow != "e86c8c45f04dc14b3c3a7457ca837d113a422903"
+                or len(changed) != len(scoped_paths)
+                or set(changed) != scoped_paths):
+            raise ValueError("G145_F139_FORWARD_OWNER_BLOBS_OR_PATHS_DRIFT")
+        return "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY"
     if branch in FROZEN_SCOPES:
         if branch == V61_PROCESS_FIX_BRANCH:
             request = json.loads(Path(os.environ["GITHUB_EVENT_PATH"])

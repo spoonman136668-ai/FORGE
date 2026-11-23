@@ -199,8 +199,8 @@ jobs:
           $key=Arg 'EncryptedKeyFile'
           $base=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
           $old=Join-Path $base 'release-candidates\408139c0a10fd4836a22422c8df041aa64dfa001'
-          # Installed release is immutable c10625c1, not the audit workflow's future main SHA.
-          $new=Join-Path $base 'release-candidates\c10625c1836d7f7a941cb81d32553857aae25536'
+          # The recovered original V1 installed checkout is immutable; main may be newer.
+          $new=Join-Path $base 'release-candidates\f24251e0d95938e593a54c1577a34efadc8080d8'
           $fresh=Join-Path $base 'f139-fresh-dev-44831323193\state.sqlite'
           $historic=Join-Path $base 'state.sqlite'
           Need (([IO.Path]::GetFullPath($dbPath) -ieq [IO.Path]::GetFullPath($fresh)) -and
@@ -219,35 +219,52 @@ jobs:
           $releasePresent=Test-Path -LiteralPath $new -PathType Container
           $controllerCount=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
             Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') }).Count
-          # Existing native scheduler history: observation only, no task start or replay.
+          # Scheduler metadata and a bounded, sanitized tail of the EXISTING log only.
+          # Do not launch a task, run a controller tick, read credentials, or print raw logs.
           $taskInfo=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
           function UtcStamp([datetime]$value){
             if($value -lt [datetime]'2000-01-01'){return $null}
             return $value.ToUniversalTime().ToString('o')
           }
-          # The installed wrapper writes controller.log beside the fresh database.
-          # Classify a bounded tail; never emit raw lines, paths or exception text.
           $logPath=Join-Path (Split-Path -Path $dbPath -Parent) 'logs\controller.log'
           $logPresent=Test-Path -LiteralPath $logPath -PathType Leaf
           $logReadable=$false
           $logUpdatedUtc=$null
           $logClasses=@()
+          $pollRecordsInTail=0
           if($logPresent){
             try {
-              foreach($line in @(Get-Content -LiteralPath $logPath -Tail 80 -ErrorAction Stop)){
+              $item=Get-Item -LiteralPath $logPath -ErrorAction Stop
+              if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw 'AUDIT_LOG_REPARSE_POINT'
+              }
+              foreach($line in @(Get-Content -LiteralPath $logPath -Tail 160 -ErrorAction Stop)){
+                if($null -eq $line -or $line.Length -gt 4096){continue}
                 $category=$null
                 if($line -match 'F139_JOB_SUPERVISOR_BLOCKED='){$category='SUPERVISOR_BLOCKED'}
                 elseif($line -match 'F139_PROCESS_LIFETIME=KILL_ON_JOB_CLOSE'){$category='WRAPPER_STARTED'}
+                elseif($line -match 'F139_JOB_CHILD_ASSIGNED_BEFORE_RESUME=PASS'){$category='CHILD_ASSIGNED'}
                 elseif($line -match 'F139_FAIL_CLOSED'){$category='CONTROLLER_FAIL_CLOSED'}
                 elseif($line -match 'F139_CONTROLLER_EXITED'){$category='CONTROLLER_EXITED'}
-                elseif($line -match '"blocked"\s*:'){$category='TICK_BLOCKED'}
-                elseif($line -match '"disposition"\s*:'){$category='TICK_RESULT'}
-                if($null -ne $category){$logClasses+= $category}
+                elseif($line -match '"blocked"\s*:'){
+                  $pollRecordsInTail++
+                  $category='TICK_BLOCKED'
+                  if($line -match 'F139_FRESH_FORWARD_PROTECTED_FORWARD_SOURCE_DRIFT'){$category='SOURCE_CERT_MISMATCH'}
+                }
+                elseif($line -match '"disposition"\s*:'){
+                  $pollRecordsInTail++
+                  $category='TICK_RESULT'
+                  if($line -match 'FRESH_NO_UNUSED_SOURCE_RECIPE'){$category='NO_UNUSED_SOURCE_RECIPE'}
+                }
+                if($null -ne $category){$logClasses += $category}
               }
-              $logUpdatedUtc=(UtcStamp (Get-Item -LiteralPath $logPath -ErrorAction Stop).LastWriteTimeUtc)
+              $logUpdatedUtc=(UtcStamp $item.LastWriteTimeUtc)
               $logReadable=$true
             } catch {
+              # Readback failure is explicit, never hide it as an empty healthy log.
               $logClasses=@()
+              $pollRecordsInTail=0
+              $logUpdatedUtc=$null
             }
           }
           $inspect=@'
@@ -273,22 +290,63 @@ jobs:
           Need ($LASTEXITCODE -eq 0 -and $raw.Count -eq 1 -and
             [string]$raw[0] -clike 'F139_CUSTODY_SQL=*') 'READONLY_SQL'
           $sqlRecord=([string]$raw[0]).Substring('F139_CUSTODY_SQL='.Length)|ConvertFrom-Json
+          # Read-only classification of the interrupted source-forward PREPARE.
+          # Never open the DPAPI signing key or print certificate contents.
+          $forwardTarget='a3ea44c8db090b6a5cbaa47eb9520956bff13b7e'
+          $forwardTree='f30cff4ed9f0f26aeaaf79aa9a5f658d97fe1c2a'
+          $forwardStage=Join-Path $base ('release-candidates\'+$forwardTarget)
+          $forwardCert=Join-Path (Split-Path -Parent $fresh) 'fresh-original-owner-source-forward.json'
+          $forwardTaskBinding='OTHER_SOURCE'
+          if([IO.Path]::GetFullPath($repoRoot) -ieq [IO.Path]::GetFullPath($forwardStage)){
+            $forwardTaskBinding='TARGET_STAGE'
+          }
+          $forwardStageClass='ABSENT'
+          if(Test-Path -LiteralPath $forwardStage){
+            $forwardStageClass='INVALID_OR_UNVERIFIED'
+            $item=Get-Item -LiteralPath $forwardStage -Force -ErrorAction Stop
+            if($item.PSIsContainer -and
+                ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){
+              $stageSha=(& git -c core.fsmonitor=false --no-optional-locks -C $forwardStage rev-parse HEAD 2>$null|Out-String).Trim()
+              $stageTree=(& git -c core.fsmonitor=false --no-optional-locks -C $forwardStage rev-parse 'HEAD^{tree}' 2>$null|Out-String).Trim()
+              $stageDirty=@(& git -c core.fsmonitor=false --no-optional-locks -C $forwardStage status --porcelain --untracked-files=all 2>$null)
+              $stageRemote=@(& git -c core.fsmonitor=false --no-optional-locks -C $forwardStage remote 2>$null)
+              if($LASTEXITCODE -eq 0 -and $stageSha -ceq $forwardTarget -and
+                  $stageTree -ceq $forwardTree -and $stageDirty.Count -eq 0 -and
+                  $stageRemote.Count -eq 0){
+                $forwardStageClass='PINNED_CLEAN_NO_REMOTE'
+              }
+            }
+          }
+          $forwardCertClass='ABSENT'
+          if(Test-Path -LiteralPath $forwardCert){
+            $forwardCertClass='PRESENT_UNVERIFIED'
+            $certItem=Get-Item -LiteralPath $forwardCert -Force -ErrorAction Stop
+            if(-not $certItem.PSIsContainer -and
+                ($certItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and
+                $certItem.Length -gt 0 -and $certItem.Length -le 8192){
+              $forwardCertClass='PRESENT_BOUNDED_UNVERIFIED'
+            }
+          }
           $result=@{
             schema='forge.f139.fresh-original-owner-cold-readonly.v1'
             trigger_sha=$env:GITHUB_SHA
             observed_task_state=[string]$task.State
             task_enabled=[bool]$task.Settings.Enabled
+            installed_source_class=$installed
+            installed_source_sha=$installedSha
+            release_install_directory_exists=[bool]$releasePresent
+            controller_process_count=[int]$controllerCount
             last_task_run_utc=(UtcStamp $taskInfo.LastRunTime)
             next_task_run_utc=(UtcStamp $taskInfo.NextRunTime)
             last_task_result=[int64]$taskInfo.LastTaskResult
             controller_log_present=[bool]$logPresent
             controller_log_readable=[bool]$logReadable
             controller_log_last_write_utc=$logUpdatedUtc
-            controller_log_event_classes=@($logClasses|Select-Object -Last 12)
-            installed_source_class=$installed
-            installed_source_sha=$installedSha
-            release_install_directory_exists=[bool]$releasePresent
-            controller_process_count=[int]$controllerCount
+            controller_log_event_classes=@($logClasses | Select-Object -Last 12)
+            controller_poll_records_in_tail=[int]$pollRecordsInTail
+            source_forward_task_binding=$forwardTaskBinding
+            source_forward_stage_class=$forwardStageClass
+            source_forward_certificate_class=$forwardCertClass
             sqlite=$sqlRecord
             task_mutations=0
             sqlite_mutations=0

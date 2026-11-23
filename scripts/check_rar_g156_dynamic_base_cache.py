@@ -19,6 +19,8 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
     FRESH_SHELL_BRANCH, FRESH_SHELL_BASE, FRESH_SHELL_TREE,
     FRESH_REBIND_CANCEL_BRANCH, FRESH_REBIND_CANCEL_BASE, FRESH_REBIND_CANCEL_TREE,
     FRESH_POLICY_BRANCH, FRESH_POLICY_BASE, FRESH_POLICY_TREE,
+    F139_RECOVERY_AUDIT_BRANCH, F139_RECOVERY_AUDIT_RESULT,
+    F139_RECOVERY_AUDIT_BASE, F139_RECOVERY_AUDIT_TREE,
     FRESH_REBOUND_BRANCH, FRESH_REBOUND_BASE, FRESH_REBOUND_TREE,
     FRESH_FUNCTIONAL_BRANCH, FRESH_FUNCTIONAL_BASE, FRESH_FUNCTIONAL_TREE,
     FRESH_CUSTODY_AUDIT_BRANCH, FRESH_CUSTODY_AUDIT_BASE, FRESH_CUSTODY_AUDIT_TREE,
@@ -58,6 +60,7 @@ from check_rar_g145_pr_scope import (admit_original_pr, github_event_base, negat
 from check_rar_g148_go_cache import CAP, ROOT, git, identity, stable, compiled_graph
 
 BRANCH = "engineering/rar-g156-dynamic-main-cache-release-20261108"
+F139_FORWARD_BRANCH = "engineering/f139-fresh-original-source-forward-20261122"
 BASE = "a62f469de1d5316c04d063246c30a5812bc8857d"
 BASE_TREE = "e306a28616fa4c3ccb8d17e77ed2020154c2a083"
 BASE_GRAPH = "39c27c4f51e81fb12d3b5dc573a99793d80c1b692943d7fbb9ed9cd7501cad47"
@@ -275,6 +278,26 @@ def _reference_graph(revision: str) -> tuple[str, int]:
 
 def _release_scope(base: str, tree: str, head: str) -> None:
     admission = admit_original_pr(head, git)
+    # G145 independently checks PR #1863, owner identity, base ancestry,
+    # both owner-workflow blobs and all ten changed paths. CI admission only:
+    # no generic cache exception, original-owner cutover or worker authority.
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-history-conditioned-dev-selector-20261122":
+        if (admission != "EXACT_PR1869_F139_V2_SOURCE_FORWARD_CI_ONLY"
+                or base != "f24251e0d95938e593a54c1577a34efadc8080d8"):
+            raise ValueError("G156_F139_V2_PROTECTED_SOURCE_REQUIRED")
+        return
+    if os.environ.get("GITHUB_HEAD_REF") == "engineering/f139-v2-postfail-original-v1-recovery-20261122":
+        if (admission != "EXACT_PR1870_F139_V2_POSTFAIL_V1_RECOVERY_SOURCE_CI_ONLY"
+                or base != "852b473bf714038c75254650503c279768eff8cf"
+                or tree != "dee88efb8241cb58539bc50dc621569d7f298025"):
+            raise ValueError("G156_F139_V2_RESTORE_EXACT_BASE_TREE_REQUIRED")
+        return
+    if os.environ.get("GITHUB_HEAD_REF") == F139_FORWARD_BRANCH:
+        if (admission != "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY"
+                or base != "e0467115ea085e2f0ddbee258e4d8937f6a90f10"
+                or tree != "ebe959a996b7d0e90eced139912141fe0fb17482"):
+            raise ValueError("G156_F139_FORWARD_EXACT_OWNER_SOURCE_REQUIRED")
+        return
     if os.environ.get("GITHUB_HEAD_REF") == FRESH_RELEASE_RULE_FIX_BRANCH:
         if (admission != "EXACT_F139_RELEASE_OWNER_RULESET_READ_CI_ONLY"
                 or base != FRESH_RELEASE_RULE_FIX_BASE or tree != FRESH_RELEASE_RULE_FIX_TREE):
@@ -284,6 +307,12 @@ def _release_scope(base: str, tree: str, head: str) -> None:
         if (admission != "EXACT_F139_RELEASE_RUN_METADATA_CI_ONLY"
                 or base != FRESH_RELEASE_META_BASE or tree != FRESH_RELEASE_META_TREE):
             raise ValueError("G156_RELEASE_META_EXACT_SOURCE_REQUIRED")
+        return
+    if os.environ.get("GITHUB_HEAD_REF") == F139_RECOVERY_AUDIT_BRANCH:
+        if (admission != F139_RECOVERY_AUDIT_RESULT
+                or base != F139_RECOVERY_AUDIT_BASE
+                or tree != F139_RECOVERY_AUDIT_TREE):
+            raise ValueError("G156_F139_RECOVERY_READONLY_BASE_DRIFT")
         return
     if os.environ.get("GITHUB_HEAD_REF") == FRESH_CUSTODY_AUDIT_BRANCH:
         if (admission != "EXACT_F139_OWNER_CUSTODY_READONLY_CI_ONLY"
@@ -666,6 +695,16 @@ def _release_scope(base: str, tree: str, head: str) -> None:
         raise ValueError("G156_UNAUTHORIZED_GENERIC_PR_SOURCE")
 
 
+def _base_cache_eligible(base_digest: str, current_digest: str,
+                         base_key: str, current_key: str) -> bool:
+    # G148 can fingerprint broad non-Go inputs. The owner-forward PR is
+    # restricted to ten exact G145-reviewed paths, but those source edits
+    # can change the fingerprint. Never reuse an old compiler cache for
+    # this owner release; native Go commands and all qualification remain.
+    return (os.environ.get("GITHUB_HEAD_REF") != F139_FORWARD_BRANCH
+            and base_digest != current_digest and base_key != current_key)
+
+
 def _reference(data: dict) -> dict:
     head = data["source_sha"]
     base = github_event_base(head)
@@ -687,7 +726,8 @@ def _reference(data: dict) -> dict:
     baseline_key = "rar-g148-win-go-" + hashlib.sha256(json.dumps(
         fp, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")).hexdigest()
-    eligible = base_digest != current_digest and baseline_key != data["cache_key"]
+    eligible = _base_cache_eligible(base_digest, current_digest,
+                                    baseline_key, data["cache_key"])
     if os.environ.get("GITHUB_HEAD_REF") == BRANCH and baseline_key != BASE_KEY:
         raise ValueError("G156_FROZEN_RELEASE_BASE_KEY_MISMATCH")
     return dict(base_source_sha=base, base_source_tree=tree,

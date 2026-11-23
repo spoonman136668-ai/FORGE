@@ -32,6 +32,16 @@ from f139.local_controller import (
 RELEASE_KIND = "FRESH_WORKER_RELEASE_AUTHENTICATED"
 CUSTODY_KIND = "FRESH_WORKER_PROVIDER_CUSTODY"
 NEGATIVE_KIND = "FRESH_WORKER_PROVIDER_NEGATIVE"
+PUBLISH_KIND = "FRESH_SUCCESSOR_PUBLICATION_ATTEMPTED"
+# V2 is strictly additional DEV grammar admission; previous V1 receipts are
+# immutable and remain parseable by the cold owner chain.
+PUBLISH_SCHEMA_STRUCTURED = "forge.f139.fresh-owner-structured-publication-attempt.v2"
+PUBLISH_STRUCTURED_RECIPES = frozenset(
+    [f"support-{n}-v2" for n in (2, 4, 8, 16)] +
+    [f"symmetric-prior-{n}-v2" for n in (2, 4, 8, 16)]
+)
+
+PUBLISH_SCHEMA = "forge.f139.fresh-owner-publication-attempt.v1"
 RELEASE_SCHEMA = "forge.f139.fresh-worker-owner-release.v1"
 CUSTODY_SCHEMA = "forge.f139.fresh-worker-provider-custody.v1"
 RELEASE_DOMAIN = b"FORGE-F139-FRESH-WORKER-OWNER-RELEASE-V1\0"
@@ -250,6 +260,37 @@ def audit_execution_tail(db, activation, rows):
             run_ids.add(custody["run_id"])
             e.update(stage="VERIFIED", custody=custody)
             i += 1
+        elif kind == PUBLISH_KIND:
+            need(e["stage"] == "VERIFIED"
+                 and e.get("publication_attempt") is None
+                 and type(doc) is dict
+                 and set(doc) == {
+                     "schema", "ticket", "source_sha", "target_sha", "recipe",
+                     "mechanism_sha256", "after_sha256", "intent_sha256",
+                     "issue_body_sha256", "scientific_first_use", "paid_model_calls",
+                 }
+                 and type(doc["recipe"]) is str
+                 and (
+                     (doc["schema"] == PUBLISH_SCHEMA
+                      and doc["recipe"] in {
+                          "least-observed-local-arm-v1", "laplace-local-evidence-v1",
+                      })
+                     or (doc["schema"] == PUBLISH_SCHEMA_STRUCTURED
+                         and doc["recipe"] in PUBLISH_STRUCTURED_RECIPES)
+                 )
+                 and doc["ticket"] == ticket
+                 and doc["source_sha"] == SOURCE and doc["target_sha"] == TARGET
+                 and all(sha(SHA64, doc[k]) for k in (
+                     "mechanism_sha256", "after_sha256", "intent_sha256",
+                     "issue_body_sha256",
+                 ))
+                 and doc["after_sha256"] not in seen_after
+                 and doc["intent_sha256"] not in seen_intents
+                 and doc["scientific_first_use"] is False
+                 and type(doc["paid_model_calls"]) is int
+                 and doc["paid_model_calls"] == 0,
+                 "PUBLICATION_ATTEMPT_INVALID_OR_REPLAY")
+            e["publication_attempt"] = doc
         elif kind == KIND:
             need(e["stage"] == "VERIFIED" and i + 1 < len(rows),
                  "SUCCESSOR_WITHOUT_POSITIVE_TERMINAL")
@@ -259,6 +300,12 @@ def audit_execution_tail(db, activation, rows):
                  and r["after_sha256"] not in seen_after
                  and r["native_intent_sha256"] not in seen_intents,
                  "SUCCESSOR_REUSES_CONSUMED_IDENTITY")
+            publication = e.get("publication_attempt")
+            if publication is not None:
+                need(r["after_sha256"] == publication["after_sha256"]
+                     and r["native_intent_sha256"] == publication["intent_sha256"]
+                     and r["issue_body_sha256"] == publication["issue_body_sha256"],
+                     "PUBLISHED_SUCCESSOR_IDENTITY_DRIFT")
             frozen_issue(r)
             seen_numbers.add(r["issue_number"])
             seen_ids.add(r["issue_id"])
@@ -461,6 +508,13 @@ def admit_next_successor(db, api, key):
         native = inspect_owner_issue(current, protected_main=SOURCE,
                                      authenticated_target_commit=TARGET,
                                      authenticated_target_tree=TARGET_TREE)
+        publication = entries[-1].get("publication_attempt")
+        if publication is not None and (
+                native.candidate.after_sha256 != publication["after_sha256"]
+                or native.native_intent_sha256 != publication["intent_sha256"]
+                or native.issue_body_sha256 != publication["issue_body_sha256"]):
+            # Never switch to an unrelated issue after a consumed POST attempt.
+            continue
         if (native.issue_id in {r["issue_id"] for r in used}
                 or native.candidate.after_sha256 in {r["after_sha256"] for r in used}
                 or native.native_intent_sha256 in {r["native_intent_sha256"] for r in used}
@@ -541,7 +595,7 @@ OWNER_RELEASE_PREFIX = "F139-FRESH-DEV-WORKER-RELEASE "
 OWNER_RELEASE_JOB = "release-existing-fresh-task"
 
 
-def authenticate_runtime_owner(db, api, release):
+def authenticate_runtime_owner(db, api, release, key):
     """Require the installed original Windows task and completed native release.
 
     A local signed event, GitHub owner association, test pass, or caller-
@@ -560,7 +614,9 @@ def authenticate_runtime_owner(db, api, release):
     need(bool(profile), "OWNER_PROFILE_MISSING")
     root = Path(profile) / "FORGE-F139"
     expected_db = root / ("f139-fresh-dev-" + str(FRESH_RUN)) / "state.sqlite"
-    expected_src = root / "release-candidates" / release["worker_release_sha"]
+    from f139.nci04_fresh_owner_source_forward import installed_forward_source
+    owner_sha, owner_tree = installed_forward_source(db, api, release, key)
+    expected_src = root / "release-candidates" / owner_sha
     actual_src = Path(__file__).resolve().parent.parent
     need(db.filename.resolve() == expected_db.resolve()
          and actual_src == expected_src.resolve()
@@ -579,8 +635,8 @@ def authenticate_runtime_owner(db, api, release):
         need(p.returncode == 0 and len(p.stdout) <= 64000, "OWNER_GIT_READ_FAILED")
         return p.stdout.decode("utf-8").strip()
 
-    need(git_text("rev-parse", "HEAD") == release["worker_release_sha"]
-         and git_text("rev-parse", "HEAD^{tree}") == release["worker_release_tree"]
+    need(git_text("rev-parse", "HEAD") == owner_sha
+         and git_text("rev-parse", "HEAD^{tree}") == owner_tree
          and git_text("status", "--porcelain", "--untracked-files=all") == ""
          and git_text("remote") == "", "OWNER_INSTALLED_GIT_DRIFT")
     script = r"""
@@ -770,7 +826,7 @@ def tick_existing_fresh_owner(db, api, key, *, now):
     from f139.local_controller import F139Error
     from f139.nci04_fresh_worker_protocol import dispatch_arguments, REPO, PREFIX, WORKFLOW
     release, entries = read_lifecycle(db, key)
-    authenticate_runtime_owner(db, api, release)
+    authenticate_runtime_owner(db, api, release, key)
     e = entries[-1]
     ticket = e["record"]["ticket"]
     result = {"ticket": ticket, "scientific_first_use": False,
@@ -818,5 +874,15 @@ def tick_existing_fresh_owner(db, api, key, *, now):
                     run_id=custody["run_id"], development_qualified=True)
     need(e["stage"] == "VERIFIED", "FRESH_TERMINAL_STATE_INVALID")
     new = admit_next_successor(db, api, key)
-    return dict(result, disposition="FRESH_SUCCESSOR_READY" if new else "FRESH_NO_ELIGIBLE_SUCCESSOR",
-                successor_ticket=new["ticket"] if new else None)
+    if new:
+        return dict(result, disposition="FRESH_SUCCESSOR_READY",
+                    successor_ticket=new["ticket"])
+    if e.get("publication_attempt"):
+        return dict(result, disposition="FRESH_PUBLICATION_ATTEMPT_CONSUMED_NO_RETRY",
+                    successor_ticket=None)
+    from f139.nci04_fresh_successor_publication import publish_one
+    number = publish_one(db, api, key)
+    return dict(result,
+                disposition=("FRESH_SUCCESSOR_ISSUE_PUBLISHED_PENDING_ADMISSION"
+                             if number else "FRESH_NO_UNUSED_SOURCE_RECIPE"),
+                successor_issue_number=number, successor_ticket=None)

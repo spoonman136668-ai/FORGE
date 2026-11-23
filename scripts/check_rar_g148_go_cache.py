@@ -17,6 +17,7 @@ from check_rar_g145_pr_scope import (admit_original_pr, negative_controls,
     V54_RELEASE_BRANCH, V59_READONLY_BRANCH, V60_PROCESS_BRANCH,
     FRESH_OWNER_ADMIT_BRANCH, FRESH_CONCURRENCY_BRANCH,
     FRESH_ACTIVATION_BRANCH, FRESH_STANDDOWN_BRANCH, FRESH_REBIND_BRANCH,
+    F139_RECOVERY_AUDIT_BRANCH, F139_RECOVERY_AUDIT_RESULT,
     FRESH_SHELL_BRANCH, FRESH_REBIND_CANCEL_BRANCH, FRESH_REBOUND_BRANCH, FRESH_POLICY_BRANCH, FRESH_FUNCTIONAL_BRANCH, FRESH_CUSTODY_AUDIT_BRANCH, FRESH_RELEASE_META_BRANCH, FRESH_RELEASE_RULE_FIX_BRANCH,
     V61_PROCESS_FIX_BRANCH,
     V41_STATUS_BRANCH, V41_STATUS_RESULT,
@@ -145,6 +146,10 @@ def event_mode(head):
     if branch == FRESH_RELEASE_META_BRANCH:
         if admiss != "EXACT_F139_RELEASE_RUN_METADATA_CI_ONLY":
             raise ValueError("G148_RELEASE_META_EXACT_SOURCE_REQUIRED")
+        return "pr"
+    if branch == F139_RECOVERY_AUDIT_BRANCH:
+        if admiss != F139_RECOVERY_AUDIT_RESULT:
+            raise ValueError("G148_F139_RECOVERY_READONLY_EXACT_SCOPE_REQUIRED")
         return "pr"
     if branch == FRESH_CUSTODY_AUDIT_BRANCH:
         if admiss != "EXACT_F139_OWNER_CUSTODY_READONLY_CI_ONLY":
@@ -396,6 +401,21 @@ def event_mode(head):
     if branch == V41_STATUS_BRANCH:
         if admiss != V41_STATUS_RESULT:
             raise ValueError("G148_V41_EXACT_READONLY_SCOPE_REQUIRED")
+        return "pr"
+    # G145 independently authenticates original PR1863, pinned base/tree,
+    # exact workflows, source and changed paths. Never generalize this
+    # eligibility to other PRs or grant actual Task Scheduler authority.
+    if branch == "engineering/f139-fresh-original-source-forward-20261122":
+        if admiss != "F139_FORWARD_ORIGINAL_OWNER_SCOPED_SOURCE_CI_ONLY":
+            raise ValueError("G148_F139_FORWARD_EXACT_OWNER_SCOPE_REQUIRED")
+        return "pr"
+    if branch == "engineering/f139-history-conditioned-dev-selector-20261122":
+        if admiss != "EXACT_PR1869_F139_V2_SOURCE_FORWARD_CI_ONLY":
+            raise ValueError("G148_F139_V2_SCOPED_ORIGINAL_OWNER_SOURCE_REQUIRED")
+        return "pr"
+    if branch == "engineering/f139-v2-postfail-original-v1-recovery-20261122":
+        if admiss != "EXACT_PR1870_F139_V2_POSTFAIL_V1_RECOVERY_SOURCE_CI_ONLY":
+            raise ValueError("G148_F139_V2_RESTORE_SCOPED_OWNER_SOURCE_REQUIRED")
         return "pr"
     if branch != BRANCH:
         if admiss != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
