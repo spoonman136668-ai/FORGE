@@ -50,13 +50,17 @@ class TwoTierEvidenceTests(unittest.TestCase):
 
     def test_recent_fallback_requires_minimum_support_in_each_arm(self):
         memory = TwoTierEvidence()
-        memory.observe(0, 0, 1)
-        memory.observe(0, 1, 0)
-        self.assertIsNone(memory.choose(0, minimum_support=2))
-        # Lifetime counts remain eligible when recent evidence is insufficient.
-        memory.observe(0, 0, 1)
-        memory.observe(0, 1, 0)
+        # Old lifetime evidence favors action 0, but only one recent observation
+        # per arm is available, so the recent estimate must not override it.
+        memory._lifetime[0][0][1] = 4
+        memory._lifetime[0][1][0] = 4
+        memory.observe(0, 0, 0)
+        memory.observe(0, 1, 1)
+        self.assertIsNone(memory._winner(memory.recent_counts(0, 0),
+                                         memory.recent_counts(0, 1), 2))
+        self.assertEqual(memory.choose_lifetime(0), 0)
         self.assertEqual(memory.choose(0, minimum_support=2), 0)
+
 
     def test_checkpoint_roundtrip_preserves_both_tiers_and_decisions(self):
         memory = TwoTierEvidence()
