@@ -125,3 +125,48 @@ on the later source candidate; prior Q1 CI must not be reused as that proof.
 Q3 new-science first-use and Q4 scientific gain remain NOT AUTHORIZED/UNVERIFIED.
 Q5 deployment is HOLD. No new controller, schedule, API, workflow, owner task,
 original SQLite, scientific checkpoint or accepted refs were touched.
+
+
+## Q2 corpus and comparator capability audit (2026-11-23)
+
+**Corpus gate: BLOCKED / NO ELIGIBLE ORIGINAL CORPUS READILY AVAILABLE IN THE TRACKED PUBLIC SOURCE.**
+A bounded repository search found no independently authenticated, task-scoped
+native terminal-negative cohort suitable for a matched four-arm scientific
+comparison. Existing Native Discovery F1/F3 populations are explicitly
+synthetic labels/history and are not authentic Wingless/Yggdrasil studies.
+The small RSI-R4 repair-history cohort is historical software repairs, has
+only two training exemplars and is explicitly inadequate for general task
+performance or science-transfer claims. Do not relabel either corpus or reuse
+F1/F3 synthetic labels as scientific event outcomes. The original F139 owner
+ledger/runtime is not read or altered by this public source audit.
+
+**Generator limitation: the current Nature-plan producer is still a finite
+hand-authored recipe catalogue.** It selects at most three predefined
+mechanism structures for three fixed failure classes. This is not an
+unconstrained tree-search engine, adaptive hypothesis synthesis, or evidence
+that a genuinely new mechanism can be invented after recipe exhaustion.
+A distinct structured digest is a de-duplication key, not proof of semantic
+novelty. The method's core scientific claim therefore remains untested; do not
+advertise this catalogue as AI Scientist-equivalent autonomy.
+
+**Evaluator provenance hardening:** Q2 rows now bind to four frozen,
+distinct caller-declared source identities and fixed A/B/C/D arm roles.
+This prevents accidental arm swapping and simple source aliasing. These
+identities are still caller declarations, not authentication; a separate
+original owner must independently verify the source bytes and original
+terminal receipts. The new adverse test covers role/source mismatch.
+Even favorable labels remain source-unverified development diagnostics.
+
+Q2 actual empirical comparison remains **NOT RUN** pending an eligible,
+complete, original development corpus and a materially genuine bounded
+failure-guided generator. The next engineering experiment should test
+prospective hypothesis synthesis/branch expansion using only independently
+verified training-side negatives, against the strongest preselected control,
+with blind-branch and negative-memory ablations. No holdout access, training
+on sealed data, retroactive relabeling or first-use is authorized.
+
+The prior native F139 source workflow was still in progress on ancestor
+\`7e7829e741eb788be0b5bae5c78016ac8941b667\` at last read; do not reuse its
+pending state as qualification for this new candidate. All full exact-head
+regressions must run again on the latest commit. The previous full public
+Linux/Windows run and development rehearsal passed on that ancestor only.
