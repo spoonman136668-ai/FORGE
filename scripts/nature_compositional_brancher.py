@@ -9,7 +9,6 @@ of semantic novelty. The module performs no I/O, network, model calls or writes.
 from __future__ import annotations
 
 import hashlib
-import itertools
 import json
 import re
 
