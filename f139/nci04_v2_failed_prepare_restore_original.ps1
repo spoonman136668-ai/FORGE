@@ -144,7 +144,7 @@ Need ($recoveryFixPr.number -eq 1877 -and $recoveryFixPr.merged -eq $true -and
       $recoveryFixPr.head.ref -ceq 'engineering/f139-v1-recovery-current-main-ancestry-guard-20261123' -and
       $recoveryFixPr.head.repo.full_name -ceq $repo -and
       $recoveryFixPr.base.ref -ceq 'main' -and $recoveryFixPr.base.repo.full_name -ceq $repo -and
-      $recoveryFix.merge_commit_sha -ceq $recoveryFixMergeSha -and
+      $recoveryFix.sha -ceq $recoveryFixMergeSha -and
       @($recoveryFix.parents).Count -eq 2 -and
       $recoveryFix.parents[0].sha -ceq $recoveryFixPr.base.sha -and
       $recoveryFix.parents[1].sha -ceq $recoveryFixPr.head.sha -and
