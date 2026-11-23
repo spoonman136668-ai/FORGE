@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 from f139.local_controller import F139Error, SingleOwner
 from f139.nci04_native_contract import canonical
 from f139.nci04_v3_original_cold_host_cli import (
-    OWNER_DIR, V3HostColdDenied, inspect_cold_host, main,
+    FRESH_DIR, OWNER_DIR, V3HostColdDenied, inspect_cold_host, main,
 )
 from f139.test_nci04_v3_remote_readonly_preflight import (
     HEAD, MERGE, PR, RUNS, TREE,
@@ -24,7 +24,7 @@ class V3OriginalHostColdCLITests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.folder = Path(self.temp.name) / OWNER_DIR
+        self.folder = Path(self.temp.name) / OWNER_DIR / FRESH_DIR
         self.folder.mkdir(parents=True)
         self.dbpath = self.folder / "state.sqlite"
         self.dbpath.write_bytes(b"read-only-test-fixture")
@@ -109,8 +109,8 @@ class V3OriginalHostColdCLITests(unittest.TestCase):
             {"dbpath": Path("state.sqlite")},
             {"dbpath": self.folder / "other.sqlite"},
             {"folder": self.folder.parent},
-            {"dbpath": self.folder / "f139-fresh-dev-44831323193" / "state.sqlite",
-             "folder": self.folder / "f139-fresh-dev-44831323193"},
+            {"dbpath": Path(self.temp.name) / OWNER_DIR / "state.sqlite",
+             "folder": Path(self.temp.name) / OWNER_DIR},
         ):
             with self.subTest(bad=bad):
                 with self.assertRaisesRegex(
@@ -270,7 +270,7 @@ class V3OriginalHostColdCLITests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(errors.getvalue(), "")
         self.assertEqual(cold.call_args.kwargs["dbpath"], self.dbpath)
-        self.assertEqual(self.dbpath, Path(self.temp.name) / "FORGE-F139" / "state.sqlite")
+        self.assertEqual(self.dbpath, Path(self.temp.name) / OWNER_DIR / FRESH_DIR / "state.sqlite")
         self.assertEqual(cold.call_args.kwargs["folder"], self.folder)
         self.assertIn("F139_V3_ORIGINAL_COLD_HISTORY=READ_ONLY_PASS",
                       output.getvalue())
