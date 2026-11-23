@@ -417,6 +417,10 @@ def event_mode(head):
         if admiss != "EXACT_PR1870_F139_V2_POSTFAIL_V1_RECOVERY_SOURCE_CI_ONLY":
             raise ValueError("G148_F139_V2_RESTORE_SCOPED_OWNER_SOURCE_REQUIRED")
         return "pr"
+    if branch == "engineering/f139-fresh-audit-scheduler-readback-20261121":
+        if admiss != "EXACT_PR1860_F139_POSTRESTORE_LOG_AUDIT_CI_ONLY":
+            raise ValueError("G148_PR1860_EXACT_READONLY_SOURCE_REQUIRED")
+        return "pr"
     if branch != BRANCH:
         if admiss != "EXACT_MAIN_ANCESTOR_GENERIC_SOURCE_PR":
             raise ValueError("G148_ONLY_ORDINARY_TRUSTED_SOURCE_PR")

@@ -199,7 +199,8 @@ jobs:
           $key=Arg 'EncryptedKeyFile'
           $base=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
           $old=Join-Path $base 'release-candidates\408139c0a10fd4836a22422c8df041aa64dfa001'
-          $new=Join-Path $base ('release-candidates\'+ 'dce4c672078d6b293286e13f051fdc9a0e54f1da')
+          # The recovered original V1 installed checkout is immutable; main may be newer.
+          $new=Join-Path $base 'release-candidates\f24251e0d95938e593a54c1577a34efadc8080d8'
           $fresh=Join-Path $base 'f139-fresh-dev-44831323193\state.sqlite'
           $historic=Join-Path $base 'state.sqlite'
           Need (([IO.Path]::GetFullPath($dbPath) -ieq [IO.Path]::GetFullPath($fresh)) -and
@@ -218,6 +219,54 @@ jobs:
           $releasePresent=Test-Path -LiteralPath $new -PathType Container
           $controllerCount=@(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
             Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') }).Count
+          # Scheduler metadata and a bounded, sanitized tail of the EXISTING log only.
+          # Do not launch a task, run a controller tick, read credentials, or print raw logs.
+          $taskInfo=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          function UtcStamp([datetime]$value){
+            if($value -lt [datetime]'2000-01-01'){return $null}
+            return $value.ToUniversalTime().ToString('o')
+          }
+          $logPath=Join-Path (Split-Path -Path $dbPath -Parent) 'logs\controller.log'
+          $logPresent=Test-Path -LiteralPath $logPath -PathType Leaf
+          $logReadable=$false
+          $logUpdatedUtc=$null
+          $logClasses=@()
+          $pollRecordsInTail=0
+          if($logPresent){
+            try {
+              $item=Get-Item -LiteralPath $logPath -ErrorAction Stop
+              if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw 'AUDIT_LOG_REPARSE_POINT'
+              }
+              foreach($line in @(Get-Content -LiteralPath $logPath -Tail 160 -ErrorAction Stop)){
+                if($null -eq $line -or $line.Length -gt 4096){continue}
+                $category=$null
+                if($line -match 'F139_JOB_SUPERVISOR_BLOCKED='){$category='SUPERVISOR_BLOCKED'}
+                elseif($line -match 'F139_PROCESS_LIFETIME=KILL_ON_JOB_CLOSE'){$category='WRAPPER_STARTED'}
+                elseif($line -match 'F139_JOB_CHILD_ASSIGNED_BEFORE_RESUME=PASS'){$category='CHILD_ASSIGNED'}
+                elseif($line -match 'F139_FAIL_CLOSED'){$category='CONTROLLER_FAIL_CLOSED'}
+                elseif($line -match 'F139_CONTROLLER_EXITED'){$category='CONTROLLER_EXITED'}
+                elseif($line -match '"blocked"\s*:'){
+                  $pollRecordsInTail++
+                  $category='TICK_BLOCKED'
+                  if($line -match 'F139_FRESH_FORWARD_PROTECTED_FORWARD_SOURCE_DRIFT'){$category='SOURCE_CERT_MISMATCH'}
+                }
+                elseif($line -match '"disposition"\s*:'){
+                  $pollRecordsInTail++
+                  $category='TICK_RESULT'
+                  if($line -match 'FRESH_NO_UNUSED_SOURCE_RECIPE'){$category='NO_UNUSED_SOURCE_RECIPE'}
+                }
+                if($null -ne $category){$logClasses += $category}
+              }
+              $logUpdatedUtc=(UtcStamp $item.LastWriteTimeUtc)
+              $logReadable=$true
+            } catch {
+              # Readback failure is explicit, never hide it as an empty healthy log.
+              $logClasses=@()
+              $pollRecordsInTail=0
+              $logUpdatedUtc=$null
+            }
+          }
           $inspect=@'
           import json,sqlite3,sys
           from pathlib import Path
@@ -287,6 +336,14 @@ jobs:
             installed_source_sha=$installedSha
             release_install_directory_exists=[bool]$releasePresent
             controller_process_count=[int]$controllerCount
+            last_task_run_utc=(UtcStamp $taskInfo.LastRunTime)
+            next_task_run_utc=(UtcStamp $taskInfo.NextRunTime)
+            last_task_result=[int64]$taskInfo.LastTaskResult
+            controller_log_present=[bool]$logPresent
+            controller_log_readable=[bool]$logReadable
+            controller_log_last_write_utc=$logUpdatedUtc
+            controller_log_event_classes=@($logClasses | Select-Object -Last 12)
+            controller_poll_records_in_tail=[int]$pollRecordsInTail
             source_forward_task_binding=$forwardTaskBinding
             source_forward_stage_class=$forwardStageClass
             source_forward_certificate_class=$forwardCertClass
