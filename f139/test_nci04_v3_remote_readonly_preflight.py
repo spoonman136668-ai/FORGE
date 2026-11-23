@@ -196,7 +196,8 @@ class RemoteOnlyGateTests(unittest.TestCase):
 
     def test_missing_failed_replayed_or_foreign_ci_denied(self):
         for change in ("missing", "failed", "rerun", "different-head",
-                       "duplicate-job", "wrong-job-count"):
+                       "duplicate-job", "duplicate-extra-valid",
+                       "wrong-job-count"):
             with self.subTest(change=change):
                 api = fixture()
                 run = REPO + "/actions/runs/111"
@@ -211,6 +212,12 @@ class RemoteOnlyGateTests(unittest.TestCase):
                     api.documents[run]["head_sha"] = "d" * 40
                 elif change == "duplicate-job":
                     api.documents[jobs]["jobs"][1]["name"] = api.documents[jobs]["jobs"][0]["name"]
+                elif change == "duplicate-extra-valid":
+                    # The V2 name-set check accepts this unless V3 additionally
+                    # constrains the number of jobs, not just distinct names.
+                    api.documents[jobs]["jobs"].append(
+                        deepcopy(api.documents[jobs]["jobs"][0]))
+                    api.documents[jobs]["total_count"] += 1
                 else:
                     api.documents[jobs]["total_count"] += 1
                 with self.assertRaises(V3RemotePreflightDenied):

@@ -26,6 +26,29 @@ class V3RemotePreflightDenied(ValueError):
     pass
 
 
+class _ExactJobMultiplicity:
+    """Re-use the V2 qualification checks without allowing extra name collisions.
+
+    Reads each original GET exactly once. Duplicate named jobs must never
+    qualify just because their set of names equals the required job-name set.
+    """
+    def __init__(self, api, run_id: int, expected_names):
+        self.api = api
+        self.jobs_path = (REPO + "/actions/runs/" + str(run_id) +
+                          "/jobs?per_page=100")
+        self.expected_count = len(expected_names)
+
+    def get(self, route: str):
+        value = self.api.get(route)
+        if route == self.jobs_path:
+            need(type(value) is dict
+                 and value.get("total_count") == self.expected_count
+                 and type(value.get("jobs")) is list
+                 and len(value["jobs"]) == self.expected_count,
+                 "CI_JOB_MULTIPLICITY_DRIFT")
+        return value
+
+
 def need(condition: bool, code: str) -> None:
     if not condition:
         raise V3RemotePreflightDenied("F139_V3_READONLY_" + code)
@@ -123,7 +146,9 @@ def inspect_merged_source_readonly(api, *, owner_source_sha: str,
             "rehearsal_run_id": rehearsal_run_id,
         }
         for name, expected in CI_JOBS:
-            _qualified_run(api, runs[name], pr_head_sha, expected)
+            _qualified_run(
+                _ExactJobMultiplicity(api, runs[name], expected),
+                runs[name], pr_head_sha, expected)
         need(api.get(REPO + "/branches/main") == branch,
              "PROTECTED_MAIN_MOVED_DURING_READ")
     except (OSError, KeyError, TypeError, AttributeError, F139Error,
