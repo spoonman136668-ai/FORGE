@@ -44,6 +44,8 @@ def fixture():
         REPO + "/git/commits/" + MERGE:
             {"sha": MERGE, "tree": {"sha": TREE},
              "parents": [{"sha": BASE_MAIN}, {"sha": HEAD}]},
+        REPO + "/git/commits/" + HEAD:
+            {"sha": HEAD, "tree": {"sha": TREE}},
         REPO + "/compare/" + BASE_MAIN + "..." + BASE_MAIN: {
             "status": "identical", "ahead_by": 0, "behind_by": 0,
             "base_commit": {"sha": BASE_MAIN},
@@ -123,6 +125,26 @@ class RemoteOnlyGateTests(unittest.TestCase):
             verify(api)
         api = fixture()
         api.documents[REPO + "/git/commits/" + MERGE]["parents"][1]["sha"] = "d" * 40
+        with self.assertRaises(V3RemotePreflightDenied):
+            verify(api)
+
+    def test_merge_resolution_must_match_fully_qualified_head_tree(self):
+        # A post-qualification merge may introduce additional resolution
+        # content; reject it unless the exact tested Git tree is preserved.
+        for bad_commit in (
+            {"sha": HEAD, "tree": {"sha": "d" * 40}},
+            {"sha": "d" * 40, "tree": {"sha": TREE}},
+            {"sha": HEAD},
+        ):
+            with self.subTest(bad_commit=bad_commit):
+                api = fixture()
+                api.documents[REPO + "/git/commits/" + HEAD] = bad_commit
+                with self.assertRaisesRegex(
+                        V3RemotePreflightDenied,
+                        "MERGED_TREE_DIFFERS_FROM_QUALIFIED_PR_HEAD"):
+                    verify(api)
+        api = fixture()
+        del api.documents[REPO + "/git/commits/" + HEAD]
         with self.assertRaises(V3RemotePreflightDenied):
             verify(api)
 

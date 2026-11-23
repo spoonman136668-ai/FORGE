@@ -63,6 +63,7 @@ def inspect_merged_source_readonly(api, *, owner_source_sha: str,
         branch = api.get(REPO + "/branches/main")
         base = api.get(REPO + "/git/commits/" + BASE_MAIN)
         commit = api.get(REPO + "/git/commits/" + owner_source_sha)
+        head_commit = api.get(REPO + "/git/commits/" + pr_head_sha)
         pr = api.get(REPO + "/pulls/" + str(pr_number))
         need(type(branch) is dict and branch.get("name") == "main"
              and branch.get("protected") is True
@@ -82,6 +83,12 @@ def inspect_merged_source_readonly(api, *, owner_source_sha: str,
              and type(parents[1]) is dict
              and parents[1].get("sha") == pr_head_sha,
              "MERGE_PARENT_OR_TREE_MISMATCH")
+        # All three qualification workflows tested the PR head, not a merge
+        # resolution. Refuse untested changes introduced by the merge commit.
+        need(type(head_commit) is dict
+             and head_commit.get("sha") == pr_head_sha
+             and head_commit.get("tree", {}).get("sha") == owner_source_tree,
+             "MERGED_TREE_DIFFERS_FROM_QUALIFIED_PR_HEAD")
         need(type(pr) is dict and pr.get("number") == pr_number
              and pr.get("merged") is True and pr.get("state") == "closed"
              and pr.get("merge_commit_sha") == owner_source_sha
