@@ -144,7 +144,8 @@ class SingleOwner:
                 return False
         opened = os.fstat(self.fd.fileno())
         current = self.path.stat()
-        return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
+        return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino) \
+            and opened.st_size > 0 and current.st_size > 0
 
     def __enter__(self):
         if self.existing_only:
