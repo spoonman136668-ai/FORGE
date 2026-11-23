@@ -1,0 +1,50 @@
+name: FORGE F88 optimizer-only staged integration qualification
+on:
+  push:
+    branches: [engineering/f88-native-five-optimizer-stage-20261016-r1]
+    paths:
+      - 'optimizerstages/**'
+      - '.github/workflows/forge-f88-optimizer-stage.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'optimizerstages/**'
+      - '.github/workflows/forge-f88-optimizer-stage.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f88-optimizer-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  five-optimizer-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact source, five optimizer packages, no operational authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./optimizerstages ./dreamrsi ./evoportfolio ./thetaadapt ./promptlineage ./genenv
+          go vet ./optimizerstages ./dreamrsi ./evoportfolio ./thetaadapt ./promptlineage ./genenv
+      - name: Full Go test, vet and build in isolated hosted CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F88_FIVE_OPTIMIZER_SOURCE_QUALIFIED=PASS'
+          echo 'F88_PROSPECTIVE_SELECTION=NOT_AUTHORIZED'
+          echo 'F88_THETA_LIVE_TRAINING=NOT_AUTHORIZED'
+          echo 'F88_PROMPTBREEDER_GENENV=UNTESTED_ONLY'
+          echo 'F88_SCIENCE_DISPATCH=ZERO'
+          echo 'F88_CLOUDFLARE_WRITES=ZERO'
+          echo 'F88_CKB_DEPENDENCIES=ZERO'

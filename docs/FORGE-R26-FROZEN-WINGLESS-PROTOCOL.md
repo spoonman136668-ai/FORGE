@@ -1,0 +1,7 @@
+# FORGE R26 — frozen independent replication protocol
+
+The immutable preregistration `research/r26-wingless/prereg.json` identifies one NEW Wingless out-of-cohort original. Its parent method is the existing published W-R52 code on Wingless commit `b1e4972f04142f1f35f76f9483b12491dec4846c`; W-R52 itself is consumed and must not be rerun on its old cohorts. The R26 method re-fits six frozen model arms on three disjoint, previously unused development cohorts then evaluates 48 fresh heldout seeds, with comparisons, budgets, and thresholds committed *before any R26 executable implementation*. Hypothesis and scientific scope are limited to controlled synthetic paired-choice benchmarks, not real-world learning or a new algorithm.
+
+Preserve the prior original's negative or partial outcomes, regardless of R26 classification. An independent hosted job must verify source, frozen byte hash, cohort disjointness, raw measurements, exact threshold recomputation, and original artifact identity. A branch-based GitHub claim must be committed before any first-use attempt; a failed claim or interrupted original is consumed/indeterminate, never automatically repeated.
+
+This first PR freezes protocol only, authorizes no execution, and leaves CKB-plane, Wingless, Yggdrasil and KTRADE unmodified. External FSA remains deferred. Local/GitHub custody is not physically independent FSA, so **FORGE research takeover is not authorized**. Implementation and execution must occur in subsequent commits, preserving the pre-implementation source-birth record.

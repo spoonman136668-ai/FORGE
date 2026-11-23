@@ -1,0 +1,30 @@
+name: MP-AI05 opt-in consumer focused qualification
+on:
+  push:
+    branches: [feature/mpai05-optin-retrieval-20261027]
+    paths:
+      - 'tools/mpai05_query_normalizer.py'
+      - 'tools/mpai05_retrieval_consumer.py'
+      - 'tests/test_mpai05_optin_consumer.py'
+      - '.github/workflows/mpai05-optin-qualification.yml'
+  pull_request:
+    paths:
+      - 'tools/mpai05_query_normalizer.py'
+      - 'tools/mpai05_retrieval_consumer.py'
+      - 'tests/test_mpai05_optin_consumer.py'
+      - '.github/workflows/mpai05-optin-qualification.yml'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test bounded adapter without private credentials or network
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_mpai05_optin_consumer.py' -v
+          echo 'MPAI05_FOCUSED_CANDIDATE=PASS'
+          echo 'MPAI05_RUNTIME_ADOPTION=NOT_ENABLED'

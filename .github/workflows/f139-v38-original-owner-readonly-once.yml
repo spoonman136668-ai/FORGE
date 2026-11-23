@@ -1,0 +1,81 @@
+name: FORGE F139 V38 original owner one-shot read-only preflight
+# This existing read-only route is requalified for a fresh V38 cold-ledger
+# snapshot after current-main owner guard and V5 task profile verified.
+# It reads the held original task/ledger under SingleOwner; no task, source,
+# queue, policy, schema, scheduler, science or first-use mutation.
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+  pull-requests: read
+# Serialize with the existing original owner V41 workflow; no rival consumer.
+concurrency:
+  group: forge-f139-v38-original-ledger-cold-readonly-v1
+  cancel-in-progress: false
+jobs:
+  original-owner-v38-readonly-preflight:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.event.issue.number == 807 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'F139-V38-LEDGER-COLD-READONLY-V1 ')
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout triggering protected-main source without retained credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Original Windows task and event-1830 source-only cold readback
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: .
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_SHA -cnotmatch '^[a-f0-9]{40}$' -or
+             $env:OPENAI_API_KEY) {
+            throw 'F139_V38_READONLY_WRONG_OWNER_EVENT_OR_RUNNER'
+          }
+          $head=(& git -C $env:GITHUB_WORKSPACE rev-parse HEAD | Out-String).Trim()
+          $dirty=@(& git -C $env:GITHUB_WORKSPACE status --porcelain --untracked-files=all)
+          if($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA -or
+             $dirty.Count -ne 0) {
+            throw 'F139_V38_READONLY_SOURCE_NOT_EXACT_OR_CLEAN'
+          }
+          $ev=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          $required='F139-V38-LEDGER-COLD-READONLY-V1 '+$env:GITHUB_SHA+' 6892848524'
+          if($ev.action -cne 'created' -or
+             [string]$ev.comment.body -cne $required -or
+             $ev.comment.user.login -cne 'spoonman136668-ai' -or
+             $ev.sender.login -cne 'spoonman136668-ai') {
+            throw 'F139_V38_READONLY_CANONICAL_OWNER_REQUEST_REQUIRED'
+          }
+          # Read-only original SID, disabled task, 1830 event chain, 153/56
+          # historical custody, cold detached replay and unchanged policy.
+          # The CLI separately validates signed V5 predecessor, frozen V37
+          # approval, unchanged two-lane policy, exact protected source and
+          # eight first-attempt postmerge CI jobs before touching original DB.
+          & python -B -m f139.nci04_v38_owner_ledger_cold_readonly --target $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0) {
+            throw 'F139_V38_ORIGINAL_READONLY_PREFLIGHT_NOT_ACCEPTED'
+          }
+          Write-Output 'F139_V38_ORIGINAL_OWNER_LEDGER_COLD_WORKFLOW=PASS_READONLY'
+          Write-Output 'F139_V38_ORIGINAL_TASK_MUTATIONS=ZERO'
+          Write-Output 'F139_V38_SOURCE_TRANSITION=NOT_REQUESTED'
+          Write-Output 'F139_V38_HYBRID_ACTIVATION=NOT_REQUESTED'
+          Write-Output 'F139_V38_SCIENTIFIC_FIRST_USE=FALSE'

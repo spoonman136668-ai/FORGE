@@ -1,0 +1,83 @@
+name: F139 exact Windows native-source byte preservation full qualification
+on:
+  push:
+    branches: [repair/f139-native-windows-literal-git-bytes-20261023]
+permissions:
+  contents: read
+jobs:
+  authenticate-and-qualify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 40
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - name: Preserve literal immutable Git object bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global core.autocrlf false
+          git config --global core.safecrlf true
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 992ef142aaa551156749a1de484a971b9a0c092f
+          path: native
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+      - name: Authenticate exact originally rejected Yggdrasil preimage on native OS
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git config --global --get core.autocrlf)" = false
+          test "$(git -C native rev-parse HEAD)" = 992ef142aaa551156749a1de484a971b9a0c092f
+          test "$(git -C native rev-parse 'HEAD^{tree}')" = 7e37c56e42dbd47a87da7a75210657a040f47a71
+          python -B - <<'PY'
+          from pathlib import Path
+          import hashlib
+          raw=Path("native/yggdrasil/public_causal_cells.py").read_bytes()
+          actual=hashlib.sha256(raw).hexdigest()
+          assert actual=="4f57fef8f6e287ffef66ca8cf313cce5c137d76de9aba63201eb0401d1782c50", actual
+          print("F139_NATIVE_YGGDRASIL_ORIGINAL_LITERAL_BYTES=PASS")
+          PY
+          git diff --exit-code HEAD -- .
+          test -z "$(git -C native status --porcelain --untracked-files=all)"
+      - name: Frozen focused native guard tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_nci04_native_contract.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_native_worker.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_provider_receipt.py' -v
+          echo F139_NATIVE_LF_GUARDS_FOCUSED=PASS
+      - name: One required full original Python Go regression vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          git diff --exit-code HEAD -- .
+          echo F139_NATIVE_LITERAL_BYTE_FULL_WINDOWS_LINUX=PASS
+      - name: Confirm source-only, no owner mutation
+        shell: bash
+        run: |
+          echo F139_NATIVE_WORKER_SOURCE_ONLY=TRUE
+          echo F139_ORIGINAL_OWNER_DATABASE_MUTATIONS=ZERO
+          echo F139_NO_REPLAY_OR_SCIENCE_FIRST_USE=TRUE

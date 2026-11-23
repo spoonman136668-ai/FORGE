@@ -1,0 +1,97 @@
+name: FORGE F95 actual novelty mechanism Git-source qualification
+on:
+  push:
+    branches: [engineering/f95-actual-novelty-implementation-20261016-r1]
+    paths:
+      - 'optimizerstages/f95_*'
+      - 'noveltymechanisms/f95_*'
+      - 'cmd/f95audit/**'
+      - '.github/workflows/forge-f95-implementation-novelty.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'optimizerstages/f95_*'
+      - 'noveltymechanisms/f95_*'
+      - 'cmd/f95audit/**'
+      - '.github/workflows/forge-f95-implementation-novelty.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f95-implementation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  read-real-go-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact immutable parent and code source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor dce583ff9e1be25effe2d7c1988a92c0ede6780e "$GITHUB_SHA"
+          git cat-file -e dce583ff9e1be25effe2d7c1988a92c0ede6780e:genenv/genenv.go
+          git cat-file -e dce583ff9e1be25effe2d7c1988a92c0ede6780e:promptlineage/lineage.go
+          git cat-file -e "$GITHUB_SHA:noveltymechanisms/f95_representation.go"
+          git cat-file -e "$GITHUB_SHA:noveltymechanisms/f95_consumer.go"
+          git cat-file -e "$GITHUB_SHA:noveltymechanisms/f95_environment_test.go"
+          echo 'F95_REAL_GIT_SOURCE_READBACK=PASS'
+      - name: Test actual typed relation implementation and frozen F94 lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -run '^TestF95' -v ./noveltymechanisms ./optimizerstages
+          go test -count=1 ./promptlineage ./genenv ./optimizerstages ./noveltymechanisms
+          go vet ./noveltymechanisms ./optimizerstages ./cmd/f95audit
+          mkdir -p "$RUNNER_TEMP/f95"
+          go run ./cmd/f95audit > "$RUNNER_TEMP/f95/source-readback.json"
+          python3 - "$RUNNER_TEMP/f95/source-readback.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert x["schema"]=="forge.f95.exact-git-blob-readback.v1"
+          assert x["baseline"]=="dce583ff9e1be25effe2d7c1988a92c0ede6780e"
+          assert x["real_git_objects_read"] is True
+          assert x["f94_generator_lineage_independently_pinned"] is False
+          assert x["novel_code_scientific_results_accepted"] is False
+          a=x["audit"]
+          assert a["source_bytes_match_claims"] is True
+          assert a["all_three_go_ast_shapes_changed"] is True
+          assert len(a["structural_claims"])==3
+          assert all(i["ast_shape_changed"] for i in a["structural_claims"])
+          for key in ("verified_external_git_object_custody",
+            "generated_candidate_scientifically_novel",
+            "real_prospective_holdout_qualified","scientific_causal_gain_accepted",
+            "dream_pareto_promotion_authorized","theta_evolve_training_enabled",
+            "scientific_original_dispatch_authorized","accepted_reference_mutation"):
+            assert a[key] is False,(key,a[key])
+          print("F95_IMPLEMENTATION_SOURCE=REAL_GIT_BLOB_AND_AST_CHANGE")
+          print("F95_GENUINE_SCIENCE_NOVELTY=NOT_ESTABLISHED")
+          PY
+          (cd "$RUNNER_TEMP/f95"; sha256sum source-readback.json > sha256.txt; sha256sum -c sha256.txt)
+          echo 'F95_ORIGINAL_RESEARCH_DISPATCH=ZERO'
+          echo 'F95_CLOUDFLARE_WRITES=ZERO'
+          echo 'F95_CKB_ACCESS=ZERO'
+      - name: Whole FORGE Go regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f95-real-code-source-evidence
+          path: |
+            ${{ runner.temp }}/f95/source-readback.json
+            ${{ runner.temp }}/f95/sha256.txt
+          retention-days: 45
+          if-no-files-found: error

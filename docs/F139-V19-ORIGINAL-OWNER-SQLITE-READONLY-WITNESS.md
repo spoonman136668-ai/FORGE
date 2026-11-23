@@ -1,0 +1,15 @@
+# F139 V19 — Original-owner strictly read-only SQLite witness
+
+**Source-only gate, not a deployment or successful live owner attestation.**
+
+This gate fixes a distinction exposed during V19 release review. The ordinary `Database(filename)` constructor opens SQLite as a writer-capable connection and executes `PRAGMA journal_mode=WAL`. Even if a subsequent verification method only reads, constructing the database that way cannot certify a zero-write inspection.
+
+`Database.open_readonly(filename)` instead opens the *existing* SQLite file with SQLite URI `mode=ro`, enforces `PRAGMA query_only=ON`, cold-verifies the original SHA ledger, and never runs the writer constructor. It does not create a missing database. V19's existing original release preflight now refuses a normal writable `Database` and requires this explicitly tagged read-only connection under the already-existing `SingleOwner` mutex.
+
+The opt-in probe `python -B -m f139.nci04_v19_original_owner_nowrite_probe --db <original-state.sqlite>` checks the expected original Windows runner name, local owner profile path, scheduled task state and exact action/three triggers, Windows owner SID, 300-second polling, original clean deployed V18 checkout, then takes one bounded read-only ledger/policy/PR/CI snapshot using the already existing read-only GitHub API client. It checks the V18 head both before and after the remote reads and returns an unambiguous `runtime_cutover_authorized=false` result. The probe does **not** stop, disable, modify, reschedule, or restart the original task, create a backup, mutate SQLite metadata/events, issue any GitHub POST/PATCH, perform provider work, or create a new controller. It does not run automatically as a pull-request job on a privileged original runner.
+
+A read-only SQLite connection can still involve SQLite-managed WAL/shared-memory read coordination. The provenance guarantee is that the primary database is opened with SQLite's read-only flag and application SQL writes are denied; this is not a forensic claim that every operating-system metadata file remains unchanged. The regression hashes the primary SQLite fixture before/after and tests actual UPDATE/CREATE rejection, missing database refusal, owner mutex requirement, and denial of a normal writable constructor.
+
+The original Windows task and persistent state are **not accessible for real attestation through this source-only GitHub qualification**. Until the probe actually executes under the original owner on the original Windows runner, its live owner/task/source/SQLite fields are **UNVERIFIED**. Even a successful probe cannot authorize a cutover: final protected-main release, full V19 commit provenance, immutable release-ref readback, owner-controlled quiescence, cold-restorable backup, and rollback remain separate requirements.
+
+Parent chain: #1052 → #1053 → #1056 → #1059 → this read-only witness gate. No branch merge, protected-main movement, #807 update, owner task/SQLite write, source promotion, paid API or scientific-first-use is authorized by the existence of this code or by hosted CI alone.

@@ -1,0 +1,76 @@
+name: MP-AI16 UQ37 source-pinned safe Mind-Palace upgrades transition
+on:
+  push:
+    branches: [proposal/mpai16-uq37-current-tree-20261106]
+    paths:
+      - .github/workflows/mind-palace-uq37-scheduled-poll.yml
+      - tools/mpai16_mind_palace_tools_transition_check.py
+      - .github/workflows/mpai16-uq37-transition-qualification-20261029.yml
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq37-guarded-source-poll
+  cancel-in-progress: false
+jobs:
+  original-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTHONIOENCODING: utf-8
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 4
+      - name: Authenticate exact current tree and retained inspection dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'MPAI16_RUNNER_AUTHORIZATION_DENIED'
+          }
+          if((git rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA){
+            throw 'MPAI16_FORGE_SOURCE_SHA_DRIFT'
+          }
+          $pins=@{
+            '.github/workflows/mind-palace-uq37-scheduled-poll.yml'='6b79501b4d1ddc0fe5902309a6d91ef664127f77'
+            'tools/mpai16_mind_palace_tools_transition_check.py'='80c708b06d66b7584a95c86dfa41c81e14e6cd33'
+            'tools/test_mpai16_tools_transition_check.py'='8f4234c809276df9d279cf90d24675ec5190b5eb'
+          }
+          foreach($path in $pins.Keys){
+            $actual=(git rev-parse ('HEAD:'+$path) | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $actual -cne $pins[$path]){
+              throw 'MPAI16_WORKFLOW_OR_PROGRAM_BLOB_PIN_DRIFT'
+            }
+          }
+          foreach($key in @('OPENAI_API_KEY','ANTHROPIC_API_KEY','OPENROUTER_API_KEY','HF_TOKEN','HUGGING_FACE_HUB_TOKEN')){
+            Remove-Item ('Env:'+$key) -ErrorAction SilentlyContinue
+          }
+          & python -B -m unittest discover -s tools -p test_mpai16_tools_transition_check.py -v
+          if($LASTEXITCODE -ne 0){throw 'MPAI16_NEGATIVE_CONTROLS_FAILED'}
+          & python -B tools/mpai16_mind_palace_tools_transition_check.py --current-tree
+          if($LASTEXITCODE -ne 0){throw 'MPAI16_ROLLOUT_SOURCE_PROOF_FAILED'}
+      - name: Execute the actual approved read-only poll body
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B tools/mpai16_mind_palace_tools_transition_check.py --inspect-current-poll
+          if($LASTEXITCODE -ne 0){throw 'MPAI16_ACTUAL_POLL_FAILED'}
+      - name: Independently verify private scratch cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scratch = Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-' + $env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){
+            Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+          }
+          if(Test-Path -LiteralPath $scratch){throw 'UQ40_PRIVATE_SCRATCH_RETAINED'}
+          Write-Host 'UQ40_PRIVATE_SCRATCH_CLEAN=PASS'

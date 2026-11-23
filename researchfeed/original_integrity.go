@@ -1,0 +1,144 @@
+// RSH-04 closes the raw-byte integrity gap for an independently pinned,
+// already-produced research-original GitHub Actions ZIP. This verifier is
+// entirely offline and NEVER re-executes a scientific task or accepts science.
+package researchfeed
+
+import (
+ "archive/zip"
+ "bytes"
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "io"
+ "path"
+ "strings"
+)
+
+const MaxOriginalArchiveBytes=4<<20
+const MaxOriginalPayloadBytes=4<<20
+
+var ErrOriginalIntegrity=errors.New("FORGE_RSH04_ORIGINAL_EVIDENCE_INTEGRITY_NOT_VERIFIED")
+
+// OriginalPin must be independently obtained from frozen operator custody,
+// not from candidate index JSON, Mind-Palace summaries, or a model output.
+// Matching bytes to this pin establishes integrity ONLY, not scientific truth.
+type OriginalPin struct{
+ Lane string
+ ResearchID string
+ SourceRepo string
+ SourceCommit string
+ SourcePath string
+ WorkflowRunID int64
+ ArtifactID int64
+ ArtifactName string
+ FileName string
+ ZipSHA256 string
+ RawSHA256 string
+ ExpectedClassification string
+ ExpectedOutcome string
+}
+
+// RunReceipt is metadata that the caller must separately retrieve from
+// the actual GitHub Actions API over its authenticated read-only session.
+// This struct is NOT a cryptographic attestment of that retrieval.
+type RunReceipt struct{
+ SourceRepo string
+ HeadSHA string
+ WorkflowRunID int64
+ ArtifactID int64
+ ArtifactName string
+ Status string
+ Conclusion string
+}
+
+// OriginalIntegrityObservation is strictly an integrity/advisory result.
+// Even full SHA matches cannot establish independent FSA custody, first-use
+// exclusivity, test validity, or scientific acceptance.
+type OriginalIntegrityObservation struct{
+ Schema string `json:"schema"`
+ InputSHA256 string `json:"input_sha256"`
+ Lane string `json:"lane"`
+ ResearchID string `json:"research_id"`
+ SourceRepo string `json:"source_repo"`
+ SourceCommit string `json:"source_commit"`
+ EvidenceZIPHashVerified bool `json:"evidence_zip_hash_verified"`
+ OriginalRawHashVerified bool `json:"original_raw_hash_verified"`
+ SourceRunMetadataMatched bool `json:"source_run_metadata_matched"`
+ PreservedClassification string `json:"preserved_classification"`
+ PreservedOutcome string `json:"preserved_outcome"`
+ AdvisoryOnly bool `json:"advisory_only"`
+ OriginalBytesAuthenticated bool `json:"original_bytes_authenticated"`
+ FirstUseAuthorized bool `json:"first_use_authorized"`
+ ScientificAccepted bool `json:"scientific_accepted"`
+ DispatchAuthorized bool `json:"dispatch_authorized"`
+ FSAWitnessAuthenticated bool `json:"fsa_witness_authenticated"`
+}
+
+func safeOriginalFileName(s string)bool{
+ if s==""||len(s)>120||s=="."||s==".."||s!=path.Base(s)||strings.Contains(s,":")||strings.Contains(s,string(rune(92)))||strings.IndexFunc(s,func(ch rune)bool{return ch<32})>=0{return false}
+ for _,ch:=range s{if !(ch>='A'&&ch<='Z'||ch>='a'&&ch<='z'||ch>='0'&&ch<='9'||ch=='-'||ch=='_'||ch=='.'){return false}}
+ return true
+}
+func matchOriginalPin(p OriginalPin)bool{
+ if !valid(Candidate{Lane:p.Lane,ResearchID:p.ResearchID,SourceRepo:p.SourceRepo,
+ SourceCommit:p.SourceCommit,SourcePath:p.SourcePath,Outcome:p.ExpectedOutcome,
+ EvidenceState:"SOURCE_POINTER_ONLY"})||!safeOriginalFileName(p.FileName)||
+ !safeID(p.ArtifactName)||!safeID(p.ExpectedClassification)||
+ !hexLower(p.ZipSHA256,64)||!hexLower(p.RawSHA256,64)||
+ p.WorkflowRunID<=0||p.ArtifactID<=0{return false}
+ return true
+}
+func sumHex(data []byte)string{h:=sha256.Sum256(data);return hex.EncodeToString(h[:])}
+
+// VerifyOriginalArtifact refuses any unauthenticated or mismatching source
+// index BEFORE opening ZIP bytes. Strict archive bounds, a single expected
+// JSON filename, CRC and SHA checks, and preserved classification are required.
+// It has no network, execution, cryptographic signer, CAS, or write surface.
+func VerifyOriginalArtifact(rawIndex []byte, pin OriginalPin, run RunReceipt, archive []byte)(OriginalIntegrityObservation,error){
+ var zero OriginalIntegrityObservation
+ if !matchOriginalPin(pin)||len(archive)==0||len(archive)>MaxOriginalArchiveBytes{return zero,ErrOriginalIntegrity}
+ preview,err:=PreviewCandidates(rawIndex)
+ if err!=nil||!preview.AdvisoryOnly||preview.OriginalBytesAuthenticated||preview.ExecutionAuthorized{return zero,ErrOriginalIntegrity}
+ found:=0
+ for _,entry:=range preview.Entries{
+  if entry.Lane==pin.Lane&&entry.ResearchID==pin.ResearchID{
+   found++
+   if entry.SourceRepo!=pin.SourceRepo||entry.SourceCommit!=pin.SourceCommit||
+    entry.SourcePath!=pin.SourcePath||entry.Outcome!=pin.ExpectedOutcome{
+    return zero,ErrOriginalIntegrity
+   }
+   // A worker's reported hash must never be elevated as original custody.
+   if entry.ReportedSHA256!=""&&entry.ReportedSHA256!=pin.RawSHA256{return zero,ErrOriginalIntegrity}
+  }
+ }
+ if found!=1||run.SourceRepo!=pin.SourceRepo||run.HeadSHA!=pin.SourceCommit||
+  run.WorkflowRunID!=pin.WorkflowRunID||run.ArtifactID!=pin.ArtifactID||
+  run.ArtifactName!=pin.ArtifactName||run.Status!="completed"||run.Conclusion!="success"{
+  return zero,ErrOriginalIntegrity
+ }
+ if sumHex(archive)!=pin.ZipSHA256{return zero,ErrOriginalIntegrity}
+ zr,err:=zip.NewReader(bytes.NewReader(archive),int64(len(archive)))
+ if err!=nil||len(zr.File)!=1{return zero,ErrOriginalIntegrity}
+ file:=zr.File[0]
+ if file.Name!=pin.FileName||file.FileInfo().IsDir()||
+  file.UncompressedSize64==0||file.UncompressedSize64>MaxOriginalPayloadBytes||
+  !file.Mode().IsRegular(){return zero,ErrOriginalIntegrity}
+ reader,err:=file.Open();if err!=nil{return zero,ErrOriginalIntegrity}
+ data,err:=io.ReadAll(io.LimitReader(reader,MaxOriginalPayloadBytes+1))
+ closeErr:=reader.Close()
+ if err!=nil||closeErr!=nil||len(data)==0||len(data)>MaxOriginalPayloadBytes||
+  sumHex(data)!=pin.RawSHA256||!uniqueKeys(data){return zero,ErrOriginalIntegrity}
+ var result struct{Classification string `json:"classification"`}
+ if err=json.Unmarshal(data,&result);err!=nil||result.Classification!=pin.ExpectedClassification{
+  return zero,ErrOriginalIntegrity
+ }
+ return OriginalIntegrityObservation{
+  Schema:"forge.rsh04-original-integrity-observation.v1",
+  InputSHA256:preview.InputSHA256,Lane:pin.Lane,ResearchID:pin.ResearchID,
+  SourceRepo:pin.SourceRepo,SourceCommit:pin.SourceCommit,
+  EvidenceZIPHashVerified:true,OriginalRawHashVerified:true,
+  SourceRunMetadataMatched:true,PreservedClassification:result.Classification,
+  PreservedOutcome:pin.ExpectedOutcome,AdvisoryOnly:true,
+ },nil
+}

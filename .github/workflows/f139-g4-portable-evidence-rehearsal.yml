@@ -1,0 +1,244 @@
+name: F139 G4 signed portable owner receipt development rehearsal
+on:
+  push:
+    branches: [research/f139-g4-portable-original-evidence-20261024]
+    paths: [.github/workflows/f139-g4-portable-evidence-rehearsal.yml]
+# One-shot G4 source-repair receipt qualification; no recurring trigger or controller change.
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+concurrency:
+  group: f139-g4-owner-signed-receipt
+  cancel-in-progress: false
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Original-only source, SID, policy and same-root SQLite custody proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $source='52e007e83be08b851283fc4a6e213ea506469f43'
+          $ticket='f139-nci04-i856-52e007e83be0-51b67e31'
+          $repo='spoonman136668-ai/FORGE'
+          if($env:GITHUB_REPOSITORY -cne $repo -or
+             $env:GITHUB_REF -cne 'refs/heads/research/f139-g4-portable-original-evidence-20261024' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+            throw 'F139_G4_ORIGINAL_OWNER_IDENTITY_DRIFT'
+          }
+          $head=(& git.exe -C $env:GITHUB_WORKSPACE rev-parse HEAD|Out-String).Trim()
+          $main=(& gh api "repos/$repo/branches/main" --jq '.commit.sha'|Out-String).Trim()
+          $policy=(& gh api "repos/$repo/issues/807" --jq '.body'|Out-String).Trim()|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA -or
+             $main -cne $source -or $policy.source_sha -cne $source -or
+             $policy.enabled -ne $true -or $policy.scientific_first_use -ne $false){
+            throw 'F139_G4_MAIN_POLICY_NOT_ATTESTED'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3 -or
+             [string]$t.State -cnotin @('Ready','Running')){
+            throw 'F139_G4_ORIGINAL_TASK_TOPOLOGY'
+          }
+          $p=[string]$t.Principal.UserId
+          $sid=if($p -match '^S-1-'){$p}else{
+            (New-Object Security.Principal.NTAccount($p)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){
+            throw 'F139_G4_ORIGINAL_TASK_SID'
+          }
+          $opts=[string]$t.Actions[0].Arguments
+          function Arg([string]$key){
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G4_TASK_ARGUMENTS'}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database';$python=Arg 'PythonExe';$root=Arg 'RepositoryRoot'
+          if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim()) -cne $source -or
+             [IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             [IO.Path]::GetFullPath($root) -ieq [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)){
+            throw 'F139_G4_OWNER_SOURCE_OR_DATABASE_DRIFT'
+          }
+          $scratch=Join-Path ([IO.Path]::GetDirectoryName($db)) ('f139-g4-portable-'+$env:GITHUB_RUN_ID+'.sqlite')
+          $output=Join-Path $env:GITHUB_WORKSPACE 'g4-portable.json'
+          if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $output)){
+            throw 'F139_G4_SCRATCH_COLLISION'
+          }
+          $code=@'
+          import importlib.util,json,pathlib,sqlite3,sys
+          origin=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          output=pathlib.Path(sys.argv[3])
+          root=pathlib.Path(sys.argv[4]).resolve(strict=True)
+          package_file=pathlib.Path(sys.argv[5]).resolve(strict=True)
+          ticket=sys.argv[6];pin=sys.argv[7];candidate=sys.argv[8]
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database
+          con=sqlite3.connect(origin.as_uri()+"?mode=ro",uri=True,timeout=30)
+          con.row_factory=sqlite3.Row
+          con.execute("PRAGMA query_only=ON")
+          before=dict(con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert before["source_sha"]==pin and before["head_seq"]>=193
+          assert before["enabled"]==1 and before["legacy_suspended"]==1
+          assert not scratch.exists() and not output.exists()
+          copied=sqlite3.connect(scratch)
+          con.backup(copied);copied.close()
+          spec=importlib.util.spec_from_file_location("g4_snapshot",package_file)
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          db=Database(scratch)
+          try:
+              receipt=mod.export_owner_receipt(db,ticket)
+              raw=mod.canonical(receipt)
+              mod.verify_portable_receipt(raw,expected_ticket=ticket,expected_source=pin)
+              output.write_bytes(raw)
+              print("F139_G4_ORIGINAL_FULL_CUSTODY=PASS")
+              print("F139_G4_ORIGINAL_OWNER_SEQ="+str(db.meta()["head_seq"]))
+              print("F139_G4_PORTABLE_BYTES="+str(len(raw)))
+              print("F139_G4_SCIENTIFIC_FIRST_USE=FALSE")
+              # Only the same-root disposable SQLite backup is mutated here.
+              # Every historic event and task is checked before and after.
+              old_meta=dict(db.meta())
+              old_tasks=[tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM tasks ORDER BY ticket")]
+              old_events=[tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM events ORDER BY seq")]
+              assert candidate != pin and len(candidate)==40
+              db.transition_source(candidate,allow_certified_negative=True)
+              new_meta=dict(db.meta())
+              new_tasks=[tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM tasks ORDER BY ticket")]
+              new_events=[tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM events ORDER BY seq")]
+              assert old_tasks==new_tasks,"F139_G4_SCRATCH_TASKS_DRIFT"
+              assert new_events[:-1]==old_events,"F139_G4_HISTORY_CHANGED"
+              assert new_meta["head_seq"]==old_meta["head_seq"]+1
+              assert new_meta["source_sha"]==candidate
+              assert new_meta["head_hash"]!=old_meta["head_hash"]
+              assert new_meta["enabled"]==old_meta["enabled"]
+              assert new_meta["legacy_suspended"]==old_meta["legacy_suspended"]
+              terminal=db.conn.execute(
+                  "SELECT kind,payload,prior_sha FROM events ORDER BY seq DESC LIMIT 1"
+              ).fetchone()
+              transition=json.loads(terminal["payload"])
+              assert terminal["kind"]=="SOURCE_TRANSITION_ADMITTED"
+              assert terminal["prior_sha"]==old_meta["head_hash"]
+              assert transition["schema"] in (
+                  "forge.f139.source-transition.v4",
+                  "forge.f139.source-transition.v5")
+              assert transition["from_source_sha"]==pin
+              assert transition["to_source_sha"]==candidate
+              assert transition["new_dispatches"]==0
+              assert transition["scientific_first_use"] is False
+              assert transition["custodied_negative_tasks"]>=11
+              db.verify()
+              # Owner-native activation is source-bound and must be exercised
+              # only on this original-custody-directory disposable SQLite.
+              from f139.nci04_owner_ledger import (
+                  activate_native, verify_native_activation)
+              approval={
+                  "schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":candidate,
+                  "expected_event_head_sha256":new_meta["head_hash"],
+                  "native_development_approved":True,
+                  "scientific_first_use":False,
+                  "create_controller":False,
+                  "paid_api_calls":0,
+              }
+              assert activate_native(db,approval),"F139_G4_SCRATCH_ACTIVATION_DENIED"
+              db.verify()
+              assert verify_native_activation(db)
+              assert db.meta()["head_seq"]==old_meta["head_seq"]+2
+              assert [tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM tasks ORDER BY ticket")]==old_tasks
+              assert db.active() is None and db.ready() is None
+              print("F139_G4_SCRATCH_NATIVE_ACTIVATION=PASS")
+              print("F139_G4_SCRATCH_FIRST_USE=FALSE")
+              print("F139_G4_SCRATCH_SOURCE_TRANSITION=PASS")
+              print("F139_G4_SCRATCH_TRANSITION_SCHEMA="+transition["schema"])
+              print("F139_G4_SCRATCH_HISTORY_AND_TASKS=UNCHANGED")
+              print("F139_G4_ORIGINAL_OWNER_MIGRATION=NOT_ATTEMPTED")
+          finally:db.close()
+          after=dict(con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert after==before,"F139_G4_ORIGINAL_DB_CHANGED"
+          con.close()
+          print("F139_G4_ORIGINAL_SQLITE_READONLY=TRUE")
+          '@
+          try {
+            & $python -B -c $code $db $scratch $output $root (Join-Path $env:GITHUB_WORKSPACE 'f139/portable_evidence.py') $ticket $source $env:GITHUB_SHA
+            if($LASTEXITCODE -ne 0){throw 'F139_G4_ORIGINAL_EXPORT_FAILED'}
+          } finally {
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
+      - name: Sign exact portable receipt bytes using GitHub OIDC provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: g4-portable.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f139-g4-owner-portable
+          path: g4-portable.json
+          if-no-files-found: error
+          retention-days: 7
+
+  independent-portable-verification:
+    needs: original-owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: f139-g4-owner-portable
+          path: evidence
+      - name: Verify signed original owner provenance before reading receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f evidence/g4-portable.json
+          test "$(wc -c < evidence/g4-portable.json)" -lt 8000000
+          gh attestation verify evidence/g4-portable.json \
+             --repo spoonman136668-ai/FORGE \
+             --signer-workflow spoonman136668-ai/FORGE/.github/workflows/f139-g4-portable-evidence-rehearsal.yml \
+             --source-ref refs/heads/research/f139-g4-portable-original-evidence-20261024 \
+             --source-digest "$GITHUB_SHA"
+          echo F139_G4_SIGNED_PROVENANCE=PASS
+      - name: Verify receipt from portable artifact only (no source SQLite)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest f139.test_portable_evidence -v
+          python -B - <<'PY'
+          from pathlib import Path
+          from f139.portable_evidence import verify_portable_receipt
+          r=verify_portable_receipt(Path("evidence/g4-portable.json").read_bytes(),
+              expected_ticket="f139-nci04-i856-52e007e83be0-51b67e31",
+              expected_source="52e007e83be08b851283fc4a6e213ea506469f43")
+          assert r["provider_run_id"]==40081353365
+          assert r["quarantined"]>=11 and r["verified"]>=18
+          assert r["head_seq"]>=193 and r["scientific_first_use"] is False
+          print("F139_G4_INDEPENDENT_PORTABLE_RECEIPT=PASS")
+          print("F139_G4_AUTHENTIC_ORIGINAL_HEAD_SEQ="+str(r["head_seq"]))
+          print("F139_G4_NO_ADDITIONAL_CONTROLLER=TRUE")
+          PY

@@ -1,0 +1,110 @@
+name: FORGE F82 native genuine-negative optimizer shadow (no scientific dispatch)
+on:
+  push:
+    branches:
+      - engineering/f82-authentic-negative-policy-shadow-on-native-main-20261016-r1
+      - main
+    paths:
+      - '.github/workflows/forge-f82-native-historical-policy.yml'
+      - 'docs/F82-NATIVE-AUTHENTIC-NEGATIVE-SHADOW.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-f82-authentic-negative-shadow-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  authentic-negative-selector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Freeze source and qualify independent Dream/Pareto and R9 no-replay tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s research/r9-policy-successor -p 'test_*.py' -v
+          PYTHONPATH=research/f80 python3 -B -m unittest discover -s nativefirstuse -p 'test_f81_*.py' -v
+          go test -count=1 ./dreamrsi ./evoportfolio ./nativefirstuse ./workerlease
+          test -s research/r9-policy-successor/frozen.json
+          echo 'F82_SHADOW_POLICY_AND_NATIVE_FIRSTUSE_NEGATIVES=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r35-independent-review
+          run-id: 38538653829
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/f82-r35
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-independent-review-one
+          run-id: 38660840981
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/f82-r8-one
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-independent-review-two
+          run-id: 38660840981
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/f82-r8-two
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-real-auto-successor-two-originals-terminal
+          run-id: 38660840981
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/f82-r8-terminal
+      - name: Select novel candidate from authentic reviewed negative bytes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f82-policy"
+          python3 -B research/r9-policy-successor/policy_select.py \
+            --frozen research/r9-policy-successor/frozen.json \
+            --r35 "$RUNNER_TEMP/f82-r35/independent-review.json" \
+            --r8-one "$RUNNER_TEMP/f82-r8-one/review.json" \
+            --r8-two "$RUNNER_TEMP/f82-r8-two/review.json" \
+            --r8-terminal "$RUNNER_TEMP/f82-r8-terminal/r8-terminal.json" \
+            --out "$RUNNER_TEMP/f82-policy/advisory.json"
+          jq -e '
+            .schema == "forge.r9.train-updated-prospective-hypothesis.v1" and
+            .mode == "READ_ONLY_REVIEWED_NEGATIVE_POSTERIOR_NOT_PROVEN_POLICY_IMPROVEMENT" and
+            .selected_candidate_id == "W36-C1" and
+            .selected_family == "learned-invariant-projection" and
+            .parent_negative_count == 3 and
+            (.fresh_successor_prepared | length) == 2 and
+            .selected_method_fidelity_qualified == false and
+            .first_use_authorized == false and
+            .originals_executed == 0 and
+            .scientific_accepted == false and
+            .independent_fsa_qualified == false and
+            .policy_improvement_demonstrated == false and
+            .policy_training_has_other_family_outcomes == false and
+            .ckb_authority_mutated == false and
+            .model_api_calls == 0
+          ' "$RUNNER_TEMP/f82-policy/advisory.json" >/dev/null
+          (cd "$RUNNER_TEMP/f82-policy"; sha256sum advisory.json > sha256.txt; sha256sum -c sha256.txt)
+          echo 'F82_AUTHENTIC_HISTORICAL_NEGATIVE_POLICY_ADVISORY=PASS'
+          echo 'F82_NOVEL_REPRESENTATION_METHOD_SELECTED=DEVELOPMENT_ONLY'
+          echo 'F82_NEW_PROTECTED_ORIGINALS=ZERO'
+          echo 'F82_DREAM_RSI_PARETO_SCIENTIFIC_GAIN=NOT_CLAIMED'
+          echo 'F82_CLOUDFLARE_OR_OWNER_MUTATIONS=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f82-native-authentic-negative-shadow-advisory
+          path: |
+            ${{ runner.temp }}/f82-policy/advisory.json
+            ${{ runner.temp }}/f82-policy/sha256.txt
+          retention-days: 45
+          if-no-files-found: error

@@ -1,0 +1,76 @@
+name: FORGE F84 authentic Wingless F61B FIT negative
+on:
+  push:
+    branches: [engineering/f84-wingless-authentic-fit-source-intake-20261016-r1]
+  pull_request:
+    paths:
+      - '.github/workflows/forge-f84-wingless-authentic-fit.yml'
+      - 'research/f84/**'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  authentic-fit-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Frozen FORGE source and adversarial checks
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          PYTHONPATH=research/f84 python3 -B -m unittest discover -s research/f84 -p 'test_f84_*.py' -v
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: c6abcf0eac723ab44e3fd20563e51b7fab355105
+          path: wingless-f61b-source
+          persist-credentials: false
+          sparse-checkout: |
+            research/foundational/20261015-w-f61
+          sparse-checkout-cone-mode: true
+      - name: Authenticate immutable independent audit source
+        run: |
+          set -euo pipefail
+          test "$(git -C wingless-f61b-source rev-parse HEAD)" = c6abcf0eac723ab44e3fd20563e51b7fab355105
+          test "$(git -C wingless-f61b-source hash-object research/foundational/20261015-w-f61/prereg.json)" = d6fd61c0e8062ed27c19da63ff196ad08a5e6ed6
+          test "$(git -C wingless-f61b-source hash-object research/foundational/20261015-w-f61/prereg-amendment.json)" = 08222165f73f4e9dfd1546b601dacdd719724bf1
+          test "$(git -C wingless-f61b-source hash-object research/foundational/20261015-w-f61/audit_fit.py)" = f5fc5f0204280160ac8736f9777bc7a32f58c425
+      - name: Inspect real FIT receipt, independently rerun public-only audit
+        run: |
+          set -euo pipefail
+          gh api repos/spoonman136668-ai/Wingless/actions/runs/38878579349 > "$RUNNER_TEMP/f84-run.json"
+          gh api repos/spoonman136668-ai/Wingless/actions/artifacts/12037005113 > "$RUNNER_TEMP/f84-artifact.json"
+          curl --fail --silent --show-error --location --max-time 90 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/spoonman136668-ai/Wingless/actions/artifacts/12037005113/zip' \
+            --output "$RUNNER_TEMP/f84-receipts.zip"
+          python3 -B research/f84/f84_wingless_fit.py "$RUNNER_TEMP/f84-run.json" "$RUNNER_TEMP/f84-artifact.json" "$RUNNER_TEMP/f84-receipts.zip" > "$RUNNER_TEMP/f84-review.jsonl"
+          grep -Fx 'F84_REAL_WINGLESS_FIT=VERIFIED_NEGATIVE' "$RUNNER_TEMP/f84-review.jsonl"
+          grep -Fx 'F84_POLICY_PROMOTION_AND_ORIGINAL_DISPATCH=DENIED' "$RUNNER_TEMP/f84-review.jsonl"
+          python3 - "$RUNNER_TEMP/f84-receipts.zip" "$RUNNER_TEMP" <<'PY'
+          import pathlib,sys,zipfile
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              for target in ('f61b-fit.json','independent_audit.txt'):
+                  matches=[n for n in z.namelist() if n in (target,'evidence/'+target)]
+                  assert len(matches)==1
+                  pathlib.Path(sys.argv[2],target).write_bytes(z.read(matches[0]))
+          PY
+          python3 -B wingless-f61b-source/research/foundational/20261015-w-f61/audit_fit.py "$RUNNER_TEMP/f61b-fit.json" wingless-f61b-source/research/foundational/20261015-w-f61/prereg.json wingless-f61b-source/research/foundational/20261015-w-f61/prereg-amendment.json > "$RUNNER_TEMP/f84-independent-recount.txt"
+          diff -u "$RUNNER_TEMP/independent_audit.txt" "$RUNNER_TEMP/f84-independent-recount.txt"
+          echo 'F84_REAL_INDEPENDENT_RECOUNT=PASS'
+          echo 'F84_CLOUDFLARE_AND_SCIENTIFIC_WRITES=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f84-wingless-real-fit-negative-advisory
+          path: |
+            ${{ runner.temp }}/f84-review.jsonl
+            ${{ runner.temp }}/f84-independent-recount.txt
+          retention-days: 45
+          if-no-files-found: error

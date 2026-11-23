@@ -1,0 +1,158 @@
+name: FORGE R11 learned when-to-retain memory research
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/r11-learned-memory/**'
+      - '.github/workflows/forge-r11-learned-memory.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  frozen-source:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze controls and fail-closed source-only unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/r11-learned-memory -p 'test_*.py' -v
+          python -B -m py_compile research/r11-learned-memory/{protocol,controller,execute,review}.py
+          test ! -f research/r11-learned-memory/launch.json
+          echo 'R11_UNIT_SOURCE_ONLY_NO_FIRST_USE=PASS'
+  real-development:
+    needs: frozen-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 7f2f791f98d92ad932e0f530a7d23d0330a15643
+          path: pinned-r36
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r10-independent-alternate-mechanism-development-review
+          run-id: 38663053332
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/parent-r10
+      - name: Train learned retention policy on real fresh Wingless development folds
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r11-real"
+          python3 -B research/r11-learned-memory/execute.py \
+            --frozen research/r11-learned-memory/frozen.json \
+            --parent "$RUNNER_TEMP/parent-r10/review.json" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --method-root "$GITHUB_WORKSPACE/pinned-r36" \
+            --forge-root "$GITHUB_WORKSPACE" \
+            --out "$RUNNER_TEMP/r11-real/measurement.json"
+          jq -e '
+            .schema == "forge.r11.real-learned-memory.development.v1" and
+            (.development_folds | length) == 3 and
+            .classifier_parameters == 16 and
+            .additional_learned_gate_parameters == 3 and
+            .fixed_memory_slots == 96 and
+            .sealed_cohorts_accessed == false and
+            .new_originals_executed == 0 and
+            .first_use_claims_created == 0 and
+            .scientific_accepted == false and
+            .paid_api_calls == 0
+          ' "$RUNNER_TEMP/r11-real/measurement.json" > /dev/null
+          (cd "$RUNNER_TEMP/r11-real"; sha256sum measurement.json > sha256.txt; sha256sum --check sha256.txt)
+          echo 'R11_GENUINE_TRAIN_ONLY_LEARNED_RETENTION=PASS'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r11-train-only-learned-retention-development
+          path: |
+            ${{ runner.temp }}/r11-real/measurement.json
+            ${{ runner.temp }}/r11-real/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
+  independent-review:
+    needs: real-development
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r10-independent-alternate-mechanism-development-review
+          run-id: 38663053332
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/parent-r10
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r11-train-only-learned-retention-development
+          path: ${{ runner.temp }}/r11-real
+      - name: Independent reconstruct learned gates, model and every held-out DEVELOPMENT row
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/r11-real"; sha256sum --check sha256.txt)
+          mkdir -p "$RUNNER_TEMP/r11-review"
+          python3 -B research/r11-learned-memory/review.py \
+            --frozen research/r11-learned-memory/frozen.json \
+            --parent "$RUNNER_TEMP/parent-r10/review.json" \
+            --measurement "$RUNNER_TEMP/r11-real/measurement.json" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --out "$RUNNER_TEMP/r11-review/review.json"
+          jq -e '
+            .schema == "forge.r11.independent-learned-retention-development.v1" and
+            .actual_training_reconstructed == true and
+            .retention_gates_independently_reconstructed == true and
+            .all_development_rows_independently_verified == true and
+            .model_classifier_scalar_count == 16 and
+            .learned_memory_controller_scalar_count == 3 and
+            .retained_memory_slots == 96 and
+            (.results | length) == 3 and
+            .scientific_improvement_established == false and
+            .first_use_authorized == false and
+            .scientific_originals_executed == 0 and
+            .sealed_holdout_accessed == false and
+            .scientific_accepted == false and
+            .paid_api_calls == 0
+          ' "$RUNNER_TEMP/r11-review/review.json" > /dev/null
+          (cd "$RUNNER_TEMP/r11-review"; sha256sum review.json > sha256.txt; sha256sum --check sha256.txt)
+          jq -c '{all_three_folds_passed,development_candidate_eligible,results}' "$RUNNER_TEMP/r11-review/review.json"
+          echo 'R11_INDEPENDENT_TRAIN_ONLY_RETENTION_AND_ROWS=PASS'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r11-independent-learned-memory-development-review
+          path: |
+            ${{ runner.temp }}/r11-review/review.json
+            ${{ runner.temp }}/r11-review/sha256.txt
+          retention-days: 90
+          if-no-files-found: error

@@ -1,0 +1,38 @@
+name: FORGE F139 V53 original precommit owner restore
+on:
+  issues:
+    types: [unassigned]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+concurrency:
+  group: forge-f139-v53-original-owner
+  cancel-in-progress: false
+jobs:
+  restore-original-owner:
+    if: >-
+      github.repository == 'spoonman136668-ai/FORGE' &&
+      github.actor == 'spoonman136668-ai' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'issues' &&
+      github.event.action == 'unassigned' &&
+      github.event.issue.number == 807 &&
+      github.event.issue.user.login == 'spoonman136668-ai' &&
+      github.event.assignee.login == 'spoonman136668-ai'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout qualified protected main and original ledger guards
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Restore exact precommit original owner only
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & "$env:GITHUB_WORKSPACE/f139/v53_precommit_owner_restore.ps1" -Main $env:GITHUB_SHA
+          if($LASTEXITCODE -ne 0){throw 'F139_V53_PRECOMMIT_OWNER_RESTORE_HOLD'}

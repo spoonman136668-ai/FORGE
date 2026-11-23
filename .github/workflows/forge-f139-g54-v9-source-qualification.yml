@@ -1,0 +1,53 @@
+name: FORGE G54 V9 owner source qualification
+on:
+  push:
+    branches: [fix/f139-v9-original-owner-transition-20261025]
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-g54-v9-source
+  cancel-in-progress: false
+jobs:
+  source:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact Forge runner and clean source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_G54_WRONG_RUNNER'}
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+                  [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'F139_G54_ESCALATED_RUNNER_REQUIRED'
+          }
+          Write-Output 'F139_G54_ESCALATED_RUNNER=PASS'
+          $sha=(& git rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne $env:GITHUB_SHA){throw 'F139_G54_SOURCE_SHA_DRIFT'}
+          if((git status --porcelain --untracked-files=all | Out-String).Trim().Length -gt 0){throw 'F139_G54_SOURCE_DIRTY'}
+          $python=Get-Command python -ErrorAction Stop
+          if($env:OPENAI_API_KEY){throw 'API_BILLING_PROHIBITED'}
+          Write-Output 'F139_G54_FORGE_CODEX_RUNNER=PASS'
+          Write-Output 'F139_G54_OWNER_TASK_ACCESSED=FALSE'
+          Write-Output 'F139_G54_LEDGER_ACCESSED=FALSE'
+      - name: V9 focused owner-transition tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest f139.test_nci04_v9_owner_preflight f139.test_nci04_g54_v9_owner_release -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G54_V9_FOCUSED_FAILED'}
+      - name: Full F139 regression on Forge Codex runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s f139 -p 'test_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G54_V9_FULL_REGRESSION_FAILED'}
+          if((git status --porcelain --untracked-files=all | Out-String).Trim().Length -gt 0){throw 'F139_G54_QUALIFICATION_DIRTY'}
+          Write-Output 'F139_G54_FORGE_RUNNER_QUALIFICATION=PASS'

@@ -1,0 +1,59 @@
+name: F139 live restore source regression on existing delegated FORGE runner
+on:
+  push:
+    branches: [fix/f139-restore-reconciliation-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-live-restore-sourceonly
+  cancel-in-progress: true
+jobs:
+  owner-runner-sourceonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+    steps:
+      - name: Checkout exact bounded source without credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 15
+          persist-credentials: false
+      - name: Full F139 source regression on delegated owner runner, no owner state access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'F139_UNEXPECTED_SOURCE_QUALIFICATION_RUNNER'
+          }
+          $sha=(& git rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne $env:GITHUB_SHA){
+            throw 'F139_SOURCE_IDENTITY_MISMATCH'
+          }
+          if((git status --porcelain --untracked-files=all | Out-String).Trim().Length -gt 0){
+            throw 'F139_SOURCE_CHECKOUT_DIRTY'
+          }
+          $candidates=@('python.exe','python','py')
+          $python=$null
+          foreach($cmd in $candidates){
+            if(Get-Command $cmd -ErrorAction SilentlyContinue){
+              $python=$cmd;break
+            }
+          }
+          if(-not $python){throw 'F139_NO_QUALIFIED_PYTHON_COMMAND'}
+          & $python -B -m unittest discover -s f139 -p test_nci04_v4_provider_recovery.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_V4_NEGATIVE_CUSTODY_REGRESSION_FAILED'}
+          & $python -B -m unittest discover -s f139 -p test_nci04_two_inflight.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_MAIN_DRIFT_NO_REPLAY_FAILED'}
+          & $python -B -m unittest discover -s f139 -p test_nci04_native_worker.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_SOURCE_BOUND_GIT_HISTORY_TEST_FAILED'}
+          & $python -B -m unittest discover -s f139 -p 'test_*.py'
+          if($LASTEXITCODE -ne 0){throw 'F139_FULL_ORIGINAL_PYTHON_REGRESSION_FAILED'}
+          if((git status --porcelain --untracked-files=all | Out-String).Trim().Length -gt 0){
+            throw 'F139_SOURCE_QUALIFICATION_NOT_CLEAN'
+          }
+          Write-Output 'F139_OWNER_RUNNER_SOURCE_REGRESSION=PASS'
+          Write-Output 'F139_OWNER_SQLITE_UNTOUCHED=TRUE'
+          Write-Output 'F139_ORIGINAL_TASK_UNTOUCHED=TRUE'
+          Write-Output 'F139_NATIVE_DEVELOPMENT_NO_NEW_DISPATCH=TRUE'

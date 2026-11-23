@@ -1,0 +1,18 @@
+# RSH-03 — signed-witness dual-mTLS adapter for six-lane FSA observation
+
+RSH-02 merged into protected FORGE main at `2489415f996b120cfbbf928e41d70d97e55ea946`. Its optional six-lane `researchfeed.ObserveFSA` accepted an abstract `ReadonlyFSA`, leaving a practical authenticated transport adapter missing. RSH-03 closes **only that source-level integration gap** using existing FORGE-native `fsaremote.NewClient` and the existing `fsaservice` independent read-only mTLS endpoints.
+
+The new `researchfeed.NewVerifiedRemoteFSA(authority, witness, remotePin, ownerPin)` requires an independently provisioned pair of distinct TLS 1.3 mutual-authentication peers with different server SPKI fingerprints, a fully matching externally pinned FSA owner/archive identity, an independently pinned witness signing public key and nonzero signed-revision floor. It exposes only `ReadAnchor` and `ReadBinding`, never `CompareAndSwap` or a scientific acceptance or dispatch method. Each anchor observation invokes the existing independent Ed25519 signed-witness verification. Archive binding is revalidated through the existing remote client's authenticated binding endpoint. `ObserveFSA` still checks **original untrusted six-lane index bytes before contacting FSA**, then anchor → authenticated binding → same anchor. It refuses rollback/head drift and reports only advisory FSA archive continuity.
+
+The regression in `fsaservice/rsh03_readonly_bridge_test.go` exercises this adapter over **two separately keyed actual TLS sockets** using existing `fsaservice` mTLS handlers and fake test-only archive/witness stores, checks six-lane advisory output, rejects forged signed witness, corrupted archive binding, conflicting owner pin, incorrect TLS server SPKI, anonymous client, shared peer origin, and an absent signed witness revision floor. All credentials generated in tests are ephemeral fixture keys, never deployment or scientific keys. The normal FORGE `.github/workflows/qualify.yml` Linux/Windows full regression, race, vet, build and F139 regression must pass at the precise proposed commit.
+
+## Explicit limits
+
+- **Not a deployment:** no endpoint, protected real FSA storage, CA, client credential, signer, witness key, host, mTLS service or running observer is provisioned. Two local TLS test servers do not prove operational failure-domain independence or a real external witness.
+- **Not authentic research:** candidate source path/commit/hash remains untrusted advisory metadata. No actual original bytes, consumed first use, transfer result, negative result, or independent scientific assessment is admitted by this package.
+- **No research-controller takeover:** the live F139 Wingless/Yggdrasil feeder and the six-lane source preview remain intact; no queue, autoscheduler, original run, worker lease, CAS, operator FSA authority or new controller is enabled. Mind-Palace is advisory only. No CKB-plane access or dependency.
+- Source promotion requires exact-head public Linux/Windows qualification and protected FORGE-main checks. Even a qualified merge carries **no scientific-acceptance permission**.
+
+## Next actual-science gate
+
+Once trusted, **existing** FORGE FSA authority/witness endpoints are independently provisioned and their signed operator pins are available under approved custody, conduct a strictly read-only external `forge-fsa-probe` invocation, confirm authenticated archive head/binding and independently signed witness against an immutable operator record, and separately authenticate **actual original research evidence bytes** and negative/consumed histories from a bounded lane. If real endpoints are absent, record `NOT_PROVISIONED` rather than fabricate successful evidence or build a new competing authority.

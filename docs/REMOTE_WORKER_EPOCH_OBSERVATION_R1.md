@@ -1,0 +1,9 @@
+# FORGE remote FSA worker epoch observation R1
+
+This increment joins the actual independently pinned mTLS FSA authority/witness client to the existing deterministic `workerlease` decision path. It checks a provisioned worker lease against a **specific original Wingless or Yggdrasil lane**, immutable intent, owner epoch and expiry, then reads the original FSA archive anchor, verifies the independent signed FSA witness, verifies the trusted archive binding, and re-reads the anchor to detect drift during observation.
+
+`workerfence.Observe` is deliberately typed to a real `*fsaremote.Client`, not an arbitrary callback that can claim independently authenticated booleans. The client enforces TLS server-root and SPKI pinning, separate witness signature and monotonic revision checks. An expired lease, epoch mismatch, first-use risk, lost witness, changed FSA archive head, unbound archive, TLS failure or unavailable service fails closed.
+
+The integration test connects to the **two distinct TLS servers** added in PR #139 and runs the real worker-lease/FSA observation path. It confirms successful read-only epoch observation and rejection of first-use, expired leases and split owner epochs. It does not create an original attempt or increment a worker's first-use budget.
+
+**Important boundary:** The returned status is `REMOTE_FSA_EPOCH_OBSERVED_NO_EXECUTION_AUTHORITY` with `worker_dispatch_authorized=false`, `first_use_replay_authorized=false`, and `science_activated=false`. A remote observation is not an atomic, mandatory per-step worker epoch fence. Actual secure worker execution still needs an independently deployed FSA service, monotonic FSA owner-epoch CAS, live CKB owner revocation, immutable reservation and first-use ledger fencing, qualified worker binary integration at every execution boundary, and independent scientific evidence admission. No existing scientific work was launched, retried or cloned.

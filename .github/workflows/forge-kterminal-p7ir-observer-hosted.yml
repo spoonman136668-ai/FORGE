@@ -1,0 +1,161 @@
+name: FORGE K-Terminal original observer regression
+on:
+  push:
+    branches: [qualification/kterminal-p7ir-observer-hosted-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: forge-kterm-observer-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  original-windows-observer:
+    runs-on: windows-latest
+    timeout-minutes: 26
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '1'
+      GOFLAGS: '-p=1'
+      GOMEMLIMIT: '1536MiB'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Verify exact FORGE branch on isolated hosted Windows runner
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify FORGE source scope and runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kterminal-p7ir-observer-hosted-20261019
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor e8166b1ef2f52ad935029ee583a5a0827b8a25d8 HEAD
+          test "$(git diff --name-only e8166b1ef2f52ad935029ee583a5a0827b8a25d8 HEAD)" = .github/workflows/forge-kterminal-p7ir-observer-hosted.yml
+          test -z "$(git status --porcelain)"
+          echo P7IR_FORGE_HOSTED_RUNNER=PASS
+      - name: Read exact K-Terminal frozen private source without persisted token
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ba11a398586df9fe5233624d9cf115aeec76d11a
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Provision pinned original Go 1.26.5 on Windows
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Run original six recovery cases with no raw log export
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$GOMAXPROCS" = 1
+          test "$(git rev-parse HEAD)" = ba11a398586df9fe5233624d9cf115aeec76d11a
+          test "$(git rev-parse HEAD:pkg/stage3-original-observer-forced-cuts_test.go)" = bee85ee3441b0f66399ab6c42f8b09635ba44c6b
+          test "$(git rev-parse HEAD:pkg/stage3-native-authenticated-sell-post-crash_test.go)" = 8fc5727f722510b2bfff0cfe9d4eb0565c6cb5fc
+          test "$(git rev-parse HEAD:go.mod)" = b3ede0d8444c08b3e7b23f1396374359b54134c6
+          test -z "$(git status --porcelain)"
+          go version | grep 'go1.26.5 windows/amd64' > /dev/null
+          for name in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            if [[ -n "${!name:-}" ]]; then
+              echo P7IR_CREDENTIAL_ENV_BLOCKED
+              exit 2
+            fi
+          done
+          export K_TERMINAL_TEST_WORKSPACE="$RUNNER_TEMP/p7ir-test-root"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$RUNNER_TEMP/p7ir-test-root/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$RUNNER_TEMP/p7ir-test-root/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$RUNNER_TEMP/p7ir-test-root/private"
+          mkdir -p "$KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT" "$KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT" "$KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT"
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=18m \
+            '-run=^TestStage3OriginalObserverForcedBoundaries$/(BTC-USDC|XRP-USDC)/(initial_summary_second|due_history|partial_completion)$' \
+            ./pkg > "$RUNNER_TEMP/p7ir-go-private.jsonl" 2> "$RUNNER_TEMP/p7ir-go-private-stderr"
+          rc=$?
+          set -e
+          export P7IR_GO_EXIT="$rc"
+          python -B - <<'PY'
+          import hashlib,json,os,pathlib,sys
+          cases=[f"{p}/{s}" for p in ("BTC-USDC","XRP-USDC")
+                 for s in ("initial_summary_second","due_history","partial_completion")]
+          counts={case:{"run":0,"pass":0,"fail":0} for case in cases}
+          stem="TestStage3OriginalObserverForcedBoundaries/"
+          source=pathlib.Path(os.environ["RUNNER_TEMP"])/"p7ir-go-private.jsonl"
+          errors=0
+          package_fail=False
+          if source.is_file() and source.stat().st_size <= 40*1024*1024:
+              for line in source.read_text(encoding="utf-8-sig",errors="replace").splitlines():
+                  try: evt=json.loads(line)
+                  except ValueError:
+                      errors+=1
+                      continue
+                  if not isinstance(evt,dict):
+                      errors+=1
+                      continue
+                  action,name=evt.get("Action"),evt.get("Test")
+                  if action=="fail" and name is None: package_fail=True
+                  if isinstance(name,str) and name.startswith(stem):
+                      case=name[len(stem):]
+                      if case in counts and action in counts[case]: counts[case][action]+=1
+          else: errors+=1
+          complete=(errors==0 and all(v["run"]==1 and v["pass"]+v["fail"]==1 for v in counts.values()))
+          exit_code=int(os.environ["P7IR_GO_EXIT"])
+          failed=[c for c,v in counts.items() if v["fail"]]
+          outcome=("P7IR_TARGETS_INCOMPLETE" if not complete else
+                   "P7IR_ORIGINAL_FAILURE_REPRODUCED" if exit_code or failed or package_fail else
+                   "P7IR_SIX_CASES_PASS_FULL_SUITE_STILL_BLOCKED")
+          receipt={
+              "schema":"forge.kterminal.p7ir.hosted-original.v1",
+              "forge_head_sha":os.environ["GITHUB_SHA"],
+              "kterminal_head_sha":"ba11a398586df9fe5233624d9cf115aeec76d11a",
+              "observer_original_test_blob":"bee85ee3441b0f66399ab6c42f8b09635ba44c6b",
+              "scheduler":"GOMAXPROCS=1 p=1 parallel=1 count=1",
+              "cases":counts,
+              "failed_cases":failed,
+              "go_exit":exit_code,
+              "package_fail":package_fail,
+              "parse_errors":errors,
+              "disposition":outcome,
+              "previous_full_regression":"FAILED_NOT_WAIVED",
+              "private_source_or_test_logs_exported":False,
+              "user_data_accessed":False,
+              "research_or_workstation_runner_used":False,
+              "broker_orders":0,
+              "field_timing_measured":False
+          }
+          out=pathlib.Path(os.environ["RUNNER_TEMP"])/"p7ir-public-receipt"
+          out.mkdir(exist_ok=False)
+          body=json.dumps(receipt,sort_keys=True,separators=(",",":")).encode()
+          (out/"receipt.json").write_bytes(body)
+          (out/"receipt.sha256").write_text(hashlib.sha256(body).hexdigest(),encoding="ascii")
+          for case,val in counts.items():
+              print(f"P7IR_CASE={case};RUN={val['run']};PASS={val['pass']};FAIL={val['fail']}")
+          print("P7IR_DISPOSITION="+outcome)
+          print("P7IR_RECEIPT_SHA256="+hashlib.sha256(body).hexdigest())
+          if outcome!="P7IR_SIX_CASES_PASS_FULL_SUITE_STILL_BLOCKED": sys.exit(2)
+          PY
+      - name: Preserve only redacted original test disposition
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-kterminal-p7ir-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/p7ir-public-receipt/receipt.json
+            ${{ runner.temp }}/p7ir-public-receipt/receipt.sha256
+          retention-days: 30
+          if-no-files-found: warn

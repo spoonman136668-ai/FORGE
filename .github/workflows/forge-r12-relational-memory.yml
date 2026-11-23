@@ -1,0 +1,143 @@
+name: FORGE R12 learned relational compression and variable-binding transfer
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/r12-relational-memory/**'
+      - '.github/workflows/forge-r12-relational-memory.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-only:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze source identities, query blindness and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/r12-relational-memory -p 'test_*.py' -v
+          python -B -m py_compile research/r12-relational-memory/{protocol,model,review}.py
+          test ! -f research/r12-relational-memory/launch.json
+          echo 'R12_SOURCE_ONLY_BOUNDED_RELATION_COMPRESSION=PASS'
+  train-and-test:
+    needs: source-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r11-independent-learned-memory-development-review
+          run-id: 38665222559
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r12-parent
+      - name: Train two-link compressor only on frozen training queries and assess unseen graphs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r12-real"
+          python3 -B research/r12-relational-memory/model.py \
+            --frozen research/r12-relational-memory/frozen.json \
+            --parent "$RUNNER_TEMP/r12-parent/review.json" \
+            --out "$RUNNER_TEMP/r12-real/measurement.json"
+          jq -e '
+            .schema == "forge.r12.learned-compression.real-public-development.v1" and
+            .algorithm == "TRAIN_ONLY_8_PARAMETER_ROLE_PAIR_CODE_FUTURE_QUESTION_ACCURACY" and
+            (.novel_binding_development.seed_rows | length) == 16 and
+            (.longer_chain_stress.seed_rows | length) == 16 and
+            .compression_memory_slots == 16 and
+            .learned_parameter_count == 8 and
+            .query_visible_during_compression == false and
+            .benchmark_task_generator_is_synthetic == true and
+            .sealed_holdouts_accessed == false and
+            .first_use_claims == 0 and
+            .new_scientific_originals_executed == 0 and
+            .scientific_accepted == false and
+            .model_api_calls == 0
+          ' "$RUNNER_TEMP/r12-real/measurement.json" > /dev/null
+          (cd "$RUNNER_TEMP/r12-real" && sha256sum measurement.json > sha256.txt && sha256sum --check sha256.txt)
+          echo 'R12_REAL_TRAIN_ONLY_LEARNED_RELATIONAL_COMPRESSION=PASS'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r12-learned-relational-compression-development
+          path: |
+            ${{ runner.temp }}/r12-real/measurement.json
+            ${{ runner.temp }}/r12-real/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
+  independent-review:
+    needs: train-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r11-independent-learned-memory-development-review
+          run-id: 38665222559
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r12-parent
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r12-learned-relational-compression-development
+          path: ${{ runner.temp }}/r12-real
+      - name: Independently refit memory encoder and verify every compositional graph answer
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/r12-real" && sha256sum --check sha256.txt)
+          mkdir -p "$RUNNER_TEMP/r12-review"
+          python3 -B research/r12-relational-memory/review.py \
+            --frozen research/r12-relational-memory/frozen.json \
+            --parent "$RUNNER_TEMP/r12-parent/review.json" \
+            --measurement "$RUNNER_TEMP/r12-real/measurement.json" \
+            --out "$RUNNER_TEMP/r12-review/review.json"
+          jq -e '
+            .schema == "forge.r12.independent-compositional-memory-review.v1" and
+            .actual_training_independently_recomputed == true and
+            .every_variable_binding_result_recomputed == true and
+            .training_has_no_test_or_sealed_queries == true and
+            .role_code_trainable_parameters == 8 and
+            .memory_slots == 16 and
+            .development.query_count == 64 and
+            .unseen_longer_chains.query_count == 48 and
+            .symbolic_exact_oracle_control_present == true and
+            .native_relationship_reasoning_proven == false and
+            .benchmark_evidence_is_synthetic == true and
+            .sealed_holdouts_accessed == false and
+            .first_use_claims == 0 and
+            .scientific_originals_executed == 0 and
+            .independent_fsa_qualified == false and
+            .scientific_accepted == false and
+            .paid_api_calls == 0
+          ' "$RUNNER_TEMP/r12-review/review.json" > /dev/null
+          (cd "$RUNNER_TEMP/r12-review" && sha256sum review.json > sha256.txt && sha256sum --check sha256.txt)
+          jq -c '{development_gain, stress_gain, preregistered_development_passed, development_accuracy: .development.accuracy, stress_accuracy: .unseen_longer_chains.accuracy}' "$RUNNER_TEMP/r12-review/review.json"
+          echo 'R12_INDEPENDENT_COMPOSITION_AND_VARIABLE_BINDING=PASS'
+          echo 'R12_FIRST_USE_AUTHORITY_AND_ORIGINAL_SCIENCE=NOT_QUALIFIED'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r12-independent-relational-compression-review
+          path: |
+            ${{ runner.temp }}/r12-review/review.json
+            ${{ runner.temp }}/r12-review/sha256.txt
+          retention-days: 90
+          if-no-files-found: error

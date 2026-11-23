@@ -1,0 +1,81 @@
+name: FORGE R36 F3 frozen development-hypothesis admission
+on:
+  push:
+    branches: [engineering/r36-f3-development-screen-r1]
+    paths:
+      - 'research/r36_f3_screen/**'
+      - '.github/workflows/forge-r36-f3-hypothesis-admission.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parent-qualified-proposal-only:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin portfolio and test negative scientific admission paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:research/r36_f3_screen/frozen_portfolio.json)" = 4140cf897c05d27dd6dac01cea796f383fa2ef44
+          python -B -m unittest discover -s research/r36_f3_screen -p 'test_*.py' -v
+          python -B -m py_compile research/r36_f3_screen/admission.py research/r36_f3_screen/test_admission.py
+          echo R36_F3_FROZEN_HYPOTHESIS_TESTS=PASS
+      - name: Verify actual independent original reviews, GitHub jobs, and artifact provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/r36-f3-parent"
+          mkdir -p "$root/w-review" "$root/y-review"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38538653829" > "$root/wingless-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38538653829/jobs?per_page=100" > "$root/wingless-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38538653829/artifacts?per_page=100" > "$root/wingless-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38539898614" > "$root/yggdrasil-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38539898614/jobs?per_page=100" > "$root/yggdrasil-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38539898614/artifacts?per_page=100" > "$root/yggdrasil-artifacts.json"
+          gh run download 38538653829 --repo "$GITHUB_REPOSITORY" -n forge-r35-independent-review -D "$root/w-review"
+          gh run download 38539898614 --repo "$GITHUB_REPOSITORY" -n forge-f2-independent-review -D "$root/y-review"
+          python -B research/r36_f3_screen/admission.py \
+            --frozen research/r36_f3_screen/frozen_portfolio.json \
+            --wingless-review "$root/w-review/independent-review.json" \
+            --yggdrasil-review "$root/y-review/independent-review.json" \
+            --wingless-run "$root/wingless-run.json" \
+            --wingless-jobs "$root/wingless-jobs.json" \
+            --wingless-artifacts "$root/wingless-artifacts.json" \
+            --yggdrasil-run "$root/yggdrasil-run.json" \
+            --yggdrasil-jobs "$root/yggdrasil-jobs.json" \
+            --yggdrasil-artifacts "$root/yggdrasil-artifacts.json" \
+            --out "$root/admission.json"
+          python -B - "$root/admission.json" <<'PY'
+          import json,sys
+          z=json.load(open(sys.argv[1]))
+          assert z["status"]=="PARENT_VERIFIED_PORTFOLIO_FROZEN_SCREEN_NOT_YET_RUN"
+          assert z["candidate_count"]=={"wingless":4,"yggdrasil":4}
+          assert z["new_scientific_originals_executed"]==0
+          assert z["scientific_first_uses_consumed"]==0
+          assert z["selected_scientific_winners"]==0
+          assert z["new_science_dispatch_authorized"] is False
+          print("R36_F3_PARENT_EVIDENCE_FROZEN_ADMISSION=PASS")
+          print("R36_F3_PAID_MODEL_CALLS=ZERO")
+          print("R36_F3_FIRST_USE_CONSUMED=FALSE")
+          PY
+      - name: Archive qualified development-only admission without consuming original science
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-r36-f3-development-screen-admission-${{ matrix.os }}
+          path: ${{ runner.temp }}/r36-f3-parent/admission.json
+          retention-days: 90
+          if-no-files-found: warn

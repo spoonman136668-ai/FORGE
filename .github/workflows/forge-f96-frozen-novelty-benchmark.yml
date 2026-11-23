@@ -1,0 +1,101 @@
+name: FORGE F96 frozen source mechanism benchmark qualification
+on:
+  push:
+    branches: [engineering/f96-frozen-novel-benchmark-20261016-r1]
+    paths:
+      - 'noveltyeval/**'
+      - 'cmd/f96eval/**'
+      - '.github/workflows/forge-f96-frozen-novelty-benchmark.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'noveltyeval/**'
+      - 'cmd/f96eval/**'
+      - '.github/workflows/forge-f96-frozen-novelty-benchmark.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f96-optimizer-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-frozen-comparisons:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Prove benchmark fixture source committed before evaluator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor dcb7777199fcaf9d52d78ef9961fc73e2e018911 "$GITHUB_SHA"
+          git merge-base --is-ancestor b61fa60084fc487b4d010b3662a2b85872488deb "$GITHUB_SHA"
+          diff -u <(git show dcb7777199fcaf9d52d78ef9961fc73e2e018911:noveltyeval/f96_cases.json) noveltyeval/f96_cases.json
+          echo 'F96_PRE_EVALUATOR_FROZEN_SOURCE=PASS'
+      - name: Run full benchmark with strong reference and two weaker controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./noveltyeval ./noveltymechanisms
+          go vet ./noveltyeval ./noveltymechanisms ./cmd/f96eval
+          mkdir -p "$RUNNER_TEMP/f96"
+          go run ./cmd/f96eval > "$RUNNER_TEMP/f96/source-comparison.json"
+          python3 - "$RUNNER_TEMP/f96/source-comparison.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert d["schema"]=="forge.optimizer.f96.exact-head-source-report.v1"
+          assert d["evaluated_source_sha"]==__import__("os").environ["GITHUB_SHA"]
+          assert d["fixture_commit_sha"]=="dcb7777199fcaf9d52d78ef9961fc73e2e018911"
+          assert d["exact_commit_fixtures_retained"] is True
+          assert d["independently_prepared_sealed_science"] is False
+          r=d["report"]
+          assert r["fixture_case_count"]==16 and len(r["results"])==16
+          assert r["every_case_retained"] is True
+          assert r["equivalent_reference_is_required_control"] is True
+          totals={x["model"]:x for x in r["totals"]}
+          assert totals["f95_typed_composition"]["correct"]==16
+          assert totals["independent_typed_reference_control"]["correct"]==16
+          assert totals["direct_typed_onehop_control"]["errors"]>0
+          assert totals["role_blind_multihop_control"]["errors"]>0
+          assert all(x["cases"]==x["correct"]+x["errors"] for x in totals.values())
+          for k in ("synthetic_independent_science","independent_sealed_holdout_consumed",
+           "authentic_original_first_use","any_scientific_superiority_established",
+           "dream_pareto_promotion_authorized","theta_evolve_accepted_training_enabled",
+           "accepted_scientific_reference_mutation","scientific_dispatch_authorized"):
+            assert r[k] is False,(k,r[k])
+          print("F96_ALL_FROZEN_CASES_RETAINED=16")
+          print("F96_F95_REFERENCE_PARITY=16/16")
+          print("F96_WEAK_CONTROL_NEGATIVES_RETAINED=TRUE")
+          print("F96_INDEPENDENT_ORIGINAL_SCIENCE=NOT_PERFORMED")
+          PY
+          (cd "$RUNNER_TEMP/f96"; sha256sum source-comparison.json > sha256.txt; sha256sum -c sha256.txt)
+      - name: Full FORGE optimizer and repository regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./optimizerstages ./noveltymechanisms ./noveltyeval ./dreamrsi ./evoportfolio ./thetaadapt ./promptlineage ./genenv
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F96_NOVELTY_SOURCE_COMPARISON=PASS'
+          echo 'F96_DREAM_PARETO_PROMOTION=DENIED'
+          echo 'F96_THETA_ACCEPTED_TRAINING=DENIED'
+          echo 'F96_CKB_CONNECTIVITY=ZERO'
+          echo 'F96_CLOUDFLARE_WRITES=ZERO'
+          echo 'F96_SCIENTIFIC_DISPATCH=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f96-frozen-source-control-comparison
+          path: |
+            ${{ runner.temp }}/f96/source-comparison.json
+            ${{ runner.temp }}/f96/sha256.txt
+          retention-days: 45
+          if-no-files-found: error

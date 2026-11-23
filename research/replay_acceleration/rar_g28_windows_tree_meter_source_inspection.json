@@ -1,0 +1,81 @@
+{
+  "schema": "forge.research.replay-acceleration.g28-windows-tree-admission.v1",
+  "gate": "RAR-G28",
+  "classification": "G28_SOURCE_INSPECTION_PASS_WINDOWS_TREE_EXECUTION_BLOCKED_NOT_RUN",
+  "inspected": {
+    "original_repo": "spoonman136668-ai/FORGE",
+    "original_pr": 1206,
+    "original_commit": "0f7bfc2438874a6b74681011e2cd909e321b39bc",
+    "source": [
+      {
+        "path": "research/acceleration/acc50_go_u27/main.go",
+        "git_blob": "e953ed171d913c3d98ba99a56cbd4f7052bdfcc1",
+        "observed": "exec.Command child then c.Run; ProcessState.UserTime()+SystemTime() for direct cold worker; child itself reports peak RSS"
+      },
+      {
+        "path": "research/acceleration/acc50_go_u27/rss_windows.go",
+        "git_blob": "96e8010b630c97372e18dfeb41e3f0701970101f",
+        "observed": "psapi GetProcessMemoryInfo(GetCurrentProcess()) PeakWorkingSetSize: child-local high water, not tree peak"
+      },
+      {
+        "path": "research/acceleration/acc50_go_u27/rss_linux.go",
+        "git_blob": "6d0b62ca5b34f400649132f27e446cd180308bc4",
+        "observed": "/proc/self/status VmHWM: child-local high water, not tree peak"
+      }
+    ],
+    "historical_actions_run": 40968100168,
+    "historical_windows_job": 123777639554,
+    "historical_windows_result": "SUCCESS",
+    "historical_windows_artifact": 12938838530
+  },
+  "validated_boundaries": {
+    "standalone_go_direct_child_process_cpu": "SUPPORTED_BY_HISTORICAL_NATIVE_RUN",
+    "standalone_go_child_physical_peak_rss": "SUPPORTED_BY_HISTORICAL_NATIVE_RUN",
+    "windows_2nd_generation_python_to_python_to_go_accounting": "NOT_IMPLEMENTED_OR_TESTED",
+    "concurrent_descendant_cpu": "NOT_IMPLEMENTED_OR_TESTED",
+    "windows_kernel_job_object_accounting": "NOT_IMPLEMENTED_OR_TESTED",
+    "short_lived_descendants": "NOT_COVERED",
+    "cross_platform_true_tree_memory_peak": "NOT_SUPPORTED_BY_SINGLE_CHILD_PEAK",
+    "native_model_training_cost_to_proficiency": "NOT_MEASURED"
+  },
+  "next_source_only_qualification_contract": {
+    "identity": "RAR-G28-WINDOWS-GRANDCHILD-V1",
+    "runner": "existing verified GitHub-hosted windows-latest and ubuntu-latest on research draft only, not owner/local escalated queue",
+    "test_arms": [
+      "empty direct child Go",
+      "CPU-busy direct child Go",
+      "Python launcher -> CPU-busy Go grandchild",
+      "two parallel CPU-busy Go grandchildren",
+      "short-lived Go child negative control"
+    ],
+    "required_probes": [
+      "Windows: GetProcessTimes direct child or measured per-PID process CPU; Linux getrusage for reaped direct child",
+      "Windows: independently aggregate stable descendant PID CPU or assign entire launcher tree into a Windows Job Object with accounting support and handle descendant lifetime",
+      "Windows child peak WorkingSet via GetProcessMemoryInfo; reject child-only memory as tree peak",
+      "Linux: separate exact direct child rusage and process-tree sampler; no assuming sampler captures sub-5ms child",
+      "per-role CPU positive, idle delta, full descendant inventory, no missing PID, failure if any process unobserved",
+      "paired deterministic Go outputs and original-source attestation; Windows and Linux each own source-bound receipts",
+      "include startup, IPC, controller, and child CPU in total model-training accounting"
+    ],
+    "acceptance": "Require new executed Windows and Linux measurements, complete tree scope and no double counting. Otherwise fail closed. Every criterion is source-only engineering; not a scientific model result.",
+    "authorization": "G28 does not launch a workflow or commit one with on-push execution, since existing connector offers no workflow-dispatch action and G28 research branch is advisory"
+  },
+  "execution": {
+    "new_source_world_steps": 0,
+    "new_Go_processes_executed_in_G28": 0,
+    "new_windows_jobs_executed_in_G28": 0,
+    "new_workflows_executed_in_G28": 0
+  },
+  "next_gate": {
+    "id": "RAR-G29",
+    "goal": "Create runnable isolated cross-OS source-only meter and have existing project-qualified hosted workflow execute it; do not alter operating controller or native learner",
+    "negative_if_no_windows_witness": "WINDOWS_TREE_METER_UNVERIFIED"
+  },
+  "safety": {
+    "no_control_or_autonomy_changes": true,
+    "no_native_source_changes": true,
+    "no_protected_main_merge": true,
+    "no_paid_API": true,
+    "advisory_only": true
+  }
+}

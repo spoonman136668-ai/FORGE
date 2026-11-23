@@ -1,0 +1,85 @@
+name: FORGE integrated ICE / Graphify / Obsidian and private Mind graph qualification
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.ice/**'
+      - 'iceindex/**'
+      - 'mindgraph/**'
+      - 'cmd/forge-mind-graph/**'
+      - 'tools/Build-FORGE-Graphify.ps1'
+      - 'scripts/forge-mind-private-graph.ps1'
+      - 'docs/FORGE-ICE-GRAPHIFY-OBSIDIAN.md'
+      - '.github/workflows/forge-ice-mind-integration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: forge-ice-mind-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Source-backed public ICE and synthetic private graph tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./iceindex ./mindgraph ./mindcontext
+          go vet ./iceindex ./mindgraph ./mindcontext ./cmd/forge-mind-graph
+          go build ./cmd/forge-mind-graph
+          echo 'FORGE_ICE_PUBLIC_INDEX=SOURCE_GROUNDED'
+          echo 'FORGE_PRIVATE_GRAPH=TESTED_SYNTHETIC_ONLY'
+          echo 'FORGE_GRAPHIFY_PUBLIC_BINARY=NOT_EXECUTED'
+          echo 'FORGE_PRIVATE_SOURCE_OR_EXPORT=NOT_ACCESSED'
+      - name: Validate Windows Graphify and Obsidian wrapper syntax
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($p in @('tools/Build-FORGE-Graphify.ps1','scripts/forge-mind-private-graph.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $p).Path,[ref]$tokens,[ref]$errors) | Out-Null
+            if (@($errors).Count -ne 0) { throw ('FORGE_PRIVATE_GRAPH_POWERSHELL_PARSE_FAILED:'+$p) }
+          }
+          Write-Output 'FORGE_PUBLIC_AND_PRIVATE_GRAPH_WINDOWS_PARSE=PASS'
+      - name: Assert public/private output boundaries without invoking vendors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('.')
+          man=json.loads((root/'.ice/manifest.json').read_text())
+          evidence=json.loads((root/'.ice/evidence-index.json').read_text())
+          structure=json.loads((root/'.ice/structure.json').read_text())
+          assert man['visibility']=='public-source-metadata-only'
+          assert man['authority']=='advisory-navigation-only'
+          assert man['graphify']['mode']=='code-only' and man['graphify']['model_calls']==0
+          assert len(structure['nodes'])>=27 and len(structure['edges'])>=24
+          assert all((root/node['source_path']).exists() for node in structure['nodes'])
+          assert evidence['classification']=='public_engineering_qualification_only'
+          assert all(not e['scientific_original'] for e in evidence['entries'])
+          assert 'historical' in evidence['snapshot_scope'].lower()
+          assert (root/'.ice/derived/.gitignore').read_text().strip().startswith('*')
+          assert '/graphify-out/' in (root/'.gitignore').read_text()
+          assert not (root/'graphify-out').exists()
+          assert not (root/'.ice/derived/obsidian').exists()
+          assert not (root/'.ice/derived/graphify/graph.json').exists()
+          print('FORGE_ICE_GRAPH_PRIVATE_PUBLIC_DISJOINT=PASS')
+          print('FORGE_RESEARCH_AND_SOURCE_AUTHORITY=UNCHANGED')
+          PY

@@ -1,0 +1,124 @@
+{
+  "schema": "forge.nci04.q21.information_budget_prereg.v1",
+  "state": "FROZEN_DESIGN_ONLY_NOT_EXECUTED",
+  "source_parent": "ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f",
+  "predecessor": {
+    "q20_pr": "https://github.com/spoonman136668-ai/FORGE/pull/731",
+    "q20_head": "20ee878596505868719f6fa46dd022c4f39fe268",
+    "q20_disposition": "DEV_NO_GO_RETAIN_NEGATIVE_NO_HELD",
+    "q20_fit_dev_seeds": "CONSUMED_DO_NOT_REUSE",
+    "q20_held_groups": "UNGENERATED_DO_NOT_TOUCH"
+  },
+  "intent": "Prospectively determine whether fresh public action-observation streams contain learnable historical predictive information beyond full-current-public controls, before Q22 active information acquisition or a new cognitive learner. This gate does not validate cognitive transfer.",
+  "hypothesis": {
+    "H1": "In each of two new qualitatively distinct source-free regimes, a FIT-trained history-conditioned predictor reduces future public-observation negative log loss relative to the strongest fully trained full-current-public predictor with the same known action window.",
+    "H0": "If genuine public history is not predictive beyond current observations and action windows, no history model should produce a material positive held-development gain.",
+    "separation": "Decompose low ceiling (information insufficiency) from failure of a particular optimizer/model to approach the achievable public-history predictive ceiling; report both without assuming one implies the other."
+  },
+  "source_free_families": [
+    {
+      "id": "A_PERSISTENT_ACTION_FLIP",
+      "description": "An unknown binary state follows an action-conditioned symmetric flip process. One of two anonymous noisy public sensors emits it; the other emits independent fair noise. Sensor role is randomized independently per episode and never exposed.",
+      "fixed_generator": {
+        "episode_observations": 33,
+        "actions": 32,
+        "noise": "1/24",
+        "flip_if_a0": "1/32",
+        "flip_if_a1": "3/4",
+        "responsive_slot": "uniform_each_episode",
+        "latent_initial": "Bernoulli(1/2)"
+      }
+    },
+    {
+      "id": "B_DELAYED_ACTION_CHANGE",
+      "description": "An unknown binary state normally persists; a consecutive pair of public action-1 events toggles it, with independent symmetric transition noise. Anonymous sensor-role randomization and distractor as in A. This structure differs causally from family A.",
+      "fixed_generator": {
+        "episode_observations": 33,
+        "actions": 32,
+        "noise": "1/12",
+        "spontaneous_flip": "1/32",
+        "flip_when_previous_and_current_action_one": true,
+        "responsive_slot": "uniform_each_episode",
+        "latent_initial": "Bernoulli(1/2)"
+      }
+    },
+    {
+      "id": "NULL_ACTION_INDEPENDENT",
+      "description": "Both public binary sensors are independently sampled fair bits each step, actions have no causal influence, and no persistent public history signal exists.",
+      "fixed_generator": {
+        "episode_observations": 33,
+        "actions": 32,
+        "sensor_bits": "iid_Bernoulli(1/2)",
+        "latent_state": "NONE"
+      }
+    }
+  ],
+  "public_observation_contract": "At time t each arm observes o_0..o_t and a_0..a_t before predicting o_(t+1); use no future observations/actions. Current-state controls see o_t, a_t, and a_(t-1) where defined, so delayed-action knowledge does not manufacture a memory gain. Latent state, sensor role, rule identity, generator parameters and future outcomes are never public model inputs.",
+  "action_policy": "All arms receive the same action/observation trajectories. Each a_t is sampled from Bernoulli(1/2) before the state transition; no model-selected action in Q21. Policy learning is a distinct prospective Q22 gate and must not be retroactively added here.",
+  "role_separation": {
+    "train_episodes_per_family": 256,
+    "fit_validation_episodes_per_family": 64,
+    "development_episodes_per_family": 128,
+    "seed_spec": "random.Random(int.from_bytes(sha256(utf8('forge-q21-v1:'+role+':'+family+':'+str(episode_index))).digest()[:8],'big'))",
+    "roles": [
+      "FIT_TRAIN",
+      "FIT_VALID",
+      "DEV"
+    ],
+    "reset_cluster_unit": "Entire episode, including role-drawn responsive sensor identity; scored next-bit observations within an episode are not independent samples.",
+    "source_access": "No Q20 observed or reserved source cohorts, no MiniGrid/Pycolab, no original scientific first-use, and no held-out cross-family/long-horizon transfer generation."
+  },
+  "comparator_contract": {
+    "memoryless_controls": [
+      "FIT-trained full-current-and-action-window multinomial outcome counts with Dirichlet smoothing (all observed sensor joint states retained)",
+      "FIT-trained full-current-and-action-window logistic prediction for each next public bit"
+    ],
+    "history_controls": [
+      "FIT-trained public-lagged action/observation counts with smoothing",
+      "FIT-trained action-aware 2-state and 4-state recurrent predictors",
+      "FIT-trained unsupervised 2-state and 4-state action-aware HMM via EM"
+    ],
+    "training": "All empirical models receive identical FIT_TRAIN public trajectories; select epochs/restarts using FIT_VALID alone with frozen stopping schedule. Never select, tune, train or rewrite model weights on DEV.",
+    "fixed_training_budget": {
+      "rnn_epochs": 60,
+      "rnn_restarts": 3,
+      "hmm_em_epochs": 40,
+      "hmm_restarts": 3,
+      "selection": "best FIT_VALID next-observation NLL",
+      "retraining_on_fit_validation": false
+    },
+    "theoretical_diagnostics": [
+      "PUBLIC_MARGINALIZED_BAYES: generator-law-aware filtering, integrating unknown per-episode responsive sensor, latent state and observation noise rather than revealing secret episode draws. Privileged model, diagnostic only; not a matched empirical comparator.",
+      "PRIVILEGED_LATENT_CEILING: may additionally know true hidden episode state/sensor role, always separately marked privileged and excluded from any empirical-win claim."
+    ]
+  },
+  "metrics": {
+    "primary": "Development mean next-public-sensor Bernoulli NLL, nats per bit; log probabilities evaluated on exact observed bits.",
+    "per_family": "Report complete per-family scores, pairwise history-minus-current gap, oracle diagnostic headroom, and false-positive counts as descriptive diagnostics without using ordinary bit mispredictions as hard causal false positives.",
+    "uncertainty": "2048 deterministic paired bootstrap replicates by independently seeded complete DEV episodes, never by sensor bit; report two-sided 95% percentile confidence interval.",
+    "cross_os": "Windows and Linux must agree on cohort SHA-256, model/prereg IDs, outcome and score ordering. Predeclared numerical tolerance 1e-6 nats/bit; checkpoint byte hashes must be recorded, and differing hashes are not called bit-identical.",
+    "resources": "Full generator, FIT, checkpoint selection, DEV inference and audit CPU process time; peak RSS, tracemalloc, serialized model bytes, wire/adapter bytes; record each separately and total by model/OS."
+  },
+  "frozen_dev_decision": {
+    "history_gain_min_nats_per_bit_each_real_family": 0.012,
+    "history_gain_95pct_bootstrap_lower_bound_each_real_family_min": 0.002,
+    "public_oracle_headroom_vs_best_memoryless_min_nats_each_real_family": 0.015,
+    "null_family_max_apparent_history_gain_nats": 0.005,
+    "require_all_real_families": true,
+    "require_cross_os_reproduction": true,
+    "do_not_treat_oracle_as_equal_information_control": true,
+    "pass_state": "Q21_DEV_INFORMATION_AND_LEARNABILITY_SUPPORTED_Q22_DESIGN_ELIGIBLE_ONLY",
+    "fail_state": "Q21_DEV_NO_GO_INFORMATION_OR_TRAINABILITY_GAP_RETAIN_NEGATIVE",
+    "attribution": "If public oracle headroom is small, classify information-limit. If oracle headroom is sufficient but empirical history learning fails, classify trainability/model-limit. A negative null control violation is method-integrity NO-GO. These descriptive classes do not override failure."
+  },
+  "hard_guards": [
+    "Preregister immutable source and decision contract before implementing or generating any Q21 episode.",
+    "Do not reuse exposed Q20 FIT/DEV or instantiate Q20 reserved unfamiliar-task holdouts.",
+    "Use only new source-free synthetic development data; original-source protected scientific first-use remains untouched.",
+    "No revisions to thresholds after seeing Q21 outcomes; retain all outcomes, including negative classes.",
+    "No new optimizer mechanism, model promotion, protected branch merge, CKB-plane queue/dispatch/controller mutation, unattended scheduler or broker action in this gate.",
+    "Implementation requires exact parent/source pin, bounded allowlist, adversarial tests, independent native Windows/Linux qualification, and final full regression before formal admission.",
+    "Prior cached focused evidence may be reused only with exact qualification keys; final full regression cannot be cached away.",
+    "This preregistration is advisory and is not execution or scientific first-use authorization; CKB-plane alone controls execution/orchestration and acceptance."
+  ]
+}

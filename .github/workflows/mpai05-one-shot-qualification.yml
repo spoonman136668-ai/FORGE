@@ -1,0 +1,29 @@
+name: MP-AI05 one-shot consumer focused qualification
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths:
+      - 'tools/mpai05_recall_cli.py'
+      - 'tests/test_mpai05_recall_cli.py'
+      - '.github/workflows/mpai05-one-shot-qualification.yml'
+  pull_request:
+    paths:
+      - 'tools/mpai05_recall_cli.py'
+      - 'tests/test_mpai05_recall_cli.py'
+      - '.github/workflows/mpai05-one-shot-qualification.yml'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Qualify mode routing and private-result controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q tools/mpai05_recall_cli.py
+          python3 -m unittest discover -s tests -p 'test_mpai05_recall_cli.py' -v
+          python3 -m unittest discover -s tests -p 'test_mpai05_optin_consumer.py' -v
+          echo 'MPAI05_ONE_SHOT_FOCUSED=PASS'

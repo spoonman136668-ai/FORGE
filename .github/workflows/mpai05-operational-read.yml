@@ -1,0 +1,61 @@
+name: MP-AI05 operational eligible-read boundary
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths:
+      - 'tools/mpai05_recall_cli.py'
+      - 'tests/test_mpai05_recall_cli.py'
+      - '.github/workflows/mpai05-operational-read.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  operational-read:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Consume one pinned private source with disabled, shadow and eligible modes
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI05_UNAUTHORIZED_EXECUTION_SURFACE'
+          }
+          $scratch = Join-Path $env:RUNNER_TEMP ('mpai05-operational-' + $env:GITHUB_RUN_ID)
+          $source = Join-Path $scratch 'source'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $source
+            if($LASTEXITCODE -ne 0) { throw 'PRIVATE_SOURCE_NOT_AVAILABLE' }
+            $sha = (& git -C $source rev-parse HEAD).Trim()
+            if($sha -cne '7ad7230a82e3c748aa5336b7288ad2b45d42630c') { throw 'SOURCE_PIN_DRIFT' }
+            $query = 'Can you find the saved memory related to Mind-Palace retrieval context memory governance and explain the original evidence?'
+            $paths = @{}
+            foreach($mode in @('off','shadow','eligible')){
+              $private = Join-Path $scratch ('private-'+$mode+'.json')
+              $paths[$mode] = $private
+              $query | & python tools/mpai05_recall_cli.py --source-root $source --source-sha $sha --mode $mode --private-result $private
+              if($LASTEXITCODE -ne 0){throw ('MPAI05_CONSUMER_FAILED_'+$mode)}
+            }
+            $off = Get-Content -Raw -LiteralPath $paths['off'] | ConvertFrom-Json
+            $shadow = Get-Content -Raw -LiteralPath $paths['shadow'] | ConvertFrom-Json
+            $eligible = Get-Content -Raw -LiteralPath $paths['eligible'] | ConvertFrom-Json
+            if($off.receipt.routing -cne 'disabled' -or $shadow.receipt.routing -cne 'disabled') {throw 'BASELINE_ROUTING_DRIFT'}
+            if($eligible.receipt.routing -cne 'normalized') {throw 'EXPLICIT_OPT_IN_NOT_APPLIED'}
+            if($off.receipt.private_result_sha256 -cne $shadow.receipt.private_result_sha256) {throw 'SHADOW_NOT_READ_ONLY'}
+            if(@($eligible.result.matches).Count -lt 1) {throw 'NO_SOURCE_BACKED_OPT_IN_RESULT'}
+            if(@($eligible.result.matches | Where-Object { @($_.source_refs).Count -lt 1 }).Count -gt 0) {throw 'PROVENANCE_INVALID'}
+            if($eligible.result.source_sha -cne $sha) {throw 'SOURCE_IDENTITY_DRIFT'}
+            Write-Host 'MPAI05_OPERATIONAL_ELIGIBLE_ROUTE=PASS'
+            Write-Host 'MPAI05_OPERATIONAL_SHADOW_ORIGINAL_PARITY=PASS'
+            Write-Host 'MPAI05_OPERATIONAL_PINNED_PROVENANCE=PASS'
+            Write-Host 'MPAI05_OPERATIONAL_GLOBAL_ACTIVATION=FALSE'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }

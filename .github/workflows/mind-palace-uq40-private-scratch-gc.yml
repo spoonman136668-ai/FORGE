@@ -1,0 +1,54 @@
+name: Mind-Palace UQ40 independent private scratch reaper
+# Separate workflow survives interrupted/cancelled private intake poll jobs.
+# No Mind-Palace network access, no GitHub read token and no scientific dependency.
+on:
+  schedule:
+    - cron: '43 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: uq40-mind-palace-private-scratch-reaper
+  cancel-in-progress: false
+jobs:
+  reap:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Fail-closed cleanup of abandoned scoped private directories
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'UQ40_GC_RUNNER_IDENTITY_MISMATCH'
+          }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $base = Join-Path $env:RUNNER_TEMP 'mp37-private-scratch'
+          if(-not (Test-Path -LiteralPath $base -PathType Container)){
+            Write-Host 'UQ40_PRIVATE_GC_EMPTY=PASS'
+            exit 0
+          }
+          $threshold = [DateTime]::UtcNow.AddMinutes(-45)
+          $removed = 0
+          $retained = 0
+          $dirs = @(Get-ChildItem -LiteralPath $base -Directory -Force -ErrorAction Stop)
+          foreach($d in $dirs){
+            if($d.Name -cnotmatch '^run-[0-9]+$'){
+              throw 'UQ40_UNRECOGNIZED_PRIVATE_SCRATCH_ENTRY'
+            }
+            $latest = $d.LastWriteTimeUtc
+            foreach($child in @(Get-ChildItem -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop)){
+              if($child.LastWriteTimeUtc -gt $latest){$latest=$child.LastWriteTimeUtc}
+            }
+            if($latest -gt $threshold){
+              $retained++
+              continue
+            }
+            Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop
+            if(Test-Path -LiteralPath $d.FullName){throw 'UQ40_PRIVATE_GC_DELETION_FAILED'}
+            $removed++
+          }
+          Write-Host ('UQ40_EXPIRED_PRIVATE_SCRATCH_REMOVED='+$removed)
+          Write-Host ('UQ40_RECENT_PRIVATE_SCRATCH_RETAINED='+$retained)
+          Write-Host 'UQ40_INDEPENDENT_PRIVATE_SCRATCH_GC=PASS'

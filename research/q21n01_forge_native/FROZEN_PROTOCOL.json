@@ -1,0 +1,160 @@
+{
+  "schema": "forge.optimizer.q21n01.native-information-budget-prereg.v1",
+  "state": "FROZEN_SOURCE_ONLY_NO_COHORTS_GENERATED",
+  "stage": "PROSPECTIVE_DEVELOPMENT_ONLY",
+  "scientific_identity": "Q21N-01",
+  "owner": "FORGE_SCIENTIFIC_AUTHORITY_ONLY",
+  "source_parent": "79a7ea1df2a790ff186b7e5fa837494f46373990",
+  "predecessor": {
+    "protocol_blob_sha": "d7c35c10f80b36a758b78e0deedf36d74bf5767d",
+    "source_commit_sha": "0d49a1cc01e9dff9db060ca0981beaf6748f3127",
+    "disposition": "HISTORIC_DESIGN_ONLY_NEVER_SCIENTIFICALLY_EXECUTED",
+    "negative_q20": "DEV_NO_GO_RETAIN_NEGATIVE_NO_HELD",
+    "why_separate_identity": "Original design assigned execution to another authority; this FORGE-native study has a new role/seed namespace and cannot silently amend original preregistration"
+  },
+  "question": "In two fixed source-free causal systems, can equally FIT-trained public-history models predict next public sensor bits more efficiently than fully FIT-trained controls conditioned on current observations and the same public action window, while maintaining a zero-signal null?",
+  "hypothesis_alternatives": {
+    "H1": "Both causal families exceed the frozen empirical gain and episode-bootstrap confidence thresholds under matched public FIT inputs",
+    "H0": "At least one causal family fails the gains or confidence limits or the null gives spurious history advantage"
+  },
+  "generator": {
+    "seed_namespace": "forge-q21n01-v1",
+    "initial_seed_spec": "int.from_bytes(sha256(utf8('forge-q21n01-v1:'+role+':'+family+':'+str(index))).digest()[:8],'big')",
+    "rng": "python_random_Random_MT19937_64bit_integer_seed",
+    "families": [
+      {
+        "id": "A_PERSISTENT_ACTION_FLIP",
+        "fixed_generator": {
+          "episode_observations": 33,
+          "actions": 32,
+          "noise": "1/24",
+          "flip_if_a0": "1/32",
+          "flip_if_a1": "3/4",
+          "responsive_slot": "uniform_each_episode",
+          "latent_initial": "Bernoulli(1/2)"
+        }
+      },
+      {
+        "id": "B_DELAYED_ACTION_CHANGE",
+        "fixed_generator": {
+          "episode_observations": 33,
+          "actions": 32,
+          "noise": "1/12",
+          "spontaneous_flip": "1/32",
+          "flip_when_previous_and_current_action_one": true,
+          "responsive_slot": "uniform_each_episode",
+          "latent_initial": "Bernoulli(1/2)"
+        }
+      },
+      {
+        "id": "NULL_ACTION_INDEPENDENT",
+        "fixed_generator": {
+          "episode_observations": 33,
+          "actions": 32,
+          "sensor_bits": "iid_Bernoulli(1/2)",
+          "latent_state": "NONE"
+        }
+      }
+    ],
+    "action_policy": "Each a_t sampled from independent Bernoulli(1/2); identical public action-observation trajectories to every comparator; no learned action policy",
+    "public_information": "At prediction time t only observations o_0..o_t and public actions a_0..a_t; current baselines receive o_t, a_t, a_(t-1); no future outcomes, hidden sensor slot or private state"
+  },
+  "roles": {
+    "FIT_TRAIN": 256,
+    "FIT_VALID": 64,
+    "DEV": 128,
+    "per_family": true,
+    "forbid_roles": [
+      "HELD",
+      "ORIGINAL",
+      "Q20_FIT",
+      "Q20_DEV",
+      "Q20_HELD",
+      "Q21_FIT",
+      "Q21_DEV"
+    ],
+    "cross_role_episode_reuse": "FORBIDDEN",
+    "training_on_dev": "FORBIDDEN",
+    "selection_on_dev": "FORBIDDEN"
+  },
+  "comparators": {
+    "full_current": [
+      "FULL_CURRENT_COUNTS",
+      "TRAINED_CURRENT_LOGISTIC"
+    ],
+    "history": [
+      "LAGGED_PUBLIC_COUNTS",
+      "TRAINED_2_STATE_ACTION_RNN",
+      "TRAINED_4_STATE_ACTION_RNN",
+      "UNSUPERVISED_2_STATE_ACTION_HMM",
+      "UNSUPERVISED_4_STATE_ACTION_HMM"
+    ],
+    "privileged_diagnostic": "PUBLIC_MARGINALIZED_BAYES_TRUE_GENERATOR_LAW_NOT_EQUAL_INFORMATION",
+    "training": {
+      "rnn_epochs": 60,
+      "rnn_restarts": 3,
+      "hmm_em_epochs": 40,
+      "hmm_restarts": 3,
+      "checkpoint_selection": "minimum FIT_VALID NLL separately among current and history models",
+      "retrain_on_fit_validation": false
+    }
+  },
+  "development_decision": {
+    "metric": "mean next public Bernoulli negative log likelihood in nats per bit",
+    "history_gain_min_each_real_family": 0.012,
+    "history_gain_95pct_bootstrap_lower_bound_min_each_real_family": 0.002,
+    "public_oracle_headroom_vs_best_memoryless_min_each_real_family": 0.015,
+    "null_max_apparent_history_gain": 0.005,
+    "paired_bootstrap_replicates": 2048,
+    "resampling_unit": "episode",
+    "both_real_families_required": true,
+    "oracle_must_not_be_counted_as_matched_comparator": true,
+    "cross_os_native_required": [
+      "Windows",
+      "Linux"
+    ],
+    "nll_tolerance_cross_os": 0.000001,
+    "require_same_episode_digests_cross_os": true,
+    "failure_state": "Q21N01_DEV_NO_GO_RETAIN_NEGATIVE",
+    "success_state": "Q21N01_DEV_INFORMATION_AND_LEARNABILITY_SUPPORTED_Q22_DESIGN_ELIGIBLE_ONLY",
+    "invalid_state": "Q21N01_INVALID_UNQUALIFIED_OR_INDETERMINATE_RETAIN",
+    "not_evidence_of": "UNSEEN_TASK_TRANSFER_OR_GENERAL_INTELLIGENCE"
+  },
+  "resource_accounting": [
+    "generator_CPU",
+    "FIT_CPU",
+    "FIT_VALID_selection_CPU",
+    "DEV_inference_CPU",
+    "whole_process_CPU",
+    "peak_RSS_native",
+    "per_model_peak_RSS_if_measurable_else_unqualified",
+    "tracemalloc",
+    "serialized_model_bytes",
+    "wire_adapter_bytes",
+    "artifact_storage_bytes",
+    "native_OS_and_toolchain",
+    "first_use_and_abort_receipts"
+  ],
+  "admission": {
+    "authority": "FORGE_FSA_ONLY",
+    "required_before_any_role_episode": "Independently deployed and authenticated FORGE scientific owner with immutable source/protocol, first-use journal and native worker lease; self-authored CI or this protocol is not an admission",
+    "known_source_state": "FSA_ACTIVATION_NOT_INDEPENDENTLY_VERIFIED",
+    "controller": "EXISTING_FORGE_CONTROLLER_ONLY",
+    "protected_original_first_use": false,
+    "no_external_paid_models": true,
+    "no_cross_project_private_dependencies": true,
+    "crash_policy": "UNKNOWN_OR_PARTIAL_START_TERMINAL_NO_RETRY_PENDING_OWNER_RECONCILIATION",
+    "prior_negative_retention": "REQUIRED",
+    "current_authorization": "NONE"
+  },
+  "guardrails": [
+    "Never amend the original predecessor preregistration or rewrite negative results",
+    "Never instantiate reserved Q20 or original Q21 protected cohorts",
+    "No generation of Q21N-01 FIT_TRAIN, FIT_VALID or DEV before authentic FORGE FSA admission",
+    "Test or workflow invocations on this branch may inspect bytes and synthetic hand-written fixtures only",
+    "No new controller, scheduler, signing authority, cross-project token, broker action, paid API or protected dataset access",
+    "No threshold revision after first cohort birth; release a separate prospectively versioned study for substantive changes",
+    "All failed, negative or ambiguous starts and cross-platform outcomes preserved; no silent positive result",
+    "No automatic claim of ITD-01 transferable cognition from one-step predictive success"
+  ]
+}
