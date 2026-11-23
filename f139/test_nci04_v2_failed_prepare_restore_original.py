@@ -175,6 +175,8 @@ class RecoveryContractTests(unittest.TestCase):
         self.assertIn("RECOVERY_DEPENDENCY_MERGE_BLOB_UNAVAILABLE", script)
         self.assertIn("RECOVERY_DEPENDENCY_SOURCE_DRIFT", script)
         self.assertIn("$recoveryFixPr=Remote ('repos/'+$repo+'/pulls/1877')", script)
+        self.assertIn("$recoveryFix.sha -ceq $recoveryFixMergeSha", script)
+        self.assertNotIn("$recoveryFix.merge_commit_sha", script)
         self.assertIn("RECOVERY_FIX_NOT_ANCESTOR_OF_CURRENT_MAIN", script)
         self.assertIn("RECOVERY_SCRIPT_SOURCE_DRIFT_AFTER_FIX", script)
         self.assertNotIn("diff --quiet", script)
