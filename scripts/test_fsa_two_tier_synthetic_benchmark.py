@@ -1,4 +1,4 @@
-"""Tests for the paired, deterministic synthetic memory benchmark."""
+"""Tests for paired synthetic two-tier benchmark with explicit abstention."""
 import unittest
 from unittest.mock import patch
 from scripts import two_tier_synthetic_benchmark as b
@@ -15,61 +15,71 @@ class TwoTierSyntheticBenchmarkTests(unittest.TestCase):
         self.assertEqual(first["model_calls"],0)
         self.assertEqual(first["paid_api_calls"],0)
 
-    def test_four_arms_receive_paired_identical_observations(self):
+    def test_four_arms_receive_paired_identical_observations_and_real_costs(self):
         result=b.run_benchmark()
         self.assertEqual(set(result["arms"]),set(b.ARMS))
         self.assertEqual(result["steps"],48)
+        self.assertEqual(result["warmup_pairs"],6)
         self.assertEqual(result["reversal_at"],24)
         self.assertEqual(result["contexts"],2)
-        for row in result["arms"].values():
-            self.assertEqual(row["context0_pre_reversal_accuracy"],1.0)
+        for name in ("lifetime-only","recent-only","two-tier"):
+            self.assertEqual(result["arms"][name]["context0_pre_reversal"]["decision_accuracy_all_steps"],1.0)
+            self.assertEqual(result["arms"][name]["context0_pre_reversal"]["decision_coverage"],1.0)
         self.assertEqual(result["arms"]["lifetime-only"]["active_packed_state_bytes"],128)
         self.assertEqual(result["arms"]["recent-only"]["active_packed_state_bytes"],64)
         self.assertEqual(result["arms"]["two-tier"]["active_packed_state_bytes"],194)
         self.assertEqual(result["arms"]["no-memory"]["active_packed_state_bytes"],0)
         self.assertEqual(result["arms"]["two-tier"]["declared_checkpoint_bytes"],230)
 
-    def test_recent_and_two_tier_adapt_faster_than_lifetime_only(self):
+    def test_abstention_is_not_scored_as_a_correct_default(self):
+        row=b.run_benchmark()["arms"]["no-memory"]
+        self.assertEqual(row["context0_pre_reversal"]["decision_coverage"],0.0)
+        self.assertEqual(row["context0_pre_reversal"]["decision_accuracy_all_steps"],0.0)
+        self.assertIsNone(row["context0_pre_reversal"]["accuracy_when_decided"])
+        self.assertEqual(row["context1_stationary"]["abstentions"],48)
+
+    def test_recent_and_two_tier_adapt_after_recent_window_turnover(self):
         arms=b.run_benchmark()["arms"]
         self.assertIsNone(arms["lifetime-only"]["context0_adaptation_delay_steps"])
         self.assertEqual(arms["recent-only"]["context0_adaptation_delay_steps"],2)
         self.assertEqual(arms["two-tier"]["context0_adaptation_delay_steps"],2)
-        self.assertEqual(arms["no-memory"]["context0_adaptation_delay_steps"],None)
-        self.assertGreater(arms["two-tier"]["context0_post_reversal_accuracy"],
-                          arms["lifetime-only"]["context0_post_reversal_accuracy"])
-        self.assertGreater(arms["two-tier"]["context1_stationary_accuracy"],0.9)
+        self.assertIsNone(arms["no-memory"]["context0_adaptation_delay_steps"])
+        self.assertGreater(
+            arms["two-tier"]["context0_post_reversal"]["decision_accuracy_all_steps"],
+            arms["lifetime-only"]["context0_post_reversal"]["decision_accuracy_all_steps"])
+        self.assertEqual(arms["two-tier"]["context1_stationary"]["decision_accuracy_all_steps"],1.0)
 
     def test_context_isolation_preserves_stationary_context_during_other_reversal(self):
         arms=b.run_benchmark()["arms"]
-        self.assertGreater(arms["two-tier"]["context1_stationary_accuracy"],0.9)
-        self.assertGreater(arms["two-tier"]["context1_stationary_accuracy"],
-                           arms["no-memory"]["context1_stationary_accuracy"])
+        self.assertEqual(arms["two-tier"]["context1_stationary"]["decision_accuracy_all_steps"],1.0)
+        self.assertEqual(arms["two-tier"]["context1_stationary"]["decision_coverage"],1.0)
+        self.assertEqual(arms["no-memory"]["context1_stationary"]["decision_coverage"],0.0)
 
     def test_cost_benefit_is_reported_not_hidden(self):
         arms=b.run_benchmark()["arms"]
         self.assertGreater(arms["two-tier"]["active_packed_state_bytes"],
                            arms["recent-only"]["active_packed_state_bytes"])
-        self.assertEqual(arms["two-tier"]["context0_post_reversal_accuracy"],
-                         arms["recent-only"]["context0_post_reversal_accuracy"])
+        self.assertEqual(
+            arms["two-tier"]["context0_post_reversal"]["decision_accuracy_all_steps"],
+            arms["recent-only"]["context0_post_reversal"]["decision_accuracy_all_steps"])
 
-    def test_sparse_recent_evidence_falls_back_then_overrides_with_new_support(self):
+    def test_sparse_fallback_preserves_prior_then_adapts_with_support(self):
         result=b.run_sparse_fallback()
-        before=result["decision_with_one_sparse_reversal_pair"]
-        self.assertEqual(result["recent_counts_before"]["two-tier"],[[1,1],[1,1]])
+        before=result["decision_after_one_reversal_pair"]
+        self.assertEqual(result["recent_counts_after_one_reversal_pair"]["two-tier"],[[1,1],[1,1]])
         self.assertEqual(before["lifetime-only"],1)
         self.assertEqual(before["two-tier"],1)
-        self.assertEqual(before["recent-only"],0)
-        self.assertEqual(before["no-memory"],0)
+        self.assertIsNone(before["recent-only"])
+        self.assertIsNone(before["no-memory"])
         after=result["decision_after_two_reversal_pairs"]
-        # All arms received six identical historical pairs. One reversal pair
-        # leaves mixed recent slots, so two-tier falls back; the second reversal
-        # pair evicts the last old slot and selects action 0.
         self.assertEqual(after["lifetime-only"],1)
         self.assertEqual(after["two-tier"],0)
         self.assertEqual(after["recent-only"],0)
-        self.assertEqual(after["no-memory"],0)
-        self.assertEqual(result["two_tier_state_bytes"],194)
-        self.assertEqual(result["recent_only_state_bytes"],64)
+        self.assertIsNone(after["no-memory"])
+        self.assertEqual(result["abstention_after_one_pair"]["two-tier"],False)
+        self.assertEqual(result["abstention_after_one_pair"]["recent-only"],True)
+        self.assertEqual(result["state_bytes"]["two-tier"],194)
+        self.assertEqual(result["state_bytes"]["recent-only"],64)
 
     def test_no_filesystem_or_interactive_execution(self):
         with patch("builtins.open",side_effect=AssertionError("I/O forbidden")), \
