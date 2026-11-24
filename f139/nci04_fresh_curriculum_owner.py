@@ -231,7 +231,7 @@ def plan_next_hypothesis_v3_from_original_owner(
         ACCEPTED_NATIVE_BLOB, ACCEPTED_NATIVE_PATH, _content,
     )
     from f139.nci04_hypothesis_engine import generate_yggdrasil_hypothesis_pool
-    from f139.nci04_scientific_evaluator import evaluate_and_rank_pool
+    from f139.nci04_receipt_feedback import rank_pool_with_receipt_feedback
 
     need(type(db) is Database
          and SingleOwner.held(db.filename.with_suffix(".lock")),
@@ -291,11 +291,10 @@ def plan_next_hypothesis_v3_from_original_owner(
         consumed_after=spent, last_verified_after=latest)
     if not pool:
         return None
-    ranked = evaluate_and_rank_pool(pool)
-    passing = [ev for ev in ranked["evaluations"] if ev["negative_control_pass"]]
-    if not passing:
+    decision = rank_pool_with_receipt_feedback(pool, entries)
+    chosen_after = decision.get("selected_after_sha256")
+    if chosen_after is None:
         return None
-    chosen_after = passing[0]["after_sha256"]
     matched = [item for item in pool if item["plan"]["after_sha256"] == chosen_after]
     need(len(matched) == 1, "V3_PLANNER_SELECTED_PLAN_AMBIGUOUS")
     need((db.meta()["head_seq"], db.meta()["head_hash"],

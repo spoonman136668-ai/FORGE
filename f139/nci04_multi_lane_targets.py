@@ -44,7 +44,9 @@ LANES: dict[str, dict] = {
             "self_organizing_state_without_global_oracle",
         ),
         "active_target_repo": "spoonman136668-ai/Wingless",
-        "active_target_path": None,  # Requires separately pinned target blob before live execution
+        "active_target_commit": "9a92fcae40c811c724b4214da03fff34126f6b4f",
+        "active_target_tree": "4d4e92af583aa66f71aa62b1cba4969dacf39453",
+        "active_target_path": "ice/relationships.go",
         "matched_controls": ("predictive_state_baseline",),
         "live_hypothesis_enabled": False,
     },
