@@ -152,6 +152,9 @@ class RecoveryContractTests(unittest.TestCase):
         self.assertLess(script.index("COLD_SIGNED_V1_CUSTODY_REJECTED"),
                         script.index("Enable-ScheduledTask"))
         self.assertIn("F139_V2_RESTORE_PRECHECK=", script)
+        self.assertIn("F139_GATE4_LIVE_AUDIT=", script)
+        self.assertLess(script.index("F139_GATE4_LIVE_AUDIT="),
+                        script.index("EXACT_DISABLED_ORIGINAL_OWNER_REQUIRED"))
         self.assertLess(script.index("F139_V2_RESTORE_PRECHECK="),
                         script.index("EXACT_DISABLED_ORIGINAL_OWNER_REQUIRED"))
         self.assertLess(script.index("EXACT_DISABLED_ORIGINAL_OWNER_REQUIRED"),
