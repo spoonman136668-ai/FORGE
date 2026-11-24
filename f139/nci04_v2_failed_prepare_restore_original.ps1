@@ -90,9 +90,13 @@ Need ([int64]$c.id -eq [int64]$evt.comment.id -and
 $main=Remote ('repos/'+$repo+'/branches/main')
 $commit=Remote ('repos/'+$repo+'/git/commits/'+$Target)
 $recoveryPr=Remote ('repos/'+$repo+'/pulls/1870')
+$recoveryMergeSha=[string]$recoveryPr.merge_commit_sha
+$recoveryMerge=Remote ('repos/'+$repo+'/git/commits/'+$recoveryMergeSha)
 Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target -and
-      $commit.sha -ceq $Target -and @($commit.parents).Count -eq 2 -and
-      $commit.parents[0].sha -ceq $previousMain -and
+      $commit.sha -ceq $Target -and
+      $recoveryMerge.sha -ceq $recoveryMergeSha -and
+      @($recoveryMerge.parents).Count -eq 2 -and
+      $recoveryMerge.parents[0].sha -ceq $previousMain -and
       $recoveryPr.number -eq 1870 -and $recoveryPr.merged -eq $true -and
       $recoveryPr.state -ceq 'closed' -and
       $recoveryPr.user.login -ceq 'spoonman136668-ai' -and
@@ -100,11 +104,43 @@ Need ($main.protected -eq $true -and $main.commit.sha -ceq $Target -and
       $recoveryPr.head.repo.full_name -ceq $repo -and
       $recoveryPr.base.ref -ceq 'main' -and
       $recoveryPr.base.repo.full_name -ceq $repo -and
-      $recoveryPr.merge_commit_sha -ceq $Target -and
-      $recoveryPr.head.sha -ceq $commit.parents[1].sha) 'EXACT_RECOVERY_MERGE_REQUIRED'
+      $recoveryPr.base.sha -ceq $previousMain -and
+      $recoveryPr.merge_commit_sha -ceq $recoveryMergeSha -and
+      $recoveryPr.head.sha -ceq $recoveryMerge.parents[1].sha) 'EXACT_RECOVERY_MERGE_REQUIRED'
 $prSource=Remote ('repos/'+$repo+'/git/commits/'+$recoveryPr.head.sha)
 Need ($prSource.sha -ceq $recoveryPr.head.sha -and
-      $commit.tree.sha -ceq $prSource.tree.sha) 'RECOVERY_MERGE_TREE_DIFFERS_FROM_QUALIFIED_PR'
+      $recoveryMerge.tree.sha -ceq $prSource.tree.sha) 'RECOVERY_MERGE_TREE_DIFFERS_FROM_QUALIFIED_PR'
+# Later protected-main merges are allowed only when the original recovery merge
+# remains an ancestor and the exact executable recovery files are unchanged.
+& git -C $env:GITHUB_WORKSPACE merge-base --is-ancestor $recoveryMergeSha $Target
+Need ($LASTEXITCODE -eq 0) 'RECOVERY_MERGE_NOT_ANCESTOR_OF_CURRENT_MAIN'
+# Original recovery workflow and non-test Python runtime sources remain pinned
+# to the exact qualified PR #1870 merge. Later tests and unrelated workflows may evolve.
+$workflowPath='.github/workflows/f139-v2-failed-prepare-original-restore.yml'
+$workflowMergeBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($recoveryMergeSha+':'+$workflowPath) | Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $workflowMergeBlob.Length -eq 40) 'RECOVERY_WORKFLOW_MERGE_BLOB_UNAVAILABLE'
+$workflowMainBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($Target+':'+$workflowPath) | Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $workflowMainBlob -ceq $workflowMergeBlob) 'RECOVERY_WORKFLOW_SOURCE_DRIFT'
+$recoveryPythonFiles=@(& git -C $env:GITHUB_WORKSPACE ls-tree -r --name-only $recoveryMergeSha -- f139)
+Need ($LASTEXITCODE -eq 0 -and $recoveryPythonFiles.Count -gt 0) 'RECOVERY_DEPENDENCY_TREE_UNAVAILABLE'
+$recoveryPythonFiles=@($recoveryPythonFiles | Where-Object { $_ -like 'f139/*.py' -and $_ -notlike 'f139/test_*.py' })
+Need ($recoveryPythonFiles.Count -gt 0) 'RECOVERY_DEPENDENCY_PYTHON_TREE_EMPTY'
+foreach($path in $recoveryPythonFiles){
+  $mergeBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($recoveryMergeSha+':'+$path) | Out-String).Trim()
+  Need ($LASTEXITCODE -eq 0 -and $mergeBlob.Length -eq 40) 'RECOVERY_DEPENDENCY_MERGE_BLOB_UNAVAILABLE'
+  $mainBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($Target+':'+$path) | Out-String).Trim()
+  Need ($LASTEXITCODE -eq 0 -and $mainBlob -ceq $mergeBlob) 'RECOVERY_DEPENDENCY_SOURCE_DRIFT'
+}
+
+# The workflow checks out exact protected main at $Target. Bind the running
+# PowerShell file to that commit's own blob rather than pinning it to an older
+# recovery PR (which would reject every legitimate follow-up source correction).
+$scriptPath='f139/nci04_v2_failed_prepare_restore_original.ps1'
+$currentScriptBlob=(& git -C $env:GITHUB_WORKSPACE rev-parse ($Target+':'+$scriptPath) | Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $currentScriptBlob.Length -eq 40) 'RECOVERY_SCRIPT_MAIN_BLOB_UNAVAILABLE'
+$runningScriptBlob=(& git -C $env:GITHUB_WORKSPACE hash-object $PSCommandPath | Out-String).Trim()
+Need ($LASTEXITCODE -eq 0 -and $runningScriptBlob.Length -eq 40 -and
+      $runningScriptBlob -ceq $currentScriptBlob) 'RECOVERY_SCRIPT_CHECKOUT_DRIFT'
 ExactCheckout $env:GITHUB_WORKSPACE $Target ([string]$commit.tree.sha) $true
 # ACTION_RUNS /jobs GET was the failing endpoint in the consumed PREPARE.
 # Do not re-depend on it for original-owner recovery. Confirm the two exact
@@ -131,11 +167,113 @@ Need ($prior.id -eq $audit -and
 $task=Get-ScheduledTask -TaskName $originalName -ErrorAction Stop
 $sid=''
 try {$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value} catch {}
-Need (@($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3 -and
-      ([string]$task.Principal.UserId -ieq $who.Name -or $sid -ceq $who.User.Value) -and
-      [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ieq 'powershell.exe' -and
-      $task.Settings.Enabled -eq $false -and
-      [string]$task.State -ceq 'Disabled' -and @(Controllers).Count -eq 0) 'EXACT_DISABLED_ORIGINAL_OWNER_REQUIRED'
+$taskActionsCount=@($task.Actions).Count
+$taskTriggersCount=@($task.Triggers).Count
+$taskPrincipalMatch=([string]$task.Principal.UserId -ieq $who.Name -or $sid -ceq $who.User.Value)
+$taskExecuteMatch=($taskActionsCount -ge 1 -and [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ieq 'powershell.exe')
+$taskEnabled=[bool]$task.Settings.Enabled
+$taskState=[string]$task.State
+$liveControllers=@(Controllers)
+$controllerCount=$liveControllers.Count
+Write-Output ('F139_V2_RESTORE_PRECHECK='+(ConvertTo-Json @{
+  actions_count=$taskActionsCount
+  triggers_count=$taskTriggersCount
+  principal_match=$taskPrincipalMatch
+  execute_match=$taskExecuteMatch
+  enabled=$taskEnabled
+  state=$taskState
+  controller_count=$controllerCount
+} -Compress))
+if($taskActionsCount -eq 1 -and $taskTriggersCount -eq 3 -and
+   $taskPrincipalMatch -and $taskExecuteMatch -and
+   $taskEnabled -eq $true -and $taskState -ceq 'Running' -and
+   $controllerCount -eq 1){
+  $liveSource=Field $task 'RepositoryRoot'
+  $liveDatabase=Field $task 'Database'
+  $livePython=Field $task 'PythonExe'
+  $liveWrapper=Field $task 'File'
+  $liveKeyfile=Field $task 'EncryptedKeyFile'
+  $liveSourcePathMatch=([IO.Path]::GetFullPath($liveSource) -ieq [IO.Path]::GetFullPath((Join-Path $root ('release-candidates\'+$original))))
+  $liveDbPathMatch=([IO.Path]::GetFullPath($liveDatabase) -ieq [IO.Path]::GetFullPath($db))
+  $liveWrapperMatch=([IO.Path]::GetFileName($liveWrapper) -ceq 'Run-FORGE-F139.ps1')
+  $liveFilesPresent=((Test-Path -LiteralPath $livePython -PathType Leaf) -and (Test-Path -LiteralPath $liveKeyfile -PathType Leaf) -and (Test-Path -LiteralPath $db -PathType Leaf))
+  $liveProcDbBound=([string]$liveControllers[0].CommandLine).IndexOf($db,[StringComparison]::OrdinalIgnoreCase) -ge 0
+  $liveSourceMatch=$false
+  try { ExactCheckout $liveSource $original $originalTree $false; $liveSourceMatch=$true } catch {}
+  $liveDpapiValid=$false
+  $liveAuditPy=''
+  try {
+    $liveSec=Import-Clixml -LiteralPath $liveKeyfile
+    if($liveSec -is [Security.SecureString]){
+      $livePtr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($liveSec)
+      try {$env:F139_WORKER_HMAC_KEY=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($livePtr)}
+      finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($livePtr)}
+      $liveDpapiValid=($env:F139_WORKER_HMAC_KEY.Length -ge 32)
+    }
+    if($liveDpapiValid){
+      $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+      $env:PYTHONDONTWRITEBYTECODE='1'
+      $pyCode=@'
+import hmac, json, os, sqlite3, sys
+from pathlib import Path
+from f139.nci04_fresh_owner_source_forward import NAME as V1_NAME, SCHEMA as V1_SCHEMA, sign
+from f139.nci04_fresh_owner_source_forward_v2 import NAME as V2_NAME
+dbp = Path(sys.argv[1]).resolve(strict=True)
+cd = Path(sys.argv[2]).resolve(strict=True)
+key = os.environ["F139_WORKER_HMAC_KEY"]
+v1 = cd / V1_NAME
+v2 = cd / V2_NAME
+v2_absent = (not v2.exists() and not v2.is_symlink())
+doc = json.loads(v1.read_bytes()) if v1.is_file() else {}
+v1_sig_ok = (
+    bool(doc)
+    and doc.get("schema") == V1_SCHEMA
+    and doc.get("owner_source_sha") == "f24251e0d95938e593a54c1577a34efadc8080d8"
+    and hmac.compare_digest(sign({k: v for k, v in doc.items() if k != "owner_signature"}, key), str(doc.get("owner_signature", "")))
+)
+con = sqlite3.connect(f"file:{dbp}?mode=ro", uri=True)
+con.execute("PRAGMA query_only=ON")
+qc = con.execute("PRAGMA quick_check").fetchone()[0]
+meta = con.execute("SELECT head_seq, head_hash FROM meta").fetchone()
+stages = dict(con.execute("SELECT stage, COUNT(*) FROM tasks GROUP BY stage"))
+pending = con.execute("SELECT COUNT(*) FROM tasks WHERE stage != 'VERIFIED'").fetchone()[0]
+chg = con.total_changes
+con.close()
+print(json.dumps({
+    "v1_cert_sig_ok": v1_sig_ok,
+    "v2_cert_absent": v2_absent,
+    "sqlite_quick_check": qc,
+    "head_seq": meta[0],
+    "head_hash": meta[1],
+    "stages": stages,
+    "outstanding": pending,
+    "sqlite_mutations": chg,
+}, sort_keys=True, separators=(",", ":")))
+'@
+      $liveAuditPy=($pyCode | & $livePython -B - $db $certDir | Out-String).Trim()
+    }
+  } finally {
+    Remove-Item Env:F139_WORKER_HMAC_KEY -ErrorAction SilentlyContinue
+  }
+  Write-Output ('F139_GATE4_LIVE_AUDIT='+(ConvertTo-Json @{
+    task_enabled=$taskEnabled
+    task_state=$taskState
+    controller_count=$controllerCount
+    source_path_match=$liveSourcePathMatch
+    db_path_match=$liveDbPathMatch
+    wrapper_match=$liveWrapperMatch
+    files_present=$liveFilesPresent
+    process_db_bound=$liveProcDbBound
+    source_checkout_match=$liveSourceMatch
+    dpapi_key_valid=$liveDpapiValid
+    sqlite_and_cert=$liveAuditPy
+    task_mutations=0
+  } -Compress))
+}
+Need ($taskActionsCount -eq 1 -and $taskTriggersCount -eq 3 -and
+      $taskPrincipalMatch -and $taskExecuteMatch -and
+      $taskEnabled -eq $false -and
+      $taskState -ceq 'Disabled' -and $controllerCount -eq 0) 'EXACT_DISABLED_ORIGINAL_OWNER_REQUIRED'
 $source=Field $task 'RepositoryRoot'
 $database=Field $task 'Database'
 $python=Field $task 'PythonExe'
