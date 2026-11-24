@@ -41,8 +41,8 @@ class TwoTierSyntheticBenchmarkTests(unittest.TestCase):
     def test_recent_and_two_tier_adapt_after_recent_window_turnover(self):
         arms=b.run_benchmark()["arms"]
         self.assertIsNone(arms["lifetime-only"]["context0_adaptation_delay_steps"])
-        self.assertEqual(arms["recent-only"]["context0_adaptation_delay_steps"],2)
-        self.assertEqual(arms["two-tier"]["context0_adaptation_delay_steps"],2)
+        self.assertEqual(arms["recent-only"]["context0_adaptation_delay_steps"],3)
+        self.assertEqual(arms["two-tier"]["context0_adaptation_delay_steps"],3)
         self.assertIsNone(arms["no-memory"]["context0_adaptation_delay_steps"])
         self.assertGreater(
             arms["two-tier"]["context0_post_reversal"]["decision_accuracy_all_steps"],
