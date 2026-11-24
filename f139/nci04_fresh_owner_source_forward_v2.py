@@ -113,7 +113,7 @@ def _qualified_run(api, ident, head, jobs):
          "FINAL_HEAD_QUALIFICATION_DRIFT")
 
 
-def inspect_v2(doc, *, db, api, release, key, previous, previous_bytes):
+def inspect_v2(doc, *, db, api, release, key, previous, previous_bytes, expected_current_source_sha=None):
     """Authenticate exact newest main, original signed V1 and full cold ledger.
 
     The ledger may grow AFTER the signed V2 checkpoint, but its immutable
@@ -167,9 +167,11 @@ def inspect_v2(doc, *, db, api, release, key, previous, previous_bytes):
     # The V1 owner source was the protected main when V1 was created; after
     # the authorized V2 merge it is an archived source, never rewritten.
     try:
+        active_main = (doc["owner_source_sha"] if expected_current_source_sha is None
+                       else expected_current_source_sha)
         prior_source = inspect_forward(
             previous, db=db, api=api, release=release, key=key,
-            expected_current_source_sha=doc["owner_source_sha"])
+            expected_current_source_sha=active_main)
     except ForwardSourceDenied as e:
         raise ForwardV2Denied("F139_FRESH_FORWARD_V2_PREVIOUS_CUSTODY_INVALID") from e
     need(prior_source == (
@@ -200,7 +202,7 @@ def inspect_v2(doc, *, db, api, release, key, previous, previous_bytes):
     commit = api.get(FORGE + "/git/commits/" + doc["owner_source_sha"])
     pr = api.get(FORGE + "/pulls/" + str(doc["pr_number"]))
     need(branch.get("name") == "main" and branch.get("protected") is True
-         and branch.get("commit", {}).get("sha") == doc["owner_source_sha"]
+         and branch.get("commit", {}).get("sha") == active_main
          and commit.get("sha") == doc["owner_source_sha"]
          and commit.get("tree", {}).get("sha") == doc["owner_source_tree"]
          and pr.get("merged") is True and pr.get("state") == "closed"
