@@ -40,6 +40,13 @@ PUBLISH_STRUCTURED_RECIPES = frozenset(
     [f"support-{n}-v2" for n in (2, 4, 8, 16)] +
     [f"symmetric-prior-{n}-v2" for n in (2, 4, 8, 16)]
 )
+PUBLISH_SCHEMA_HYPOTHESIS_V3 = "forge.f139.fresh-owner-hypothesis-publication-attempt.v3"
+PUBLISH_HYPOTHESIS_V3_RECIPES = frozenset(
+    f"ygg-{est}-{sup}-{tie}-v1"
+    for est in ("jeffreys", "asymmetric_loss", "se_margin", "lcb_15")
+    for sup in ("min1", "min4", "min8", "balanced2x")
+    for tie in ("abstain", "least_observed")
+)
 
 PUBLISH_SCHEMA = "forge.f139.fresh-owner-publication-attempt.v1"
 RELEASE_SCHEMA = "forge.f139.fresh-worker-owner-release.v1"
@@ -277,6 +284,8 @@ def audit_execution_tail(db, activation, rows):
                       })
                      or (doc["schema"] == PUBLISH_SCHEMA_STRUCTURED
                          and doc["recipe"] in PUBLISH_STRUCTURED_RECIPES)
+                     or (doc["schema"] == PUBLISH_SCHEMA_HYPOTHESIS_V3
+                         and doc["recipe"] in PUBLISH_HYPOTHESIS_V3_RECIPES)
                  )
                  and doc["ticket"] == ticket
                  and doc["source_sha"] == SOURCE and doc["target_sha"] == TARGET

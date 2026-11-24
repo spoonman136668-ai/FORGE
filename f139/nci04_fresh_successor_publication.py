@@ -20,10 +20,16 @@ from f139.nci04_fresh_successor_producer import (
     SCHEMA as LEGACY_PROPOSAL_SCHEMA, propose_from_original_owner,
 )
 from f139.nci04_fresh_structured_dev import SCHEMA as STRUCTURED_PROPOSAL_SCHEMA
-from f139.nci04_fresh_curriculum_owner import plan_next_structured_dev_from_original_owner
+from f139.nci04_hypothesis_engine import SCHEMA as HYPOTHESIS_V3_PROPOSAL_SCHEMA
+from f139.nci04_fresh_curriculum_owner import (
+    HYPOTHESIS_V3_BUDGET_CEILING,
+    plan_next_structured_dev_from_original_owner,
+    plan_next_hypothesis_v3_from_original_owner,
+)
 from f139.nci04_fresh_lifecycle import (
     PUBLISH_KIND, PUBLISH_SCHEMA, PUBLISH_SCHEMA_STRUCTURED,
-    PUBLISH_STRUCTURED_RECIPES, read_lifecycle,
+    PUBLISH_SCHEMA_HYPOTHESIS_V3, PUBLISH_STRUCTURED_RECIPES,
+    PUBLISH_HYPOTHESIS_V3_RECIPES, read_lifecycle,
     authenticate_runtime_owner, need, digest,
 )
 from f139.nci04_owner_issue import (
@@ -83,6 +89,54 @@ def preflight_structured_dev_plan(plan):
         raise ValueError("F139_STRUCTURED_PREPOST_REJECTED") from exc
 
 
+
+def preflight_hypothesis_v3_plan(plan):
+    """Reparse canonical V3 preregistered hypothesis plan BEFORE durable POST."""
+    need(type(plan) is dict and set(plan) == {
+         "schema", "recipe", "title", "body", "body_sha256",
+         "after_sha256", "intent_sha256", "mechanism_sha256",
+         "preregistration_sha256", "scientific_first_use", "paid_model_calls",
+    } and plan["schema"] == HYPOTHESIS_V3_PROPOSAL_SCHEMA
+         and type(plan["recipe"]) is str
+         and plan["recipe"] in PUBLISH_HYPOTHESIS_V3_RECIPES
+         and plan["title"] == "F139 auto-feed fresh Yggdrasil HYP: " + plan["recipe"]
+         and type(plan["preregistration_sha256"]) is str
+         and len(plan["preregistration_sha256"]) == 64
+         and all(c in "0123456789abcdef" for c in plan["preregistration_sha256"])
+         and plan["scientific_first_use"] is False
+         and type(plan["paid_model_calls"]) is int
+         and plan["paid_model_calls"] == 0
+         and type(plan["body"]) is str
+         and 0 < len(plan["body"].encode("utf-8")) <= 60000,
+         "HYPOTHESIS_V3_PREPOST_PLAN_INVALID")
+    try:
+        body = json.loads(plan["body"])
+        need(type(body) is dict and set(body) == BODY_KEYS
+             and plan["body"].encode("ascii") == canonical(body)
+             and body["schema"] == ISSUE_SCHEMA
+             and body["source_sha"] == SOURCE
+             and body["lane"] == "Yggdrasil"
+             and body["kind"] == ISSUE_KIND
+             and body["scientific_first_use"] is False
+             and type(body["paid_model_calls"]) is int
+             and body["paid_model_calls"] == 0
+             and plan["body_sha256"] == digest(canonical(body)),
+             "HYPOTHESIS_V3_PREPOST_BODY_INVALID")
+        raw = base64.b64decode(body["intent_base64"], validate=True)
+        need(base64.b64encode(raw).decode("ascii") == body["intent_base64"],
+             "HYPOTHESIS_V3_PREPOST_INTENT_ENCODING")
+        candidate = parse_intent(
+            raw, protected_main=SOURCE,
+            target_commit=TARGET, target_tree_sha=TARGET_TREE)
+        need(candidate.lane == "Yggdrasil"
+             and candidate.path == "yggdrasil/public_causal_cells.py"
+             and candidate.after_sha256 == plan["after_sha256"]
+             and candidate.intent_sha256 == plan["intent_sha256"],
+             "HYPOTHESIS_V3_PREPOST_NATIVE_IDENTITY_DRIFT")
+    except (UnicodeError, ValueError, TypeError, binascii.Error) as exc:
+        raise ValueError("F139_HYPOTHESIS_V3_PREPOST_REJECTED") from exc
+
+
 def publish_one(db, api, key):
     """Return a new *issue number* only after provider-verified publication.
 
@@ -124,13 +178,21 @@ def publish_one(db, api, key):
         plan = plan_next_structured_dev_from_original_owner(
             db=db, api=api, owner_key=key, remaining_cost_units=16)
     if plan is None:
+        plan = plan_next_hypothesis_v3_from_original_owner(
+            db=db, api=api, owner_key=key,
+            remaining_cost_units=HYPOTHESIS_V3_BUDGET_CEILING)
+    if plan is None:
         return None
     need(plan["schema"] in (LEGACY_PROPOSAL_SCHEMA,
-                            STRUCTURED_PROPOSAL_SCHEMA),
+                            STRUCTURED_PROPOSAL_SCHEMA,
+                            HYPOTHESIS_V3_PROPOSAL_SCHEMA),
          "PUBLICATION_GENERATOR_SCHEMA_INVALID")
     v2 = plan["schema"] == STRUCTURED_PROPOSAL_SCHEMA
+    v3 = plan["schema"] == HYPOTHESIS_V3_PROPOSAL_SCHEMA
     if v2:
         preflight_structured_dev_plan(plan)
+    elif v3:
+        preflight_hypothesis_v3_plan(plan)
 
     # Require the provider target and immutable first owner seed to remain the
     # actual native admission contract. No synthetic/third-party identity.
@@ -146,7 +208,8 @@ def publish_one(db, api, key):
          and plan["paid_model_calls"] == 0,
          "PUBLICATION_CANDIDATE_CUSTODY_INVALID")
     event = {
-        "schema": (PUBLISH_SCHEMA_STRUCTURED if v2 else PUBLISH_SCHEMA),
+        "schema": (PUBLISH_SCHEMA_HYPOTHESIS_V3 if v3 else
+                   (PUBLISH_SCHEMA_STRUCTURED if v2 else PUBLISH_SCHEMA)),
         "ticket": last["record"]["ticket"],
         "source_sha": SOURCE, "target_sha": TARGET,
         "recipe": plan["recipe"],
