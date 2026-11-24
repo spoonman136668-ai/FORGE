@@ -52,6 +52,25 @@ class TwoTierSyntheticBenchmarkTests(unittest.TestCase):
         self.assertEqual(arms["two-tier"]["context0_post_reversal_accuracy"],
                          arms["recent-only"]["context0_post_reversal_accuracy"])
 
+    def test_sparse_recent_evidence_falls_back_then_overrides_with_new_support(self):
+        result=b.run_sparse_fallback()
+        before=result["decision_before_new_recent_evidence"]
+        self.assertEqual(result["recent_counts_before"]["two-tier"],[[0,0],[0,0]])
+        self.assertEqual(before["lifetime-only"],1)
+        self.assertEqual(before["two-tier"],1)
+        self.assertEqual(before["recent-only"],0)
+        self.assertEqual(before["no-memory"],0)
+        after=result["decision_after_two_paired_recent_observations"]
+        # Two recent observations/action are sufficient for the new context to
+        # override the historical prior in two-tier, while the lifetime-only
+        # control remains anchored to its stronger old evidence.
+        self.assertEqual(after["lifetime-only"],1)
+        self.assertEqual(after["two-tier"],0)
+        self.assertEqual(after["recent-only"],0)
+        self.assertEqual(after["no-memory"],0)
+        self.assertEqual(result["two_tier_state_bytes"],194)
+        self.assertEqual(result["recent_only_state_bytes"],64)
+
     def test_no_filesystem_or_interactive_execution(self):
         with patch("builtins.open",side_effect=AssertionError("I/O forbidden")), \
              patch("builtins.input",side_effect=AssertionError("prompt forbidden")):
