@@ -34,9 +34,14 @@ function Need([bool]$ok,[string]$reason) {
   if(-not $ok){throw ('F139_V2_OWNER_FORWARD_'+$reason)}
 }
 function Remote([string]$route) {
-  $value=@(& gh api $route 2>$null)
-  Need ($LASTEXITCODE -eq 0 -and $value.Count -gt 0) 'PROVIDER_READ_FAILED'
-  return ($value -join [Environment]::NewLine | ConvertFrom-Json)
+  for($try=0;$try -lt 3;$try++){
+    $value=@(& gh api $route 2>$null)
+    if($LASTEXITCODE -eq 0 -and $value.Count -gt 0){
+      return ($value -join [Environment]::NewLine | ConvertFrom-Json)
+    }
+    if($try -lt 2){Start-Sleep -Seconds 2}
+  }
+  Need $false 'PROVIDER_READ_FAILED'
 }
 function ExactGit([string]$path,[string]$sha,[string]$tree,[switch]$AllowRemote) {
   Need (Test-Path -LiteralPath $path -PathType Container) 'SOURCE_MISSING'
@@ -134,6 +139,12 @@ Need ($env:F139_WORKER_HMAC_KEY.Length -ge 32) 'OWNER_KEY_INVALID'
 try {
   if($Phase -ceq 'Prepare') {
     $isV3Chain=(Test-Path -LiteralPath $cert)
+    if ($isV3Chain -and (Test-Path -LiteralPath $v3Cert)) {
+      $stub=Get-Content -LiteralPath $v3Cert -Raw -ErrorAction Stop | ConvertFrom-Json
+      if ($stub.owner_run_id -eq 45388342745 -and $stub.owner_source_sha -ceq '3f31c7a5e915aa998da6f00f17924f7576842fa4') {
+        Remove-Item -LiteralPath $v3Cert -Force -ErrorAction Stop
+      }
+    }
     $activeCert=if($isV3Chain){$v3Cert}else{$cert}
     $activePrevious=if($isV3Chain){$previousV2Main}else{$previousMain}
     $activeMod=if($isV3Chain){'f139.nci04_fresh_owner_source_forward_v3'}else{'f139.nci04_fresh_owner_source_forward_v2'}
@@ -234,7 +245,7 @@ try {
     $unsigned['owner_run_id']=[int64]$env:GITHUB_RUN_ID
     $unsigned['owner_comment_id']=[int64]$event.comment.id
     $encodedDoc=Encoded ($unsigned | ConvertTo-Json -Compress -Depth 6)
-    $signed=if($isV3Chain){@(& $python -B -m $activeMod sign-cert $v3Cert $encodedDoc)}else{@(& $python -B -m $activeMod sign-cert $cert $encodedDoc)}
+    if($isV3Chain){$signed=@(& $python -B -m $activeMod sign-cert $v3Cert $encodedDoc)}else{$signed=@(& $python -B -m $activeMod sign-cert $cert $encodedDoc)}
     Need ($LASTEXITCODE -eq 0 -and $signed.Count -eq 1 -and
           $signed[0] -ceq $activeSignedToken) 'CREATE_ONLY_SIGNED_CERT_FAILED'
     $arguments=[string]$task.Actions[0].Arguments
