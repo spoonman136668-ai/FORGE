@@ -1,17 +1,17 @@
-"""Paired synthetic engineering benchmark for two-tier evidence.
+"""Paired synthetic engineering benchmark with explicit abstention.
 
-This is a deterministic synthetic diagnostic, not a Yggdrasil training run,
-authenticated corpus result, transfer study or scientific acceptance.
-Every arm receives the same paired public observations. State payload budgets
-are reported per actual arm, not borrowed from the two-tier candidate.
+Synthetic only: not a Yggdrasil training run, authenticated corpus, transfer study
+or scientific acceptance. Every strategy receives the same paired observations.
+Abstaining is counted as zero coverage, never credited as a correct default.
 """
 from __future__ import annotations
 import hashlib
 import json
 from scripts.two_tier_evidence_memory import TwoTierEvidence
 
-SCHEMA="forge.research.two-tier-synthetic-benchmark.v1"
+SCHEMA="forge.research.two-tier-synthetic-benchmark.v2"
 ARMS=("lifetime-only","recent-only","two-tier","no-memory")
+WARMUP_PAIRS=6
 STEPS=48
 REVERSAL_AT=24
 
@@ -47,15 +47,13 @@ class _Arm:
         return None if lhs==rhs else (0 if lhs>rhs else 1)
 
     def choose(self,context):
-        if self.mode=="no-memory":return 0
+        if self.mode=="no-memory":return None
         if self.mode=="lifetime-only":
             a=self.life[context][0];b=self.life[context][1]
-            v=self._winner(a,b)
-        elif self.mode=="recent-only":
-            v=self._winner(self._recent_counts(context,0),self._recent_counts(context,1))
-        else:
-            v=self.two.choose(context,minimum_support=2)
-        return 0 if v is None else v
+            return self._winner(a,b)
+        if self.mode=="recent-only":
+            return self._winner(self._recent_counts(context,0),self._recent_counts(context,1))
+        return self.two.choose(context,minimum_support=2)
 
     def observe_both_actions(self,context,winner):
         for action in (0,1):
@@ -72,61 +70,70 @@ class _Arm:
             elif self.mode=="two-tier":
                 self.two.observe(context,action,outcome)
 
+def _paired_round(arms,contexts):
+    for arm in arms.values():
+        for context,winner in contexts.items():
+            arm.observe_both_actions(context,winner)
 
 def run_sparse_fallback():
-    """All arms share a history, then sparse reversal evidence, then support."""
+    """Shared prior, one ambiguous reversal pair, then enough evidence to adapt."""
     arms={name:_Arm(name) for name in ARMS}
-    # Six paired historical rounds favor action 1 in every arm.
-    for _ in range(6):
-        for arm in arms.values():
-            arm.observe_both_actions(2,1)
-    # One paired reversal observation leaves one old and one new sample/action.
-    for arm in arms.values():
-        arm.observe_both_actions(2,0)
+    for _ in range(WARMUP_PAIRS):
+        _paired_round(arms,{2:1})
+    _paired_round(arms,{2:0})
     before={name:arm.choose(2) for name,arm in arms.items()}
-    recent_counts_before={
-        "two-tier":[list(arms["two-tier"].two.recent_counts(2,action)) for action in (0,1)],
-        "recent-only":[arms["recent-only"]._recent_counts(2,action) for action in (0,1)]}
-    # A second identical reversal pair evicts the last historical recent sample.
-    for arm in arms.values():
-        arm.observe_both_actions(2,0)
+    counts={
+        "two-tier":[list(arms["two-tier"].two.recent_counts(2,a)) for a in (0,1)],
+        "recent-only":[arms["recent-only"]._recent_counts(2,a) for a in (0,1)]}
+    _paired_round(arms,{2:0})
     after={name:arm.choose(2) for name,arm in arms.items()}
-    return {"historical_winner":1,"recent_winner":0,
-            "historical_paired_rounds":6,"sparse_reversal_pairs":1,
-            "recent_counts_before":recent_counts_before,
-            "decision_with_one_sparse_reversal_pair":before,
-            "decision_after_two_reversal_pairs":after,
-            "lifetime_only_state_bytes":arms["lifetime-only"].state_bytes,
-            "recent_only_state_bytes":arms["recent-only"].state_bytes,
-            "two_tier_state_bytes":arms["two-tier"].state_bytes,
-            "no_memory_state_bytes":arms["no-memory"].state_bytes}
-
+    return {"historical_winner":1,"reversal_winner":0,"warmup_pairs":WARMUP_PAIRS,
+      "ambiguous_reversal_pairs":1,"recent_counts_after_one_reversal_pair":counts,
+      "decision_after_one_reversal_pair":before,"decision_after_two_reversal_pairs":after,
+      "abstention_after_one_pair":{name:value is None for name,value in before.items()},
+      "abstention_after_two_pairs":{name:value is None for name,value in after.items()},
+      "state_bytes":{name:arm.state_bytes for name,arm in arms.items()}}
 
 def run_benchmark():
     schedule=[{"step":step,"winner_by_context":[0 if step<REVERSAL_AT else 1,1]}
               for step in range(STEPS)]
     arms={name:_Arm(name) for name in ARMS}
+    # Identical six-pair training-side warmup, excluded from measured accuracy.
+    for _ in range(WARMUP_PAIRS):
+        _paired_round(arms,{0:0,1:1})
     history={name:{0:[],1:[]} for name in ARMS}
     for row in schedule:
         for name,arm in arms.items():
             for context,winner in enumerate(row["winner_by_context"]):
-                history[name][context].append(int(arm.choose(context)==winner))
+                decision=arm.choose(context)
+                history[name][context].append({
+                    "correct":int(decision is not None and decision==winner),
+                    "covered":int(decision is not None)})
                 arm.observe_both_actions(context,winner)
     result={"schema":SCHEMA,"classification":"SYNTHETIC_ENGINEERING_DIAGNOSTIC",
-      "schedule_sha256":_hash(schedule),"steps":STEPS,"reversal_at":REVERSAL_AT,
-      "contexts":2,"paired_observation_policy":"both actions revealed equally to every arm",
-      "sparse_fallback_scenario":run_sparse_fallback(),
-      "arms":{},"authenticated_source":False,"scientific_first_use":False,
+      "schedule_sha256":_hash(schedule),"warmup_pairs":WARMUP_PAIRS,
+      "steps":STEPS,"reversal_at":REVERSAL_AT,"contexts":2,
+      "paired_observation_policy":"both actions revealed equally to every arm",
+      "abstention_policy":"abstentions count as zero coverage and zero correct decisions",
+      "sparse_fallback_scenario":run_sparse_fallback(),"arms":{},
+      "authenticated_source":False,"scientific_first_use":False,
       "scientific_gain_verified":False,"deployment_authorized":False,
       "paid_api_calls":0,"model_calls":0}
     for name,arm in arms.items():
-        c0=history[name][0];c1=history[name][1];post=c0[REVERSAL_AT:]
-        delay=next((i for i,value in enumerate(post) if value),None)
+        rows0=history[name][0];rows1=history[name][1];post=rows0[REVERSAL_AT:]
+        def metrics(rows):
+            covered=sum(x["covered"] for x in rows)
+            correct=sum(x["correct"] for x in rows)
+            return {"decision_accuracy_all_steps":correct/len(rows),
+                    "decision_coverage":covered/len(rows),
+                    "accuracy_when_decided":None if not covered else correct/covered,
+                    "correct_decisions":correct,"abstentions":len(rows)-covered}
+        first=next((i+1 for i,x in enumerate(post) if x["correct"]),None)
         result["arms"][name]={
-          "context0_pre_reversal_accuracy":sum(c0[:REVERSAL_AT])/REVERSAL_AT,
-          "context0_post_reversal_accuracy":sum(post)/len(post),
-          "context1_stationary_accuracy":sum(c1)/len(c1),
-          "context0_adaptation_delay_steps":delay,
+          "context0_pre_reversal":metrics(rows0[:REVERSAL_AT]),
+          "context0_post_reversal":metrics(post),
+          "context1_stationary":metrics(rows1),
+          "context0_adaptation_delay_steps":first,
           "active_packed_state_bytes":arm.state_bytes,
           "declared_checkpoint_bytes":arm.checkpoint_bytes}
     return result
