@@ -72,6 +72,37 @@ class _Arm:
             elif self.mode=="two-tier":
                 self.two.observe(context,action,outcome)
 
+
+def run_sparse_fallback():
+    """Seed lifetime knowledge, leave recent tiers empty, then add sparse updates."""
+    arms={name:_Arm(name) for name in ARMS}
+    for name,arm in arms.items():
+        if name=="lifetime-only":
+            arm.life[2][0][:]=[4,0]
+            arm.life[2][1][:]=[0,4]
+        elif name=="two-tier":
+            arm.two._lifetime[2][0][:]=[4,0]
+            arm.two._lifetime[2][1][:]=[0,4]
+    before={name:arm.choose(2) for name,arm in arms.items()}
+    recent_counts_before={
+        "two-tier":[list(arms["two-tier"].two.recent_counts(2,action)) for action in (0,1)],
+        "recent-only":[arms["recent-only"]._recent_counts(2,action) for action in (0,1)]}
+    # Only two recent observations per action: sufficient to override the
+    # recent estimator, but too small to overturn the stronger lifetime prior.
+    for _ in range(2):
+        for arm in arms.values():
+            arm.observe_both_actions(2,0)
+    after={name:arm.choose(2) for name,arm in arms.items()}
+    return {"lifetime_prior_winner":1,"recent_winner":0,
+            "recent_counts_before":recent_counts_before,
+            "decision_before_new_recent_evidence":before,
+            "decision_after_two_paired_recent_observations":after,
+            "lifetime_only_state_bytes":arms["lifetime-only"].state_bytes,
+            "recent_only_state_bytes":arms["recent-only"].state_bytes,
+            "two_tier_state_bytes":arms["two-tier"].state_bytes,
+            "no_memory_state_bytes":arms["no-memory"].state_bytes}
+
+
 def run_benchmark():
     schedule=[{"step":step,"winner_by_context":[0 if step<REVERSAL_AT else 1,1]}
               for step in range(STEPS)]
@@ -85,6 +116,7 @@ def run_benchmark():
     result={"schema":SCHEMA,"classification":"SYNTHETIC_ENGINEERING_DIAGNOSTIC",
       "schedule_sha256":_hash(schedule),"steps":STEPS,"reversal_at":REVERSAL_AT,
       "contexts":2,"paired_observation_policy":"both actions revealed equally to every arm",
+      "sparse_fallback_scenario":run_sparse_fallback(),
       "arms":{},"authenticated_source":False,"scientific_first_use":False,
       "scientific_gain_verified":False,"deployment_authorized":False,
       "paid_api_calls":0,"model_calls":0}
