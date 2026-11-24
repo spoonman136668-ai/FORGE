@@ -54,16 +54,16 @@ class TwoTierSyntheticBenchmarkTests(unittest.TestCase):
 
     def test_sparse_recent_evidence_falls_back_then_overrides_with_new_support(self):
         result=b.run_sparse_fallback()
-        before=result["decision_before_new_recent_evidence"]
-        self.assertEqual(result["recent_counts_before"]["two-tier"],[[0,0],[0,0]])
+        before=result["decision_with_one_sparse_reversal_pair"]
+        self.assertEqual(result["recent_counts_before"]["two-tier"],[[1,1],[1,1]])
         self.assertEqual(before["lifetime-only"],1)
         self.assertEqual(before["two-tier"],1)
         self.assertEqual(before["recent-only"],0)
         self.assertEqual(before["no-memory"],0)
-        after=result["decision_after_two_paired_recent_observations"]
-        # Two recent observations/action are sufficient for the new context to
-        # override the historical prior in two-tier, while the lifetime-only
-        # control remains anchored to its stronger old evidence.
+        after=result["decision_after_two_reversal_pairs"]
+        # All arms received six identical historical pairs. One reversal pair
+        # leaves mixed recent slots, so two-tier falls back; the second reversal
+        # pair evicts the last old slot and selects action 0.
         self.assertEqual(after["lifetime-only"],1)
         self.assertEqual(after["two-tier"],0)
         self.assertEqual(after["recent-only"],0)
