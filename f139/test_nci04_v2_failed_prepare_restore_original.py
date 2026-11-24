@@ -151,6 +151,9 @@ class RecoveryContractTests(unittest.TestCase):
             self.assertIn(needle, script)
         self.assertLess(script.index("COLD_SIGNED_V1_CUSTODY_REJECTED"),
                         script.index("Enable-ScheduledTask"))
+        self.assertIn("F139_V2_RESTORE_PRECHECK=", script)
+        self.assertLess(script.index("F139_V2_RESTORE_PRECHECK="),
+                        script.index("EXACT_DISABLED_ORIGINAL_OWNER_REQUIRED"))
         self.assertLess(script.index("EXACT_DISABLED_ORIGINAL_OWNER_REQUIRED"),
                         script.index("Enable-ScheduledTask"))
         self.assertEqual(script.count("Enable-ScheduledTask"), 1)

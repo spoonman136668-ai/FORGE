@@ -167,11 +167,26 @@ Need ($prior.id -eq $audit -and
 $task=Get-ScheduledTask -TaskName $originalName -ErrorAction Stop
 $sid=''
 try {$sid=(New-Object Security.Principal.NTAccount([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value} catch {}
-Need (@($task.Actions).Count -eq 1 -and @($task.Triggers).Count -eq 3 -and
-      ([string]$task.Principal.UserId -ieq $who.Name -or $sid -ceq $who.User.Value) -and
-      [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ieq 'powershell.exe' -and
-      $task.Settings.Enabled -eq $false -and
-      [string]$task.State -ceq 'Disabled' -and @(Controllers).Count -eq 0) 'EXACT_DISABLED_ORIGINAL_OWNER_REQUIRED'
+$taskActionsCount=@($task.Actions).Count
+$taskTriggersCount=@($task.Triggers).Count
+$taskPrincipalMatch=([string]$task.Principal.UserId -ieq $who.Name -or $sid -ceq $who.User.Value)
+$taskExecuteMatch=($taskActionsCount -ge 1 -and [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ieq 'powershell.exe')
+$taskEnabled=[bool]$task.Settings.Enabled
+$taskState=[string]$task.State
+$controllerCount=@(Controllers).Count
+Write-Output ('F139_V2_RESTORE_PRECHECK='+(ConvertTo-Json @{
+  actions_count=$taskActionsCount
+  triggers_count=$taskTriggersCount
+  principal_match=$taskPrincipalMatch
+  execute_match=$taskExecuteMatch
+  enabled=$taskEnabled
+  state=$taskState
+  controller_count=$controllerCount
+} -Compress))
+Need ($taskActionsCount -eq 1 -and $taskTriggersCount -eq 3 -and
+      $taskPrincipalMatch -and $taskExecuteMatch -and
+      $taskEnabled -eq $false -and
+      $taskState -ceq 'Disabled' -and $controllerCount -eq 0) 'EXACT_DISABLED_ORIGINAL_OWNER_REQUIRED'
 $source=Field $task 'RepositoryRoot'
 $database=Field $task 'Database'
 $python=Field $task 'PythonExe'
