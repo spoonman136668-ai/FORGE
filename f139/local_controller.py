@@ -132,18 +132,38 @@ class SingleOwner:
     def held(cls, path: Path) -> bool:
         return str(Path(path).resolve()) in cls._held_paths
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, existing_only: bool = False):
         self.path = Path(path)
+        self.existing_only = existing_only
         self.fd = None
 
+    def _opened_existing_identity(self) -> bool:
+        # Existing-only verification must never use a replaced/reparse lock.
+        for path in (self.path, self.path.parent, self.path.parent.parent):
+            if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+                return False
+        opened = os.fstat(self.fd.fileno())
+        current = self.path.stat()
+        return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino) \
+            and opened.st_size > 0 and current.st_size > 0
+
     def __enter__(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.fd = self.path.open("a+b")
+        if self.existing_only:
+            # r+b refuses to create a missing lock, even if it vanished after
+            # the caller's preliminary is_file() check.
+            self.fd = self.path.open("r+b")
+        else:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.fd = self.path.open("a+b")
         try:
+            if self.existing_only and not self._opened_existing_identity():
+                raise OSError("F139_EXISTING_OWNER_LOCK_IDENTITY_DRIFT")
             if os.name == "nt":
                 import msvcrt
                 self.fd.seek(0)
                 if self.fd.read(1) == b"":
+                    if self.existing_only:
+                        raise OSError("F139_EXISTING_OWNER_LOCK_TRUNCATED")
                     self.fd.seek(0)
                     self.fd.write(b"L")
                     self.fd.flush()
@@ -152,6 +172,8 @@ class SingleOwner:
             else:
                 import fcntl
                 fcntl.flock(self.fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if self.existing_only and not self._opened_existing_identity():
+                raise OSError("F139_EXISTING_OWNER_LOCK_MOVED_DURING_ACQUIRE")
         except OSError as exc:
             self.fd.close()
             self.fd = None
