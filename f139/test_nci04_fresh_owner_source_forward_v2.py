@@ -284,7 +284,7 @@ class ForwardV2Tests(unittest.TestCase):
 
     def test_unauthorized_pr_and_unsafe_parameter_flags_denied_before_provider(self):
         for field, value in (
-            ("pr_number", PR + 1),
+            ("pr_number", PR - 1),
             ("terminal_seq", 9),
             ("terminal_count", 1),
             ("development_only", False),

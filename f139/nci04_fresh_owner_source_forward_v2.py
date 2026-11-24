@@ -125,7 +125,7 @@ def inspect_v2(doc, *, db, api, release, key, previous, previous_bytes):
          and doc["admission_source_sha"] == release["admission_source_sha"] == SOURCE
          and doc["worker_release_sha"] == release["worker_release_sha"]
          and doc["task_name"] == "FORGE-F139-UnifiedController"
-         and doc["pr_number"] == PR
+         and type(doc["pr_number"]) is int and doc["pr_number"] >= PR
          and sha40(doc["previous_owner_source_sha"])
          and sha40(doc["previous_owner_source_tree"])
          and sha40(doc["owner_source_sha"])
@@ -198,7 +198,7 @@ def inspect_v2(doc, *, db, api, release, key, previous, previous_bytes):
 
     branch = api.get(FORGE + "/branches/main")
     commit = api.get(FORGE + "/git/commits/" + doc["owner_source_sha"])
-    pr = api.get(FORGE + "/pulls/" + str(PR))
+    pr = api.get(FORGE + "/pulls/" + str(doc["pr_number"]))
     need(branch.get("name") == "main" and branch.get("protected") is True
          and branch.get("commit", {}).get("sha") == doc["owner_source_sha"]
          and commit.get("sha") == doc["owner_source_sha"]
@@ -216,7 +216,7 @@ def inspect_v2(doc, *, db, api, release, key, previous, previous_bytes):
         _qualified_run(api, doc[field], doc["pr_head_sha"], expected)
 
     body = (PREFIX + doc["owner_source_sha"] + " " +
-            doc["pr_head_sha"] + " " + str(PR) + " " +
+            doc["pr_head_sha"] + " " + str(doc["pr_number"]) + " " +
             str(doc["regression_run_id"]) + " " +
             str(doc["source_run_id"]) + " " +
             str(doc["rehearsal_run_id"]) + " " +
@@ -271,7 +271,7 @@ PREVIOUS_OWNER_MAIN = "f24251e0d95938e593a54c1577a34efadc8080d8"
 
 def preflight_v2_unsigned(db, api, release, key, *, head, candidate,
                           regression_run_id, source_run_id,
-                          rehearsal_run_id):
+                          rehearsal_run_id, pr_number=PR):
     """Generate bounded unsigned V2 metadata AFTER a cold, locked owner audit.
 
     No cert write, task change, POST, dispatch or scientific first-use occurs.
@@ -285,6 +285,7 @@ def preflight_v2_unsigned(db, api, release, key, *, head, candidate,
     need(SingleOwner.held(db.filename.with_suffix(".lock")),
          "PREFLIGHT_ORIGINAL_KERNEL_LOCK_REQUIRED")
     need(sha40(candidate) and sha40(head)
+         and type(pr_number) is int and pr_number >= PR
          and all(pos(x) for x in (
              regression_run_id, source_run_id, rehearsal_run_id)),
          "PREFLIGHT_INPUT_INVALID")
@@ -334,7 +335,7 @@ def preflight_v2_unsigned(db, api, release, key, *, head, candidate,
 
     branch = api.get(FORGE + "/branches/main")
     commit = api.get(FORGE + "/git/commits/" + candidate)
-    pr = api.get(FORGE + "/pulls/" + str(PR))
+    pr = api.get(FORGE + "/pulls/" + str(pr_number))
     need(branch.get("name") == "main"
          and branch.get("protected") is True
          and branch.get("commit", {}).get("sha") == candidate
@@ -368,7 +369,7 @@ def preflight_v2_unsigned(db, api, release, key, *, head, candidate,
         "previous_owner_source_tree": older_source[1],
         "owner_source_sha": candidate,
         "owner_source_tree": commit["tree"]["sha"],
-        "pr_number": PR, "pr_head_sha": head,
+        "pr_number": pr_number, "pr_head_sha": head,
         **runs,
         "terminal_seq": seq, "terminal_hash": event["sha"],
         "terminal_count": count,
@@ -427,12 +428,28 @@ def _transport_main(argv=None):
         db = Database.open_readonly(database)
         try:
             release, _ = read_lifecycle(db, key)
-            api = GitHub()
+            class _RetryingReadOnlyGitHub:
+                def __init__(self, inner):
+                    self._inner = inner
+                def get(self, route):
+                    import time
+                    last = None
+                    for attempt in range(3):
+                        try:
+                            return self._inner.get(route)
+                        except Exception as exc:
+                            last = exc
+                            if attempt < 2:
+                                time.sleep(2)
+                    raise last
+            api = _RetryingReadOnlyGitHub(GitHub())
             if args[0] == "preflight":
-                need(set(doc) == {
+                req_keys = {
                     "head", "candidate", "regression_run_id",
                     "source_run_id", "rehearsal_run_id",
-                }, "TRANSPORT_PREFLIGHT_FIELDS")
+                }
+                need(req_keys <= set(doc) <= (req_keys | {"pr_number"}),
+                     "TRANSPORT_PREFLIGHT_FIELDS")
                 unsigned = preflight_v2_unsigned(
                     db, api, release, key, **doc)
                 print(canonical(unsigned).decode("utf-8"))
