@@ -74,29 +74,28 @@ class _Arm:
 
 
 def run_sparse_fallback():
-    """Seed lifetime knowledge, leave recent tiers empty, then add sparse updates."""
+    """All arms share a history, then sparse reversal evidence, then support."""
     arms={name:_Arm(name) for name in ARMS}
-    for name,arm in arms.items():
-        if name=="lifetime-only":
-            arm.life[2][0][:]=[4,0]
-            arm.life[2][1][:]=[0,4]
-        elif name=="two-tier":
-            arm.two._lifetime[2][0][:]=[4,0]
-            arm.two._lifetime[2][1][:]=[0,4]
+    # Six paired historical rounds favor action 1 in every arm.
+    for _ in range(6):
+        for arm in arms.values():
+            arm.observe_both_actions(2,1)
+    # One paired reversal observation leaves one old and one new sample/action.
+    for arm in arms.values():
+        arm.observe_both_actions(2,0)
     before={name:arm.choose(2) for name,arm in arms.items()}
     recent_counts_before={
         "two-tier":[list(arms["two-tier"].two.recent_counts(2,action)) for action in (0,1)],
         "recent-only":[arms["recent-only"]._recent_counts(2,action) for action in (0,1)]}
-    # Only two recent observations per action: sufficient to override the
-    # recent estimator, but too small to overturn the stronger lifetime prior.
-    for _ in range(2):
-        for arm in arms.values():
-            arm.observe_both_actions(2,0)
+    # A second identical reversal pair evicts the last historical recent sample.
+    for arm in arms.values():
+        arm.observe_both_actions(2,0)
     after={name:arm.choose(2) for name,arm in arms.items()}
-    return {"lifetime_prior_winner":1,"recent_winner":0,
+    return {"historical_winner":1,"recent_winner":0,
+            "historical_paired_rounds":6,"sparse_reversal_pairs":1,
             "recent_counts_before":recent_counts_before,
-            "decision_before_new_recent_evidence":before,
-            "decision_after_two_paired_recent_observations":after,
+            "decision_with_one_sparse_reversal_pair":before,
+            "decision_after_two_reversal_pairs":after,
             "lifetime_only_state_bytes":arms["lifetime-only"].state_bytes,
             "recent_only_state_bytes":arms["recent-only"].state_bytes,
             "two_tier_state_bytes":arms["two-tier"].state_bytes,
