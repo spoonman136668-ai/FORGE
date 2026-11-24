@@ -27,6 +27,11 @@ HYP_RECIPE_RE = re.compile(
     r"(min1|min4|min8|balanced2x)-"
     r"(abstain|least_observed)-v1\Z"
 )
+HYP_GEN2_RECIPE_RE = re.compile(
+    r"^ygg-gen2-(z_5_4|z_7_4|agresti_coull_1)-"
+    r"(min2|balanced_3_2|balanced_3_1)-"
+    r"(abstain|least_observed)-v1\Z"
+)
 
 
 class ReceiptFeedbackDenied(ValueError):
@@ -39,10 +44,10 @@ def need(condition: bool, reason: str) -> None:
 
 
 def parse_hypothesis_recipe(recipe: str) -> dict | None:
-    """Parse a V3 hypothesis recipe ID into its 3 orthogonal scientific axes."""
+    """Parse a V3 Gen-1 or Gen-2 hypothesis recipe ID into its 3 scientific axes."""
     if type(recipe) is not str:
         return None
-    m = HYP_RECIPE_RE.fullmatch(recipe)
+    m = HYP_RECIPE_RE.fullmatch(recipe) or HYP_GEN2_RECIPE_RE.fullmatch(recipe)
     if not m:
         return None
     return {
@@ -88,11 +93,13 @@ def summarize_receipt_ledger(entries: list[dict]) -> dict:
             v3_verified += 1
             verified_axes.append(axes)
             for dim, val in axes.items():
+                axis_stats[dim].setdefault(val, {"verified": 0, "negative": 0})
                 axis_stats[dim][val]["verified"] += 1
         elif is_neg:
             v3_negative += 1
             failed_axes.append(axes)
             for dim, val in axes.items():
+                axis_stats[dim].setdefault(val, {"verified": 0, "negative": 0})
                 axis_stats[dim][val]["negative"] += 1
 
     summary = {

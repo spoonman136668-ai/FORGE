@@ -231,6 +231,7 @@ def plan_next_hypothesis_v3_from_original_owner(
         ACCEPTED_NATIVE_BLOB, ACCEPTED_NATIVE_PATH, _content,
     )
     from f139.nci04_hypothesis_engine import generate_yggdrasil_hypothesis_pool
+    from f139.nci04_hypothesis_engine_gen2 import generate_gen2_yggdrasil_pool
     from f139.nci04_receipt_feedback import rank_pool_with_receipt_feedback
 
     need(type(db) is Database
@@ -289,12 +290,21 @@ def plan_next_hypothesis_v3_from_original_owner(
     pool = generate_yggdrasil_hypothesis_pool(
         before=before, seed_intent=raw_seed,
         consumed_after=spent, last_verified_after=latest)
-    if not pool:
-        return None
-    decision = rank_pool_with_receipt_feedback(pool, entries)
-    chosen_after = decision.get("selected_after_sha256")
+    chosen_after = None
+    if pool:
+        decision = rank_pool_with_receipt_feedback(pool, entries)
+        chosen_after = decision.get("selected_after_sha256")
     if chosen_after is None:
-        return None
+        gen2_pool = generate_gen2_yggdrasil_pool(
+            before=before, seed_intent=raw_seed,
+            consumed_after=spent, last_verified_after=latest)
+        if not gen2_pool:
+            return None
+        pool = gen2_pool
+        decision = rank_pool_with_receipt_feedback(pool, entries)
+        chosen_after = decision.get("selected_after_sha256")
+        if chosen_after is None:
+            return None
     matched = [item for item in pool if item["plan"]["after_sha256"] == chosen_after]
     need(len(matched) == 1, "V3_PLANNER_SELECTED_PLAN_AMBIGUOUS")
     need((db.meta()["head_seq"], db.meta()["head_hash"],
