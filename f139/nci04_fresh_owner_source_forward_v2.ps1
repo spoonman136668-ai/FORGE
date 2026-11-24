@@ -131,7 +131,7 @@ finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
 Need ($env:F139_WORKER_HMAC_KEY.Length -ge 32) 'OWNER_KEY_INVALID'
 try {
   if($Phase -ceq 'Prepare') {
-    Need ($PrNumber -eq $prScope -and $Head -cmatch '^[a-f0-9]{40}$' -and
+    Need ($PrNumber -ge $prScope -and $Head -cmatch '^[a-f0-9]{40}$' -and
           $RegressionRun -gt 0 -and $SourceRun -gt 0 -and
           $RehearsalRun -gt 0 -and $TerminalSeq -gt 9 -and
           $TerminalHash -cmatch '^[a-f0-9]{64}$' -and
@@ -199,7 +199,8 @@ try {
     # Exact original owner kernel lock + query-only SQLite cold evidence
     # verifies ALL historical worker ZIP receipts before signing the new cert.
     $request=[ordered]@{
-      candidate=$Target; head=$Head; regression_run_id=[int64]$RegressionRun
+      candidate=$Target; head=$Head; pr_number=[int]$PrNumber
+      regression_run_id=[int64]$RegressionRun
       rehearsal_run_id=[int64]$RehearsalRun; source_run_id=[int64]$SourceRun
     }
     $encoded=Encoded ($request | ConvertTo-Json -Compress -Depth 6)
@@ -237,7 +238,7 @@ try {
           $event.comment.body -ceq ($startPrefix+$Target+' '+$PrepRun)) 'START_COMMENT_OR_RUN_INVALID'
     $old=Get-Content -LiteralPath $cert -Raw -ErrorAction Stop | ConvertFrom-Json
     Need ($old.schema -ceq 'forge.f139.fresh-original-owner-source-forward.v2' -and
-          $old.pr_number -eq $prScope -and
+          $old.pr_number -ge $prScope -and
           $old.owner_run_id -eq $PrepRun -and
           $old.owner_source_sha -ceq $Target -and
           $old.owner_source_tree -ceq $commit.tree.sha) 'START_V2_SIGNED_SOURCE_MISMATCH'
