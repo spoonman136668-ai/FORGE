@@ -26,6 +26,8 @@ $root=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
 $db=Join-Path $root ('f139-fresh-dev-'+$runId+'\state.sqlite')
 $oldCert=Join-Path (Split-Path $db -Parent) 'fresh-original-owner-source-forward.json'
 $cert=Join-Path (Split-Path $db -Parent) 'fresh-original-owner-source-forward-v2.json'
+$v3Cert=Join-Path (Split-Path $db -Parent) 'fresh-original-owner-source-forward-v3.json'
+$previousV2Main='32c8d3fcad7209d4331595a7fbad42d361a55b94'
 $prepPrefix='F139-FRESH-OWNER-SOURCE-FORWARD-V2 '
 $startPrefix='F139-FRESH-OWNER-SOURCE-FORWARD-V2-START '
 function Need([bool]$ok,[string]$reason) {
@@ -131,11 +133,23 @@ finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
 Need ($env:F139_WORKER_HMAC_KEY.Length -ge 32) 'OWNER_KEY_INVALID'
 try {
   if($Phase -ceq 'Prepare') {
+    $isV3Chain=(Test-Path -LiteralPath $cert)
+    $activeCert=if($isV3Chain){$v3Cert}else{$cert}
+    $activePrevious=if($isV3Chain){$previousV2Main}else{$previousMain}
+    $activeMod=if($isV3Chain){'f139.nci04_fresh_owner_source_forward_v3'}else{'f139.nci04_fresh_owner_source_forward_v2'}
+    $activeSignedToken=if($isV3Chain){'F139_FRESH_FORWARD_V3_SIGNED_CREATE_ONLY'}else{'F139_FRESH_FORWARD_V2_SIGNED_CREATE_ONLY'}
     Need ($PrNumber -ge $prScope -and $Head -cmatch '^[a-f0-9]{40}$' -and
           $RegressionRun -gt 0 -and $SourceRun -gt 0 -and
           $RehearsalRun -gt 0 -and $TerminalSeq -gt 9 -and
           $TerminalHash -cmatch '^[a-f0-9]{64}$' -and
-          -not (Test-Path -LiteralPath $cert)) 'PREPARE_ARGS_OR_ALREADY_SPENT'
+          -not (Test-Path -LiteralPath $activeCert)) 'PREPARE_ARGS_OR_ALREADY_SPENT'
+    if ($isV3Chain) {
+      $roCode="import json,sqlite3,sys; c=sqlite3.connect(f'file:{sys.argv[1]}?mode=ro',uri=True); c.execute('PRAGMA query_only=ON'); m=c.execute('SELECT head_seq,head_hash FROM meta').fetchone(); c.close(); print(json.dumps({'head_seq':m[0],'head_hash':m[1]},separators=(',',':')))"
+      $roOut=($roCode | & $python -B - $db | Out-String).Trim()
+      Write-Output ('F139_V3_LIVE_SQLITE='+$roOut)
+      $roObj=($roOut | ConvertFrom-Json)
+      Need ([int64]$roObj.head_seq -eq $TerminalSeq -and [string]$roObj.head_hash -ceq $TerminalHash) 'V3_PRE_STOP_SQLITE_CHECKPOINT_MISMATCH'
+    }
     $expected=$prepPrefix+$Target+' '+$Head+' '+$PrNumber+' '+$RegressionRun+' '+$SourceRun+' '+$RehearsalRun+' '+$TerminalSeq+' '+$TerminalHash
     Need ($event.comment.body -ceq $expected) 'PREPARE_COMMENT_FIELDS_DRIFT'
     $pr=Remote ('repos/'+$repo+'/pulls/'+$PrNumber)
@@ -160,11 +174,15 @@ try {
       [string]$task.State -ceq 'Disabled' -and $originalControllers.Count -eq 0)
     Need ($runningOriginal -or $idleOriginal -or $heldOriginal) 'ONLY_RUNNING_IDLE_OR_COLD_DISABLED_ORIGINAL_OWNER_REQUIRED'
     $source=TaskArg $task 'RepositoryRoot'
-    $oldStage=Join-Path $root ('release-candidates\'+$previousMain)
+    $oldStage=Join-Path $root ('release-candidates\'+$activePrevious)
     Need ([IO.Path]::GetFullPath($source) -ieq [IO.Path]::GetFullPath($oldStage)) 'PREVIOUS_TASK_SOURCE_DRIFT'
-    $oldCommit=Remote ('repos/'+$repo+'/git/commits/'+$previousMain)
-    Need ($oldCommit.sha -ceq $previousMain) 'PREVIOUS_SOURCE_COMMIT_MISSING'
-    ExactGit $source $previousMain ([string]$oldCommit.tree.sha)
+    $oldCommit=Remote ('repos/'+$repo+'/git/commits/'+$activePrevious)
+    Need ($oldCommit.sha -ceq $activePrevious) 'PREVIOUS_SOURCE_COMMIT_MISSING'
+    if ($isV3Chain) {
+      ExactGit $source $activePrevious ([string]$oldCommit.tree.sha)
+    } else {
+      ExactGit $source $previousMain ([string]$oldCommit.tree.sha)
+    }
 
     # Build the new content-addressed checkout first while old owner runs;
     # no rollback/reuse of an ambiguous or partially created staging path.
@@ -204,21 +222,21 @@ try {
       rehearsal_run_id=[int64]$RehearsalRun; source_run_id=[int64]$SourceRun
     }
     $encoded=Encoded ($request | ConvertTo-Json -Compress -Depth 6)
-    $result=@(& $python -B -m f139.nci04_fresh_owner_source_forward_v2 preflight $db $encoded)
+    $result=@(& $python -B -m $activeMod preflight $db $encoded)
     Need ($LASTEXITCODE -eq 0 -and $result.Count -eq 1) 'COLD_V2_PREFLIGHT_FAILED'
     $snapshot=($result[0] | ConvertFrom-Json)
     Need ($snapshot.terminal_seq -eq $TerminalSeq -and
           $snapshot.terminal_hash -ceq $TerminalHash -and
-          $snapshot.previous_owner_source_sha -ceq $previousMain -and
+          $snapshot.previous_owner_source_sha -ceq $activePrevious -and
           $snapshot.owner_source_sha -ceq $Target) 'COLD_CHECKPOINT_SOURCE_OR_HISTORY_DRIFT'
     $unsigned=@{}
     foreach($prop in $snapshot.PSObject.Properties){$unsigned[$prop.Name]=$prop.Value}
     $unsigned['owner_run_id']=[int64]$env:GITHUB_RUN_ID
     $unsigned['owner_comment_id']=[int64]$event.comment.id
     $encodedDoc=Encoded ($unsigned | ConvertTo-Json -Compress -Depth 6)
-    $signed=@(& $python -B -m f139.nci04_fresh_owner_source_forward_v2 sign-cert $cert $encodedDoc)
+    $signed=if($isV3Chain){@(& $python -B -m $activeMod sign-cert $v3Cert $encodedDoc)}else{@(& $python -B -m $activeMod sign-cert $cert $encodedDoc)}
     Need ($LASTEXITCODE -eq 0 -and $signed.Count -eq 1 -and
-          $signed[0] -ceq 'F139_FRESH_FORWARD_V2_SIGNED_CREATE_ONLY') 'CREATE_ONLY_SIGNED_CERT_FAILED'
+          $signed[0] -ceq $activeSignedToken) 'CREATE_ONLY_SIGNED_CERT_FAILED'
     $arguments=[string]$task.Actions[0].Arguments
     Need ($arguments.Split(@($source),[StringSplitOptions]::None).Count -eq 3) 'PREVIOUS_TASK_SOURCE_PATH_NOT_UNIQUE'
     $newArguments=$arguments.Replace($source,$stage)
@@ -236,8 +254,13 @@ try {
   } else {
     Need ($PrepRun -gt 0 -and
           $event.comment.body -ceq ($startPrefix+$Target+' '+$PrepRun)) 'START_COMMENT_OR_RUN_INVALID'
-    $old=Get-Content -LiteralPath $cert -Raw -ErrorAction Stop | ConvertFrom-Json
-    Need ($old.schema -ceq 'forge.f139.fresh-original-owner-source-forward.v2' -and
+    $isV3Start=(Test-Path -LiteralPath $v3Cert)
+    $startCert=if($isV3Start){$v3Cert}else{$cert}
+    $startSchema=if($isV3Start){'forge.f139.fresh-original-owner-source-forward.v3'}else{'forge.f139.fresh-original-owner-source-forward.v2'}
+    $startMod=if($isV3Start){'f139.nci04_fresh_owner_source_forward_v3'}else{'f139.nci04_fresh_owner_source_forward_v2'}
+    $startVerifyToken=if($isV3Start){'F139_FRESH_FORWARD_V3_OWNER_CUSTODY_VERIFIED'}else{'F139_FRESH_FORWARD_V2_OWNER_CUSTODY_VERIFIED'}
+    $old=Get-Content -LiteralPath $startCert -Raw -ErrorAction Stop | ConvertFrom-Json
+    Need ($old.schema -ceq $startSchema -and
           $old.pr_number -ge $prScope -and
           $old.owner_run_id -eq $PrepRun -and
           $old.owner_source_sha -ceq $Target -and
@@ -258,9 +281,9 @@ try {
     ExactGit $stage $Target ([string]$commit.tree.sha)
     $request=[ordered]@{expected_source_sha=$Target}
     $encoded=Encoded ($request | ConvertTo-Json -Compress)
-    $result=@(& $python -B -m f139.nci04_fresh_owner_source_forward_v2 verify-cert $db $encoded)
+    $result=@(& $python -B -m $startMod verify-cert $db $encoded)
     Need ($LASTEXITCODE -eq 0 -and $result.Count -eq 1 -and
-          $result[0] -ceq 'F139_FRESH_FORWARD_V2_OWNER_CUSTODY_VERIFIED') 'START_COLD_OWNER_CHAIN_INVALID'
+          $result[0] -ceq $startVerifyToken) 'START_COLD_OWNER_CHAIN_INVALID'
     Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
     Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
     for($i=0;$i -lt 80 -and @(Owners).Count -ne 1;$i++){Start-Sleep -Milliseconds 250}
