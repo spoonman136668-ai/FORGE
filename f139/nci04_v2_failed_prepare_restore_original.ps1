@@ -193,14 +193,10 @@ if($taskActionsCount -eq 1 -and $taskTriggersCount -eq 3 -and
   $livePython=Field $task 'PythonExe'
   $liveWrapper=Field $task 'File'
   $liveKeyfile=Field $task 'EncryptedKeyFile'
-  $livePathsMatch=(
-    [IO.Path]::GetFullPath($liveSource) -ieq [IO.Path]::GetFullPath((Join-Path $root ('release-candidates'+$original))) -and
-    [IO.Path]::GetFullPath($liveDatabase) -ieq [IO.Path]::GetFullPath($db) -and
-    [IO.Path]::GetFileName($liveWrapper) -ceq 'Run-FORGE-F139.ps1' -and
-    (Test-Path -LiteralPath $livePython -PathType Leaf) -and
-    (Test-Path -LiteralPath $liveKeyfile -PathType Leaf) -and
-    (Test-Path -LiteralPath $db -PathType Leaf)
-  )
+  $liveSourcePathMatch=([IO.Path]::GetFullPath($liveSource) -ieq [IO.Path]::GetFullPath((Join-Path $root ('release-candidates\'+$original))))
+  $liveDbPathMatch=([IO.Path]::GetFullPath($liveDatabase) -ieq [IO.Path]::GetFullPath($db))
+  $liveWrapperMatch=([IO.Path]::GetFileName($liveWrapper) -ceq 'Run-FORGE-F139.ps1')
+  $liveFilesPresent=((Test-Path -LiteralPath $livePython -PathType Leaf) -and (Test-Path -LiteralPath $liveKeyfile -PathType Leaf) -and (Test-Path -LiteralPath $db -PathType Leaf))
   $liveProcDbBound=([string]$liveControllers[0].CommandLine).IndexOf($db,[StringComparison]::OrdinalIgnoreCase) -ge 0
   $liveSourceMatch=$false
   try { ExactCheckout $liveSource $original $originalTree $false; $liveSourceMatch=$true } catch {}
@@ -217,8 +213,44 @@ if($taskActionsCount -eq 1 -and $taskTriggersCount -eq 3 -and
     if($liveDpapiValid){
       $env:PYTHONPATH=$env:GITHUB_WORKSPACE
       $env:PYTHONDONTWRITEBYTECODE='1'
-      $pyCode='import hmac,json,os,sqlite3,sys; from pathlib import Path; from f139.nci04_fresh_owner_source_forward import NAME as V1_NAME, SCHEMA as V1_SCHEMA, sign; from f139.nci04_fresh_owner_source_forward_v2 import NAME as V2_NAME; dbp=Path(sys.argv[1]).resolve(strict=True); cd=Path(sys.argv[2]).resolve(strict=True); key=os.environ["F139_WORKER_HMAC_KEY"]; v1=cd/V1_NAME; v2=cd/V2_NAME; cert_ok=False; v1_sig_ok=False; v2_absent=(not v2.exists() and not v2.is_symlink()); doc=json.loads(v1.read_bytes()) if v1.is_file() else {}; v1_sig_ok=(bool(doc) and doc.get("schema")==V1_SCHEMA and doc.get("owner_source_sha")=="f24251e0d95938e593a54c1577a34efadc8080d8" and hmac.compare_digest(sign({k:v for k,v in doc.items() if k!="owner_signature"},key), str(doc.get("owner_signature","")))); con=sqlite3.connect(f"file:{dbp}?mode=ro",uri=True); con.execute("PRAGMA query_only=ON"); qc=con.execute("PRAGMA quick_check").fetchone()[0]; meta=con.execute("SELECT head_seq,head_hash FROM meta").fetchone(); stages=dict(con.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage")); pending=con.execute("SELECT COUNT(*) FROM tasks WHERE stage!=''VERIFIED''").fetchone()[0]; chg=con.total_changes; con.close(); print(json.dumps({"v1_cert_sig_ok":v1_sig_ok,"v2_cert_absent":v2_absent,"sqlite_quick_check":qc,"head_seq":meta[0],"head_hash":meta[1],"stages":stages,"outstanding":pending,"sqlite_mutations":chg},sort_keys=True,separators=(",",":")))'
-      $liveAuditPy=(& $livePython -B -c $pyCode $db $certDir | Out-String).Trim()
+      $pyCode=@'
+import hmac, json, os, sqlite3, sys
+from pathlib import Path
+from f139.nci04_fresh_owner_source_forward import NAME as V1_NAME, SCHEMA as V1_SCHEMA, sign
+from f139.nci04_fresh_owner_source_forward_v2 import NAME as V2_NAME
+dbp = Path(sys.argv[1]).resolve(strict=True)
+cd = Path(sys.argv[2]).resolve(strict=True)
+key = os.environ["F139_WORKER_HMAC_KEY"]
+v1 = cd / V1_NAME
+v2 = cd / V2_NAME
+v2_absent = (not v2.exists() and not v2.is_symlink())
+doc = json.loads(v1.read_bytes()) if v1.is_file() else {}
+v1_sig_ok = (
+    bool(doc)
+    and doc.get("schema") == V1_SCHEMA
+    and doc.get("owner_source_sha") == "f24251e0d95938e593a54c1577a34efadc8080d8"
+    and hmac.compare_digest(sign({k: v for k, v in doc.items() if k != "owner_signature"}, key), str(doc.get("owner_signature", "")))
+)
+con = sqlite3.connect(f"file:{dbp}?mode=ro", uri=True)
+con.execute("PRAGMA query_only=ON")
+qc = con.execute("PRAGMA quick_check").fetchone()[0]
+meta = con.execute("SELECT head_seq, head_hash FROM meta").fetchone()
+stages = dict(con.execute("SELECT stage, COUNT(*) FROM tasks GROUP BY stage"))
+pending = con.execute("SELECT COUNT(*) FROM tasks WHERE stage != 'VERIFIED'").fetchone()[0]
+chg = con.total_changes
+con.close()
+print(json.dumps({
+    "v1_cert_sig_ok": v1_sig_ok,
+    "v2_cert_absent": v2_absent,
+    "sqlite_quick_check": qc,
+    "head_seq": meta[0],
+    "head_hash": meta[1],
+    "stages": stages,
+    "outstanding": pending,
+    "sqlite_mutations": chg,
+}, sort_keys=True, separators=(",", ":")))
+'@
+      $liveAuditPy=($pyCode | & $livePython -B - $db $certDir | Out-String).Trim()
     }
   } finally {
     Remove-Item Env:F139_WORKER_HMAC_KEY -ErrorAction SilentlyContinue
@@ -227,7 +259,10 @@ if($taskActionsCount -eq 1 -and $taskTriggersCount -eq 3 -and
     task_enabled=$taskEnabled
     task_state=$taskState
     controller_count=$controllerCount
-    paths_match=$livePathsMatch
+    source_path_match=$liveSourcePathMatch
+    db_path_match=$liveDbPathMatch
+    wrapper_match=$liveWrapperMatch
+    files_present=$liveFilesPresent
     process_db_bound=$liveProcDbBound
     source_checkout_match=$liveSourceMatch
     dpapi_key_valid=$liveDpapiValid
