@@ -28,6 +28,7 @@ SCHEMA_HELDOUT = "forge.f139.wingless-gen2-heldout-qualification.v1"
 GEN2_WINGLESS_POLICIES = (
     "baseline_raw_cooccurrence",
     "zscore_causal_075",
+    "zscore_causal_085",
     "zscore_causal_100",
     "zscore_causal_125",
     "eb_shrunk_zscore_100",
@@ -53,6 +54,8 @@ def _decide_binding(policy: str, c0: float, c1: float) -> int | None:
         return None if diff == 0.0 else (0 if c0 > c1 else 1)
     if policy == "zscore_causal_075":
         return None if (tot < 2.0 or diff < 0.75 * math.sqrt(tot)) else (0 if c0 > c1 else 1)
+    if policy == "zscore_causal_085":
+        return None if (tot < 2.0 or diff < 0.85 * math.sqrt(tot)) else (0 if c0 > c1 else 1)
     if policy == "zscore_causal_100":
         return None if (tot < 2.0 or diff < 1.00 * math.sqrt(tot)) else (0 if c0 > c1 else 1)
     if policy == "zscore_causal_125":

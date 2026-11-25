@@ -206,6 +206,11 @@ def installed_forward_source(db, api, release, key):
     # V2 never replaces V1. The presence of a later certificate requires the
     # full independent V1+V2, old and latest source, owner and ledger audit.
     # An invalid V2 blocks; there is no fallback to V1 after partial cutover.
+    from f139.nci04_fresh_owner_source_forward_chain import (
+        highest_installed_chain_version, inspect_installed_chain,
+    )
+    if highest_installed_chain_version(db.filename.parent) is not None:
+        return inspect_installed_chain(db, api, release, key)
     from f139.nci04_fresh_owner_source_forward_v4 import (
         NAME as NAME_V4, inspect_installed_v4,
     )
