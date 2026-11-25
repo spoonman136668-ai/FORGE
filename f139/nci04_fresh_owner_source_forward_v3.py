@@ -49,7 +49,7 @@ def sign(unsigned: dict, key: str) -> str:
 
 
 def inspect_v3(doc, *, db, api, release, key, previous_v2, previous_v2_bytes,
-               previous_v1, previous_v1_bytes):
+               previous_v1, previous_v1_bytes, expected_current_source_sha=None):
     """Authenticate current protected main + archived V2 + archived V1 + cold ledger."""
     need(type(doc) is dict and set(doc) == FIELDS
          and doc["schema"] == SCHEMA
@@ -89,11 +89,14 @@ def inspect_v3(doc, *, db, api, release, key, previous_v2, previous_v2_bytes,
          and doc["previous_owner_source_sha"] == PREVIOUS_OWNER_MAIN
          and previous_v2.get("owner_source_tree") == doc["previous_owner_source_tree"],
          "PREVIOUS_V2_CERTIFICATE_CHAIN_DRIFT")
+    current = (doc["owner_source_sha"] if expected_current_source_sha is None
+               else expected_current_source_sha)
+    need(sha40(current), "EXPECTED_CURRENT_SOURCE_INVALID")
     try:
         prior_source = inspect_v2(
             previous_v2, db=db, api=api, release=release, key=key,
             previous=previous_v1, previous_bytes=previous_v1_bytes,
-            expected_current_source_sha=doc["owner_source_sha"],
+            expected_current_source_sha=current,
         )
     except ForwardV2Denied as exc:
         raise ForwardV3Denied("F139_FRESH_FORWARD_V3_PREVIOUS_V2_CUSTODY_INVALID") from exc
@@ -123,7 +126,7 @@ def inspect_v3(doc, *, db, api, release, key, previous_v2, previous_v2_bytes,
     commit = api.get(FORGE + "/git/commits/" + doc["owner_source_sha"])
     pr = api.get(FORGE + "/pulls/" + str(doc["pr_number"]))
     need(branch.get("name") == "main" and branch.get("protected") is True
-         and branch.get("commit", {}).get("sha") == doc["owner_source_sha"]
+         and branch.get("commit", {}).get("sha") == current
          and commit.get("sha") == doc["owner_source_sha"]
          and commit.get("tree", {}).get("sha") == doc["owner_source_tree"]
          and pr.get("merged") is True and pr.get("state") == "closed"
