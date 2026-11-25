@@ -301,3 +301,57 @@ def qualify_pool_heldout(
     }
     summary["summary_sha256"] = digest(canonical(summary))
     return summary
+
+
+def paired_bootstrap_ci(
+    paired_deltas: list[float] | list[int],
+    *,
+    alpha: float = 0.05,
+    n_resamples: int = 1000,
+    seed: int = 20261125,
+) -> dict:
+    """Deterministic paired bootstrap confidence interval over per-seed deltas."""
+    need(type(paired_deltas) is list and len(paired_deltas) >= 5, "BOOTSTRAP_DELTAS_INVALID")
+    need(0.0001 <= alpha < 0.5, "BOOTSTRAP_ALPHA_INVALID")
+    need(100 <= n_resamples <= 10000, "BOOTSTRAP_RESAMPLES_INVALID")
+    rng = random.Random(seed)
+    n = len(paired_deltas)
+    means = []
+    for _ in range(n_resamples):
+        sample_sum = 0.0
+        for _ in range(n):
+            sample_sum += float(paired_deltas[rng.randrange(n)])
+        means.append(sample_sum / n)
+    means.sort()
+    lo_idx = max(0, int(round((alpha / 2.0) * (n_resamples - 1))))
+    hi_idx = min(n_resamples - 1, int(round((1.0 - alpha / 2.0) * (n_resamples - 1))))
+    observed = sum(float(x) for x in paired_deltas) / n
+    return {
+        "observed_mean": round(observed, 6),
+        "alpha": round(alpha, 6),
+        "ci_low": round(means[lo_idx], 6),
+        "ci_high": round(means[hi_idx], 6),
+        "n_resamples": n_resamples,
+    }
+
+
+def multiple_testing_adjusted_pass(
+    paired_deltas: list[float] | list[int],
+    *,
+    cumulative_trials: int = 1,
+    base_alpha: float = 0.05,
+) -> dict:
+    """Bonferroni-adjusted paired bootstrap qualification guard against p-hacking."""
+    need(type(cumulative_trials) is int and 1 <= cumulative_trials <= 100000,
+         "CUMULATIVE_TRIALS_INVALID")
+    effective_alpha = max(0.0005, base_alpha / float(cumulative_trials))
+    ci = paired_bootstrap_ci(paired_deltas, alpha=effective_alpha, n_resamples=2000)
+    return {
+        "cumulative_trials": cumulative_trials,
+        "base_alpha": base_alpha,
+        "effective_alpha": round(effective_alpha, 6),
+        "ci_low": ci["ci_low"],
+        "ci_high": ci["ci_high"],
+        "observed_mean": ci["observed_mean"],
+        "adjusted_pass": bool(ci["observed_mean"] > 0.0 and ci["ci_low"] > 0.0),
+    }
