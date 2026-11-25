@@ -27,7 +27,9 @@ $db=Join-Path $root ('f139-fresh-dev-'+$runId+'\state.sqlite')
 $oldCert=Join-Path (Split-Path $db -Parent) 'fresh-original-owner-source-forward.json'
 $cert=Join-Path (Split-Path $db -Parent) 'fresh-original-owner-source-forward-v2.json'
 $v3Cert=Join-Path (Split-Path $db -Parent) 'fresh-original-owner-source-forward-v3.json'
+$v4Cert=Join-Path (Split-Path $db -Parent) 'fresh-original-owner-source-forward-v4.json'
 $previousV2Main='32c8d3fcad7209d4331595a7fbad42d361a55b94'
+$previousV3Main='829098294678bcbdd9deb4379cdba921cbfa8829'
 $prepPrefix='F139-FRESH-OWNER-SOURCE-FORWARD-V2 '
 $startPrefix='F139-FRESH-OWNER-SOURCE-FORWARD-V2-START '
 function Need([bool]$ok,[string]$reason) {
@@ -138,28 +140,35 @@ finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
 Need ($env:F139_WORKER_HMAC_KEY.Length -ge 32) 'OWNER_KEY_INVALID'
 try {
   if($Phase -ceq 'Prepare') {
-    $isV3Chain=(Test-Path -LiteralPath $cert)
-    if ($isV3Chain -and (Test-Path -LiteralPath $v3Cert)) {
-      $stub=Get-Content -LiteralPath $v3Cert -Raw -ErrorAction Stop | ConvertFrom-Json
-      if ($stub.owner_run_id -eq 45388342745 -and $stub.owner_source_sha -ceq '3f31c7a5e915aa998da6f00f17924f7576842fa4') {
-        Remove-Item -LiteralPath $v3Cert -Force -ErrorAction Stop
-      }
+    $isV4Chain=(Test-Path -LiteralPath $v3Cert)
+    $isV3Chain=(-not $isV4Chain) -and (Test-Path -LiteralPath $cert)
+    if ($isV4Chain) {
+      $activeCert=$v4Cert
+      $activePrevious=$previousV3Main
+      $activeMod='f139.nci04_fresh_owner_source_forward_v4'
+      $activeSignedToken='F139_FRESH_FORWARD_V4_SIGNED_CREATE_ONLY'
+    } elseif ($isV3Chain) {
+      $activeCert=$v3Cert
+      $activePrevious=$previousV2Main
+      $activeMod='f139.nci04_fresh_owner_source_forward_v3'
+      $activeSignedToken='F139_FRESH_FORWARD_V3_SIGNED_CREATE_ONLY'
+    } else {
+      $activeCert=$cert
+      $activePrevious=$previousMain
+      $activeMod='f139.nci04_fresh_owner_source_forward_v2'
+      $activeSignedToken='F139_FRESH_FORWARD_V2_SIGNED_CREATE_ONLY'
     }
-    $activeCert=if($isV3Chain){$v3Cert}else{$cert}
-    $activePrevious=if($isV3Chain){$previousV2Main}else{$previousMain}
-    $activeMod=if($isV3Chain){'f139.nci04_fresh_owner_source_forward_v3'}else{'f139.nci04_fresh_owner_source_forward_v2'}
-    $activeSignedToken=if($isV3Chain){'F139_FRESH_FORWARD_V3_SIGNED_CREATE_ONLY'}else{'F139_FRESH_FORWARD_V2_SIGNED_CREATE_ONLY'}
     Need ($PrNumber -ge $prScope -and $Head -cmatch '^[a-f0-9]{40}$' -and
           $RegressionRun -gt 0 -and $SourceRun -gt 0 -and
           $RehearsalRun -gt 0 -and $TerminalSeq -gt 9 -and
           $TerminalHash -cmatch '^[a-f0-9]{64}$' -and
           -not (Test-Path -LiteralPath $activeCert)) 'PREPARE_ARGS_OR_ALREADY_SPENT'
-    if ($isV3Chain) {
+    if ($isV4Chain -or $isV3Chain) {
       $roCode="import json,sqlite3,sys; c=sqlite3.connect(f'file:{sys.argv[1]}?mode=ro',uri=True); c.execute('PRAGMA query_only=ON'); m=c.execute('SELECT head_seq,head_hash FROM meta').fetchone(); c.close(); print(json.dumps({'head_seq':m[0],'head_hash':m[1]},separators=(',',':')))"
       $roOut=($roCode | & $python -B - $db | Out-String).Trim()
-      Write-Output ('F139_V3_LIVE_SQLITE='+$roOut)
+      Write-Output ('F139_LIVE_SQLITE='+$roOut)
       $roObj=($roOut | ConvertFrom-Json)
-      Need ([int64]$roObj.head_seq -eq $TerminalSeq -and [string]$roObj.head_hash -ceq $TerminalHash) 'V3_PRE_STOP_SQLITE_CHECKPOINT_MISMATCH'
+      Need ([int64]$roObj.head_seq -eq $TerminalSeq -and [string]$roObj.head_hash -ceq $TerminalHash) 'PRE_STOP_SQLITE_CHECKPOINT_MISMATCH'
     }
     $expected=$prepPrefix+$Target+' '+$Head+' '+$PrNumber+' '+$RegressionRun+' '+$SourceRun+' '+$RehearsalRun+' '+$TerminalSeq+' '+$TerminalHash
     Need ($event.comment.body -ceq $expected) 'PREPARE_COMMENT_FIELDS_DRIFT'
@@ -189,7 +198,7 @@ try {
     Need ([IO.Path]::GetFullPath($source) -ieq [IO.Path]::GetFullPath($oldStage)) 'PREVIOUS_TASK_SOURCE_DRIFT'
     $oldCommit=Remote ('repos/'+$repo+'/git/commits/'+$activePrevious)
     Need ($oldCommit.sha -ceq $activePrevious) 'PREVIOUS_SOURCE_COMMIT_MISSING'
-    if ($isV3Chain) {
+    if ($isV4Chain -or $isV3Chain) {
       ExactGit $source $activePrevious ([string]$oldCommit.tree.sha)
     } else {
       ExactGit $source $previousMain ([string]$oldCommit.tree.sha)
@@ -245,7 +254,7 @@ try {
     $unsigned['owner_run_id']=[int64]$env:GITHUB_RUN_ID
     $unsigned['owner_comment_id']=[int64]$event.comment.id
     $encodedDoc=Encoded ($unsigned | ConvertTo-Json -Compress -Depth 6)
-    if($isV3Chain){$signed=@(& $python -B -m $activeMod sign-cert $v3Cert $encodedDoc)}else{$signed=@(& $python -B -m $activeMod sign-cert $cert $encodedDoc)}
+    if($isV4Chain){$signed=@(& $python -B -m $activeMod sign-cert $v4Cert $encodedDoc)}elseif($isV3Chain){$signed=@(& $python -B -m $activeMod sign-cert $v3Cert $encodedDoc)}else{$signed=@(& $python -B -m $activeMod sign-cert $cert $encodedDoc)}
     Need ($LASTEXITCODE -eq 0 -and $signed.Count -eq 1 -and
           $signed[0] -ceq $activeSignedToken) 'CREATE_ONLY_SIGNED_CERT_FAILED'
     $arguments=[string]$task.Actions[0].Arguments
@@ -265,11 +274,24 @@ try {
   } else {
     Need ($PrepRun -gt 0 -and
           $event.comment.body -ceq ($startPrefix+$Target+' '+$PrepRun)) 'START_COMMENT_OR_RUN_INVALID'
-    $isV3Start=(Test-Path -LiteralPath $v3Cert)
-    $startCert=if($isV3Start){$v3Cert}else{$cert}
-    $startSchema=if($isV3Start){'forge.f139.fresh-original-owner-source-forward.v3'}else{'forge.f139.fresh-original-owner-source-forward.v2'}
-    $startMod=if($isV3Start){'f139.nci04_fresh_owner_source_forward_v3'}else{'f139.nci04_fresh_owner_source_forward_v2'}
-    $startVerifyToken=if($isV3Start){'F139_FRESH_FORWARD_V3_OWNER_CUSTODY_VERIFIED'}else{'F139_FRESH_FORWARD_V2_OWNER_CUSTODY_VERIFIED'}
+    $isV4Start=(Test-Path -LiteralPath $v4Cert)
+    $isV3Start=(-not $isV4Start) -and (Test-Path -LiteralPath $v3Cert)
+    if ($isV4Start) {
+      $startCert=$v4Cert
+      $startSchema='forge.f139.fresh-original-owner-source-forward.v4'
+      $startMod='f139.nci04_fresh_owner_source_forward_v4'
+      $startVerifyToken='F139_FRESH_FORWARD_V4_OWNER_CUSTODY_VERIFIED'
+    } elseif ($isV3Start) {
+      $startCert=$v3Cert
+      $startSchema='forge.f139.fresh-original-owner-source-forward.v3'
+      $startMod='f139.nci04_fresh_owner_source_forward_v3'
+      $startVerifyToken='F139_FRESH_FORWARD_V3_OWNER_CUSTODY_VERIFIED'
+    } else {
+      $startCert=$cert
+      $startSchema='forge.f139.fresh-original-owner-source-forward.v2'
+      $startMod='f139.nci04_fresh_owner_source_forward_v2'
+      $startVerifyToken='F139_FRESH_FORWARD_V2_OWNER_CUSTODY_VERIFIED'
+    }
     $old=Get-Content -LiteralPath $startCert -Raw -ErrorAction Stop | ConvertFrom-Json
     Need ($old.schema -ceq $startSchema -and
           $old.pr_number -ge $prScope -and
