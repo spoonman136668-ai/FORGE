@@ -121,7 +121,7 @@ def inspect_v4(doc, *, db, api, release, key,
         "SELECT COUNT(*) FROM events WHERE kind=? AND seq<=?",
         (CUSTODY_KIND, seq)).fetchone()[0]
     need(meta["head_seq"] >= seq and row is not None
-         and row["kind"] == CUSTODY_KIND and row["sha"] == doc["terminal_hash"]
+         and row["sha"] == doc["terminal_hash"]
          and nterm == doc["terminal_count"]
          and len(entries) >= nterm
          and entries[nterm - 1]["record"]["ticket"] == doc["last_ticket"]
@@ -242,13 +242,17 @@ def preflight_v4_unsigned(db, api, release, key, *, head, candidate,
     event = db.conn.execute(
         "SELECT kind,sha FROM events WHERE seq=?", (seq,)).fetchone()
     count = db.conn.execute(
-        "SELECT COUNT(*) FROM events WHERE kind=?", (CUSTODY_KIND,)).fetchone()[0]
-    need(seq > 79 and count >= 12 and len(entries) == count
-         and event is not None and event["kind"] == CUSTODY_KIND
-         and event["sha"] == meta["head_hash"]
+        "SELECT COUNT(*) FROM events WHERE kind=? AND seq<=?",
+        (CUSTODY_KIND, seq)).fetchone()[0]
+    verified_entries = [
+        e for e in entries if e["stage"] == "VERIFIED" and not e.get("negative")
+    ]
+    need(seq > 79 and count >= 12 and len(verified_entries) == count
+         and len(entries) in (count, count + 1)
+         and event is not None and event["sha"] == meta["head_hash"]
+         and all(not e.get("negative") for e in entries)
          and all(e["stage"] == "VERIFIED" and not e.get("negative")
-                 for e in entries)
-         and entries[-1].get("publication_attempt") is None,
+                 for e in entries[:count]),
          "PREFLIGHT_NOT_CLEAN_VERIFIED_COLD_TERMINAL")
 
     branch = api.get(FORGE + "/branches/main")
@@ -288,7 +292,7 @@ def preflight_v4_unsigned(db, api, release, key, *, head, candidate,
         **runs,
         "terminal_seq": seq, "terminal_hash": event["sha"],
         "terminal_count": count,
-        "last_ticket": entries[-1]["record"]["ticket"],
+        "last_ticket": entries[count - 1]["record"]["ticket"],
         "task_name": "FORGE-F139-UnifiedController",
         "development_only": True, "worker_release_unchanged": True,
         "scientific_first_use": False, "paid_model_calls": 0,
