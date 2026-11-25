@@ -1,0 +1,134 @@
+name: K-Terminal mobile remote operations exact-source offline qualification
+on:
+  push:
+    branches: [qualification/kaboom-mobile-remote-ops-20261125]
+    paths: [.github/workflows/forge-kaboom-mobile-remote-ops-20261125.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kaboom-mobile-remote-ops-20261125
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 90
+    steps:
+      - name: Verify one-shot owner route before provisioning
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-mobile-remote-ops-20261125' -or $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'MOBILE_WRONG_OWNER_ROUTE'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('kaboom-mobile-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'MOBILE_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          "MOBILE_SCRATCH=$scratch" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'MOBILE_OWNER_RUNNER=PASS'
+      - name: Existing pinned Go toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Exact private source clone and custody (no private output)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $want='7b9196bf5fb786cc37be0f12ef6ea6ffcefc245c'
+          $ref='feature/mobile-remote-operations'
+          $root=Join-Path $env:MOBILE_SCRATCH 'source'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $remote=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$ref) --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'MOBILE_SOURCE_REF_DRIFT_OR_ACCESS'}
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 1 --single-branch --branch $ref *> (Join-Path $env:MOBILE_SCRATCH 'clone.log')
+          if($LASTEXITCODE -ne 0){throw 'MOBILE_PRIVATE_CLONE_FAIL'}
+          if((& git -C $root rev-parse HEAD).Trim() -cne $want -or (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne 'c62540aa58e725db090c465f0c21f1ab90b81815' -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne 'bbd095b3c7e932db16fb22d1390d951fba96ad92'){throw 'MOBILE_EXACT_TREE_FAIL'}
+          if(@(& git -C $root status --porcelain --untracked-files=all).Count){throw 'MOBILE_DIRTY_SOURCE'}
+          "MOBILE_ROOT=$root" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "MOBILE_EXACT_SOURCE=PASS sha=$want"
+      - name: Offline focused and original full regression, sanitized outcomes only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:GOTOOLCHAIN='local'; $env:GOTELEMETRY='off'; $env:CGO_ENABLED='0'; $env:K_TERMINAL_EXECUTION_MODE='PAPER'; $env:PYTHONDONTWRITEBYTECODE='1'
+          foreach($name in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET','ALERTS_PUBLISH_TOKEN','OPS_WORKER_TOKEN','KT_STATE_FILE')){
+            if([Environment]::GetEnvironmentVariable($name)){throw 'MOBILE_RUNTIME_CREDENTIAL_ENV_BLOCKED'}
+          }
+          foreach($name in @('GH_TOKEN','GITHUB_TOKEN','GH_ENTERPRISE_TOKEN','GITHUB_ENTERPRISE_TOKEN','OPENAI_API_KEY','ANTHROPIC_API_KEY','OPENROUTER_API_KEY','GEMINI_API_KEY','AZURE_OPENAI_API_KEY')){
+            Remove-Item -LiteralPath ('Env:'+ $name) -ErrorAction SilentlyContinue
+          }
+          $root=$env:MOBILE_ROOT
+          $failures=[System.Collections.Generic.List[string]]::new()
+          function Check([string]$label,[string]$exe,[string[]]$argv){
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            $log=Join-Path $env:MOBILE_SCRATCH ($label+'.log')
+            try {
+              & $exe @argv *> $log
+              $rc=$LASTEXITCODE
+            } catch {$rc=1}
+            $sw.Stop()
+            if($rc -ne 0){$failures.Add($label);Write-Output "$label=FAIL elapsed_ms=$($sw.ElapsedMilliseconds)";return}
+            Write-Output "$label=PASS elapsed_ms=$($sw.ElapsedMilliseconds)"
+            if($label -eq 'MOBILE_NODE_TEST'){
+              $lines=Get-Content -LiteralPath $log
+              foreach($line in $lines){if($line -match '^# (tests|pass|fail|skipped) [0-9]+$'){Write-Output $line}}
+            }
+            if($label -eq 'MOBILE_ADMISSION_TEST'){
+              $rows=@(Get-Content -LiteralPath $log | ForEach-Object {try{$_ | ConvertFrom-Json -ErrorAction Stop}catch{}})
+              $passed=@($rows | Where-Object {$_.Action -eq 'pass' -and $_.Test -and $_.Test -notmatch '/'}).Count
+              $failed=@($rows | Where-Object {$_.Action -eq 'fail' -and $_.Test -and $_.Test -notmatch '/'}).Count
+              Write-Output "MOBILE_ADMISSION_TOPLEVEL_PASS=$passed FAIL=$failed"
+              if($passed -ne 7 -or $failed -ne 0){$failures.Add('MOBILE_ADMISSION_INVENTORY')}
+            }
+          }
+          if((& go env GOVERSION).Trim() -cne 'go1.26.5'){throw 'MOBILE_GO_TOOLCHAIN_DRIFT'}
+          $node=Get-Command node -ErrorAction SilentlyContinue
+          Push-Location (Join-Path $root 'mobile-alerts')
+          try {
+            if(-not $node){$failures.Add('MOBILE_NODE_UNAVAILABLE');Write-Output 'MOBILE_NODE_UNAVAILABLE'}else{
+              $version=(& node --version)
+              if($version -notmatch '^v(2[2-9]|[3-9][0-9])\.[0-9]+\.[0-9]+$'){$failures.Add('MOBILE_NODE_VERSION');Write-Output 'MOBILE_NODE_VERSION_UNSUPPORTED'}else{
+                Write-Output "MOBILE_NODE_VERSION=$version"
+                Check 'MOBILE_NODE_TEST' 'node' @('--test','protocol.test.mjs','operations.test.mjs')
+                foreach($p in @('server.mjs','publisher.mjs','public/app.js','public/sw.js','operations.mjs','operations-worker.mjs','public/operations.js')){
+                  Check ('MOBILE_SYNTAX_'+($p -replace '[^A-Za-z0-9]','_')) 'node' @('--check',$p)
+                }
+              }
+            }
+            Push-Location native-admission
+            try{
+              Check 'MOBILE_ADMISSION_TEST' 'go' @('test','-json','-count=1','-timeout','2m','./...')
+              Check 'MOBILE_ADMISSION_VET' 'go' @('vet','./...')
+              Check 'MOBILE_ADMISSION_BUILD' 'go' @('build','./...')
+            }finally{Pop-Location}
+          }finally{Pop-Location}
+          Push-Location $root
+          try{
+            Check 'MOBILE_CUSTODY' 'python' @('-B','tools/architecture/verify_source_custody.py')
+            Check 'MOBILE_ORIGINAL_ARCH_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/architecture','-p','test_*.py','-v')
+            Check 'MOBILE_ORIGINAL_ACCEPTANCE_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/acceptance','-p','test_*.py','-v')
+            Push-Location kaboom-core
+            try{
+              Check 'MOBILE_CORE_FULL_TEST' 'go' @('test','-p','1','-count=1','-timeout','35m','./...')
+              Check 'MOBILE_CORE_VET' 'go' @('vet','./...')
+              Check 'MOBILE_CORE_BUILD' 'go' @('build','./...')
+            }finally{Pop-Location}
+            if((& git rev-parse HEAD).Trim() -cne '7b9196bf5fb786cc37be0f12ef6ea6ffcefc245c' -or @(& git status --porcelain --untracked-files=all).Count){throw 'MOBILE_TEST_SOURCE_DRIFT'}
+            Check 'MOBILE_ATLAS_GENERATE' 'python' @('-B','tools/architecture/generate.py')
+            Check 'MOBILE_ATLAS_CHECK' 'python' @('-B','tools/architecture/generate.py','--check')
+            $names=@(& git diff --name-only)
+            foreach($n in $names){if($n -notmatch '^(?:\.ice/(?:manifest\.json|file-descriptions\.json|source-file-descriptions\.ice|symbol-dependency-map\.ice|code-graph\.json)|docs/obsidian/)'){throw 'MOBILE_DERIVED_SCOPE_VIOLATION'}}
+            Write-Output "MOBILE_DERIVED_LOCAL_CHANGED=$($names.Count);PUBLISHED=NO"
+          }finally{Pop-Location}
+          if($failures.Count){throw ('MOBILE_QUALIFICATION_FAILED: '+($failures -join ','))}
+          Write-Output 'MOBILE_WINDOWS_SOURCE_REGRESSION=PASS;NO_ENGINE_ACTIVATION;NO_DEPLOYMENT;NO_BRANCH_WRITE'
+      - name: Erase private scratch (no artifacts on public repo)
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:MOBILE_SCRATCH){
+            $expected=Join-Path $env:RUNNER_TEMP ('kaboom-mobile-'+$env:GITHUB_RUN_ID)
+            if($env:MOBILE_SCRATCH -cne $expected){throw 'MOBILE_CLEANUP_SCOPE'}
+            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $expected){throw 'MOBILE_CLEANUP_INCOMPLETE'}
+          }
+          Write-Output 'MOBILE_PRIVATE_SCRATCH_REMOVED=PASS;PRIVATE_ARTIFACTS=NONE'
