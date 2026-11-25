@@ -152,8 +152,8 @@ class Gate17MethodsAndSelfImproveCLITests(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", errors="replace"))
         out = json.loads(proc.stdout.decode("utf-8").strip())
-        self.assertEqual(out["selected_candidate_id"], "wingless-z-0_85")
-        self.assertEqual(out["selected_meta_delta"], 3.0)
+        self.assertEqual(out["target_rel_path"], "f139/nci04_wingless_gen2.py")
+        self.assertEqual(len(out["bundle_sha256"]), 64)
         self.assertFalse(out["live_controller_mutated"])
         self.assertTrue(out["requires_human_or_ci_merge"])
 

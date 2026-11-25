@@ -87,6 +87,12 @@ def run_llm_experimental(variant: str) -> dict:
                         g_clip = max(-0.5, min(0.5, grad))
                         V[x][j] = 0.75 * V[x][j] + g_clip
                         W[x][j] -= 0.14 * V[x][j]
+                    elif variant == "l2_cosine_sgd":
+                        progress = (epoch * len(train_seq) + t) / float(4 * len(train_seq))
+                        lr = 0.04 + 0.22 * (0.5 * (1.0 + math.cos(math.pi * progress)))
+                        target_p = (1.0 - 0.06) if j == y else (0.06 / (vocab - 1))
+                        sm_grad = probs[j] - target_p
+                        W[x][j] -= lr * (sm_grad + 0.004 * W[x][j])
                     elif variant == "trust_region_adaptive":
                         G2[x][j] = 0.90 * G2[x][j] + 0.10 * (grad * grad)
                         step = 0.28 * grad / (math.sqrt(G2[x][j]) + 0.05)

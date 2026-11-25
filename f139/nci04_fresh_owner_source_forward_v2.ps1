@@ -140,9 +140,26 @@ finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
 Need ($env:F139_WORKER_HMAC_KEY.Length -ge 32) 'OWNER_KEY_INVALID'
 try {
   if($Phase -ceq 'Prepare') {
-    $isV4Chain=(Test-Path -LiteralPath $v3Cert)
-    $isV3Chain=(-not $isV4Chain) -and (Test-Path -LiteralPath $cert)
-    if ($isV4Chain) {
+    $certDir=Split-Path $db -Parent
+    $highestVer=0
+    foreach($f in @(Get-ChildItem -LiteralPath $certDir -Filter 'fresh-original-owner-source-forward-v*.json' -ErrorAction SilentlyContinue)){
+      if($f.Name -cmatch '^fresh-original-owner-source-forward-v([0-9]+)\.json$'){
+        $v=[int]$Matches[1]
+        if($v -gt $highestVer){$highestVer=$v}
+      }
+    }
+    $isGenChain=($highestVer -ge 4)
+    $nextChainVer=$highestVer + 1
+    $isV4Chain=(-not $isGenChain) -and (Test-Path -LiteralPath $v3Cert)
+    $isV3Chain=(-not $isGenChain) -and (-not $isV4Chain) -and (Test-Path -LiteralPath $cert)
+    if ($isGenChain) {
+      $priorCertPath=Join-Path $certDir ('fresh-original-owner-source-forward-v'+$highestVer+'.json')
+      $priorObj=Get-Content -LiteralPath $priorCertPath -Raw -ErrorAction Stop | ConvertFrom-Json
+      $activeCert=Join-Path $certDir ('fresh-original-owner-source-forward-v'+$nextChainVer+'.json')
+      $activePrevious=[string]$priorObj.owner_source_sha
+      $activeMod='f139.nci04_fresh_owner_source_forward_chain'
+      $activeSignedToken=('F139_FRESH_FORWARD_V'+$nextChainVer+'_SIGNED_CREATE_ONLY')
+    } elseif ($isV4Chain) {
       $activeCert=$v4Cert
       $activePrevious=$previousV3Main
       $activeMod='f139.nci04_fresh_owner_source_forward_v4'
@@ -163,7 +180,7 @@ try {
           $RehearsalRun -gt 0 -and $TerminalSeq -gt 9 -and
           $TerminalHash -cmatch '^[a-f0-9]{64}$' -and
           -not (Test-Path -LiteralPath $activeCert)) 'PREPARE_ARGS_OR_ALREADY_SPENT'
-    if ($isV4Chain -or $isV3Chain) {
+    if ($isGenChain -or $isV4Chain -or $isV3Chain) {
       $roCode="import json,sqlite3,sys; c=sqlite3.connect(f'file:{sys.argv[1]}?mode=ro',uri=True); c.execute('PRAGMA query_only=ON'); m=c.execute('SELECT head_seq,head_hash FROM meta').fetchone(); c.close(); print(json.dumps({'head_seq':m[0],'head_hash':m[1]},separators=(',',':')))"
       $roOut=($roCode | & $python -B - $db | Out-String).Trim()
       Write-Output ('F139_LIVE_SQLITE='+$roOut)
@@ -198,7 +215,7 @@ try {
     Need ([IO.Path]::GetFullPath($source) -ieq [IO.Path]::GetFullPath($oldStage)) 'PREVIOUS_TASK_SOURCE_DRIFT'
     $oldCommit=Remote ('repos/'+$repo+'/git/commits/'+$activePrevious)
     Need ($oldCommit.sha -ceq $activePrevious) 'PREVIOUS_SOURCE_COMMIT_MISSING'
-    if ($isV4Chain -or $isV3Chain) {
+    if ($isGenChain -or $isV4Chain -or $isV3Chain) {
       ExactGit $source $activePrevious ([string]$oldCommit.tree.sha)
     } else {
       ExactGit $source $previousMain ([string]$oldCommit.tree.sha)
@@ -241,6 +258,7 @@ try {
       regression_run_id=[int64]$RegressionRun
       rehearsal_run_id=[int64]$RehearsalRun; source_run_id=[int64]$SourceRun
     }
+    if ($isGenChain) { $request['version']=[int]$nextChainVer }
     $encoded=Encoded ($request | ConvertTo-Json -Compress -Depth 6)
     $result=@(& $python -B -m $activeMod preflight $db $encoded)
     Need ($LASTEXITCODE -eq 0 -and $result.Count -eq 1) 'COLD_V2_PREFLIGHT_FAILED'
@@ -254,7 +272,7 @@ try {
     $unsigned['owner_run_id']=[int64]$env:GITHUB_RUN_ID
     $unsigned['owner_comment_id']=[int64]$event.comment.id
     $encodedDoc=Encoded ($unsigned | ConvertTo-Json -Compress -Depth 6)
-    if($isV4Chain){$signed=@(& $python -B -m $activeMod sign-cert $v4Cert $encodedDoc)}elseif($isV3Chain){$signed=@(& $python -B -m $activeMod sign-cert $v3Cert $encodedDoc)}else{$signed=@(& $python -B -m $activeMod sign-cert $cert $encodedDoc)}
+    if($isGenChain){$signed=@(& $python -B -m $activeMod sign-cert $activeCert $encodedDoc)}elseif($isV4Chain){$signed=@(& $python -B -m $activeMod sign-cert $v4Cert $encodedDoc)}elseif($isV3Chain){$signed=@(& $python -B -m $activeMod sign-cert $v3Cert $encodedDoc)}else{$signed=@(& $python -B -m $activeMod sign-cert $cert $encodedDoc)}
     Need ($LASTEXITCODE -eq 0 -and $signed.Count -eq 1 -and
           $signed[0] -ceq $activeSignedToken) 'CREATE_ONLY_SIGNED_CERT_FAILED'
     $arguments=[string]$task.Actions[0].Arguments
@@ -274,9 +292,23 @@ try {
   } else {
     Need ($PrepRun -gt 0 -and
           $event.comment.body -ceq ($startPrefix+$Target+' '+$PrepRun)) 'START_COMMENT_OR_RUN_INVALID'
-    $isV4Start=(Test-Path -LiteralPath $v4Cert)
-    $isV3Start=(-not $isV4Start) -and (Test-Path -LiteralPath $v3Cert)
-    if ($isV4Start) {
+    $certDir=Split-Path $db -Parent
+    $highestStartVer=0
+    foreach($f in @(Get-ChildItem -LiteralPath $certDir -Filter 'fresh-original-owner-source-forward-v*.json' -ErrorAction SilentlyContinue)){
+      if($f.Name -cmatch '^fresh-original-owner-source-forward-v([0-9]+)\.json$'){
+        $v=[int]$Matches[1]
+        if($v -gt $highestStartVer){$highestStartVer=$v}
+      }
+    }
+    $isGenStart=($highestStartVer -ge 5)
+    $isV4Start=(-not $isGenStart) -and (Test-Path -LiteralPath $v4Cert)
+    $isV3Start=(-not $isGenStart) -and (-not $isV4Start) -and (Test-Path -LiteralPath $v3Cert)
+    if ($isGenStart) {
+      $startCert=Join-Path $certDir ('fresh-original-owner-source-forward-v'+$highestStartVer+'.json')
+      $startSchema=('forge.f139.fresh-original-owner-source-forward.v'+$highestStartVer)
+      $startMod='f139.nci04_fresh_owner_source_forward_chain'
+      $startVerifyToken=('F139_FRESH_FORWARD_V'+$highestStartVer+'_OWNER_CUSTODY_VERIFIED')
+    } elseif ($isV4Start) {
       $startCert=$v4Cert
       $startSchema='forge.f139.fresh-original-owner-source-forward.v4'
       $startMod='f139.nci04_fresh_owner_source_forward_v4'
