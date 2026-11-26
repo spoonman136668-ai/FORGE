@@ -76,7 +76,9 @@ jobs:
             Write-Output "$label=PASS elapsed_ms=$($sw.ElapsedMilliseconds)"
             if($label -in @('MOBILE_NODE_TEST','MOBILE_FINAL_NODE_TEST')){
               $lines=Get-Content -LiteralPath $log
-              foreach($line in $lines){if($line -match '^# (tests|pass|fail|skipped) [0-9]+
+              foreach($line in $lines){if($line -match '^# (tests|pass|fail|skipped) [0-9]+$'){Write-Output $line}}
+              foreach($expected in @('# tests 33','# pass 33','# fail 0','# skipped 0')){if($lines -cnotcontains $expected){$failures.Add('MOBILE_NODE_INVENTORY');Write-Output 'MOBILE_NODE_INVENTORY=FAIL'}}
+            }
             if($label -in @('MOBILE_ADMISSION_TEST','MOBILE_FINAL_ADMISSION_TEST')){
               $rows=@(Get-Content -LiteralPath $log | ForEach-Object {try{$_ | ConvertFrom-Json -ErrorAction Stop}catch{}})
               $passed=@($rows | Where-Object {$_.Action -eq 'pass' -and $_.Test -and $_.Test -notmatch '/'}).Count
@@ -153,85 +155,7 @@ jobs:
             $manifest=Get-Content -LiteralPath '.ice/manifest.json' -Raw | ConvertFrom-Json
             if($receipt.source_commit -cne $want -or $receipt.source_content_sha256 -cne $manifest.source_content_sha256){throw 'MOBILE_GRAPHIFY_CUSTODY_FAIL'}
             if((& git rev-parse HEAD).Trim() -cne $want){throw 'MOBILE_SOURCE_DRIFT'}
-            $allowed='^(?:\.ice/(?:manifest\.json|file-descriptions\.json|source-file-descriptions\.ice|symbol-dependency-map\.ice|code-graph\.json)|docs/obsidian/(?:KABOOM\.md|Modules/[a-z]+\.md)|docs/graphify/(?:graph\.json|graph\.html|GRAPH_REPORT\.md|source-manifest\.json))
-      - name: Erase private scratch (no artifacts on public repo)
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          if($env:MOBILE_SCRATCH){
-            $expected=Join-Path $env:RUNNER_TEMP ('kaboom-mobile-'+$env:GITHUB_RUN_ID)
-            if($env:MOBILE_SCRATCH -cne $expected){throw 'MOBILE_CLEANUP_SCOPE'}
-            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
-            if(Test-Path -LiteralPath $expected){throw 'MOBILE_CLEANUP_INCOMPLETE'}
-          }
-          Write-Output 'MOBILE_PRIVATE_SCRATCH_REMOVED=PASS;PRIVATE_ARTIFACTS=NONE'
-){Write-Output $line}}
-              foreach($expected in @('# tests 33','# pass 33','# fail 0','# skipped 0')){if($lines -cnotcontains $expected){$failures.Add('MOBILE_NODE_INVENTORY');Write-Output 'MOBILE_NODE_INVENTORY=FAIL'}}
-            }
-            if($label -eq 'MOBILE_ADMISSION_TEST'){
-              $rows=@(Get-Content -LiteralPath $log | ForEach-Object {try{$_ | ConvertFrom-Json -ErrorAction Stop}catch{}})
-              $passed=@($rows | Where-Object {$_.Action -eq 'pass' -and $_.Test -and $_.Test -notmatch '/'}).Count
-              $failed=@($rows | Where-Object {$_.Action -eq 'fail' -and $_.Test -and $_.Test -notmatch '/'}).Count
-              Write-Output "MOBILE_ADMISSION_TOPLEVEL_PASS=$passed FAIL=$failed"
-              if($passed -ne 7 -or $failed -ne 0){$failures.Add('MOBILE_ADMISSION_INVENTORY')}
-            }
-          }
-          if((& go env GOVERSION).Trim() -cne 'go1.26.5'){throw 'MOBILE_GO_TOOLCHAIN_DRIFT'}
-          $node=Get-Command node -ErrorAction SilentlyContinue
-          Push-Location (Join-Path $root 'mobile-alerts')
-          try {
-            if(-not $node){$failures.Add('MOBILE_NODE_UNAVAILABLE');Write-Output 'MOBILE_NODE_UNAVAILABLE'}else{
-              $version=(& node --version)
-              if($version -notmatch '^v(2[2-9]|[3-9][0-9])\.[0-9]+\.[0-9]+$'){$failures.Add('MOBILE_NODE_VERSION');Write-Output 'MOBILE_NODE_VERSION_UNSUPPORTED'}else{
-                Write-Output "MOBILE_NODE_VERSION=$version"
-                Check 'MOBILE_NODE_TEST' 'node' @('--test','protocol.test.mjs','operations.test.mjs','security.test.mjs')
-                foreach($p in @('server.mjs','publisher.mjs','public/app.js','public/sw.js','operations.mjs','operations-worker.mjs','public/operations.js','security.mjs','public/enroll.js')){
-                  Check ('MOBILE_SYNTAX_'+($p -replace '[^A-Za-z0-9]','_')) 'node' @('--check',$p)
-                }
-              }
-            }
-            Push-Location native-admission
-            try{
-              Check 'MOBILE_ADMISSION_TEST' 'go' @('test','-json','-count=1','-timeout','2m','./...')
-              Check 'MOBILE_ADMISSION_VET' 'go' @('vet','./...')
-              Check 'MOBILE_ADMISSION_BUILD' 'go' @('build','./...')
-            }finally{Pop-Location}
-          }finally{Pop-Location}
-          Push-Location $root
-          try{
-            Check 'MOBILE_CUSTODY' 'python' @('-B','tools/architecture/verify_source_custody.py')
-            Check 'MOBILE_ATLAS_GENERATE' 'python' @('-B','tools/architecture/generate.py')
-            Check 'MOBILE_ATLAS_CHECK' 'python' @('-B','tools/architecture/generate.py','--check')
-            Check 'MOBILE_ORIGINAL_ARCH_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/architecture','-p','test_*.py','-v')
-            Check 'MOBILE_ORIGINAL_ACCEPTANCE_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/acceptance','-p','test_*.py','-v')
-            Push-Location kaboom-core
-            try{
-              Check 'MOBILE_CORE_FULL_TEST' 'go' @('test','-p','1','-count=1','-timeout','35m','./...')
-              Check 'MOBILE_CORE_VET' 'go' @('vet','./...')
-              Check 'MOBILE_CORE_BUILD' 'go' @('build','./...')
-            }finally{Pop-Location}
-            if((& git rev-parse HEAD).Trim() -cne '2f50c742136574fdc995270844b01910b0fcd706' -or @(& git ls-files --others --exclude-standard).Count){throw 'MOBILE_TEST_SOURCE_DRIFT'}
-            Check 'MOBILE_ATLAS_FINAL_CHECK' 'python' @('-B','tools/architecture/generate.py','--check')
-            $names=@(& git diff --name-only)
-            foreach($n in $names){if($n -notmatch '^(?:\.ice/(?:manifest\.json|file-descriptions\.json|source-file-descriptions\.ice|symbol-dependency-map\.ice|code-graph\.json)|docs/obsidian/)'){throw 'MOBILE_DERIVED_SCOPE_VIOLATION'}}
-            Write-Output "MOBILE_DERIVED_LOCAL_CHANGED=$($names.Count);PUBLISHED=NO"
-          }finally{Pop-Location}
-          if($failures.Count){throw ('MOBILE_QUALIFICATION_FAILED: '+($failures -join ','))}
-          Write-Output 'MOBILE_WINDOWS_SOURCE_REGRESSION=PASS;NO_ENGINE_ACTIVATION;NO_DEPLOYMENT;NO_BRANCH_WRITE'
-      - name: Erase private scratch (no artifacts on public repo)
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          if($env:MOBILE_SCRATCH){
-            $expected=Join-Path $env:RUNNER_TEMP ('kaboom-mobile-'+$env:GITHUB_RUN_ID)
-            if($env:MOBILE_SCRATCH -cne $expected){throw 'MOBILE_CLEANUP_SCOPE'}
-            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
-            if(Test-Path -LiteralPath $expected){throw 'MOBILE_CLEANUP_INCOMPLETE'}
-          }
-          Write-Output 'MOBILE_PRIVATE_SCRATCH_REMOVED=PASS;PRIVATE_ARTIFACTS=NONE'
-
+            $allowed='^(?:\.ice/(?:manifest\.json|file-descriptions\.json|source-file-descriptions\.ice|symbol-dependency-map\.ice|code-graph\.json)|docs/obsidian/(?:KABOOM\.md|Modules/[a-z]+\.md)|docs/graphify/(?:graph\.json|graph\.html|GRAPH_REPORT\.md|source-manifest\.json))$'
             $names=@(& git diff --no-renames --name-only)
             $others=@(& git ls-files --others --exclude-standard)
             foreach($n in @($names)+@($others)){if($n -notmatch $allowed){throw 'MOBILE_UNEXPECTED_DERIVED_PATH'}}
@@ -280,71 +204,6 @@ jobs:
             if($LASTEXITCODE -ne 0 -or "$after".Trim() -cne $final){throw 'MOBILE_PRIVATE_REF_UNVERIFIED'}
             Write-Output "MOBILE_FINAL_PRIVATE_BRANCH=PASS sha=$final tree=$tree derived_files=$($staged.Count);PRIVATE_ARTIFACTS=NONE;NO_ENGINE_ACTIVATION;NO_DEPLOYMENT"
           }finally{Pop-Location}
-      - name: Erase private scratch (no artifacts on public repo)
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          if($env:MOBILE_SCRATCH){
-            $expected=Join-Path $env:RUNNER_TEMP ('kaboom-mobile-'+$env:GITHUB_RUN_ID)
-            if($env:MOBILE_SCRATCH -cne $expected){throw 'MOBILE_CLEANUP_SCOPE'}
-            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
-            if(Test-Path -LiteralPath $expected){throw 'MOBILE_CLEANUP_INCOMPLETE'}
-          }
-          Write-Output 'MOBILE_PRIVATE_SCRATCH_REMOVED=PASS;PRIVATE_ARTIFACTS=NONE'
-){Write-Output $line}}
-              foreach($expected in @('# tests 33','# pass 33','# fail 0','# skipped 0')){if($lines -cnotcontains $expected){$failures.Add('MOBILE_NODE_INVENTORY');Write-Output 'MOBILE_NODE_INVENTORY=FAIL'}}
-            }
-            if($label -eq 'MOBILE_ADMISSION_TEST'){
-              $rows=@(Get-Content -LiteralPath $log | ForEach-Object {try{$_ | ConvertFrom-Json -ErrorAction Stop}catch{}})
-              $passed=@($rows | Where-Object {$_.Action -eq 'pass' -and $_.Test -and $_.Test -notmatch '/'}).Count
-              $failed=@($rows | Where-Object {$_.Action -eq 'fail' -and $_.Test -and $_.Test -notmatch '/'}).Count
-              Write-Output "MOBILE_ADMISSION_TOPLEVEL_PASS=$passed FAIL=$failed"
-              if($passed -ne 7 -or $failed -ne 0){$failures.Add('MOBILE_ADMISSION_INVENTORY')}
-            }
-          }
-          if((& go env GOVERSION).Trim() -cne 'go1.26.5'){throw 'MOBILE_GO_TOOLCHAIN_DRIFT'}
-          $node=Get-Command node -ErrorAction SilentlyContinue
-          Push-Location (Join-Path $root 'mobile-alerts')
-          try {
-            if(-not $node){$failures.Add('MOBILE_NODE_UNAVAILABLE');Write-Output 'MOBILE_NODE_UNAVAILABLE'}else{
-              $version=(& node --version)
-              if($version -notmatch '^v(2[2-9]|[3-9][0-9])\.[0-9]+\.[0-9]+$'){$failures.Add('MOBILE_NODE_VERSION');Write-Output 'MOBILE_NODE_VERSION_UNSUPPORTED'}else{
-                Write-Output "MOBILE_NODE_VERSION=$version"
-                Check 'MOBILE_NODE_TEST' 'node' @('--test','protocol.test.mjs','operations.test.mjs','security.test.mjs')
-                foreach($p in @('server.mjs','publisher.mjs','public/app.js','public/sw.js','operations.mjs','operations-worker.mjs','public/operations.js','security.mjs','public/enroll.js')){
-                  Check ('MOBILE_SYNTAX_'+($p -replace '[^A-Za-z0-9]','_')) 'node' @('--check',$p)
-                }
-              }
-            }
-            Push-Location native-admission
-            try{
-              Check 'MOBILE_ADMISSION_TEST' 'go' @('test','-json','-count=1','-timeout','2m','./...')
-              Check 'MOBILE_ADMISSION_VET' 'go' @('vet','./...')
-              Check 'MOBILE_ADMISSION_BUILD' 'go' @('build','./...')
-            }finally{Pop-Location}
-          }finally{Pop-Location}
-          Push-Location $root
-          try{
-            Check 'MOBILE_CUSTODY' 'python' @('-B','tools/architecture/verify_source_custody.py')
-            Check 'MOBILE_ATLAS_GENERATE' 'python' @('-B','tools/architecture/generate.py')
-            Check 'MOBILE_ATLAS_CHECK' 'python' @('-B','tools/architecture/generate.py','--check')
-            Check 'MOBILE_ORIGINAL_ARCH_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/architecture','-p','test_*.py','-v')
-            Check 'MOBILE_ORIGINAL_ACCEPTANCE_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/acceptance','-p','test_*.py','-v')
-            Push-Location kaboom-core
-            try{
-              Check 'MOBILE_CORE_FULL_TEST' 'go' @('test','-p','1','-count=1','-timeout','35m','./...')
-              Check 'MOBILE_CORE_VET' 'go' @('vet','./...')
-              Check 'MOBILE_CORE_BUILD' 'go' @('build','./...')
-            }finally{Pop-Location}
-            if((& git rev-parse HEAD).Trim() -cne '2f50c742136574fdc995270844b01910b0fcd706' -or @(& git ls-files --others --exclude-standard).Count){throw 'MOBILE_TEST_SOURCE_DRIFT'}
-            Check 'MOBILE_ATLAS_FINAL_CHECK' 'python' @('-B','tools/architecture/generate.py','--check')
-            $names=@(& git diff --name-only)
-            foreach($n in $names){if($n -notmatch '^(?:\.ice/(?:manifest\.json|file-descriptions\.json|source-file-descriptions\.ice|symbol-dependency-map\.ice|code-graph\.json)|docs/obsidian/)'){throw 'MOBILE_DERIVED_SCOPE_VIOLATION'}}
-            Write-Output "MOBILE_DERIVED_LOCAL_CHANGED=$($names.Count);PUBLISHED=NO"
-          }finally{Pop-Location}
-          if($failures.Count){throw ('MOBILE_QUALIFICATION_FAILED: '+($failures -join ','))}
-          Write-Output 'MOBILE_WINDOWS_SOURCE_REGRESSION=PASS;NO_ENGINE_ACTIVATION;NO_DEPLOYMENT;NO_BRANCH_WRITE'
       - name: Erase private scratch (no artifacts on public repo)
         if: always()
         shell: pwsh
