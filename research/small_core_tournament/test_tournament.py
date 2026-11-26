@@ -67,6 +67,16 @@ def test_ood_depth_substitution_and_split_integrity(task):
                 assert not partition & competing
 
 
+def test_depth_encoding_uses_one_trained_marker_for_all_hop_counts():
+    depths = (*t.TRAIN_DEPTHS, *t.OOD_DEPTHS)
+    rows = torch.full((len(depths), t.ROWS, 4), t.PAD)
+    rows[:, 0, 1] = torch.tensor([t.DEPTH_TOKEN[hops] for hops in depths])
+    model = t.Model(TINY, "dense")
+    expected = model.embedding(rows.clamp(max=t.DEPTH)).detach().clone()
+    expected[:, 0, 1, 0] += torch.tensor(depths) / max(t.TRAIN_DEPTHS)
+    torch.testing.assert_close(model.embed_rows(rows), expected.flatten(-2), rtol=0, atol=0)
+
+
 @pytest.mark.parametrize("profile", [t.CPU, t.GPU])
 def test_exact_train_and_inference_parameter_parity(profile):
     baseline = t.Model(profile, "dense")

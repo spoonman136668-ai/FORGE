@@ -31,8 +31,10 @@ MODULUS = 16
 CLASSES = ENTITIES + MODULUS
 PAD, EDGE, BASE, ADD, SUB, MUL, GRAPH, ARITH = range(CLASSES, CLASSES + 8)
 DEPTH = ARITH + 1
-DEPTH_TOKEN = {hops: DEPTH + index for index, hops in enumerate((2, 3, 4, 8, 12))}
-VOCAB = DEPTH + len(DEPTH_TOKEN)
+TRAIN_DEPTHS = (2, 3, 4)
+OOD_DEPTHS = (8, 12)
+DEPTH_TOKEN = {hops: DEPTH + hops for hops in (*TRAIN_DEPTHS, *OOD_DEPTHS)}
+VOCAB = DEPTH + 1
 ROWS = ENTITIES + 1
 HEADS = 4
 METHODS = ("dense", "scaffold", "scramble", "spectral", "loops", "stability", "pointer", "evolution")
@@ -120,7 +122,7 @@ def draw(rng, stage, split, depth, count, task, device, distractors=False):
                "search": {offset + 3}, "eval": {offset + 4}}[split]
     tokens, labels, signatures, permutations = [], [], [], []
     while len(tokens) < count:
-        hops = rng.randint(2, 4) if depth is None else depth
+        hops = rng.choice(TRAIN_DEPTHS) if depth is None else depth
         row, label, key = case(rng, task, hops, distractors)
         if int(key[:8], 16) % 15 not in buckets:
             continue
@@ -163,7 +165,7 @@ def build_data(profile, seed, stage, device):
     def evaluation(split, count, distractors=False):
         return {
             f"{bucket}/{name}": draw(rng, stage, split, depth, count, task, device, distractors)
-            for bucket, depth in (("id", None), ("ood8", 8), ("ood12", 12))
+            for bucket, depth in (("id", None), *((f"ood{hops}", hops) for hops in OOD_DEPTHS))
             if split != "search" or bucket == "id"
             for name, task in (("graph", GRAPH), ("arithmetic", ARITH))
         }
@@ -340,8 +342,15 @@ class Model(nn.Module):
         scaffold = sum(p.numel() for p in self.scaffold.parameters()) if self.scaffold is not None else 0
         return train, train - scaffold
 
+    def embed_rows(self, tokens):
+        # All queries share a learned marker. One fixed coordinate carries the hop count.
+        embedded = self.embedding(tokens.clamp(max=DEPTH))
+        hops = (tokens[:, 0, 1] - DEPTH).clamp_min(0)
+        embedded[:, 0, 1, 0] += hops / max(TRAIN_DEPTHS)
+        return embedded.flatten(-2)
+
     def forward(self, tokens, *, step_fraction=1.0, topology=None):
-        embedded = self.embedding(tokens).flatten(-2)
+        embedded = self.embed_rows(tokens)
         state = embedded[:, :1] if self.kind == "pointer" else embedded
         if self.scaffold is not None and self.training:
             state = self.scaffold(state, step_fraction)
