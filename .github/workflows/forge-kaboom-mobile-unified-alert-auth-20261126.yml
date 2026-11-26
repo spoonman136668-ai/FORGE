@@ -1,0 +1,218 @@
+name: K-Terminal unified passkey alerts and derived-only private branch qualification
+on:
+  push:
+    branches: [qualification/kaboom-mobile-unified-alert-auth-20261126]
+    paths: [.github/workflows/forge-kaboom-mobile-unified-alert-auth-20261126.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kaboom-mobile-unified-alert-auth-20261126
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 120
+    steps:
+      - name: Verify one-shot owner route before provisioning
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-mobile-unified-alert-auth-20261126' -or $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'MOBILE_WRONG_OWNER_ROUTE'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('kaboom-mobile-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'MOBILE_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          "MOBILE_SCRATCH=$scratch" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'MOBILE_OWNER_RUNNER=PASS'
+      - name: Existing pinned Go toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Exact private source clone and custody (no private output)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $want='50b13a7a271d3e196f7a985bf916eb88d1b32a0a'
+          $ref='feature/mobile-remote-operations'
+          $root=Join-Path $env:MOBILE_SCRATCH 'source'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $remote=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$ref) --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'MOBILE_SOURCE_REF_DRIFT_OR_ACCESS'}
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 1 --single-branch --branch $ref *> (Join-Path $env:MOBILE_SCRATCH 'clone.log')
+          if($LASTEXITCODE -ne 0){throw 'MOBILE_PRIVATE_CLONE_FAIL'}
+          if((& git -C $root rev-parse HEAD).Trim() -cne $want -or (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne 'f0ccb05d4c12742bb4c39c547fd6f3a153b0d3b6' -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne 'bbd095b3c7e932db16fb22d1390d951fba96ad92'){throw 'MOBILE_EXACT_TREE_FAIL'}
+          if(@(& git -C $root status --porcelain --untracked-files=all).Count){throw 'MOBILE_DIRTY_SOURCE'}
+          "MOBILE_ROOT=$root" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "MOBILE_EXACT_SOURCE=PASS sha=$want"
+      - name: Offline focused and original full regression, sanitized outcomes only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:GOTOOLCHAIN='local'; $env:GOTELEMETRY='off'; $env:CGO_ENABLED='0'; $env:K_TERMINAL_EXECUTION_MODE='PAPER'; $env:PYTHONDONTWRITEBYTECODE='1'
+          foreach($name in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET','ALERTS_PUBLISH_TOKEN','OPS_WORKER_TOKEN','KT_STATE_FILE','OPS_TOTP_KEY_FILE','OPS_DEVICES_FILE','OPS_SWITCH_FILE','OPS_JOURNAL_KEY','OPS_LOCAL_SWITCH_FILE','ALERTS_DATA_DIR')){
+            if([Environment]::GetEnvironmentVariable($name)){throw 'MOBILE_RUNTIME_CREDENTIAL_ENV_BLOCKED'}
+          }
+          foreach($name in @('GH_TOKEN','GITHUB_TOKEN','GH_ENTERPRISE_TOKEN','GITHUB_ENTERPRISE_TOKEN','OPENAI_API_KEY','ANTHROPIC_API_KEY','OPENROUTER_API_KEY','GEMINI_API_KEY','AZURE_OPENAI_API_KEY')){
+            Remove-Item -LiteralPath ('Env:'+ $name) -ErrorAction SilentlyContinue
+          }
+          $root=$env:MOBILE_ROOT
+          $failures=[System.Collections.Generic.List[string]]::new()
+          function Check([string]$label,[string]$exe,[string[]]$argv){
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            $log=Join-Path $env:MOBILE_SCRATCH ($label+'.log')
+            try {
+              & $exe @argv *> $log
+              $rc=$LASTEXITCODE
+            } catch {$rc=1}
+            $sw.Stop()
+            if($rc -ne 0){
+              $failures.Add($label);Write-Output "$label=FAIL elapsed_ms=$($sw.ElapsedMilliseconds)"
+              if($label -in @('MOBILE_NODE_TEST','MOBILE_FINAL_NODE_TEST')){
+                $allowed=@('assertion checks signed challenge, exact origin, RP and UV','peer check ignores forwarded addresses','login, command binding, one-use proofs, expiry and revocation','actual operations router requires passkey proof, machine peer, and current enable generation','authenticated journal rejects modification and unresolved writes','rotated credential revokes pending work and blocks history disclosure','RFC 6238 SHA1 vectors and base32','vault enforces current/previous step, identity, restart replay and durable throttle','vault denies duplicate enrollment, tampering, interruption and owner lock conflict','phone-only recovery: real signed synced passkey plus encrypted TOTP through gateway and restart','combined viewer routes deny legacy token and foreign credential access','notification revocation and credential rotation suppress queued delivery and history access','notification mutations deny cross origin and revocation during request body','notification custody refuses legacy migration, mixed ownership and downgrade','standalone viewer token remains separate and cannot configure combined fallback','actual signed passkey session authorizes alerts and denies machine or revoked identity')
+                foreach($line in Get-Content -LiteralPath $log){foreach($name in $allowed){if($line -match ('(?:not ok [0-9]+ - |✖ )'+[regex]::Escape($name)+'(?:$| \()')){Write-Output ('MOBILE_SECURITY_CASE_FAILED='+$name)}}}
+              }
+              return
+            }
+            Write-Output "$label=PASS elapsed_ms=$($sw.ElapsedMilliseconds)"
+            if($label -in @('MOBILE_NODE_TEST','MOBILE_FINAL_NODE_TEST')){
+              $lines=Get-Content -LiteralPath $log
+              foreach($line in $lines){if($line -match '^# (tests|pass|fail|skipped) [0-9]+$'){Write-Output $line}}
+              foreach($expected in @('# tests 39','# pass 39','# fail 0','# skipped 0')){if($lines -cnotcontains $expected){$failures.Add('MOBILE_NODE_INVENTORY');Write-Output 'MOBILE_NODE_INVENTORY=FAIL'}}
+            }
+            if($label -in @('MOBILE_ADMISSION_TEST','MOBILE_FINAL_ADMISSION_TEST')){
+              $rows=@(Get-Content -LiteralPath $log | ForEach-Object {try{$_ | ConvertFrom-Json -ErrorAction Stop}catch{}})
+              $passed=@($rows | Where-Object {$_.Action -eq 'pass' -and $_.Test -and $_.Test -notmatch '/'}).Count
+              $failed=@($rows | Where-Object {$_.Action -eq 'fail' -and $_.Test -and $_.Test -notmatch '/'}).Count
+              Write-Output "MOBILE_ADMISSION_TOPLEVEL_PASS=$passed FAIL=$failed"
+              if($passed -ne 13 -or $failed -ne 0){$failures.Add('MOBILE_ADMISSION_INVENTORY')}
+            }
+          }
+          if((& go env GOVERSION).Trim() -cne 'go1.26.5'){throw 'MOBILE_GO_TOOLCHAIN_DRIFT'}
+          $node=Get-Command node -ErrorAction SilentlyContinue
+          Push-Location (Join-Path $root 'mobile-alerts')
+          try {
+            if(-not $node){$failures.Add('MOBILE_NODE_UNAVAILABLE');Write-Output 'MOBILE_NODE_UNAVAILABLE'}else{
+              $version=(& node --version)
+              if($version -notmatch '^v(2[2-9]|[3-9][0-9])\.[0-9]+\.[0-9]+$'){$failures.Add('MOBILE_NODE_VERSION');Write-Output 'MOBILE_NODE_VERSION_UNSUPPORTED'}else{
+                Write-Output "MOBILE_NODE_VERSION=$version"
+                Check 'MOBILE_NODE_TEST' 'node' @('--test','--test-reporter=tap','protocol.test.mjs','operations.test.mjs','security.test.mjs','totp.test.mjs','alert-access.test.mjs')
+                foreach($p in @('server.mjs','publisher.mjs','public/app.js','public/sw.js','operations.mjs','operations-worker.mjs','public/operations.js','security.mjs','public/enroll.js','totp.mjs','totp-enroll.mjs','alert-access.mjs')){
+                  Check ('MOBILE_SYNTAX_'+($p -replace '[^A-Za-z0-9]','_')) 'node' @('--check',$p)
+                }
+              }
+            }
+            Push-Location native-admission
+            try{
+              Check 'MOBILE_ADMISSION_TEST' 'go' @('test','-json','-count=1','-timeout','2m','./...')
+              Check 'MOBILE_ADMISSION_VET' 'go' @('vet','./...')
+              Check 'MOBILE_ADMISSION_BUILD' 'go' @('build','./...')
+            }finally{Pop-Location}
+          }finally{Pop-Location}
+          Push-Location $root
+          try{
+            Check 'MOBILE_CUSTODY' 'python' @('-B','tools/architecture/verify_source_custody.py')
+            Check 'MOBILE_ATLAS_GENERATE' 'python' @('-B','tools/architecture/generate.py')
+            Check 'MOBILE_ATLAS_CHECK' 'python' @('-B','tools/architecture/generate.py','--check')
+            Check 'MOBILE_ORIGINAL_ARCH_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/architecture','-p','test_*.py','-v')
+            Check 'MOBILE_ORIGINAL_ACCEPTANCE_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/acceptance','-p','test_*.py','-v')
+            Push-Location kaboom-core
+            try{
+              Check 'MOBILE_CORE_FULL_TEST' 'go' @('test','-p','1','-count=1','-timeout','35m','./...')
+              Check 'MOBILE_CORE_VET' 'go' @('vet','./...')
+              Check 'MOBILE_CORE_BUILD' 'go' @('build','./...')
+            }finally{Pop-Location}
+            if((& git rev-parse HEAD).Trim() -cne '50b13a7a271d3e196f7a985bf916eb88d1b32a0a' -or @(& git ls-files --others --exclude-standard).Count){throw 'MOBILE_TEST_SOURCE_DRIFT'}
+            Check 'MOBILE_ATLAS_FINAL_CHECK' 'python' @('-B','tools/architecture/generate.py','--check')
+            $names=@(& git diff --name-only)
+            foreach($n in $names){if($n -notmatch '^(?:\.ice/(?:manifest\.json|file-descriptions\.json|source-file-descriptions\.ice|symbol-dependency-map\.ice|code-graph\.json)|docs/obsidian/)'){throw 'MOBILE_DERIVED_SCOPE_VIOLATION'}}
+            Write-Output "MOBILE_DERIVED_LOCAL_CHANGED=$($names.Count);PUBLISHED=NO"
+          }finally{Pop-Location}
+          if($failures.Count){throw ('MOBILE_QUALIFICATION_FAILED: '+($failures -join ','))}
+          Write-Output 'MOBILE_WINDOWS_SOURCE_REGRESSION=PASS;NO_ENGINE_ACTIVATION;NO_DEPLOYMENT'
+          # Generate private derived documentation only after source qualification.
+          $root=$env:MOBILE_ROOT
+          $venv=Join-Path $env:MOBILE_SCRATCH 'graphify-venv'
+          $wheelDir=Join-Path $env:MOBILE_SCRATCH 'wheels'
+          New-Item -ItemType Directory -Path $wheelDir | Out-Null
+          Check 'MOBILE_GRAPHIFY_VENV' 'python' @('-m','venv',$venv)
+          if($failures.Count){throw 'MOBILE_GRAPHIFY_VENV_FAIL'}
+          $py=Join-Path $venv 'Scripts/python.exe'
+          Check 'MOBILE_GRAPHIFY_WHEEL' $py @('-m','pip','download','--no-deps','--only-binary=:all:','--dest',$wheelDir,'graphifyy==0.9.92')
+          $wheel=Join-Path $wheelDir 'graphifyy-0.9.92-py3-none-any.whl'
+          if($failures.Count -or !(Test-Path -LiteralPath $wheel) -or (Get-FileHash -LiteralPath $wheel -Algorithm SHA256).Hash.ToLowerInvariant() -cne '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c'){throw 'MOBILE_GRAPHIFY_WHEEL_HASH_FAIL'}
+          Check 'MOBILE_GRAPHIFY_INSTALL' $py @('-m','pip','install','--disable-pip-version-check',$wheel)
+          Check 'MOBILE_GRAPHIFY_VERSION' $py @('-c',"from importlib.metadata import version; assert version('graphifyy')=='0.9.92'")
+          if($failures.Count){throw 'MOBILE_GRAPHIFY_INSTALL_FAIL'}
+          $graph=Join-Path $venv 'Scripts/graphify.exe'
+          $want='50b13a7a271d3e196f7a985bf916eb88d1b32a0a'
+          Push-Location $root
+          try{
+            Check 'MOBILE_GRAPHIFY_CODE' $graph @('extract','.','--code-only','--max-workers','4')
+            Check 'MOBILE_GRAPHIFY_CLUSTER' $graph @('cluster-only','.','--no-label')
+            Check 'MOBILE_GRAPHIFY_PUBLICATION' $py @('tools/architecture/publish_graphify.py','--root','.','--input','graphify-out','--output','docs/graphify','--source-sha',$want)
+            if($failures.Count){throw 'MOBILE_GRAPHIFY_FAIL'}
+            $receipt=Get-Content -LiteralPath 'docs/graphify/source-manifest.json' -Raw | ConvertFrom-Json
+            $manifest=Get-Content -LiteralPath '.ice/manifest.json' -Raw | ConvertFrom-Json
+            if($receipt.source_commit -cne $want -or $receipt.source_content_sha256 -cne $manifest.source_content_sha256){throw 'MOBILE_GRAPHIFY_CUSTODY_FAIL'}
+            if((& git rev-parse HEAD).Trim() -cne $want){throw 'MOBILE_SOURCE_DRIFT'}
+            $allowed='^(?:\.ice/(?:manifest\.json|file-descriptions\.json|source-file-descriptions\.ice|symbol-dependency-map\.ice|code-graph\.json)|docs/obsidian/(?:KABOOM\.md|Modules/[a-z]+\.md)|docs/graphify/(?:graph\.json|graph\.html|GRAPH_REPORT\.md|source-manifest\.json))$'
+            $names=@(& git diff --no-renames --name-only)
+            $others=@(& git ls-files --others --exclude-standard)
+            foreach($n in @($names)+@($others)){if($n -notmatch $allowed){throw 'MOBILE_UNEXPECTED_DERIVED_PATH'}}
+            & git add -- .ice docs/obsidian docs/graphify *> (Join-Path $env:MOBILE_SCRATCH 'stage.log')
+            if($LASTEXITCODE -ne 0){throw 'MOBILE_STAGE_FAIL'}
+            $staged=@(& git diff --cached --no-renames --name-only)
+            if(!$staged.Count){throw 'MOBILE_NO_DERIVED_DIFF'}
+            foreach($n in $staged){if($n -notmatch $allowed){throw 'MOBILE_STAGE_SCOPE_FAIL'}}
+            & git config user.name 'github-actions[bot]'
+            & git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            & git commit -m 'docs(kaboom): regenerate private ICE Obsidian Graphify for unified alert authentication [skip ci]' *> (Join-Path $env:MOBILE_SCRATCH 'commit.log')
+            if($LASTEXITCODE -ne 0){throw 'MOBILE_DERIVED_COMMIT_FAIL'}
+            $final=(& git rev-parse HEAD).Trim()
+            $tree=(& git rev-parse 'HEAD^{tree}').Trim()
+            if((& git rev-parse 'HEAD^').Trim() -cne $want -or (& git rev-parse HEAD:kaboom-core).Trim() -cne 'bbd095b3c7e932db16fb22d1390d951fba96ad92'){throw 'MOBILE_FINAL_CUSTODY_FAIL'}
+            foreach($n in @(& git diff --no-renames --name-only $want $final)){if($n -notmatch $allowed){throw 'MOBILE_FINAL_SCOPE_FAIL'}}
+            # Mandatory full regression on the final exact tree BEFORE private branch publication.
+            Check 'MOBILE_FINAL_CUSTODY' 'python' @('-B','tools/architecture/verify_source_custody.py')
+            Check 'MOBILE_FINAL_ATLAS' 'python' @('-B','tools/architecture/generate.py','--check')
+            Check 'MOBILE_FINAL_ARCH_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/architecture','-p','test_*.py','-v')
+            Check 'MOBILE_FINAL_ACCEPTANCE_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/acceptance','-p','test_*.py','-v')
+            Push-Location mobile-alerts
+            try{
+              Check 'MOBILE_FINAL_NODE_TEST' 'node' @('--test','--test-reporter=tap','protocol.test.mjs','operations.test.mjs','security.test.mjs','totp.test.mjs','alert-access.test.mjs')
+              foreach($p in @('server.mjs','publisher.mjs','public/app.js','public/sw.js','operations.mjs','operations-worker.mjs','public/operations.js','security.mjs','public/enroll.js','totp.mjs','totp-enroll.mjs','alert-access.mjs')){Check ('MOBILE_FINAL_SYNTAX_'+($p -replace '[^A-Za-z0-9]','_')) 'node' @('--check',$p)}
+              Push-Location native-admission
+              try{
+                Check 'MOBILE_FINAL_ADMISSION_TEST' 'go' @('test','-json','-count=1','-timeout','2m','./...')
+                Check 'MOBILE_FINAL_ADMISSION_VET' 'go' @('vet','./...')
+                Check 'MOBILE_FINAL_ADMISSION_BUILD' 'go' @('build','./...')
+              }finally{Pop-Location}
+            }finally{Pop-Location}
+            Push-Location kaboom-core
+            try{
+              Check 'MOBILE_FINAL_CORE_TEST' 'go' @('test','-p','1','-count=1','-timeout','35m','./...')
+              Check 'MOBILE_FINAL_CORE_VET' 'go' @('vet','./...')
+              Check 'MOBILE_FINAL_CORE_BUILD' 'go' @('build','./...')
+            }finally{Pop-Location}
+            if($failures.Count -or @(& git status --porcelain --untracked-files=all).Count -or (& git rev-parse HEAD).Trim() -cne $final -or (& git rev-parse 'HEAD^{tree}').Trim() -cne $tree){throw 'MOBILE_FINAL_REGRESSION_OR_CUSTODY_FAIL'}
+            $branch='feature/mobile-remote-operations'
+            $remote=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
+            if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'MOBILE_PRIVATE_REF_DRIFT'}
+            & git push origin ('HEAD:refs/heads/'+$branch) *> (Join-Path $env:MOBILE_SCRATCH 'push.log')
+            if($LASTEXITCODE -ne 0){throw 'MOBILE_PRIVATE_DERIVED_PUSH_FAIL'}
+            $after=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$branch) --jq '.object.sha' 2>$null)
+            if($LASTEXITCODE -ne 0 -or "$after".Trim() -cne $final){throw 'MOBILE_PRIVATE_REF_UNVERIFIED'}
+            Write-Output "MOBILE_FINAL_PRIVATE_BRANCH=PASS sha=$final tree=$tree derived_files=$($staged.Count);PRIVATE_ARTIFACTS=NONE;NO_ENGINE_ACTIVATION;NO_DEPLOYMENT"
+          }finally{Pop-Location}
+      - name: Erase private scratch (no artifacts on public repo)
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:MOBILE_SCRATCH){
+            $expected=Join-Path $env:RUNNER_TEMP ('kaboom-mobile-'+$env:GITHUB_RUN_ID)
+            if($env:MOBILE_SCRATCH -cne $expected){throw 'MOBILE_CLEANUP_SCOPE'}
+            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $expected){throw 'MOBILE_CLEANUP_INCOMPLETE'}
+          }
+          Write-Output 'MOBILE_PRIVATE_SCRATCH_REMOVED=PASS;PRIVATE_ARTIFACTS=NONE'
