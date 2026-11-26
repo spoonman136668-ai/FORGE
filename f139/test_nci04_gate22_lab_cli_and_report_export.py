@@ -71,5 +71,25 @@ class Gate22LabCLIAndReportExportTests(unittest.TestCase):
             self.assertEqual(rcpt["html_sha256"], rcpt2["html_sha256"])
 
 
+
+    def test_starter_blueprints_json_runs_cleanly_in_lab_cli(self):
+        starter = FORGE_ROOT / "f139" / "nci04_starter_blueprints.json"
+        self.assertTrue(starter.is_file())
+        with tempfile.TemporaryDirectory(prefix="forge_starter_bp_") as td:
+            proc = subprocess.run(
+                [sys.executable, "-B", "-m", "f139.nci04_lab_cli",
+                 "--state-dir", str(Path(td) / "state"),
+                 "--blueprints", str(starter),
+                 "--generations", "1"],
+                cwd=str(FORGE_ROOT),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=60,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", errors="replace"))
+            out = json.loads(proc.stdout.decode("utf-8").strip())
+            self.assertEqual(out["total_verified"], 4)
+
 if __name__ == "__main__":
     unittest.main()
