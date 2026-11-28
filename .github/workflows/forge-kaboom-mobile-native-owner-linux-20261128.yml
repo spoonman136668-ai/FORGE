@@ -1,0 +1,136 @@
+name: Detached K-Terminal native review Linux qualification
+on:
+  push:
+    branches: [qualification/kaboom-mobile-native-owner-linux-20261128]
+    paths: [.github/workflows/forge-kaboom-mobile-native-owner-linux-20261128.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kaboom-mobile-native-interop-20261128
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Verify existing isolated hosted qualification route
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kaboom-mobile-native-owner-linux-20261128
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_ACTOR" = spoonman136668-ai
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET ALERTS_PUBLISH_TOKEN OPS_WORKER_TOKEN KT_STATE_FILE OPS_TOTP_KEY_FILE OPS_DEVICES_FILE OPS_SWITCH_FILE OPS_JOURNAL_KEY OPS_LOCAL_SWITCH_FILE ALERTS_DATA_DIR; do
+            test -z "$(printenv "$n" || true)" || { echo REVIEW_RUNTIME_AUTHORITY_BLOCKED; exit 2; }
+          done
+          echo REVIEW_LINUX_ISOLATION=PASS
+      - name: Checkout exact accepted development baseline
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 56ac1f8d96f5d999cdf5e1a353c0f278deebee05
+          path: baseline
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout detached review source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: fa1790e94231595f98395db9c644f3ef3e19978c
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Exact source and synthetic Linux regression (sanitized)
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY GEMINI_API_KEY AZURE_OPENAI_API_KEY
+          umask 077
+          logs="$RUNNER_TEMP/kaboom-review-linux-$GITHUB_RUN_ID"
+          mkdir "$logs"
+          test "$(git -C baseline rev-parse HEAD)" = 56ac1f8d96f5d999cdf5e1a353c0f278deebee05
+          test "$(git -C baseline rev-parse HEAD^{tree})" = 8ab25855f542bec394fea4ee8b93ba9430124926
+          test "$(git -C baseline rev-parse HEAD:kaboom-core)" = bbd095b3c7e932db16fb22d1390d951fba96ad92
+          test "$(git -C candidate rev-parse HEAD)" = fa1790e94231595f98395db9c644f3ef3e19978c
+          test "$(git -C candidate rev-parse HEAD^{tree})" = 1148a3994ecf87e77df092d9bb4e887e7d10cb15
+          test "$(git -C candidate rev-parse HEAD:kaboom-core)" = 4f67c606140234a0e3a61564b3d46a436e22dea4
+          test -z "$(git -C baseline status --porcelain)"
+          test -z "$(git -C candidate status --porcelain)"
+          diff -qr baseline/.ice candidate/.ice > "$logs/ice.log" 2>&1
+          diff -qr baseline/tools/architecture candidate/tools/architecture > "$logs/architecture.log" 2>&1
+          python -B baseline/tools/architecture/verify_source_custody.py > "$logs/base.log" 2>&1
+          echo REVIEW_BASE_CUSTODY=PASS
+          rc=0
+          python -B candidate/tools/architecture/verify_source_custody.py > "$logs/candidate.log" 2>&1 || rc=$?
+          test "$rc" = 1
+          grep -qE 'KABOOM_SOURCE_CUSTODY=FAIL: SOURCE_OVERLAY_CANDIDATE_CHANGED: kaboom-core/internal/engine/(engine|live|loop)\.go' "$logs/candidate.log"
+          echo REVIEW_UNAPPROVED_OVERLAY_REJECTED=PASS
+          test "$(go env GOVERSION)" = go1.26.5
+          node --version | grep -qE '^v(2[2-9]|[3-9][0-9])\.[0-9]+\.[0-9]+$'
+          failures=0
+          check() {
+            label="$1"; shift
+            if "$@" > "$logs/$label.log" 2>&1; then
+              echo "$label=PASS"
+            else
+              echo "$label=FAIL"
+              failures=$((failures+1))
+            fi
+          }
+          cd candidate/mobile-alerts
+          check REVIEW_NODE node --test --test-reporter=tap protocol.test.mjs operations.test.mjs security.test.mjs totp.test.mjs alert-access.test.mjs gateway-http.test.mjs native-handoff.test.mjs
+          for expected in '# tests 51' '# pass 51' '# fail 0' '# skipped 0'; do
+            grep -Fxq "$expected" "$logs/REVIEW_NODE.log" || failures=$((failures+1))
+          done
+          check REVIEW_LOCK node verify-lock.mjs
+          cd ../kaboom-core
+          check REVIEW_OWNER go test -json -count=1 -timeout 2m ./internal/engine -run '^Test(RecoveryOutcomeSeparatesAccountingFromStorage|RemoteRecoveryOwnerLane)$'
+          check REVIEW_ADMISSION go test -tags remoteinterop -json -count=1 -timeout 2m ./internal/remoteadmission
+          python - "$logs" <<'PY'
+          import json,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          for name,expected,sub in [('REVIEW_OWNER',14,True),('REVIEW_ADMISSION',19,False)]:
+              rows=[]
+              for line in (root/(name+'.log')).read_text().splitlines():
+                  try: rows.append(json.loads(line))
+                  except ValueError: continue
+              count=sum(r.get('Action')=='pass' and bool(r.get('Test')) and (('/' in r['Test'])==sub) for r in rows)
+              failed=sum(r.get('Action')=='fail' and bool(r.get('Test')) for r in rows)
+              print(f'{name}_COUNT={count} FAIL={failed} EXPECTED={expected}')
+              if count!=expected or failed: sys.exit(1)
+          PY
+          check REVIEW_CORE_FULL go test -p 1 -count=1 -timeout 35m ./...
+          check REVIEW_CORE_VET go vet ./...
+          check REVIEW_CORE_BUILD go build ./...
+          test "$(git rev-parse HEAD)" = fa1790e94231595f98395db9c644f3ef3e19978c
+          test "$(git rev-parse HEAD^{tree})" = 1148a3994ecf87e77df092d9bb4e887e7d10cb15
+          test -z "$(git status --porcelain)"
+          test "$failures" = 0
+          echo REVIEW_DETACHED_LINUX_TESTS=PASS
+          echo OVERLAY_NOT_APPROVED_NO_REF_WRITE_NO_DEPLOYMENT
+      - name: Remove private scratch logs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf -- "$RUNNER_TEMP/kaboom-review-linux-$GITHUB_RUN_ID"
+          echo REVIEW_PRIVATE_LOGS_REMOVED=PASS
