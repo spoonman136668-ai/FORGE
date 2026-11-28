@@ -1,0 +1,53 @@
+name: K-Messenger exact failed fixture cleanup
+on:
+  push:
+    branches: [qualification/kmessenger-browser-cleanup-20261128]
+    paths: [.github/workflows/forge-kmessenger-browser-cleanup-20261128.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kmessenger-browser-20261128
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Verify and remove only the failed synthetic fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kmessenger-browser-cleanup-20261128' -or $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'KM_WRONG_OWNER_ROUTE'}
+          $root=[IO.Path]::GetFullPath($env:RUNNER_TEMP)
+          $target=[IO.Path]::GetFullPath((Join-Path $root 'kmessenger-browser-46173014052'))
+          if([IO.Path]::GetDirectoryName($target) -cne $root -or [IO.Path]::GetFileName($target) -cne 'kmessenger-browser-46173014052'){throw 'KM_CLEANUP_SCOPE'}
+          $profile=Join-Path $target 'edge-profile'
+          if(Test-Path -LiteralPath $target){
+            $item=Get-Item -LiteralPath $target -Force
+            if(!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'KM_CLEANUP_REPARSE'}
+            $pending=[Collections.Generic.Stack[string]]::new()
+            $pending.Push($target)
+            while($pending.Count){
+              foreach($child in Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop){
+                if($child.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'KM_CLEANUP_REPARSE'}
+                if($child.PSIsContainer){$pending.Push($child.FullName)}
+              }
+            }
+          }
+          # Do not stop a process by name or touch a normal browser profile.
+          # Only inspect process metadata to classify exact scratch ownership.
+          $owned=@(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object {
+            $_.CommandLine -and ($_.CommandLine -match ('(?i)--user-data-dir=(?:"'+[regex]::Escape($profile)+'"|'+[regex]::Escape($profile)+'(?:\s|$))'))
+          })
+          Write-Output "KM_RESIDUAL_FIXTURE_BROWSER_COUNT=$($owned.Count)"
+          if($owned.Count){throw 'KM_RESIDUAL_PROCESS_REQUIRES_CUSTODY'}
+          if(Test-Path -LiteralPath $target){
+            for($i=0;$i -lt 5;$i++){
+              try{Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop;break}catch{
+                if($i -eq 4){throw 'KM_RESIDUAL_STILL_LOCKED'}
+                Start-Sleep -Seconds 2
+              }
+            }
+          }
+          if(Test-Path -LiteralPath $target){throw 'KM_RESIDUAL_CLEANUP_FAIL'}
+          Write-Output 'KM_FAILED_FIXTURE_REMOVED=PASS;RUN=46173014052;NO_PROCESS_TERMINATION;NO_NEW_TRIAL'
