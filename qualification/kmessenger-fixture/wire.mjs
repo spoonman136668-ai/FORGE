@@ -10,14 +10,16 @@ const base='http://127.0.0.1:'+port;
 const secret=readFileSync(process.env.KM_FIXTURE_SECRET,'utf8').trim();
 assert(/^[a-f0-9]{64}$/.test(secret));
 const machines=[];
-let stage='boot';
+let stage='boot',step='entry',lastHttp=0,expectedHttp=0;
 async function req(method,path,token,body,expected=200){
+  lastHttp=0;expectedHttp=expected;
   assert(path.startsWith('/')&&!path.startsWith('//'));
   const url=new URL(path,base);
   assert.equal(url.origin,base);
   const res=await fetch(url,{method,redirect:'error',signal:AbortSignal.timeout(20000),
     headers:{...(token?{authorization:'Bearer '+token}:{}),...(body!==undefined?{'content-type':'application/json'}:{})},
     ...(body!==undefined?{body:JSON.stringify(body)}:{})});
+  lastHttp=res.status;
   const json=await res.json();
   assert.equal(res.status,expected,'unexpected HTTP status '+res.status);
   return json;
@@ -64,42 +66,60 @@ async function learn(a,b){
   }
 }
 async function exchange(a,b,eve,room){
+  step='learn';
   await learn(a,b);
+  step='claim';
   const claim=await a.m.getMissingSessions([new UserId(b.user)]);
   if(claim){
+    step='claimresponse';
     const result=await req('POST',p+'/keys/claim',a.token,JSON.parse(claim.body));
     assert.equal(await a.m.markRequestAsSent(claim.id,RequestType.KeysClaim,JSON.stringify(result)),true);
   }
+  step='share';
   const shares=await a.m.shareRoomKey(new RoomId(room),[new UserId(b.user)],new EncryptionSettings());
   assert(shares.length>0);
   for(const share of shares){
+    step='sharetype';
     assert.equal(share.event_type,'m.room.encrypted');
     const payload=JSON.parse(share.body);
+    step='sharerecipient';
     assert.deepEqual(Object.keys(payload.messages),[b.user]);
+    step='sharedevice';
     assert.deepEqual(Object.keys(payload.messages[b.user]),[b.device]);
+    step='shareupload';
     await req('PUT',p+'/sendToDevice/'+enc(share.event_type)+'/'+enc(share.txn_id),a.token,payload);
+    step='shareack';
     assert.equal(await a.m.markRequestAsSent(share.id,RequestType.ToDevice,'{}'),true);
   }
   const marker='KM_SYNTHETIC_'+randomUUID();
+  step='encrypt';
   const ciphertext=JSON.parse(await a.m.encryptRoomEvent(new RoomId(room),'m.room.message',JSON.stringify({msgtype:'m.text',body:marker})));
   assert.equal(ciphertext.algorithm,'m.megolm.v1.aes-sha2');assert(!JSON.stringify(ciphertext).includes(marker));
   // No receiver sync during send: recover through subsequent server sync.
+  step='send';
   const sent=await req('PUT',p+'/rooms/'+enc(room)+'/send/m.room.encrypted/'+randomUUID(),a.token,ciphertext);
   assert(sent.event_id);
+  step='readback';
   const raw=await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(sent.event_id),a.token);
   assert.equal(raw.type,'m.room.encrypted');assert(!JSON.stringify(raw).includes(marker));
+  step='outsiderhttp';
   await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(sent.event_id),eve.token,undefined,403);
+  step='receiversync';
   let event;
   for(let i=0;i<8&&!event;i++){
     const s=await sync(b);
     event=s.rooms?.join?.[room]?.timeline?.events?.find(e=>e.event_id===sent.event_id);
   }
+  step='receiveevent';
   assert(event,'recipient event absent');
   assert.equal(event.type,'m.room.encrypted');assert(!JSON.stringify(event).includes(marker));
   // A synthetic primitive fixture intentionally uses unverified identities.
   // This never substitutes for K-Messenger's signed-device application policy.
+  step='decrypt';
   const decrypted=await b.m.decryptRoomEvent(JSON.stringify(event),new RoomId(room),new DecryptionSettings(TrustRequirement.Untrusted));
+  step='plaintextmatch';
   assert.equal(JSON.parse(decrypted.event).content.body,marker);
+  step='outsiderdecrypt';
   await assert.rejects(()=>eve.m.decryptRoomEvent(JSON.stringify(event),new RoomId(room),new DecryptionSettings(TrustRequirement.Untrusted)),err=>err instanceof MegolmDecryptionError&&err.code===DecryptionErrorCode.MissingRoomKey);
 }
 try{
@@ -118,5 +138,10 @@ try{
   stage='forward';await exchange(a,b,e,room);console.log('KM_FIXTURE_FORWARD=PASS');
   stage='reverse';await exchange(b,a,e,room);console.log('KM_FIXTURE_REVERSE=PASS');
   console.log('KM_FIXTURE_WIRE_PRIMITIVES=PASS directions=2 outsider_denied=2 receiver_offline_during_send=2');
-}catch(error){console.error('KM_FIXTURE_FAILURE stage='+stage+' kind='+String(error?.name??'Error').replace(/[^A-Za-z0-9_]/g,'').slice(0,40));process.exitCode=1;}
+ }catch(error){
+  const loc=String(error?.stack??'').match(/wire\.mjs:(\d+):(\d+)/);
+  const kind=String(error?.name??'Error').replace(/[^A-Za-z0-9_]/g,'').slice(0,40);
+  console.error('KM_FIXTURE_FAILURE stage='+stage+' kind='+kind+' step='+step+' line='+(loc?.[1]??'0')+' http='+lastHttp+' expected='+expectedHttp);
+  process.exitCode=1;
+}
 finally{for(const m of machines)m.close();}
