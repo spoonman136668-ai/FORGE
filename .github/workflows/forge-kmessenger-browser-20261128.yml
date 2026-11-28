@@ -86,7 +86,7 @@ jobs:
           $work=Join-Path $scratch 'client'
           New-Item -ItemType Directory -Path $work | Out-Null
           foreach($name in @('package.json','package-lock.json','verify-lock.mjs','crypto-policy.mjs','receive-policy.mjs','client-lifecycle.mjs','matrix-entry.mjs','conversation-view.mjs','conversation.mjs')){Copy-Item -LiteralPath (Join-Path (Join-Path $root 'k-messenger') $name) -Destination $work}
-          foreach($n in @('browser-driver.mjs','browser-page.mjs')){Copy-Item -LiteralPath (Join-Path $harness $n) -Destination $work}
+          foreach($n in @('browser-driver.mjs','browser-page.mjs','browser-custody.ps1')){Copy-Item -LiteralPath (Join-Path $harness $n) -Destination $work}
           $edge=$null
           foreach($dir in @($env:ProgramFiles,[Environment]::GetEnvironmentVariable('ProgramFiles(x86)'))){
             if($dir){$candidate=Join-Path $dir 'Microsoft/Edge/Application/msedge.exe';if(Test-Path -LiteralPath $candidate){$edge=$candidate;break}}
@@ -95,6 +95,7 @@ jobs:
           $env:KM_EDGE=$edge
           $edgeVersion=(Get-Item -LiteralPath $edge).VersionInfo.ProductVersion
           $edgeHash=(Get-FileHash -LiteralPath $edge -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($edgeHash -cne '7b8f341751a1b3ccf73858cf5a5813616976b849748ea3ac6fc796cd93516c0f'){throw 'KM_EDGE_EXECUTABLE_DRIFT'}
           Write-Output "KM_EDGE_VERSION=$edgeVersion sha256=$edgeHash"
           $es=Join-Path $scratch 'esbuild'
           Check 'KM_ESBUILD_FETCH' 'git' @('clone','--quiet','--depth','1','--branch','v0.25.12','https://github.com/evanw/esbuild.git',$es)
@@ -179,7 +180,7 @@ jobs:
               & node browser-driver.mjs *> (Join-Path $scratch 'wire.log')
               $rc=$LASTEXITCODE
               $lines=Get-Content -LiteralPath (Join-Path $scratch 'wire.log')
-              foreach($line in $lines){if($line -cmatch '^KM_BROWSER_(DEBUG_LOOPBACK=PASS|LAUNCH_FAILURE kind=[A-Z]+ exit=-?[0-9]+|HTTPS_CONTEXT=PASS|STORE_INITIAL=PASS|UNVERIFIED_DENIED=PASS|LOCK=PASS contention=2|WRONG_KEY=PASS|COLD_REOPEN=PASS identity_unchanged=1|CUSTODY=PASS|PROCESSES_STOPPED=PASS|CLEANUP_FAIL|FAILURE stage=[a-z]+ step=[a-z]+ line=[0-9]+ kind=[A-Za-z0-9_]+)$'){Write-Output $line}}
+              foreach($line in $lines){if($line -cmatch '^KM_BROWSER_(NATIVE_OWNER=PASS|DEBUG_LOOPBACK=PASS|LAUNCH_FAILURE kind=[A-Z]+ exit=-?[0-9]+|HTTPS_CONTEXT=PASS|STORE_INITIAL=PASS|UNVERIFIED_DENIED=PASS|LOCK=PASS contention=2|WRONG_KEY=PASS|COLD_REOPEN=PASS identity_unchanged=1|CUSTODY=PASS|PROCESSES_STOPPED=PASS|CLEANUP_FAIL|FAILURE stage=[a-z]+ step=[a-z]+ line=[0-9]+ kind=[A-Za-z0-9_]+)$'){Write-Output $line}}
               if($rc -ne 0 -or $lines -cnotcontains 'KM_BROWSER_CUSTODY=PASS' -or $lines -cnotcontains 'KM_BROWSER_PROCESSES_STOPPED=PASS'){throw 'KM_BROWSER_TRIAL_FAIL'}
             }finally{Pop-Location}
           }finally{
@@ -197,7 +198,16 @@ jobs:
           if($env:KM_SCRATCH){
             $expected=Join-Path $env:RUNNER_TEMP ('kmessenger-browser-'+$env:GITHUB_RUN_ID)
             if($env:KM_SCRATCH -cne $expected){throw 'KM_CLEANUP_SCOPE'}
-            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $expected){
+              $helper=Join-Path $expected 'client/browser-custody.ps1'
+              if(Test-Path -LiteralPath $helper){
+                & pwsh.exe -NoProfile -NonInteractive -File $helper -Mode cleanup
+                if($LASTEXITCODE -ne 0){throw 'KM_FINAL_BROWSER_CUSTODY_FAIL'}
+              }
+              for($i=0;$i -lt 5;$i++){
+                try{Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 4){throw 'KM_CLEANUP_FAIL'};Start-Sleep -Seconds 2}
+              }
+            }
             if(Test-Path -LiteralPath $expected){throw 'KM_CLEANUP_FAIL'}
           }
           Write-Output 'KM_PRIVATE_SCRATCH_REMOVED=PASS'
