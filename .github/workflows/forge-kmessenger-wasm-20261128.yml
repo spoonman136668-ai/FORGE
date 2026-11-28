@@ -1,0 +1,101 @@
+name: K-Messenger locked install and actual WASM primitive qualification
+on:
+  push:
+    branches: [qualification/kmessenger-wasm-20261128]
+    paths: [.github/workflows/forge-kmessenger-wasm-20261128.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kmessenger-wasm-20261128
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - name: Owner route and private exact-source custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kmessenger-wasm-20261128' -or $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'KM_WRONG_OWNER_ROUTE'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('kmessenger-wasm-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'KM_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          "KM_SCRATCH=$scratch" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          $root=Join-Path $scratch 'source'
+          $want='24cc2196f7a039050c9b9404962c8ae1dec8a932'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $remote=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/feature/k-messenger' --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KM_REF_DRIFT_OR_ACCESS'}
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 1 --single-branch --branch feature/k-messenger *> (Join-Path $scratch 'clone.log')
+          if($LASTEXITCODE -ne 0){throw 'KM_PRIVATE_CLONE_FAIL'}
+          if((& git -C $root rev-parse HEAD).Trim() -cne $want -or (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne 'c7f095c111c359b4c98678fab2db607b278bd01e' -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne 'bbd095b3c7e932db16fb22d1390d951fba96ad92' -or (& git -C $root rev-parse HEAD:mobile-alerts).Trim() -cne 'a0eabb2b25095d3c0f6ecaa671c46092cfe76df7' -or @(& git -C $root status --porcelain --untracked-files=all).Count){throw 'KM_CUSTODY_FAIL'}
+          Write-Output 'KM_EXACT_SOURCE=PASS'
+      - name: Exact dependency installation and bounded primitive trial
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:KM_SCRATCH 'source'
+          $work=Join-Path $env:KM_SCRATCH 'package'
+          foreach($n in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET','ALERTS_PUBLISH_TOKEN','OPS_WORKER_TOKEN','KT_STATE_FILE','ALERTS_DATA_DIR')){if([Environment]::GetEnvironmentVariable($n)){throw 'KM_RUNTIME_ENV_BLOCKED'}}
+          foreach($v in @(Get-ChildItem Env: | Where-Object {$_.Name -match '^(?i:NPM_CONFIG_|NODE_AUTH_TOKEN$|NPM_TOKEN$|NODE_OPTIONS$|GH_TOKEN$|GITHUB_TOKEN$|GH_ENTERPRISE_TOKEN$|GITHUB_ENTERPRISE_TOKEN$|OPENAI_API_KEY$|ANTHROPIC_API_KEY$|OPENROUTER_API_KEY$|GEMINI_API_KEY$|AZURE_OPENAI_API_KEY$|HTTP_PROXY$|HTTPS_PROXY$|ALL_PROXY$|NODE_EXTRA_CA_CERTS$|NODE_TLS_REJECT_UNAUTHORIZED$)'})){Remove-Item -LiteralPath ('Env:'+$v.Name)}
+          $env:NPM_CONFIG_USERCONFIG=Join-Path $env:KM_SCRATCH 'user.npmrc'
+          $env:NPM_CONFIG_GLOBALCONFIG=Join-Path $env:KM_SCRATCH 'global.npmrc'
+          New-Item -ItemType File -Path $env:NPM_CONFIG_USERCONFIG,$env:NPM_CONFIG_GLOBALCONFIG | Out-Null
+          $env:NPM_CONFIG_CACHE=Join-Path $env:KM_SCRATCH 'npm-cache'
+          $env:NPM_CONFIG_REGISTRY='https://registry.npmjs.org/'
+          $env:NPM_CONFIG_IGNORE_SCRIPTS='true'
+          $env:NPM_CONFIG_STRICT_SSL='true'
+          $env:NPM_CONFIG_UPDATE_NOTIFIER='false'
+          $env:NPM_CONFIG_FETCH_RETRIES='0'
+          $env:NPM_CONFIG_FETCH_TIMEOUT='30000'
+          New-Item -ItemType Directory -Path $work | Out-Null
+          $src=Join-Path $root 'k-messenger'
+          $files=@('package.json','package-lock.json','qualify-wasm.mjs','verify-lock.mjs','verify-lock.test.mjs','mailbox.mjs','mailbox.test.mjs','crypto-policy.mjs','crypto-policy.test.mjs','client-lifecycle.mjs','client-lifecycle.test.mjs','receive-policy.mjs','receive-policy.test.mjs','conversation.mjs','conversation.test.mjs','conversation-view.mjs','matrix-entry.mjs')
+          foreach($p in $files){Copy-Item -LiteralPath (Join-Path $src $p) -Destination $work}
+          Push-Location $work
+          try{
+            $version=(& node --version).Trim(); if($LASTEXITCODE -ne 0 -or $version -notmatch '^v(2[2-9]|[3-9][0-9])\.'){throw 'KM_NODE_UNSUPPORTED'}
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & node --test --test-reporter=tap mailbox.test.mjs crypto-policy.test.mjs client-lifecycle.test.mjs verify-lock.test.mjs receive-policy.test.mjs conversation.test.mjs *> (Join-Path $env:KM_SCRATCH 'test.log')
+            $rc=$LASTEXITCODE;$sw.Stop()
+            $lines=Get-Content -LiteralPath (Join-Path $env:KM_SCRATCH 'test.log')
+            foreach($line in $lines){if($line -match '^# (tests|pass|fail|cancelled|skipped) [0-9]+$'){Write-Output $line}}
+            if($rc -ne 0 -or $lines -cnotcontains '# tests 38' -or $lines -cnotcontains '# pass 38' -or $lines -cnotcontains '# fail 0' -or $lines -cnotcontains '# skipped 0'){throw 'KM_FOCUSED_REGRESSION_FAIL'}
+            & npm.cmd run check *> (Join-Path $env:KM_SCRATCH 'syntax.log')
+            if($LASTEXITCODE -ne 0){throw 'KM_SYNTAX_FAIL'}
+            Write-Output "KM_FOCUSED=PASS node=$version elapsed_ms=$($sw.ElapsedMilliseconds)"
+            & node verify-lock.mjs *> (Join-Path $env:KM_SCRATCH 'structure.log')
+            if($LASTEXITCODE -ne 0){throw 'KM_LOCK_STRUCTURE_FAIL'}
+            $lockHash=(Get-FileHash -LiteralPath 'package-lock.json' -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($lockHash -cne 'a8e5789f289a3c357d41084a7b9655b5eb4d942614c42b49a9ca399fa3eb97b3'){throw 'KM_LOCK_DIGEST_DRIFT'}
+            & node --check qualify-wasm.mjs *> (Join-Path $env:KM_SCRATCH 'trial-syntax.log')
+            if($LASTEXITCODE -ne 0){throw 'KM_TRIAL_SYNTAX_FAIL'}
+            & npm.cmd ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ *> (Join-Path $env:KM_SCRATCH 'install.log')
+            if($LASTEXITCODE -ne 0){throw 'KM_LOCKED_INSTALL_FAIL'}
+            if((Get-FileHash -LiteralPath 'package-lock.json' -Algorithm SHA256).Hash.ToLowerInvariant() -cne $lockHash){throw 'KM_LOCK_MUTATED'}
+            Write-Output 'KM_LOCKED_INSTALL=PASS;SCRIPTS_DISABLED'
+            & node qualify-wasm.mjs *> (Join-Path $env:KM_SCRATCH 'primitive.log')
+            $rc=$LASTEXITCODE
+            $lines=Get-Content -LiteralPath (Join-Path $env:KM_SCRATCH 'primitive.log')
+            foreach($line in $lines){
+              if($line -cmatch '^KM_(INSTALLED_MANIFESTS=PASS count=17|REAL_SDK_IMPORT=PASS|WASM_FORWARD=PASS|WASM_REVERSE=PASS|WASM_PRIMITIVE=PASS directions=2 outsider_denied=2 tamper_denied=2)$'){Write-Output $line}
+              elseif($line -match 'qualify-wasm\.mjs:(\d+):(\d+)'){Write-Output ('KM_TRIAL_SOURCE_LOCATION='+$Matches[1]+':'+$Matches[2])}
+              elseif($line -match '^(?:Error|AssertionError|TypeError|SyntaxError|ReferenceError) \[([A-Z0-9_]+)\]:'){Write-Output ('KM_TRIAL_ERROR_CODE='+$Matches[1])}
+            }
+            if($rc -ne 0 -or $lines -cnotcontains 'KM_INSTALLED_MANIFESTS=PASS count=17' -or $lines -cnotcontains 'KM_REAL_SDK_IMPORT=PASS' -or $lines -cnotcontains 'KM_WASM_PRIMITIVE=PASS directions=2 outsider_denied=2 tamper_denied=2'){throw 'KM_PRIMITIVE_TRIAL_FAIL'}
+            Write-Output 'KM_PRIMITIVE_ONLY=PASS;NO_HOMESERVER;NO_APPLICATION_TRUST_PROOF;NO_DEPLOYMENT'
+          }finally{Pop-Location}
+          if((& git -C $root rev-parse HEAD).Trim() -cne '24cc2196f7a039050c9b9404962c8ae1dec8a932' -or @(& git -C $root status --porcelain --untracked-files=all).Count){throw 'KM_FINAL_CUSTODY_FAIL'}
+      - name: Erase only private scratch
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:KM_SCRATCH){
+            $expected=Join-Path $env:RUNNER_TEMP ('kmessenger-wasm-'+$env:GITHUB_RUN_ID)
+            if($env:KM_SCRATCH -cne $expected){throw 'KM_CLEANUP_SCOPE'}
+            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $expected){throw 'KM_CLEANUP_FAIL'}
+          }
+          Write-Output 'KM_PRIVATE_SCRATCH_REMOVED=PASS'
