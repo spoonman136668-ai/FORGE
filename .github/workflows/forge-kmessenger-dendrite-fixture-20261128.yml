@@ -98,6 +98,7 @@ jobs:
           New-Item -ItemType Directory -Path $data | Out-Null
           Push-Location $data
           try{
+            New-Item -ItemType Directory -Path 'log','jetstream','media' | Out-Null
             Check 'KM_FIXTURE_CONFIG' $configExe @()
             Check 'KM_FIXTURE_SIGNING_KEY' $keyExe @('--private-key','matrix_key.pem')
           }finally{Pop-Location}
@@ -112,7 +113,23 @@ jobs:
             $proc=Start-Process -FilePath $serverExe -WorkingDirectory $data -ArgumentList @('--config','dendrite.yaml','--http-bind-address',('127.0.0.1:'+$port)) -RedirectStandardOutput (Join-Path $scratch 'server.out') -RedirectStandardError (Join-Path $scratch 'server.err') -PassThru -NoNewWindow
             $ready=$false
             for($i=0;$i -lt 60;$i++){
-              if($proc.HasExited){throw 'KM_FIXTURE_SERVER_EXIT'}
+              if($proc.HasExited){
+                $diagnostic=@()
+                foreach($file in @((Join-Path $scratch 'server.err'),(Join-Path $scratch 'server.out'),(Join-Path $data 'log/dendrite.log'))){
+                  if(Test-Path -LiteralPath $file){$diagnostic+=Get-Content -LiteralPath $file -Tail 60}
+                }
+                $raw=$diagnostic -join ' '
+                $kind='UNKNOWN'
+                if($raw -match 'Unrecognised logging hook type'){$kind='LOGGING_HOOK'}
+                elseif($raw -match 'Invalid config file|Configuration error'){$kind='CONFIGURATION'}
+                elseif($raw -match 'failed to load private_key|failed to parse.*key'){$kind='SIGNING_KEY'}
+                elseif($raw -match 'NATS|JetStream'){$kind='QUEUE'}
+                elseif($raw -match 'sqlite|database|SQL logic error'){$kind='DATABASE'}
+                elseif($raw -match 'bind|listen|serve HTTP'){$kind='LISTENER'}
+                elseif($raw -match 'panic:'){$kind='PANIC'}
+                Write-Output "KM_FIXTURE_STARTUP_FAILURE kind=$kind exit=$($proc.ExitCode)"
+                throw 'KM_FIXTURE_SERVER_EXIT'
+              }
               try{
                 $sockets=@(Get-NetTCPConnection -OwningProcess $proc.Id -State Listen -ErrorAction Stop)
                 if(@($sockets | Where-Object {$_.LocalAddress -cnotin @('127.0.0.1','::1')}).Count){throw 'KM_FIXTURE_EXTERNAL_LISTENER'}

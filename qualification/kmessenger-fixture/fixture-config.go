@@ -28,7 +28,7 @@ func main(){
  if _,err:=rand.Read(random[:]);err!=nil{panic("random")}
  cfg.ClientAPI.RegistrationSharedSecret=hex.EncodeToString(random[:])
  cfg.MediaAPI.BasePath="media"
- cfg.Logging=[]config.LogrusHook{{Type:"std",Level:"warn"}}
+ cfg.Logging=[]config.LogrusHook{{Type:"file",Level:"warn",Params:map[string]interface{}{"path":"./log"}}}
  data,err:=yaml.Marshal(&cfg);if err!=nil{panic("config")}
  if err=os.WriteFile("dendrite.yaml",data,0600);err!=nil{panic("write config")}
  if err=os.WriteFile("registration.txt",[]byte(cfg.ClientAPI.RegistrationSharedSecret),0600);err!=nil{panic("write secret")}
