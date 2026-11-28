@@ -231,65 +231,60 @@ try{
  stage='verify';await verify(at,bt,a,b);console.log('KM_UI_MUTUAL_SAS=PASS');
  stage='ui';step='mount';
  await Promise.all([evaluate(at,'mount',room),evaluate(bt,'mount',room)]);
- const marker='KM_REVOKE_BASELINE_'+randomUUID();
- stage='baseline';const baseline=await exchange(at,bt,a,b,e,room,marker);
- console.log('KM_REVOKE_BASELINE=PASS');
- const oldKeys=await req('POST',p+'/keys/query',a.token,{device_keys:{[b.user]:[]}});
- assert(oldKeys.device_keys?.[b.user]?.[b.device]);
- const master=oldKeys.master_keys?.[b.user];assert(master&&Object.keys(master.keys).length===1);
- stage='revoke';step='close';
- assert.equal(await evaluate(bt,'closeUI'),true);
- // Close the application document before asking Edge to exit.
- try{await bt.close();}catch{}
- const disposition=await bb.close({allowFixtureRecovery:true});bt=null;
- console.log('KM_REVOKE_PRELOGOUT_PROFILE_CLOSED=PASS mode='+disposition);
- step='logout';await req('POST',p+'/logout',b.token,{});
- step='oldtoken';
- for(const path of [p+'/account/whoami',p+'/sync?timeout=0',p+'/rooms/'+enc(room)+'/event/'+enc(baseline),p+'/devices']){
-  const denied=await req('GET',path,b.token,undefined,401);assert.equal(denied.errcode,'M_UNKNOWN_TOKEN');
+ stage='media';step='baseline';
+ await exchange(at,bt,a,b,e,room,'KM_MEDIA_BASELINE_'+randomUUID());
+ console.log('KM_MEDIA_BASELINE=PASS');
+ async function transfer(from,to,sender,receiver,size){
+  step='encrypt';
+  const marker='KM_MEDIA_'+randomUUID();
+  const bytes=Uint8Array.from(randomBytes(size));bytes.set(new TextEncoder().encode(marker));
+  const cipher=Uint8Array.from(await evaluate(from,'encryptMedia',[...bytes]));
+  assert.equal(cipher.length,bytes.length);assert.notDeepEqual(cipher,bytes);
+  assert(!Buffer.from(cipher).includes(Buffer.from(marker)));
+  const again=Uint8Array.from(await evaluate(from,'encryptMedia',[...bytes]));
+  assert.notDeepEqual(cipher,again);
+  // Upload only the second independent encrypted result. Key and filename stay
+  // inside sender browser, not in upload request, URL or driver response.
+  step='upload';
+  const upload=await fetch(base+'/_matrix/media/v3/upload',{method:'POST',redirect:'error',signal:AbortSignal.timeout(20000),headers:{authorization:'Bearer '+sender.token,'content-type':'application/octet-stream'},body:again});
+  assert.equal(upload.status,200);
+  const {content_uri:mxc}=await upload.json();
+  assert(/^mxc:\/\/km-fixture\.invalid\/[A-Za-z0-9_-]+$/.test(mxc));
+  step='event';
+  const id=await evaluate(from,'sendMedia',room,mxc,marker,size);
+  assert(typeof id==='string'&&id.startsWith('$'));
+  const raw=await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(id),sender.token);
+  assert.equal(raw.type,'m.room.encrypted');
+  assert(!JSON.stringify(raw).includes(marker)&&!JSON.stringify(raw).includes(mxc));
+  const denied=await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(id),e.token,undefined,404);
+  assert.equal(denied.errcode,'M_NOT_FOUND');assert.deepEqual(Object.keys(denied).sort(),['errcode','error']);
+  step='download';
+  const url=base+'/_matrix/client/v1/media/download/'+mxc.slice('mxc://'.length)+'?allow_remote=false';
+  const noauth=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(20000)});
+  assert.equal(noauth.status,401);
+  const result=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(20000),headers:{authorization:'Bearer '+receiver.token}});
+  assert.equal(result.status,200);const downloaded=new Uint8Array(await result.arrayBuffer());
+  assert.deepEqual(downloaded,again);
+  // Matrix media authorization is not room authorization. A signed-in outsider
+  // with a known MXC may retrieve ciphertext, but not its encrypted event/key.
+  const outside=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(20000),headers:{authorization:'Bearer '+e.token}});
+  assert.equal(outside.status,200);assert.deepEqual(new Uint8Array(await outside.arrayBuffer()),again);
+  step='receiver';
+  await evaluate(to,'receiveMedia',room,id,sender.user,marker,size,mxc);
+  const mutated=Uint8Array.from(downloaded);mutated[0]^=1;
+  assert.equal(await evaluate(to,'tamperMedia',[...mutated]),true);
+  assert.equal(await evaluate(to,'tamperMedia',[...downloaded.slice(0,-1)]),true);
+  const recovered=Uint8Array.from(await evaluate(to,'decryptMedia',[...downloaded]));
+  assert.deepEqual(recovered,bytes);
  }
- const oldAfter=await req('POST',p+'/keys/query',a.token,{device_keys:{[b.user]:[]}});
- assert(!oldAfter.device_keys?.[b.user]?.[b.device]);assert.deepEqual(oldAfter.master_keys?.[b.user]?.keys,master.keys);
- console.log('KM_REVOKE_TOKEN_AND_KEYS=PASS routes=4');
- step='oldbrowser';
- bb=await startBrowser(info.origin,info.pin,profiles[1]);bt=await bb.page();
- assert.equal(await evaluate(bt,'deny',bi,'secure session initialization failed'),true);
- try{await bt.close();}catch{}
- const deniedDisposition=await bb.close({allowFixtureRecovery:true});bt=null;
- console.log('KM_REVOKE_DENIED_PROFILE_CLOSED=PASS mode='+deniedDisposition);
- console.log('KM_REVOKE_OLD_BROWSER_DENIED=PASS');
- stage='replacement';step='login';
- const replacementDevice='BOB_REPLACEMENT';
- const login=await req('POST',p+'/login',null,{type:'m.login.password',identifier:{type:'m.id.user',user:'bob'},password:b.password,device_id:replacementDevice});
- assert.equal(login.user_id,b.user);assert.equal(login.device_id,replacementDevice);assert(login.access_token&&login.access_token!==b.token);
- const replacement={user:b.user,device:replacementDevice,token:login.access_token};
- const ri=input(replacement,a);
- const rb=await startBrowser(info.origin,info.pin,profiles[2]),rt=await rb.page();
- step='untrusted';
- const newDevice=await evaluate(rt,'openUntrusted',ri,room);
- assert(newDevice.ed25519&&newDevice.curve25519&&newDevice.ed25519!==ba.device.ed25519&&newDevice.curve25519!==ba.device.curve25519);
- const keyState=await req('POST',p+'/keys/query',a.token,{device_keys:{[b.user]:[]}});
- assert(!keyState.device_keys?.[b.user]?.[b.device]);assert(keyState.device_keys?.[b.user]?.[replacementDevice]);
- assert.deepEqual(keyState.master_keys?.[b.user]?.keys,master.keys);
- await evaluate(at,'replacementUnsigned',b.user,replacementDevice,b.device);
- assert.equal(await evaluate(rt,'ownUntrusted',room),true);
- console.log('KM_REVOKE_REPLACEMENT_UNTRUSTED=PASS');
- step='history';
- const cipher=await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(baseline),replacement.token);
- assert.equal(cipher.type,'m.room.encrypted');assert(!JSON.stringify(cipher).includes(marker));
- assert.equal(await evaluate(rt,'cannotDecrypt',room,baseline,marker),true);
- console.log('KM_REVOKE_REPLACEMENT_OLD_CIPHERTEXT_DENIED=PASS');
- stage='membership';step='leave';
- await req('POST',p+'/rooms/'+enc(room)+'/leave',replacement.token,{});
- assert.equal(await evaluate(at,'membershipDenied',room,b.user),true);
- console.log('KM_REVOKE_ROSTER_DENIED=PASS');
+ await transfer(at,bt,a,b,1024);console.log('KM_MEDIA_FORWARD=PASS bytes=1024');
+ await transfer(bt,at,b,a,65536);console.log('KM_MEDIA_REVERSE=PASS bytes=65536');
  stage='close';step='wipe';
- assert.equal(await evaluate(at,'closeUI'),true);assert.equal(await evaluate(rt,'close'),true);
- try{await at.close();}catch{}
- try{await rt.close();}catch{}
- const finalA=await ab.close({allowFixtureRecovery:true}),finalB=await rb.close({allowFixtureRecovery:true});
- console.log('KM_REVOKE_FINAL_PROFILES_CLOSED=PASS modes='+finalA+','+finalB);
- console.log('KM_REVOKE_POLICY=PASS routes=4 replacement_denied=1 old_cipher_denied=1 roster_denied=1');
+ assert.equal(await evaluate(at,'closeUI'),true);assert.equal(await evaluate(bt,'closeUI'),true);
+ try{await at.close();}catch{}try{await bt.close();}catch{}
+ const finalA=await ab.close({allowFixtureRecovery:true}),finalB=await bb.close({allowFixtureRecovery:true});
+ console.log('KM_MEDIA_PROFILES_CLOSED=PASS modes='+finalA+','+finalB);
+ console.log('KM_MEDIA_PRIMITIVES=PASS directions=2 tamper_denied=4 unauth_denied=2 outsider_event_denied=2');
 }catch(error){
  const loc=String(error?.stack??'').match(/browser-driver\.mjs:(\d+):(\d+)/);
  console.error('KM_BROWSER_FAILURE stage='+stage+' step='+step+' line='+(loc?.[1]??'0')+' kind='+String(error?.name??'Error').replace(/[^A-Za-z0-9_]/g,'').slice(0,40));

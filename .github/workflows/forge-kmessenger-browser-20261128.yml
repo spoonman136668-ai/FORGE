@@ -1,4 +1,4 @@
-name: K-Messenger synthetic device logout and replacement qualification
+name: K-Messenger encrypted attachment primitive and wire qualification
 on:
   push:
     branches: [qualification/kmessenger-browser-20261128]
@@ -41,7 +41,7 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Build disposable server and qualify device logout and replacement
+      - name: Build disposable server and qualify encrypted attachment wire primitives
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -180,8 +180,8 @@ jobs:
               & node browser-driver.mjs *> (Join-Path $scratch 'wire.log')
               $rc=$LASTEXITCODE
               $lines=Get-Content -LiteralPath (Join-Path $scratch 'wire.log')
-              foreach($line in $lines){if($line -cmatch '^KM_(?:BROWSER_(NATIVE_OWNER=PASS|DEBUG_LOOPBACK=PASS|LAUNCH_FAILURE kind=[A-Z]+ exit=-?[0-9]+|PROCESSES_STOPPED=PASS|CLEANUP_FAIL|FAILURE stage=[a-z]+ step=[a-z]+ line=[0-9]+ kind=[A-Za-z0-9_]+)|UI_(INDEPENDENT_IDENTITIES=PASS count=2|UNVERIFIED_AND_PLAINTEXT_DENIED=PASS|MUTUAL_SAS=PASS)|REVOKE_(BASELINE=PASS|PRELOGOUT_PROFILE_CLOSED=PASS mode=(?:graceful|recovered)|DENIED_PROFILE_CLOSED=PASS mode=(?:graceful|recovered)|FINAL_PROFILES_CLOSED=PASS modes=(?:graceful|recovered),(?:graceful|recovered)|TOKEN_AND_KEYS=PASS routes=4|OLD_BROWSER_DENIED=PASS|REPLACEMENT_UNTRUSTED=PASS|REPLACEMENT_OLD_CIPHERTEXT_DENIED=PASS|ROSTER_DENIED=PASS|POLICY=PASS routes=4 replacement_denied=1 old_cipher_denied=1 roster_denied=1))$'){Write-Output $line}}
-              if($rc -ne 0 -or $lines -cnotcontains 'KM_REVOKE_POLICY=PASS routes=4 replacement_denied=1 old_cipher_denied=1 roster_denied=1' -or $lines -cnotcontains 'KM_BROWSER_PROCESSES_STOPPED=PASS'){throw 'KM_BROWSER_TRIAL_FAIL'}
+              foreach($line in $lines){if($line -cmatch '^KM_(?:BROWSER_(NATIVE_OWNER=PASS|DEBUG_LOOPBACK=PASS|LAUNCH_FAILURE kind=[A-Z]+ exit=-?[0-9]+|PROCESSES_STOPPED=PASS|CLEANUP_FAIL|FAILURE stage=[a-z]+ step=[a-z]+ line=[0-9]+ kind=[A-Za-z0-9_]+)|UI_(INDEPENDENT_IDENTITIES=PASS count=2|UNVERIFIED_AND_PLAINTEXT_DENIED=PASS|MUTUAL_SAS=PASS)|MEDIA_(BASELINE=PASS|FORWARD=PASS bytes=1024|REVERSE=PASS bytes=65536|PROFILES_CLOSED=PASS modes=(?:graceful|recovered),(?:graceful|recovered)|PRIMITIVES=PASS directions=2 tamper_denied=4 unauth_denied=2 outsider_event_denied=2))$'){Write-Output $line}}
+              if($rc -ne 0 -or $lines -cnotcontains 'KM_MEDIA_PRIMITIVES=PASS directions=2 tamper_denied=4 unauth_denied=2 outsider_event_denied=2' -or $lines -cnotcontains 'KM_BROWSER_PROCESSES_STOPPED=PASS'){throw 'KM_BROWSER_TRIAL_FAIL'}
             }finally{Pop-Location}
           }finally{
             if($proc -and !$proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction Stop;$proc.WaitForExit(10000)|Out-Null}
@@ -189,7 +189,7 @@ jobs:
             Write-Output 'KM_FIXTURE_PROCESS_STOPPED=PASS'
           }
           if((& git -C $root rev-parse HEAD).Trim() -cne '8577c5f33eff3363495d5e2e9afd071c69c2313b' -or @(& git -C $root status --porcelain --untracked-files=all).Count){throw 'KM_FIXTURE_SOURCE_DRIFT'}
-            Write-Output 'KM_BROWSER_FIXTURE_ONLY=PASS;DEVICE_LOGOUT_AND_REPLACEMENT_ONLY;NO_PRODUCTION;NO_OS_CHANGE'
+            Write-Output 'KM_BROWSER_FIXTURE_ONLY=PASS;ATTACHMENT_PRIMITIVES_ONLY;NO_PRODUCTION;NO_OS_CHANGE'
       - name: Erase only private scratch
         if: always()
         shell: pwsh

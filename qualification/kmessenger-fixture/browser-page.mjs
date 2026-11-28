@@ -1,11 +1,12 @@
 // Test-only instrumentation of the unchanged browser session factory.
 import {createClient,MatrixEvent} from 'matrix-js-sdk';
+import {Attachment,EncryptedAttachment} from '@matrix-org/matrix-sdk-crypto-wasm';
 import {OnlySignedDevicesIsolationMode} from 'matrix-js-sdk/lib/crypto-api/index.js';
 import {createBrowserSessionFactory} from './client-lifecycle.mjs';
 import {VerificationPhase} from 'matrix-js-sdk/lib/crypto-api/verification.js';
 import {mountConversation} from './conversation-view.mjs';
 import {preparePartnerClient} from './matrix-entry.mjs';
-let client,session,request,verifier,verification,view;
+let client,session,request,verifier,verification,view,mediaOut,mediaIn;
 const make=()=>createBrowserSessionFactory({
  createClient:opts=>{client=createClient({...opts,verificationMethods:['m.sas.v1']});return client;},
  OnlySignedDevicesIsolationMode,
@@ -124,6 +125,46 @@ window.km=Object.freeze({
   try{await session.sendText(room,'synthetic roster denial');}catch(e){send=e?.message==='membership denied';}
   try{await session.readTextHistory(room);}catch(e){read=e?.message==='membership denied';}
   return send&&read;
+ },
+ // Test-only attachment primitive and SDK event path; not exposed by app session.
+ async encryptMedia(bytes){
+  const raw=Uint8Array.from(bytes);
+  if(!raw.length||raw.length>65536)throw Error('fixture size');
+  const enc=Attachment.encrypt(raw);
+  try{
+   const meta=JSON.parse(enc.mediaEncryptionInfo);
+   if(meta.v!=='v2'||meta.key?.alg!=='A256CTR'||!meta.hashes?.sha256)throw Error('invalid v2 descriptor');
+   mediaOut=meta;return [...enc.encryptedData];
+  }finally{enc.free();raw.fill(0);}
+ },
+ async sendMedia(room,mxc,name,size){
+  if(!mediaOut||!/^mxc:\/\/km-fixture\.invalid\/[A-Za-z0-9_-]+$/.test(mxc))throw Error('invalid fixture upload');
+  // Independently recheck existing app room policy via verified history.
+  await session.readTextHistory(room);
+  const meta=mediaOut;mediaOut=undefined;
+  const sent=await client.sendMessage(room,{msgtype:'m.file',body:name,filename:name,info:{size,mimetype:'application/octet-stream'},file:{...meta,url:mxc}});
+  return sent.event_id;
+ },
+ async receiveMedia(room,id,sender,name,size,mxc){
+  await session.readTextHistory(room);
+  const event=await until(()=>{
+   const e=client.getRoom(room)?.getLiveTimeline().getEvents().find(x=>x.getId()===id);
+   return e?.getType()==='m.room.message'&&!e.isDecryptionFailure()?e:null;
+  });
+  const content=event.getContent(),shield=await client.getCrypto().getEncryptionInfoForEvent(event);
+  if(event.getWireType()!=='m.room.encrypted'||event.getSender()!==sender||shield?.shieldColour!==0||shield.shieldReason!==null||content.msgtype!=='m.file'||content.body!==name||content.filename!==name||content.info?.size!==size||content.file?.url!==mxc||content.file?.v!=='v2'||content.url!==undefined)throw Error('untrusted descriptor');
+  const {url,...meta}=content.file;mediaIn=meta;return true;
+ },
+ async tamperMedia(bytes){
+  if(!mediaIn)throw Error('missing descriptor');
+  const encrypted=new EncryptedAttachment(Uint8Array.from(bytes),JSON.stringify(mediaIn));
+  try{try{Attachment.decrypt(encrypted);return false;}catch{return true;}}
+  finally{encrypted.free();}
+ },
+ async decryptMedia(bytes){
+  if(!mediaIn)throw Error('missing descriptor');
+  const encrypted=new EncryptedAttachment(Uint8Array.from(bytes),JSON.stringify(mediaIn));mediaIn=undefined;
+  try{return [...Attachment.decrypt(encrypted)];}finally{encrypted.free();}
  },
  async close(){session.close();return session.state()==='CLOSED';}
 });
