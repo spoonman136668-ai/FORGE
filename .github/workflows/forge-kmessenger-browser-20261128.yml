@@ -1,4 +1,4 @@
-name: K-Messenger isolated browser HTTPS and crypto-store custody
+name: K-Messenger two-browser verified conversation qualification
 on:
   push:
     branches: [qualification/kmessenger-browser-20261128]
@@ -41,7 +41,7 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - name: Build disposable server and browser custody fixture
+      - name: Build disposable server and qualify actual browser conversation interface
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -180,8 +180,8 @@ jobs:
               & node browser-driver.mjs *> (Join-Path $scratch 'wire.log')
               $rc=$LASTEXITCODE
               $lines=Get-Content -LiteralPath (Join-Path $scratch 'wire.log')
-              foreach($line in $lines){if($line -cmatch '^KM_BROWSER_(NATIVE_OWNER=PASS|DEBUG_LOOPBACK=PASS|LAUNCH_FAILURE kind=[A-Z]+ exit=-?[0-9]+|HTTPS_CONTEXT=PASS|STORE_INITIAL=PASS|UNVERIFIED_DENIED=PASS|LOCK=PASS contention=2|WRONG_KEY=PASS|COLD_REOPEN=PASS identity_unchanged=1|CUSTODY=PASS|PROCESSES_STOPPED=PASS|CLEANUP_FAIL|FAILURE stage=[a-z]+ step=[a-z]+ line=[0-9]+ kind=[A-Za-z0-9_]+)$'){Write-Output $line}}
-              if($rc -ne 0 -or $lines -cnotcontains 'KM_BROWSER_CUSTODY=PASS' -or $lines -cnotcontains 'KM_BROWSER_PROCESSES_STOPPED=PASS'){throw 'KM_BROWSER_TRIAL_FAIL'}
+              foreach($line in $lines){if($line -cmatch '^KM_(?:BROWSER_(NATIVE_OWNER=PASS|DEBUG_LOOPBACK=PASS|LAUNCH_FAILURE kind=[A-Z]+ exit=-?[0-9]+|PROCESSES_STOPPED=PASS|CLEANUP_FAIL|FAILURE stage=[a-z]+ step=[a-z]+ line=[0-9]+ kind=[A-Za-z0-9_]+)|UI_(INDEPENDENT_IDENTITIES=PASS count=2|UNVERIFIED_AND_PLAINTEXT_DENIED=PASS|MUTUAL_SAS=PASS|FORWARD=PASS|REVERSE=PASS|OFFLINE_AND_COLD_HISTORY=PASS|MESSAGING=PASS directions=2 offline=1 outsider_denied=3))$'){Write-Output $line}}
+              if($rc -ne 0 -or $lines -cnotcontains 'KM_UI_MESSAGING=PASS directions=2 offline=1 outsider_denied=3' -or $lines -cnotcontains 'KM_BROWSER_PROCESSES_STOPPED=PASS'){throw 'KM_BROWSER_TRIAL_FAIL'}
             }finally{Pop-Location}
           }finally{
             if($proc -and !$proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction Stop;$proc.WaitForExit(10000)|Out-Null}
@@ -189,7 +189,7 @@ jobs:
             Write-Output 'KM_FIXTURE_PROCESS_STOPPED=PASS'
           }
           if((& git -C $root rev-parse HEAD).Trim() -cne '8577c5f33eff3363495d5e2e9afd071c69c2313b' -or @(& git -C $root status --porcelain --untracked-files=all).Count){throw 'KM_FIXTURE_SOURCE_DRIFT'}
-            Write-Output 'KM_BROWSER_FIXTURE_ONLY=PASS;NO_FULL_BROWSER_MESSAGING;NO_PRODUCTION;NO_OS_CHANGE'
+            Write-Output 'KM_BROWSER_FIXTURE_ONLY=PASS;TWO_BROWSER_TEXT_ONLY;NO_PRODUCTION;NO_OS_CHANGE'
       - name: Erase only private scratch
         if: always()
         shell: pwsh
@@ -201,8 +201,10 @@ jobs:
             if(Test-Path -LiteralPath $expected){
               $helper=Join-Path $expected 'client/browser-custody.ps1'
               if(Test-Path -LiteralPath $helper){
-                & pwsh.exe -NoProfile -NonInteractive -File $helper -Mode cleanup
-                if($LASTEXITCODE -ne 0){throw 'KM_FINAL_BROWSER_CUSTODY_FAIL'}
+                foreach($profileName in @('edge-profile','edge-profile-b')){
+                  & pwsh.exe -NoProfile -NonInteractive -File $helper -Mode cleanup -ProfileName $profileName
+                  if($LASTEXITCODE -ne 0){throw 'KM_FINAL_BROWSER_CUSTODY_FAIL'}
+                }
               }
               for($i=0;$i -lt 5;$i++){
                 try{Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 4){throw 'KM_CLEANUP_FAIL'};Start-Sleep -Seconds 2}

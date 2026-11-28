@@ -49,15 +49,16 @@ async function account(name,device){
 const scratch=process.env.KM_SCRATCH,edge=process.env.KM_EDGE;
 assert(scratch&&edge&&existsSync(edge));
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
-const profile=join(scratch,'edge-profile');
+const profiles=['edge-profile','edge-profile-b'];
 const infoPath=join(scratch,'tls-fixture.json');
-let proxy,browser;
-function custody(mode,port=0){
- const r=spawnSync('pwsh.exe',['-NoProfile','-NonInteractive','-File',join(process.cwd(),'browser-custody.ps1'),'-Mode',mode,'-Port',String(port)],{encoding:'utf8',timeout:90000,windowsHide:true});
+let proxy;
+const browsers=new Map();
+function custody(mode,port=0,name='edge-profile'){
+ const r=spawnSync('pwsh.exe',['-NoProfile','-NonInteractive','-File',join(process.cwd(),'browser-custody.ps1'),'-Mode',mode,'-Port',String(port),'-ProfileName',name],{encoding:'utf8',timeout:90000,windowsHide:true});
  assert.equal(r.status,0,'native browser custody failed');return r.stdout.trim();
 }
-async function profileClosed(){
- for(let i=0;i<20;i++){if(custody('count')==='0')return;await wait(500);}
+async function profileClosed(name){
+ for(let i=0;i<20;i++){if(custody('count',0,name)==='0')return;await wait(500);}
  throw Error('browser profile did not close gracefully');
 }
 async function stop(p){
@@ -67,14 +68,15 @@ async function stop(p){
  await Promise.race([ended,wait(10000)]);
  assert(p.exitCode!==null||p.signalCode!==null,'process cleanup failed');
 }
-async function startBrowser(origin,pin){
+async function startBrowser(origin,pin,name){
+ assert(profiles.includes(name));const profile=join(scratch,name);
  const portFile=join(profile,'DevToolsActivePort');
- assert(!browser,'previous browser still owned');
- assert.equal(custody('count'),'0','profile still owned');
+ assert(!browsers.has(name),'previous browser still owned');
+ assert.equal(custody('count',0,name),'0','profile still owned');
  if(existsSync(portFile))unlinkSync(portFile);
  const args=['--headless=new','--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--user-data-dir='+profile,'--no-first-run','--no-default-browser-check','--disable-background-networking','--disable-component-update','--disable-sync','--disable-extensions','--ignore-certificate-errors-spki-list='+pin,'--no-proxy-server','about:blank'];
  const p=spawn(edge,args,{stdio:['ignore','ignore','pipe'],windowsHide:true});
- browser=p;
+ browsers.set(name,p);
  let diagnostics='',launchError=false;
  p.stderr.on('data',data=>{diagnostics=(diagnostics+data.toString('utf8')).slice(-16384);});
  p.on('error',()=>{launchError=true;});
@@ -104,7 +106,7 @@ async function startBrowser(origin,pin){
  }
  if(!discovery)startupFailure();
  // Validate native process ownership before sending synthetic credentials.
- const actualPid=Number(custody('probe',discovery.port));
+ const actualPid=Number(custody('probe',discovery.port,name));
  assert(Number.isSafeInteger(actualPid)&&actualPid>0);
  console.log('KM_BROWSER_NATIVE_OWNER=PASS');
  console.log('KM_BROWSER_DEBUG_LOOPBACK=PASS');
@@ -144,61 +146,102 @@ async function startBrowser(origin,pin){
  return {p,page,async close(){
    try{await call('Browser.close',{},undefined,10000);}catch{}
    if(p.exitCode===null&&p.signalCode===null)await Promise.race([once(p,'exit'),wait(10000)]);
-   await profileClosed();
-   ws.close();browser=null;
+   await profileClosed(name);
+   ws.close();browsers.delete(name);
  }};
 }
 const evaluate=(page,name,...args)=>page.evaluate('window.km.'+name+'('+args.map(a=>JSON.stringify(a)).join(',')+')');
+async function until(label,fn){
+ step=label;const end=Date.now()+60000;
+ while(Date.now()<end){const v=await fn();if(v)return v;await wait(250);}
+ throw Error('bounded condition expired');
+}
+async function verify(at,bt,a,b){
+ step='request';
+ const tx=await evaluate(at,'request',b.user,b.device);
+ assert(typeof tx==='string'&&tx.length);
+ await evaluate(bt,'accept',a.user,tx);
+ await evaluate(at,'startSas');
+ await Promise.all([evaluate(at,'prepareSas'),evaluate(bt,'prepareSas')]);
+ step='sascompare';
+ const [sa,sb]=await Promise.all([evaluate(at,'sas'),evaluate(bt,'sas')]);
+ assert.equal(sa.decimal?.length,3);assert.equal(sa.emoji?.length,7);
+ assert.deepEqual(sa,sb);
+ // Synthetic independent endpoints only; never a production auto-trust path.
+ await Promise.all([evaluate(at,'confirmSas'),evaluate(bt,'confirmSas')]);
+ await Promise.all([evaluate(at,'trusted',b.user),evaluate(bt,'trusted',a.user)]);
+}
+async function exchange(at,bt,a,b,e,room,marker){
+ step='submit';
+ await evaluate(at,'uiSubmit',marker);
+ const row=await until('senderhistory',async()=>{
+  const rows=await evaluate(at,'history',room);
+  return rows.find(r=>r.body===marker&&r.sender===a.user);
+ });
+ step='serverevent';
+ const raw=await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(row.id),a.token);
+ assert.equal(raw.type,'m.room.encrypted');assert(!JSON.stringify(raw).includes(marker));
+ const denied=await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(row.id),e.token,undefined,404);
+ assert.equal(denied.errcode,'M_NOT_FOUND');assert.deepEqual(Object.keys(denied).sort(),['errcode','error']);
+ if(bt){
+  step='receiverui';
+  await until('receiverui',()=>evaluate(bt,'uiHas',marker,a.user));
+ }
+ return row.id;
+}
 try{
  stage='accounts';
- const a=await account('alice','ALICE'),b=await account('bob','BOB');
+ const a=await account('alice','ALICE'),b=await account('bob','BOB'),e=await account('eve','EVE');
  const room=(await req('POST',p+'/createRoom',a.token,{visibility:'private',preset:'private_chat',invite:[b.user],initial_state:[{type:'m.room.encryption',state_key:'',content:{algorithm:'m.megolm.v1.aes-sha2'}}]})).room_id;
- assert(room);await req('POST',p+'/join/'+enc(room),b.token,{});
- const key=[...randomBytes(32)];
- const input={userId:a.user,deviceId:a.device,accessToken:a.token,storageKey:key,rooms:[{roomId:room,partners:[b.user]}]};
- const wrong={...input,storageKey:[...key]};wrong.storageKey[0]^=1;
+ const plain=(await req('POST',p+'/createRoom',a.token,{visibility:'private',preset:'private_chat',invite:[b.user]})).room_id;
+ assert(room&&plain&&room!==plain);
+ await req('POST',p+'/join/'+enc(room),b.token,{});await req('POST',p+'/join/'+enc(plain),b.token,{});
+ await req('POST',p+'/join/'+enc(room),e.token,{},403);
+ const input=(x,y)=>({userId:x.user,deviceId:x.device,accessToken:x.token,storageKey:[...randomBytes(32)],rooms:[{roomId:room,partners:[y.user]},{roomId:plain,partners:[y.user]}]});
+ const ai=input(a,b),bi=input(b,a);
  stage='tls';
  proxy=spawn(join(scratch,'fixture-tls.exe'),[String(port),join(process.cwd(),'public'),infoPath],{stdio:'ignore',windowsHide:true});
  for(let i=0;i<100&&!existsSync(infoPath);i++){assert.equal(proxy.exitCode,null);await wait(100);}
  const info=JSON.parse(readFileSync(infoPath,'utf8'));
  assert(/^https:\/\/127\.0\.0\.1:\d+$/.test(info.origin)&&/^[A-Za-z0-9+/]{43}=$/.test(info.pin));
- stage='browser';step='first';
- let br=await startBrowser(info.origin,info.pin),tab=await br.page();
- assert.deepEqual(await evaluate(tab,'capabilities'),{secure:true,https:true,locks:true,idb:true});
- console.log('KM_BROWSER_HTTPS_CONTEXT=PASS');
- step='firststore';
- const initial=await evaluate(tab,'open',input,true);
- assert(initial?.master&&initial?.device?.ed25519&&initial?.device?.curve25519&&initial.db.length);
- console.log('KM_BROWSER_STORE_INITIAL=PASS');
- step='unverified';
- assert.equal(await evaluate(tab,'unverified',room),true);
- console.log('KM_BROWSER_UNVERIFIED_DENIED=PASS');
- step='lock';
- const second=await br.page();
- assert.equal(await evaluate(second,'deny',input,'crypto store already owned'),true);
- assert.equal(await evaluate(tab,'close'),true);
- const third=await br.page();
- assert.equal(await evaluate(third,'deny',input,'crypto store already owned'),true);
- console.log('KM_BROWSER_LOCK=PASS contention=2');
- await br.close();
- step='wrongkey';
- br=await startBrowser(info.origin,info.pin);tab=await br.page();
- assert.equal(await evaluate(tab,'deny',wrong,'secure session initialization failed'),true);
- await br.close();
- console.log('KM_BROWSER_WRONG_KEY=PASS');
- step='coldreopen';
- br=await startBrowser(info.origin,info.pin);tab=await br.page();
- const after=await evaluate(tab,'open',input,false);
- assert.deepEqual(after,initial);
- assert.equal(await evaluate(tab,'unverified',room),true);
- assert.equal(await evaluate(tab,'close'),true);
- await br.close();
- console.log('KM_BROWSER_COLD_REOPEN=PASS identity_unchanged=1');
- console.log('KM_BROWSER_CUSTODY=PASS');
+ stage='browser';step='launch';
+ let ab=await startBrowser(info.origin,info.pin,profiles[0]),at=await ab.page();
+ let bb=await startBrowser(info.origin,info.pin,profiles[1]),bt=await bb.page();
+ for(const tab of [at,bt])assert.deepEqual(await evaluate(tab,'capabilities'),{secure:true,https:true,locks:true,idb:true});
+ step='identity';
+ const aa=await evaluate(at,'open',ai,true),ba=await evaluate(bt,'open',bi,true);
+ assert(aa.master&&ba.master&&aa.master!==ba.master&&aa.device.ed25519!==ba.device.ed25519);
+ console.log('KM_UI_INDEPENDENT_IDENTITIES=PASS count=2');
+ stage='negative';step='unverified';
+ assert.equal(await evaluate(at,'unverified',room),true);
+ assert.equal(await evaluate(bt,'unverified',room),true);
+ assert.equal(await evaluate(at,'plainDenied',plain),true);
+ console.log('KM_UI_UNVERIFIED_AND_PLAINTEXT_DENIED=PASS');
+ stage='verify';await verify(at,bt,a,b);console.log('KM_UI_MUTUAL_SAS=PASS');
+ stage='ui';step='mount';
+ await Promise.all([evaluate(at,'mount',room),evaluate(bt,'mount',room)]);
+ const m1='KM_SYNTHETIC_'+randomUUID()+' <img src=x onerror=alert(1)>',m2='KM_SYNTHETIC_'+randomUUID();
+ stage='forward';await exchange(at,bt,a,b,e,room,m1);console.log('KM_UI_FORWARD=PASS');
+ stage='reverse';await exchange(bt,at,b,a,e,room,m2);console.log('KM_UI_REVERSE=PASS');
+ stage='offline';step='close';
+ await evaluate(bt,'closeUI');await bb.close();bt=null;
+ const m3='KM_SYNTHETIC_OFFLINE_'+randomUUID();
+ await exchange(at,null,a,b,e,room,m3);
+ step='reopen';
+ bb=await startBrowser(info.origin,info.pin,profiles[1]);bt=await bb.page();
+ const recovered=await evaluate(bt,'open',bi,false);assert.deepEqual(recovered,ba);
+ await evaluate(bt,'trusted',a.user);await evaluate(bt,'mount',room);
+ await until('offlinehistory',()=>evaluate(bt,'uiHas',m3,a.user));
+ await until('oldhistory',()=>evaluate(bt,'uiHas',m1,a.user));
+ console.log('KM_UI_OFFLINE_AND_COLD_HISTORY=PASS');
+ stage='close';step='wipe';
+ assert.equal(await evaluate(at,'closeUI'),true);assert.equal(await evaluate(bt,'closeUI'),true);
+ await ab.close();await bb.close();
+ console.log('KM_UI_MESSAGING=PASS directions=2 offline=1 outsider_denied=3');
 }catch(error){
  const loc=String(error?.stack??'').match(/browser-driver\.mjs:(\d+):(\d+)/);
  console.error('KM_BROWSER_FAILURE stage='+stage+' step='+step+' line='+(loc?.[1]??'0')+' kind='+String(error?.name??'Error').replace(/[^A-Za-z0-9_]/g,'').slice(0,40));
  process.exitCode=1;
 }finally{
- try{custody('cleanup');assert.equal(custody('count'),'0');await stop(proxy);console.log('KM_BROWSER_PROCESSES_STOPPED=PASS');}catch{process.exitCode=1;console.error('KM_BROWSER_CLEANUP_FAIL');}
+ try{for(const name of profiles){custody('cleanup',0,name);assert.equal(custody('count',0,name),'0');}await stop(proxy);console.log('KM_BROWSER_PROCESSES_STOPPED=PASS');}catch{process.exitCode=1;console.error('KM_BROWSER_CLEANUP_FAIL');}
 }

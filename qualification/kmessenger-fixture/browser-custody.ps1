@@ -1,9 +1,9 @@
-param([ValidateSet('probe','count','cleanup')][string]$Mode,[int]$Port=0)
+param([ValidateSet('probe','count','cleanup')][string]$Mode,[int]$Port=0,[ValidateSet('edge-profile','edge-profile-b')][string]$ProfileName='edge-profile')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath($env:RUNNER_TEMP)
 $target=[IO.Path]::GetFullPath($env:KM_SCRATCH)
 if([IO.Path]::GetDirectoryName($target) -cne $root -or [IO.Path]::GetFileName($target) -cne ('kmessenger-browser-'+$env:GITHUB_RUN_ID)){throw 'KM_CUSTODY_SCOPE'}
-$profile=Join-Path $target 'edge-profile'
+$profile=Join-Path $target $ProfileName
 $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $edge=$null
 foreach($dir in @($env:ProgramFiles,[Environment]::GetEnvironmentVariable('ProgramFiles(x86)'))){
