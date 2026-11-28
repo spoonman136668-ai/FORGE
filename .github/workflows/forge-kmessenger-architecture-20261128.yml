@@ -1,0 +1,180 @@
+name: K-Messenger architecture synchronization and exact-final Windows regression
+on:
+  push:
+    branches: [qualification/kmessenger-architecture-20261128]
+    paths: [.github/workflows/forge-kmessenger-architecture-20261128.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kmessenger-architecture-20261128
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 120
+    steps:
+      - name: Owner route and private exact-source custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kmessenger-architecture-20261128' -or $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'KM_WRONG_OWNER_ROUTE'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('kmessenger-architecture-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'KM_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          "KM_SCRATCH=$scratch" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          $root=Join-Path $scratch 'source'
+          $want='53e75cd82c42fb71a0a53341e2582cb0f0e6e0d5'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $remote=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/feature/k-messenger' --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KM_REF_DRIFT_OR_ACCESS'}
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 1 --single-branch --branch feature/k-messenger *> (Join-Path $scratch 'clone.log')
+          if($LASTEXITCODE -ne 0){throw 'KM_PRIVATE_CLONE_FAIL'}
+          if((& git -C $root rev-parse HEAD).Trim() -cne $want -or (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne '5db37c5b4b6bcde4de5b2a9729d3ea2f458f7ad6' -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne 'bbd095b3c7e932db16fb22d1390d951fba96ad92' -or (& git -C $root rev-parse HEAD:mobile-alerts).Trim() -cne 'a0eabb2b25095d3c0f6ecaa671c46092cfe76df7' -or @(& git -C $root status --porcelain --untracked-files=all).Count){throw 'KM_CUSTODY_FAIL'}
+          Write-Output 'KM_EXACT_SOURCE=PASS'
+      - name: Existing pinned Go toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Generate architecture maps and qualify exact final candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:KM_SCRATCH 'source'
+          $want='53e75cd82c42fb71a0a53341e2582cb0f0e6e0d5'
+          $env:GOTOOLCHAIN='local';$env:GOTELEMETRY='off';$env:CGO_ENABLED='0';$env:K_TERMINAL_EXECUTION_MODE='PAPER';$env:PYTHONDONTWRITEBYTECODE='1'
+          foreach($n in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET','ALERTS_PUBLISH_TOKEN','OPS_WORKER_TOKEN','KT_STATE_FILE','OPS_TOTP_KEY_FILE','OPS_DEVICES_FILE','OPS_SWITCH_FILE','OPS_JOURNAL_KEY','OPS_LOCAL_SWITCH_FILE','ALERTS_DATA_DIR')){if([Environment]::GetEnvironmentVariable($n)){throw 'KM_RUNTIME_ENV_BLOCKED'}}
+          foreach($v in @(Get-ChildItem Env: | Where-Object {$_.Name -match '^(?i:NPM_CONFIG_|NODE_AUTH_TOKEN$|NPM_TOKEN$|NODE_OPTIONS$|GH_TOKEN$|GITHUB_TOKEN$|GH_ENTERPRISE_TOKEN$|GITHUB_ENTERPRISE_TOKEN$|OPENAI_API_KEY$|ANTHROPIC_API_KEY$|OPENROUTER_API_KEY$|GEMINI_API_KEY$|AZURE_OPENAI_API_KEY$|NODE_EXTRA_CA_CERTS$|NODE_TLS_REJECT_UNAUTHORIZED$)'})){Remove-Item -LiteralPath ('Env:'+$v.Name)}
+          function Check([string]$label,[string]$exe,[string[]]$argv,[int]$expected=0){
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            $log=Join-Path $env:KM_SCRATCH ($label+'.log')
+            try{& $exe @argv *> $log;$rc=$LASTEXITCODE}catch{$rc=1}
+            $sw.Stop()
+            if($rc -ne 0){Write-Output "$label=FAIL elapsed_ms=$($sw.ElapsedMilliseconds)";throw 'KM_QUALIFICATION_GATE_FAIL'}
+            if($expected -gt 0){
+              $lines=Get-Content -LiteralPath $log
+              if($lines -cnotcontains "# tests $expected" -or $lines -cnotcontains "# pass $expected" -or $lines -cnotcontains '# fail 0' -or $lines -cnotcontains '# skipped 0' -or $lines -cnotcontains '# cancelled 0'){throw 'KM_TEST_INVENTORY_FAIL'}
+            }
+            if($label -eq 'KM_FINAL_WASM'){
+              $lines=Get-Content -LiteralPath $log
+              foreach($expectedLine in @('KM_INSTALLED_MANIFESTS=PASS count=17','KM_REAL_SDK_IMPORT=PASS','KM_WASM_FORWARD=PASS','KM_WASM_REVERSE=PASS','KM_WASM_PRIMITIVE=PASS directions=2 outsider_denied=2 tamper_denied=2')){if($lines -cnotcontains $expectedLine){throw 'KM_WASM_RECEIPT_MISSING'}}
+            }
+            Write-Output "$label=PASS elapsed_ms=$($sw.ElapsedMilliseconds)"
+            if($label -in @('KM_FINAL_MESSENGER_TESTS','KM_FINAL_VIEWER_TESTS','KM_FINAL_VIEWER_INSTALL_TESTS')){
+              foreach($line in (Get-Content -LiteralPath $log)){if($line -match '^# (tests|pass|fail|cancelled|skipped) [0-9]+$'){Write-Output $line}}
+            }
+          }
+          if((& go env GOVERSION).Trim() -cne 'go1.26.5'){throw 'KM_GO_TOOLCHAIN_DRIFT'}
+          $nodeVersion=(& node --version).Trim()
+          if($nodeVersion -cne 'v24.19.0'){throw 'KM_NODE_TOOLCHAIN_DRIFT'}
+          Write-Output "KM_TOOLCHAINS=PASS node=$nodeVersion go=1.26.5"
+          $env:NPM_CONFIG_USERCONFIG=Join-Path $env:KM_SCRATCH 'user.npmrc'
+          $env:NPM_CONFIG_GLOBALCONFIG=Join-Path $env:KM_SCRATCH 'global.npmrc'
+          New-Item -ItemType File -Path $env:NPM_CONFIG_USERCONFIG,$env:NPM_CONFIG_GLOBALCONFIG | Out-Null
+          $env:NPM_CONFIG_CACHE=Join-Path $env:KM_SCRATCH 'npm-cache'
+          $env:NPM_CONFIG_REGISTRY='https://registry.npmjs.org/'
+          $env:NPM_CONFIG_IGNORE_SCRIPTS='true'
+          $env:NPM_CONFIG_STRICT_SSL='true'
+          $env:NPM_CONFIG_UPDATE_NOTIFIER='false'
+          $env:NPM_CONFIG_FETCH_RETRIES='0'
+          $env:NPM_CONFIG_FETCH_TIMEOUT='30000'
+          Push-Location $root
+          try{
+            Check 'KM_SOURCE_CUSTODY' 'python' @('-B','tools/architecture/verify_source_custody.py')
+            Check 'KM_ATLAS_GENERATE' 'python' @('-B','tools/architecture/generate.py')
+            Check 'KM_ATLAS_CHECK' 'python' @('-B','tools/architecture/generate.py','--check')
+            $venv=Join-Path $env:KM_SCRATCH 'graphify-venv'
+            $wheelDir=Join-Path $env:KM_SCRATCH 'wheels'
+            New-Item -ItemType Directory -Path $wheelDir | Out-Null
+            Check 'KM_GRAPHIFY_VENV' 'python' @('-m','venv',$venv)
+            $py=Join-Path $venv 'Scripts/python.exe'
+            Check 'KM_GRAPHIFY_WHEEL' $py @('-m','pip','download','--no-deps','--only-binary=:all:','--dest',$wheelDir,'graphifyy==0.9.92')
+            $wheel=Join-Path $wheelDir 'graphifyy-0.9.92-py3-none-any.whl'
+            if(!(Test-Path -LiteralPath $wheel) -or (Get-FileHash -LiteralPath $wheel -Algorithm SHA256).Hash.ToLowerInvariant() -cne '9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c'){throw 'KM_GRAPHIFY_WHEEL_HASH_FAIL'}
+            Check 'KM_GRAPHIFY_INSTALL' $py @('-m','pip','install','--disable-pip-version-check',$wheel)
+            Check 'KM_GRAPHIFY_VERSION' $py @('-c',"from importlib.metadata import version; assert version('graphifyy')=='0.9.92'")
+            $graph=Join-Path $venv 'Scripts/graphify.exe'
+            Check 'KM_GRAPHIFY_CODE' $graph @('extract','.','--code-only','--max-workers','4')
+            Check 'KM_GRAPHIFY_CLUSTER' $graph @('cluster-only','.','--no-label')
+            Check 'KM_GRAPHIFY_PUBLICATION' $py @('tools/architecture/publish_graphify.py','--root','.','--input','graphify-out','--output','docs/graphify','--source-sha',$want)
+            $manifest=Get-Content -LiteralPath '.ice/manifest.json' -Raw | ConvertFrom-Json
+            $receipt=Get-Content -LiteralPath 'docs/graphify/source-manifest.json' -Raw | ConvertFrom-Json
+            if($receipt.source_commit -cne $want -or $receipt.source_content_sha256 -cne $manifest.source_content_sha256){throw 'KM_GRAPHIFY_CUSTODY_FAIL'}
+            $catalog=Get-Content -LiteralPath '.ice/file-descriptions.json' -Raw
+            if($catalog -notmatch 'k-messenger/qualify-wasm\.mjs' -or $catalog -notmatch 'k-messenger/crypto-policy\.mjs'){throw 'KM_ATLAS_MESSENGER_MISSING'}
+            $graphText=Get-Content -LiteralPath 'docs/graphify/graph.json' -Raw
+            $coverage=[bool]($graphText -match 'k-messenger[/\\]');Write-Output "KM_GRAPHIFY_MESSENGER_PATH_PRESENT=$coverage"
+            $allowed='^(?:\.ice/(?:manifest\.json|file-descriptions\.json|source-file-descriptions\.ice|symbol-dependency-map\.ice|code-graph\.json)|docs/obsidian/(?:KABOOM\.md|Modules/[a-z]+\.md)|docs/graphify/(?:graph\.json|graph\.html|GRAPH_REPORT\.md|source-manifest\.json))$'
+            $names=@(& git diff --no-renames --name-only)
+            $others=@(& git ls-files --others --exclude-standard)
+            foreach($n in @($names)+@($others)){if($n -notmatch $allowed){throw 'KM_DERIVED_SCOPE_FAIL'}}
+            & git add -- .ice docs/obsidian docs/graphify *> (Join-Path $env:KM_SCRATCH 'stage.log')
+            if($LASTEXITCODE -ne 0){throw 'KM_STAGE_FAIL'}
+            $staged=@(& git diff --cached --no-renames --name-only)
+            if(!$staged.Count){throw 'KM_NO_DERIVED_DIFF'}
+            foreach($n in $staged){if($n -notmatch $allowed){throw 'KM_STAGE_SCOPE_FAIL'}}
+            & git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'docs(k-messenger): regenerate branch architecture maps [skip ci]' *> (Join-Path $env:KM_SCRATCH 'commit.log')
+            if($LASTEXITCODE -ne 0){throw 'KM_DERIVED_COMMIT_FAIL'}
+            $final=(& git rev-parse HEAD).Trim();$tree=(& git rev-parse 'HEAD^{tree}').Trim()
+            if((& git rev-parse 'HEAD^').Trim() -cne $want -or (& git rev-parse HEAD:kaboom-core).Trim() -cne 'bbd095b3c7e932db16fb22d1390d951fba96ad92' -or (& git rev-parse HEAD:mobile-alerts).Trim() -cne 'a0eabb2b25095d3c0f6ecaa671c46092cfe76df7' -or (& git rev-parse HEAD:k-messenger).Trim() -cne (& git rev-parse ($want+':k-messenger')).Trim()){throw 'KM_FINAL_TREE_SCOPE_FAIL'}
+            foreach($n in @(& git diff --no-renames --name-only $want $final)){if($n -notmatch $allowed){throw 'KM_FINAL_SCOPE_FAIL'}}
+            Check 'KM_FINAL_CUSTODY' 'python' @('-B','tools/architecture/verify_source_custody.py')
+            Check 'KM_FINAL_ATLAS' 'python' @('-B','tools/architecture/generate.py','--check')
+            Check 'KM_FINAL_ARCH_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/architecture','-p','test_*.py','-v')
+            Check 'KM_FINAL_ACCEPTANCE_NEGATIVES' 'python' @('-B','-m','unittest','discover','-s','tools/acceptance','-p','test_*.py','-v')
+            # All dependency installations are scratch copies, not repo/production.
+            $messenger=Join-Path $env:KM_SCRATCH 'messenger-final'
+            Copy-Item -LiteralPath 'k-messenger' -Destination $messenger -Recurse
+            Push-Location $messenger
+            try{
+              Check 'KM_FINAL_LOCK' 'node' @('verify-lock.mjs')
+              if((Get-FileHash -LiteralPath 'package-lock.json' -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'a8e5789f289a3c357d41084a7b9655b5eb4d942614c42b49a9ca399fa3eb97b3'){throw 'KM_FINAL_LOCK_DRIFT'}
+              Check 'KM_FINAL_MESSENGER_TESTS' 'node' @('--test','--test-reporter=tap','mailbox.test.mjs','crypto-policy.test.mjs','client-lifecycle.test.mjs','verify-lock.test.mjs','receive-policy.test.mjs','conversation.test.mjs') 38
+              Check 'KM_FINAL_MESSENGER_SYNTAX' 'npm.cmd' @('run','check')
+              Check 'KM_FINAL_LOCKED_INSTALL' 'npm.cmd' @('ci','--ignore-scripts','--no-audit','--no-fund')
+              Check 'KM_FINAL_WASM' 'node' @('qualify-wasm.mjs')
+            }finally{Pop-Location}
+            $viewer=Join-Path $env:KM_SCRATCH 'viewer-final'
+            Copy-Item -LiteralPath 'mobile-alerts' -Destination $viewer -Recurse
+            Push-Location $viewer
+            try{
+              Check 'KM_FINAL_VIEWER_LOCK' 'npm.cmd' @('run','check:lock')
+              Check 'KM_FINAL_VIEWER_TESTS' 'node' @('--test','--test-reporter=tap','protocol.test.mjs','operations.test.mjs','security.test.mjs','totp.test.mjs','alert-access.test.mjs','gateway-http.test.mjs')
+              Check 'KM_FINAL_VIEWER_SYNTAX' 'npm.cmd' @('run','check')
+              Check 'KM_FINAL_VIEWER_INSTALL' 'npm.cmd' @('ci','--ignore-scripts','--no-audit','--no-fund')
+              Check 'KM_FINAL_VIEWER_INSTALL_TESTS' 'node' @('--test','--test-reporter=tap','install.test.mjs') 3
+              Push-Location native-admission
+              try{
+                Check 'KM_FINAL_ADMISSION_TEST' 'go' @('test','-count=1','-timeout','2m','./...')
+                Check 'KM_FINAL_ADMISSION_VET' 'go' @('vet','./...')
+                Check 'KM_FINAL_ADMISSION_BUILD' 'go' @('build','./...')
+              }finally{Pop-Location}
+            }finally{Pop-Location}
+            Push-Location kaboom-core
+            try{
+              Check 'KM_FINAL_CORE_TEST' 'go' @('test','-p','1','-count=1','-timeout','35m','./...')
+              Check 'KM_FINAL_CORE_VET' 'go' @('vet','./...')
+              Check 'KM_FINAL_CORE_BUILD' 'go' @('build','./...')
+            }finally{Pop-Location}
+            if(@(& git status --porcelain --untracked-files=all).Count -or (& git rev-parse HEAD).Trim() -cne $final -or (& git rev-parse 'HEAD^{tree}').Trim() -cne $tree){throw 'KM_FINAL_REGRESSION_CUSTODY_FAIL'}
+            Write-Output "KM_FINAL_WINDOWS_CANDIDATE=PASS sha=$final tree=$tree"
+            $remote=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/feature/k-messenger' --jq '.object.sha' 2>$null)
+            if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KM_PRIVATE_REF_DRIFT'}
+            & git push origin HEAD:refs/heads/feature/k-messenger *> (Join-Path $env:KM_SCRATCH 'push.log')
+            if($LASTEXITCODE -ne 0){throw 'KM_DERIVED_PUSH_FAIL'}
+            $after=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/feature/k-messenger' --jq '.object.sha' 2>$null)
+            if($LASTEXITCODE -ne 0 -or "$after".Trim() -cne $final){throw 'KM_DERIVED_READBACK_FAIL'}
+            Write-Output "KM_DERIVED_PUBLICATION=PASS sha=$final tree=$tree files=$($staged.Count);WINDOWS_ONLY;NO_WIRE_ACCEPTANCE;NO_DEPLOYMENT"
+          }finally{Pop-Location}
+      - name: Erase only private scratch
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:KM_SCRATCH){
+            $expected=Join-Path $env:RUNNER_TEMP ('kmessenger-architecture-'+$env:GITHUB_RUN_ID)
+            if($env:KM_SCRATCH -cne $expected){throw 'KM_CLEANUP_SCOPE'}
+            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $expected){throw 'KM_CLEANUP_FAIL'}
+          }
+          Write-Output 'KM_PRIVATE_SCRATCH_REMOVED=PASS'
