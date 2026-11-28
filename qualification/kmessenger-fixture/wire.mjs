@@ -103,7 +103,11 @@ async function exchange(a,b,eve,room){
   const raw=await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(sent.event_id),a.token);
   assert.equal(raw.type,'m.room.encrypted');assert(!JSON.stringify(raw).includes(marker));
   step='outsiderhttp';
-  await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(sent.event_id),eve.token,undefined,403);
+  // Pinned Dendrite GetEvent intentionally conceals unauthorized events with M_NOT_FOUND.
+  const denied=await req('GET',p+'/rooms/'+enc(room)+'/event/'+enc(sent.event_id),eve.token,undefined,404);
+  assert.equal(denied.errcode,'M_NOT_FOUND');
+  assert.deepEqual(Object.keys(denied).sort(),['errcode','error']);
+  assert(!JSON.stringify(denied).includes(marker));
   step='receiversync';
   let event;
   for(let i=0;i<8&&!event;i++){
