@@ -1,0 +1,74 @@
+name: K-Messenger existing wire-trial environment readiness
+on:
+  push:
+    branches: [qualification/kmessenger-wire-readiness-20261128]
+    paths: [.github/workflows/forge-kmessenger-wire-readiness-20261128.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kmessenger-wire-readiness-20261128
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Owner route and private exact-source custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kmessenger-wire-readiness-20261128' -or $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'KM_WRONG_OWNER_ROUTE'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('kmessenger-wire-readiness-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'KM_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          "KM_SCRATCH=$scratch" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          $root=Join-Path $scratch 'source'
+          $want='8577c5f33eff3363495d5e2e9afd071c69c2313b'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $remote=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/feature/k-messenger' --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KM_REF_DRIFT_OR_ACCESS'}
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 1 --single-branch --branch feature/k-messenger *> (Join-Path $scratch 'clone.log')
+          if($LASTEXITCODE -ne 0){throw 'KM_PRIVATE_CLONE_FAIL'}
+          if((& git -C $root rev-parse HEAD).Trim() -cne $want -or (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne '4d5ca86b011d5d55235a676e3c8b62e6af048cf9' -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne 'bbd095b3c7e932db16fb22d1390d951fba96ad92' -or (& git -C $root rev-parse HEAD:mobile-alerts).Trim() -cne 'a0eabb2b25095d3c0f6ecaa671c46092cfe76df7' -or @(& git -C $root status --porcelain --untracked-files=all).Count){throw 'KM_CUSTODY_FAIL'}
+          Write-Output 'KM_EXACT_SOURCE=PASS'
+      - name: Inspect existing runtime capabilities without provisioning
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          # Report only capabilities. Do not enumerate existing containers,
+          # browser profiles, credentials or other project data.
+          foreach($n in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET','ALERTS_PUBLISH_TOKEN','OPS_WORKER_TOKEN','KT_STATE_FILE','ALERTS_DATA_DIR')){if([Environment]::GetEnvironmentVariable($n)){throw 'KM_RUNTIME_ENV_BLOCKED'}}
+          $docker=Get-Command docker.exe -ErrorAction SilentlyContinue
+          $engine='UNAVAILABLE'
+          if($docker){
+            $os=(& $docker.Source version --format '{{.Server.Os}}' 2>$null)
+            if($LASTEXITCODE -eq 0 -and "$os".Trim() -cin @('linux','windows')){$engine="$os".Trim()}
+          }
+          $wsl=[bool](Get-Command wsl.exe -ErrorAction SilentlyContinue)
+          $wslReady=$false
+          if($wsl){
+            $out=& wsl.exe --list --quiet 2>$null
+            if($LASTEXITCODE -eq 0){$wslReady=[bool](($out -join '').Replace([string][char]0,'').Trim())}
+          }
+          $edge=$false;$chrome=$false
+          foreach($dir in @($env:ProgramFiles,[Environment]::GetEnvironmentVariable('ProgramFiles(x86)'))){
+            if($dir){$edge=$edge -or (Test-Path -LiteralPath (Join-Path $dir 'Microsoft/Edge/Application/msedge.exe'));$chrome=$chrome -or (Test-Path -LiteralPath (Join-Path $dir 'Google/Chrome/Application/chrome.exe'))}
+          }
+          Write-Output "KM_WIRE_DOCKER_ENGINE=$engine"
+          Write-Output "KM_WIRE_WSL_COMMAND=$wsl"
+          Write-Output "KM_WIRE_WSL_REGISTERED=$wslReady"
+          Write-Output "KM_WIRE_EDGE_PRESENT=$edge"
+          Write-Output "KM_WIRE_CHROME_PRESENT=$chrome"
+          Write-Output 'KM_WIRE_CAPABILITY_CHECK=PASS;NO_INSTALL;NO_SERVICE_STARTED;NO_MACHINE_CHANGE'
+      - name: Erase only private scratch
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:KM_SCRATCH){
+            $expected=Join-Path $env:RUNNER_TEMP ('kmessenger-wire-readiness-'+$env:GITHUB_RUN_ID)
+            if($env:KM_SCRATCH -cne $expected){throw 'KM_CLEANUP_SCOPE'}
+            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $expected){throw 'KM_CLEANUP_FAIL'}
+          }
+          Write-Output 'KM_PRIVATE_SCRATCH_REMOVED=PASS'
