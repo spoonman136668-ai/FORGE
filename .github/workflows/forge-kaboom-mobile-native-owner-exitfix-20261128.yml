@@ -1,0 +1,148 @@
+name: K-Terminal detached native owner-loop review qualification
+on:
+  push:
+    branches: [qualification/kaboom-mobile-native-owner-exitfix-20261128]
+    paths: [.github/workflows/forge-kaboom-mobile-native-owner-exitfix-20261128.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kaboom-mobile-native-interop-20261128
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 120
+    steps:
+      - name: Verify one-shot owner route before provisioning
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kaboom-mobile-native-owner-exitfix-20261128' -or $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'MOBILE_WRONG_OWNER_ROUTE'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('kaboom-mobile-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'MOBILE_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          "MOBILE_SCRATCH=$scratch" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'MOBILE_OWNER_RUNNER=PASS'
+      - name: Existing pinned Go toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify baseline and exact detached review candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='56ac1f8d96f5d999cdf5e1a353c0f278deebee05'
+          $want='92ddde3cc1b5f325d4e33eb6fd10f4fa583e3007'
+          $ref='feature/mobile-remote-operations'
+          $root=Join-Path $env:MOBILE_SCRATCH 'source'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $remote=(& gh api ('repos/Kboomllc/K-Terminal/git/ref/heads/'+$ref) --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $base){throw 'REVIEW_BASE_DRIFT_OR_ACCESS'}
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 1 --single-branch --branch $ref *> (Join-Path $env:MOBILE_SCRATCH 'clone.log')
+          if($LASTEXITCODE -ne 0){throw 'REVIEW_PRIVATE_CLONE_FAIL'}
+          if((& git -C $root rev-parse HEAD).Trim() -cne $base -or (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne '8ab25855f542bec394fea4ee8b93ba9430124926' -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne 'bbd095b3c7e932db16fb22d1390d951fba96ad92'){throw 'REVIEW_BASE_TREE_FAIL'}
+          & python -B (Join-Path $root 'tools/architecture/verify_source_custody.py') *> (Join-Path $env:MOBILE_SCRATCH 'baseline-custody.log')
+          if($LASTEXITCODE -ne 0){throw 'REVIEW_BASE_CUSTODY_FAIL'}
+          Write-Output 'REVIEW_BASE_CUSTODY=PASS'
+          & git -C $root fetch --quiet --no-tags --depth 1 origin $want *> (Join-Path $env:MOBILE_SCRATCH 'fetch.log')
+          if($LASTEXITCODE -ne 0){throw 'REVIEW_DETACHED_FETCH_UNAVAILABLE'}
+          & git -C $root checkout --quiet --detach $want *> (Join-Path $env:MOBILE_SCRATCH 'checkout.log')
+          if($LASTEXITCODE -ne 0){throw 'REVIEW_DETACHED_CHECKOUT_FAIL'}
+          if((& git -C $root rev-parse HEAD).Trim() -cne $want -or (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne '23d399cc883018df0317aa9cde41373dce780efd' -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne '5aefa99b98888f7b62a417a134fda712f66448b6'){throw 'REVIEW_EXACT_TREE_FAIL'}
+          if(@(& git -C $root status --porcelain --untracked-files=all).Count){throw 'REVIEW_DIRTY_SOURCE'}
+          & git -C $root diff --quiet $base $want -- .ice tools/architecture
+          if($LASTEXITCODE -ne 0){throw 'REVIEW_HISTORICAL_CUSTODY_CHANGED'}
+          & python -B (Join-Path $root 'tools/architecture/verify_source_custody.py') *> (Join-Path $env:MOBILE_SCRATCH 'candidate-custody.log')
+          $rc=$LASTEXITCODE
+          $custody=Get-Content -LiteralPath (Join-Path $env:MOBILE_SCRATCH 'candidate-custody.log') -Raw
+          if($rc -ne 1 -or $custody -notmatch 'KABOOM_SOURCE_CUSTODY=FAIL: SOURCE_OVERLAY_CANDIDATE_CHANGED: kaboom-core/internal/engine/(engine|live|loop)\.go'){throw 'REVIEW_EXPECTED_CUSTODY_REJECTION_MISSING'}
+          Write-Output 'REVIEW_UNAPPROVED_OVERLAY_REJECTED=PASS;SOURCE_CUSTODY_APPROVAL=ABSENT'
+          "MOBILE_ROOT=$root" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "REVIEW_EXACT_DETACHED_SOURCE=PASS sha=$want"
+          # The verified expected negative control intentionally returned 1.
+          # Do not propagate it to the PowerShell Actions step exit handler.
+          exit 0
+      - name: Synthetic owner-loop tests and full detached Windows regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:GOTOOLCHAIN='local'; $env:GOTELEMETRY='off'; $env:CGO_ENABLED='0'; $env:K_TERMINAL_EXECUTION_MODE='PAPER'; $env:PYTHONDONTWRITEBYTECODE='1'
+          foreach($name in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET','ALERTS_PUBLISH_TOKEN','OPS_WORKER_TOKEN','KT_STATE_FILE','OPS_TOTP_KEY_FILE','OPS_DEVICES_FILE','OPS_SWITCH_FILE','OPS_JOURNAL_KEY','OPS_LOCAL_SWITCH_FILE','ALERTS_DATA_DIR')){
+            if([Environment]::GetEnvironmentVariable($name)){throw 'MOBILE_RUNTIME_CREDENTIAL_ENV_BLOCKED'}
+          }
+          foreach($name in @('GH_TOKEN','GITHUB_TOKEN','GH_ENTERPRISE_TOKEN','GITHUB_ENTERPRISE_TOKEN','OPENAI_API_KEY','ANTHROPIC_API_KEY','OPENROUTER_API_KEY','GEMINI_API_KEY','AZURE_OPENAI_API_KEY')){
+            Remove-Item -LiteralPath ('Env:'+ $name) -ErrorAction SilentlyContinue
+          }
+          $root=$env:MOBILE_ROOT
+          $failures=[System.Collections.Generic.List[string]]::new()
+          function Check([string]$label,[string]$exe,[string[]]$argv){
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            $log=Join-Path $env:MOBILE_SCRATCH ($label+'.log')
+            try {
+              & $exe @argv *> $log
+              $rc=$LASTEXITCODE
+            } catch {$rc=1}
+            $sw.Stop()
+            if($rc -ne 0){
+              $failures.Add($label);Write-Output "$label=FAIL elapsed_ms=$($sw.ElapsedMilliseconds)"
+              if($label -in @('MOBILE_NODE_TEST','MOBILE_FINAL_NODE_TEST')){
+                $allowed=@('assertion checks signed challenge, exact origin, RP and UV','peer check ignores forwarded addresses','login, command binding, one-use proofs, expiry and revocation','actual operations router requires passkey proof, machine peer, and current enable generation','authenticated journal rejects modification and unresolved writes','rotated credential revokes pending work and blocks history disclosure','RFC 6238 SHA1 vectors and base32','vault enforces current/previous step, identity, restart replay and durable throttle','vault denies duplicate enrollment, tampering, interruption and owner lock conflict','phone-only recovery: real signed synced passkey plus encrypted TOTP through gateway and restart','combined viewer routes deny legacy token and foreign credential access','notification revocation and credential rotation suppress queued delivery and history access','notification mutations deny cross origin and revocation during request body','notification custody refuses legacy migration, mixed ownership and downgrade','standalone viewer token remains separate and cannot configure combined fallback','actual signed passkey session authorizes alerts and denies machine or revoked identity','feed success requires server publication with both machine credentials and exact claim','duplicate snapshot is server-confirmed not advanced, never recovery success','publication revoked or expired during body read cannot reach storage','uncertain store attempt cannot be replayed or converted into success after restart','historical worker-only publication assertions remain stored but are not verified','ordinary publisher requires the configured machine peer even if maintenance is disabled','actual loopback HTTPS verifies certificate, security headers and origin','actual HTTPS standalone publisher and viewer roles remain separate','actual socket loopback and forwarded private peer cannot enter combined operations','native gateway codec refuses unsafe target, same signing key and noncanonical time','native gateway verifies exact signed receipt and rejects wrong signer generation and chronology','shared client policy denies platform claims and unregistered actions')
+                foreach($line in Get-Content -LiteralPath $log){foreach($name in $allowed){if($line -match ('(?:not ok [0-9]+ - |✖ )'+[regex]::Escape($name)+'(?:$| \()')){Write-Output ('MOBILE_SECURITY_CASE_FAILED='+$name)}}}
+              }
+              return
+            }
+            Write-Output "$label=PASS elapsed_ms=$($sw.ElapsedMilliseconds)"
+            if($label -in @('MOBILE_NODE_TEST','MOBILE_FINAL_NODE_TEST')){
+              $lines=Get-Content -LiteralPath $log
+              foreach($line in $lines){if($line -match '^# (tests|pass|fail|skipped) [0-9]+$'){Write-Output $line}}
+              foreach($expected in @('# tests 51','# pass 51','# fail 0','# skipped 0')){if($lines -cnotcontains $expected){$failures.Add('MOBILE_NODE_INVENTORY');Write-Output 'MOBILE_NODE_INVENTORY=FAIL'}}
+            }
+            if($label -in @('MOBILE_ADMISSION_TEST','MOBILE_FINAL_ADMISSION_TEST')){
+              $rows=@(Get-Content -LiteralPath $log | ForEach-Object {try{$_ | ConvertFrom-Json -ErrorAction Stop}catch{}})
+              $passed=@($rows | Where-Object {$_.Action -eq 'pass' -and $_.Test -and $_.Test -notmatch '/'}).Count
+              $failed=@($rows | Where-Object {$_.Action -eq 'fail' -and $_.Test -and $_.Test -notmatch '/'}).Count
+              Write-Output "MOBILE_ADMISSION_TOPLEVEL_PASS=$passed FAIL=$failed"
+              if($passed -ne 19 -or $failed -ne 0){$failures.Add('MOBILE_ADMISSION_INVENTORY')}
+            }
+          }
+          if((& go env GOVERSION).Trim() -cne 'go1.26.5'){throw 'MOBILE_GO_TOOLCHAIN_DRIFT'}
+          $node=Get-Command node -ErrorAction Stop
+          $version=(& node --version)
+          if($version -notmatch '^v(2[2-9]|[3-9][0-9])\.[0-9]+\.[0-9]+$'){throw 'REVIEW_NODE_VERSION'}
+          Push-Location (Join-Path $root 'mobile-alerts')
+          try{
+            Check 'MOBILE_NODE_TEST' 'node' @('--test','--test-reporter=tap','protocol.test.mjs','operations.test.mjs','security.test.mjs','totp.test.mjs','alert-access.test.mjs','gateway-http.test.mjs','native-handoff.test.mjs')
+            Check 'REVIEW_LOCK' 'node' @('verify-lock.mjs')
+          }finally{Pop-Location}
+          Push-Location (Join-Path $root 'kaboom-core')
+          try{
+            Check 'REVIEW_OWNER_FOCUSED' 'go' @('test','-json','-count=1','-timeout','2m','./internal/engine','-run','^Test(RecoveryOutcomeSeparatesAccountingFromStorage|RemoteRecoveryOwnerLane)$')
+            $rows=@(Get-Content -LiteralPath (Join-Path $env:MOBILE_SCRATCH 'REVIEW_OWNER_FOCUSED.log') | ForEach-Object {try{$_ | ConvertFrom-Json -ErrorAction Stop}catch{}})
+            $pass=@($rows | Where-Object {$_.Action -eq 'pass' -and $_.Test -match '^Test(RecoveryOutcomeSeparatesAccountingFromStorage|RemoteRecoveryOwnerLane)/[^/]+$'}).Count
+            $fail=@($rows | Where-Object {$_.Action -eq 'fail' -and $_.Test}).Count
+            Write-Output "REVIEW_OWNER_SCENARIOS_PASS=$pass FAIL=$fail EXPECTED=14"
+            foreach($case in @('TestRecoveryOutcomeSeparatesAccountingFromStorage','TestRemoteRecoveryOwnerLane')){
+              foreach($row in @($rows | Where-Object {$_.Action -eq 'fail' -and $_.Test -match ('^'+$case+'/(success|journal|snapshot|checkpoint|read-failure|unbalanced|storage-failure|revoked|live|armed|desktop|busy|unrelated)$')})){Write-Output ('REVIEW_FAILED_CASE='+$row.Test)}
+            }
+            if($pass -ne 14 -or $fail -ne 0){$failures.Add('REVIEW_OWNER_INVENTORY')}
+            Check 'MOBILE_ADMISSION_TEST' 'go' @('test','-tags','remoteinterop','-json','-count=1','-timeout','2m','./internal/remoteadmission')
+            Check 'REVIEW_CORE_FULL_TEST' 'go' @('test','-p','1','-count=1','-timeout','35m','./...')
+            Check 'REVIEW_CORE_VET' 'go' @('vet','./...')
+            Check 'REVIEW_CORE_BUILD' 'go' @('build','./...')
+          }finally{Pop-Location}
+          if((& git -C $root rev-parse HEAD).Trim() -cne '92ddde3cc1b5f325d4e33eb6fd10f4fa583e3007' -or (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne '23d399cc883018df0317aa9cde41373dce780efd' -or @(& git -C $root status --porcelain --untracked-files=all).Count){throw 'REVIEW_FINAL_SOURCE_DRIFT'}
+          if($failures.Count){throw ('REVIEW_QUALIFICATION_FAILED: '+($failures -join ','))}
+          Write-Output 'REVIEW_DETACHED_WINDOWS_TESTS=PASS;OVERLAY_NOT_APPROVED;NO_REF_WRITE;NO_ENGINE_ACTIVATION;NO_DEPLOYMENT'
+      - name: Erase private scratch (no artifacts on public repo)
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:MOBILE_SCRATCH){
+            $expected=Join-Path $env:RUNNER_TEMP ('kaboom-mobile-'+$env:GITHUB_RUN_ID)
+            if($env:MOBILE_SCRATCH -cne $expected){throw 'MOBILE_CLEANUP_SCOPE'}
+            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $expected){throw 'MOBILE_CLEANUP_INCOMPLETE'}
+          }
+          Write-Output 'MOBILE_PRIVATE_SCRATCH_REMOVED=PASS;PRIVATE_ARTIFACTS=NONE'
