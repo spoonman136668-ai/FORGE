@@ -1,0 +1,154 @@
+name: K-Messenger disposable native Matrix fixture
+on:
+  push:
+    branches: [qualification/kmessenger-dendrite-fixture-20261128]
+    paths: [.github/workflows/forge-kmessenger-dendrite-fixture-20261128.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kmessenger-dendrite-fixture-20261128
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - name: Owner route and private exact-source custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/qualification/kmessenger-dendrite-fixture-20261128' -or $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'KM_WRONG_OWNER_ROUTE'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('kmessenger-fixture-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'KM_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          "KM_SCRATCH=$scratch" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          $root=Join-Path $scratch 'source'
+          $want='8577c5f33eff3363495d5e2e9afd071c69c2313b'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $remote=(& gh api 'repos/Kboomllc/K-Terminal/git/ref/heads/feature/k-messenger' --jq '.object.sha' 2>$null)
+          if($LASTEXITCODE -ne 0 -or "$remote".Trim() -cne $want){throw 'KM_REF_DRIFT_OR_ACCESS'}
+          & gh repo clone Kboomllc/K-Terminal $root -- -c core.autocrlf=false --quiet --depth 1 --single-branch --branch feature/k-messenger *> (Join-Path $scratch 'clone.log')
+          if($LASTEXITCODE -ne 0){throw 'KM_PRIVATE_CLONE_FAIL'}
+          if((& git -C $root rev-parse HEAD).Trim() -cne $want -or (& git -C $root rev-parse 'HEAD^{tree}').Trim() -cne '4d5ca86b011d5d55235a676e3c8b62e6af048cf9' -or (& git -C $root rev-parse HEAD:kaboom-core).Trim() -cne 'bbd095b3c7e932db16fb22d1390d951fba96ad92' -or (& git -C $root rev-parse HEAD:mobile-alerts).Trim() -cne 'a0eabb2b25095d3c0f6ecaa671c46092cfe76df7' -or @(& git -C $root status --porcelain --untracked-files=all).Count){throw 'KM_CUSTODY_FAIL'}
+          Write-Output 'KM_EXACT_SOURCE=PASS'
+      - name: Checkout qualification harness only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: qualification/kmessenger-fixture
+      - name: Existing pinned Go toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Build pinned test-only server and perform bounded real Matrix wire primitive trial
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $scratch=$env:KM_SCRATCH
+          $root=Join-Path $scratch 'source'
+          $harness=Join-Path $env:GITHUB_WORKSPACE 'qualification/kmessenger-fixture'
+          if((& git -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'KM_HARNESS_DRIFT'}
+          foreach($n in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET','ALERTS_PUBLISH_TOKEN','OPS_WORKER_TOKEN','KT_STATE_FILE','ALERTS_DATA_DIR')){if([Environment]::GetEnvironmentVariable($n)){throw 'KM_RUNTIME_ENV_BLOCKED'}}
+          foreach($v in @(Get-ChildItem Env: | Where-Object {$_.Name -match '^(?i:NPM_CONFIG_|NODE_AUTH_TOKEN$|NPM_TOKEN$|NODE_OPTIONS$|GH_TOKEN$|GITHUB_TOKEN$|GH_ENTERPRISE_TOKEN$|GITHUB_ENTERPRISE_TOKEN$|OPENAI_API_KEY$|ANTHROPIC_API_KEY$|OPENROUTER_API_KEY$|GEMINI_API_KEY$|AZURE_OPENAI_API_KEY$|GOENV$|GOPROXY$|GONOPROXY$|GONOSUMDB$|GOPRIVATE$|GOSUMDB$|GOFLAGS$|GOWORK$|HTTP_PROXY$|HTTPS_PROXY$|ALL_PROXY$|NODE_EXTRA_CA_CERTS$|NODE_TLS_REJECT_UNAUTHORIZED$|PPROF)'})){Remove-Item -LiteralPath ('Env:'+$v.Name)}
+          $env:GOTOOLCHAIN='local';$env:GOTELEMETRY='off';$env:CGO_ENABLED='0';$env:GOWORK='off';$env:GOENV='off'
+          $env:GOPROXY='https://proxy.golang.org';$env:GOSUMDB='sum.golang.org'
+          $env:GOMODCACHE=Join-Path $scratch 'gomod';$env:GOCACHE=Join-Path $scratch 'gocache'
+          $env:GIT_CONFIG_NOSYSTEM='1';$env:GIT_CONFIG_GLOBAL='NUL'
+          function Check([string]$label,[string]$exe,[string[]]$argv){
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            & $exe @argv *> (Join-Path $scratch ($label+'.log'))
+            $rc=$LASTEXITCODE;$sw.Stop()
+            if($rc -ne 0){Write-Output "$label=FAIL elapsed_ms=$($sw.ElapsedMilliseconds)";throw 'KM_FIXTURE_GATE_FAIL'}
+            Write-Output "$label=PASS elapsed_ms=$($sw.ElapsedMilliseconds)"
+          }
+          if((& go env GOVERSION).Trim() -cne 'go1.26.5'){throw 'KM_GO_TOOLCHAIN_DRIFT'}
+          if((& node --version).Trim() -cne 'v24.19.0'){throw 'KM_NODE_TOOLCHAIN_DRIFT'}
+          $up=Join-Path $scratch 'dendrite'
+          Check 'KM_UPSTREAM_FETCH' 'git' @('clone','--quiet','--depth','1','--branch','v0.15.2','https://github.com/element-hq/dendrite.git',$up)
+          if((& git -C $up rev-parse HEAD).Trim() -cne 'e546df2e1ec9f53244a066c070ba5134af565f28' -or (& git -C $up rev-parse 'HEAD^{tree}').Trim() -cne '5ca3a60324aeff61adc86d3bfa6ba7ce995f067c'){throw 'KM_UPSTREAM_DRIFT'}
+          $serverExe=Join-Path $scratch 'dendrite.exe';$keyExe=Join-Path $scratch 'generate-keys.exe';$configExe=Join-Path $scratch 'fixture-config.exe'
+          Push-Location $up
+          try{
+            Check 'KM_UPSTREAM_MODULES' 'go' @('mod','download')
+            Check 'KM_UPSTREAM_MODULE_VERIFY' 'go' @('mod','verify')
+            Check 'KM_UPSTREAM_BUILD' 'go' @('build','-mod=readonly','-trimpath','-o',$serverExe,'./cmd/dendrite')
+            Check 'KM_UPSTREAM_KEY_BUILD' 'go' @('build','-mod=readonly','-trimpath','-o',$keyExe,'./cmd/generate-keys')
+            Check 'KM_FIXTURE_CONFIG_BUILD' 'go' @('build','-mod=readonly','-trimpath','-o',$configExe,(Join-Path $harness 'fixture-config.go'))
+            if(@(& git status --porcelain --untracked-files=all).Count){throw 'KM_UPSTREAM_SOURCE_MODIFIED'}
+          }finally{Pop-Location}
+          $env:NPM_CONFIG_USERCONFIG=Join-Path $scratch 'user.npmrc'
+          $env:NPM_CONFIG_GLOBALCONFIG=Join-Path $scratch 'global.npmrc'
+          New-Item -ItemType File -Path $env:NPM_CONFIG_USERCONFIG,$env:NPM_CONFIG_GLOBALCONFIG | Out-Null
+          $env:NPM_CONFIG_CACHE=Join-Path $scratch 'npm-cache'
+          $env:NPM_CONFIG_REGISTRY='https://registry.npmjs.org/'
+          $env:NPM_CONFIG_IGNORE_SCRIPTS='true';$env:NPM_CONFIG_STRICT_SSL='true';$env:NPM_CONFIG_UPDATE_NOTIFIER='false';$env:NPM_CONFIG_FETCH_RETRIES='0';$env:NPM_CONFIG_FETCH_TIMEOUT='30000'
+          $work=Join-Path $scratch 'client'
+          New-Item -ItemType Directory -Path $work | Out-Null
+          foreach($name in @('package.json','package-lock.json','verify-lock.mjs')){Copy-Item -LiteralPath (Join-Path (Join-Path $root 'k-messenger') $name) -Destination $work}
+          Copy-Item -LiteralPath (Join-Path $harness 'wire.mjs') -Destination $work
+          Push-Location $work
+          try{
+            Check 'KM_FIXTURE_LOCK' 'node' @('verify-lock.mjs')
+            if((Get-FileHash -LiteralPath 'package-lock.json' -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'a8e5789f289a3c357d41084a7b9655b5eb4d942614c42b49a9ca399fa3eb97b3'){throw 'KM_FIXTURE_LOCK_DRIFT'}
+            Check 'KM_FIXTURE_INSTALL' 'npm.cmd' @('ci','--ignore-scripts','--no-audit','--no-fund')
+            Check 'KM_FIXTURE_SYNTAX' 'node' @('--check','wire.mjs')
+          }finally{Pop-Location}
+          $data=Join-Path $scratch 'server'
+          New-Item -ItemType Directory -Path $data | Out-Null
+          Push-Location $data
+          try{
+            Check 'KM_FIXTURE_CONFIG' $configExe @()
+            Check 'KM_FIXTURE_SIGNING_KEY' $keyExe @('--private-key','matrix_key.pem')
+          }finally{Pop-Location}
+          # Defense in depth only: no OS firewall changes; application federation disabled.
+          $env:HTTP_PROXY='http://127.0.0.1:1';$env:HTTPS_PROXY='http://127.0.0.1:1';$env:NO_PROXY='127.0.0.1,localhost'
+          $l=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
+          $l.Start();$port=([Net.IPEndPoint]$l.LocalEndpoint).Port;$l.Stop()
+          $env:KM_FIXTURE_PORT=[string]$port
+          $env:KM_FIXTURE_SECRET=Join-Path $data 'registration.txt'
+          $proc=$null
+          try{
+            $proc=Start-Process -FilePath $serverExe -WorkingDirectory $data -ArgumentList @('--config','dendrite.yaml','--http-bind-address',('127.0.0.1:'+$port)) -RedirectStandardOutput (Join-Path $scratch 'server.out') -RedirectStandardError (Join-Path $scratch 'server.err') -PassThru -NoNewWindow
+            $ready=$false
+            for($i=0;$i -lt 60;$i++){
+              if($proc.HasExited){throw 'KM_FIXTURE_SERVER_EXIT'}
+              try{
+                $sockets=@(Get-NetTCPConnection -OwningProcess $proc.Id -State Listen -ErrorAction Stop)
+                if(@($sockets | Where-Object {$_.LocalAddress -cnotin @('127.0.0.1','::1')}).Count){throw 'KM_FIXTURE_EXTERNAL_LISTENER'}
+                if(@($sockets | Where-Object {$_.LocalPort -eq $port -and $_.LocalAddress -ceq '127.0.0.1'}).Count){
+                  $response=Invoke-RestMethod -Uri ('http://127.0.0.1:'+$port+'/_matrix/client/versions') -TimeoutSec 2
+                  if($response.versions.Count){$ready=$true;break}
+                }
+              }catch{if($_.Exception.Message -match 'KM_FIXTURE_EXTERNAL_LISTENER'){throw}}
+              Start-Sleep -Seconds 1
+            }
+            if(!$ready){throw 'KM_FIXTURE_SERVER_NOT_READY'}
+            Write-Output 'KM_FIXTURE_REAL_SERVER=PASS;LOOPBACK_ONLY;FEDERATION_DISABLED'
+            Push-Location $work
+            try{
+              & node wire.mjs *> (Join-Path $scratch 'wire.log')
+              $rc=$LASTEXITCODE
+              $lines=Get-Content -LiteralPath (Join-Path $scratch 'wire.log')
+              foreach($line in $lines){if($line -cmatch '^KM_FIXTURE_(PUBLIC_REGISTRATION_DENIED=PASS|ACCOUNTS=PASS count=3|PRIVATE_ROOM=PASS|FORWARD=PASS|REVERSE=PASS|WIRE_PRIMITIVES=PASS directions=2 outsider_denied=2 receiver_offline_during_send=2|FAILURE stage=[a-z]+ kind=[A-Za-z0-9_]+)$'){Write-Output $line}}
+              if($rc -ne 0 -or $lines -cnotcontains 'KM_FIXTURE_WIRE_PRIMITIVES=PASS directions=2 outsider_denied=2 receiver_offline_during_send=2'){throw 'KM_FIXTURE_WIRE_FAIL'}
+            }finally{Pop-Location}
+          }finally{
+            if($proc -and !$proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction Stop;$proc.WaitForExit(10000)|Out-Null}
+            if($proc -and !$proc.HasExited){throw 'KM_FIXTURE_STOP_FAIL'}
+            Write-Output 'KM_FIXTURE_PROCESS_STOPPED=PASS'
+          }
+          if((& git -C $root rev-parse HEAD).Trim() -cne '8577c5f33eff3363495d5e2e9afd071c69c2313b' -or @(& git -C $root status --porcelain --untracked-files=all).Count){throw 'KM_FIXTURE_SOURCE_DRIFT'}
+          Write-Output 'KM_FIXTURE_ONLY=PASS;NO_BROWSER_TRUST_PROOF;NO_PRODUCTION;NO_OS_CHANGE'
+      - name: Erase only private scratch
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:KM_SCRATCH){
+            $expected=Join-Path $env:RUNNER_TEMP ('kmessenger-fixture-'+$env:GITHUB_RUN_ID)
+            if($env:KM_SCRATCH -cne $expected){throw 'KM_CLEANUP_SCOPE'}
+            if(Test-Path -LiteralPath $expected){Remove-Item -LiteralPath $expected -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $expected){throw 'KM_CLEANUP_FAIL'}
+          }
+          Write-Output 'KM_PRIVATE_SCRATCH_REMOVED=PASS'
