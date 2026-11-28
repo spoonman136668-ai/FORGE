@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHmac,randomBytes,randomUUID} from 'node:crypto';
 import {spawn,spawnSync} from 'node:child_process';
-import {existsSync} from 'node:fs';
+import {existsSync,unlinkSync} from 'node:fs';
 import {join} from 'node:path';
 import {once} from 'node:events';
 const port=Number(process.env.KM_FIXTURE_PORT);
@@ -59,26 +59,62 @@ async function stop(p){
  await Promise.race([ended,wait(10000)]);
  assert(p.exitCode!==null||p.signalCode!==null,'process cleanup failed');
 }
-function startBrowser(origin,pin){
- const args=['--headless=new','--remote-debugging-pipe','--user-data-dir='+profile,'--no-first-run','--no-default-browser-check','--disable-background-networking','--disable-component-update','--disable-sync','--disable-extensions','--ignore-certificate-errors-spki-list='+pin,'--no-proxy-server','about:blank'];
- const p=spawn(edge,args,{stdio:['ignore','ignore','ignore','pipe','pipe'],windowsHide:true});
+async function startBrowser(origin,pin){
+ const portFile=join(profile,'DevToolsActivePort');
+ assert(!browser,'previous browser still owned');
+ if(existsSync(portFile))unlinkSync(portFile);
+ const args=['--headless=new','--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--user-data-dir='+profile,'--no-first-run','--no-default-browser-check','--disable-background-networking','--disable-component-update','--disable-sync','--disable-extensions','--ignore-certificate-errors-spki-list='+pin,'--no-proxy-server','about:blank'];
+ const p=spawn(edge,args,{stdio:['ignore','ignore','pipe'],windowsHide:true});
  browser=p;
- let id=0,buf=Buffer.alloc(0);const pending=new Map();
- p.stdio[4].on('data',data=>{
-  buf=Buffer.concat([buf,data]);
-  for(let i;(i=buf.indexOf(0))>=0;){
-   const m=JSON.parse(buf.subarray(0,i).toString('utf8'));buf=buf.subarray(i+1);
-   const h=pending.get(m.id);
-   if(h){pending.delete(m.id);clearTimeout(h.timer);m.error?h.reject(Error('CDP error')):h.resolve(m.result);}
+ let diagnostics='',launchError=false;
+ p.stderr.on('data',data=>{diagnostics=(diagnostics+data.toString('utf8')).slice(-16384);});
+ p.on('error',()=>{launchError=true;});
+ function startupFailure(){
+  let kind='UNKNOWN';
+  if(/remote debugging|devtools/i.test(diagnostics))kind='DEVTOOLS';
+  else if(/sandbox/i.test(diagnostics))kind='SANDBOX';
+  else if(/user.data.dir|profile|singleton/i.test(diagnostics))kind='PROFILE';
+  else if(/access.denied|permission/i.test(diagnostics))kind='PERMISSION';
+  else if(/gpu|graphics/i.test(diagnostics))kind='GRAPHICS';
+  console.error('KM_BROWSER_LAUNCH_FAILURE kind='+kind+' exit='+(Number.isInteger(p.exitCode)?p.exitCode:-1));
+  throw Error('browser launch readiness failed');
+ }
+ let discovery;
+ for(let i=0;i<150;i++){
+  if(launchError||p.exitCode!==null||p.signalCode!==null)startupFailure();
+  if(existsSync(portFile)){
+   const parts=readFileSync(portFile,'utf8').trim().split(/\r?\n/);
+   const port=Number(parts[0]);
+   if(parts.length===2&&Number.isInteger(port)&&port>1024&&port<65536&&/^\/devtools\/browser\/[0-9a-f-]+$/i.test(parts[1])){
+    discovery={port,path:parts[1]};break;
+   }
   }
+  await wait(200);
+ }
+ if(!discovery)startupFailure();
+ // Validate native process ownership before sending synthetic credentials.
+ const ps="$ErrorActionPreference='Stop';$s=@(Get-NetTCPConnection -OwningProcess "+String(p.pid)+" -State Listen);if(@($s|Where-Object {$_.LocalAddress -cnotin @('127.0.0.1','::1')}).Count){exit 2};if(!@($s|Where-Object {$_.LocalPort -eq "+String(discovery.port)+" -and $_.LocalAddress -ceq '127.0.0.1'}).Count){exit 3};exit 0";
+ const checked=spawnSync('pwsh.exe',['-NoProfile','-NonInteractive','-Command',ps],{stdio:'ignore',timeout:15000,windowsHide:true});
+ assert.equal(checked.status,0,'browser debug listener custody failed');
+ console.log('KM_BROWSER_DEBUG_LOOPBACK=PASS');
+ const ws=new WebSocket('ws://127.0.0.1:'+discovery.port+discovery.path);
+ await new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>reject(Error('CDP websocket timeout')),15000);
+  ws.addEventListener('open',()=>{clearTimeout(timer);resolve();},{once:true});
+  ws.addEventListener('error',()=>{clearTimeout(timer);reject(Error('CDP websocket error'));},{once:true});
  });
- p.on('error',()=>{for(const h of pending.values()){clearTimeout(h.timer);h.reject(Error('browser launch failed'));}pending.clear();});
- p.on('exit',()=>{for(const h of pending.values()){clearTimeout(h.timer);h.reject(Error('browser exited'));}pending.clear();});
- p.stdio[3].on('error',()=>{});
+ let id=0;const pending=new Map();
+ ws.addEventListener('message',event=>{
+  const m=JSON.parse(event.data);
+  const h=pending.get(m.id);
+  if(h){pending.delete(m.id);clearTimeout(h.timer);m.error?h.reject(Error('CDP error')):h.resolve(m.result);}
+ });
+ const ended=()=>{for(const h of pending.values()){clearTimeout(h.timer);h.reject(Error('browser disconnected'));}pending.clear();};
+ ws.addEventListener('close',ended);p.on('exit',ended);
  const call=(method,params={},sessionId,timeout=15000)=>new Promise((resolve,reject)=>{
   const n=++id,timer=setTimeout(()=>{pending.delete(n);reject(Error('CDP timeout'));},timeout);
   pending.set(n,{resolve,reject,timer});
-  p.stdio[3].write(JSON.stringify({id:n,method,params,...(sessionId?{sessionId}:{})})+'\0');
+  try{ws.send(JSON.stringify({id:n,method,params,...(sessionId?{sessionId}:{})}));}catch{clearTimeout(timer);pending.delete(n);reject(Error('CDP send failed'));}
  });
  async function page(){
   const {targetId}=await call('Target.createTarget',{url:'about:blank'});
@@ -97,7 +133,7 @@ function startBrowser(origin,pin){
  return {p,page,async close(){
    try{await call('Browser.close',{},undefined,10000);}catch{}
    if(p.exitCode===null&&p.signalCode===null)await Promise.race([once(p,'exit'),wait(10000)]);
-   await stop(p);browser=null;
+   await stop(p);ws.close();browser=null;
  }};
 }
 const evaluate=(page,name,...args)=>page.evaluate('window.km.'+name+'('+args.map(a=>JSON.stringify(a)).join(',')+')');
@@ -115,7 +151,7 @@ try{
  const info=JSON.parse(readFileSync(infoPath,'utf8'));
  assert(/^https:\/\/127\.0\.0\.1:\d+$/.test(info.origin)&&/^[A-Za-z0-9+/]{43}=$/.test(info.pin));
  stage='browser';step='first';
- let br=startBrowser(info.origin,info.pin),tab=await br.page();
+ let br=await startBrowser(info.origin,info.pin),tab=await br.page();
  assert.deepEqual(await evaluate(tab,'capabilities'),{secure:true,https:true,locks:true,idb:true});
  console.log('KM_BROWSER_HTTPS_CONTEXT=PASS');
  step='firststore';
@@ -134,12 +170,12 @@ try{
  console.log('KM_BROWSER_LOCK=PASS contention=2');
  await br.close();
  step='wrongkey';
- br=startBrowser(info.origin,info.pin);tab=await br.page();
+ br=await startBrowser(info.origin,info.pin);tab=await br.page();
  assert.equal(await evaluate(tab,'deny',wrong,'secure session initialization failed'),true);
  await br.close();
  console.log('KM_BROWSER_WRONG_KEY=PASS');
  step='coldreopen';
- br=startBrowser(info.origin,info.pin);tab=await br.page();
+ br=await startBrowser(info.origin,info.pin);tab=await br.page();
  const after=await evaluate(tab,'open',input,false);
  assert.deepEqual(after,initial);
  assert.equal(await evaluate(tab,'unverified',room),true);
