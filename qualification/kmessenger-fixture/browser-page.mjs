@@ -1,5 +1,5 @@
 // Test-only instrumentation of the unchanged browser session factory.
-import {createClient} from 'matrix-js-sdk';
+import {createClient,MatrixEvent} from 'matrix-js-sdk';
 import {OnlySignedDevicesIsolationMode} from 'matrix-js-sdk/lib/crypto-api/index.js';
 import {createBrowserSessionFactory} from './client-lifecycle.mjs';
 import {VerificationPhase} from 'matrix-js-sdk/lib/crypto-api/verification.js';
@@ -83,6 +83,47 @@ window.km=Object.freeze({
   const close=[...document.querySelectorAll('.km-actions button')].find(b=>b.textContent==='Close session');
   if(!close||close.disabled)throw Error('close unavailable');close.click();
   return session.state()==='CLOSED'&&document.querySelector('.km-draft').value===''&&!document.querySelector('.km-message');
+ },
+ async openUntrusted(a,room){
+  session=await make()(argumentsFor(a));
+  await until(()=>session.state()==='SYNCING');
+  const c=client.getCrypto();
+  await until(()=>client.getRoom(room)?.getMyMembership()==='join');
+  await until(async()=>{const d=await c.getUserDeviceInfo([a.userId],true);return d.get(a.userId)?.has(a.deviceId);});
+  if(!await c.userHasCrossSigningKeys(a.userId,true)||await c.isCrossSigningReady())throw Error('unexpected replacement trust state');
+  const s=await c.getDeviceVerificationStatus(a.userId,a.deviceId);
+  if(!s||s.signedByOwner!==false||s.crossSigningVerified!==false)throw Error('replacement was trusted');
+  return c.getOwnDeviceKeys();
+ },
+ async ownUntrusted(room){
+  let send=false,read=false;
+  try{await session.sendText(room,'synthetic replacement denied');}catch(e){send=e?.message==='identity not ready'||e?.message==='device not verified';}
+  try{await session.readTextHistory(room);}catch(e){read=e?.message==='identity not ready'||e?.message==='device not verified';}
+  return send&&read;
+ },
+ async replacementUnsigned(user,device,oldDevice){
+  const c=client.getCrypto();
+  await until(async()=>{
+   const d=(await c.getUserDeviceInfo([user],true)).get(user);
+   return d?.has(device)&&!d.has(oldDevice);
+  });
+  const s=await c.getDeviceVerificationStatus(user,device);
+  if(!s||s.signedByOwner!==false||s.crossSigningVerified!==false)throw Error('unexpected replacement trust');
+  return true;
+ },
+ async cannotDecrypt(room,id,marker){
+  const raw=await client.fetchRoomEvent(room,id);
+  if(raw.type!=='m.room.encrypted')throw Error('expected encrypted event');
+  const event=new MatrixEvent({...raw,room_id:room});
+  await client.decryptEventIfNeeded(event);
+  return event.isDecryptionFailure()===true&&!JSON.stringify(event.getContent()).includes(marker);
+ },
+ async membershipDenied(room,user){
+  await until(()=>client.getRoom(room)?.getMember(user)?.membership==='leave');
+  let send=false,read=false;
+  try{await session.sendText(room,'synthetic roster denial');}catch(e){send=e?.message==='membership denied';}
+  try{await session.readTextHistory(room);}catch(e){read=e?.message==='membership denied';}
+  return send&&read;
  },
  async close(){session.close();return session.state()==='CLOSED';}
 });

@@ -1,4 +1,4 @@
-param([ValidateSet('probe','count','cleanup')][string]$Mode,[int]$Port=0,[ValidateSet('edge-profile','edge-profile-b')][string]$ProfileName='edge-profile')
+param([ValidateSet('probe','count','cleanup')][string]$Mode,[int]$Port=0,[ValidateSet('edge-profile','edge-profile-b','edge-profile-replacement')][string]$ProfileName='edge-profile')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath($env:RUNNER_TEMP)
 $target=[IO.Path]::GetFullPath($env:KM_SCRATCH)
