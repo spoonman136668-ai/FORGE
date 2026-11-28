@@ -1,0 +1,131 @@
+{
+  "schema": "forge.nci04.q19b.anonymous_finite_treatment_learning.v1",
+  "status": "FROZEN_PREIMPLEMENTATION_SOURCE_FREE_TRAIN_DEV_ONLY",
+  "parent": "ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f",
+  "prior": "Q19A population-level exact ancestral identifiability with unknown sensor mapping, no learning. Earlier Q15 Q16 Q17B Q18 failures retained.",
+  "question": "From bounded finite public do-intervention records, can a shared learned relation distinguish directed ancestors in arbitrary sensor-slot permutations without receiving a graph identity or candidate-edge list at inference?",
+  "limitations": "Supervised fit DOES receive 6 pairwise ancestral relation labels. Therefore this is a learned finite-sample estimator of anonymous directed effects, NOT fully autonomous discovery of latent variables from unlabeled raw experience. The publicly fixed three sensor slots are supplied. No unique direct edge reconstruction claim.",
+  "population": {
+    "structures": [
+      "chain z0->z1->z2",
+      "fork z1->z0 and z1->z2"
+    ],
+    "sensor_maps": "all 6 bijections from latent z indices to anonymous public sensor slots; no permutation, structure ID or structural adjacency given to models at inference",
+    "dynamics": "root z is Bernoulli(0.5); e1 and e2 independent Bernoulli(p), Bernoulli(q), xor structural equations. For do(sensor=i,value=a), replace its structural equation and observe full 3-slot tuple.",
+    "intervention_budget": "6 public do-actions (3 sensors times do-value 0 or 1) each repeated 6 times; 36 full-sensor outcomes per episode.",
+    "public_evidence": "For each ordered i != j, count response-sensor j=1 among 6 interventions do(sensor i=0) and among 6 interventions do(sensor i=1). Every estimator may use both count features and action labels. Neither latent graph, original noise, true ancestral relationships nor label available at inference.",
+    "target": "6 ordered directed ancestor labels, provided ONLY for fully supervised FIT for all trained controls. Distinguish ancestral effects not direct adjacency; hard false positives counted."
+  },
+  "cohorts": {
+    "training": [
+      {
+        "family": "FIT_ANON1",
+        "p": "1/7",
+        "q": "1/8",
+        "episodes_per_configuration": 20
+      },
+      {
+        "family": "FIT_ANON2",
+        "p": "2/9",
+        "q": "1/13",
+        "episodes_per_configuration": 20
+      }
+    ],
+    "development": [
+      {
+        "family": "DEV_ANON3",
+        "p": "1/5",
+        "q": "1/9",
+        "episodes_per_configuration": 12
+      },
+      {
+        "family": "DEV_ANON4",
+        "p": "1/4",
+        "q": "1/10",
+        "episodes_per_configuration": 12
+      }
+    ],
+    "configs_per_family": 12,
+    "total_training_episodes": 480,
+    "total_development_episodes": 288,
+    "seed": "SHA256('q19b:v1:'+role+':'+family+':'+structure+':'+perm_encoded+':'+episode_index) first 64-bit int, Python random.Random",
+    "future_held_NOT_GENERATED": [
+      "HELD_4NODE_CHAIN",
+      "HELD_4NODE_FORK"
+    ],
+    "no_fit_dev_overlap": true,
+    "no_dev_gradient_updates": true
+  },
+  "trained_controls": {
+    "candidate": {
+      "name": "SHARED_TREATMENT_EFFECT_LOGISTIC",
+      "form": "For every ordered pair i,j, x=(count_response1_do_i1-count_response1_do_i0)/6, p_ij=sigmoid(a*x+b). Same shared 2 fitted parameters for all six pairs; no latent or candidate edges input.",
+      "params": 2,
+      "state_max_scalars": 12
+    },
+    "flat": {
+      "name": "TRAINED_PAIRWISE_FLAT_LOGISTIC",
+      "form": "Six separate pair-specific 3-weight models p_ij=sigmoid(w0+w1*count1_do0/6+w2*count1_do1/6); 18 trainable weights. Public slot indices, not hidden causal identities.",
+      "params": 18,
+      "state_max_scalars": 12
+    },
+    "recurrent": {
+      "name": "TRAINED_SHARED_TWO_STEP_RNN",
+      "form": "For each ordered slot pair, recurrent h0=tanh(a*0+w0*count_do0/6+b); h1=tanh(a*h0+w1*count_do1/6+b); p=sigmoid(v*h1+c). 6 globally fitted params; exact same public count features.",
+      "params": 6,
+      "state_max_scalars": 12
+    },
+    "bayes": {
+      "name": "TRAINED_GAUSSIAN_NAIVE_BAYES",
+      "form": "For each ancestral class 0/1, fit Gaussian means/variances of observed x=(count1-count0)/6 and prior from same supervised FIT records; evaluate posterior for each directed pair with pooled shared distributions and variance floor 1/36.",
+      "source_law_privilege": false,
+      "state_max_scalars": 12
+    },
+    "symbolic": {
+      "name": "TRAINED_EFFECT_THRESHOLD",
+      "form": "Fit 13 integer thresholds t=-6..+6 on source-free FIT pairwise labels; p1 and p0 FIT-only Laplace calibration to account for uncertainty; no DEV tuning.",
+      "state_max_scalars": 12
+    },
+    "oracle": {
+      "name": "TRUE_SCM_ORACLE_BAYES",
+      "form": "Enumerate exact likelihood of 36 full sensor outcomes for all 12 hidden structure/permutation hypotheses with known true p/q per episode; privileged known generator and family metadata, never call equally informed control.",
+      "source_law_privilege": true
+    }
+  },
+  "fit": {
+    "optimizer": "central finite-difference Adam on FIT-only Bernoulli log-loss, all labeled directed pairs, full-batch deterministic; 20 epochs, two deterministic restarts, once-final DEV score checkpoint selection, no DEV gradients",
+    "epochs": 20,
+    "restarts": [
+      0,
+      1
+    ],
+    "lr": 0.08,
+    "fd_delta": 0.0001,
+    "grad_clip": 5,
+    "initial_seed": "SHA256('q19b-init:'+model+':'+restart) first 64 bits",
+    "score": "mean Bernoulli NLL across six ordered pairs per episode; report each DEV family, relation accuracy and hard false positives",
+    "resources": "training CPU process_time and Python tracemalloc peak, inference CPU, parameter/checkpoint bytes, online state footprint; same OS comparisons only"
+  },
+  "decision": {
+    "candidate_must_improve_vs_best_fitted_control_by_nats": 0.015,
+    "candidate_must_improve_on_both_dev_noise_families": true,
+    "candidate_must_have_zero_hard_false_positives": false,
+    "candidate_hard_false_positives_no_more_than_best_fitted_control": true,
+    "candidate_fit_plus_eval_cpu_ratio_vs_recurrent_at_most": 1.15,
+    "candidate_state_scalars_at_most": 12,
+    "pass": "DEV_ONLY_ANONYMOUS_RELATION_ESTIMATION_NOT_TRANSFER",
+    "fail": "DEV_NO_GO_RETAIN_NEGATIVE_NO_HELD",
+    "no_unfamiliar_transfer_claim": true,
+    "no_post_hoc_tuning": true
+  },
+  "guardrails": {
+    "original_source_episodes": 0,
+    "held_generation_allowed": false,
+    "no_original_minigrid_pycolab": true,
+    "ckb_controller_remains_paused": true,
+    "first_use_authorized": false,
+    "full_forge_g61_regression_not_automatically_claimed": true,
+    "preserve_previous_negative_evidence": true,
+    "source_only": false
+  }
+}
